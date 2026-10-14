@@ -97,6 +97,24 @@ describe('the kernel Tasks file', () => {
     ])
   })
 
+  it('round-trips a run marker and an app-closed outcome', async () => {
+    const activeRun = { sessionId: 'aipg-agent-1', stepIndex: 2, stepCount: 3 }
+    const outcome = {
+      kind: 'failed' as const,
+      at: 9,
+      sessionId: 'aipg-agent-1',
+      stepIndex: 2,
+      stepCount: 3,
+      reason: 'app-closed' as const,
+    }
+
+    await saveAgentTask(task('a', { activeRun }))
+    expect(await readAgentTasks()).toEqual([task('a', { activeRun })])
+
+    await saveAgentTask(task('a', { lastOutcome: outcome }))
+    expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
+  })
+
   it('deletes one Task and keeps the others', async () => {
     await saveAgentTask(task('a'))
     await saveAgentTask(task('b'))

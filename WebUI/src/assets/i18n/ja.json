@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "前回の実行はステップ {step}/{count} で失敗しました",
   "AGENT_TASKS_OUTCOME_STOPPED": "前回の実行は停止されました",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "前回の実行はステップ {step}/{count} で停止されました",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "実行中にアプリが終了しました。",
   "AGENT_TASKS_DELETE": "タスク {name} を削除",
   "AGENT_TASKS_RUN": "タスク {name} を実行",
   "AGENT_TASKS_RUNNING_STEP": "実行中: ステップ {step}/{count}",

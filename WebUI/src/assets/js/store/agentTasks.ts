@@ -1,7 +1,12 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
-import type { AgentTask, AgentTaskOutcome, AgentTaskStep } from '@/types/agentTaskIpc'
+import type {
+  AgentTask,
+  AgentTaskActiveRun,
+  AgentTaskOutcome,
+  AgentTaskStep,
+} from '@/types/agentTaskIpc'
 import { useAgentMode } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { userMessagePrompt } from './agentModeTurn'
@@ -34,6 +39,8 @@ export type RunTaskResult = { ok: true } | { ok: false; reason: 'no-task' | 'run
 
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
+type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
+
 export const useAgentTasks = defineStore('agentTasks', () => {
   const agentMode = useAgentMode()
   const errors = useErrors()
@@ -51,18 +58,39 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       if (!result.success) throw new Error(result.error)
       tasks.value = result.tasks
     } catch (error) {
-      errors.report(
-        createAppError({
-          category: 'backend',
-          code: 'agent-tasks/read-failed',
-          severity: 'warning',
-          surface: 'toast',
-          userMessage: i18n.state.AGENT_TASK_READ_FAILED ?? 'Could not read the saved tasks.',
-          technicalMessage: extractMessage(error),
-          cause: error,
-        }),
-      )
+      reportReadFailure(error)
+      return
     }
+    await settleInterruptedRuns()
+  }
+
+  /** A Task still marked as running was cut off by the app closing; runs are not resumed. */
+  async function settleInterruptedRuns(): Promise<void> {
+    for (const task of tasks.value) {
+      if (!task.activeRun) continue
+      const { sessionId, stepIndex, stepCount } = task.activeRun
+      await recordOutcome(task.id, {
+        kind: 'failed',
+        sessionId,
+        stepIndex,
+        stepCount,
+        reason: 'app-closed',
+      })
+    }
+  }
+
+  function reportReadFailure(error: unknown): void {
+    errors.report(
+      createAppError({
+        category: 'backend',
+        code: 'agent-tasks/read-failed',
+        severity: 'warning',
+        surface: 'toast',
+        userMessage: i18n.state.AGENT_TASK_READ_FAILED ?? 'Could not read the saved tasks.',
+        technicalMessage: extractMessage(error),
+        cause: error,
+      }),
+    )
   }
 
   /** The Open Session's user messages as Step prompts, "not run" ones included. */
@@ -174,6 +202,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!run || !context) return
     const { plan, abort } = context
     runs.value = { ...runs.value, [taskId]: { ...run, stepIndex } }
+    markRunInFlight(taskId, { sessionId: run.sessionId, stepIndex, stepCount: run.stepCount })
     const result = await agentMode.sendToSession(run.sessionId, plan.steps[stepIndex - 1].prompt, {
       settings: cloneForIpc(plan.settingsTemplate),
       signal: abort.signal,
@@ -182,6 +211,16 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!result.ok && result.reason !== 'aborted') {
       await settleRun(taskId, { kind: 'failed', stepIndex, message: result.message })
     }
+  }
+
+  function markRunInFlight(taskId: string, activeRun: AgentTaskActiveRun): void {
+    const task = tasks.value.find((entry) => entry.id === taskId)
+    if (task) void persistTask(replaceTask({ ...task, activeRun }))
+  }
+
+  function replaceTask(updated: AgentTask): AgentTask {
+    tasks.value = tasks.value.map((entry) => (entry.id === updated.id ? updated : entry))
+    return updated
   }
 
   async function stopTask(id: string): Promise<void> {
@@ -228,25 +267,29 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     runs.value = rest
     runContexts[taskId]?.abort.abort()
     delete runContexts[taskId]
+    await recordOutcome(taskId, { ...end, sessionId: run.sessionId, stepCount: run.stepCount })
+  }
+
+  async function recordOutcome(taskId: string, fields: OutcomeFields): Promise<void> {
     const task = tasks.value.find((entry) => entry.id === taskId)
     if (!task) return
-    if (end.kind === 'failed') reportRunFailure(task, end)
+    if (fields.kind === 'failed') reportRunFailure(task, fields)
     const lastOutcome: AgentTaskOutcome = {
-      kind: end.kind,
+      kind: fields.kind,
       at: Date.now(),
-      sessionId: run.sessionId,
-      stepCount: run.stepCount,
-      ...(end.stepIndex !== undefined ? { stepIndex: end.stepIndex } : {}),
-      ...(end.message !== undefined ? { message: end.message } : {}),
+      sessionId: fields.sessionId,
+      stepCount: fields.stepCount,
+      ...(fields.stepIndex !== undefined ? { stepIndex: fields.stepIndex } : {}),
+      ...(fields.message !== undefined ? { message: fields.message } : {}),
+      ...(fields.reason !== undefined ? { reason: fields.reason } : {}),
     }
-    const updated: AgentTask = { ...task, lastOutcome }
-    tasks.value = tasks.value.map((entry) => (entry.id === taskId ? updated : entry))
-    await persistTask(updated)
+    const { activeRun: _activeRun, ...rest } = task
+    await persistTask(replaceTask({ ...rest, lastOutcome }))
   }
 
   /** A failed run is shown as the Task's outcome, so the sink only records it. */
-  function reportRunFailure(task: AgentTask, end: RunEnd): void {
-    const message = end.message ?? ''
+  function reportRunFailure(task: AgentTask, end: OutcomeFields): void {
+    const message = end.message ?? end.reason ?? ''
     errors.report(
       createAppError({
         category: 'inference',

@@ -19,8 +19,18 @@ export const AgentTaskOutcomeSchema = z.object({
   stepIndex: z.number().optional(),
   stepCount: z.number(),
   message: z.string().optional(),
+  // Translated where shown, since it is written at boot before the locale has loaded.
+  reason: z.literal('app-closed').optional(),
 })
 export type AgentTaskOutcome = z.infer<typeof AgentTaskOutcomeSchema>
+
+/** Persisted while a Task Run is in flight; still present at boot means the app closed mid-run. */
+export const AgentTaskActiveRunSchema = z.object({
+  sessionId: z.string(),
+  stepIndex: z.number(),
+  stepCount: z.number(),
+})
+export type AgentTaskActiveRun = z.infer<typeof AgentTaskActiveRunSchema>
 
 export const AgentTaskSchema = z.object({
   id: z.string().min(1),
@@ -31,6 +41,7 @@ export const AgentTaskSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   lastOutcome: AgentTaskOutcomeSchema.optional(),
+  activeRun: AgentTaskActiveRunSchema.optional(),
 })
 export type AgentTask = z.infer<typeof AgentTaskSchema>
 

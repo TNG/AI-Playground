@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "마지막 실행이 {count}단계 중 {step}단계에서 실패함",
   "AGENT_TASKS_OUTCOME_STOPPED": "마지막 실행 중지됨",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "마지막 실행이 {count}단계 중 {step}단계에서 중지됨",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "실행 중에 앱이 종료되었습니다.",
   "AGENT_TASKS_DELETE": "작업 {name} 삭제",
   "AGENT_TASKS_RUN": "작업 {name} 실행",
   "AGENT_TASKS_RUNNING_STEP": "실행 중: {count}단계 중 {step}단계",

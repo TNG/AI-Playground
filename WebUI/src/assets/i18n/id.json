@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "Berjalan: langkah {step} dari {count}",
   "AGENT_TASKS_STOP": "Hentikan tugas {name}",
   "AGENT_TASKS_OPEN_SESSION": "Buka sesi tugas {name}",
+  "AGENT_TASKS_PROBLEM": "Pengaturan tugas ini tidak dapat digunakan saat ini. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "Tugas ini tidak dapat dijalankan. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Tugas “{name}” sedang berjalan. Hentikan untuk mengetik di sesi ini.",
   "AGENT_TASK_STOP_RUN": "Hentikan tugas",
   "AGENT_TASK_DELETE_FAILED": "Tidak dapat menghapus tugas.",

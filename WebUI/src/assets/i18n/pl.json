@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "Trwa: krok {step} z {count}",
   "AGENT_TASKS_STOP": "Zatrzymaj zadanie {name}",
   "AGENT_TASKS_OPEN_SESSION": "Otwórz sesję zadania {name}",
+  "AGENT_TASKS_PROBLEM": "Ustawień tego zadania nie można teraz użyć. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "Nie można uruchomić tego zadania. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Zadanie „{name}” jest uruchomione. Zatrzymaj je, aby pisać w tej sesji.",
   "AGENT_TASK_STOP_RUN": "Zatrzymaj zadanie",
   "AGENT_TASK_DELETE_FAILED": "Nie udało się usunąć zadania.",

@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "In esecuzione: passaggio {step} di {count}",
   "AGENT_TASKS_STOP": "Interrompi l'attività {name}",
   "AGENT_TASKS_OPEN_SESSION": "Apri la sessione dell'attività {name}",
+  "AGENT_TASKS_PROBLEM": "Le impostazioni di questa attività non possono essere usate al momento. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "Impossibile eseguire questa attività. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "L'attività «{name}» è in esecuzione. Interrompila per scrivere in questa sessione.",
   "AGENT_TASK_STOP_RUN": "Interrompi attività",
   "AGENT_TASK_DELETE_FAILED": "Impossibile eliminare l'attività.",

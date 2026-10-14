@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "Đang chạy: bước {step}/{count}",
   "AGENT_TASKS_STOP": "Dừng tác vụ {name}",
   "AGENT_TASKS_OPEN_SESSION": "Mở phiên của tác vụ {name}",
+  "AGENT_TASKS_PROBLEM": "Hiện không thể dùng cài đặt của tác vụ này. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "Không thể chạy tác vụ này. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Tác vụ “{name}” đang chạy. Dừng tác vụ để nhập vào phiên này.",
   "AGENT_TASK_STOP_RUN": "Dừng tác vụ",
   "AGENT_TASK_DELETE_FAILED": "Không thể xóa tác vụ.",

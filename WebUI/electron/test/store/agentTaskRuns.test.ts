@@ -922,6 +922,69 @@ describe('locking the Task Session', () => {
     expect(tasks.taskLockingSession('session-open')).toBeUndefined()
   })
 
+  it('makes the open Task Session’s settings read-only while its run lasts', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    expect(tasks.openSessionSettingsReadOnly).toBe(false)
+
+    await agentMode.switchSession(sessionId)
+    expect(tasks.openSessionSettingsReadOnly).toBe(true)
+    await finishTurn(0)
+    await turnIdOf(1)
+    expect(tasks.openSessionSettingsReadOnly).toBe(true)
+
+    await finishTurn(1)
+    await settledOutcome(tasks, 't1')
+    expect(tasks.openSessionSettingsReadOnly).toBe(false)
+  })
+
+  it.each([
+    ['failed', () => failTurn(0, 'boom')],
+    ['stopped', (tasks: ReturnType<typeof useAgentTasks>) => tasks.stopTask('t1')],
+  ] as const)('makes the settings editable again when the run ends %s', async (_kind, end) => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    await agentMode.switchSession(sentConfig(0).sessionId)
+    expect(tasks.openSessionSettingsReadOnly).toBe(true)
+
+    await end(tasks)
+
+    await settledOutcome(tasks, 't1')
+    expect(tasks.openSessionSettingsReadOnly).toBe(false)
+  })
+
+  it('keeps an earlier Task Session editable while a later run of its Task is in flight', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const earlier = sentConfig(0).sessionId
+    await tasks.runTask('t1')
+    await turnIdOf(1)
+
+    await agentMode.switchSession(earlier)
+
+    expect(agentMode.sessions[earlier].taskId).toBe('t1')
+    expect(tasks.openSessionSettingsReadOnly).toBe(false)
+  })
+
+  it('names the Task the Open Session came from, until that Task is deleted', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    expect(tasks.openSessionTask).toBeUndefined()
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+
+    await agentMode.switchSession(sentConfig(0).sessionId)
+    expect(tasks.openSessionTask).toMatchObject({ id: 't1', name: 'Task t1' })
+
+    expect(await tasks.deleteTask('t1')).toBe(true)
+    expect(tasks.openSessionTask).toBeUndefined()
+  })
+
   it('takes the user’s own message in the Task Session once the run is over', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one']))
     await tasks.runTask('t1')

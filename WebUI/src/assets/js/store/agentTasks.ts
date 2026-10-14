@@ -291,6 +291,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
   }
 
+  /** The Task the Open Session was created by, while that Task still exists. */
+  const openSessionTask = computed(() => {
+    const taskId = agentMode.sessions[agentMode.openSessionId]?.taskId
+    return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
+  })
+
+  /** The Open Session's Steps run with its Task's Settings Template, so its own are not editable. */
+  const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
+
   agentMode.onTurnSettled((sessionId, outcome) => {
     const taskId = runOfSession(sessionId)
     if (!taskId) return
@@ -507,6 +516,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     stopTask,
     isSessionLockedByTask,
     taskLockingSession,
+    openSessionTask,
+    openSessionSettingsReadOnly,
     draft,
     draftBlocker,
     draftTemplate,

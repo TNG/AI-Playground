@@ -129,7 +129,9 @@
             :entry="entry"
             :active="history.isActive(entry)"
             :renamable="history.canRename(entry)"
+            :task-marker="history.taskMarker(entry)"
             @select="onSelect(entry)"
+            @filter-by-task="history.setTaskFilter"
             @delete="history.remove(entry)"
             @rename="(title) => history.rename(entry, title)"
           />

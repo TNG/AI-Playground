@@ -672,5 +672,6 @@
   "HISTORY_TASK_PICKER_CHIP": "Tác vụ",
   "HISTORY_TASK_PICKER_LABEL": "Lọc theo tác vụ",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
-  "HISTORY_TASK_PICKER_EMPTY": "Chưa có tác vụ nào"
+  "HISTORY_TASK_PICKER_EMPTY": "Chưa có tác vụ nào",
+  "HISTORY_TASK_MARKER": "Từ tác vụ: {name}"
 }

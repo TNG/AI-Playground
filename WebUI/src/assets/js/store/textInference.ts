@@ -74,6 +74,11 @@ import {
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
 import { withPreferenceFlags } from '../models/favorites'
+import {
+  contextSizeSettingSupported as contextSizeSupportedFor,
+  isNpuDevice,
+} from '@/lib/llmBackendChoices'
+import { modelSupportsThinkingToggle as supportsThinkingToggleFor } from '@/lib/llmModelChoices'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -404,12 +409,12 @@ export const useTextInference = defineStore(
       return newEmbeddingModels
     })
 
-    const runningOnOpenvinoNpu = computed(
-      () =>
-        !!backendServices.info
+    const runningOnOpenvinoNpu = computed(() =>
+      isNpuDevice(
+        backendServices.info
           .find((s) => s.serviceName === backendToService[backend.value])
-          ?.devices.find((d) => d.selected)
-          ?.id.includes('NPU'),
+          ?.devices.find((d) => d.selected)?.id,
+      ),
     )
 
     const selectModel = (backend: LlmBackend, modelName: string) => {
@@ -504,10 +509,8 @@ export const useTextInference = defineStore(
       return newActiveEmbeddingModel
     })
 
-    const contextSizeSettingSupported = computed(
-      () =>
-        backend.value === 'llamaCPP' ||
-        (backend.value === 'openVINO' && runningOnOpenvinoNpu.value),
+    const contextSizeSettingSupported = computed(() =>
+      contextSizeSupportedFor(backend.value, runningOnOpenvinoNpu.value),
     )
 
     // OpenVINO on GPU uses a dynamic KV cache: the effective context size is
@@ -790,12 +793,13 @@ export const useTextInference = defineStore(
     })
 
     // Check if the active model supports toggling thinking on/off (Qwen3 family, gemma4)
-    const modelSupportsThinkingToggle = computed(() => {
-      const currentModel = llmModels.value
-        .filter((m) => m.type === backend.value)
-        .find((m) => m.active)
-      return currentModel?.supportsThinkingToggle === true
-    })
+    const modelSupportsThinkingToggle = computed(() =>
+      supportsThinkingToggleFor(
+        llmModels.value,
+        backend.value,
+        llmModels.value.find((m) => m.type === backend.value && m.active)?.name,
+      ),
+    )
 
     // ── Per-model recommended inference settings ────────────────────────────
     //

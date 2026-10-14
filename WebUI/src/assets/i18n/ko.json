@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}번째",
   "HISTORY_TASK_FILTER_CHIP": "작업: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "작업 필터 지우기",
-  "HISTORY_TASK_FILTER_EMPTY": "이 작업의 세션이 아직 없습니다"
+  "HISTORY_TASK_FILTER_EMPTY": "이 작업의 세션이 아직 없습니다",
+  "HISTORY_TASK_PICKER_CHIP": "작업",
+  "HISTORY_TASK_PICKER_LABEL": "작업별 필터",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "아직 작업이 없습니다"
 }

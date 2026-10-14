@@ -43,6 +43,41 @@
             >
               {{ chip.label }}
             </button>
+            <DropdownMenu v-if="history.tasksAvailable">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <DropdownMenuTrigger as-child>
+                    <button
+                      type="button"
+                      class="flex items-center gap-0.5 rounded-full pl-2.5 pr-1.5 py-1 text-xs border transition border-border text-muted-foreground hover:text-foreground"
+                      :aria-label="i18n.HISTORY_TASK_PICKER_LABEL"
+                    >
+                      {{ i18n.HISTORY_TASK_PICKER_CHIP }}
+                      <ChevronDownIcon class="size-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{{ i18n.HISTORY_TASK_PICKER_LABEL }}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent
+                align="start"
+                class="min-w-[200px] max-w-[320px] max-h-[60vh] overflow-y-auto"
+              >
+                <DropdownMenuLabel class="text-xs text-muted-foreground">
+                  {{ i18n.HISTORY_TASK_PICKER_LABEL }}
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  v-for="task in history.taskPickerEntries"
+                  :key="task.id"
+                  @select="history.setTaskFilter(task.id)"
+                >
+                  <span class="truncate">{{ taskPickerEntryLabel(task) }}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem v-if="history.taskPickerEntries.length === 0" disabled>
+                  {{ i18n.HISTORY_TASK_PICKER_EMPTY }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </template>
         </div>
       </div>
@@ -107,10 +142,17 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { Input } from '@/components/ui/input'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
+import { ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import HistoryEntryRow from '@/components/HistoryEntryRow.vue'
-import { useHistorySessions } from '@/assets/js/store/historySessions'
+import { useHistorySessions, type TaskPickerEntry } from '@/assets/js/store/historySessions'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
@@ -155,6 +197,12 @@ const chips = computed(() => [
 const taskChipLabel = computed(() =>
   (i18n.HISTORY_TASK_FILTER_CHIP ?? '').replace('{name}', history.taskFilter?.name ?? ''),
 )
+
+function taskPickerEntryLabel(task: TaskPickerEntry): string {
+  return (i18n.HISTORY_TASK_PICKER_ENTRY ?? '')
+    .replace('{name}', task.name)
+    .replace('{count}', String(task.sessionCount))
+}
 
 const groups = computed(() => {
   const groupedByDay: { label: string; entries: HistoryEntry[] }[] = []

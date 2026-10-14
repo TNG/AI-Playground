@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "ke-{n}",
   "HISTORY_TASK_FILTER_CHIP": "Tugas: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Hapus filter tugas",
-  "HISTORY_TASK_FILTER_EMPTY": "Belum ada sesi dari tugas ini"
+  "HISTORY_TASK_FILTER_EMPTY": "Belum ada sesi dari tugas ini",
+  "HISTORY_TASK_PICKER_CHIP": "Tugas",
+  "HISTORY_TASK_PICKER_LABEL": "Filter menurut tugas",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Belum ada tugas"
 }

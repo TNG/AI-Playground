@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "選擇資料夾…",
   "AGENT_TASK_EDIT_NO_FOLDER": "未選擇資料夾",
   "AGENT_TASK_EDIT_FOLDER_HINT": "只會變更此工作執行所在的資料夾。開啟的工作階段會保留自己的資料夾。",
+  "AGENT_TASK_EDIT_SETTINGS": "設定範本",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "下一次執行的每個步驟都會使用這些設定。在此變更絕不會影響開啟的工作階段、你的預設設定或所選裝置。",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "選擇工作的工作資料夾",
   "AGENT_TASK_DISCARD_TITLE": "要捨棄變更嗎？",
   "AGENT_TASK_DISCARD_DESCRIPTION": "對工作「{name}」所做的未儲存變更將會遺失。",

@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "In esecuzione: passaggio {step} di {count}",
   "AGENT_TASKS_STOP": "Interrompi l'attività {name}",
   "AGENT_TASKS_OPEN_SESSION": "Apri la sessione dell'attività {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "Mostra le sessioni dell'attività {name}",
   "AGENT_TASKS_PROBLEM": "Le impostazioni di questa attività non possono essere usate al momento. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Impossibile eseguire questa attività. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "L'attività «{name}» è in esecuzione. Interrompila per scrivere in questa sessione.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}º",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}º",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}º",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}º"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}º",
+  "HISTORY_TASK_FILTER_CHIP": "Attività: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Rimuovi il filtro attività",
+  "HISTORY_TASK_FILTER_EMPTY": "Ancora nessuna sessione da questa attività"
 }

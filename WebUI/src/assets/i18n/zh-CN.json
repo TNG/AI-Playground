@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "正在运行第 {step} 步（共 {count} 步）",
   "AGENT_TASKS_STOP": "停止任务 {name}",
   "AGENT_TASKS_OPEN_SESSION": "打开任务 {name} 的会话",
+  "AGENT_TASKS_SHOW_SESSIONS": "显示任务 {name} 的会话",
   "AGENT_TASKS_PROBLEM": "此任务的设置当前无法使用。{reason}",
   "AGENT_TASKS_RUN_BLOCKED": "无法运行此任务。{reason}",
   "AGENT_TASK_SESSION_LOCKED": "任务“{name}”正在运行。停止任务后即可在此会话中输入。",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "第 {n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "第 {n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "第 {n}",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "第 {n}"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "第 {n}",
+  "HISTORY_TASK_FILTER_CHIP": "任务：{name}",
+  "HISTORY_TASK_FILTER_CLEAR": "清除任务筛选",
+  "HISTORY_TASK_FILTER_EMPTY": "此任务还没有会话"
 }

@@ -20,6 +20,7 @@ import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
 import type { AgentTurnSnapshot, AgentTurnState } from '@/types/kernelEvents'
 
 type ActiveTurn = {
@@ -27,29 +28,6 @@ type ActiveTurn = {
   turnId: string
   controller: ReadableStreamDefaultController<UIMessageChunk>
   closed: boolean
-}
-
-type InferenceForTurn = {
-  samplingRequestBody: Record<string, unknown>
-  temperature: number
-  modelSupportsThinkingToggle: boolean
-  thinkingEnabled: boolean
-  thinkingActive: boolean
-  effectiveReasoningEffort?: string
-  backend: string
-  activeModel?: string | null
-  localBackendUrl?: string | null
-  modelSupportsVision: boolean
-  effectiveContextWindow: number
-  maxContextSizeFromModel?: unknown
-  getCurrentDeviceId: () => string | null | undefined
-  getCurrentDeviceName: () => string | null | undefined
-  contextSize?: number
-  activeLlmModel?: { llamaCppArgs?: string } | null
-  /** Downloaded embedding model + the local backend that serves it (rag capability). */
-  embeddingBackend: 'llamaCPP' | 'openVINO'
-  activeEmbeddingModel?: string | null
-  llmEmbeddingModels?: readonly { name: string; type: string; downloaded: boolean }[]
 }
 
 /** Start with the LLM only once the file is on disk, so a missing model still opens the download dialog. */
@@ -65,13 +43,6 @@ function readinessEmbeddingModel(
       model.name === name && model.type === textInference.embeddingBackend && model.downloaded,
   )
   return downloaded ? name : undefined
-}
-
-type CloudForTurn = {
-  activeProviderBaseUrl?: string | null
-  selectedProviderId: string
-  activeProviderAuthStyle: string
-  capabilitiesFor: (name: string) => { reasoningAdvertised: boolean }
 }
 
 export function buildSamplingParams(textInference: InferenceForTurn): Record<string, unknown> {
@@ -106,8 +77,10 @@ export async function buildTurnConfig(options: {
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
+  /** Tool toggles stored on the session; the live ones when absent. */
+  tools?: ToolsForTurn
 }): Promise<AgentModeTurnConfig> {
-  const toolSpecs = getAgentToolSpecs()
+  const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
     ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
     : undefined
@@ -308,18 +281,24 @@ function createSessionRuntime(options: {
           })
           turnState.value = 'queued'
           options.onTurnSubmitted?.(sessionId)
-          window.electronAPI.agentMode.startTurn(turnId, prompt, config).catch((error) => {
-            if (activeTurn?.turnId === turnId && !activeTurn.closed) {
-              activeTurn.closed = true
-              try {
-                controller.enqueue({ type: 'error', errorText: extractMessage(error) })
-                controller.close()
-              } catch {
-                // Stream already closed.
-              }
-              activeTurn = null
+          const fail = (errorText: string) => {
+            if (activeTurn?.turnId !== turnId || activeTurn.closed) return
+            activeTurn.closed = true
+            try {
+              controller.enqueue({ type: 'error', errorText })
+              controller.close()
+            } catch {
+              // Stream already closed.
             }
-          })
+            activeTurn = null
+          }
+          window.electronAPI.agentMode
+            .startTurn(turnId, prompt, config)
+            // A refused start emits no done event, so it would otherwise hang open.
+            .then((result) => {
+              if (!result.success) fail(result.error ?? 'The agent turn could not start.')
+            })
+            .catch((error) => fail(extractMessage(error)))
         },
         cancel: () => {
           if (activeTurn?.turnId === turnId) {

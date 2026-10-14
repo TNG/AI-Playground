@@ -35,10 +35,12 @@ import {
   artifactRunsQueued,
   artifactWorkOpen,
   awaitChatWindow,
+  beginUserWait,
   cancelArtifactRun,
   cancelAllArtifactRuns,
   finishTextRequest,
   mediaRequestsQueued,
+  reclaimTurnPlace,
   resetOrchestratorForTest,
   runMediaRequest,
   setOrchestratorDeps,
@@ -46,6 +48,7 @@ import {
   submitTextRequest,
   textRequestsOpen,
   type OrchestratorDeps,
+  type TurnPause,
 } from '../../kernel/orchestrator'
 import type { ArtifactRunPayload } from '../../artifact/runner'
 
@@ -958,5 +961,187 @@ describe('panel runs in the Turn Queue', () => {
     expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
     expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
     expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('paused members', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  /** A pausable member recording what it hears, in order. */
+  function pausable(runId: string, conversationKey: string, log: string[], signal?: AbortSignal) {
+    const pause: TurnPause = {
+      onUserWait: (waiting) => log.push(`${runId} ${waiting ? 'paused' : 'answered'}`),
+      onRequeued: () => log.push(`${runId} requeued`),
+      readyAgain: async () => {
+        log.push(`${runId} ready again`)
+      },
+    }
+    return submitTextRequest(
+      { runId, conversationKey, needsGpu: true, joinsTurnQueue: true, work: 'agent', pause },
+      signal,
+    ).then(() => log.push(`${runId} started`))
+  }
+
+  function waiting(runId: string, conversationKey: string, log: string[]) {
+    return submitTextRequest({
+      runId,
+      conversationKey,
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'agent',
+    }).then(() => log.push(`${runId} started`))
+  }
+
+  it('gives the place to the next member while the user is asked', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    await settle()
+    expect(log).toEqual(['turn-a started'])
+
+    const answered = beginUserWait('session-a')
+    await b
+    expect(log).toEqual(['turn-a started', 'turn-a paused', 'turn-b started'])
+
+    answered()
+    expect(log.at(-1)).toBe('turn-a answered')
+    finishTextRequest('turn-b')
+    finishTextRequest('turn-a')
+  })
+
+  it('takes the place back at the front of the queue, ahead of members that waited longer', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    const c = waiting('turn-c', 'session-c', log)
+    await settle()
+
+    beginUserWait('session-a')()
+    await b
+    let reclaimed = false
+    const back = reclaimTurnPlace('turn-a').then(() => {
+      reclaimed = true
+    })
+    await settle()
+    expect(reclaimed).toBe(false)
+
+    finishTextRequest('turn-b')
+    await back
+    expect(log.slice(-2)).toEqual(['turn-a requeued', 'turn-a ready again'])
+    expect(log).not.toContain('turn-c started')
+
+    finishTextRequest('turn-a')
+    await c
+    expect(log.at(-1)).toBe('turn-c started')
+    finishTextRequest('turn-c')
+
+    const moves = queueEvents
+      .filter(
+        (e) =>
+          e.kind === 'text' &&
+          ['yielded', 'reclaimed', 'enqueued', 'moved'].includes(String(e.action)),
+      )
+      .map((e) => [e.runKey, e.action, e.position])
+    expect(moves).toEqual([
+      ['turn-a', 'enqueued', undefined],
+      ['turn-b', 'enqueued', 1],
+      ['turn-c', 'enqueued', 2],
+      ['turn-a', 'yielded', undefined],
+      ['turn-c', 'moved', 1],
+      ['turn-a', 'enqueued', 1],
+      ['turn-c', 'moved', 2],
+      // b done: a holds the place again, c is next.
+      ['turn-c', 'moved', 1],
+      ['turn-a', 'reclaimed', undefined],
+    ])
+  })
+
+  it('takes a free place back at once, and re-runs readiness before resolving', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    beginUserWait('session-a')()
+    await reclaimTurnPlace('turn-a')
+    expect(log).toEqual([
+      'turn-a started',
+      'turn-a paused',
+      'turn-a answered',
+      'turn-a ready again',
+    ])
+    finishTextRequest('turn-a')
+  })
+
+  it('stays paused until every open question is answered', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const first = beginUserWait('session-a')
+    const second = beginUserWait('session-a')
+    first()
+    expect(log).toEqual(['turn-a started', 'turn-a paused'])
+    second()
+    expect(log.at(-1)).toBe('turn-a answered')
+    finishTextRequest('turn-a')
+  })
+
+  it('leaves a member that cannot pause holding its place', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await waiting('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    beginUserWait('session-a')()
+    await settle()
+    expect(log).toEqual(['turn-a started'])
+    finishTextRequest('turn-a')
+    await b
+    finishTextRequest('turn-b')
+  })
+
+  it('a paused member cancelled while it waits to reclaim leaves the queue without starting', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    const ac = new AbortController()
+    await pausable('turn-a', 'session-a', log, ac.signal)
+    const b = waiting('turn-b', 'session-b', log)
+    beginUserWait('session-a')()
+    await b
+    const back = reclaimTurnPlace('turn-a', ac.signal)
+    ac.abort()
+    await expect(back).rejects.toThrow('Cancelled while waiting in the Turn Queue.')
+    finishTextRequest('turn-a')
+    expect(log).not.toContain('turn-a ready again')
+    finishTextRequest('turn-b')
+    expect(textRequestsOpen()).toBe(0)
+  })
+
+  it("lets the next member's media take the GPU while the holder is paused", async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    beginUserWait('session-a')
+    await b
+
+    const hold = holdNextRun()
+    const media = submitArtifactRun(payload({ runId: 'media-b', conversationKey: 'session-b' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-b'))
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await media).state).toBe('completed')
+    finishTextRequest('turn-b')
+    finishTextRequest('turn-a')
   })
 })

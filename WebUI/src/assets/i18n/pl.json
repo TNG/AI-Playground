@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Wymaga Twojej odpowiedzi",
   "HISTORY_STATUS_UNSEEN": "Nowy wynik",
   "HISTORY_STATUS_UNSEEN_FAILED": "Tura nie powiodła się",
+  "AGENT_SESSION_NEEDS_INPUT": "Sesja '{title}' wymaga Twojej odpowiedzi",
+  "AGENT_SESSION_OPEN": "Otwórz",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",

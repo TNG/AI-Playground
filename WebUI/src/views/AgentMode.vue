@@ -225,9 +225,11 @@ onMounted(() => {
   promptStore.registerSubmitCallback('agent', handlePromptSubmit)
   promptStore.registerCancelCallback('agent', handleCancel)
   ensureMediaAgentEventWiring()
+  agentMode.setViewShown(true)
 })
 
 onUnmounted(() => {
+  agentMode.setViewShown(false)
   promptStore.unregisterSubmitCallback('agent')
   promptStore.unregisterCancelCallback('agent')
 })

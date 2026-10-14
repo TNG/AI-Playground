@@ -28,7 +28,13 @@
 //   holder's turn runs within it (same conversation key); members still waiting
 //   never block it. Waiting members
 //   carry their 1-based position and the holder's kind of work on `queue-event`
-//   (`enqueued`, then `moved` whenever one ahead leaves).
+//   (`enqueued`, then `moved` whenever one ahead leaves or cuts in).
+// - Paused members: a member that declares a `pause` gives up its place while
+//   the user is being asked something for it (`beginUserWait`) and takes it back
+//   at the front of the queue (`reclaimTurnPlace`), re-running its readiness
+//   before it continues. The yield and the reclaim are separate on purpose: a
+//   run reclaims when it next needs the model, not when the user answers, so a
+//   nested generation still finishing for it can never wait on the place.
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
@@ -38,6 +44,7 @@
 
 import { appLoggerInstance } from '../observability/logger'
 import { emitArtifactPhase, emitQueueEvent } from './kernelBus'
+import { registerUserWaitQueue } from './userWait'
 import type { TurnWork } from '@/types/kernelEvents'
 import {
   artifactRunActive,
@@ -63,6 +70,18 @@ export type TextRequest = {
   joinsTurnQueue?: boolean
   /** Lets a waiting member say what it waits for. */
   work?: TurnWork
+  /** Makes the member pausable: it gives up its place while the user is asked something. */
+  pause?: TurnPause
+}
+
+/** How a Turn Queue member hears about its pause and gets ready again after it. */
+export type TurnPause = {
+  /** The user is being waited on (`true`), or has answered everything asked (`false`). */
+  onUserWait(waiting: boolean): void
+  /** Its place went to another member meanwhile: it waits at the front to get it back. */
+  onRequeued(): void
+  /** Holds the place again; re-run readiness (the model may have been swapped meanwhile). */
+  readyAgain(signal?: AbortSignal): Promise<void>
 }
 
 export type KernelRequestMap = {
@@ -76,7 +95,14 @@ export type KernelRequest<K extends keyof KernelRequestMap> = {
   payload: KernelRequestMap[K]['request']
 }
 
-type TextOccupancy = TextRequest & { phase: 'waiting' | 'running' }
+type TextOccupancy = TextRequest & {
+  phase: 'waiting' | 'running'
+  /** Questions to the user still open for this run; it is paused while above zero. */
+  userWaits: number
+  /** Gave up the place while paused and has not taken it back yet. */
+  yielded: boolean
+  reclaiming?: Promise<void>
+}
 
 export type OrchestratorDeps = {
   /** Stop the running chat LLM/embedding servers (OVMS keeps speech servers up). */
@@ -392,7 +418,7 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
   if (textOccupancy.has(request.runId)) {
     throw new Error(`Text request ${request.runId} is already occupying the queue`)
   }
-  textOccupancy.set(request.runId, { ...request, phase: 'waiting' })
+  textOccupancy.set(request.runId, { ...request, phase: 'waiting', userWaits: 0, yielded: false })
   // Joined before announcing, so the enqueued event already carries its position.
   const place = request.joinsTurnQueue ? takeTurnPlace(request.runId, signal) : null
   emitQueueEvent({
@@ -451,7 +477,11 @@ export function finishTextRequest(runId: string): void {
  * Resolves once `runId` holds the Turn Queue's place: at once when it is free and
  * nobody is waiting, otherwise when every member submitted before it has finished.
  */
-function takeTurnPlace(runId: string, signal?: AbortSignal): Promise<void> {
+function takeTurnPlace(
+  runId: string,
+  signal?: AbortSignal,
+  options: { front?: boolean } = {},
+): Promise<void> {
   if (signal?.aborted) return Promise.reject(cancelledTurnQueue())
   if (turnHolder === null && turnQueue.length === 0) {
     turnHolder = runId
@@ -459,7 +489,7 @@ function takeTurnPlace(runId: string, signal?: AbortSignal): Promise<void> {
   }
   return new Promise<void>((resolve, reject) => {
     const onAbort = () => leaveTurnQueue(runId)
-    turnQueue.push({
+    turnQueue[options.front ? 'unshift' : 'push']({
       runId,
       take: () => {
         signal?.removeEventListener('abort', onAbort)
@@ -496,7 +526,7 @@ function turnQueuePosition(runId: string): number | undefined {
   return index === -1 ? undefined : index + 1
 }
 
-/** Every waiting member from `fromIndex` on has moved up one place. */
+/** Every waiting member from `fromIndex` on has a new place (one ahead left, or one cut in). */
 function announceTurnPositions(fromIndex: number): void {
   for (let index = fromIndex; index < turnQueue.length; index += 1) {
     const { runId } = turnQueue[index]
@@ -525,6 +555,112 @@ function memberWork(runId: string): TurnWork | undefined {
 
 function cancelledTurnQueue(): Error {
   return new Error('Cancelled while waiting in the Turn Queue.')
+}
+
+// ── Paused members ────────────────────────────────────────────────────────────
+
+function pausableRunOf(conversationKey: string): TextOccupancy | undefined {
+  for (const entry of textOccupancy.values()) {
+    if (entry.pause && entry.phase === 'running' && entry.conversationKey === conversationKey) {
+      return entry
+    }
+  }
+  return undefined
+}
+
+/** Whether `conversationKey` has a running member that would pause for a question to the user. */
+export function hasPausableRun(conversationKey: string): boolean {
+  return pausableRunOf(conversationKey) !== undefined
+}
+
+/** The conversation whose member holds the Turn Queue's place, if any. */
+export function turnHolderConversationKey(): string | undefined {
+  return turnHolder ? textOccupancy.get(turnHolder)?.conversationKey : undefined
+}
+
+/**
+ * The user is being asked something on behalf of `conversationKey`'s turn. A
+ * pausable member gives up its place (the next member starts) until it reclaims
+ * it; anything else is unaffected. Returns the call that marks the answer.
+ */
+export function beginUserWait(conversationKey: string): () => void {
+  const entry = pausableRunOf(conversationKey)
+  if (!entry) return () => {}
+  entry.userWaits += 1
+  if (entry.userWaits === 1) {
+    entry.pause?.onUserWait(true)
+    yieldTurnPlace(entry)
+  }
+  let ended = false
+  return () => {
+    if (ended) return
+    ended = true
+    if (textOccupancy.get(entry.runId) !== entry) return
+    entry.userWaits -= 1
+    if (entry.userWaits === 0) entry.pause?.onUserWait(false)
+  }
+}
+
+registerUserWaitQueue({ beginUserWait, hasPausableRun, turnHolderConversationKey })
+
+function yieldTurnPlace(entry: TextOccupancy): void {
+  if (turnHolder !== entry.runId) return
+  entry.yielded = true
+  emitQueueEvent({
+    runKey: entry.runId,
+    kind: 'text',
+    action: 'yielded',
+    queueDepth: turnQueue.length,
+    work: entry.work,
+    conversationKey: entry.conversationKey,
+  })
+  leaveTurnQueue(entry.runId)
+}
+
+/**
+ * Takes back the place a paused member gave up: at the front of the queue, so it
+ * is the next to hold it. Resolves once it holds the place, the GPU window is
+ * back on chat (local runs) and its readiness has re-run; a no-op for a run that
+ * did not yield. Rejects when `signal` aborts first.
+ */
+export function reclaimTurnPlace(runId: string, signal?: AbortSignal): Promise<void> {
+  const entry = textOccupancy.get(runId)
+  if (!entry?.yielded) return Promise.resolve()
+  entry.reclaiming ??= reclaim(entry, signal).finally(() => {
+    entry.reclaiming = undefined
+  })
+  return entry.reclaiming
+}
+
+async function reclaim(entry: TextOccupancy, signal?: AbortSignal): Promise<void> {
+  const place = takeTurnPlace(entry.runId, signal, { front: true })
+  const position = turnQueuePosition(entry.runId)
+  if (position !== undefined) {
+    entry.pause?.onRequeued()
+    emitQueueEvent({
+      runKey: entry.runId,
+      kind: 'text',
+      action: 'enqueued',
+      queueDepth: turnQueue.length - position,
+      position,
+      ...turnQueueContext(entry.runId),
+      conversationKey: entry.conversationKey,
+    })
+    announceTurnPositions(position)
+  }
+  await place
+  if (entry.needsGpu) await awaitChatWindow(signal)
+  if (textOccupancy.get(entry.runId) !== entry) throw cancelledTurnQueue()
+  entry.yielded = false
+  emitQueueEvent({
+    runKey: entry.runId,
+    kind: 'text',
+    action: 'reclaimed',
+    queueDepth: textWaitingCount(),
+    work: entry.work,
+    conversationKey: entry.conversationKey,
+  })
+  await entry.pause?.readyAgain(signal)
 }
 
 // ── Media request lane ─────────────────────────────────────────────────────────

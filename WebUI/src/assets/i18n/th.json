@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "ต้องการข้อมูลจากคุณ",
   "HISTORY_STATUS_UNSEEN": "ผลลัพธ์ใหม่",
   "HISTORY_STATUS_UNSEEN_FAILED": "รอบล้มเหลว",
+  "AGENT_SESSION_NEEDS_INPUT": "เซสชัน '{title}' ต้องการข้อมูลจากคุณ",
+  "AGENT_SESSION_OPEN": "เปิด",
   "HISTORY_QUEUE_ORDINAL_ONE": "ที่ {n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "ที่ {n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "ที่ {n}",

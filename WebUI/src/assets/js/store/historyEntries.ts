@@ -42,6 +42,7 @@ export type AgentEntry = EntryBase & {
   status?: AgentSessionStatus
   /** 1-based Turn Queue place, only while `queued` and known. */
   queuePosition?: number
+  taskId?: string
 }
 
 /**
@@ -238,6 +239,11 @@ export function matchesFilter(entry: HistoryEntry, context: FilterContext): bool
     case 'media':
       return entry.mode === context.currentMode
   }
+}
+
+/** One of the Task's Task Sessions, whatever state its run ended in. */
+export function matchesTask(entry: HistoryEntry, taskId: string): boolean {
+  return entry.kind === 'agent' && entry.taskId === taskId
 }
 
 /**

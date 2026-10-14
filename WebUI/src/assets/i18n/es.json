@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "En ejecución: paso {step} de {count}",
   "AGENT_TASKS_STOP": "Detener la tarea {name}",
   "AGENT_TASKS_OPEN_SESSION": "Abrir la sesión de la tarea {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "Mostrar las sesiones de la tarea {name}",
   "AGENT_TASKS_PROBLEM": "La configuración de esta tarea no se puede usar ahora mismo. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "No se puede ejecutar esta tarea. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "La tarea «{name}» se está ejecutando. Detenla para escribir en esta sesión.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.º",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.º",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.º",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.º"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.º",
+  "HISTORY_TASK_FILTER_CHIP": "Tarea: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Quitar el filtro de tarea",
+  "HISTORY_TASK_FILTER_EMPTY": "Esta tarea aún no tiene sesiones"
 }

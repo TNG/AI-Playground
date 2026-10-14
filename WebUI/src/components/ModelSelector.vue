@@ -172,9 +172,9 @@ watchEffect(() => {
 <template>
   <DropdownMenu v-model:open="open">
     <DropdownMenuTrigger as-child>
-      <button class="w-full">
+      <button class="group w-full">
         <div
-          class="w-full h-[30px] rounded-md bg-card border border-border text-foreground px-3 flex items-center gap-2 overflow-hidden"
+          class="w-full h-[30px] rounded-md bg-card border border-border text-foreground px-3 flex items-center gap-2 overflow-hidden group-disabled:opacity-50 group-disabled:cursor-not-allowed"
         >
           <div
             class="w-2 h-2 rounded-full shrink-0"

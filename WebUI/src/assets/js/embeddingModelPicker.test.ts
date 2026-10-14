@@ -22,4 +22,8 @@ describe('embeddingPickerState', () => {
     expect(state.activeName).toBe('ov/other')
     expect(state.items.map((item) => item.value)).toEqual(['ov/other'])
   })
+
+  it('shows a given selection instead of the active model', () => {
+    expect(embeddingPickerState(models, 'llamaCPP', 'org/favorite').activeName).toBe('org/favorite')
+  })
 })

@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "Model embeddingów",
   "AGENT_TURN_QUEUED": "W kolejce",
   "AGENT_TURN_QUEUED_DETAIL": "Czeka na zakończenie bieżącej tury…",
+  "AGENT_TURN_NOT_RUN": "Nie wykonano",
+  "AGENT_TURN_RESEND": "Wyślij ponownie",
   "HISTORY_STATUS_RUNNING": "W toku",
   "HISTORY_STATUS_QUEUED": "W kolejce",
   "HISTORY_STATUS_QUEUED_AT": "W kolejce, pozycja {position}",

@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "Gömme modeli",
   "AGENT_TURN_QUEUED": "Sırada",
   "AGENT_TURN_QUEUED_DETAIL": "Çalışan turun bitmesi bekleniyor…",
+  "AGENT_TURN_NOT_RUN": "Çalıştırılmadı",
+  "AGENT_TURN_RESEND": "Yeniden gönder",
   "HISTORY_STATUS_RUNNING": "Çalışıyor",
   "HISTORY_STATUS_QUEUED": "Sırada",
   "HISTORY_STATUS_QUEUED_AT": "Sırada, {position}. sırada",

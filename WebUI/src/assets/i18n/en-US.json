@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "Embedding model",
   "AGENT_TURN_QUEUED": "Queued",
   "AGENT_TURN_QUEUED_DETAIL": "Waiting for the running turn to finish…",
+  "AGENT_TURN_NOT_RUN": "Not run",
+  "AGENT_TURN_RESEND": "Resend",
   "HISTORY_STATUS_RUNNING": "Running",
   "HISTORY_STATUS_QUEUED": "Queued",
   "HISTORY_STATUS_QUEUED_AT": "Queued, position {position}",

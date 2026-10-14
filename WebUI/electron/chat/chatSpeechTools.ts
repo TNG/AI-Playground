@@ -88,6 +88,7 @@ async function synthesize(options: {
                   phase === 'loading-model' ? 'Loading voice model…' : 'Generating audio file…',
               }),
             abortSignal: options.abortSignal,
+            conversationKey: options.conversationKey,
           },
         )
         const fileName = buildTtsAudioFileName({
@@ -136,7 +137,7 @@ async function transcribeLatestAttachment(options: {
             audioBase64,
             ...(audioPart.mediaType ? { mediaType: audioPart.mediaType } : {}),
           },
-          { abortSignal: options.abortSignal },
+          { abortSignal: options.abortSignal, conversationKey: options.conversationKey },
         )
         return { ok: true, message: 'Transcribed audio.', transcript: text }
       },

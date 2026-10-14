@@ -153,12 +153,12 @@ export type ArtifactRunnerDeps = {
    * (dialog / Home Agent in-channel / pre-grants). `true` implies the download
    * completed; `false` means declined or cancelled. `onProgress` fires while
    * the download runs, re-arming the idle watchdog. `conversationKey` names the
-   * turn the run belongs to, which pauses while the user is asked.
+   * turn the run belongs to, which pauses while the user is asked (`null`: none).
    */
   requestModelConsent(
     models: ArtifactMissingModel[],
     onProgress?: () => void,
-    conversationKey?: string,
+    conversationKey?: string | null,
   ): Promise<boolean>
   ensureOvmsImageReady(
     modelId: string,
@@ -212,6 +212,31 @@ export function activeArtifactRunId(): string | null {
  */
 export function startArtifactRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
   return startRun(payload)
+}
+
+export type RunModelsOutcome =
+  { state: 'ready' } | { state: 'declined' } | { state: 'failed'; error: string }
+
+/**
+ * The model pre-flight of a Turn Queue member (panel / Home Agent run), asked
+ * as it is submitted rather than once it runs. `onAsk` fires when something is
+ * missing and the user is about to be asked for it.
+ */
+export async function prepareRunModels(
+  payload: ArtifactRunPayload,
+  onAsk: () => void,
+): Promise<RunModelsOutcome> {
+  if (!runnerDeps) return { state: 'ready' }
+  let missing: ArtifactMissingModel[]
+  try {
+    missing = await runnerDeps.modelsMissing(payload.preset)
+  } catch (error) {
+    return { state: 'failed', error: `Required models are unavailable: ${extractMessage(error)}` }
+  }
+  if (missing.length === 0) return { state: 'ready' }
+  onAsk()
+  const approved = await runnerDeps.requestModelConsent(missing, undefined, null)
+  return approved ? { state: 'ready' } : { state: 'declined' }
 }
 
 /** Cancels the active run — the Stop button. Queued runs are untouched. */

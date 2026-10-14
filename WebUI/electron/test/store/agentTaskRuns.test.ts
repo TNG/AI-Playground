@@ -726,3 +726,66 @@ describe('running again', () => {
     expect(saved.lastOutcome).not.toHaveProperty('stepIndex')
   })
 })
+
+describe('locking the Task Session', () => {
+  it('locks only the Task Session, for the whole run, and lifts on completion', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
+    expect(tasks.isSessionLockedByTask('session-open')).toBe(false)
+
+    await finishTurn(0)
+    expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
+    await turnIdOf(1)
+    expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
+
+    await finishTurn(1)
+    await settledOutcome(tasks, 't1')
+    expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
+  })
+
+  it.each([
+    ['failed', () => failTurn(0, 'boom')],
+    ['stopped', (tasks: ReturnType<typeof useAgentTasks>) => tasks.stopTask('t1')],
+  ] as const)('lifts the lock when the run ends %s', async (_kind, end) => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    await end(tasks)
+
+    await settledOutcome(tasks, 't1')
+    expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
+  })
+
+  it('names the Task holding a session', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(tasks.taskLockingSession(sentConfig(0).sessionId)).toMatchObject({
+      id: 't1',
+      name: 'Task t1',
+    })
+    expect(tasks.taskLockingSession('session-open')).toBeUndefined()
+  })
+
+  it('takes the user’s own message in the Task Session once the run is over', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const sessionId = sentConfig(0).sessionId
+    await agentMode.switchSession(sessionId)
+
+    void agentMode.generate('my own follow-up')
+
+    await turnIdOf(1)
+    expect(sentPrompts()).toEqual(['one', 'my own follow-up'])
+    expect(sentConfig(1).sessionId).toBe(sessionId)
+  })
+})

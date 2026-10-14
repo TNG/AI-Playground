@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "Letzter Lauf bei Schritt {step} von {count} fehlgeschlagen",
   "AGENT_TASKS_OUTCOME_STOPPED": "Letzter Lauf gestoppt",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Letzter Lauf bei Schritt {step} von {count} gestoppt",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "Die App wurde während des Laufs geschlossen.",
   "AGENT_TASKS_DELETE": "Aufgabe {name} löschen",
   "AGENT_TASKS_RUN": "Aufgabe {name} ausführen",
   "AGENT_TASKS_RUNNING_STEP": "Läuft: Schritt {step} von {count}",

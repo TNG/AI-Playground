@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "L'ultima esecuzione non è riuscita al passaggio {step} di {count}",
   "AGENT_TASKS_OUTCOME_STOPPED": "L'ultima esecuzione è stata interrotta",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "L'ultima esecuzione è stata interrotta al passaggio {step} di {count}",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "L'app è stata chiusa durante l'esecuzione.",
   "AGENT_TASKS_DELETE": "Elimina l'attività {name}",
   "AGENT_TASKS_RUN": "Esegui l'attività {name}",
   "AGENT_TASKS_RUNNING_STEP": "In esecuzione: passaggio {step} di {count}",

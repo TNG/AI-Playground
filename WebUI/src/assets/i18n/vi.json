@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "Lần chạy gần nhất thất bại ở bước {step}/{count}",
   "AGENT_TASKS_OUTCOME_STOPPED": "Lần chạy gần nhất đã bị dừng",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Lần chạy gần nhất bị dừng ở bước {step}/{count}",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "Ứng dụng đã bị đóng trong khi đang chạy.",
   "AGENT_TASKS_DELETE": "Xóa tác vụ {name}",
   "AGENT_TASKS_RUN": "Chạy tác vụ {name}",
   "AGENT_TASKS_RUNNING_STEP": "Đang chạy: bước {step}/{count}",

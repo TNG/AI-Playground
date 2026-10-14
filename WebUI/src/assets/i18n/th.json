@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "การรันครั้งล่าสุดล้มเหลวที่ขั้นตอน {step} จาก {count}",
   "AGENT_TASKS_OUTCOME_STOPPED": "การรันครั้งล่าสุดถูกหยุด",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "การรันครั้งล่าสุดถูกหยุดที่ขั้นตอน {step} จาก {count}",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "แอปถูกปิดระหว่างการทำงาน",
   "AGENT_TASKS_DELETE": "ลบงาน {name}",
   "AGENT_TASKS_RUN": "รันงาน {name}",
   "AGENT_TASKS_RUNNING_STEP": "กำลังรัน: ขั้นตอน {step} จาก {count}",

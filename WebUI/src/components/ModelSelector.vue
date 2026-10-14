@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { nextTick, ref } from 'vue'
-import { useTextInference } from '@/assets/js/store/textInference'
+import { type LlmBackend, useTextInference } from '@/assets/js/store/textInference'
 import { usePresets } from '@/assets/js/store/presets'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import {
@@ -16,25 +16,43 @@ import ModelVramFit from './ModelVramFit.vue'
 import VramChipIcon from './VramChipIcon.vue'
 import CapabilityIcons, { type ExtraFilter } from './CapabilityIcons.vue'
 import { modelPassesCapabilityFilters, type CapabilityKey } from '@/assets/js/capabilities'
-import { modelMeetsPresetRequirements } from '@/lib/presetModelFilter'
-import { sortFavoritesFirst } from '@/assets/js/models/favorites'
+import { llmModelChoices, type ModelChoicePreset } from '@/lib/llmModelChoices'
 import { llamaCppFitTarget, useVramFitLevels } from '@/lib/useLlamaCppVramFit'
 import { useI18N } from '@/assets/js/store/i18n'
+
+// Each prop left out falls back to the chat store; `bound` ties the pick to `modelValue`
+// (emitted, never selected in the store). `autoSelect` replaces a pick the list no longer offers.
+const props = defineProps<{
+  bound?: boolean
+  backend?: LlmBackend
+  preset?: ModelChoicePreset | null
+  onNpu?: boolean
+  modelValue?: string
+  autoSelect?: boolean
+}>()
+const emit = defineEmits<{ 'update:modelValue': [modelName: string] }>()
 
 const textInference = useTextInference()
 const presetsStore = usePresets()
 const backendServices = useBackendServices()
 
-const value = computed(
-  () =>
-    textInference.llmModels.filter((m) => m.type === textInference.backend).find((m) => m.active)
-      ?.name ?? '',
+const backend = computed(() => props.backend ?? textInference.backend)
+
+const currentModel = computed(() =>
+  props.bound
+    ? textInference.llmModels.find((m) => m.type === backend.value && m.name === props.modelValue)
+    : textInference.llmModels.find((m) => m.active && m.type === backend.value),
 )
 
-// Get current model's capabilities
-const currentModel = computed(() => {
-  return textInference.llmModels.find((m) => m.active && m.type === textInference.backend)
-})
+const value = computed(() => (props.bound ? props.modelValue : currentModel.value?.name) ?? '')
+
+// The trigger's fit chip judges the selected model; unbound it follows the store's active one.
+const boundFitTarget = computed(() => llamaCppFitTarget(currentModel.value))
+
+function select(modelName: string) {
+  if (props.bound) emit('update:modelValue', modelName)
+  else textInference.selectModel(backend.value, modelName)
+}
 
 // User-driven picker controls: a case-insensitive substring search and a set of
 // capability filters toggled from the icon row. These narrow the list on top of
@@ -50,7 +68,7 @@ const { levelOf } = useVramFitLevels()
 
 // Only llama.cpp models get a verdict, so on any other backend the toggle would
 // be a control that cannot change the list.
-const fitFilterAvailable = computed(() => textInference.backend === 'llamaCPP')
+const fitFilterAvailable = computed(() => backend.value === 'llamaCPP')
 
 const fitFilters = computed<ExtraFilter[]>(() =>
   fitFilterAvailable.value
@@ -81,61 +99,24 @@ function onOpenAutoFocus(e: Event) {
 }
 
 const items = computed(() => {
-  const activePreset = presetsStore.activePresetWithVariant
-  const requirements = {
-    vision: activePreset?.type === 'chat' && activePreset.requiresVision === true,
-    toolCalling: activePreset?.type === 'chat' && activePreset.requiresToolCalling === true,
-    reasoning: activePreset?.type === 'chat' && activePreset.requiresReasoning === true,
-    coding: activePreset?.type === 'chat' && activePreset.requiresCoding === true,
-    agentic: activePreset?.type === 'chat' && activePreset.requiresAgentic === true,
-    npuSupport: activePreset?.type === 'chat' && activePreset.requiresNpuSupport === true,
-    txt2TxtOnly: activePreset?.type === 'chat' && activePreset.filterTxt2TxtOnly === true,
-    largeMoeOnly: activePreset?.type === 'chat' && activePreset.filterLargeMoeOnly === true,
-    advancedMode: activePreset?.type === 'chat' && activePreset.advancedMode === true,
-  }
   const searchLc = search.value.trim().toLowerCase()
+  const choices = llmModelChoices(textInference.llmModels, {
+    backend: backend.value,
+    preset: props.preset !== undefined ? props.preset : presetsStore.activePresetWithVariant,
+    onNpu: props.onNpu ?? textInference.runningOnOpenvinoNpu,
+    phisonSsdDetected: backendServices.phisonSsdDetected,
+  })
 
-  return sortFavoritesFirst(textInference.llmModels.filter((m) => m.type === textInference.backend))
+  return choices
     .filter((m) => {
       // Case-insensitive substring search on the visible label (last path segment).
-      // Applied to every backend, including cloud.
       if (!searchLc) return true
       const label = (m.name.split('/').at(-1) ?? m.name).toLowerCase()
       return label.includes(searchLc)
     })
     .filter((m) => {
-      // Cloud Mode models come from a remote provider's /v1/models list and
-      // carry no capability metadata (vision/tool-calling/etc. are all unknown,
-      // hence false). The preset-requirement and custom-model filters below would
-      // therefore drop every cloud model, leaving the picker empty. Remote models
-      // can't be filtered on unknown capabilities, so always surface them.
-      if (textInference.backend === 'cloud') return true
-      // Models too big for a normal GPU stay off every other preset until a Phison
-      // SSD is detected. `largeMoe` is a separate list: the aiDAPTIV preset below
-      // still includes the medium MoE models, which a normal preset may show.
-      if (m.requiresPhison && !backendServices.phisonSsdDetected) return false
-      // Restrict to large Mixture-of-Experts models only (e.g. the Phison aiDAPTIV+ preset)
-      if (requirements.largeMoeOnly && !m.largeMoe) return false
-      // Preset gates are AND. Coding keeps models that can write a whole game;
-      // agentic keeps models that can sustain a multi-step tool turn.
-      if (
-        !modelMeetsPresetRequirements(m, {
-          vision: requirements.vision,
-          toolCalling: requirements.toolCalling,
-          reasoning: requirements.reasoning,
-          coding: requirements.coding,
-          agentic: requirements.agentic,
-          npuSupport: requirements.npuSupport,
-        })
-      ) {
-        return false
-      }
-      if (textInference.backend === 'openVINO') {
-        if (textInference.runningOnOpenvinoNpu && !m.npuSupport) return false
-        if (!textInference.runningOnOpenvinoNpu && m.npuSupport) return false
-      }
-      // Filter out vision and reasoning models for txt2txt only presets
-      if (requirements.txt2TxtOnly && (m.supportsVision || m.supportsReasoning)) return false
+      // Cloud models carry no capability metadata, so the user filters would drop them all.
+      if (backend.value === 'cloud') return true
       // User-selected capability filters (AND). Deselected capabilities don't filter.
       if (!modelPassesCapabilityFilters(m, activeFilters.value)) return false
       // Size filter: green and yellow stay; red goes, and so does a model whose
@@ -145,28 +126,6 @@ const items = computed(() => {
       if (fitsOnly.value) {
         const level = levelOf(llamaCppFitTarget(m))
         if (level === 'over' || level === 'unknown') return false
-      }
-      // Only show predefined models unless advancedMode is enabled OR
-      // custom model explicitly matches the preset's requirements
-      if (!requirements.advancedMode && !m.isPredefined) {
-        // For custom models, only show if they match at least one requirement
-        const hasMatchingRequirement =
-          (requirements.vision && m.supportsVision) ||
-          (requirements.toolCalling && m.supportsToolCalling) ||
-          (requirements.reasoning && m.supportsReasoning) ||
-          (requirements.coding && m.supportsCoding) ||
-          (requirements.agentic && m.supportsAgentic) ||
-          (requirements.npuSupport && m.npuSupport)
-
-        // Show basic models in txt2txt presets only if they don't have vision/reasoning
-        const qualifiesForTxt2Txt =
-          requirements.txt2TxtOnly &&
-          !m.supportsVision &&
-          !m.supportsReasoning &&
-          !m.supportsToolCalling &&
-          !m.npuSupport
-
-        if (!hasMatchingRequirement && !qualifiesForTxt2Txt) return false
       }
       return true
     })
@@ -197,14 +156,15 @@ const selectedItem = computed(() => {
 
 // Auto-select first model when current selection is not in the filtered list
 watchEffect(() => {
+  if (!props.autoSelect) return
   const currentValue = value.value
   const availableItems = items.value
 
   // A sent Agent session keeps its stored model; an unusable one blocks Send instead.
-  if (textInference.sessionSettingsPinned) return
+  if (!props.bound && textInference.sessionSettingsPinned) return
   // If current selection is not in the filtered list, select the first available
   if (availableItems.length > 0 && !availableItems.some((item) => item.value === currentValue)) {
-    textInference.selectModel(textInference.backend, availableItems[0].value)
+    select(availableItems[0].value)
   }
 })
 </script>
@@ -224,7 +184,12 @@ watchEffect(() => {
             {{ selectedItem.label }}
           </span>
           <div class="flex items-center gap-1 shrink-0">
-            <ModelVramFit />
+            <ModelVramFit
+              v-if="props.bound && boundFitTarget"
+              :key="boundFitTarget.name"
+              :model="boundFitTarget"
+            />
+            <ModelVramFit v-else-if="!props.bound" />
             <ModelCapabilities v-if="currentModel" :model="currentModel" />
             <ChevronDownIcon class="size-4 text-muted-foreground"></ChevronDownIcon>
           </div>
@@ -276,7 +241,7 @@ watchEffect(() => {
         <DropdownMenuItem
           v-for="item in items"
           :key="item.value"
-          @click="() => textInference.selectModel(textInference.backend, item.value)"
+          @click="() => select(item.value)"
           class="text-sm px-4 py-1 flex items-center text-left hover:bg-muted text-foreground group"
         >
           <div class="flex items-center flex-1 min-w-0">

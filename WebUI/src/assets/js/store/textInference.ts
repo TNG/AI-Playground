@@ -61,6 +61,7 @@ import {
   toolEnablementForPreset,
   type ToolEnablement,
 } from '@/lib/builtinToolEnablement'
+import { isWorkflowEnabled, resolveDefaultWorkflow } from '@/lib/mediaToolSettings'
 import {
   createPhisonKmRag,
   PHISON_KM_CONTEXT_FLOOR,
@@ -665,7 +666,7 @@ export const useTextInference = defineStore(
     const builtinToolPresetEnablement = ref<Record<string, boolean>>({})
 
     function isWorkflowPresetEnabled(presetName: string): boolean {
-      return builtinToolPresetEnablement.value[presetName] ?? true
+      return isWorkflowEnabled(builtinToolPresetEnablement.value, presetName)
     }
 
     function setWorkflowPresetEnabled(presetName: string, enabled: boolean): void {
@@ -681,25 +682,9 @@ export const useTextInference = defineStore(
     // chat preset via settingsPerPreset (mirrors builtinToolPresetEnablement).
     const builtinToolDefaultPresets = ref<Record<string, string>>({})
 
-    // Initial per-slot defaults, preserving the workflows that used to be
-    // hard-coded in the tool descriptions. Used when the user hasn't explicitly
-    // picked a default yet, so behavior is unchanged out of the box. Slots not
-    // listed here fall back to the first available preset.
-    const INITIAL_DEFAULT_WORKFLOWS: Record<string, string> = {
-      'comfyUI:image': 'Draft Image',
-      'comfyUiImageEdit:image': 'Edit By Prompt',
-    }
-
-    // Resolve the effective default for a slot: the stored choice if it is among
-    // the currently-available (enabled) presets, else the previous hard-coded
-    // default, else the first available. Callers pass the candidate list so this
-    // stays free of preset-grouping logic and can never return a disabled preset.
+    // Callers pass the enabled candidates, so this can never return a disabled preset.
     function getDefaultWorkflow(key: string, availableNames: string[]): string | null {
-      const stored = builtinToolDefaultPresets.value[key]
-      if (stored && availableNames.includes(stored)) return stored
-      const initial = INITIAL_DEFAULT_WORKFLOWS[key]
-      if (initial && availableNames.includes(initial)) return initial
-      return availableNames[0] ?? null
+      return resolveDefaultWorkflow(builtinToolDefaultPresets.value, key, availableNames)
     }
 
     function setDefaultWorkflow(key: string, presetName: string): void {

@@ -40,8 +40,8 @@
           <Checkbox
             id="builtin-tool-delegation"
             :disabled="!toolsEnabled"
-            :model-value="textInference.toolDelegationEnabled"
-            @click="textInference.toolDelegationEnabled = !textInference.toolDelegationEnabled"
+            :model-value="settings.delegationEnabled()"
+            @click="settings.setDelegationEnabled(!settings.delegationEnabled())"
           />
         </div>
         <Collapsible
@@ -93,7 +93,7 @@
               <Checkbox
                 :id="`builtin-tool-${builtinTool.name}`"
                 :disabled="!toolsEnabled"
-                :model-value="textInference.isBuiltinToolEnabled(builtinTool.name)"
+                :model-value="settings.isToolEnabled(builtinTool.name)"
                 @click="toggle(builtinTool.name)"
               />
             </div>
@@ -125,7 +125,7 @@
                   <Switch
                     :id="`builtin-tool-${builtinTool.name}-preset-${workflow.name}`"
                     :disabled="!isToolActive(builtinTool.name)"
-                    :model-value="textInference.isWorkflowPresetEnabled(workflow.name)"
+                    :model-value="settings.isWorkflowEnabled(workflow.name)"
                     @update:model-value="toggleWorkflow(builtinTool.name, workflow.name)"
                   />
                   <button
@@ -156,7 +156,7 @@
                         :aria-checked="isDefaultWorkflow(builtinTool.name, workflow)"
                         :disabled="
                           !isToolActive(builtinTool.name) ||
-                          !textInference.isWorkflowPresetEnabled(workflow.name)
+                          !settings.isWorkflowEnabled(workflow.name)
                         "
                         class="flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                         @click="chooseDefault(builtinTool.name, workflow)"
@@ -206,7 +206,7 @@
               </Button>
             </div>
             <p
-              v-if="textInference.isBuiltinToolEnabled('captureScreenshot') && !modelSupportsVision"
+              v-if="settings.isToolEnabled('captureScreenshot') && !modelSupportsVision"
               class="text-xs text-amber-600 dark:text-amber-300"
             >
               The selected model does not support vision, so the assistant cannot use screenshots.
@@ -268,7 +268,7 @@
               <Switch
                 :id="`builtin-tool-${child.name}`"
                 :disabled="!toolsEnabled"
-                :model-value="textInference.isBuiltinToolEnabled(child.name)"
+                :model-value="settings.isToolEnabled(child.name)"
                 @update:model-value="toggleSpeechChild(child.name)"
               />
               <button
@@ -343,14 +343,20 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
+import { storeMediaToolSettings, type MediaToolSettings } from '@/lib/mediaToolSettings'
 
 // `media` is the Agent Mode slice: the media tools and their workflows, without
 // Chat's master switch (an agent's tools hang off its Media generation
 // capability) and without the tools an agent gets as capabilities instead.
-const props = withDefaults(defineProps<{ variant?: 'chat' | 'media' }>(), { variant: 'chat' })
+// `settings` defaults to the chat store's live values; a task draft passes its own.
+const props = withDefaults(
+  defineProps<{ variant?: 'chat' | 'media'; settings?: MediaToolSettings }>(),
+  { variant: 'chat', settings: undefined },
+)
 
 const textInference = useTextInference()
 const presets = usePresets()
+const settings = computed(() => props.settings ?? storeMediaToolSettings(textInference))
 const showWindowDialog = ref(false)
 
 const isMediaVariant = computed(() => props.variant === 'media')
@@ -366,13 +372,13 @@ const openTools = ref<Record<string, boolean>>({})
 // toggle and the tool's own checkbox are on. Inactive tools stay collapsed with
 // a greyed-out summary.
 function isToolActive(toolName: string): boolean {
-  return toolsEnabled.value && textInference.isBuiltinToolEnabled(toolName)
+  return toolsEnabled.value && settings.value.isToolEnabled(toolName)
 }
 
 // Count of enabled workflows vs. total for the collapsed "n/m enabled" summary.
 function enabledCount(toolName: string): { enabled: number; total: number } {
   const workflows = presetsForTool(toolName)
-  const enabled = workflows.filter((w) => textInference.isWorkflowPresetEnabled(w.name)).length
+  const enabled = workflows.filter((w) => settings.value.isWorkflowEnabled(w.name)).length
   return { enabled, total: workflows.length }
 }
 
@@ -462,9 +468,7 @@ function slotKey(toolName: string, workflow: ToolWorkflow): string {
 // the resolver picks from.
 function enabledNamesInSlot(toolName: string, mediaType: string): string[] {
   return presetsForTool(toolName)
-    .filter(
-      (w) => normalizedMediaType(w) === mediaType && textInference.isWorkflowPresetEnabled(w.name),
-    )
+    .filter((w) => normalizedMediaType(w) === mediaType && settings.value.isWorkflowEnabled(w.name))
     .map((w) => w.name)
 }
 
@@ -477,7 +481,7 @@ function slotHasChoice(toolName: string, workflow: ToolWorkflow): boolean {
 
 function isDefaultWorkflow(toolName: string, workflow: ToolWorkflow): boolean {
   return (
-    textInference.getDefaultWorkflow(
+    settings.value.defaultWorkflow(
       slotKey(toolName, workflow),
       enabledNamesInSlot(toolName, normalizedMediaType(workflow)),
     ) === workflow.name
@@ -485,8 +489,8 @@ function isDefaultWorkflow(toolName: string, workflow: ToolWorkflow): boolean {
 }
 
 function chooseDefault(toolName: string, workflow: ToolWorkflow) {
-  if (!isToolActive(toolName) || !textInference.isWorkflowPresetEnabled(workflow.name)) return
-  textInference.setDefaultWorkflow(slotKey(toolName, workflow), workflow.name)
+  if (!isToolActive(toolName) || !settings.value.isWorkflowEnabled(workflow.name)) return
+  settings.value.setDefaultWorkflow(slotKey(toolName, workflow), workflow.name)
 }
 
 // The media tools, in the order they appear. Everything else an agent can do is
@@ -556,7 +560,7 @@ const builtinTools = computed(() =>
 const speakRepliesEditable = computed(() => isToolActive('synthesizeTextToSpeech'))
 
 const enabledSpeechCount = computed(
-  () => speechChildren.filter((c) => textInference.isBuiltinToolEnabled(c.name)).length,
+  () => speechChildren.filter((c) => settings.value.isToolEnabled(c.name)).length,
 )
 const isSpeechEnabled = computed(() => enabledSpeechCount.value > 0)
 
@@ -565,13 +569,13 @@ function toggleSpeech() {
   if (!toolsEnabled.value) return
   const target = !isSpeechEnabled.value
   for (const child of speechChildren) {
-    textInference.setBuiltinToolEnabled(child.name, target)
+    settings.value.setToolEnabled(child.name, target)
   }
 }
 
 function toggleSpeechChild(toolName: string) {
   if (!toolsEnabled.value) return
-  textInference.setBuiltinToolEnabled(toolName, !textInference.isBuiltinToolEnabled(toolName))
+  settings.value.setToolEnabled(toolName, !settings.value.isToolEnabled(toolName))
 }
 
 const modelSupportsVision = computed(() => textInference.modelSupportsVision)
@@ -580,14 +584,11 @@ const boundWindowName = computed(() => textInference.screenshotWindow?.name ?? '
 
 function toggle(toolName: string) {
   if (!toolsEnabled.value) return
-  textInference.setBuiltinToolEnabled(toolName, !textInference.isBuiltinToolEnabled(toolName))
+  settings.value.setToolEnabled(toolName, !settings.value.isToolEnabled(toolName))
 }
 
 function toggleWorkflow(toolName: string, workflowName: string) {
   if (!isToolActive(toolName)) return
-  textInference.setWorkflowPresetEnabled(
-    workflowName,
-    !textInference.isWorkflowPresetEnabled(workflowName),
-  )
+  settings.value.setWorkflowEnabled(workflowName, !settings.value.isWorkflowEnabled(workflowName))
 }
 </script>

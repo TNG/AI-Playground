@@ -92,7 +92,7 @@ export type UnseenTurn = 'done' | 'failed'
 // (electron/agent/piAgentManager.ts). This store owns the UI state
 // (workspace folder, sandbox consent) and a custom ChatTransport whose
 // sendMessages() triggers `agentMode:startTurn` over IPC and reconstructs the UI
-// message chunk stream from `agentMode:streamChunk` pushes — feeding a standard
+// message chunk stream from kernel `agent-chunk` events — feeding a standard
 // @ai-sdk/vue Chat instance so the existing part renderers work unchanged.
 // The model controls are Chat's (textInference + cloudMode); for the Agent preset
 // they are bound to the Open Session's Session Settings (docs/adr/0001).

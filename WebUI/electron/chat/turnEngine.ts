@@ -64,7 +64,13 @@ import {
   formatSnapshot,
 } from './chatWebTools'
 import type { WebPageSnapshot, WebSearchResults } from '../adapters/webBrowserManager'
-import { finishTextRequest, submitTextRequest, turnQueueHolder } from '../kernel/orchestrator'
+import {
+  finishTextRequest,
+  reclaimTurnPlace,
+  submitTextRequest,
+  turnQueueHolder,
+  type TurnPause,
+} from '../kernel/orchestrator'
 import { saveChatTurnConversation } from '../persist/conversationFiles'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
@@ -789,6 +795,27 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     const config = request.model
     // Local Chat and Home Agent turns wait in the Turn Queue; cloud ones run at once.
     const local = config.backend !== 'cloud'
+    const ready = async () => {
+      if (config.backend === 'cloud') {
+        setLastChatBackendLoadActive(false)
+      } else if (config.readiness) {
+        // The turn holds the place, so its model is what a mid-turn swap-back restores.
+        setTurnChatBackendLoad(config.readiness)
+        await ensureChatBackendReady(config.readiness, {
+          abortSignal: turn.controller.signal,
+          skipGpuAdmission: true,
+          conversationKey,
+        })
+      }
+    }
+    // A local turn waiting on the user (a confirmation card, a download) gives up
+    // its place, and takes it back before its next model call.
+    const pause: TurnPause = {
+      onUserWait: () => {},
+      onRequeued: () => {},
+      readyAgain: ready,
+    }
+    const reclaim = () => reclaimTurnPlace(turnId, turn.controller.signal)
     await submitTextRequest(
       {
         runId: turnId,
@@ -796,6 +823,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
         needsGpu: local && Boolean(config.readiness),
         joinsTurnQueue: local,
         work: 'chat',
+        ...(local ? { pause } : {}),
       },
       turn.controller.signal,
     )
@@ -883,18 +911,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // deps seam was wired.
     engineDeps?.noteTraceContext?.((config.trace as Record<string, unknown> | undefined) ?? null)
 
-    if (config.backend === 'cloud') {
-      setLastChatBackendLoadActive(false)
-    } else if (config.readiness) {
-      // GPU admit already happened as the text request; the turn holds the place, so
-      // its model is what a mid-turn swap-back restores.
-      setTurnChatBackendLoad(config.readiness)
-      await ensureChatBackendReady(config.readiness, {
-        abortSignal: turn.controller.signal,
-        skipGpuAdmission: true,
-        conversationKey,
-      })
-    }
+    await ready()
 
     if (request.rag) {
       const prepareRag = engineDeps?.prepareRag ?? retrieveRagForTurn
@@ -931,6 +948,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
     // resetting the block on every token.
     let reasoningInterrupted = true
 
+    await reclaim()
     const result = await streamText({
       model: createMainChatModel(config),
       messages,
@@ -943,6 +961,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
             tools,
             stopWhen: isStepCount(20),
             prepareStep: async ({ messages: stepMessages }) => {
+              await reclaim()
               const presented = describeAudioAttachments(
                 await attachGeneratedImageFollowUps(stepMessages, {
                   read: readMediaAsDataUri,

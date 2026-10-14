@@ -937,3 +937,86 @@ describe('locking the Task Session', () => {
     expect(sentConfig(1).sessionId).toBe(sessionId)
   })
 })
+
+describe('editing a Task while it runs', () => {
+  it('leaves the run on the Steps and settings it started with; the next run uses the edit', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    tasks.beginEdit('t1')
+    tasks.editDraft!.steps = [
+      { id: 'n1', prompt: 'first' },
+      { id: 'n2', prompt: 'second' },
+    ]
+    tasks.editDraft!.workspaceDir = '/work/edited'
+    tasks.editDraft!.settingsTemplate = { ...TEMPLATE, model: 'Edited-9B' }
+    expect((await tasks.saveEdit()).ok).toBe(true)
+
+    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(lastSavedTask('t1')).toMatchObject({
+      steps: [{ prompt: 'first' }, { prompt: 'second' }],
+      activeRun: { sessionId, stepIndex: 1 },
+    })
+
+    await finishTurn(0)
+    await turnIdOf(1)
+    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentConfig(1)).toMatchObject({
+      sessionId,
+      workspaceDir: '/work/task',
+      modelConfig: { model: 'Template-27B' },
+    })
+    await vi.waitFor(() => expect(lastSavedTask('t1')?.activeRun).toMatchObject({ stepIndex: 2 }))
+    expect(lastSavedTask('t1')?.steps.map((step) => step.prompt)).toEqual(['first', 'second'])
+
+    await finishTurn(1)
+    await settledOutcome(tasks, 't1')
+    expect(lastSavedTask('t1')).toMatchObject({
+      steps: [{ prompt: 'first' }, { prompt: 'second' }],
+      lastOutcome: { kind: 'completed' },
+    })
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    await turnIdOf(2)
+    expect(sentPrompts().at(-1)).toBe('first')
+    expect(sentConfig(2)).toMatchObject({
+      workspaceDir: '/work/edited',
+      modelConfig: { model: 'Edited-9B' },
+    })
+  })
+
+  it('runs the saved version while an edit is unsaved', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    tasks.beginEdit('t1')
+    tasks.editDraft!.steps = [{ id: 'n1', prompt: 'unsaved' }]
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual(['one'])
+    expect(tasks.editDirty).toBe(true)
+    expect(tasks.editDraft?.steps.map((step) => step.prompt)).toEqual(['unsaved'])
+  })
+
+  it('still refuses to delete the running Task being edited, and keeps the edit', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    tasks.beginEdit('t1')
+
+    expect(await tasks.deleteTask('t1')).toBe(false)
+    expect(tasks.editingTaskId).toBe('t1')
+  })
+
+  it('saves a Task whose Settings Template has a problem', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    tasks.beginEdit('t1')
+    tasks.editDraft!.steps = [{ id: 'n1', prompt: 'reworded' }]
+
+    expect(tasks.editBlocker).toBeNull()
+    expect((await tasks.saveEdit()).ok).toBe(true)
+    expect(tasks.taskProblems('t1')).toEqual([{ field: 'model', value: 'Template-27B' }])
+  })
+})

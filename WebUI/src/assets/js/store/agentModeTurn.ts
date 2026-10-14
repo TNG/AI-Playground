@@ -259,6 +259,7 @@ function createSessionRuntime(options: {
   finishedTurns: Set<string>
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   onTurnSubmitted?: (sessionId: string) => void
+  onTurnAdopted?: (sessionId: string) => void
   onTurnSettled?: (sessionId: string) => void
   onAdoptedTurnDone?: (sessionId: string) => void
   onTurnPaused?: (sessionId: string) => void
@@ -340,6 +341,7 @@ function createSessionRuntime(options: {
       pendingResume = null
       if (!pending || finishedTurns.has(pending.turn.turnId)) return null
       const { turn } = pending
+      options.onTurnAdopted?.(sessionId)
       processing.value = true
       adoptedTurnId = turn.turnId
       turnState.value = turn.state
@@ -539,6 +541,8 @@ export function createAgentTurnRuntimes(options: {
   storeTools?: Record<string, StoreTool>
   /** A turn was handed to main; its user message is in the runtime's transcript. */
   onTurnSubmitted?: (sessionId: string) => void
+  /** A turn main still holds was adopted from the kernel snapshot. */
+  onTurnAdopted?: (sessionId: string) => void
   /** The transcript a newly created runtime starts from (the session record's). */
   initialMessages?: (sessionId: string) => UIMessage[]
   /** A session's turn has ended — completed, failed, stopped or adopted-and-done. */
@@ -569,6 +573,7 @@ export function createAgentTurnRuntimes(options: {
         finishedTurns,
         buildTurnConfig: options.buildTurnConfig,
         onTurnSubmitted: options.onTurnSubmitted,
+        onTurnAdopted: options.onTurnAdopted,
         onTurnSettled: options.onTurnSettled,
         onAdoptedTurnDone: options.onAdoptedTurnDone,
         onTurnPaused: options.onTurnPaused,

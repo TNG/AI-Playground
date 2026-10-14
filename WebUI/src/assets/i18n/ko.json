@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "임베딩 모델",
   "AGENT_TURN_QUEUED": "대기 중",
   "AGENT_TURN_QUEUED_DETAIL": "실행 중인 턴이 끝나기를 기다리는 중…",
+  "AGENT_TURN_NOT_RUN": "실행되지 않음",
+  "AGENT_TURN_RESEND": "다시 보내기",
   "HISTORY_STATUS_RUNNING": "실행 중",
   "HISTORY_STATUS_QUEUED": "대기 중",
   "HISTORY_STATUS_QUEUED_AT": "대기 중, {position}번째",

@@ -8,6 +8,7 @@ import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
+import type { AgentTask } from '@/types/agentTaskIpc'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
@@ -335,6 +336,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke('agentMode:migrateWorkspaceState', cloneForIpc(payload)),
     writeWorkspaceState: (value: unknown) =>
       invoke('agentMode:writeWorkspaceState', cloneForIpc(value)),
+    readTasks: () => invoke('agentMode:readTasks'),
+    saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
+    deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

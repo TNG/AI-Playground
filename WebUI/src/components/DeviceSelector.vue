@@ -2,7 +2,7 @@
   <drop-down-new
     :title="languages.SETTINGS_INFERENCE_DEVICE"
     @change="selectInferenceDevice"
-    :value="selectedDevice?.id"
+    :value="selectedDevice?.id ?? ''"
     :items="items"
   ></drop-down-new>
 </template>
@@ -18,9 +18,23 @@ const props = defineProps<{
   // Show only the device name (e.g. "CPU") instead of "id: name" (e.g. "cpu: CPU").
   // Used by TTS, whose ids are torch device strings that add no user value.
   nameOnly?: boolean
+  // Bound to a draft: the pick is only emitted; nothing is selected or restarted.
+  bound?: boolean
+  modelValue?: string
+}>()
+const emit = defineEmits<{
+  'update:modelValue': [deviceId: string, device: InferenceDevice | undefined]
 }>()
 
 const selectInferenceDevice = async (item: string) => {
+  if (props.bound) {
+    emit(
+      'update:modelValue',
+      item,
+      devices.value.find((d) => d.id === item),
+    )
+    return
+  }
   await backendServices.selectDevice(props.backend, item)
   // Persist the pick for the next start. Only bounce a running service so
   // changing device on an idle on-demand backend (TTS/STT) does not load it.
@@ -46,7 +60,9 @@ const visibleDevices = computed(() => {
 // filtered out -- avoids silently lying about which device is in use. Items
 // shown to the user are still restricted to `visibleDevices`.
 const selectedDevice = computed(
-  () => devices.value.find((d) => d.selected) ?? visibleDevices.value[0],
+  () =>
+    devices.value.find((d) => (props.bound ? d.id === props.modelValue : d.selected)) ??
+    visibleDevices.value[0],
 )
 const items = computed(() => visibleDevices.value.map(deviceToItem))
 const deviceToItem = (d: InferenceDevice) => ({

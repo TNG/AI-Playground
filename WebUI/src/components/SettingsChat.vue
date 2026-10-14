@@ -62,7 +62,7 @@
           </template>
           <div class="flex items-center gap-2 min-w-0">
             <div class="flex-1 min-w-0">
-              <ModelSelector />
+              <ModelSelector auto-select />
             </div>
             <CapabilityIcons v-if="currentModel" :model="currentModel" />
           </div>

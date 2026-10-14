@@ -2,7 +2,7 @@
   <drop-down-new
     title="Select Provider"
     @change="handleProviderChange"
-    :value="cloudMode.selectedProviderId"
+    :value="value"
     :items="items"
   ></drop-down-new>
 </template>
@@ -12,11 +12,22 @@ import { computed } from 'vue'
 import DropDownNew from './DropDownNew.vue'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 
+// Bound to a draft: the pick is only emitted, never selected globally.
+const props = defineProps<{ bound?: boolean; modelValue?: string }>()
+const emit = defineEmits<{ 'update:modelValue': [providerId: string] }>()
+
 const cloudMode = useCloudMode()
+const value = computed(() =>
+  props.bound ? (props.modelValue ?? '') : cloudMode.selectedProviderId,
+)
 
 // Switching provider re-fetches that provider's model list (overwriting it on
 // success), so the model picker reflects what the newly-selected provider serves.
 function handleProviderChange(id: string) {
+  if (props.bound) {
+    emit('update:modelValue', id)
+    return
+  }
   cloudMode.selectProvider(id)
   cloudMode.refreshSelectedProviderModels()
 }

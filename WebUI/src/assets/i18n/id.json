@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Pilih folder…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Tidak ada folder yang dipilih",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Hanya mengubah folder tempat tugas ini dijalankan. Sesi yang terbuka tetap memakai foldernya sendiri.",
+  "AGENT_TASK_EDIT_SETTINGS": "Templat Pengaturan",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Setiap langkah pada eksekusi berikutnya memakai pengaturan ini. Mengubahnya di sini tidak pernah mengubah sesi yang terbuka, pengaturan default Anda, atau perangkat yang dipilih.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Pilih folder kerja tugas",
   "AGENT_TASK_DISCARD_TITLE": "Buang perubahan?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Perubahan yang belum disimpan pada tugas “{name}” akan hilang.",

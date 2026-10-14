@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Seleccionar carpeta…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Ninguna carpeta seleccionada",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Solo cambia la carpeta en la que se ejecuta esta tarea. La sesión abierta conserva su propia carpeta.",
+  "AGENT_TASK_EDIT_SETTINGS": "Plantilla de configuración",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Cada paso de la próxima ejecución usa esta configuración. Cambiarla aquí nunca modifica la sesión abierta, tu configuración predeterminada ni el dispositivo seleccionado.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Selecciona la carpeta de trabajo de la tarea",
   "AGENT_TASK_DISCARD_TITLE": "¿Descartar los cambios?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Se perderán los cambios no guardados en la tarea «{name}».",

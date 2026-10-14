@@ -153,6 +153,26 @@ export function warning(text: string, settings?: ToastSettings, mounted?: HTMLEl
  */
 function showToast(text: string, options: ToastOptions, transitions: ToastTransitions) {
   _toastStage = generateToast(text, options.style)
+  if (options.action) {
+    const { label, run } = options.action
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = label
+    stylize(button, {
+      'pointer-events': 'auto',
+      'margin-left': '12px',
+      'text-decoration': 'underline',
+      'font-weight': '600',
+      color: 'inherit',
+      background: 'transparent',
+      cursor: 'pointer',
+    })
+    button.addEventListener('click', () => {
+      hideToast(transitions)
+      run()
+    })
+    _toastStage.firstElementChild?.appendChild(button)
+  }
 
   const parentEL =
     options.mounted instanceof HTMLElement

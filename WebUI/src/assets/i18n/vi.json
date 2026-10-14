@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Cần bạn phản hồi",
   "HISTORY_STATUS_UNSEEN": "Kết quả mới",
   "HISTORY_STATUS_UNSEEN_FAILED": "Lượt thất bại",
+  "AGENT_SESSION_NEEDS_INPUT": "Phiên '{title}' cần bạn phản hồi",
+  "AGENT_SESSION_OPEN": "Mở",
   "HISTORY_QUEUE_ORDINAL_ONE": "thứ {n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "thứ {n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "thứ {n}",

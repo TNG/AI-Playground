@@ -9,6 +9,8 @@ import { ref } from 'vue'
 // Deliberately has NO store dependencies (like `errors`, `activities`, `ui`) to
 // avoid circular imports — producers push, consumers read. At most one pending
 // confirmation per conversation (a new request supersedes an older one).
+// Main hears about every open card: a Turn Queue member of that conversation
+// gives up its place while the user decides (a Paused Session).
 
 export type ConfirmationOrigin = 'desktop' | 'remote'
 
@@ -33,6 +35,10 @@ function newId(): string {
   return `confirm-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function tellMain(conversationKey: string, waiting: boolean): void {
+  globalThis.window?.electronAPI?.permissions?.awaitingUser?.(conversationKey, waiting)
+}
+
 export const useConfirmations = defineStore('confirmations', () => {
   const items = ref<PendingConfirmation[]>([])
   // id -> resolver; kept out of the reactive ref so the promise plumbing never
@@ -46,6 +52,7 @@ export const useConfirmations = defineStore('confirmations', () => {
     const id = newId()
     const pending: PendingConfirmation = { ...input, id }
     items.value = [...items.value, pending]
+    tellMain(input.conversationKey, true)
     return new Promise<boolean>((resolve) => {
       resolvers.set(id, resolve)
     })
@@ -57,7 +64,9 @@ export const useConfirmations = defineStore('confirmations', () => {
     const resolver = resolvers.get(id)
     if (!resolver) return
     resolvers.delete(id)
+    const settled = items.value.find((item) => item.id === id)
     items.value = items.value.filter((item) => item.id !== id)
+    if (settled) tellMain(settled.conversationKey, false)
     resolver(answer)
   }
 

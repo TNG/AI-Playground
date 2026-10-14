@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Girdiniz gerekiyor",
   "HISTORY_STATUS_UNSEEN": "Yeni sonuç",
   "HISTORY_STATUS_UNSEEN_FAILED": "Tur başarısız oldu",
+  "AGENT_SESSION_NEEDS_INPUT": "'{title}' oturumu yanıtınızı bekliyor",
+  "AGENT_SESSION_OPEN": "Aç",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",

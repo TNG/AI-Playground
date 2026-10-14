@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.",
   "HISTORY_TASK_FILTER_CHIP": "Zadanie: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Wyczyść filtr zadania",
-  "HISTORY_TASK_FILTER_EMPTY": "To zadanie nie ma jeszcze sesji"
+  "HISTORY_TASK_FILTER_EMPTY": "To zadanie nie ma jeszcze sesji",
+  "HISTORY_TASK_PICKER_CHIP": "Zadanie",
+  "HISTORY_TASK_PICKER_LABEL": "Filtruj według zadania",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Brak zadań"
 }

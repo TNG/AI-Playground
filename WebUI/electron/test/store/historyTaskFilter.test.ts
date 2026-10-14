@@ -529,6 +529,101 @@ describe('clearing the Task filter', () => {
   })
 })
 
+describe('picking a Task in the history panel', () => {
+  it('lists every Task by name with its Task Session count, zero-session Tasks included', async () => {
+    const { tasks, history } = await readyStores(
+      task('n', 'Nightly report'),
+      task('b', 'build site'),
+      task('a', 'Audit deps'),
+    )
+    await runOnce(tasks, 'n', 'complete')
+    await runOnce(tasks, 'n', 'fail')
+    await runOnce(tasks, 'a', 'leave-running')
+
+    expect(history.taskPickerEntries).toEqual([
+      { id: 'a', name: 'Audit deps', sessionCount: 1 },
+      { id: 'b', name: 'build site', sessionCount: 0 },
+      { id: 'n', name: 'Nightly report', sessionCount: 2 },
+    ])
+  })
+
+  it('shows a rename at once and re-sorts by the new name', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'), task('b', 'Beta'))
+
+    tasks.beginEdit('b')
+    tasks.editDraft!.name = 'Aardvark'
+    await tasks.saveEdit()
+
+    expect(history.taskPickerEntries.map((entry) => entry.name)).toEqual(['Aardvark', 'Alpha'])
+  })
+
+  it('drops a deleted Task, while its Task Sessions stay in the list', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'), task('b', 'Beta'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+
+    expect(await tasks.deleteTask('a')).toBe(true)
+
+    expect(history.taskPickerEntries).toEqual([{ id: 'b', name: 'Beta', sessionCount: 0 }])
+    expect(visibleIds(history)).toContain(sessionId)
+  })
+
+  it('counts a new Task Session as soon as a run creates it', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'))
+    expect(history.taskPickerEntries).toEqual([{ id: 'a', name: 'Alpha', sessionCount: 0 }])
+
+    await runOnce(tasks, 'a', 'leave-running')
+
+    expect(history.taskPickerEntries).toEqual([{ id: 'a', name: 'Alpha', sessionCount: 1 }])
+  })
+
+  it('counts a Task Session out once it is deleted', async () => {
+    const { agentMode, tasks, history } = await readyStores(task('a', 'Alpha'))
+    const first = await runOnce(tasks, 'a', 'complete')
+    await runOnce(tasks, 'a', 'complete')
+    expect(history.taskPickerEntries).toEqual([{ id: 'a', name: 'Alpha', sessionCount: 2 }])
+
+    await agentMode.deleteSession(first)
+
+    expect(history.taskPickerEntries).toEqual([{ id: 'a', name: 'Alpha', sessionCount: 1 }])
+  })
+
+  it('offers nothing outside Agent mode with the Agent preset', async () => {
+    const { history } = await readyStores(task('a', 'Alpha'))
+    expect(history.tasksAvailable).toBe(true)
+
+    shared.preset!.preset = GAME_AGENT
+    await flush()
+    expect(history.tasksAvailable).toBe(false)
+    expect(history.taskPickerEntries).toEqual([])
+
+    shared.preset!.preset = AGENT
+    await flush()
+    shared.prompt!.currentMode = 'chat'
+    expect(history.tasksAvailable).toBe(false)
+    expect(history.taskPickerEntries).toEqual([])
+  })
+
+  it('applies the same Task filter as Show sessions but keeps the search text', async () => {
+    const { tasks, ui, history } = await readyStores(
+      task('a', 'Alpha', ['build the landing page']),
+      task('b', 'Beta'),
+    )
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+    await runOnce(tasks, 'b', 'complete')
+    ui.openHistory()
+    history.query = 'landing'
+
+    history.setTaskFilter('a')
+
+    expect(history.query).toBe('landing')
+    expect(history.taskFilter).toEqual({ id: 'a', name: 'Alpha' })
+    expect(visibleIds(history)).toEqual([sessionId])
+
+    history.clearTaskFilter()
+    expect(history.filter).toBe('current')
+  })
+})
+
 describe('a Task filter for no existing Task', () => {
   it('is not applied, and does not wake when a Task with that id appears', async () => {
     const { tasks, history } = await readyStores()

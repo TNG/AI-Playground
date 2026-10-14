@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "thứ {n}",
   "HISTORY_TASK_FILTER_CHIP": "Tác vụ: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Xóa bộ lọc tác vụ",
-  "HISTORY_TASK_FILTER_EMPTY": "Chưa có phiên nào từ tác vụ này"
+  "HISTORY_TASK_FILTER_EMPTY": "Chưa có phiên nào từ tác vụ này",
+  "HISTORY_TASK_PICKER_CHIP": "Tác vụ",
+  "HISTORY_TASK_PICKER_LABEL": "Lọc theo tác vụ",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Chưa có tác vụ nào"
 }

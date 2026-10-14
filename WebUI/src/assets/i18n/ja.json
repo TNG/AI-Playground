@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "埋め込みモデル",
   "AGENT_TURN_QUEUED": "待機中",
   "AGENT_TURN_QUEUED_DETAIL": "実行中のターンが終わるのを待っています…",
+  "AGENT_TURN_NOT_RUN": "未実行",
+  "AGENT_TURN_RESEND": "再送信",
   "HISTORY_STATUS_RUNNING": "実行中",
   "HISTORY_STATUS_QUEUED": "待機中",
   "HISTORY_STATUS_QUEUED_AT": "待機中、{position}番目",

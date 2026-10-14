@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "嵌入模型",
   "AGENT_TURN_QUEUED": "排队中",
   "AGENT_TURN_QUEUED_DETAIL": "正在等待当前轮次完成…",
+  "AGENT_TURN_NOT_RUN": "未运行",
+  "AGENT_TURN_RESEND": "重新发送",
   "HISTORY_STATUS_RUNNING": "运行中",
   "HISTORY_STATUS_QUEUED": "排队中",
   "HISTORY_STATUS_QUEUED_AT": "排队中，第 {position} 位",

@@ -66,7 +66,12 @@ import {
   toggleCapabilityIds,
   type AgentSessionRecord,
 } from './agentModeSessions'
-import { buildTurnConfig, createAgentTurnRuntimes, latestTurnMetadata } from './agentModeTurn'
+import {
+  buildTurnConfig,
+  createAgentTurnRuntimes,
+  latestTurnMetadata,
+  type AgentSessionRuntime,
+} from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
   createWorkspaceAttachments,
@@ -99,6 +104,8 @@ export type UnseenTurn = 'done' | 'failed'
 // a queued turn while one runs. For the Agent preset, switching conversation or
 // workspace (newSession, switchSession, adoptWorkspace) leaves turns running;
 // Game Agent and Quick Coder still stop the open session's turn when left.
+// Nothing is re-queued after a restart: a message whose turn never ran is marked
+// "not run" and waits for the user to resend it.
 
 /**
  * Capabilities a new session starts with. Same list as DEFAULT_CAPABILITY_IDS;
@@ -599,6 +606,7 @@ export const useAgentMode = defineStore(
           const activeId = bootstrap.activeSessionId
           if (activeId && hydrated[activeId]) openSessionId.value = activeId
           mergeHydratedTranscripts()
+          markNotRunMessages()
           restoreOpenSession()
           // Ran from the persist plugin's afterHydrate before the records moved
           // to files; it needs the hydrated records (and the games library).
@@ -747,8 +755,14 @@ export const useAgentMode = defineStore(
       onTurnSubmitted: (sessionId) => {
         stoppedByUser.delete(sessionId)
         forgetUnseen(sessionId)
+        // A resend runs the "not run" message itself; a new prompt leaves it marked.
+        const lastUser = turns
+          .runtimeOf(sessionId)
+          ?.chat.messages.findLast((message) => message.role === 'user')
+        if (lastUser && notRunMessages.value[sessionId] === lastUser.id) forgetNotRun(sessionId)
         snapshotSessionById(sessionId)
       },
+      onTurnAdopted: (sessionId) => forgetNotRun(sessionId),
       onTurnSettled: (sessionId) => onTurnSettled(sessionId),
       onTurnPaused: (sessionId) => onTurnPaused(sessionId),
       onAdoptedTurnDone: (sessionId) => {
@@ -813,6 +827,35 @@ export const useAgentMode = defineStore(
     }
 
     watch(openSessionId, (id) => forgetUnseen(id), { flush: 'sync' })
+
+    /**
+     * The last message of each session whose turn never ran before the app last quit,
+     * by session. Found once at boot and never re-queued; memory only.
+     */
+    const notRunMessages = ref<Record<string, string>>({})
+
+    function forgetNotRun(id: string): void {
+      if (!(id in notRunMessages.value)) return
+      const next = { ...notRunMessages.value }
+      delete next[id]
+      notRunMessages.value = next
+    }
+
+    function markNotRunMessages(): void {
+      const found: Record<string, string> = {}
+      for (const [id, record] of Object.entries(sessions.value)) {
+        const last = record.messages.at(-1)
+        if (last?.role !== 'user' || turns.runtimeOf(id)?.hasTurn()) continue
+        found[id] = last.id
+      }
+      notRunMessages.value = found
+    }
+
+    /** The Open Session ends on a "not run" message that can be sent again. */
+    const canResendNotRun = computed(() => {
+      const messageId = notRunMessages.value[openSessionId.value]
+      return !!messageId && !processing.value && messages.value.at(-1)?.id === messageId
+    })
 
     /** Agent Mode is on screen; a session is in view only while it is, and open. */
     const viewShown = ref(false)
@@ -1152,6 +1195,7 @@ export const useAgentMode = defineStore(
       sessions.value = next
       delete turnContexts[id]
       forgetUnseen(id)
+      forgetNotRun(id)
       if (id === openSessionId.value) {
         openSessionId.value = mintSessionId()
         sessionCapabilities.value = null
@@ -1273,17 +1317,36 @@ export const useAgentMode = defineStore(
         lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
         currentGame.value = game
       }
-      if (!workspaceDir.value) {
-        errors.report(new Error('Select a workspace folder before starting the agent.'), {
-          category: 'validation',
-          code: 'agent/no-workspace',
-          userMessage: 'Select a workspace folder before starting the agent.',
-          surface: 'toast',
-        })
-        return
-      }
+      if (!workspaceReady()) return
       const attached = await importAttachments(workspaceDir.value)
-      const sessionId = ensureSessionId(openSessionId)
+      await runTurn(ensureSessionId(openSessionId), (chat) =>
+        chat.sendMessage({ text: `${prompt}${attached}` }),
+      )
+    }
+
+    /** Send the Open Session's "not run" message again, as a new turn. */
+    async function resendNotRun(): Promise<void> {
+      if (!canResendNotRun.value) return
+      if (await blockedBySettingsProblems()) return
+      if (!workspaceReady()) return
+      await runTurn(openSessionId.value, (chat) => chat.regenerate())
+    }
+
+    function workspaceReady(): boolean {
+      if (workspaceDir.value) return true
+      errors.report(new Error('Select a workspace folder before starting the agent.'), {
+        category: 'validation',
+        code: 'agent/no-workspace',
+        userMessage: 'Select a workspace folder before starting the agent.',
+        surface: 'toast',
+      })
+      return false
+    }
+
+    async function runTurn(
+      sessionId: string,
+      send: (chat: AgentSessionRuntime['chat']) => Promise<void>,
+    ): Promise<void> {
       const runtime = turns.runtimeFor(sessionId)
       turnContexts[sessionId] = {
         workspaceDir: workspaceDir.value,
@@ -1294,7 +1357,7 @@ export const useAgentMode = defineStore(
       runtime.toolProgress.value = {}
       runtime.processing.value = true
       try {
-        await runtime.chat.sendMessage({ text: `${prompt}${attached}` })
+        await send(runtime.chat)
       } finally {
         runtime.processing.value = false
         snapshotSessionById(sessionId)
@@ -1369,6 +1432,9 @@ export const useAgentMode = defineStore(
       anyTurnOpen,
       sessionTurns,
       unseenTurns,
+      notRunMessages,
+      canResendNotRun,
+      resendNotRun,
       sessions,
       presetSessions,
       openSessionId,

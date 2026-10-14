@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "Embedding-Modell",
   "AGENT_TURN_QUEUED": "In Warteschlange",
   "AGENT_TURN_QUEUED_DETAIL": "Wartet, bis der laufende Durchgang beendet ist…",
+  "AGENT_TURN_NOT_RUN": "Nicht ausgeführt",
+  "AGENT_TURN_RESEND": "Erneut senden",
   "HISTORY_STATUS_RUNNING": "Läuft",
   "HISTORY_STATUS_QUEUED": "In der Warteschlange",
   "HISTORY_STATUS_QUEUED_AT": "In der Warteschlange, Position {position}",

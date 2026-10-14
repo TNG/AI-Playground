@@ -1,0 +1,162 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentTask } from '@/types/agentTaskIpc'
+
+// The kernel-owned Tasks file, driven against a real file in a temp dir: the
+// read/upsert/delete round trip, rejection of a corrupt file or an invalid
+// payload, and demo routing + wipe.
+
+const files = vi.hoisted(() => ({ real: '', demo: '' }))
+let tmpRoot = ''
+
+vi.mock('../../persist/userDataPaths.ts', () => ({
+  getAgentTasksFile: () => files.real,
+  getAgentTasksDemoFile: () => files.demo,
+}))
+
+vi.mock('../../observability/logger', () => ({
+  appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+
+const {
+  deleteAgentTask,
+  readAgentTasks,
+  resetAgentTaskFilesForTest,
+  saveAgentTask,
+  setAgentTaskFilesDeps,
+  wipeDemoAgentTasks,
+} = await import('../../persist/agentTaskFiles')
+
+function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
+  return {
+    id,
+    name: `Task ${id}`,
+    workspaceDir: '/work/project',
+    settingsTemplate: { backend: 'llamaCPP', model: 'Qwen-9B', capabilities: ['files'] },
+    steps: [
+      { id: 's1', prompt: 'first' },
+      { id: 's2', prompt: 'second' },
+    ],
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
+  }
+}
+
+async function readRaw(file: string): Promise<Record<string, unknown> | null> {
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+beforeEach(async () => {
+  resetAgentTaskFilesForTest()
+  if (!tmpRoot) tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-agent-tasks-'))
+  files.real = path.join(tmpRoot, 'agent-tasks.json')
+  files.demo = path.join(tmpRoot, 'agent-tasks-demo.json')
+  for (const file of [files.real, files.demo]) await fs.rm(file, { force: true })
+  setAgentTaskFilesDeps({ isDemoMode: () => false })
+})
+
+afterEach(() => {
+  resetAgentTaskFilesForTest()
+})
+
+describe('the kernel Tasks file', () => {
+  it('reads an absent file as no Tasks', async () => {
+    expect(await readAgentTasks()).toEqual([])
+  })
+
+  it('round-trips saved Tasks with a schema version', async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentTask(task('b'))
+
+    expect(await readAgentTasks()).toEqual([task('a'), task('b')])
+    expect((await readRaw(files.real))?.schemaVersion).toBe(1)
+  })
+
+  it('replaces a Task with the same id in place', async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentTask(task('b'))
+    const outcome = {
+      kind: 'completed' as const,
+      at: 5,
+      sessionId: 'aipg-agent-1',
+      stepCount: 2,
+    }
+
+    await saveAgentTask(task('a', { name: 'Renamed', lastOutcome: outcome }))
+
+    expect(await readAgentTasks()).toEqual([
+      task('a', { name: 'Renamed', lastOutcome: outcome }),
+      task('b'),
+    ])
+  })
+
+  it('deletes one Task and keeps the others', async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentTask(task('b'))
+
+    await deleteAgentTask('a')
+
+    expect(await readAgentTasks()).toEqual([task('b')])
+  })
+
+  it('treats deleting from an absent file as done', async () => {
+    await deleteAgentTask('a')
+    expect(await readRaw(files.real)).toBeNull()
+  })
+
+  it('rejects a payload that is not a Task', async () => {
+    await expect(saveAgentTask({ id: 'a', name: 'no steps' })).rejects.toThrow(/invalid task/)
+    await expect(saveAgentTask(task(''))).rejects.toThrow(/invalid task/)
+    expect(await readRaw(files.real)).toBeNull()
+  })
+
+  it('rejects a delete without a task id', async () => {
+    await expect(deleteAgentTask(5)).rejects.toThrow(/task id/)
+  })
+
+  it('treats a corrupt file as a failed read and never overwrites it', async () => {
+    await fs.writeFile(files.real, 'not json', 'utf8')
+
+    await expect(readAgentTasks()).rejects.toThrow(/unreadable/)
+    await expect(saveAgentTask(task('a'))).rejects.toThrow(/unreadable/)
+    await expect(deleteAgentTask('a')).rejects.toThrow(/unreadable/)
+    expect(await fs.readFile(files.real, 'utf8')).toBe('not json')
+  })
+
+  it('treats a schema-invalid file as unreadable too', async () => {
+    await fs.writeFile(
+      files.real,
+      JSON.stringify({ schemaVersion: 1, tasks: [{ id: 'a', steps: 'nope' }] }),
+      'utf8',
+    )
+    await expect(readAgentTasks()).rejects.toThrow(/unreadable/)
+  })
+
+  it('routes Tasks through the demo file when demo mode is on', async () => {
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+
+    await saveAgentTask(task('demo'))
+
+    expect(await readRaw(files.real)).toBeNull()
+    expect(await readAgentTasks()).toEqual([task('demo')])
+  })
+
+  it('wipes only the demo file', async () => {
+    await saveAgentTask(task('real'))
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    await saveAgentTask(task('demo'))
+
+    await wipeDemoAgentTasks()
+
+    expect(await readRaw(files.demo)).toBeNull()
+    setAgentTaskFilesDeps({ isDemoMode: () => false })
+    expect(await readAgentTasks()).toEqual([task('real')])
+  })
+})

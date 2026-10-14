@@ -203,109 +203,68 @@
         What the agent is equipped with, on top of its file and shell tools. Each capability adds
         its tools and instructions to the session.
       </p>
-      <div class="flex flex-col gap-2">
-        <label
-          v-for="capability in builtInCapabilities"
-          :key="capability.id"
-          class="flex items-start gap-2 text-sm"
-        >
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            :disabled="!!capability.unavailableReason"
-            :checked="agentMode.isCapabilityEnabled(capability.id)"
-            @change="toggleCapability(capability.id, $event)"
-          />
-          <span class="flex flex-col">
-            <span class="text-foreground">{{ capability.label }}</span>
-            <span class="text-xs text-muted-foreground">{{ capability.summary }}</span>
-            <span v-if="capability.requires.length > 0" class="text-xs text-muted-foreground">
-              Also enables: {{ capabilityLabels(capability.requires) }}
-            </span>
-            <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
-              {{ capability.unavailableReason }}
-            </span>
-          </span>
-        </label>
-      </div>
-
-      <!-- Same selector as Chat Settings' Embeddings row, but bound to the
-           embedding backend rather than the chat backend: an agent can run on a
-           cloud model while its document search stays local. The model
-           downloads on first actual rag use, not from here. -->
-      <div
-        v-if="ragEnabled"
-        class="grid grid-cols-[120px_1fr] items-center gap-4"
-        :class="problemClass('embeddingModel')"
+      <AgentCapabilityChecklist
+        :model-value="agentMode.capabilities"
+        :catalog="capabilityCatalog"
+        :mcp-servers="mcp.allServers"
+        @update:model-value="agentMode.setCapabilities"
       >
-        <Label class="whitespace-nowrap">Embeddings</Label>
-        <drop-down-new
-          :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
-          :value="activeEmbeddingModelName"
-          :items="embeddingModelItems"
-          @change="
-            (modelName) =>
-              textInference.selectEmbeddingModel(textInference.embeddingBackend, modelName)
-          "
-        ></drop-down-new>
-      </div>
-
-      <!-- Which workflows the media capability may use. Shown whenever the
-           capability exists, including while it reports itself unavailable —
-           turning every workflow off is what makes it unavailable, and this is
-           where they are turned back on. -->
-      <SettingsBuiltinTools v-if="hasMediaCapability" variant="media" />
-
-      <!-- Slash commands of the enabled capabilities: sending one as a prompt is
-           exactly how the agent's own input dispatches it. -->
-      <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
-        <Label class="whitespace-nowrap mt-2">Capability commands</Label>
-        <div class="flex flex-wrap gap-2">
-          <Button
-            v-for="command in capabilityCommands"
-            :key="command.command"
-            variant="secondary"
-            class="px-3 py-1.5 rounded text-sm"
-            :disabled="agentMode.processing"
-            :title="command.description"
-            @click="agentMode.generate(command.command)"
-          >
-            {{ command.command }}
-          </Button>
+        <!-- Same selector as Chat Settings' Embeddings row, but bound to the
+             embedding backend rather than the chat backend: an agent can run on a
+             cloud model while its document search stays local. The model
+             downloads on first actual rag use, not from here. -->
+        <div
+          v-if="ragEnabled"
+          class="grid grid-cols-[120px_1fr] items-center gap-4"
+          :class="problemClass('embeddingModel')"
+        >
+          <Label class="whitespace-nowrap">Embeddings</Label>
+          <drop-down-new
+            :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
+            :value="activeEmbeddingModelName"
+            :items="embeddingModelItems"
+            @change="
+              (modelName) =>
+                textInference.selectEmbeddingModel(textInference.embeddingBackend, modelName)
+            "
+          ></drop-down-new>
         </div>
-      </div>
 
-      <Label class="whitespace-nowrap mt-2">MCP servers</Label>
-      <p
-        v-for="serverId in missingMcpServers"
-        :key="serverId"
-        class="text-xs text-amber-500 rounded-sm ring-1 ring-amber-500 px-2 py-1"
-      >
-        {{ describeMissingMcpServer(serverId) }}
-      </p>
-      <div v-if="mcp.allServers.length > 0" class="flex flex-col gap-2">
-        <label
-          v-for="server in mcp.allServers"
-          :key="server.id"
-          class="flex items-start gap-2 text-sm"
-        >
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            :checked="agentMode.isCapabilityEnabled(mcpCapabilityId(server.id))"
-            @change="toggleCapability(mcpCapabilityId(server.id), $event)"
-          />
-          <span class="flex flex-col">
-            <span class="text-foreground">{{ server.name }}</span>
-            <span v-if="server.instructions" class="text-xs text-muted-foreground">
-              {{ server.instructions }}
-            </span>
-          </span>
-        </label>
-      </div>
-      <p v-else class="text-xs text-muted-foreground italic">
-        No MCP servers configured. Add one under App Settings → MCP.
-      </p>
+        <!-- Which workflows the media capability may use. Shown whenever the
+             capability exists, including while it reports itself unavailable —
+             turning every workflow off is what makes it unavailable, and this is
+             where they are turned back on. -->
+        <SettingsBuiltinTools v-if="hasMediaCapability" variant="media" />
+
+        <!-- Slash commands of the enabled capabilities: sending one as a prompt is
+             exactly how the agent's own input dispatches it. -->
+        <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
+          <Label class="whitespace-nowrap mt-2">Capability commands</Label>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              v-for="command in capabilityCommands"
+              :key="command.command"
+              variant="secondary"
+              class="px-3 py-1.5 rounded text-sm"
+              :disabled="agentMode.processing"
+              :title="command.description"
+              @click="agentMode.generate(command.command)"
+            >
+              {{ command.command }}
+            </Button>
+          </div>
+        </div>
+
+        <template #mcp-notices>
+          <p
+            v-for="serverId in missingMcpServers"
+            :key="serverId"
+            class="text-xs text-amber-500 rounded-sm ring-1 ring-amber-500 px-2 py-1"
+          >
+            {{ describeMissingMcpServer(serverId) }}
+          </p>
+        </template>
+      </AgentCapabilityChecklist>
       <p class="text-xs text-amber-500">
         Changes take effect on the next turn, which starts a fresh Pi session. Attached MCP servers
         are started then too.
@@ -337,7 +296,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef, watch } from 'vue'
+import { computed, onMounted, toRef } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import DropDownNew from '@/components/DropDownNew.vue'
@@ -355,13 +314,13 @@ import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useMcp } from '@/assets/js/store/mcp'
-import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
-import { mediaAgentHasTools } from '@/assets/js/agents/mediaAgent'
-import { mcpCapabilityId } from '@/types/agentCapabilities'
+import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
+import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
 import { agentBackendChoices } from '@/lib/llmBackendChoices'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
+import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
 import SettingsAgentTask from '@/components/SettingsAgentTask.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
@@ -390,9 +349,13 @@ const mcp = useMcp()
 // The capability catalog lives in the main process (it is what the Pi session is
 // actually built from), so the checkbox list — including which capabilities are
 // unavailable and why — is fetched rather than duplicated here.
-const capabilityCatalog = ref<AgentCapabilityInfo[]>([])
-const builtInCapabilities = computed(() =>
-  capabilityCatalog.value.filter((capability) => !capability.id.startsWith('mcp:')),
+const mediaTools = storeMediaToolSettings(textInference)
+const { catalog: capabilityCatalog, refresh: refreshCapabilityCatalog } = useCapabilityCatalog(
+  () => ({
+    workspaceDir: agentMode.workspaceDir,
+    embeddingModel: textInference.activeEmbeddingModel,
+    mediaTools,
+  }),
 )
 
 const hasMediaCapability = computed(() =>
@@ -421,46 +384,14 @@ const capabilityCommands = computed(() =>
     .flatMap((capability) => capability.commands),
 )
 
-async function refreshCapabilityCatalog(): Promise<void> {
-  capabilityCatalog.value = await window.electronAPI.agentMode.listCapabilities({
-    workspaceDir: agentMode.workspaceDir,
-    toolSpecs: getAgentToolSpecs(),
-    embeddingModel: textInference.activeEmbeddingModel ?? undefined,
-  })
-}
-
 onMounted(async () => {
   void mcp.refreshAvailableServers()
   await refreshCapabilityCatalog()
 })
 
-// Whether the media capability has anything to offer is decided in the main
-// process from the tool specs, so turning its last workflow or speech tool off
-// (or back on) in the panel below only reaches the checkbox after re-asking.
-watch(
-  () => [
-    mediaAgentHasTools(),
-    textInference.toolDelegationEnabled,
-    textInference.isBuiltinToolEnabled('synthesizeTextToSpeech'),
-    textInference.isBuiltinToolEnabled('transcribeAudio'),
-    textInference.activeEmbeddingModel,
-  ],
-  () => void refreshCapabilityCatalog(),
-)
-
 // Game Agent's folders are the app's to create, and they stay sandboxed: a game is
 // plain HTML with no build step, so a real shell would only add risk.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
-
-function capabilityLabels(ids: string[]): string {
-  return ids
-    .map((id) => capabilityCatalog.value.find((entry) => entry.id === id)?.label ?? id)
-    .join(', ')
-}
-
-function toggleCapability(id: string, event: Event): void {
-  agentMode.setCapabilityEnabled(id, (event.target as HTMLInputElement).checked)
-}
 
 // Consent is stored per workspace folder, so this only ever affects the folder
 // currently selected — pointing the agent elsewhere needs a fresh opt-in.

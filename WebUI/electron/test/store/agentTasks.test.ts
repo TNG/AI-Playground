@@ -361,6 +361,88 @@ describe('the Task draft', () => {
   })
 })
 
+describe('editing the draft’s Steps', () => {
+  const prompts = (tasks: { draft: { steps: { prompt: string }[] } }) =>
+    tasks.draft.steps.map((step) => step.prompt)
+
+  it('saves the Steps as edited', async () => {
+    const { tasks } = await readyStores()
+    tasks.createStepsFromSession()
+    tasks.draft.steps[0].prompt = 'rename the files\nthen list them'
+
+    await tasks.saveDraft()
+
+    expect(saveTask.mock.calls[0][0].steps.map((step) => step.prompt)).toEqual([
+      'rename the files\nthen list them',
+      `use this sprite\n\n${ATTACHMENT_LINE}`,
+      'now write the readme',
+    ])
+  })
+
+  it('appends an empty Step, which blocks saving until it is filled', async () => {
+    const { tasks } = await readyStores()
+    tasks.createStepsFromSession()
+
+    tasks.addStep()
+
+    expect(prompts(tasks)).toHaveLength(4)
+    expect(prompts(tasks)[3]).toBe('')
+    expect(new Set(tasks.draft.steps.map((step) => step.id)).size).toBe(4)
+    expect(tasks.draftBlocker).toBe('empty-step')
+  })
+
+  it('removes the chosen Step and keeps the others in order', async () => {
+    const { tasks } = await readyStores()
+    tasks.createStepsFromSession()
+
+    tasks.removeStep(tasks.draft.steps[1].id)
+
+    expect(prompts(tasks)).toEqual(['rename the files', 'now write the readme'])
+  })
+
+  it('moves a Step up and down', async () => {
+    const { tasks } = await readyStores()
+    tasks.draft.steps = draftOf('Docs', 'one', 'two', 'three').steps
+
+    tasks.moveStep('step-2', 'up')
+    expect(prompts(tasks)).toEqual(['one', 'three', 'two'])
+
+    tasks.moveStep('step-0', 'down')
+    expect(prompts(tasks)).toEqual(['three', 'one', 'two'])
+  })
+
+  it('leaves the order alone when a Step cannot move further', async () => {
+    const { tasks } = await readyStores()
+    tasks.draft.steps = draftOf('Docs', 'one', 'two').steps
+
+    tasks.moveStep('step-0', 'up')
+    tasks.moveStep('step-1', 'down')
+
+    expect(prompts(tasks)).toEqual(['one', 'two'])
+  })
+})
+
+describe('what the Task will be saved with', () => {
+  it('summarises the Open Session’s folder and the panel’s Session Settings', async () => {
+    const { tasks } = await readyStores()
+
+    expect(tasks.draftTemplate).toEqual({
+      workspaceDir: '/work/open',
+      backend: 'llamaCPP',
+      model: 'Stored-27B',
+      capabilityCount: 2,
+    })
+  })
+
+  it('follows changes made in the panel', async () => {
+    const { agentMode, tasks } = await readyStores()
+
+    agentMode.setCapabilityEnabled('web', false)
+
+    expect(tasks.draftTemplate.capabilityCount).toBe(1)
+  })
+})
+
 describe('steps from the Open Session', () => {
   it('turns each user message into one Step prompt, in order', async () => {
     const { tasks } = await readyStores()

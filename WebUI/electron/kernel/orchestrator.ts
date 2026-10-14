@@ -15,8 +15,8 @@
 //   Queue lifecycle crosses the kernel bus as `queue-event`.
 // - the GPU window: which side holds the GPU, the LLM⇄ComfyUI swap, the
 //   skip-when-queued rule (a spritesheet costs one swap, not one per sprite),
-//   and the wait for open chat HTTP (and unrelated text occupancy) before
-//   stopping a backend mid-stream — no proceed-anyway bound.
+//   and the wait for open chat HTTP before stopping a backend mid-stream — no
+//   proceed-anyway bound.
 // - chat readiness admission: Chat, Agent, and Home Agent `/load` occupy as
 //   `text` requests first; `ensureChatBackendReady` then loads with
 //   `skipGpuAdmission` because the window wait already happened.
@@ -131,7 +131,7 @@ const runQueue: QueuedRun[] = []
 
 // Admitted = executeRun has been entered and not yet settled. `artifactRunActive`
 // only flips once the runner starts, which is after the GPU acquire can await,
-// so fail-fast has to key off this or two panel submits in the same tick both
+// so the drain has to key off this or two runs admitted in the same tick both
 // enter executeRun and the second cancels the first inside the runner.
 let admittedArtifactRuns = 0
 const admittedCancels = new Map<string, AbortController>()
@@ -504,7 +504,7 @@ function dropQueuedRun(entry: (typeof runQueue)[number], reason?: string): void 
 
 /**
  * Drops queued runs and aborts admitted/active ones. A destroyed renderer
- * cannot drive placeholders, and a replacement window must not fail-fast on
+ * cannot drive placeholders, and a replacement window must not queue behind
  * an invisible drain.
  */
 export function cancelAllArtifactRuns(reason = 'Generation cancelled.'): void {
@@ -523,7 +523,7 @@ function cancelledRun(error = 'Generation cancelled.'): ArtifactRunResult {
 /**
  * Registers a chat turn as queue occupancy and, for local LLM turns, waits
  * until the GPU window is chat. Resolves when the turn may load/stream.
- * Nested media for this conversation uses `queue`, not fail-fast, so it can
+ * Nested media for this conversation uses `queue`, not the Turn Queue, so it can
  * take the GPU while this occupancy is still live (HTTP is idle in the tool
  * phase). Cloud turns occupy without waiting — they do not hold the local GPU —
  * unless they join the Turn Queue, where every member first waits for its place.
@@ -903,10 +903,9 @@ async function acquireMediaWindow(conversationKey?: string, signal?: AbortSignal
   if (swapBackInFlight) await swapBackInFlight.catch(() => {})
   if (windowIsMedia()) return
   await waitForChatRequestsIdle(signal)
-  // Nested media for this conversation may take the GPU while its parent text
-  // occupancy is still live (tool phase, HTTP idle). An unrelated chat turn
-  // must finish first — no proceed-anyway bound, or that stream dies as a
-  // network error.
+  // Media from a turn outside the Turn Queue (a cloud Chat turn's tool) must not
+  // stop the backend under the holder's turn; nested media for the holder's own
+  // conversation passes, since its HTTP is idle in the tool phase.
   await waitForUnrelatedTextIdle(conversationKey, signal)
   if (windowIsMedia()) return
   if (signal?.aborted) throw cancelledGeneration()

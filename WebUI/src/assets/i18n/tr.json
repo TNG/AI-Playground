@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "Son çalıştırma {count} adımın {step}. adımında başarısız oldu",
   "AGENT_TASKS_OUTCOME_STOPPED": "Son çalıştırma durduruldu",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Son çalıştırma {count} adımın {step}. adımında durduruldu",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "Uygulama çalışma sırasında kapatıldı.",
   "AGENT_TASKS_DELETE": "{name} görevini sil",
   "AGENT_TASKS_RUN": "{name} görevini çalıştır",
   "AGENT_TASKS_RUNNING_STEP": "Çalışıyor: {count} adımın {step}. adımı",

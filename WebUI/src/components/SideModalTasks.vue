@@ -102,7 +102,7 @@
                 class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
                 :aria-label="row.editLabel"
                 :aria-pressed="row.editing"
-                @click="edit(row.id)"
+                @click="editTask(row.id)"
               >
                 <PencilSquareIcon class="size-4" />
               </button>
@@ -161,7 +161,6 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
-import { useUIStore } from '@/assets/js/store/ui'
 import SideModalBase from '@/components/SideModalBase.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -190,8 +189,7 @@ const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const errors = useErrors()
 const i18n = useI18N().state
-const uiStore = useUIStore()
-const { leaveTaskEdit } = useTaskEditLeaveGuard()
+const { leaveTaskEdit, editTask } = useTaskEditLeaveGuard()
 
 watch(
   () => props.isVisible,
@@ -269,14 +267,6 @@ async function openSession(sessionId: string): Promise<void> {
   if (!(await leaveTaskEdit())) return
   emit('close')
   await agentMode.openSession(sessionId)
-}
-
-async function edit(id: string): Promise<void> {
-  if (agentTasks.editingTaskId !== id) {
-    if (!(await leaveTaskEdit())) return
-    agentTasks.beginEdit(id)
-  }
-  uiStore.openSettings()
 }
 
 // Kept apart from the open state: the dialog may close before its action's click runs.

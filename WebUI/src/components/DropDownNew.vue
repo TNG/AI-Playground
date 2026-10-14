@@ -49,9 +49,9 @@ const selectedItem = computed(() => {
 <template>
   <DropdownMenu>
     <DropdownMenuTrigger as-child :disabled="props.disabled">
-      <button :disabled="props.disabled">
+      <button :disabled="props.disabled" class="group">
         <div
-          class="w-full h-[30px] rounded-md bg-card border border-border text-foreground px-3 flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full h-[30px] rounded-md bg-card border border-border text-foreground px-3 flex items-center justify-between group-disabled:opacity-50 group-disabled:cursor-not-allowed"
         >
           <div
             class="w-2 h-2 rounded-full shrink-0 relative overflow-hidden"

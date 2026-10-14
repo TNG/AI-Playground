@@ -7,6 +7,8 @@ import { transcribeAudio } from './transcribeAudio'
 import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
+import { isToolEnabled } from '@/lib/builtinToolEnablement'
+import type { ToolsForTurn } from '@/lib/storedSessionInference'
 
 // ── Agent Mode tool specs (renderer side) ────────────────────────────────────
 //
@@ -90,10 +92,14 @@ function transcribeInputSchema(): z.ZodTypeAny {
 }
 
 /** The speech tools, per the same per-preset toggles Chat reads. */
-function speechToolSpecs(): AgentToolSpec[] {
+function speechToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
   const textInference = useTextInference()
+  const enabled = (name: string) =>
+    tools
+      ? isToolEnabled(tools.builtinToolEnablement, name)
+      : textInference.isBuiltinToolEnabled(name)
   const specs: AgentToolSpec[] = []
-  if (textInference.isBuiltinToolEnabled('synthesizeTextToSpeech')) {
+  if (enabled('synthesizeTextToSpeech')) {
     specs.push({
       name: 'synthesizeTextToSpeech',
       description: (synthesizeTextToSpeech.description ?? '') + TTS_FILES_NOTE,
@@ -103,7 +109,7 @@ function speechToolSpecs(): AgentToolSpec[] {
       >,
     })
   }
-  if (textInference.isBuiltinToolEnabled('transcribeAudio')) {
+  if (enabled('transcribeAudio')) {
     specs.push({
       name: 'transcribeAudio',
       description: (transcribeAudio.description ?? '') + STT_SOURCE_NOTE,
@@ -113,16 +119,17 @@ function speechToolSpecs(): AgentToolSpec[] {
   return specs
 }
 
-export function getAgentToolSpecs(): AgentToolSpec[] {
-  return [...mediaToolSpecs(), ...speechToolSpecs()]
+/** `tools` are the toggles stored on a session; the live ones are read when absent. */
+export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
+  return [...mediaToolSpecs(tools), ...speechToolSpecs(tools)]
 }
 
-function mediaToolSpecs(): AgentToolSpec[] {
+function mediaToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
   // With tool delegation on (the default), the agent sees a single thin
   // `media` tool backed by the nested media agent (agents/mediaAgent.ts).
   // NOTE: the tool set is part of the Pi session's configKey, so flipping the
   // toggle starts a new Pi session on the next turn.
-  if (useTextInference().toolDelegationEnabled) {
+  if (tools?.toolDelegationEnabled ?? useTextInference().toolDelegationEnabled) {
     if (!mediaAgentHasTools()) return []
     return [
       {

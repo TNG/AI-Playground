@@ -37,7 +37,7 @@ import {
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
 import { sessionSettingsProblems, type SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
-import { createAppError, createCancellation } from '@/assets/js/errors/appError'
+import { createAppError, createCancellation, extractMessage } from '@/assets/js/errors/appError'
 import { registerSessionPromptPort } from '@/assets/js/permissions/sessionPromptPort'
 import * as toast from '@/assets/js/toast'
 import { withResponseLanguage } from '@/lib/responseLanguage'
@@ -85,6 +85,19 @@ export type SessionTurnInfo = { state: AgentTurnState; queuePosition: number | n
 
 /** How a turn that ended out of sight went. */
 export type UnseenTurn = 'done' | 'failed'
+
+/** How a session's turn ended, as the settled-turn hook reports it. */
+export type TurnOutcome =
+  { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
+
+export type SendToSessionResult =
+  | { ok: true }
+  | {
+      ok: false
+      reason: 'no-session' | 'busy' | 'missing-folder' | 'settings-problems'
+      message: string
+      problems?: SessionSettingsProblem[]
+    }
 
 // ── Agent Mode: renderer side of the Pi coding-agent integration ─────────────
 //
@@ -241,24 +254,29 @@ export const useAgentMode = defineStore(
     /** Live values right after a sent session loaded; fields still equal to them were not edited. */
     let loadedBaseline: AgentSessionSettings | null = null
 
+    function problemsOf(settings: AgentSessionSettings): SessionSettingsProblem[] {
+      return sessionSettingsProblems(settings, {
+        ...textInference.settingsAvailability,
+        mcpServerIds: mcp.serversLoaded ? mcp.allServers.map((server) => server.id) : null,
+      })
+    }
+
+    async function loadMcpServersFor(capabilityIds: readonly string[]): Promise<void> {
+      if (!mcp.serversLoaded && capabilityIds.some((id) => id.startsWith('mcp:'))) {
+        await mcp.refreshAvailableServers()
+      }
+    }
+
     /** Stored settings of the sent session that can no longer be used. Drafts are never blocked. */
     const settingsProblems = computed<SessionSettingsProblem[]>(() => {
       if (!sessionSent.value || !openSettings.value) return []
-      return sessionSettingsProblems(
-        { ...openSettings.value, capabilities: capabilities.value },
-        {
-          ...textInference.settingsAvailability,
-          mcpServerIds: mcp.serversLoaded ? mcp.allServers.map((server) => server.id) : null,
-        },
-      )
+      return problemsOf({ ...openSettings.value, capabilities: capabilities.value })
     })
 
     /** Refuse a turn while a stored setting is unusable; the prompt bar names the field. */
     async function blockedBySettingsProblems(): Promise<boolean> {
       if (!sessionSent.value) return false
-      if (!mcp.serversLoaded && capabilities.value.some((id) => id.startsWith('mcp:'))) {
-        await mcp.refreshAvailableServers()
-      }
+      await loadMcpServersFor(capabilities.value)
       const problems = settingsProblems.value
       if (problems.length === 0) return false
       errors.report(
@@ -715,14 +733,84 @@ export const useAgentMode = defineStore(
       }
     }
 
-    /** What a turn was sent with, for saving its session should it end while another is open. */
+    /**
+     * What a turn was sent with, for saving its session should it end while another is open.
+     * `stored` turns run on these settings instead of the live controls.
+     */
     type TurnContext = {
       workspaceDir: string
       presetName: string
       capabilities: string[]
       settings?: AgentSessionSettings
+      stored: boolean
     }
     const turnContexts: Record<string, TurnContext> = {}
+
+    /** The Open Session's Session Settings are bound to the live controls (ADR 0001). */
+    function liveTurnContext(): TurnContext {
+      return {
+        workspaceDir: workspaceDir.value,
+        presetName: agentPresetName.value,
+        capabilities: [...capabilities.value],
+        settings: openSettings.value ? { ...openSettings.value } : undefined,
+        stored: false,
+      }
+    }
+
+    function storedTurnContext(record: AgentSessionRecord): TurnContext {
+      const settings = record.settings ?? {}
+      return {
+        workspaceDir: record.workspaceDir,
+        presetName: record.presetName ?? AGENT_PRESET,
+        capabilities: [
+          ...(settings.capabilities ?? record.capabilities ?? readAgentDefaults().capabilities),
+        ],
+        settings: { ...settings },
+        stored: true,
+      }
+    }
+
+    function liveTurnConfig(sessionId: string) {
+      return buildTurnConfig({
+        sessionId,
+        workspaceDir: workspaceDir.value,
+        // The remembered agent preset, not the active one: a media call
+        // switches the active preset to an image-gen one mid-turn.
+        presetName: agentPresetName.value,
+        instructions: withResponseLanguage(
+          activeAgentPreset.value?.systemPrompt?.trim() ?? '',
+          sessionResponseLocale(sessionId),
+        ),
+        capabilities: [...capabilities.value],
+        unsandboxed: unsandboxed.value,
+        planningThinkingOnly: effectivePlanningThinkingOnly.value,
+        textInference,
+        cloudMode,
+      })
+    }
+
+    function storedTurnConfig(sessionId: string, context: TurnContext) {
+      const preset = presetsStore.presets.find((entry) => entry.name === context.presetName)
+      const systemPrompt = preset?.type === 'chat' ? (preset as ChatPreset).systemPrompt : ''
+      const settings = context.settings ?? {}
+      const stored = textInference.inferenceForSettings(context.presetName, settings)
+      return buildTurnConfig({
+        sessionId,
+        workspaceDir: context.workspaceDir,
+        presetName: context.presetName,
+        instructions: withResponseLanguage(
+          systemPrompt?.trim() ?? '',
+          sessionResponseLocale(sessionId),
+        ),
+        capabilities: [...context.capabilities],
+        unsandboxed: unsandboxedWorkspaces.value.includes(context.workspaceDir),
+        planningThinkingOnly:
+          settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
+        textInference: stored.inference,
+        cloudMode: stored.cloud,
+        tools: stored.tools,
+      })
+    }
 
     const turns = createAgentTurnRuntimes({
       errors,
@@ -730,25 +818,10 @@ export const useAgentMode = defineStore(
         [OFFER_GAME_AGENT_TOOL]: (input, sessionId) => offerGameAgent(input, sessionId),
         [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
       },
-      // Sending only ever happens from the Open Session, whose Session Settings
-      // are bound to the live controls (ADR 0001).
-      buildTurnConfig: (sessionId) =>
-        buildTurnConfig({
-          sessionId,
-          workspaceDir: workspaceDir.value,
-          // The remembered agent preset, not the active one: a media call
-          // switches the active preset to an image-gen one mid-turn.
-          presetName: agentPresetName.value,
-          instructions: withResponseLanguage(
-            activeAgentPreset.value?.systemPrompt?.trim() ?? '',
-            sessionResponseLocale(sessionId),
-          ),
-          capabilities: [...capabilities.value],
-          unsandboxed: unsandboxed.value,
-          planningThinkingOnly: effectivePlanningThinkingOnly.value,
-          textInference,
-          cloudMode,
-        }),
+      buildTurnConfig: (sessionId) => {
+        const context = turnContexts[sessionId]
+        return context?.stored ? storedTurnConfig(sessionId, context) : liveTurnConfig(sessionId)
+      },
       initialMessages: (sessionId) => [...(sessions.value[sessionId]?.messages ?? [])],
       // The sent message is on the record at once, so the session is in the history
       // even when the user moves on before the turn has run.
@@ -763,7 +836,7 @@ export const useAgentMode = defineStore(
         snapshotSessionById(sessionId)
       },
       onTurnAdopted: (sessionId) => forgetNotRun(sessionId),
-      onTurnSettled: (sessionId) => onTurnSettled(sessionId),
+      onTurnSettled: (sessionId) => settleTurn(sessionId),
       onTurnPaused: (sessionId) => onTurnPaused(sessionId),
       onAdoptedTurnDone: (sessionId) => {
         snapshotSessionById(sessionId)
@@ -945,10 +1018,13 @@ export const useAgentMode = defineStore(
      * answer from lingering, and unblocks the tool if it is still listening
      * (mirrors the chat store). Everything here is the ending turn's own session's.
      */
-    function onTurnSettled(sessionId: string): void {
+    function settleTurn(sessionId: string): void {
+      // Only an in-flight stored turn keeps the record's settings over the live controls.
+      if (turnContexts[sessionId]) turnContexts[sessionId].stored = false
       const stopped = stoppedByUser.delete(sessionId)
+      const chat = turns.runtimeOf(sessionId)?.chat
+      const failed = chat?.status === 'error'
       if (!stopped && sessionId !== openSessionId.value && sessions.value[sessionId]) {
-        const failed = turns.runtimeOf(sessionId)?.chat.status === 'error'
         unseenTurns.value = { ...unseenTurns.value, [sessionId]: failed ? 'failed' : 'done' }
       }
       confirmations.cancelForConversation(sessionId, false)
@@ -959,6 +1035,21 @@ export const useAgentMode = defineStore(
         void startGameAgentHandoff(handoff)
       }
       if (sessionId !== openSessionId.value) turns.release(sessionId)
+      const outcome: TurnOutcome = stopped
+        ? { kind: 'stopped' }
+        : failed
+          ? { kind: 'error', message: extractMessage(chat?.error) }
+          : { kind: 'completed' }
+      for (const listener of [...turnSettledListeners]) listener(sessionId, outcome)
+    }
+
+    type TurnSettledListener = (sessionId: string, outcome: TurnOutcome) => void
+    const turnSettledListeners = new Set<TurnSettledListener>()
+
+    /** Hear how every session's turn ends; returns the unsubscribe. */
+    function onTurnSettled(listener: TurnSettledListener): () => void {
+      turnSettledListeners.add(listener)
+      return () => turnSettledListeners.delete(listener)
     }
 
     /** The game card shows the open workspace, so only a turn in that folder can change it. */
@@ -990,11 +1081,15 @@ export const useAgentMode = defineStore(
       const runtime = turns.runtimeOf(id)
       if (!id || !runtime) return
       const existing = sessions.value[id]
-      const open = id === openSessionId.value
       const context = turnContexts[id]
+      // A session sent on its stored settings keeps them, even while open.
+      const open = id === openSessionId.value && !context?.stored
       const heldWith =
         presetName ?? (open ? agentPresetName.value : (existing?.presetName ?? context?.presetName))
-      const dir = open ? workspaceDir.value : (existing?.workspaceDir ?? context?.workspaceDir)
+      const dir =
+        id === openSessionId.value
+          ? workspaceDir.value
+          : (existing?.workspaceDir ?? context?.workspaceDir)
       if (!dir || !heldWith) return
       const settings = open ? openSettings.value : existing ? undefined : context?.settings
       const record = snapshotSession({
@@ -1319,7 +1414,7 @@ export const useAgentMode = defineStore(
       }
       if (!workspaceReady()) return
       const attached = await importAttachments(workspaceDir.value)
-      await runTurn(ensureSessionId(openSessionId), (chat) =>
+      await runTurn(ensureSessionId(openSessionId), liveTurnContext(), (chat) =>
         chat.sendMessage({ text: `${prompt}${attached}` }),
       )
     }
@@ -1329,7 +1424,7 @@ export const useAgentMode = defineStore(
       if (!canResendNotRun.value) return
       if (await blockedBySettingsProblems()) return
       if (!workspaceReady()) return
-      await runTurn(openSessionId.value, (chat) => chat.regenerate())
+      await runTurn(openSessionId.value, liveTurnContext(), (chat) => chat.regenerate())
     }
 
     function workspaceReady(): boolean {
@@ -1345,15 +1440,11 @@ export const useAgentMode = defineStore(
 
     async function runTurn(
       sessionId: string,
+      context: TurnContext,
       send: (chat: AgentSessionRuntime['chat']) => Promise<void>,
     ): Promise<void> {
       const runtime = turns.runtimeFor(sessionId)
-      turnContexts[sessionId] = {
-        workspaceDir: workspaceDir.value,
-        presetName: agentPresetName.value,
-        capabilities: [...capabilities.value],
-        settings: openSettings.value ? { ...openSettings.value } : undefined,
-      }
+      turnContexts[sessionId] = context
       runtime.toolProgress.value = {}
       runtime.processing.value = true
       try {
@@ -1363,6 +1454,99 @@ export const useAgentMode = defineStore(
         snapshotSessionById(sessionId)
         await refreshGameAfterTurn(sessionId)
       }
+    }
+
+    /**
+     * Mint and store a session without opening it, so it is listed in the history. An
+     * explicit title is kept when the session's first message arrives.
+     */
+    function createSession(input: {
+      workspaceDir: string
+      settings: AgentSessionSettings
+      capabilities?: string[]
+      presetName?: string
+      title: string
+    }): string {
+      const id = mintSessionId()
+      const now = Date.now()
+      const settings = input.capabilities
+        ? { ...input.settings, capabilities: [...input.capabilities] }
+        : { ...input.settings }
+      rewriteSession(id, {
+        id,
+        workspaceDir: input.workspaceDir,
+        title: input.title,
+        messages: [],
+        createdAt: now,
+        updatedAt: now,
+        presetName: input.presetName ?? AGENT_PRESET,
+        settings,
+      })
+      return id
+    }
+
+    function refuseSend(
+      reason: Exclude<SendToSessionResult, { ok: true }>['reason'],
+      message: string,
+      problems?: SessionSettingsProblem[],
+    ): SendToSessionResult {
+      return { ok: false, reason, message, ...(problems ? { problems } : {}) }
+    }
+
+    /**
+     * Send to any session; one not open (or `useStoredSettings`) runs on its record, not the
+     * live controls. Resolves once handed off or refused; the end comes via `onTurnSettled`.
+     */
+    async function sendToSession(
+      sessionId: string,
+      prompt: string,
+      options: { useStoredSettings?: boolean } = {},
+    ): Promise<SendToSessionResult> {
+      const record = sessions.value[sessionId]
+      const live = sessionId === openSessionId.value && !options.useStoredSettings
+      if (!record && !live) return refuseSend('no-session', `No agent session ${sessionId}.`)
+      if (turns.runtimeOf(sessionId)?.hasTurn()) {
+        return refuseSend('busy', 'This session already has a turn in flight.')
+      }
+      let context: TurnContext
+      if (live) {
+        if (await blockedBySettingsProblems()) {
+          return refuseSend(
+            'settings-problems',
+            i18n.state.AGENT_SETTINGS_UNUSABLE ?? '',
+            settingsProblems.value,
+          )
+        }
+        context = liveTurnContext()
+      } else {
+        context = storedTurnContext(record!)
+        await loadMcpServersFor(context.capabilities)
+        const problems = problemsOf({ ...context.settings, capabilities: context.capabilities })
+        if (problems.length > 0) {
+          return refuseSend(
+            'settings-problems',
+            problems.map((p) => `${p.field}: ${p.value}`).join(', '),
+            problems,
+          )
+        }
+      }
+      if (!context.workspaceDir || !(await window.electronAPI.existsPath(context.workspaceDir))) {
+        return refuseSend(
+          'missing-folder',
+          `The workspace folder is missing: ${context.workspaceDir}`,
+        )
+      }
+      if (turns.runtimeOf(sessionId)?.hasTurn()) {
+        return refuseSend('busy', 'This session already has a turn in flight.')
+      }
+      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt })).catch((error) =>
+        errors.report(error, {
+          category: 'inference',
+          code: 'agent/turn-failed',
+          surface: 'silent',
+        }),
+      )
+      return { ok: true }
     }
 
     /** Stop one session's turn and save its transcript as it stands. */
@@ -1444,6 +1628,10 @@ export const useAgentMode = defineStore(
       startNew,
       reconcileWorkspaceKind,
       generate,
+      createSession,
+      sendToSession,
+      onTurnSettled,
+      stopSession,
       stop,
       newSession,
       switchSession,

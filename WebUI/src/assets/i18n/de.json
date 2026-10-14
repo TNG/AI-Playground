@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Ordner auswählen…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Kein Ordner ausgewählt",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Ändert nur den Ordner, in dem diese Aufgabe läuft. Die geöffnete Sitzung behält ihren eigenen Ordner.",
+  "AGENT_TASK_EDIT_SETTINGS": "Einstellungsvorlage",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Jeder Schritt des nächsten Laufs verwendet diese Einstellungen. Änderungen hier betreffen nie die geöffnete Sitzung, Ihre Standardeinstellungen oder das ausgewählte Gerät.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Arbeitsordner der Aufgabe auswählen",
   "AGENT_TASK_DISCARD_TITLE": "Änderungen verwerfen?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Deine nicht gespeicherten Änderungen an der Aufgabe „{name}“ gehen verloren.",

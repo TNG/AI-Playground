@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Seleziona cartella…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Nessuna cartella selezionata",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Cambia solo la cartella in cui viene eseguita questa attività. La sessione aperta mantiene la propria cartella.",
+  "AGENT_TASK_EDIT_SETTINGS": "Modello di impostazioni",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Ogni passaggio della prossima esecuzione usa queste impostazioni. Modificarle qui non cambia mai la sessione aperta, le impostazioni predefinite o il dispositivo selezionato.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Seleziona la cartella di lavoro dell'attività",
   "AGENT_TASK_DISCARD_TITLE": "Annullare le modifiche?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Le modifiche non salvate all'attività “{name}” andranno perse.",

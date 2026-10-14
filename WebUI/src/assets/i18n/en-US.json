@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Select folder…",
   "AGENT_TASK_EDIT_NO_FOLDER": "No folder selected",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Changes only the folder this task runs in. The open session keeps its own folder.",
+  "AGENT_TASK_EDIT_SETTINGS": "Settings Template",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Every Step of the next run uses these settings. Changing them here never changes the open session, your default settings or the selected device.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Select the task's workspace folder",
   "AGENT_TASK_DISCARD_TITLE": "Discard your changes?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Your unsaved changes to task “{name}” will be lost.",

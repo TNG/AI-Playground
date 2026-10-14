@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "입력이 필요합니다",
   "HISTORY_STATUS_UNSEEN": "새 결과",
   "HISTORY_STATUS_UNSEEN_FAILED": "턴 실패",
+  "AGENT_SESSION_NEEDS_INPUT": "세션 '{title}'에서 입력이 필요합니다",
+  "AGENT_SESSION_OPEN": "열기",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}번째",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}번째",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}번째",

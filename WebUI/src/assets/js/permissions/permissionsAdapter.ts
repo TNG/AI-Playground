@@ -1,5 +1,6 @@
 import { useDialogStore } from '../store/dialogs'
 import { remoteTurnPort } from './remoteTurnPort'
+import { whenSessionInView } from './sessionPromptPort'
 import { extractMessage, isCancellation } from '../errors/appError'
 
 /**
@@ -35,6 +36,7 @@ async function handlePrompt(
             skipConfirmation: request.skipConfirmation,
           })
         } else {
+          await whenSessionInView(request.conversationKey)
           await new Promise<void>((resolve, reject) => {
             useDialogStore().showDownloadDialog(models, resolve, reject)
           })
@@ -43,6 +45,7 @@ async function handlePrompt(
         break
       }
       case 'vram-warning': {
+        await whenSessionInView(request.conversationKey)
         const answer = await new Promise<{ confirmed: boolean; remember: boolean }>((resolve) => {
           useDialogStore().showWarningDialog(
             request.message,

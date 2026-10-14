@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Memerlukan masukan Anda",
   "HISTORY_STATUS_UNSEEN": "Hasil baru",
   "HISTORY_STATUS_UNSEEN_FAILED": "Giliran gagal",
+  "AGENT_SESSION_NEEDS_INPUT": "Sesi '{title}' memerlukan masukan Anda",
+  "AGENT_SESSION_OPEN": "Buka",
   "HISTORY_QUEUE_ORDINAL_ONE": "ke-{n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "ke-{n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "ke-{n}",

@@ -1,11 +1,15 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import type { AgentSession, ExtensionUIContext } from '@earendil-works/pi-coding-agent'
+import type {
+  AgentSession,
+  ExtensionFactory,
+  ExtensionUIContext,
+} from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { loadPi } from './piRuntime.ts'
 import {
   buildSkillsPromptSection,
-  rejectAllPendingToolCalls,
+  rejectPendingToolCalls,
   writeAgentSkills,
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
@@ -85,9 +89,14 @@ export async function endActiveSession(): Promise<void> {
   setActive(null)
   clearAgentTraceContext()
   clearAgentRunIdentity()
-  rejectAllPendingToolCalls('Agent session ended.')
   setMediaSpecialistTurn(null)
   if (!current) return
+  await disposeSession(current)
+}
+
+/** Tears one live session down; the per-call globals are the caller's business. */
+export async function disposeSession(current: ActiveSession): Promise<void> {
+  rejectPendingToolCalls('Agent session ended.', current.sessionId)
   current.unsubscribe()
   await shutdownSessionExtensions(current.session)
   try {
@@ -141,7 +150,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     config.modelConfig.source === 'local'
       ? copySamplingParams(config.modelConfig.samplingParams, config.modelConfig.backend)
       : undefined
-  setAgentTraceContext(traceContext(config.modelConfig, () => samplingParams))
+  const sessionTraceContext = traceContext(config.modelConfig, () => samplingParams)
+  setAgentTraceContext(sessionTraceContext)
   // The model still carries it as well, since that is where pi-ai's own request
   // builders would look if the agent path ever grew support for it.
   const withSampling = samplingParams ? { ...registered, samplingParams } : registered
@@ -252,6 +262,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     skillsOverride: () => ({ skills: [], diagnostics: [] }),
     extensionFactories: [
       ...capabilities.extensionFactories,
+      reclaimBeforeModelCall(sessionId),
       // Pi's agent path ignores `Model.samplingParams`, so the turn's sampling
       // is merged into each request here instead (piSampling.ts).
       createSamplingExtension(
@@ -330,6 +341,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     instructedBaseUrl: runtime.baseUrl,
     unsubscribe,
     samplingParams,
+    traceContext: sessionTraceContext,
     // Whether thinking stops early is the user's setting; what counts as the end
     // of planning belongs to the capability running the session.
     planningEnd: config.planningThinkingOnly === true ? (capabilities.planningEnd ?? null) : null,
@@ -454,11 +466,48 @@ export async function ensureSession(config: AgentModeTurnConfig): Promise<Active
     await reassertPreviewUrl(active)
     return active
   }
+  // A paused turn is still mid-prompt on this session: leave it to that turn,
+  // which disposes it when it ends (`releaseTurnSession`).
+  if (active && agentTurns.get(active.sessionId)?.live === active) setActive(null)
   await endActiveSession()
   const next = await createSession(config)
   applyMediaSpecialistTurn(config)
   setActive(next)
   return next
+}
+
+/**
+ * Puts a turn's session back in charge of the per-call globals once its turn
+ * holds the place again: another session's turn may have run meanwhile, with its
+ * own model registered, trace context and preview server.
+ */
+export async function reapplySession(
+  current: ActiveSession,
+  config: AgentModeTurnConfig,
+): Promise<void> {
+  await registerModel(config.modelConfig)
+  setAgentTraceContext(current.traceContext)
+  applyMediaSpecialistTurn(config)
+  await reassertPreviewUrl(current)
+}
+
+/** A turn ended on a session it kept alive while paused; nothing else will reuse it. */
+export async function releaseTurnSession(current: ActiveSession): Promise<void> {
+  if (current === active) return
+  await disposeSession(current)
+}
+
+/**
+ * A paused turn gave up its Turn Queue place, and Pi is about to call the model
+ * for it again: take the place back first. The `context` event is awaited before
+ * the request is built, so the request goes to the endpoint readiness left behind.
+ */
+function reclaimBeforeModelCall(sessionId: string): ExtensionFactory {
+  return (pi) => {
+    pi.on('context', async () => {
+      await agentTurns.get(sessionId)?.reclaim?.()
+    })
+  }
 }
 
 /**

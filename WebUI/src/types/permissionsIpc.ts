@@ -45,7 +45,11 @@ export const PermissionsPromptBodySchema = z.discriminatedUnion('kind', [
 ])
 export type PermissionsPromptBody = z.infer<typeof PermissionsPromptBodySchema>
 
-export type PermissionsPromptPayload = PermissionsPromptBody & { requestId: string }
+export type PermissionsPromptPayload = PermissionsPromptBody & {
+  requestId: string
+  /** The turn the prompt holds up; its session shows the prompt once it is open. */
+  conversationKey?: string
+}
 
 export type PermissionsPromptResponse =
   | { requestId: string; progress: true }

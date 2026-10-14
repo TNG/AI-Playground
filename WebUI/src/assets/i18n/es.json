@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Necesita tu respuesta",
   "HISTORY_STATUS_UNSEEN": "Nuevo resultado",
   "HISTORY_STATUS_UNSEEN_FAILED": "El turno falló",
+  "AGENT_SESSION_NEEDS_INPUT": "La sesión '{title}' necesita tu respuesta",
+  "AGENT_SESSION_OPEN": "Abrir",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.º",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.º",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.º",

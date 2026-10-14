@@ -89,6 +89,8 @@ import { Input } from '@/components/ui/input'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import HistoryEntryRow from '@/components/HistoryEntryRow.vue'
 import { useHistorySessions } from '@/assets/js/store/historySessions'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { dayLabel, isWorkflowMode, type HistoryEntry } from '@/assets/js/store/historyEntries'
 import { mapModeToLabel } from '@/lib/utils'
 
@@ -97,8 +99,12 @@ const emit = defineEmits<{
 }>()
 
 const history = useHistorySessions()
+const agentMode = useAgentMode()
+const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 async function onSelect(entry: HistoryEntry) {
+  const opensAnotherSession = entry.kind === 'agent' && entry.id !== agentMode.openSessionId
+  if (opensAnotherSession && !(await leaveTaskEdit())) return
   await history.select(entry)
   emit('selected', entry)
 }

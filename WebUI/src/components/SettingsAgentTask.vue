@@ -22,61 +22,7 @@
         <Input id="agent-task-name" v-model="agentTasks.draft.name" autocomplete="off" />
       </div>
 
-      <div class="flex flex-col gap-1.5">
-        <Label id="agent-task-steps">{{ i18n.AGENT_TASK_STEPS }}</Label>
-        <TooltipProvider :delay-duration="200">
-          <ol
-            v-if="agentTasks.draft.steps.length > 0"
-            aria-labelledby="agent-task-steps"
-            class="flex flex-col gap-2"
-          >
-            <li
-              v-for="(step, index) in agentTasks.draft.steps"
-              :key="step.id"
-              :aria-label="stepLabel(index)"
-              class="flex flex-col gap-1 rounded-sm border border-border px-2 py-1.5"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {{ stepLabel(index) }}
-                </span>
-                <div class="flex items-center gap-1">
-                  <Tooltip v-for="control in stepControls(step.id, index)" :key="control.kind">
-                    <TooltipTrigger as-child>
-                      <button
-                        type="button"
-                        class="size-6 flex items-center justify-center rounded-xs bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
-                        :aria-label="control.label"
-                        :disabled="control.disabled"
-                        @click="control.run"
-                      >
-                        <component :is="control.icon" class="size-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{{ control.label }}</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-              <Textarea
-                v-model="step.prompt"
-                :aria-label="stepTextLabel(index)"
-                class="min-h-16 text-xs"
-              />
-            </li>
-          </ol>
-        </TooltipProvider>
-        <p v-if="agentTasks.draft.steps.length === 0" class="text-xs text-muted-foreground italic">
-          {{ i18n.AGENT_TASK_NO_STEPS_YET }}
-        </p>
-        <Button
-          variant="secondary"
-          class="self-start px-3 py-1.5 rounded text-sm"
-          @click="agentTasks.addStep()"
-        >
-          <PlusIcon class="size-4" />
-          {{ i18n.AGENT_TASK_ADD_STEP }}
-        </Button>
-      </div>
+      <TaskStepsEditor v-model:steps="agentTasks.draft.steps" id-prefix="agent-task" />
 
       <p class="text-xs text-muted-foreground break-all">{{ summary }}</p>
 
@@ -115,15 +61,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type Component } from 'vue'
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  ChevronDownIcon,
-  PlusIcon,
-  TrashIcon,
-} from '@heroicons/vue/24/outline'
-import { useAgentTasks, type SaveTaskBlocker } from '@/assets/js/store/agentTasks'
+import { computed, ref } from 'vue'
+import { ChevronDownIcon } from '@heroicons/vue/24/outline'
+import { SAVE_TASK_BLOCKER_KEYS, useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import { textInferenceBackendDisplayName } from '@/assets/js/store/textInference'
 import {
@@ -140,8 +80,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import * as toast from '@/assets/js/toast'
 
 const agentTasks = useAgentTasks()
@@ -153,15 +92,8 @@ const confirmReplaceOpen = ref(false)
 
 const hasSessionSteps = computed(() => agentTasks.stepsFromSession().length > 0)
 
-const BLOCKER_KEYS: Record<SaveTaskBlocker, string> = {
-  name: 'AGENT_TASK_BLOCKED_NAME',
-  'no-steps': 'AGENT_TASK_BLOCKED_NO_STEPS',
-  'empty-step': 'AGENT_TASK_BLOCKED_EMPTY_STEP',
-  'no-folder': 'AGENT_TASK_BLOCKED_NO_FOLDER',
-}
-
 const blockerText = computed(() =>
-  agentTasks.draftBlocker ? i18n[BLOCKER_KEYS[agentTasks.draftBlocker]] : '',
+  agentTasks.draftBlocker ? i18n[SAVE_TASK_BLOCKER_KEYS[agentTasks.draftBlocker]] : '',
 )
 
 const summary = computed(() => {
@@ -176,60 +108,6 @@ const summary = computed(() => {
   // A replacer function, so a `$` in a folder or model name is kept as typed.
   return i18n.AGENT_TASK_SUMMARY.replace(/\{(\w+)\}/g, (token, name) => values[name] ?? token)
 })
-
-type NumberedKey =
-  | 'AGENT_TASK_STEP_LABEL'
-  | 'AGENT_TASK_STEP_TEXT'
-  | 'AGENT_TASK_MOVE_STEP_UP'
-  | 'AGENT_TASK_MOVE_STEP_DOWN'
-  | 'AGENT_TASK_REMOVE_STEP'
-
-function numbered(key: NumberedKey, index: number): string {
-  return i18n[key].replace('{number}', String(index + 1))
-}
-
-function stepLabel(index: number): string {
-  return numbered('AGENT_TASK_STEP_LABEL', index)
-}
-
-function stepTextLabel(index: number): string {
-  return numbered('AGENT_TASK_STEP_TEXT', index)
-}
-
-type StepControl = {
-  kind: 'up' | 'down' | 'remove'
-  label: string
-  icon: Component
-  disabled: boolean
-  run: () => void
-}
-
-function stepControls(id: string, index: number): StepControl[] {
-  const last = agentTasks.draft.steps.length - 1
-  return [
-    {
-      kind: 'up',
-      label: numbered('AGENT_TASK_MOVE_STEP_UP', index),
-      icon: ArrowUpIcon,
-      disabled: index === 0,
-      run: () => agentTasks.moveStep(id, 'up'),
-    },
-    {
-      kind: 'down',
-      label: numbered('AGENT_TASK_MOVE_STEP_DOWN', index),
-      icon: ArrowDownIcon,
-      disabled: index === last,
-      run: () => agentTasks.moveStep(id, 'down'),
-    },
-    {
-      kind: 'remove',
-      label: numbered('AGENT_TASK_REMOVE_STEP', index),
-      icon: TrashIcon,
-      disabled: false,
-      run: () => agentTasks.removeStep(id),
-    },
-  ]
-}
 
 function createFromSession(): void {
   if (agentTasks.draft.steps.length > 0) confirmReplaceOpen.value = true

@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.",
   "HISTORY_TASK_FILTER_CHIP": "Görev: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Görev filtresini temizle",
-  "HISTORY_TASK_FILTER_EMPTY": "Bu görevden henüz oturum yok"
+  "HISTORY_TASK_FILTER_EMPTY": "Bu görevden henüz oturum yok",
+  "HISTORY_TASK_PICKER_CHIP": "Görev",
+  "HISTORY_TASK_PICKER_LABEL": "Göreve göre filtrele",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Henüz görev yok"
 }

@@ -547,20 +547,6 @@ describe('a run that fails', () => {
     expect(sentPrompts()).toEqual(['one', 'two'])
   })
 
-  it('settles failed without any turn when the Settings Template is unusable', async () => {
-    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
-    const { tasks } = await readyStores(task('t1', ['one', 'two']))
-
-    await tasks.runTask('t1')
-
-    expect(await settledOutcome(tasks, 't1')).toMatchObject({
-      kind: 'failed',
-      stepIndex: 1,
-      message: 'model “Template-27B” is no longer available.',
-    })
-    expect(startTurn).not.toHaveBeenCalled()
-  })
-
   it('settles failed without any turn when the folder is missing', async () => {
     vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
     const { tasks } = await readyStores(task('t1', ['one']))
@@ -623,6 +609,81 @@ describe('a run that fails', () => {
         expect.objectContaining({ code: 'agent/turn-failed', surface: 'toast' }),
       ),
     )
+  })
+})
+
+describe('a Task whose Settings Template has a problem', () => {
+  const missingModel = { field: 'model', value: 'Template-27B' }
+
+  it('reports the missing model', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(tasks.taskProblems('t1')).toEqual([missingModel])
+  })
+
+  it('reports nothing for a healthy Task', async () => {
+    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(tasks.taskProblems('t1')).toEqual([])
+  })
+
+  it('clears the problem once the model is back', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    inference.catalog = [...inference.catalog, { name: 'Template-27B', type: 'llamaCPP' }]
+
+    expect(tasks.taskProblems('t1')).toEqual([])
+  })
+
+  it('refuses to run with the reason, creating no Task Session and no outcome', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    expect(await tasks.runTask('t1')).toEqual({
+      ok: false,
+      reason: 'settings-problems',
+      problems: [missingModel],
+      message: 'model “Template-27B” is no longer available.',
+    })
+
+    await settleMicrotasks()
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(saveSession).not.toHaveBeenCalled()
+    expect(tasks.taskState('t1')).toEqual({ idle: undefined })
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+
+  it('fails the run at the next Step when the model goes missing mid-run', async () => {
+    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    await finishTurn(0)
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      stepIndex: 2,
+      message: 'model “Template-27B” is no longer available.',
+    })
+    expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it('runs once the problem is fixed', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    expect((await tasks.runTask('t1')).ok).toBe(false)
+
+    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual(['one'])
   })
 })
 

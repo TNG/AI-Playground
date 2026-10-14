@@ -37,7 +37,7 @@ import {
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
 import {
-  describeSettingsProblem,
+  describeSettingsProblems,
   sessionSettingsProblems,
   type SessionSettingsProblem,
 } from '@/lib/sessionSettingsProblems'
@@ -258,6 +258,7 @@ export const useAgentMode = defineStore(
     /** Live values right after a sent session loaded; fields still equal to them were not edited. */
     let loadedBaseline: AgentSessionSettings | null = null
 
+    /** What in these settings can no longer be used; missing MCP servers only once they are listed. */
     function problemsOf(settings: AgentSessionSettings): SessionSettingsProblem[] {
       return sessionSettingsProblems(settings, {
         ...textInference.settingsAvailability,
@@ -1552,7 +1553,7 @@ export const useAgentMode = defineStore(
         if (problems.length > 0) {
           return refuseSend(
             'settings-problems',
-            problems.map((p) => describeSettingsProblem(p, i18n.state)).join(' '),
+            describeSettingsProblems(problems, i18n.state),
             problems,
           )
         }
@@ -1625,6 +1626,8 @@ export const useAgentMode = defineStore(
       openSessionSettings,
       sessionScoped,
       settingsProblems,
+      problemsOf,
+      loadMcpServersFor,
       saveAsDefault,
       resetToDefault,
       migrateAgentDefaults,

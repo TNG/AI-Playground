@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "실행 중: {count}단계 중 {step}단계",
   "AGENT_TASKS_STOP": "작업 {name} 중지",
   "AGENT_TASKS_OPEN_SESSION": "작업 {name}의 세션 열기",
+  "AGENT_TASKS_PROBLEM": "이 작업의 설정을 지금 사용할 수 없습니다. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "이 작업을 실행할 수 없습니다. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "작업 “{name}” 실행 중입니다. 이 세션에 입력하려면 중지하세요.",
   "AGENT_TASK_STOP_RUN": "작업 중지",
   "AGENT_TASK_DELETE_FAILED": "작업을 삭제할 수 없습니다.",

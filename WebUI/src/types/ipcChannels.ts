@@ -7,6 +7,7 @@ import type {
   GameLibraryEntry,
 } from './agentIpc'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
+import type { AgentTask } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
 import type {
@@ -312,6 +313,27 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [unknown],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every saved Task; an absent file reads as none, an unreadable one fails. */
+  'agentMode:readTasks': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ tasks: AgentTask[] }>,
+  },
+  /** Insert a Task, or replace the one with its id. */
+  'agentMode:saveTask': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentTask],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete one Task; the sessions it created stay. */
+  'agentMode:deleteTask': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
   /** Copy an attached file into the workspace; the answer carries its relative path. */

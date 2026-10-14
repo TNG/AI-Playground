@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "正在运行第 {step} 步（共 {count} 步）",
   "AGENT_TASKS_STOP": "停止任务 {name}",
   "AGENT_TASKS_OPEN_SESSION": "打开任务 {name} 的会话",
+  "AGENT_TASKS_PROBLEM": "此任务的设置当前无法使用。{reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "无法运行此任务。{reason}",
   "AGENT_TASK_SESSION_LOCKED": "任务“{name}”正在运行。停止任务后即可在此会话中输入。",
   "AGENT_TASK_STOP_RUN": "停止任务",
   "AGENT_TASK_DELETE_FAILED": "无法删除任务。",

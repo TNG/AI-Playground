@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "正在執行第 {step} 步（共 {count} 步）",
   "AGENT_TASKS_STOP": "停止任務 {name}",
   "AGENT_TASKS_OPEN_SESSION": "開啟任務 {name} 的工作階段",
+  "AGENT_TASKS_PROBLEM": "此任務的設定目前無法使用。{reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "無法執行此任務。{reason}",
   "AGENT_TASK_SESSION_LOCKED": "任務「{name}」正在執行。停止任務後即可在此工作階段中輸入。",
   "AGENT_TASK_STOP_RUN": "停止任務",
   "AGENT_TASK_DELETE_FAILED": "無法刪除任務。",

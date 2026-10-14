@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "実行中: ステップ {step}/{count}",
   "AGENT_TASKS_STOP": "タスク {name} を停止",
   "AGENT_TASKS_OPEN_SESSION": "タスク {name} のセッションを開く",
+  "AGENT_TASKS_PROBLEM": "このタスクの設定は現在使用できません。{reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "このタスクを実行できません。{reason}",
   "AGENT_TASK_SESSION_LOCKED": "タスク「{name}」を実行中です。このセッションに入力するには停止してください。",
   "AGENT_TASK_STOP_RUN": "タスクを停止",
   "AGENT_TASK_DELETE_FAILED": "タスクを削除できませんでした。",

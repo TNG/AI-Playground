@@ -672,5 +672,6 @@
   "HISTORY_TASK_PICKER_CHIP": "Aufgabe",
   "HISTORY_TASK_PICKER_LABEL": "Nach Aufgabe filtern",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
-  "HISTORY_TASK_PICKER_EMPTY": "Noch keine Aufgaben"
+  "HISTORY_TASK_PICKER_EMPTY": "Noch keine Aufgaben",
+  "HISTORY_TASK_MARKER": "Aus Aufgabe: {name}"
 }

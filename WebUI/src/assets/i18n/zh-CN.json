@@ -672,5 +672,6 @@
   "HISTORY_TASK_PICKER_CHIP": "任务",
   "HISTORY_TASK_PICKER_LABEL": "按任务筛选",
   "HISTORY_TASK_PICKER_ENTRY": "{name}（{count}）",
-  "HISTORY_TASK_PICKER_EMPTY": "暂无任务"
+  "HISTORY_TASK_PICKER_EMPTY": "暂无任务",
+  "HISTORY_TASK_MARKER": "来自任务：{name}"
 }

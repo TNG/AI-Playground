@@ -672,5 +672,6 @@
   "HISTORY_TASK_PICKER_CHIP": "작업",
   "HISTORY_TASK_PICKER_LABEL": "작업별 필터",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
-  "HISTORY_TASK_PICKER_EMPTY": "아직 작업이 없습니다"
+  "HISTORY_TASK_PICKER_EMPTY": "아직 작업이 없습니다",
+  "HISTORY_TASK_MARKER": "작업에서: {name}"
 }

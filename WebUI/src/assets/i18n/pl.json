@@ -672,5 +672,6 @@
   "HISTORY_TASK_PICKER_CHIP": "Zadanie",
   "HISTORY_TASK_PICKER_LABEL": "Filtruj według zadania",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
-  "HISTORY_TASK_PICKER_EMPTY": "Brak zadań"
+  "HISTORY_TASK_PICKER_EMPTY": "Brak zadań",
+  "HISTORY_TASK_MARKER": "Z zadania: {name}"
 }

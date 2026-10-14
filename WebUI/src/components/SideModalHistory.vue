@@ -30,7 +30,7 @@
       </AlertDialog>
       <!-- "New" follows the mode: a new game or agent conversation, a new chat
            thread, a blank canvas. -->
-      <button @click="history.startNew()" class="svg-icon i-add w-7 h-7" :title="newTitle" />
+      <button @click="startNew" class="svg-icon i-add w-7 h-7" :title="newTitle" />
     </template>
 
     <HistoryList @selected="onSelected" />
@@ -56,6 +56,7 @@ import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { isWorkflowMode, type HistoryEntry } from '@/assets/js/store/historyEntries'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 
 defineProps<{
   isVisible: boolean
@@ -69,6 +70,7 @@ const emit = defineEmits<{
 const history = useHistorySessions()
 const agentMode = useAgentMode()
 const i18nState = useI18N().state
+const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 const showClearMedia = computed(
   () => history.filter === 'current' && isWorkflowMode(history.currentMode),
@@ -79,6 +81,11 @@ const newTitle = computed(() =>
     ? 'New game'
     : i18nState.COM_ADD,
 )
+
+async function startNew() {
+  if (history.currentMode === 'agent' && !(await leaveTaskEdit())) return
+  await history.startNew()
+}
 
 function onSelected(entry: HistoryEntry) {
   if (entry.kind === 'conversation') emit('conversationSelected')

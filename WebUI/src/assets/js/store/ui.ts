@@ -12,6 +12,9 @@ export const useUIStore = defineStore('ui', () => {
   // closing it should return the user to exactly the view they were in.
   const showModelManager = ref(false)
 
+  // The right-hand settings sidebar of the current mode.
+  const showSettings = ref(false)
+
   function openHistory() {
     leftPanel.value = 'history'
   }
@@ -26,6 +29,14 @@ export const useUIStore = defineStore('ui', () => {
 
   function closeTasks() {
     if (leftPanel.value === 'tasks') leftPanel.value = null
+  }
+
+  function openSettings() {
+    showSettings.value = true
+  }
+
+  function closeSettings() {
+    showSettings.value = false
   }
 
   function openModelManager() {
@@ -44,6 +55,9 @@ export const useUIStore = defineStore('ui', () => {
     showTasks,
     openTasks,
     closeTasks,
+    showSettings,
+    openSettings,
+    closeSettings,
     showModelManager,
     openModelManager,
     closeModelManager,

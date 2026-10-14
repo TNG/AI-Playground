@@ -257,10 +257,11 @@
     </div>
 
     <SideModalSpecificSettings
-      :isVisible="showSpecificSettings"
+      :isVisible="uiStore.showSettings"
       :mode="promptStore.getCurrentMode()"
-      @close="showSpecificSettings = false"
+      @close="closeSpecificSettings"
     />
+    <TaskEditDiscardDialog />
     <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
          decides, and the download / delete dialogs this view opens must be able
          to appear on top of it. -->
@@ -382,6 +383,8 @@ import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
 import SideModalSpecificSettings from '@/components/SideModalSpecificSettings.vue'
+import TaskEditDiscardDialog from '@/components/TaskEditDiscardDialog.vue'
+import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import * as toast from '@/assets/js/toast'
@@ -408,6 +411,7 @@ const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 const agentMode = useAgentMode()
+const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
@@ -423,7 +427,6 @@ const isOpen = ref(false)
 const footerExpanded = ref(true)
 const showAppSettings = ref(false)
 const fullscreen = ref(false)
-const showSpecificSettings = ref(false)
 const tasksAvailable = computed(
   () => promptStore.getCurrentMode() === 'agent' && agentMode.sessionScoped,
 )
@@ -550,7 +553,12 @@ function openHistory() {
 }
 
 function openSpecificSettings() {
-  showSpecificSettings.value = !showSpecificSettings.value
+  if (uiStore.showSettings) void closeSpecificSettings()
+  else uiStore.openSettings()
+}
+
+async function closeSpecificSettings() {
+  if (await leaveTaskEdit()) uiStore.closeSettings()
 }
 
 function openAppSettings() {

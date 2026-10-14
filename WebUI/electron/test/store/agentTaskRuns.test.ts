@@ -68,7 +68,11 @@ const inference = vi.hoisted(() => {
     activeLlmModel: null,
     embeddingBackend: 'llamaCPP' as const,
   }
-  return { base, live: { ...base, backend: 'llamaCPP', activeModel: 'Live-9B' } }
+  return {
+    base,
+    live: { ...base, backend: 'llamaCPP', activeModel: 'Live-9B' },
+    catalog: [] as { name: string; type: string }[],
+  }
 })
 
 vi.mock('@/assets/js/store/textInference', () => ({
@@ -81,13 +85,15 @@ vi.mock('@/assets/js/store/textInference', () => ({
     ensureReadyForInference: vi.fn(),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
-    settingsAvailability: {
-      models: [],
-      embeddingModels: [],
-      services: [],
-      cloudEnabled: false,
-      cloudProviderIds: [],
-      embeddingBackend: 'llamaCPP',
+    get settingsAvailability() {
+      return {
+        models: inference.catalog,
+        embeddingModels: [],
+        services: [],
+        cloudEnabled: false,
+        cloudProviderIds: [],
+        embeddingBackend: 'llamaCPP',
+      }
     },
     inferenceForSettings: (_presetName: string, settings: AgentSessionSettings) => ({
       inference: {
@@ -120,7 +126,8 @@ vi.mock('@/assets/js/store/developerSettings', () => ({
   useDeveloperSettings: () => ({ keepModelsLoaded: false }),
 }))
 
-vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: vi.fn() }) }))
+const errorsReport = vi.hoisted(() => vi.fn())
+vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: errorsReport }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
   useI18N: () => ({ langName: 'en-US', state: {} }),
@@ -183,6 +190,7 @@ beforeEach(() => {
   storedTasks = []
   activePreset.state!.preset = AGENT
   inference.live.activeModel = 'Live-9B'
+  inference.catalog = []
   startTurn.mockImplementation(async () => ({ success: true, error: undefined }))
   const storage = new Map<string, string>()
   const storageShim = {
@@ -499,5 +507,222 @@ describe('a run in the background', () => {
     await turnIdOf(1)
     expect(sentConfig(1)).toMatchObject({ sessionId, modelConfig: { model: 'Template-27B' } })
     expect(window.electronAPI.agentMode.cancel).not.toHaveBeenCalled()
+  })
+})
+
+/** End the turn the `call`-th `startTurn` started with an error chunk. */
+async function failTurn(call: number, errorText: string): Promise<void> {
+  const turnId = await turnIdOf(call)
+  const sessionId = sentConfig(call).sessionId
+  pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk: { type: 'start' } })
+  pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk: { type: 'error', errorText } })
+  pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+}
+
+async function settledOutcome(tasks: ReturnType<typeof useAgentTasks>, id: string) {
+  await vi.waitFor(() => expect(tasks.taskState(id)).toHaveProperty('idle'))
+  const state = tasks.taskState(id)
+  return 'idle' in state ? state.idle : undefined
+}
+
+describe('a run that fails', () => {
+  it('settles failed on the Step whose turn errored, and sends no further Step', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    const sessionId = sentConfig(0).sessionId
+
+    await failTurn(1, 'model refused')
+
+    const outcome = {
+      kind: 'failed',
+      sessionId,
+      stepIndex: 2,
+      stepCount: 3,
+      message: 'model refused',
+    }
+    expect(await settledOutcome(tasks, 't1')).toMatchObject(outcome)
+    expect(lastSavedTask('t1')?.lastOutcome).toMatchObject(outcome)
+    await settleMicrotasks()
+    expect(sentPrompts()).toEqual(['one', 'two'])
+  })
+
+  it('settles failed without any turn when the Settings Template is unusable', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+
+    await tasks.runTask('t1')
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      stepIndex: 1,
+      message: 'model “Template-27B” is no longer available.',
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('settles failed without any turn when the folder is missing', async () => {
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    await tasks.runTask('t1')
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      stepIndex: 1,
+      message: expect.stringContaining('/work/task'),
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('settles failed when main refuses to start the turn', async () => {
+    startTurn.mockImplementation(async () => ({ success: false, error: 'refused by main' }))
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+
+    await tasks.runTask('t1')
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      stepIndex: 1,
+      message: 'refused by main',
+    })
+    await settleMicrotasks()
+    expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it('records the failure in the error sink silently, without toasting it', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await failTurn(0, 'model refused')
+    await settledOutcome(tasks, 't1')
+
+    expect(errorsReport).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'agent-tasks/run-failed', surface: 'silent' }),
+    )
+    const surfaces = errorsReport.mock.calls.map(([error, overrides]) => ({
+      ...(error as object),
+      ...(overrides as object),
+    }))
+    expect(surfaces).not.toContainEqual(expect.objectContaining({ surface: 'toast' }))
+  })
+
+  it('toasts a failed turn in the Task Session again once the run is over', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    const sessionId = sentConfig(0).sessionId
+    errorsReport.mockClear()
+
+    await agentMode.sendToSession(sessionId, 'more', { useStoredSettings: true })
+    await failTurn(1, 'model refused')
+
+    await vi.waitFor(() =>
+      expect(errorsReport).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ code: 'agent/turn-failed', surface: 'toast' }),
+      ),
+    )
+  })
+})
+
+describe('stopping a run', () => {
+  const cancel = () => vi.mocked(window.electronAPI.agentMode.cancel)
+
+  async function expectStopped(tasks: ReturnType<typeof useAgentTasks>, stepIndex: number) {
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped', stepIndex })
+    expect(lastSavedTask('t1')?.lastOutcome).toMatchObject({ kind: 'stopped', stepIndex })
+    await settleMicrotasks()
+  }
+
+  it('cancels a running Step and sends no further Step', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    const turnId = await turnIdOf(1)
+    const sessionId = sentConfig(1).sessionId
+
+    await tasks.stopTask('t1')
+
+    expect(cancel()).toHaveBeenCalledWith(sessionId, turnId)
+    await expectStopped(tasks, 2)
+    expect(sentPrompts()).toEqual(['one', 'two'])
+  })
+
+  it.each(['queued', 'paused'] as const)('cancels a %s Step', async (state) => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    const turnId = await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    pushEvent({ type: 'agent-turn-state', sessionId, turnId, state })
+
+    await tasks.stopTask('t1')
+
+    expect(cancel()).toHaveBeenCalledWith(sessionId, turnId)
+    await expectStopped(tasks, 1)
+    expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it('settles stopped when the Task Session’s turn is stopped directly', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    await agentMode.switchSession(sessionId)
+
+    await agentMode.stop()
+
+    await expectStopped(tasks, 1)
+    expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it('does not send a Step that was being handed off when stopped', async () => {
+    let release: () => void = () => {}
+    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+      () => new Promise<boolean>((resolve) => (release = () => resolve(true))),
+    )
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+
+    await tasks.stopTask('t1')
+    release()
+
+    await expectStopped(tasks, 1)
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stop for a Task that is not running', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.stopTask('t1')
+    expect(tasks.taskState('t1')).toEqual({ idle: undefined })
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('running again', () => {
+  it.each([
+    ['failed', () => failTurn(0, 'boom')],
+    ['stopped', (tasks: ReturnType<typeof useAgentTasks>) => tasks.stopTask('t1')],
+  ] as const)('runs again after %s, keeping only the latest outcome', async (_kind, end) => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    await end(tasks)
+    await settledOutcome(tasks, 't1')
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    await finishTurn(1)
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({ kind: 'completed', sessionId: sentConfig(1).sessionId }),
+      }),
+    )
+    const saved = lastSavedTask('t1')!
+    expect(saved.lastOutcome).toEqual(
+      expect.objectContaining({ kind: 'completed', sessionId: sentConfig(1).sessionId }),
+    )
+    expect(saved.lastOutcome).not.toHaveProperty('message')
+    expect(saved.lastOutcome).not.toHaveProperty('stepIndex')
   })
 })

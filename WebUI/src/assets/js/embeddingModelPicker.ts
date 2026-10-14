@@ -15,9 +15,14 @@ export type EmbeddingPickerItem = {
   active: boolean
 }
 
-export function embeddingPickerState(models: readonly EmbeddingPickerModel[], backend: string) {
+/** `selected` is a draft's pick; without one the picker shows the store's active model. */
+export function embeddingPickerState(
+  models: readonly EmbeddingPickerModel[],
+  backend: string,
+  selected?: string,
+) {
   const forBackend = models.filter((model) => model.type === backend)
-  const activeName = forBackend.find((model) => model.active)?.name ?? ''
+  const activeName = selected ?? forBackend.find((model) => model.active)?.name ?? ''
   const items: EmbeddingPickerItem[] = sortFavoritesFirst(forBackend).map((item) => ({
     label: item.name.split('/').at(-1) ?? item.name,
     value: item.name,
@@ -29,8 +34,11 @@ export function embeddingPickerState(models: readonly EmbeddingPickerModel[], ba
 export function useEmbeddingModelPicker(
   models: MaybeRefOrGetter<readonly EmbeddingPickerModel[]>,
   backend: MaybeRefOrGetter<string>,
+  selected?: MaybeRefOrGetter<string | undefined>,
 ) {
-  const state = computed(() => embeddingPickerState(toValue(models), toValue(backend)))
+  const state = computed(() =>
+    embeddingPickerState(toValue(models), toValue(backend), toValue(selected)),
+  )
   const activeName = computed(() => state.value.activeName)
   const items = computed(() => state.value.items)
   return { activeName, items }

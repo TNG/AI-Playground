@@ -1,13 +1,14 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { DEFAULT_RESOLUTION_CONFIG, getResolutionsFromConfig } from '../store/imageGenerationUtils'
 import { tool } from 'ai'
 
-// Helper function to get available workflows for the tool
-export function getAvailableWorkflows(): Array<{
+/** `isEnabled` defaults to the chat store's per-workflow toggles. */
+export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolean): Array<{
   name: string
   mediaType?: 'image' | 'video' | 'model3d'
   description?: string
@@ -38,7 +39,7 @@ export function getAvailableWorkflows(): Array<{
       // workflows, so a verification run can't wander into a real model.
       if (dummyWorkflowsOnly()) return DEV_PRESET_NAMES.has(preset.name)
       // Honour the per-workflow sub-checkboxes (Settings › Built-in tools).
-      return textInference.isWorkflowPresetEnabled(preset.name)
+      return (isEnabled ?? textInference.isWorkflowPresetEnabled)(preset.name)
     })
     .map((preset: Preset) => {
       const comfyPreset = preset as ComfyUiPreset
@@ -139,8 +140,12 @@ function findFastVariant(preset: Preset): string | null {
 // presets. These are standalone, explicitly-typed helpers on purpose: keeping the
 // heavy `useTextInference()` store type out of `getToolDefinition` (whose inferred
 // shape feeds the ai-SDK `tool()` generics) avoids a type-instantiation blow-up.
-export function resolveDefaultImageWorkflow(imageNames: string[]): string {
-  return useTextInference().getDefaultWorkflow('comfyUI:image', imageNames) ?? 'Draft Image'
+export function resolveDefaultImageWorkflow(
+  imageNames: string[],
+  settings?: Pick<MediaToolSettings, 'defaultWorkflow'>,
+): string {
+  const defaultWorkflow = settings?.defaultWorkflow ?? useTextInference().getDefaultWorkflow
+  return defaultWorkflow('comfyUI:image', imageNames) ?? 'Draft Image'
 }
 
 /**

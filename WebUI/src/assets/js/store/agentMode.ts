@@ -464,7 +464,10 @@ export const useAgentMode = defineStore(
     }
 
     function setCapabilityEnabled(id: string, enabled: boolean): void {
-      const next = toggleCapabilityIds(capabilities.value, id, enabled)
+      setCapabilities(toggleCapabilityIds(capabilities.value, id, enabled))
+    }
+
+    function setCapabilities(next: string[]): void {
       if (sessionScoped.value) {
         updateOpenSettings({ capabilities: next })
         return
@@ -1612,6 +1615,7 @@ export const useAgentMode = defineStore(
       capabilities,
       isCapabilityEnabled,
       setCapabilityEnabled,
+      setCapabilities,
       resetPresetSettings,
       migrateMcpServerIds,
       adoptWebCapability,

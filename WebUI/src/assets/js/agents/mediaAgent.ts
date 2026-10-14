@@ -13,6 +13,7 @@ import { mediaEntriesOf } from '@/lib/mediaAgentResult'
 import { serializeToolSet } from '@/lib/chatToolRegistry'
 import type { ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
 import type { KernelMediaAgentEvent } from '@/types/kernelEvents'
+import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 
 // ── Media agent ───────────────────────────────────────────────────────────────
 //
@@ -185,11 +186,15 @@ export function serializeMediaAgentInner(): MediaAgentInnerTools | undefined {
 }
 
 // Re-exported so callers (agent bridge) can pre-flight without running a turn.
-export function mediaAgentHasTools(): boolean {
+// `settings` defaults to the chat store's live media tool settings.
+export function mediaAgentHasTools(
+  settings?: Pick<MediaToolSettings, 'isToolEnabled' | 'isWorkflowEnabled'>,
+): boolean {
   const textInference = useTextInference()
+  const isToolEnabled = settings?.isToolEnabled ?? textInference.isBuiltinToolEnabled
+  const isWorkflowEnabled = settings?.isWorkflowEnabled
   return (
-    (textInference.isBuiltinToolEnabled('comfyUI') && getAvailableWorkflows().length > 0) ||
-    (textInference.isBuiltinToolEnabled('comfyUiImageEdit') &&
-      getAvailableEditWorkflows().length > 0)
+    (isToolEnabled('comfyUI') && getAvailableWorkflows(isWorkflowEnabled).length > 0) ||
+    (isToolEnabled('comfyUiImageEdit') && getAvailableEditWorkflows(isWorkflowEnabled).length > 0)
   )
 }

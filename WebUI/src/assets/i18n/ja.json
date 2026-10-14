@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "フォルダーを選択…",
   "AGENT_TASK_EDIT_NO_FOLDER": "フォルダーが選択されていません",
   "AGENT_TASK_EDIT_FOLDER_HINT": "このタスクを実行するフォルダーだけを変更します。開いているセッションは自身のフォルダーを保持します。",
+  "AGENT_TASK_EDIT_SETTINGS": "設定テンプレート",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "次回の実行のすべてのステップでこの設定が使われます。ここで変更しても、開いているセッション、既定の設定、選択中のデバイスは変更されません。",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "タスクの作業フォルダーを選択",
   "AGENT_TASK_DISCARD_TITLE": "変更を破棄しますか?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "タスク「{name}」への未保存の変更は失われます。",

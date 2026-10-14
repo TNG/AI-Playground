@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "选择文件夹…",
   "AGENT_TASK_EDIT_NO_FOLDER": "未选择文件夹",
   "AGENT_TASK_EDIT_FOLDER_HINT": "仅更改此任务运行所在的文件夹。打开的会话保留其自己的文件夹。",
+  "AGENT_TASK_EDIT_SETTINGS": "设置模板",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "下一次运行的每个步骤都使用这些设置。在此处更改不会影响打开的会话、你的默认设置或所选设备。",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "选择任务的工作文件夹",
   "AGENT_TASK_DISCARD_TITLE": "放弃更改？",
   "AGENT_TASK_DISCARD_DESCRIPTION": "对任务“{name}”的未保存更改将会丢失。",

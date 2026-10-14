@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Wybierz folder…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Nie wybrano folderu",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Zmienia tylko folder, w którym działa to zadanie. Otwarta sesja zachowuje własny folder.",
+  "AGENT_TASK_EDIT_SETTINGS": "Szablon ustawień",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Każdy krok następnego uruchomienia używa tych ustawień. Zmiana ich tutaj nigdy nie zmienia otwartej sesji, ustawień domyślnych ani wybranego urządzenia.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Wybierz folder roboczy zadania",
   "AGENT_TASK_DISCARD_TITLE": "Odrzucić zmiany?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Niezapisane zmiany w zadaniu „{name}” zostaną utracone.",

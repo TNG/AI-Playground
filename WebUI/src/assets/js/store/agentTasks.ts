@@ -14,6 +14,10 @@ import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import {
+  describeSettingsProblems,
+  type SessionSettingsProblem,
+} from '@/lib/sessionSettingsProblems'
 
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
 
@@ -35,7 +39,10 @@ export type TaskState = { running: TaskRun } | { idle: AgentTaskOutcome | undefi
 export type SaveTaskResult =
   { ok: true; task: AgentTask } | { ok: false; reason: SaveTaskBlocker | 'persist-failed' }
 
-export type RunTaskResult = { ok: true } | { ok: false; reason: 'no-task' | 'running' }
+export type RunTaskResult =
+  | { ok: true }
+  | { ok: false; reason: 'no-task' | 'running' }
+  | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
 
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
@@ -174,14 +181,36 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return { idle: tasks.value.find((task) => task.id === id)?.lastOutcome }
   }
 
+  /** What in the Task's Settings Template cannot be used right now; empty when it can run. */
+  function taskProblems(id: string): SessionSettingsProblem[] {
+    const task = tasks.value.find((entry) => entry.id === id)
+    return task ? agentMode.problemsOf(task.settingsTemplate) : []
+  }
+
+  /** List the MCP servers the Tasks use, so their problems include missing servers. */
+  async function loadProblemSources(): Promise<void> {
+    await agentMode.loadMcpServersFor(
+      tasks.value.flatMap((task) => task.settingsTemplate.capabilities ?? []),
+    )
+  }
+
   /**
    * Start a Task Run in the background: a new Task Session on the Task's folder and Settings
-   * Template, its Steps sent one by one as each previous turn settles.
+   * Template, its Steps sent one by one as each previous turn settles. Refused while the
+   * Settings Template has a problem, before any Task Session exists.
    */
-  function runTask(id: string): RunTaskResult {
+  async function runTask(id: string): Promise<RunTaskResult> {
+    const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate.capabilities
+    await agentMode.loadMcpServersFor(capabilities ?? [])
+    // Looked up after the wait, which a delete or a second Run may have overtaken.
     const task = tasks.value.find((entry) => entry.id === id)
     if (!task) return { ok: false, reason: 'no-task' }
     if (runs.value[id]) return { ok: false, reason: 'running' }
+    const problems = taskProblems(id)
+    if (problems.length > 0) {
+      const message = describeSettingsProblems(problems, i18n.state)
+      return { ok: false, reason: 'settings-problems', problems, message }
+    }
     const plan = cloneForIpc(task)
     const sessionId = agentMode.createSession({
       workspaceDir: plan.workspaceDir,
@@ -371,6 +400,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     saveTask,
     deleteTask,
     taskState,
+    taskProblems,
+    loadProblemSources,
     runTask,
     stopTask,
     isSessionLockedByTask,

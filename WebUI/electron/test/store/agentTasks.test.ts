@@ -773,3 +773,97 @@ describe('deleting the Task being edited', () => {
     expect(tasks.editingTaskId).toBe('task-1')
   })
 })
+
+describe('editing a Task’s Settings Template', () => {
+  const EDITED: AgentSessionSettings = {
+    backend: 'openVINO',
+    device: { id: 'NPU', uuid: null },
+    model: 'Edited-NPU',
+    contextSize: 4096,
+    contextSizeEdited: true,
+    thinkingEnabled: false,
+    planningThinkingOnly: true,
+    capabilities: ['files', 'rag', 'mcp:search'],
+    embeddingModel: 'Embed-small',
+    toolDelegationEnabled: false,
+    builtinToolEnablement: { comfyUI: false },
+    builtinToolPresetEnablement: { 'Draft Image': false },
+    builtinToolDefaultPresets: { 'comfyUI:image': 'Fast Image' },
+  }
+
+  it('saves the edited template, and leaves the Open Session and the defaults alone', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { agentMode, tasks } = await readyStores()
+    const sessionSettings = JSON.stringify(agentMode.openSessionSettings)
+    const defaults = JSON.stringify({
+      capabilities: agentMode.defaultCapabilities,
+      planning: agentMode.planningThinkingOnly,
+    })
+    const sessionWrites = vi.mocked(window.electronAPI.agentMode.saveSession).mock.calls.length
+    tasks.beginEdit('task-1')
+
+    tasks.editTemplate({ backend: 'openVINO', device: { id: 'NPU', uuid: null } })
+    tasks.editTemplate({ model: 'Edited-NPU', contextSize: 4096, contextSizeEdited: true })
+    tasks.editTemplate({ thinkingEnabled: false, planningThinkingOnly: true })
+    tasks.editTemplate({ capabilities: ['files', 'rag', 'mcp:search'] })
+    tasks.editTemplate({ embeddingModel: 'Embed-small', toolDelegationEnabled: false })
+    tasks.editTemplate({
+      builtinToolEnablement: { comfyUI: false },
+      builtinToolPresetEnablement: { 'Draft Image': false },
+      builtinToolDefaultPresets: { 'comfyUI:image': 'Fast Image' },
+    })
+
+    expect(tasks.editDirty).toBe(true)
+    expect(tasks.tasks[0].settingsTemplate).toEqual(SETTINGS)
+    expect((await tasks.saveEdit()).ok).toBe(true)
+
+    expect(saveTask.mock.calls[0][0].settingsTemplate).toEqual({ ...SETTINGS, ...EDITED })
+    expect(tasks.tasks[0].settingsTemplate).toEqual({ ...SETTINGS, ...EDITED })
+    expect(JSON.stringify(agentMode.openSessionSettings)).toBe(sessionSettings)
+    expect(
+      JSON.stringify({
+        capabilities: agentMode.defaultCapabilities,
+        planning: agentMode.planningThinkingOnly,
+      }),
+    ).toBe(defaults)
+    expect(vi.mocked(window.electronAPI.agentMode.saveSession).mock.calls.length).toBe(
+      sessionWrites,
+    )
+  })
+
+  it('is clean again once the template is edited back', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+
+    tasks.editTemplate({ model: 'Other-9B' })
+    expect(tasks.editDirty).toBe(true)
+    tasks.editTemplate({ model: SETTINGS.model })
+
+    expect(tasks.editDirty).toBe(false)
+  })
+
+  it('is dropped by Discard, keeping the saved template', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editTemplate({ model: 'Other-9B', capabilities: [] })
+
+    tasks.discardEdit()
+
+    expect(tasks.tasks[0].settingsTemplate).toEqual(SETTINGS)
+    tasks.beginEdit('task-1')
+    expect(tasks.editDraft?.settingsTemplate).toEqual(SETTINGS)
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+
+  it('ignores template edits when no Task is being edited', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+
+    tasks.editTemplate({ model: 'Other-9B' })
+
+    expect(tasks.editDraft).toBeNull()
+    expect(tasks.tasks[0].settingsTemplate).toEqual(SETTINGS)
+  })
+})

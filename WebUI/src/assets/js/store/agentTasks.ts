@@ -441,6 +441,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   const editBlocker = computed(() => (editing.value ? blockerOf(editing.value.draft) : null))
 
+  /** What in the draft's Settings Template cannot be used right now; never blocks Save. */
+  const editProblems = computed<SessionSettingsProblem[]>(() =>
+    editing.value ? agentMode.problemsOf(editing.value.draft.settingsTemplate) : [],
+  )
+
+  /** Change fields of the draft's Settings Template; nothing outside the draft is written. */
+  function editTemplate(change: AgentSessionSettings): void {
+    const draft = editing.value?.draft
+    if (draft) draft.settingsTemplate = { ...draft.settingsTemplate, ...change }
+  }
+
   /**
    * Upsert the edited Task by id and end the edit. A run in flight keeps the copy it took
    * at start, so the saved version applies from the next run.
@@ -510,6 +521,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     editDirty,
     beginEdit,
     editBlocker,
+    editTemplate,
+    editProblems,
     saveEdit,
     discardEdit,
   }

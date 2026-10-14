@@ -1009,6 +1009,42 @@ describe('editing a Task while it runs', () => {
     expect(tasks.editingTaskId).toBe('t1')
   })
 
+  it('reports the draft template’s problems as it is edited', async () => {
+    inference.catalog = [
+      { name: 'Template-27B', type: 'llamaCPP' },
+      { name: 'Other-9B', type: 'llamaCPP' },
+    ]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    tasks.beginEdit('t1')
+    expect(tasks.editProblems).toEqual([])
+
+    tasks.editTemplate({ model: 'Deleted-4B' })
+    expect(tasks.editProblems).toEqual([{ field: 'model', value: 'Deleted-4B' }])
+    expect(tasks.taskProblems('t1')).toEqual([])
+
+    tasks.editTemplate({ model: 'Other-9B' })
+    expect(tasks.editProblems).toEqual([])
+  })
+
+  it('saves an edited template with a problem, which then refuses Run', async () => {
+    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    tasks.beginEdit('t1')
+    tasks.editTemplate({ model: 'Deleted-4B' })
+
+    expect((await tasks.saveEdit()).ok).toBe(true)
+
+    expect(lastSavedTask('t1')?.settingsTemplate.model).toBe('Deleted-4B')
+    expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'settings-problems' })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('reports no problems when no Task is being edited', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(tasks.editProblems).toEqual([])
+  })
+
   it('saves a Task whose Settings Template has a problem', async () => {
     inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
     const { tasks } = await readyStores(task('t1', ['one']))

@@ -307,16 +307,14 @@ import {
   backendToService,
   type LlmBackend,
   useTextInference,
-  textInferenceBackendDisplayName,
 } from '@/assets/js/store/textInference'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
-import { useProductMode } from '@/assets/js/store/productMode'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
-import { agentBackendChoices } from '@/lib/llmBackendChoices'
+import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
+import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
@@ -328,10 +326,6 @@ import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import * as toast from '@/assets/js/toast'
 import { useI18N } from '@/assets/js/store/i18n'
-import {
-  PROBLEM_FIELD_LABEL_KEYS,
-  type SessionSettingsProblemField,
-} from '@/lib/sessionSettingsProblems'
 
 const agentMode = useAgentMode()
 const i18n = useI18N().state
@@ -341,9 +335,7 @@ const textInference = useTextInference()
 const contextSizeField = useContextSizeField(toRef(textInference, 'contextSize'), () =>
   textInference.markContextSizeEdited(),
 )
-const backendServices = useBackendServices()
 const cloudMode = useCloudMode()
-const productModeStore = useProductMode()
 const mcp = useMcp()
 
 // The capability catalog lives in the main process (it is what the Pi session is
@@ -405,29 +397,7 @@ const deviceServiceName = computed(
   () => backendToService[textInference.backend] ?? 'llamacpp-backend',
 )
 
-const availableBackends = computed(() =>
-  agentBackendChoices({
-    presetBackends: agentMode.activeAgentPreset?.backends,
-    productMode: productModeStore.productMode,
-    cloudEnabled: cloudMode.isFeatureEnabled,
-  }),
-)
-
-const backendItems = computed(() =>
-  availableBackends.value.map((backend) => ({
-    label: textInferenceBackendDisplayName[backend] ?? backend,
-    value: backend,
-    active: isBackendRunning(backend),
-  })),
-)
-
-function isBackendRunning(backend: LlmBackend): boolean {
-  // Cloud Mode has no local service — it's "ready" once a provider base URL
-  // is configured.
-  if (backend === 'cloud') return !!cloudMode.activeProviderBaseUrl
-  const serviceName = backendToService[backend]
-  return backendServices.info.find((s) => s.serviceName === serviceName)?.status === 'running'
-}
+const { items: backendItems } = useAgentBackendItems(() => agentMode.activeAgentPreset?.backends)
 
 function handleBackendChange(newBackend: string) {
   textInference.backend = newBackend as LlmBackend
@@ -461,23 +431,9 @@ function resetPresetSettings() {
   toast.success('Reset to preset defaults')
 }
 
-const problemFields = computed(() => new Set(agentMode.settingsProblems.map((p) => p.field)))
-
-/** Highlights a control whose stored value blocks Send (see agentMode.settingsProblems). */
-function problemClass(field: SessionSettingsProblemField): string {
-  return problemFields.value.has(field) ? 'rounded-sm ring-1 ring-amber-500 p-1' : ''
-}
-
-const missingMcpServers = computed(() =>
-  agentMode.settingsProblems.filter((p) => p.field === 'mcpServer').map((p) => p.value),
+const { problemClass, missingMcpServers, describeMissingMcpServer } = useSettingsProblemMarks(
+  () => agentMode.settingsProblems,
 )
-
-function describeMissingMcpServer(serverId: string): string {
-  return i18n.AGENT_SETTINGS_UNUSABLE_DETAIL.replace(
-    '{setting}',
-    i18n[PROBLEM_FIELD_LABEL_KEYS.mcpServer],
-  ).replace('{value}', serverId)
-}
 
 function saveAsDefault() {
   agentMode.saveAsDefault()

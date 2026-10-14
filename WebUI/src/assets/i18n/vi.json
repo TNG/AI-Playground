@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Chọn thư mục…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Chưa chọn thư mục",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Chỉ thay đổi thư mục mà tác vụ này chạy trong đó. Phiên đang mở vẫn giữ thư mục riêng.",
+  "AGENT_TASK_EDIT_SETTINGS": "Mẫu cài đặt",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Mọi bước của lần chạy tiếp theo đều dùng các cài đặt này. Thay đổi ở đây không bao giờ thay đổi phiên đang mở, cài đặt mặc định của bạn hay thiết bị đã chọn.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Chọn thư mục làm việc của tác vụ",
   "AGENT_TASK_DISCARD_TITLE": "Hủy bỏ thay đổi?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "Các thay đổi chưa lưu đối với tác vụ “{name}” sẽ bị mất.",

@@ -764,8 +764,11 @@ export const useAgentMode = defineStore(
       }
     }
 
-    function storedTurnContext(record: AgentSessionRecord): TurnContext {
-      const settings = record.settings ?? {}
+    function storedTurnContext(
+      record: AgentSessionRecord,
+      settingsOverride?: AgentSessionSettings,
+    ): TurnContext {
+      const settings = settingsOverride ?? record.settings ?? {}
       return {
         workspaceDir: record.workspaceDir,
         presetName: record.presetName ?? AGENT_PRESET,
@@ -1473,6 +1476,7 @@ export const useAgentMode = defineStore(
       capabilities?: string[]
       presetName?: string
       title: string
+      taskId?: string
     }): string {
       const id = mintSessionId()
       const now = Date.now()
@@ -1488,6 +1492,7 @@ export const useAgentMode = defineStore(
         updatedAt: now,
         presetName: input.presetName ?? AGENT_PRESET,
         settings,
+        ...(input.taskId ? { taskId: input.taskId } : {}),
       })
       return id
     }
@@ -1503,14 +1508,16 @@ export const useAgentMode = defineStore(
     /**
      * Send to any session; one not open (or `useStoredSettings`) runs on its record, not the
      * live controls. Resolves once handed off or refused; the end comes via `onTurnSettled`.
+     * `settings` replaces the record's, which the panel rewrites while the session is open.
      */
     async function sendToSession(
       sessionId: string,
       prompt: string,
-      options: { useStoredSettings?: boolean } = {},
+      options: { useStoredSettings?: boolean; settings?: AgentSessionSettings } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
-      const live = sessionId === openSessionId.value && !options.useStoredSettings
+      const live =
+        sessionId === openSessionId.value && !options.useStoredSettings && !options.settings
       if (!record && !live) return refuseSend('no-session', `No agent session ${sessionId}.`)
       if (turns.runtimeOf(sessionId)?.hasTurn()) {
         return refuseSend('busy', 'This session already has a turn in flight.')
@@ -1526,7 +1533,7 @@ export const useAgentMode = defineStore(
         }
         context = liveTurnContext()
       } else {
-        context = storedTurnContext(record!)
+        context = storedTurnContext(record!, options.settings)
         await loadMcpServersFor(context.capabilities)
         const problems = problemsOf({ ...context.settings, capabilities: context.capabilities })
         if (problems.length > 0) {

@@ -123,7 +123,7 @@
            calling, and coding for Game Agent) filter the list here too. -->
       <div class="flex items-center gap-2 min-w-0">
         <div class="flex-1 min-w-0">
-          <ModelSelector />
+          <ModelSelector auto-select />
         </div>
         <CapabilityIcons v-if="currentModel" :model="currentModel" />
       </div>
@@ -358,6 +358,7 @@ import { useMcp } from '@/assets/js/store/mcp'
 import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
 import { mediaAgentHasTools } from '@/assets/js/agents/mediaAgent'
 import { mcpCapabilityId } from '@/types/agentCapabilities'
+import { agentBackendChoices } from '@/lib/llmBackendChoices'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
@@ -473,21 +474,13 @@ const deviceServiceName = computed(
   () => backendToService[textInference.backend] ?? 'llamacpp-backend',
 )
 
-// Mirrors SettingsChat's availableBackends: the preset's backends, filtered by
-// product mode, plus Cloud Mode when its feature flag is on.
-const availableBackends = computed<LlmBackend[]>(() => {
-  const preset = agentMode.activeAgentPreset
-  let base: LlmBackend[] = (preset?.backends as LlmBackend[] | undefined)?.filter(
-    (b) => b !== 'cloud',
-  ) ?? ['llamaCPP', 'openVINO']
-  if (productModeStore.productMode === 'nvidia') {
-    base = base.filter((b) => b !== 'openVINO')
-  }
-  if (cloudMode.isFeatureEnabled) {
-    base = [...base, 'cloud']
-  }
-  return base
-})
+const availableBackends = computed(() =>
+  agentBackendChoices({
+    presetBackends: agentMode.activeAgentPreset?.backends,
+    productMode: productModeStore.productMode,
+    cloudEnabled: cloudMode.isFeatureEnabled,
+  }),
+)
 
 const backendItems = computed(() =>
   availableBackends.value.map((backend) => ({

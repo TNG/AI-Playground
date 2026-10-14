@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "กำลังรัน: ขั้นตอน {step} จาก {count}",
   "AGENT_TASKS_STOP": "หยุดงาน {name}",
   "AGENT_TASKS_OPEN_SESSION": "เปิดเซสชันของงาน {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "แสดงเซสชันของงาน {name}",
   "AGENT_TASKS_PROBLEM": "ไม่สามารถใช้การตั้งค่าของงานนี้ได้ในขณะนี้ {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "ไม่สามารถเรียกใช้งานนี้ได้ {reason}",
   "AGENT_TASK_SESSION_LOCKED": "งาน “{name}” กำลังทำงาน หยุดงานเพื่อพิมพ์ในเซสชันนี้",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "ที่ {n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "ที่ {n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "ที่ {n}",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "ที่ {n}"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "ที่ {n}",
+  "HISTORY_TASK_FILTER_CHIP": "งาน: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "ล้างตัวกรองงาน",
+  "HISTORY_TASK_FILTER_EMPTY": "ยังไม่มีเซสชันจากงานนี้"
 }

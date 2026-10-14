@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "Đang chạy: bước {step}/{count}",
   "AGENT_TASKS_STOP": "Dừng tác vụ {name}",
   "AGENT_TASKS_OPEN_SESSION": "Mở phiên của tác vụ {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "Hiển thị các phiên của tác vụ {name}",
   "AGENT_TASKS_PROBLEM": "Hiện không thể dùng cài đặt của tác vụ này. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Không thể chạy tác vụ này. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Tác vụ “{name}” đang chạy. Dừng tác vụ để nhập vào phiên này.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "thứ {n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "thứ {n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "thứ {n}",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "thứ {n}"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "thứ {n}",
+  "HISTORY_TASK_FILTER_CHIP": "Tác vụ: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Xóa bộ lọc tác vụ",
+  "HISTORY_TASK_FILTER_EMPTY": "Chưa có phiên nào từ tác vụ này"
 }

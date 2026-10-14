@@ -9,20 +9,41 @@
           placeholder="Search history"
         />
         <div class="flex items-center gap-1" role="group" aria-label="History filter">
-          <button
-            v-for="chip in chips"
-            :key="chip.value"
-            class="rounded-full px-2.5 py-1 text-xs border transition"
-            :class="
-              history.filter === chip.value
-                ? 'border-primary bg-primary/10 text-foreground'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            "
-            :aria-pressed="history.filter === chip.value"
-            @click="history.filter = chip.value"
+          <span
+            v-if="history.taskFilter"
+            class="flex items-center gap-1 rounded-full pl-2.5 pr-1 py-0.5 text-xs border border-primary bg-primary/10 text-foreground min-w-0"
           >
-            {{ chip.label }}
-          </button>
+            <span class="truncate">{{ taskChipLabel }}</span>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <button
+                  type="button"
+                  class="size-5 flex-none flex items-center justify-center rounded-full hover:bg-primary/20"
+                  :aria-label="i18n.HISTORY_TASK_FILTER_CLEAR"
+                  @click="history.clearTaskFilter()"
+                >
+                  <XMarkIcon class="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{{ i18n.HISTORY_TASK_FILTER_CLEAR }}</TooltipContent>
+            </Tooltip>
+          </span>
+          <template v-else>
+            <button
+              v-for="chip in chips"
+              :key="chip.value"
+              class="rounded-full px-2.5 py-1 text-xs border transition"
+              :class="
+                history.filter === chip.value
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground'
+              "
+              :aria-pressed="history.filter === chip.value"
+              @click="history.filter = chip.value"
+            >
+              {{ chip.label }}
+            </button>
+          </template>
         </div>
       </div>
 
@@ -86,10 +107,12 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { Input } from '@/components/ui/input'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { XMarkIcon } from '@heroicons/vue/24/outline'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import HistoryEntryRow from '@/components/HistoryEntryRow.vue'
 import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { dayLabel, isWorkflowMode, type HistoryEntry } from '@/assets/js/store/historyEntries'
 import { mapModeToLabel } from '@/lib/utils'
@@ -100,6 +123,7 @@ const emit = defineEmits<{
 
 const history = useHistorySessions()
 const agentMode = useAgentMode()
+const i18n = useI18N().state
 const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 async function onSelect(entry: HistoryEntry) {
@@ -128,6 +152,10 @@ const chips = computed(() => [
   { value: 'all' as const, label: 'All' },
 ])
 
+const taskChipLabel = computed(() =>
+  (i18n.HISTORY_TASK_FILTER_CHIP ?? '').replace('{name}', history.taskFilter?.name ?? ''),
+)
+
 const groups = computed(() => {
   const groupedByDay: { label: string; entries: HistoryEntry[] }[] = []
   for (const entry of history.visibleEntries) {
@@ -145,6 +173,7 @@ const showNewMediaRow = computed(
 
 const emptyMessage = computed(() => {
   if (history.query.trim()) return 'Nothing matches that search.'
+  if (history.taskFilter) return i18n.HISTORY_TASK_FILTER_EMPTY
   if (history.filter === 'all') return 'No history yet.'
   if (history.currentMode === 'agent')
     return 'No sessions yet. Each turn is archived automatically.'

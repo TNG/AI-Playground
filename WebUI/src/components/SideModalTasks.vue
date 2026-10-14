@@ -59,6 +59,19 @@
             </TooltipTrigger>
             <TooltipContent>{{ row.openLabel }}</TooltipContent>
           </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                :aria-label="row.showSessionsLabel"
+                @click="history.showTaskSessions(row.id)"
+              >
+                <QueueListIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.showSessionsLabel }}</TooltipContent>
+          </Tooltip>
           <Tooltip v-if="row.running">
             <TooltipTrigger as-child>
               <button
@@ -153,6 +166,7 @@ import {
   ExclamationTriangleIcon,
   PencilSquareIcon,
   PlayIcon,
+  QueueListIcon,
   StopIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
@@ -160,6 +174,7 @@ import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
+import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { useI18N } from '@/assets/js/store/i18n'
 import SideModalBase from '@/components/SideModalBase.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -188,6 +203,7 @@ const emit = defineEmits<{
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const errors = useErrors()
+const history = useHistorySessions()
 const i18n = useI18N().state
 const { leaveTaskEdit, editTask } = useTaskEditLeaveGuard()
 
@@ -225,6 +241,7 @@ const rows = computed(() =>
       runLabel: fill(i18n.AGENT_TASKS_RUN, { name: task.name }),
       stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
       openLabel: fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }),
+      showSessionsLabel: fill(i18n.AGENT_TASKS_SHOW_SESSIONS, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
       editLabel: fill(i18n.AGENT_TASKS_EDIT, { name: task.name }),
       editing: agentTasks.editingTaskId === task.id,

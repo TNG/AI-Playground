@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "正在執行第 {step} 步（共 {count} 步）",
   "AGENT_TASKS_STOP": "停止任務 {name}",
   "AGENT_TASKS_OPEN_SESSION": "開啟任務 {name} 的工作階段",
+  "AGENT_TASKS_SHOW_SESSIONS": "顯示任務 {name} 的工作階段",
   "AGENT_TASKS_PROBLEM": "此任務的設定目前無法使用。{reason}",
   "AGENT_TASKS_RUN_BLOCKED": "無法執行此任務。{reason}",
   "AGENT_TASK_SESSION_LOCKED": "任務「{name}」正在執行。停止任務後即可在此工作階段中輸入。",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "第 {n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "第 {n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "第 {n}",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "第 {n}"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "第 {n}",
+  "HISTORY_TASK_FILTER_CHIP": "任務：{name}",
+  "HISTORY_TASK_FILTER_CLEAR": "清除任務篩選",
+  "HISTORY_TASK_FILTER_EMPTY": "此任務尚無工作階段"
 }

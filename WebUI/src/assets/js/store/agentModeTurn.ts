@@ -246,6 +246,7 @@ function createSessionRuntime(options: {
   onTurnSettled?: (sessionId: string) => void
   onAdoptedTurnDone?: (sessionId: string) => void
   onTurnPaused?: (sessionId: string) => void
+  quietTurnErrors?: (sessionId: string) => boolean
 }): SessionRuntime {
   const { sessionId, finishedTurns } = options
   const scope = effectScope()
@@ -369,7 +370,7 @@ function createSessionRuntime(options: {
           category: 'inference',
           code: 'agent/turn-failed',
           userMessage: `Agent turn failed: ${extractMessage(error)}`,
-          surface: 'toast',
+          surface: options.quietTurnErrors?.(sessionId) ? 'silent' : 'toast',
         })
       },
     }),
@@ -536,6 +537,8 @@ export function createAgentTurnRuntimes(options: {
   onAdoptedTurnDone?: (sessionId: string) => void
   /** A session's running turn started waiting on the user. */
   onTurnPaused?: (sessionId: string) => void
+  /** A failed turn whose caller records the failure itself is not toasted. */
+  quietTurnErrors?: (sessionId: string) => boolean
 }) {
   const runtimes = shallowRef<Record<string, SessionRuntime>>({})
   const runningTools = new Map<string, { sessionId: string; abort: AbortController }>()
@@ -562,6 +565,7 @@ export function createAgentTurnRuntimes(options: {
         onTurnSettled: options.onTurnSettled,
         onAdoptedTurnDone: options.onAdoptedTurnDone,
         onTurnPaused: options.onTurnPaused,
+        quietTurnErrors: options.quietTurnErrors,
       })
     const created = parentScope ? parentScope.run(create)! : create()
     runtimes.value = { ...runtimes.value, [sessionId]: created }

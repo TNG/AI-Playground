@@ -42,8 +42,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const tasks = ref<AgentTask[]>([])
 
   const runs = ref<Record<string, TaskRun>>({})
-  /** The Task as it was when its run started; edits to the list never reach a running run. */
-  const runPlans: Record<string, AgentTask> = {}
+  /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
+  const runContexts: Record<string, { plan: AgentTask; abort: AbortController }> = {}
 
   async function init(): Promise<void> {
     try {
@@ -162,7 +162,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       title: plan.name,
       taskId: plan.id,
     })
-    runPlans[id] = plan
+    runContexts[id] = { plan, abort: new AbortController() }
     runs.value = { ...runs.value, [id]: { sessionId, stepIndex: 1, stepCount: plan.steps.length } }
     void sendStep(id, 1)
     return { ok: true }
@@ -170,13 +170,27 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   async function sendStep(taskId: string, stepIndex: number): Promise<void> {
     const run = runs.value[taskId]
-    const plan = runPlans[taskId]
-    if (!run || !plan) return
+    const context = runContexts[taskId]
+    if (!run || !context) return
+    const { plan, abort } = context
     runs.value = { ...runs.value, [taskId]: { ...run, stepIndex } }
     const result = await agentMode.sendToSession(run.sessionId, plan.steps[stepIndex - 1].prompt, {
       settings: cloneForIpc(plan.settingsTemplate),
+      signal: abort.signal,
+      quietErrors: true,
     })
-    if (!result.ok) await settleRun(taskId, { kind: 'failed', stepIndex, message: result.message })
+    if (!result.ok && result.reason !== 'aborted') {
+      await settleRun(taskId, { kind: 'failed', stepIndex, message: result.message })
+    }
+  }
+
+  async function stopTask(id: string): Promise<void> {
+    const run = runs.value[id]
+    if (!run) return
+    // Settled first, so the stopped turn's own settle finds no run and no Step can follow.
+    const settled = settleRun(id, { kind: 'stopped', stepIndex: run.stepIndex })
+    await agentMode.stopSession(run.sessionId)
+    await settled
   }
 
   function runOfSession(sessionId: string): string | undefined {
@@ -203,9 +217,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!run) return
     const { [taskId]: _ended, ...rest } = runs.value
     runs.value = rest
-    delete runPlans[taskId]
+    runContexts[taskId]?.abort.abort()
+    delete runContexts[taskId]
     const task = tasks.value.find((entry) => entry.id === taskId)
     if (!task) return
+    if (end.kind === 'failed') reportRunFailure(task, end)
     const lastOutcome: AgentTaskOutcome = {
       kind: end.kind,
       at: Date.now(),
@@ -217,6 +233,22 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const updated: AgentTask = { ...task, lastOutcome }
     tasks.value = tasks.value.map((entry) => (entry.id === taskId ? updated : entry))
     await persistTask(updated)
+  }
+
+  /** A failed run is shown as the Task's outcome, so the sink only records it. */
+  function reportRunFailure(task: AgentTask, end: RunEnd): void {
+    const message = end.message ?? ''
+    errors.report(
+      createAppError({
+        category: 'inference',
+        code: 'agent-tasks/run-failed',
+        severity: 'warning',
+        surface: 'silent',
+        userMessage: message,
+        technicalMessage: `Task "${task.name}" failed at step ${end.stepIndex ?? '?'}: ${message}`,
+        context: { taskId: task.id, stepIndex: end.stepIndex },
+      }),
+    )
   }
 
   // The Task being built in the Agent Settings panel; memory only.
@@ -288,6 +320,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     deleteTask,
     taskState,
     runTask,
+    stopTask,
     draft,
     draftBlocker,
     draftTemplate,

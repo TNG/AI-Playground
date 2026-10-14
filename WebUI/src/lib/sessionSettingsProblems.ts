@@ -18,6 +18,18 @@ export const PROBLEM_FIELD_LABEL_KEYS: Record<SessionSettingsProblemField, strin
   embeddingModel: 'AGENT_SETTING_EMBEDDING_MODEL',
 }
 
+/** One problem as the user reads it, e.g. Model “Qwen3-9B” is no longer available. */
+export function describeSettingsProblem(
+  problem: SessionSettingsProblem,
+  labels: Record<string, string | undefined>,
+): string {
+  const template =
+    labels.AGENT_SETTINGS_UNUSABLE_DETAIL ?? '{setting} “{value}” is no longer available.'
+  return template
+    .replace('{setting}', labels[PROBLEM_FIELD_LABEL_KEYS[problem.field]] ?? problem.field)
+    .replace('{value}', problem.value)
+}
+
 /** What the app can serve right now. An empty list (or null) means "not loaded yet". */
 export type SessionSettingsAvailability = {
   models: readonly { name: string; type: string }[]

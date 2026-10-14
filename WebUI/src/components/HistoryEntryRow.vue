@@ -108,6 +108,22 @@
         <span class="text-xs text-muted-foreground shrink-0">{{
           isDraft ? 'Draft' : relativeTime(entry.updatedAt)
         }}</span>
+        <Tooltip v-if="taskMarker">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 min-w-0 rounded-full px-1.5 py-px text-xs text-muted-foreground border border-border hover:text-foreground hover:border-primary"
+              :aria-label="taskMarkerLabel"
+              @click.stop="emit('filterByTask', taskMarker.id)"
+            >
+              <ClipboardDocumentListIcon class="size-3 flex-none" aria-hidden="true" />
+              <span class="truncate">{{ taskMarkerLabel }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{{
+            i18nState.AGENT_TASKS_SHOW_SESSIONS.replace('{name}', taskMarker.name)
+          }}</TooltipContent>
+        </Tooltip>
         <!-- Where the work lives: the agent's folder, the workflow behind an output. -->
         <span v-if="entry.kind === 'agent'" class="ml-auto min-w-0 max-w-[60%]">
           <Tooltip>
@@ -209,7 +225,12 @@
 
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
-import { ClockIcon, HandRaisedIcon, PuzzlePieceIcon } from '@heroicons/vue/24/outline'
+import {
+  ClipboardDocumentListIcon,
+  ClockIcon,
+  HandRaisedIcon,
+  PuzzlePieceIcon,
+} from '@heroicons/vue/24/outline'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -252,6 +273,7 @@ import {
   toolMedia,
   type HistoryEntry,
 } from '@/assets/js/store/historyEntries'
+import type { TaskRef } from '@/assets/js/store/historySessions'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -261,12 +283,14 @@ const props = defineProps<{
   entry: HistoryEntry
   active: boolean
   renamable: boolean
+  taskMarker?: TaskRef | null
 }>()
 
 const emit = defineEmits<{
   select: []
   delete: []
   rename: [title: string]
+  filterByTask: [taskId: string]
 }>()
 
 const presetsStore = usePresets()
@@ -326,6 +350,10 @@ const marker = computed(() => {
   }
   return null
 })
+
+const taskMarkerLabel = computed(() =>
+  props.taskMarker ? i18nState.HISTORY_TASK_MARKER.replace('{name}', props.taskMarker.name) : '',
+)
 
 const mediaReady = computed(
   () => props.entry.kind === 'media' && hasDisplayableMedia(props.entry.media),

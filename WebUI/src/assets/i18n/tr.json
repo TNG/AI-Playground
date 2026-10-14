@@ -672,5 +672,6 @@
   "HISTORY_TASK_PICKER_CHIP": "Görev",
   "HISTORY_TASK_PICKER_LABEL": "Göreve göre filtrele",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
-  "HISTORY_TASK_PICKER_EMPTY": "Henüz görev yok"
+  "HISTORY_TASK_PICKER_EMPTY": "Henüz görev yok",
+  "HISTORY_TASK_MARKER": "Görevden: {name}"
 }

@@ -197,6 +197,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return Object.keys(runs.value).find((id) => runs.value[id].sessionId === sessionId)
   }
 
+  function isSessionLockedByTask(sessionId: string): boolean {
+    return runOfSession(sessionId) !== undefined
+  }
+
+  function taskLockingSession(sessionId: string): AgentTask | undefined {
+    const taskId = runOfSession(sessionId)
+    return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
+  }
+
   agentMode.onTurnSettled((sessionId, outcome) => {
     const taskId = runOfSession(sessionId)
     if (!taskId) return
@@ -321,6 +330,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     taskState,
     runTask,
     stopTask,
+    isSessionLockedByTask,
+    taskLockingSession,
     draft,
     draftBlocker,
     draftTemplate,

@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.",
   "HISTORY_TASK_FILTER_CHIP": "Aufgabe: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Aufgabenfilter entfernen",
-  "HISTORY_TASK_FILTER_EMPTY": "Noch keine Sitzungen aus dieser Aufgabe"
+  "HISTORY_TASK_FILTER_EMPTY": "Noch keine Sitzungen aus dieser Aufgabe",
+  "HISTORY_TASK_PICKER_CHIP": "Aufgabe",
+  "HISTORY_TASK_PICKER_LABEL": "Nach Aufgabe filtern",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Noch keine Aufgaben"
 }

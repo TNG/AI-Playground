@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}番目",
   "HISTORY_TASK_FILTER_CHIP": "タスク: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "タスクフィルターを解除",
-  "HISTORY_TASK_FILTER_EMPTY": "このタスクのセッションはまだありません"
+  "HISTORY_TASK_FILTER_EMPTY": "このタスクのセッションはまだありません",
+  "HISTORY_TASK_PICKER_CHIP": "タスク",
+  "HISTORY_TASK_PICKER_LABEL": "タスクで絞り込む",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "タスクはまだありません"
 }

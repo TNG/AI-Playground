@@ -134,6 +134,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { UIDataTypes, UIMessagePart, UITools, UIMessage } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { Button } from '@/components/ui/button'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -162,6 +163,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const promptStore = usePromptStore()
 const mediaRuns = useMediaAgentRuns()
 const languages = useI18N().state
@@ -238,11 +240,15 @@ const busyLabel = computed<string>(() =>
 )
 
 function handlePromptSubmit(prompt: string) {
+  if (agentTasks.isSessionLockedByTask(agentMode.openSessionId)) return
   void agentMode.generate(prompt)
 }
 
+// A running Task may be between Steps with no turn to stop, so its run is stopped instead.
 function handleCancel() {
-  void agentMode.stop()
+  const task = agentTasks.taskLockingSession(agentMode.openSessionId)
+  if (task) void agentTasks.stopTask(task.id)
+  else void agentMode.stop()
 }
 
 watch(

@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "実行中: ステップ {step}/{count}",
   "AGENT_TASKS_STOP": "タスク {name} を停止",
   "AGENT_TASKS_OPEN_SESSION": "タスク {name} のセッションを開く",
+  "AGENT_TASKS_SHOW_SESSIONS": "タスク {name} のセッションを表示",
   "AGENT_TASKS_PROBLEM": "このタスクの設定は現在使用できません。{reason}",
   "AGENT_TASKS_RUN_BLOCKED": "このタスクを実行できません。{reason}",
   "AGENT_TASK_SESSION_LOCKED": "タスク「{name}」を実行中です。このセッションに入力するには停止してください。",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}番目",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}番目",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}番目",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}番目"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}番目",
+  "HISTORY_TASK_FILTER_CHIP": "タスク: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "タスクフィルターを解除",
+  "HISTORY_TASK_FILTER_EMPTY": "このタスクのセッションはまだありません"
 }

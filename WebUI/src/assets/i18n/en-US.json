@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "Running step {step} of {count}",
   "AGENT_TASKS_STOP": "Stop task {name}",
   "AGENT_TASKS_OPEN_SESSION": "Open the session of task {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "Show sessions of task {name}",
   "AGENT_TASKS_PROBLEM": "This task's settings can't be used right now. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Can't run this task. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Task “{name}” is running. Stop it to type in this session.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}st",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}nd",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}rd",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}th"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}th",
+  "HISTORY_TASK_FILTER_CHIP": "Task: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Clear task filter",
+  "HISTORY_TASK_FILTER_EMPTY": "No sessions from this task yet"
 }

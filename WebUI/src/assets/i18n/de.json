@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "Läuft: Schritt {step} von {count}",
   "AGENT_TASKS_STOP": "Aufgabe {name} stoppen",
   "AGENT_TASKS_OPEN_SESSION": "Sitzung der Aufgabe {name} öffnen",
+  "AGENT_TASKS_SHOW_SESSIONS": "Sitzungen der Aufgabe {name} anzeigen",
   "AGENT_TASKS_PROBLEM": "Die Einstellungen dieser Aufgabe können gerade nicht verwendet werden. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Diese Aufgabe kann nicht ausgeführt werden. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Aufgabe „{name}“ läuft. Stoppen Sie sie, um in dieser Sitzung zu schreiben.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}."
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.",
+  "HISTORY_TASK_FILTER_CHIP": "Aufgabe: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Aufgabenfilter entfernen",
+  "HISTORY_TASK_FILTER_EMPTY": "Noch keine Sitzungen aus dieser Aufgabe"
 }

@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentTask, AgentTaskStep } from '@/types/agentTaskIpc'
 import { useAgentMode } from './agentMode'
 import { userMessagePrompt } from './agentModeTurn'
@@ -12,6 +13,13 @@ export type TaskDraft = { name: string; steps: AgentTaskStep[] }
 
 /** Why a draft cannot be saved yet. */
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'no-folder'
+
+export type TaskTemplateSummary = {
+  workspaceDir: string
+  backend: AgentSessionSettings['backend']
+  model: AgentSessionSettings['model']
+  capabilityCount: number
+}
 
 export type SaveTaskResult =
   { ok: true; task: AgentTask } | { ok: false; reason: SaveTaskBlocker | 'persist-failed' }
@@ -97,6 +105,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   const draftBlocker = computed(() => saveBlocker(draft.value))
 
+  /** The folder and Settings Template a save would capture right now. */
+  const draftTemplate = computed<TaskTemplateSummary>(() => {
+    const settings = agentMode.openSessionSettings
+    return {
+      workspaceDir: agentMode.workspaceDir,
+      backend: settings.backend,
+      model: settings.model,
+      capabilityCount: settings.capabilities?.length ?? 0,
+    }
+  })
+
   // Steps, folder and settings must all come from one session.
   watch(
     () => agentMode.openSessionId,
@@ -118,6 +137,23 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   }
 
+  function addStep(): void {
+    draft.value.steps = [...draft.value.steps, { id: crypto.randomUUID(), prompt: '' }]
+  }
+
+  function removeStep(id: string): void {
+    draft.value.steps = draft.value.steps.filter((step) => step.id !== id)
+  }
+
+  function moveStep(id: string, direction: 'up' | 'down'): void {
+    const steps = [...draft.value.steps]
+    const from = steps.findIndex((step) => step.id === id)
+    const to = direction === 'up' ? from - 1 : from + 1
+    if (from < 0 || to < 0 || to >= steps.length) return
+    ;[steps[from], steps[to]] = [steps[to], steps[from]]
+    draft.value.steps = steps
+  }
+
   async function saveDraft(): Promise<SaveTaskResult> {
     const result = await saveTask(draft.value)
     if (result.ok) draft.value = emptyDraft()
@@ -132,7 +168,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     saveTask,
     draft,
     draftBlocker,
+    draftTemplate,
     createStepsFromSession,
+    addStep,
+    removeStep,
+    moveStep,
     saveDraft,
   }
 })

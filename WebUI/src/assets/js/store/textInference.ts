@@ -31,7 +31,7 @@ import { claimOvmsMtpStaleNotice, ovmsMtpRequestFields } from '@/lib/ovmsMtp'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
-import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
+import { useCloudMode, CLOUD_DEFAULT_MODEL, ASSUME_ALL_CAPABILITIES } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
@@ -40,10 +40,13 @@ import { useUIStore } from './ui'
 import { renamePresetKeys } from '@/lib/presetRenames'
 import { repairChatSettings } from '@/lib/chatSettingsRepair'
 import {
+  sessionSettingsToBag,
   usesSessionSettings,
   withoutSessionOwnedKeys,
   type SettingsBag,
 } from '@/lib/agentSessionSettings'
+import { storedSessionInference, type StoredSessionInference } from '@/lib/storedSessionInference'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import { formatRagSources } from '@/lib/ragSources'
@@ -1975,6 +1978,47 @@ export const useTextInference = defineStore(
       embeddingBackend: embeddingBackend.value,
     }))
 
+    /**
+     * What a turn on a preset with these Session Settings runs on, resolved against the
+     * catalogs without touching the live controls (a session that is not the open one).
+     */
+    function inferenceForSettings(
+      presetName: string,
+      settings: AgentSessionSettings,
+    ): StoredSessionInference {
+      const preset = presetsStore.presets.find((entry) => entry.name === presetName)
+      const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
+      const base = findSettingsForPreset(presetName) ?? {}
+      const bag = sessionSettingsToBag(settings, base, embeddingBackend.value)
+      return storedSessionInference(
+        {
+          ...bag,
+          builtinToolEnablement: toolEnablementForPreset(
+            bag.builtinToolEnablement,
+            legacyToolEnablement.value,
+          ),
+        },
+        {
+          models: llmModels.value.filter((m) => m.type !== 'cloud'),
+          embeddingModels: llmEmbeddingModels.value,
+          services: (['llamaCPP', 'openVINO'] as const).flatMap((b) => {
+            const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
+            return info ? [{ backend: b, ...info }] : []
+          }),
+          cloudProviders: cloudMode.providers.map((provider) => ({
+            ...provider,
+            models: provider.models.length ? provider.models : [CLOUD_DEFAULT_MODEL],
+            capabilitiesFor: (name: string) =>
+              provider.modelCapabilities?.[name] ?? { ...ASSUME_ALL_CAPABILITIES },
+          })),
+          selectedCloudProviderId: cloudMode.selectedProviderId,
+          cloudEmbeddingBackend: embeddingBackend.value,
+          presetTemperature: chatPreset?.temperature,
+          presetContextSize: chatPreset?.contextSize,
+        },
+      )
+    }
+
     // Watch for setting changes and save them to settingsPerPreset
     // Note: Preset/variant changes are now handled by the orchestrator, not by watchers
     watch(
@@ -2157,6 +2201,7 @@ export const useTextInference = defineStore(
       bindSessionSettings,
       sessionSettingsPinned,
       settingsAvailability,
+      inferenceForSettings,
       backend,
       activeModel,
       selectedModels,

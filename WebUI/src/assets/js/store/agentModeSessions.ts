@@ -181,10 +181,12 @@ export function snapshotSession(options: {
   const existing = options.existing
   const unchanged =
     existing !== undefined && JSON.stringify(existing.messages) === JSON.stringify(plainMessages)
+  // A title that is not the one its transcript derives was given on purpose (createSession).
+  const titled = existing !== undefined && existing.title !== deriveSessionTitle(existing.messages)
   return {
     id: options.id,
     workspaceDir: existing?.workspaceDir ?? options.workspaceDir,
-    title: deriveSessionTitle(plainMessages),
+    title: titled ? existing.title : deriveSessionTitle(plainMessages),
     messages: plainMessages,
     createdAt: existing?.createdAt ?? Date.now(),
     updatedAt: unchanged && existing ? existing.updatedAt : Date.now(),

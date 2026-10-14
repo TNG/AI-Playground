@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Richiede il tuo intervento",
   "HISTORY_STATUS_UNSEEN": "Nuovo risultato",
   "HISTORY_STATUS_UNSEEN_FAILED": "Turno non riuscito",
+  "AGENT_SESSION_NEEDS_INPUT": "La sessione '{title}' richiede il tuo intervento",
+  "AGENT_SESSION_OPEN": "Apri",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}º",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}º",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}º",

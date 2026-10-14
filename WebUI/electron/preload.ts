@@ -226,6 +226,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrate: (incoming: Record<string, PermissionGrant>) =>
       invoke('permissions:migrate', cloneForIpc(incoming)),
     respond: (payload: PermissionsPromptResponse) => invoke('permissions:respond', payload),
+    awaitingUser: (conversationKey: string, waiting: boolean) =>
+      send('permissions:awaitingUser', conversationKey, waiting),
     onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
       onPush('permissions:prompt', callback),
   },

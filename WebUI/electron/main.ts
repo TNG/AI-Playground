@@ -165,6 +165,7 @@ import {
   handlePermissionsPromptResponse,
   rejectAllPermissionPrompts,
 } from './permissions/promptAdapter'
+import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
   grant as grantPermission,
   listGrants,
@@ -200,7 +201,10 @@ import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
 import { buildGamesRegistry } from './kernel/registries/games'
 import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
-import { buildPermissionsRegistry } from './kernel/registries/permissions'
+import {
+  buildPermissionsRegistry,
+  buildPermissionsSendRegistry,
+} from './kernel/registries/permissions'
 import { buildWebBrowserRegistry } from './kernel/registries/webBrowser'
 import { buildArtifactRegistry } from './kernel/registries/artifact'
 import { buildCloudProviderRegistry } from './kernel/registries/cloudProvider'
@@ -727,6 +731,7 @@ async function createWindow() {
   rejectAllMediaRequests('The app window was replaced')
   rejectAllChatAsks('The app window was replaced')
   rejectAllPermissionPrompts('The app window was replaced')
+  clearRendererWaits()
   cancelAllArtifactRuns('The app window was replaced')
   win.webContents.once('destroyed', () => {
     cancelAllArtifactRuns('The app window was replaced')
@@ -1389,9 +1394,9 @@ function wireArtifactRunner(settings: LocalSettings): void {
       })
       return reply.models ?? []
     },
-    requestModelConsent: async (models, onProgress) => {
+    requestModelConsent: async (models, onProgress, conversationKey) => {
       try {
-        await requestDownloadConsent(models, { onProgress })
+        await requestDownloadConsent(models, { onProgress, conversationKey })
         return true
       } catch (error) {
         appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
@@ -1667,6 +1672,8 @@ function initEventHandle() {
       handleMediaResponse,
     }),
   )
+
+  registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
 
   registerInvokeHandlers(
     buildPermissionsRegistry({

@@ -478,6 +478,15 @@ export const CHANNELS = {
     args: [] as unknown as readonly [PermissionsPromptResponse],
     result: null as unknown as void,
   },
+  /**
+   * A confirmation card for a conversation opened (`true`) or settled (`false`);
+   * a pausable Turn Queue member of that conversation gives up its place meanwhile.
+   */
+  'permissions:awaitingUser': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean],
+  },
   /** Main asks the window to show a consent dialog (download modal, VRAM warning). */
   'permissions:prompt': {
     kind: 'push',

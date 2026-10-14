@@ -23,6 +23,8 @@ const pending = new Map<string, PendingRequest>()
 
 export type PromptAdapterOptions = {
   onProgress?: () => void
+  /** The turn the prompt holds up, so the window can show it in that session. */
+  conversationKey?: string
 }
 
 export function requestPermissionsPrompt<T>(
@@ -42,7 +44,11 @@ export function requestPermissionsPrompt<T>(
       onProgress: options.onProgress,
     })
     try {
-      typedSend(win.webContents, 'permissions:prompt', { ...payload, requestId })
+      typedSend(win.webContents, 'permissions:prompt', {
+        ...payload,
+        requestId,
+        ...(options.conversationKey ? { conversationKey: options.conversationKey } : {}),
+      })
     } catch (error) {
       pending.delete(requestId)
       reject(error instanceof Error ? error : new Error(String(error)))

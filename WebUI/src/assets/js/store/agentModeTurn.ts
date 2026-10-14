@@ -261,6 +261,7 @@ function createSessionRuntime(options: {
   onTurnSubmitted?: (sessionId: string) => void
   onTurnSettled?: (sessionId: string) => void
   onAdoptedTurnDone?: (sessionId: string) => void
+  onTurnPaused?: (sessionId: string) => void
 }): SessionRuntime {
   const { sessionId, finishedTurns } = options
   const scope = effectScope()
@@ -438,8 +439,10 @@ function createSessionRuntime(options: {
       return
     }
     if (!activeTurn || activeTurn.turnId !== turnId) return
+    const was = turnState.value
     turnState.value = state
     if (state !== 'queued') queuePosition.value = null
+    if (state === 'paused' && was !== 'paused') options.onTurnPaused?.(sessionId)
   }
 
   function onQueuePosition(turnId: string, position: number | undefined): void {
@@ -542,6 +545,8 @@ export function createAgentTurnRuntimes(options: {
   onTurnSettled?: (sessionId: string) => void
   /** A turn adopted from the kernel snapshot ended; nothing else saves its transcript. */
   onAdoptedTurnDone?: (sessionId: string) => void
+  /** A session's running turn started waiting on the user. */
+  onTurnPaused?: (sessionId: string) => void
 }) {
   const runtimes = shallowRef<Record<string, SessionRuntime>>({})
   const runningTools = new Map<string, { sessionId: string; abort: AbortController }>()
@@ -566,6 +571,7 @@ export function createAgentTurnRuntimes(options: {
         onTurnSubmitted: options.onTurnSubmitted,
         onTurnSettled: options.onTurnSettled,
         onAdoptedTurnDone: options.onAdoptedTurnDone,
+        onTurnPaused: options.onTurnPaused,
       })
     const created = parentScope ? parentScope.run(create)! : create()
     runtimes.value = { ...runtimes.value, [sessionId]: created }

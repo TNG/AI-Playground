@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "入力が必要です",
   "HISTORY_STATUS_UNSEEN": "新しい結果",
   "HISTORY_STATUS_UNSEEN_FAILED": "ターンが失敗しました",
+  "AGENT_SESSION_NEEDS_INPUT": "セッション「{title}」で入力が必要です",
+  "AGENT_SESSION_OPEN": "開く",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}番目",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}番目",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}番目",

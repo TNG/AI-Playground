@@ -37,7 +37,9 @@ import {
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
 import { sessionSettingsProblems, type SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
-import { createAppError } from '@/assets/js/errors/appError'
+import { createAppError, createCancellation } from '@/assets/js/errors/appError'
+import { registerSessionPromptPort } from '@/assets/js/permissions/sessionPromptPort'
+import * as toast from '@/assets/js/toast'
 import { withResponseLanguage } from '@/lib/responseLanguage'
 import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
@@ -748,6 +750,7 @@ export const useAgentMode = defineStore(
         snapshotSessionById(sessionId)
       },
       onTurnSettled: (sessionId) => onTurnSettled(sessionId),
+      onTurnPaused: (sessionId) => onTurnPaused(sessionId),
       onAdoptedTurnDone: (sessionId) => {
         snapshotSessionById(sessionId)
         void refreshGameAfterTurn(sessionId)
@@ -811,6 +814,65 @@ export const useAgentMode = defineStore(
 
     watch(openSessionId, (id) => forgetUnseen(id), { flush: 'sync' })
 
+    /** Agent Mode is on screen; a session is in view only while it is, and open. */
+    const viewShown = ref(false)
+    function setViewShown(shown: boolean): void {
+      viewShown.value = shown
+    }
+    function inView(sessionId: string): boolean {
+      return viewShown.value && openSessionId.value === sessionId
+    }
+
+    // A download or VRAM prompt a turn raised out of sight waits here until its
+    // session is in view, so a Paused Session never pops up over other work.
+    const heldPrompts: Record<string, Array<{ show: () => void; drop: () => void }>> = {}
+
+    registerSessionPromptPort({
+      whenInView: (sessionId) => {
+        if (inView(sessionId) || !turns.runtimeOf(sessionId)?.hasTurn()) return Promise.resolve()
+        return new Promise<void>((resolve, reject) => {
+          ;(heldPrompts[sessionId] ??= []).push({
+            show: resolve,
+            drop: () =>
+              reject(createCancellation({ technicalMessage: 'The turn that asked has ended.' })),
+          })
+        })
+      },
+    })
+
+    function settleHeldPrompts(sessionId: string, how: 'show' | 'drop'): void {
+      const held = heldPrompts[sessionId]
+      if (!held) return
+      delete heldPrompts[sessionId]
+      for (const prompt of held) prompt[how]()
+    }
+
+    watch([viewShown, openSessionId], () => {
+      if (viewShown.value) settleHeldPrompts(openSessionId.value, 'show')
+    })
+
+    /** One toast per pause of a session the user is not looking at. */
+    function onTurnPaused(sessionId: string): void {
+      if (inView(sessionId)) return
+      const title = sessions.value[sessionId]?.title ?? ''
+      toast.show((i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace('{title}', title), {
+        settings: { duration: 8000 },
+        action: {
+          label: i18n.state.AGENT_SESSION_OPEN ?? '',
+          run: () => void openSession(sessionId),
+        },
+      })
+    }
+
+    /** Bring a session on screen: into Agent Mode if the app is elsewhere, then open it. */
+    async function openSession(id: string): Promise<void> {
+      const presetName = sessions.value[id]?.presetName ?? agentPresetName.value
+      if (!viewShown.value && presetName === agentPresetName.value) {
+        await presetSwitching.switchPreset(presetName)
+      }
+      await switchSession(id)
+    }
+
     // Records persist on turn lifecycle (step 11): a generate/stop snapshot,
     // capability rewrite, or explicit delete — not a map watch. The Chat
     // still owns the UIMessage list; main writes the file.
@@ -847,6 +909,7 @@ export const useAgentMode = defineStore(
         unseenTurns.value = { ...unseenTurns.value, [sessionId]: failed ? 'failed' : 'done' }
       }
       confirmations.cancelForConversation(sessionId, false)
+      settleHeldPrompts(sessionId, 'drop')
       const handoff = pendingHandoffs[sessionId]
       if (handoff) {
         delete pendingHandoffs[sessionId]
@@ -1318,6 +1381,8 @@ export const useAgentMode = defineStore(
       stop,
       newSession,
       switchSession,
+      openSession,
+      setViewShown,
       deleteSession,
       restoreOpenSession,
     }

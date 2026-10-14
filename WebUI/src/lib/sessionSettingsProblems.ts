@@ -30,6 +30,14 @@ export function describeSettingsProblem(
     .replace('{value}', problem.value)
 }
 
+/** Several problems as one sentence per problem. */
+export function describeSettingsProblems(
+  problems: readonly SessionSettingsProblem[],
+  labels: Record<string, string | undefined>,
+): string {
+  return problems.map((problem) => describeSettingsProblem(problem, labels)).join(' ')
+}
+
 /** What the app can serve right now. An empty list (or null) means "not loaded yet". */
 export type SessionSettingsAvailability = {
   models: readonly { name: string; type: string }[]

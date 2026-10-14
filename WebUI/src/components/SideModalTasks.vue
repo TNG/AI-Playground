@@ -17,7 +17,19 @@
           class="flex items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-2"
         >
           <span class="flex flex-col min-w-0 flex-1">
-            <span class="text-sm text-foreground truncate">{{ row.name }}</span>
+            <span class="flex items-center gap-1.5 min-w-0">
+              <span class="text-sm text-foreground truncate">{{ row.name }}</span>
+              <Tooltip v-if="row.blocked">
+                <TooltipTrigger as-child>
+                  <ExclamationTriangleIcon
+                    role="img"
+                    :aria-label="row.blocked.marker"
+                    class="size-4 flex-none text-amber-500"
+                  />
+                </TooltipTrigger>
+                <TooltipContent class="max-w-xs">{{ row.blocked.marker }}</TooltipContent>
+              </Tooltip>
+            </span>
             <span class="text-xs text-muted-foreground">{{ row.stepCount }}</span>
             <span v-if="row.progress" class="text-xs text-primary">{{ row.progress }}</span>
             <template v-else-if="row.outcome">
@@ -60,17 +72,27 @@
           </Tooltip>
           <Tooltip v-else>
             <TooltipTrigger as-child>
+              <!-- aria-disabled, not disabled: a disabled button gets no hover or focus for its tooltip. -->
               <button
                 type="button"
-                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20 aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-muted"
                 :aria-label="row.runLabel"
-                @click="agentTasks.runTask(row.id)"
+                :aria-disabled="row.blocked ? 'true' : undefined"
+                :aria-describedby="row.blocked ? `task-run-blocked-${row.id}` : undefined"
+                @click="row.blocked || run(row.id)"
               >
                 <PlayIcon class="size-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>{{ row.runLabel }}</TooltipContent>
+            <TooltipContent class="max-w-xs">{{ row.blocked?.run ?? row.runLabel }}</TooltipContent>
           </Tooltip>
+          <span
+            v-if="row.blocked && !row.running"
+            :id="`task-run-blocked-${row.id}`"
+            class="sr-only"
+          >
+            {{ row.blocked.run }}
+          </span>
           <Tooltip>
             <TooltipTrigger as-child>
               <button
@@ -92,16 +114,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
-import { ArrowTopRightOnSquareIcon, PlayIcon, StopIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { computed, reactive, watch } from 'vue'
+import {
+  ArrowTopRightOnSquareIcon,
+  ExclamationTriangleIcon,
+  PlayIcon,
+  StopIcon,
+  TrashIcon,
+} from '@heroicons/vue/24/outline'
 import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import SideModalBase from '@/components/SideModalBase.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { createAppError } from '@/assets/js/errors/appError'
+import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
 
-defineProps<{
+const props = defineProps<{
   isVisible: boolean
 }>()
 
@@ -111,7 +142,16 @@ const emit = defineEmits<{
 
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
+const errors = useErrors()
 const i18n = useI18N().state
+
+watch(
+  () => props.isVisible,
+  (visible) => {
+    if (visible) void agentTasks.loadProblemSources()
+  },
+  { immediate: true },
+)
 
 const deleting = reactive(new Set<string>())
 
@@ -127,6 +167,7 @@ const rows = computed(() =>
     const state = agentTasks.taskState(task.id)
     const run = 'running' in state ? state.running : undefined
     const outcome = 'idle' in state ? state.idle : undefined
+    const reasons = describeSettingsProblems(agentTasks.taskProblems(task.id), i18n)
     return {
       id: task.id,
       name: task.name,
@@ -139,6 +180,12 @@ const rows = computed(() =>
       stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
       openLabel: fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
+      blocked: reasons
+        ? {
+            marker: fill(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }),
+            run: fill(i18n.AGENT_TASKS_RUN_BLOCKED, { reason: reasons }),
+          }
+        : undefined,
       outcome: outcome && {
         label: outcomeLabel(outcome),
         failed: outcome.kind === 'failed',
@@ -171,6 +218,20 @@ function outcomeMessage({ message, reason }: AgentTaskOutcome): string | undefin
 async function openSession(sessionId: string): Promise<void> {
   emit('close')
   await agentMode.openSession(sessionId)
+}
+
+async function run(id: string): Promise<void> {
+  const result = await agentTasks.runTask(id)
+  if (result.ok || result.reason !== 'settings-problems') return
+  errors.report(
+    createAppError({
+      category: 'validation',
+      code: 'agent-tasks/run-blocked',
+      severity: 'warning',
+      surface: 'toast',
+      userMessage: fill(i18n.AGENT_TASKS_RUN_BLOCKED, { reason: result.message }),
+    }),
+  )
 }
 
 async function remove(id: string): Promise<void> {

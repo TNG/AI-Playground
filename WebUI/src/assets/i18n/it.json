@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}º",
   "HISTORY_TASK_FILTER_CHIP": "Attività: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Rimuovi il filtro attività",
-  "HISTORY_TASK_FILTER_EMPTY": "Ancora nessuna sessione da questa attività"
+  "HISTORY_TASK_FILTER_EMPTY": "Ancora nessuna sessione da questa attività",
+  "HISTORY_TASK_PICKER_CHIP": "Attività",
+  "HISTORY_TASK_PICKER_LABEL": "Filtra per attività",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Ancora nessuna attività"
 }

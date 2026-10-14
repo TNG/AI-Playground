@@ -36,6 +36,8 @@ import {
   type MediaEntry,
 } from './historyEntries'
 
+export type TaskPickerEntry = Pick<AgentTask, 'id' | 'name'> & { sessionCount: number }
+
 /**
  * Every reopenable unit of work as one list. This projects the three stores that
  * own the data today (chat threads, agent sessions, canvas media) rather than
@@ -186,6 +188,18 @@ export const useHistorySessions = defineStore('historySessions', () => {
   const taskFilter = computed<Pick<AgentTask, 'id' | 'name'> | null>(() => {
     const task = agentTasks.tasks.find((entry) => entry.id === taskFilterId.value)
     return task ? { id: task.id, name: task.name } : null
+  })
+
+  /** The history panel's Task picker: every Task by name, with its Task Session count. */
+  const taskPickerEntries = computed<TaskPickerEntry[]>(() => {
+    if (!tasksAvailable.value) return []
+    const counts = new Map<string, number>()
+    for (const session of Object.values(agentMode.sessions)) {
+      if (session.taskId) counts.set(session.taskId, (counts.get(session.taskId) ?? 0) + 1)
+    }
+    return agentTasks.tasks
+      .map((task) => ({ id: task.id, name: task.name, sessionCount: counts.get(task.id) ?? 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   })
 
   function setTaskFilter(taskId: string): void {
@@ -387,6 +401,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
     query,
     taskFilter,
     tasksAvailable,
+    taskPickerEntries,
     setTaskFilter,
     clearTaskFilter,
     showTaskSessions,

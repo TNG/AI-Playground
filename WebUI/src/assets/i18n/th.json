@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "ที่ {n}",
   "HISTORY_TASK_FILTER_CHIP": "งาน: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "ล้างตัวกรองงาน",
-  "HISTORY_TASK_FILTER_EMPTY": "ยังไม่มีเซสชันจากงานนี้"
+  "HISTORY_TASK_FILTER_EMPTY": "ยังไม่มีเซสชันจากงานนี้",
+  "HISTORY_TASK_PICKER_CHIP": "งาน",
+  "HISTORY_TASK_PICKER_LABEL": "กรองตามงาน",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "ยังไม่มีงาน"
 }

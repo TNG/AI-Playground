@@ -464,7 +464,7 @@ import {
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import {
-  PROBLEM_FIELD_LABEL_KEYS,
+  describeSettingsProblem as describeProblem,
   type SessionSettingsProblem,
 } from '@/lib/sessionSettingsProblems'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
@@ -1008,10 +1008,7 @@ const agentSettingsProblems = computed(() =>
 )
 
 function describeSettingsProblem(problem: SessionSettingsProblem): string {
-  const labels = languages as unknown as Record<string, string>
-  return (labels.AGENT_SETTINGS_UNUSABLE_DETAIL ?? '')
-    .replace('{setting}', labels[PROBLEM_FIELD_LABEL_KEYS[problem.field]] ?? problem.field)
-    .replace('{value}', problem.value)
+  return describeProblem(problem, languages as unknown as Record<string, string>)
 }
 
 function handleSubmitPromptClick() {

@@ -36,13 +36,25 @@
                 </span>
               </template>
             </span>
-            <Tooltip>
+            <Tooltip v-if="row.running">
               <TooltipTrigger as-child>
                 <button
                   type="button"
-                  class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                  class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-destructive/20"
+                  :aria-label="row.stopLabel"
+                  @click="agentTasks.stopTask(row.id)"
+                >
+                  <StopIcon class="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{{ row.stopLabel }}</TooltipContent>
+            </Tooltip>
+            <Tooltip v-else>
+              <TooltipTrigger as-child>
+                <button
+                  type="button"
+                  class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
                   :aria-label="row.runLabel"
-                  :disabled="row.running"
                   @click="agentTasks.runTask(row.id)"
                 >
                   <PlayIcon class="size-4" />
@@ -73,7 +85,7 @@
 
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import { PlayIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, StopIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -113,6 +125,7 @@ const rows = computed(() =>
       progress:
         run && fill(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
       runLabel: fill(i18n.AGENT_TASKS_RUN, { name: task.name }),
+      stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
       outcome: outcome && {
         label: outcomeLabel(outcome),

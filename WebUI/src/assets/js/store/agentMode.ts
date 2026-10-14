@@ -36,7 +36,11 @@ import {
   updateSessionSettingsFromBag,
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
-import { sessionSettingsProblems, type SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
+import {
+  describeSettingsProblem,
+  sessionSettingsProblems,
+  type SessionSettingsProblem,
+} from '@/lib/sessionSettingsProblems'
 import { createAppError, createCancellation, extractMessage } from '@/assets/js/errors/appError'
 import { registerSessionPromptPort } from '@/assets/js/permissions/sessionPromptPort'
 import * as toast from '@/assets/js/toast'
@@ -94,7 +98,7 @@ export type SendToSessionResult =
   | { ok: true }
   | {
       ok: false
-      reason: 'no-session' | 'busy' | 'missing-folder' | 'settings-problems'
+      reason: 'no-session' | 'busy' | 'missing-folder' | 'settings-problems' | 'aborted'
       message: string
       problems?: SessionSettingsProblem[]
     }
@@ -750,6 +754,7 @@ export const useAgentMode = defineStore(
       capabilities: string[]
       settings?: AgentSessionSettings
       stored: boolean
+      quietErrors?: boolean
     }
     const turnContexts: Record<string, TurnContext> = {}
 
@@ -848,6 +853,7 @@ export const useAgentMode = defineStore(
       onTurnAdopted: (sessionId) => forgetNotRun(sessionId),
       onTurnSettled: (sessionId) => settleTurn(sessionId),
       onTurnPaused: (sessionId) => onTurnPaused(sessionId),
+      quietTurnErrors: (sessionId) => turnContexts[sessionId]?.quietErrors === true,
       onAdoptedTurnDone: (sessionId) => {
         snapshotSessionById(sessionId)
         void refreshGameAfterTurn(sessionId)
@@ -1509,11 +1515,18 @@ export const useAgentMode = defineStore(
      * Send to any session; one not open (or `useStoredSettings`) runs on its record, not the
      * live controls. Resolves once handed off or refused; the end comes via `onTurnSettled`.
      * `settings` replaces the record's, which the panel rewrites while the session is open.
+     * `signal` aborted before the hand-off refuses the send; once handed off, stop the session.
+     * `quietErrors` is for a caller that records a failed turn itself instead of a toast.
      */
     async function sendToSession(
       sessionId: string,
       prompt: string,
-      options: { useStoredSettings?: boolean; settings?: AgentSessionSettings } = {},
+      options: {
+        useStoredSettings?: boolean
+        settings?: AgentSessionSettings
+        signal?: AbortSignal
+        quietErrors?: boolean
+      } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
       const live =
@@ -1539,7 +1552,7 @@ export const useAgentMode = defineStore(
         if (problems.length > 0) {
           return refuseSend(
             'settings-problems',
-            problems.map((p) => `${p.field}: ${p.value}`).join(', '),
+            problems.map((p) => describeSettingsProblem(p, i18n.state)).join(' '),
             problems,
           )
         }
@@ -1547,12 +1560,16 @@ export const useAgentMode = defineStore(
       if (!context.workspaceDir || !(await window.electronAPI.existsPath(context.workspaceDir))) {
         return refuseSend(
           'missing-folder',
-          `The workspace folder is missing: ${context.workspaceDir}`,
+          (
+            i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
+          ).replace('{path}', context.workspaceDir),
         )
       }
       if (turns.runtimeOf(sessionId)?.hasTurn()) {
         return refuseSend('busy', 'This session already has a turn in flight.')
       }
+      if (options.signal?.aborted) return refuseSend('aborted', 'The send was cancelled.')
+      if (options.quietErrors) context.quietErrors = true
       runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt })).catch((error) =>
         errors.report(error, {
           category: 'inference',

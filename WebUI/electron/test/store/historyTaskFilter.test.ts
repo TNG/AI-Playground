@@ -624,6 +624,83 @@ describe('picking a Task in the history panel', () => {
   })
 })
 
+describe('the "From task" marker on Task Session rows', () => {
+  const entryOf = (history: ReturnType<typeof useHistorySessions>, id: string) =>
+    history.visibleEntries.find((entry) => entry.id === id)!
+
+  it('names the session’s Task', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+
+    expect(history.taskMarker(entryOf(history, sessionId))).toEqual({ id: 'a', name: 'Alpha' })
+  })
+
+  it('shows a Task’s new name after a rename while the row title stays', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+    const title = entryOf(history, sessionId).title
+
+    tasks.beginEdit('a')
+    tasks.editDraft!.name = 'Renamed'
+    await tasks.saveEdit()
+
+    expect(history.taskMarker(entryOf(history, sessionId))).toEqual({
+      id: 'a',
+      name: 'Renamed',
+    })
+    expect(entryOf(history, sessionId).title).toBe(title)
+  })
+
+  it('is absent for a session of a deleted Task and for one no Task created', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+
+    expect(await tasks.deleteTask('a')).toBe(true)
+
+    expect(history.taskMarker(entryOf(history, sessionId))).toBeNull()
+    expect(history.taskMarker(entryOf(history, 'session-open'))).toBeNull()
+  })
+
+  it('applies its Task’s filter when clicked', async () => {
+    const { tasks, ui, history } = await readyStores(task('a', 'Alpha'), task('b', 'Beta'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+    await runOnce(tasks, 'b', 'complete')
+    ui.openHistory()
+
+    history.setTaskFilter(history.taskMarker(entryOf(history, sessionId))!.id)
+
+    expect(history.taskFilter).toEqual({ id: 'a', name: 'Alpha' })
+    expect(visibleIds(history)).toEqual([sessionId])
+    history.clearTaskFilter()
+    expect(history.filter).toBe('current')
+  })
+
+  it('is hidden on every row while a Task filter is active', async () => {
+    const { tasks, ui, history } = await readyStores(task('a', 'Alpha'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+    ui.openHistory()
+
+    history.setTaskFilter('a')
+
+    expect(history.taskMarker(entryOf(history, sessionId))).toBeNull()
+  })
+
+  it('is absent in other modes and presets', async () => {
+    const { tasks, history } = await readyStores(task('a', 'Alpha'))
+    const sessionId = await runOnce(tasks, 'a', 'complete')
+    history.filter = 'all'
+
+    shared.preset!.preset = GAME_AGENT
+    await flush()
+    expect(history.taskMarker(entryOf(history, sessionId))).toBeNull()
+
+    shared.preset!.preset = AGENT
+    await flush()
+    shared.prompt!.currentMode = 'chat'
+    expect(history.taskMarker(entryOf(history, sessionId))).toBeNull()
+  })
+})
+
 describe('a Task filter for no existing Task', () => {
   it('is not applied, and does not wake when a Task with that id appears', async () => {
     const { tasks, history } = await readyStores()

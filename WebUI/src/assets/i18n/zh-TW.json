@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "上次執行在第 {step} 步（共 {count} 步）失敗",
   "AGENT_TASKS_OUTCOME_STOPPED": "上次執行已停止",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "上次執行在第 {step} 步（共 {count} 步）停止",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "執行期間應用程式已關閉。",
   "AGENT_TASKS_DELETE": "刪除任務 {name}",
   "AGENT_TASKS_RUN": "執行任務 {name}",
   "AGENT_TASKS_RUNNING_STEP": "正在執行第 {step} 步（共 {count} 步）",

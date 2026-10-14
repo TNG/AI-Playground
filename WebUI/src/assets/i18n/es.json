@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "La última ejecución falló en el paso {step} de {count}",
   "AGENT_TASKS_OUTCOME_STOPPED": "La última ejecución se detuvo",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "La última ejecución se detuvo en el paso {step} de {count}",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "La aplicación se cerró durante la ejecución.",
   "AGENT_TASKS_DELETE": "Eliminar la tarea {name}",
   "AGENT_TASKS_RUN": "Ejecutar la tarea {name}",
   "AGENT_TASKS_RUNNING_STEP": "En ejecución: paso {step} de {count}",

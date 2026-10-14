@@ -147,7 +147,7 @@ const rows = computed(() =>
       outcome: outcome && {
         label: outcomeLabel(outcome),
         failed: outcome.kind === 'failed',
-        message: outcome.kind === 'failed' ? outcome.message : undefined,
+        message: outcome.kind === 'failed' ? outcomeMessage(outcome) : undefined,
       },
     }
   }),
@@ -167,6 +167,10 @@ function outcomeLabel({ kind, stepIndex, stepCount }: AgentTaskOutcome): string 
         ? fill(i18n.AGENT_TASKS_OUTCOME_STOPPED_AT_STEP, step)
         : i18n.AGENT_TASKS_OUTCOME_STOPPED
   }
+}
+
+function outcomeMessage({ message, reason }: AgentTaskOutcome): string | undefined {
+  return reason === 'app-closed' ? i18n.AGENT_TASKS_OUTCOME_APP_CLOSED : message
 }
 
 async function openSession(sessionId: string): Promise<void> {

@@ -727,6 +727,93 @@ describe('running again', () => {
   })
 })
 
+describe('the app closing during a run', () => {
+  it('persists a run marker while the run lasts and clears it with the outcome', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    expect(lastSavedTask('t1')?.activeRun).toMatchObject({ sessionId, stepIndex: 1 })
+    await finishTurn(0)
+    await turnIdOf(1)
+    await vi.waitFor(() => expect(lastSavedTask('t1')?.activeRun).toMatchObject({ stepIndex: 2 }))
+
+    await finishTurn(1)
+    await settledOutcome(tasks, 't1')
+    const saved = lastSavedTask('t1')!
+    expect(saved.lastOutcome).toMatchObject({ kind: 'completed' })
+    expect(saved).not.toHaveProperty('activeRun')
+  })
+
+  it.each([
+    ['failed', () => failTurn(0, 'boom')],
+    ['stopped', (tasks: ReturnType<typeof useAgentTasks>) => tasks.stopTask('t1')],
+  ] as const)('clears the marker when the run ends %s', async (_kind, end) => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    await end(tasks)
+
+    await settledOutcome(tasks, 't1')
+    expect(lastSavedTask('t1')).not.toHaveProperty('activeRun')
+  })
+
+  it('settles a Task left with a run marker as failed on init, and runs it again', async () => {
+    const interrupted = task('t1', ['one', 'two', 'three'], {
+      activeRun: { sessionId: 'session-old', stepIndex: 2, stepCount: 3 },
+    })
+    const { tasks } = await readyStores(interrupted)
+
+    const outcome = {
+      kind: 'failed',
+      sessionId: 'session-old',
+      stepIndex: 2,
+      stepCount: 3,
+      reason: 'app-closed',
+    }
+    expect(tasks.taskState('t1')).toEqual({ idle: expect.objectContaining(outcome) })
+    const saved = lastSavedTask('t1')!
+    expect(saved.lastOutcome).toMatchObject(outcome)
+    expect(saved).not.toHaveProperty('activeRun')
+    expect(startTurn).not.toHaveBeenCalled()
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it('keeps the interrupted Task Session’s "not run" message and resend action', async () => {
+    const interruptedSession = {
+      id: 'session-old',
+      workspaceDir: '/work/task',
+      title: 'Task t1',
+      messages: [{ id: 'old-u1', role: 'user', parts: [{ type: 'text', text: 'one' }] }],
+      createdAt: 1,
+      updatedAt: 2,
+      presetName: 'Agent',
+      settings: TEMPLATE,
+      taskId: 't1',
+    }
+    vi.mocked(window.electronAPI.agentMode.bootstrapSessions).mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'session-open',
+      sessions: [openRecord, interruptedSession],
+    } as never)
+    const { agentMode, tasks } = await readyStores(
+      task('t1', ['one'], {
+        activeRun: { sessionId: 'session-old', stepIndex: 1, stepCount: 1 },
+      }),
+    )
+
+    expect(agentMode.notRunMessages['session-old']).toBe('old-u1')
+    expect(tasks.isSessionLockedByTask('session-old')).toBe(false)
+    await agentMode.switchSession('session-old')
+    expect(agentMode.canResendNotRun).toBe(true)
+  })
+})
+
 describe('locking the Task Session', () => {
   it('locks only the Task Session, for the whole run, and lifts on completion', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))

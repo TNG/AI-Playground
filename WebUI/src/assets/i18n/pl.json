@@ -610,6 +610,7 @@
   "AGENT_TASKS_OUTCOME_FAILED_AT_STEP": "Ostatnie uruchomienie nie powiodło się na kroku {step} z {count}",
   "AGENT_TASKS_OUTCOME_STOPPED": "Ostatnie uruchomienie zatrzymane",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Ostatnie uruchomienie zatrzymane na kroku {step} z {count}",
+  "AGENT_TASKS_OUTCOME_APP_CLOSED": "Aplikacja została zamknięta w trakcie uruchomienia.",
   "AGENT_TASKS_DELETE": "Usuń zadanie {name}",
   "AGENT_TASKS_RUN": "Uruchom zadanie {name}",
   "AGENT_TASKS_RUNNING_STEP": "Trwa: krok {step} z {count}",

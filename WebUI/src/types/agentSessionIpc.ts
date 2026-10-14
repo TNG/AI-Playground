@@ -43,6 +43,8 @@ export const AgentSessionFileSchema = z.object({
   presetName: z.string().optional(),
   responseLocale: z.string().optional(),
   settings: AgentSessionSettingsSchema.optional(),
+  /** The Task whose run created this session. */
+  taskId: z.string().optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

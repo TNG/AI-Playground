@@ -33,6 +33,8 @@ export type AgentSessionRecord = {
   responseLocale?: string
   /** The session's own Session Settings (Agent preset only). */
   settings?: AgentSessionSettings
+  /** The Task whose run created this session (a Task Session). */
+  taskId?: string
 }
 
 /**
@@ -198,6 +200,7 @@ export function snapshotSession(options: {
       : existing?.settings
         ? { settings: existing.settings }
         : {}),
+    ...(existing?.taskId ? { taskId: existing.taskId } : {}),
   }
 }
 

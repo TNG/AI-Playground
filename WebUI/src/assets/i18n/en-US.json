@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "Last run stopped",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Last run stopped at step {step} of {count}",
   "AGENT_TASKS_DELETE": "Delete task {name}",
+  "AGENT_TASKS_RUN": "Run task {name}",
+  "AGENT_TASKS_RUNNING_STEP": "Running step {step} of {count}",
   "AGENT_TASK_DELETE_FAILED": "Could not delete the task.",
   "AGENT_SETTINGS_UNUSABLE": "This session's settings can't be used right now. Fix them in Agent Settings to continue.",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” is no longer available.",

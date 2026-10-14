@@ -259,6 +259,17 @@ describe('saveAgentSession', () => {
     expect(boot.sessions[0]).toMatchObject({ settings, responseLocale: 'de' })
   })
 
+  it('keeps the Task a session was started by across a save and a restart', async () => {
+    const { AgentSessionRecordSchema } = await import('@/types/agentSessionIpc')
+    const saved = record('aipg-agent-1', { presetName: 'Agent', taskId: 'task-1' })
+    await saveAgentSession(AgentSessionRecordSchema.parse(saved))
+
+    resetAgentSessionFilesForTest()
+    const boot = await bootstrapAgentSessions()
+    if (boot.status !== 'ok') throw new Error(`unexpected bootstrap ${boot.status}`)
+    expect(boot.sessions[0].taskId).toBe('task-1')
+  })
+
   it('still loads a record saved without settings', async () => {
     await saveAgentSession(record('aipg-agent-1'))
     const boot = await bootstrapAgentSessions()

@@ -23,7 +23,8 @@
             <span class="flex flex-col min-w-0 flex-1">
               <span class="text-sm text-foreground truncate">{{ row.name }}</span>
               <span class="text-xs text-muted-foreground">{{ row.stepCount }}</span>
-              <template v-if="row.outcome">
+              <span v-if="row.progress" class="text-xs text-primary">{{ row.progress }}</span>
+              <template v-else-if="row.outcome">
                 <span
                   class="text-xs"
                   :class="row.outcome.failed ? 'text-destructive' : 'text-muted-foreground'"
@@ -39,9 +40,23 @@
               <TooltipTrigger as-child>
                 <button
                   type="button"
+                  class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                  :aria-label="row.runLabel"
+                  :disabled="row.running"
+                  @click="agentTasks.runTask(row.id)"
+                >
+                  <PlayIcon class="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{{ row.runLabel }}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <button
+                  type="button"
                   class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-destructive/20 disabled:opacity-40 disabled:cursor-not-allowed"
                   :aria-label="row.deleteLabel"
-                  :disabled="deleting.has(row.id)"
+                  :disabled="row.running || deleting.has(row.id)"
                   @click="remove(row.id)"
                 >
                   <TrashIcon class="size-4" />
@@ -58,7 +73,7 @@
 
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import { TrashIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -87,11 +102,17 @@ function fill(template: string, vars: Record<string, string | number>): string {
 
 const rows = computed(() =>
   agentTasks.tasks.map((task) => {
-    const outcome = agentTasks.taskState(task.id).idle
+    const state = agentTasks.taskState(task.id)
+    const run = 'running' in state ? state.running : undefined
+    const outcome = 'idle' in state ? state.idle : undefined
     return {
       id: task.id,
       name: task.name,
       stepCount: fill(i18n.AGENT_TASKS_STEP_COUNT, { count: task.steps.length }),
+      running: run !== undefined,
+      progress:
+        run && fill(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
+      runLabel: fill(i18n.AGENT_TASKS_RUN, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
       outcome: outcome && {
         label: outcomeLabel(outcome),

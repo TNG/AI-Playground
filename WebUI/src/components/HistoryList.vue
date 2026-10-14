@@ -43,41 +43,44 @@
             >
               {{ chip.label }}
             </button>
-            <DropdownMenu v-if="history.tasksAvailable">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <DropdownMenuTrigger as-child>
-                    <button
-                      type="button"
-                      class="flex items-center gap-0.5 rounded-full pl-2.5 pr-1.5 py-1 text-xs border transition border-border text-muted-foreground hover:text-foreground"
-                      :aria-label="i18n.HISTORY_TASK_PICKER_LABEL"
+            <!-- Tooltip outside the menu: a nested TooltipTrigger steals the menu's popper anchor. -->
+            <Tooltip v-if="history.tasksAvailable">
+              <TooltipTrigger as-child>
+                <span class="inline-flex">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <button
+                        type="button"
+                        class="flex items-center gap-0.5 rounded-full pl-2.5 pr-1.5 py-1 text-xs border transition border-border text-muted-foreground hover:text-foreground"
+                        :aria-label="i18n.HISTORY_TASK_PICKER_LABEL"
+                      >
+                        {{ i18n.HISTORY_TASK_PICKER_CHIP }}
+                        <ChevronDownIcon class="size-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      class="min-w-[200px] max-w-[320px] max-h-[60vh] overflow-y-auto"
                     >
-                      {{ i18n.HISTORY_TASK_PICKER_CHIP }}
-                      <ChevronDownIcon class="size-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>{{ i18n.HISTORY_TASK_PICKER_LABEL }}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="start"
-                class="min-w-[200px] max-w-[320px] max-h-[60vh] overflow-y-auto"
-              >
-                <DropdownMenuLabel class="text-xs text-muted-foreground">
-                  {{ i18n.HISTORY_TASK_PICKER_LABEL }}
-                </DropdownMenuLabel>
-                <DropdownMenuItem
-                  v-for="task in history.taskPickerEntries"
-                  :key="task.id"
-                  @select="history.setTaskFilter(task.id)"
-                >
-                  <span class="truncate">{{ taskPickerEntryLabel(task) }}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem v-if="history.taskPickerEntries.length === 0" disabled>
-                  {{ i18n.HISTORY_TASK_PICKER_EMPTY }}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      <DropdownMenuLabel class="text-xs text-muted-foreground">
+                        {{ i18n.HISTORY_TASK_PICKER_LABEL }}
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem
+                        v-for="task in history.taskPickerEntries"
+                        :key="task.id"
+                        @select="history.setTaskFilter(task.id)"
+                      >
+                        <span class="truncate">{{ taskPickerEntryLabel(task) }}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem v-if="history.taskPickerEntries.length === 0" disabled>
+                        {{ i18n.HISTORY_TASK_PICKER_EMPTY }}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{{ i18n.HISTORY_TASK_PICKER_LABEL }}</TooltipContent>
+            </Tooltip>
           </template>
         </div>
       </div>

@@ -35,6 +35,9 @@
 //   before it continues. The yield and the reclaim are separate on purpose: a
 //   run reclaims when it next needs the model, not when the user answers, so a
 //   nested generation still finishing for it can never wait on the place.
+//   Panel / Home Agent runs ask for their missing models as they are submitted;
+//   one that gets the place while the user is still deciding gives it up the
+//   same way and takes it back at the front once answered.
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
@@ -51,9 +54,11 @@ import {
   artifactRunTag,
   activeArtifactRunId,
   cancelActiveArtifactRun,
+  prepareRunModels,
   startArtifactRun,
   type ArtifactRunPayload,
   type ArtifactRunResult,
+  type RunModelsOutcome,
 } from '../artifact/runner'
 
 const appLogger = appLoggerInstance
@@ -267,35 +272,33 @@ function enqueueRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
   })
 }
 
-async function runAsTurnMember(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
+async function runAsTurnMember(submitted: ArtifactRunPayload): Promise<ArtifactRunResult> {
+  let payload = submitted
   const cancel = new AbortController()
   turnMemberRuns.set(payload.runId, cancel)
   const place = takeTurnPlace(payload.runId, cancel.signal)
   const position = turnQueuePosition(payload.runId)
   if (position !== undefined) {
     emitArtifactPhase(artifactRunTag(payload), 'queued')
-    emitQueueEvent({
-      runKey: payload.runId,
-      kind: 'artifact',
-      action: 'enqueued',
-      queueDepth: turnQueue.length - position,
-      position,
-      ...turnQueueContext(payload.runId),
-      origin: payload.origin,
-      conversationKey: payload.conversationKey,
-      activityId: payload.activityId,
-    })
+    emitMemberQueueEvent(payload, 'enqueued', position)
   }
+  // Asked at once, so the download dialog opens on click as it always has.
+  const models = payload.modelsConsented ? null : askForMemberModels(payload, cancel)
   try {
     await place
   } catch {
     turnMemberRuns.delete(payload.runId)
-    return settleUnstartedMember(payload)
+    return settleUnstartedMember(payload, models?.outcome)
+  }
+  if (!cancel.signal.aborted && models) {
+    const outcome = await holdForMemberModels(payload, models, cancel.signal)
+    if (outcome.state === 'ready') payload = { ...payload, modelsConsented: true }
+    else if (!cancel.signal.aborted) cancel.abort()
   }
   if (cancel.signal.aborted) {
     turnMemberRuns.delete(payload.runId)
     leaveTurnQueue(payload.runId)
-    const result = settleUnstartedMember(payload)
+    const result = settleUnstartedMember(payload, models?.outcome)
     await drainQueue()
     return result
   }
@@ -303,11 +306,122 @@ async function runAsTurnMember(payload: ArtifactRunPayload): Promise<ArtifactRun
   return queueBusy() ? enqueueRun(payload) : executeRun(payload)
 }
 
-function settleUnstartedMember(payload: ArtifactRunPayload): ArtifactRunResult {
-  const result = cancelledRun()
-  emitArtifactPhase(artifactRunTag(payload), 'cancelled', undefined, result.error)
+function settleUnstartedMember(
+  payload: ArtifactRunPayload,
+  models?: RunModelsOutcome,
+): ArtifactRunResult {
+  const result: ArtifactRunResult =
+    models?.state === 'failed'
+      ? { state: 'failed', items: [], error: models.error }
+      : cancelledRun()
+  emitArtifactPhase(artifactRunTag(payload), result.state, undefined, result.error)
   emitArtifactFinished(payload)
   return result
+}
+
+function emitMemberQueueEvent(
+  payload: ArtifactRunPayload,
+  action: 'enqueued' | 'yielded' | 'reclaimed',
+  position?: number,
+): void {
+  emitQueueEvent({
+    runKey: payload.runId,
+    kind: 'artifact',
+    action,
+    queueDepth: position === undefined ? turnQueue.length : turnQueue.length - position,
+    position,
+    ...(position === undefined ? { work: 'generation' as const } : turnQueueContext(payload.runId)),
+    origin: payload.origin,
+    conversationKey: payload.conversationKey,
+    activityId: payload.activityId,
+  })
+}
+
+// ── Member runs waiting on model download consent ─────────────────────────────
+
+type MemberModels = {
+  /** The user is being asked for the run's missing models. */
+  asking: boolean
+  /** Gave up the place while the user was asked, and has not taken it back yet. */
+  yielded: boolean
+  outcome?: RunModelsOutcome
+  settled: Promise<RunModelsOutcome>
+}
+
+function askForMemberModels(payload: ArtifactRunPayload, cancel: AbortController): MemberModels {
+  const models: MemberModels = { asking: false, yielded: false, settled: Promise.resolve(READY) }
+  models.settled = prepareRunModels(payload, () => {
+    models.asking = true
+    yieldMemberPlace(payload, models)
+  }).then((outcome) => {
+    models.asking = false
+    models.outcome = outcome
+    // Declined while still in line: nothing is left to wait for.
+    if (outcome.state !== 'ready') cancel.abort()
+    return outcome
+  })
+  return models
+}
+
+const READY: RunModelsOutcome = { state: 'ready' }
+
+/**
+ * The member holds the place; if the user is still deciding about its models it
+ * gives the place up until they answer, then takes it back at the front.
+ * Resolves with the answer, or `declined` when the run is cancelled meanwhile.
+ */
+async function holdForMemberModels(
+  payload: ArtifactRunPayload,
+  models: MemberModels,
+  signal: AbortSignal,
+): Promise<RunModelsOutcome> {
+  if (models.asking) yieldMemberPlace(payload, models)
+  const outcome = await untilAnswered(models, signal)
+  if (outcome.state !== 'ready' || !models.yielded) return outcome
+  try {
+    await reclaimMemberPlace(payload, models, signal)
+  } catch {
+    return { state: 'declined' }
+  }
+  return outcome
+}
+
+function untilAnswered(models: MemberModels, signal: AbortSignal): Promise<RunModelsOutcome> {
+  if (signal.aborted) return Promise.resolve(models.outcome ?? { state: 'declined' })
+  return new Promise((resolve) => {
+    const onAbort = () => resolve(models.outcome ?? { state: 'declined' })
+    signal.addEventListener('abort', onAbort, { once: true })
+    void models.settled.then((outcome) => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(outcome)
+    })
+  })
+}
+
+function yieldMemberPlace(payload: ArtifactRunPayload, models: MemberModels): void {
+  if (turnHolder !== payload.runId) return
+  models.yielded = true
+  emitMemberQueueEvent(payload, 'yielded')
+  leaveTurnQueue(payload.runId)
+  // Taking the place had kept the GPU on media for this run; whoever holds it now may need chat.
+  if (!queueBusy()) void considerRelease()
+}
+
+async function reclaimMemberPlace(
+  payload: ArtifactRunPayload,
+  models: MemberModels,
+  signal: AbortSignal,
+): Promise<void> {
+  const place = takeTurnPlace(payload.runId, signal, { front: true })
+  const position = turnQueuePosition(payload.runId)
+  if (position !== undefined) {
+    emitArtifactPhase(artifactRunTag(payload), 'queued')
+    emitMemberQueueEvent(payload, 'enqueued', position)
+    announceTurnPositions(position)
+  }
+  await place
+  models.yielded = false
+  emitMemberQueueEvent(payload, 'reclaimed')
 }
 
 /** Gives a member run's place to the next member once the run has settled. */

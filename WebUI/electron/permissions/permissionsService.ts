@@ -27,8 +27,11 @@ import { awaitUser, userWaitOwner } from '../kernel/userWait'
 
 export type RequestDownloadOptions = {
   onProgress?: () => void
-  /** The turn the download is for; it pauses while the user is asked. */
-  conversationKey?: string
+  /**
+   * The turn the download is for; it pauses while the user is asked. `null` says
+   * it is for no turn at all (a panel run), so it is never attributed to one.
+   */
+  conversationKey?: string | null
 }
 
 /**
@@ -40,7 +43,8 @@ export async function requestDownloadConsent(
   models: unknown[],
   options: RequestDownloadOptions = {},
 ): Promise<void> {
-  const owner = options.conversationKey ?? userWaitOwner()
+  const owner =
+    options.conversationKey === null ? undefined : (options.conversationKey ?? userWaitOwner())
   const remote = await isRemoteTurnActive()
   const skipConfirmation = remote && (await hasPermissionGrant(REMOTE_DOWNLOAD_GRANT))
   const prompt = () =>

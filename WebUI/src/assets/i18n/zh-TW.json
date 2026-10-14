@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "上次執行已停止",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "上次執行在第 {step} 步（共 {count} 步）停止",
   "AGENT_TASKS_DELETE": "刪除任務 {name}",
+  "AGENT_TASKS_RUN": "執行任務 {name}",
+  "AGENT_TASKS_RUNNING_STEP": "正在執行第 {step} 步（共 {count} 步）",
   "AGENT_TASK_DELETE_FAILED": "無法刪除任務。",
   "AGENT_SETTINGS_UNUSABLE": "此工作階段的設定目前無法使用。請在 Agent 設定中修正後繼續。",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting}「{value}」已無法使用。",

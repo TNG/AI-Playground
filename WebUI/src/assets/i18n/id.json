@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "Proses terakhir dihentikan",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Proses terakhir dihentikan pada langkah {step} dari {count}",
   "AGENT_TASKS_DELETE": "Hapus tugas {name}",
+  "AGENT_TASKS_RUN": "Jalankan tugas {name}",
+  "AGENT_TASKS_RUNNING_STEP": "Berjalan: langkah {step} dari {count}",
   "AGENT_TASK_DELETE_FAILED": "Tidak dapat menghapus tugas.",
   "AGENT_SETTINGS_UNUSABLE": "Pengaturan sesi ini tidak dapat digunakan saat ini. Perbaiki di Pengaturan Agent untuk melanjutkan.",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” tidak lagi tersedia.",

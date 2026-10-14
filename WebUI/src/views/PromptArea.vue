@@ -15,6 +15,23 @@
           {{ describeSettingsProblem(problem) }}
         </p>
       </div>
+      <div
+        v-if="lockingTask"
+        role="status"
+        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <p class="flex-1 min-w-0">{{ lockedNote }}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-7 px-2 text-xs"
+          :aria-label="(languages?.AGENT_TASKS_STOP ?? '').replace('{name}', lockingTask.name)"
+          @click="agentTasks.stopTask(lockingTask.id)"
+        >
+          <StopIcon class="size-3.5" aria-hidden="true" />
+          {{ languages?.AGENT_TASK_STOP_RUN }}
+        </Button>
+      </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <div class="w-full max-w-3xl flex flex-col">
         <PromptStatusBar />
@@ -463,6 +480,7 @@ import {
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import {
   describeSettingsProblem as describeProblem,
   type SessionSettingsProblem,
@@ -481,7 +499,13 @@ import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/pres
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { PlusIcon, PaperClipIcon, MusicalNoteIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import {
+  PlusIcon,
+  PaperClipIcon,
+  MusicalNoteIcon,
+  StopIcon,
+  XMarkIcon,
+} from '@heroicons/vue/24/outline'
 import { CameraIcon } from '@heroicons/vue/24/solid'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
@@ -504,6 +528,7 @@ const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const oemBranding = useOemBranding()
 const textInference = useTextInference()
 const conversations = useConversations()
@@ -841,13 +866,23 @@ function removeImage(index: number) {
   openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)
 }
 
+const lockingTask = computed(() =>
+  promptStore.getCurrentMode() === 'agent'
+    ? agentTasks.taskLockingSession(agentMode.openSessionId)
+    : undefined,
+)
+
+const lockedNote = computed(() =>
+  (languages?.AGENT_TASK_SESSION_LOCKED ?? '').replace('{name}', lockingTask.value?.name ?? ''),
+)
+
 // Busy state follows only what the prompt bar would send to (`promptBusy`). For the
 // open conversation that includes any chat activity on it (backend prep, a queued
 // turn, RAG search, tool resolution, thinking), so send/stop matches the in-turn
 // activity indicator.
 const isProcessing = computed(() =>
   promptBusy(promptStore.getCurrentMode(), {
-    agentSession: agentMode.processing,
+    agentSession: agentMode.processing || lockingTask.value !== undefined,
     conversation:
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,

@@ -9,6 +9,7 @@ import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import { isToolEnabled } from '@/lib/builtinToolEnablement'
 import type { ToolsForTurn } from '@/lib/storedSessionInference'
+import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 
 // ── Agent Mode tool specs (renderer side) ────────────────────────────────────
 //
@@ -92,12 +93,7 @@ function transcribeInputSchema(): z.ZodTypeAny {
 }
 
 /** The speech tools, per the same per-preset toggles Chat reads. */
-function speechToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
-  const textInference = useTextInference()
-  const enabled = (name: string) =>
-    tools
-      ? isToolEnabled(tools.builtinToolEnablement, name)
-      : textInference.isBuiltinToolEnabled(name)
+function speechToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[] {
   const specs: AgentToolSpec[] = []
   if (enabled('synthesizeTextToSpeech')) {
     specs.push({
@@ -121,16 +117,32 @@ function speechToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
 
 /** `tools` are the toggles stored on a session; the live ones are read when absent. */
 export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
-  return [...mediaToolSpecs(tools), ...speechToolSpecs(tools)]
+  const textInference = useTextInference()
+  const enabled = tools
+    ? (name: string) => isToolEnabled(tools.builtinToolEnablement, name)
+    : textInference.isBuiltinToolEnabled
+  return [
+    ...mediaToolSpecs(tools?.toolDelegationEnabled ?? textInference.toolDelegationEnabled),
+    ...speechToolSpecs(enabled),
+  ]
 }
 
-function mediaToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
+/** The tool specs a set of media tool settings yields, e.g. a draft Settings Template's. */
+export function agentToolSpecsFor(settings: MediaToolSettings): AgentToolSpec[] {
+  return [
+    ...mediaToolSpecs(settings.delegationEnabled(), settings),
+    ...speechToolSpecs(settings.isToolEnabled),
+  ]
+}
+
+// `media` defaults to the chat store's live workflow toggles and default workflows.
+function mediaToolSpecs(delegationEnabled: boolean, media?: MediaToolSettings): AgentToolSpec[] {
   // With tool delegation on (the default), the agent sees a single thin
   // `media` tool backed by the nested media agent (agents/mediaAgent.ts).
   // NOTE: the tool set is part of the Pi session's configKey, so flipping the
   // toggle starts a new Pi session on the next turn.
-  if (tools?.toolDelegationEnabled ?? useTextInference().toolDelegationEnabled) {
-    if (!mediaAgentHasTools()) return []
+  if (delegationEnabled) {
+    if (!mediaAgentHasTools(media)) return []
     return [
       {
         name: 'media',
@@ -140,7 +152,7 @@ function mediaToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
       },
     ]
   }
-  const imageWorkflowNames = getAvailableWorkflows()
+  const imageWorkflowNames = getAvailableWorkflows(media?.isWorkflowEnabled)
     .filter((w) => w.mediaType !== 'video')
     .map((w) => w.name)
   return [
@@ -150,7 +162,7 @@ function mediaToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
       inputSchema: asSchema(comfyUI.inputSchema).jsonSchema as Record<string, unknown>,
       // Main executes this in-process and can't see the enabled-workflow list;
       // the default is what the description already tells the model to use.
-      defaultWorkflow: resolveDefaultImageWorkflow(imageWorkflowNames),
+      defaultWorkflow: resolveDefaultImageWorkflow(imageWorkflowNames, media),
     },
     {
       name: 'editImage',

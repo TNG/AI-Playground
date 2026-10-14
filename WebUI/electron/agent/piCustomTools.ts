@@ -8,6 +8,7 @@ import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 import { agentTurns } from './piAgentState.ts'
+import { whileRendererAnswers } from '../kernel/userWait.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
 //
@@ -48,6 +49,7 @@ export function jsonSchemaParameters(schema: Record<string, unknown>): TSchema {
 // ── Renderer tool bridge ─────────────────────────────────────────────────────
 
 type PendingToolCall = {
+  sessionId: string
   resolve: (result: unknown) => void
   reject: (error: Error) => void
   timeout: NodeJS.Timeout
@@ -79,10 +81,11 @@ export function submitAgentToolResult(requestId: string, result: unknown, error?
   else pending.resolve(result)
 }
 
-export function rejectAllPendingToolCalls(reason: string): void {
-  const pending = [...pendingToolCalls.values()]
-  pendingToolCalls.clear()
-  for (const call of pending) {
+/** Settles the renderer tool calls of one session, or of every session when none is named. */
+export function rejectPendingToolCalls(reason: string, sessionId?: string): void {
+  for (const [requestId, call] of [...pendingToolCalls]) {
+    if (sessionId !== undefined && call.sessionId !== sessionId) continue
+    pendingToolCalls.delete(requestId)
     clearTimeout(call.timeout)
     call.cleanupAbort?.()
     call.reject(new Error(reason))
@@ -99,13 +102,25 @@ export function executeToolInRenderer(
   if (!mainWin) {
     return Promise.reject(new Error('No renderer window available for tool execution.'))
   }
+  return whileRendererAnswers(sessionId, () =>
+    dispatchToRenderer(sessionId, toolName, input, toolCallId, abortSignal),
+  )
+}
+
+function dispatchToRenderer(
+  sessionId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  toolCallId: string,
+  abortSignal?: AbortSignal,
+): Promise<unknown> {
   const requestId = `tool-req-${Date.now()}-${++toolRequestCounter}`
   return new Promise<unknown>((resolve, reject) => {
     const timeout = setTimeout(() => {
       pendingToolCalls.delete(requestId)
       reject(new Error(`Tool '${toolName}' timed out after ${TOOL_BRIDGE_TIMEOUT_MS / 60000}min.`))
     }, TOOL_BRIDGE_TIMEOUT_MS)
-    const entry: PendingToolCall = { resolve, reject, timeout }
+    const entry: PendingToolCall = { sessionId, resolve, reject, timeout }
     if (abortSignal) {
       const onAbort = () => {
         // The renderer keeps running its side (no remote cancellation); its late

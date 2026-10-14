@@ -12,6 +12,7 @@ import {
   revokePermissionGrant,
 } from '../persist/grantsStore'
 import { requestPermissionsPrompt } from './promptAdapter'
+import { awaitUser, userWaitOwner } from '../kernel/userWait'
 
 /**
  * Permissions policy in main (architecture-target §4.7, step 13). Named verbs
@@ -26,18 +27,28 @@ import { requestPermissionsPrompt } from './promptAdapter'
 
 export type RequestDownloadOptions = {
   onProgress?: () => void
+  /** The turn the download is for; it pauses while the user is asked. */
+  conversationKey?: string
 }
 
+/**
+ * A prompt names the turn it holds up so that turn gives up its Turn Queue place
+ * while the user decides, and so the window can keep it out of sight until that
+ * turn's session is open.
+ */
 export async function requestDownloadConsent(
   models: unknown[],
   options: RequestDownloadOptions = {},
 ): Promise<void> {
+  const owner = options.conversationKey ?? userWaitOwner()
   const remote = await isRemoteTurnActive()
   const skipConfirmation = remote && (await hasPermissionGrant(REMOTE_DOWNLOAD_GRANT))
-  await requestPermissionsPrompt<void>(
-    { kind: 'download', models, skipConfirmation },
-    { onProgress: options.onProgress },
-  )
+  const prompt = () =>
+    requestPermissionsPrompt<void>(
+      { kind: 'download', models, skipConfirmation },
+      { onProgress: options.onProgress, conversationKey: owner },
+    )
+  await (skipConfirmation ? prompt() : awaitUser(owner, prompt))
 }
 
 export async function requestVramWarningConsent(req: {
@@ -46,11 +57,13 @@ export async function requestVramWarningConsent(req: {
 }): Promise<boolean> {
   const key = vramWarningGrantKey(req.presetName)
   if (await hasPermissionGrant(key)) return true
-  const answer = await requestPermissionsPrompt<{ confirmed: boolean; remember: boolean }>({
-    kind: 'vram-warning',
-    presetName: req.presetName,
-    message: req.message,
-  })
+  const owner = userWaitOwner()
+  const answer = await awaitUser(owner, () =>
+    requestPermissionsPrompt<{ confirmed: boolean; remember: boolean }>(
+      { kind: 'vram-warning', presetName: req.presetName, message: req.message },
+      { conversationKey: owner },
+    ),
+  )
   if (answer.confirmed && answer.remember) {
     await grantPermission(key, 'remember')
   }

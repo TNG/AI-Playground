@@ -35,10 +35,21 @@ import {
   type ActiveSession,
   type AgentTurn,
 } from './piAgentState.ts'
-import { endActiveSession, ensureSession } from './piSessionLifecycle.ts'
+import {
+  endActiveSession,
+  ensureSession,
+  reapplySession,
+  releaseTurnSession,
+} from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
-import { finishTextRequest, submitTextRequest, turnQueueHolder } from '../kernel/orchestrator.ts'
+import {
+  finishTextRequest,
+  reclaimTurnPlace,
+  submitTextRequest,
+  turnQueueHolder,
+  type TurnPause,
+} from '../kernel/orchestrator.ts'
 import {
   ensureChatBackendReady,
   setLastChatBackendLoadActive,
@@ -327,20 +338,10 @@ export async function startAgentTurn(
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
   })
-  try {
-    await submitTextRequest(
-      {
-        runId: turnId,
-        conversationKey: sessionId,
-        needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
-        joinsTurnQueue: true,
-        work: 'agent',
-      },
-      abortController.signal,
-    )
-    emitAgentTurnState(sessionId, turnId, 'running')
-    // Readiness runs only now that the turn holds the place, so a turn on another
-    // model swaps the server while nothing else is streaming.
+  // Readiness runs when the turn takes its place, and again whenever it takes it
+  // back after a pause, so a turn on another model swaps the server only while
+  // nothing else is streaming.
+  const ready = async () => {
     if (config.modelConfig.source === 'cloud') {
       setLastChatBackendLoadActive(false)
     } else if (config.readiness) {
@@ -351,6 +352,47 @@ export async function startAgentTurn(
         conversationKey: sessionId,
       })
     }
+  }
+  const pause: TurnPause = {
+    onUserWait: (waiting) => emitAgentTurnState(sessionId, turnId, waiting ? 'paused' : 'running'),
+    onRequeued: () => emitAgentTurnState(sessionId, turnId, 'queued'),
+    readyAgain: async () => {
+      emitAgentTurnState(sessionId, turnId, 'running')
+      await ready()
+      if (turn.live) {
+        await reapplySession(turn.live, config)
+        setAgentRunIdentity(agentRunIdentity(config))
+      }
+    },
+  }
+  // Pi swallows a failing `context` handler and makes the request anyway, so a
+  // reclaim that fails stops the session itself and the turn reports it.
+  let reclaimFailure: unknown = null
+  turn.reclaim = async () => {
+    try {
+      await reclaimTurnPlace(turnId, abortController.signal)
+    } catch (error) {
+      if (!abortController.signal.aborted) {
+        reclaimFailure = error
+        void turn.live?.session.abort()
+      }
+      throw error
+    }
+  }
+  try {
+    await submitTextRequest(
+      {
+        runId: turnId,
+        conversationKey: sessionId,
+        needsGpu: config.modelConfig.source !== 'cloud' && Boolean(config.readiness),
+        joinsTurnQueue: true,
+        work: 'agent',
+        pause,
+      },
+      abortController.signal,
+    )
+    emitAgentTurnState(sessionId, turnId, 'running')
+    await ready()
     const current = await ensureSession(config)
     turn.live = current
     // Per turn, not per session: a resumed session keeps its trace context but
@@ -378,6 +420,7 @@ export async function startAgentTurn(
       // A failed model call is reported, not nudged: asking a model the provider
       // just refused to serve only produces the same refusal again.
       const failIfModelErrored = () => {
+        if (reclaimFailure) throw reclaimFailure
         if (abortController.signal.aborted) return
         const failure = modelCallError(current.session)
         if (failure) throw new Error(failure)
@@ -429,6 +472,7 @@ export async function startAgentTurn(
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
+    if (turn.live) await releaseTurnSession(turn.live)
     emitAgentTurnDone(sessionId, turnId)
   }
 }

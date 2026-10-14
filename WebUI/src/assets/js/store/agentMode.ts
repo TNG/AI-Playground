@@ -682,6 +682,13 @@ export const useAgentMode = defineStore(
         : planningThinkingOnly.value,
     )
 
+    /** The Session Settings the panel holds for the Open Session right now. */
+    const openSessionSettings = computed<AgentSessionSettings>(() => ({
+      ...openSettings.value,
+      capabilities: [...capabilities.value],
+      planningThinkingOnly: effectivePlanningThinkingOnly.value,
+    }))
+
     function setPlanningThinkingOnly(value: boolean): void {
       if (sessionScoped.value) updateOpenSettings({ planningThinkingOnly: value })
       else planningThinkingOnly.value = value
@@ -1591,6 +1598,7 @@ export const useAgentMode = defineStore(
       planningThinkingOnly,
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
+      openSessionSettings,
       sessionScoped,
       settingsProblems,
       saveAsDefault,

@@ -8,6 +8,7 @@ import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
 import { useConversations } from './assets/js/store/conversations'
 import { useAgentMode } from './assets/js/store/agentMode'
+import { useAgentTasks } from './assets/js/store/agentTasks'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
@@ -92,6 +93,7 @@ await useConversations().init()
 // agent turn read a fully hydrated map. Instantiating the store here is safe —
 // its setup only wires IPC and chat transport, no backend work.
 await useAgentMode().init()
+await useAgentTasks().init()
 
 // Same for the generated-media gallery (step 8): the history strip hydrates
 // from the record files under media/records/, and the one-shot localStorage

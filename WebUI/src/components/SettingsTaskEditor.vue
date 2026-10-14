@@ -49,6 +49,8 @@
     </div>
 
     <TaskStepsEditor v-model:steps="draft.steps" id-prefix="task-edit" />
+
+    <SettingsTaskTemplate :workspace-dir="draft.workspaceDir" :template="draft.settingsTemplate" />
   </div>
 </template>
 
@@ -56,6 +58,7 @@
 import { computed, ref } from 'vue'
 import { SAVE_TASK_BLOCKER_KEYS, useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
+import SettingsTaskTemplate from '@/components/SettingsTaskTemplate.vue'
 import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

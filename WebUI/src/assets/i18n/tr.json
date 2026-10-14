@@ -629,6 +629,8 @@
   "AGENT_TASK_EDIT_SELECT_FOLDER": "Klasör seç…",
   "AGENT_TASK_EDIT_NO_FOLDER": "Klasör seçilmedi",
   "AGENT_TASK_EDIT_FOLDER_HINT": "Yalnızca bu görevin çalıştığı klasörü değiştirir. Açık oturum kendi klasörünü korur.",
+  "AGENT_TASK_EDIT_SETTINGS": "Ayar Şablonu",
+  "AGENT_TASK_EDIT_SETTINGS_HINT": "Sonraki çalıştırmanın her adımı bu ayarları kullanır. Burada değiştirmek açık oturumu, varsayılan ayarlarınızı veya seçili cihazı asla değiştirmez.",
   "AGENT_TASK_EDIT_FOLDER_DIALOG_TITLE": "Görevin çalışma klasörünü seçin",
   "AGENT_TASK_DISCARD_TITLE": "Değişiklikler atılsın mı?",
   "AGENT_TASK_DISCARD_DESCRIPTION": "“{name}” görevindeki kaydedilmemiş değişiklikler kaybolacak.",

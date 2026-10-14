@@ -331,6 +331,8 @@
         {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
       </button>
     </div>
+
+    <SettingsAgentTask v-if="agentMode.sessionScoped" />
   </div>
 </template>
 
@@ -359,6 +361,7 @@ import { mcpCapabilityId } from '@/types/agentCapabilities'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
+import SettingsAgentTask from '@/components/SettingsAgentTask.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useContextSizeField } from '@/assets/js/contextSizeField'

@@ -149,6 +149,12 @@ export const getAgentWorkspaceFile = () => path.join(aipgUserDataRoot(), 'agent-
 export const getAgentWorkspaceDemoFile = () =>
   getAgentWorkspaceFile().replace(/\.json$/, '-demo.json')
 
+/** The Agent preset's saved Tasks, beside the workspace state. */
+export const getAgentTasksFile = () => path.join(aipgUserDataRoot(), 'agent-tasks.json')
+
+/** Demo-mode Tasks, wiped on exit like demo conversations (§6.1). */
+export const getAgentTasksDemoFile = () => getAgentTasksFile().replace(/\.json$/, '-demo.json')
+
 /**
  * Remembered / pre-granted consent decisions (architecture-target §4.7, step 13).
  * Own file, not a preference section: Permissions is request/response, not a

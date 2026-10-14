@@ -45,6 +45,16 @@ function readinessEmbeddingModel(
   return downloaded ? name : undefined
 }
 
+/** A user message as the agent receives it: its text parts, joined. */
+export function userMessagePrompt(message: UIMessage | undefined): string {
+  return (
+    message?.parts
+      ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n\n') ?? ''
+  )
+}
+
 export function buildSamplingParams(textInference: InferenceForTurn): Record<string, unknown> {
   const params: Record<string, unknown> = {
     ...textInference.samplingRequestBody,
@@ -258,11 +268,7 @@ function createSessionRuntime(options: {
   const transport: ChatTransport<UIMessage> = {
     sendMessages: async ({ messages, abortSignal }) => {
       const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
-      const prompt =
-        lastUserMessage?.parts
-          ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-          .map((p) => p.text)
-          .join('\n\n') ?? ''
+      const prompt = userMessagePrompt(lastUserMessage)
 
       const turnId = crypto.randomUUID()
       // Frozen here: settings edited after Send apply to the next turn.

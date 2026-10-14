@@ -262,6 +262,13 @@ import {
   wipeDemoAgentWorkspace,
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
+import {
+  deleteAgentTask,
+  readAgentTasks,
+  saveAgentTask,
+  setAgentTaskFilesDeps,
+  wipeDemoAgentTasks,
+} from './persist/agentTaskFiles'
 
 import {
   migrateRagDocumentSection,
@@ -1128,6 +1135,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
+appShutdown.register({ name: 'demo agent tasks', run: () => wipeDemoAgentTasks() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
 appShutdown.register({ name: 'demo permission grants', run: () => wipeDemoPermissionGrants() })
@@ -1238,6 +1246,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireConversations(settings)
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
+  wireAgentTasks(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
@@ -1290,6 +1299,12 @@ function wireRagDocuments(settings: LocalSettings): void {
 function wireAgentWorkspace(settings: LocalSettings): void {
   setAgentWorkspaceFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentWorkspace()
+}
+
+/** Same demo discipline for the saved Tasks. */
+function wireAgentTasks(settings: LocalSettings): void {
+  setAgentTaskFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentTasks()
 }
 
 /**
@@ -1739,6 +1754,9 @@ function initEventHandle() {
       readAgentWorkspaceState,
       migrateAgentWorkspaceState,
       writeAgentWorkspaceState,
+      readAgentTasks,
+      saveAgentTask,
+      deleteAgentTask,
     }),
   )
 

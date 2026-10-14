@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "Lần chạy gần nhất đã bị dừng",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Lần chạy gần nhất bị dừng ở bước {step}/{count}",
   "AGENT_TASKS_DELETE": "Xóa tác vụ {name}",
+  "AGENT_TASKS_RUN": "Chạy tác vụ {name}",
+  "AGENT_TASKS_RUNNING_STEP": "Đang chạy: bước {step}/{count}",
   "AGENT_TASK_DELETE_FAILED": "Không thể xóa tác vụ.",
   "AGENT_SETTINGS_UNUSABLE": "Không thể sử dụng cài đặt của phiên này lúc này. Hãy sửa chúng trong Cài đặt Agent để tiếp tục.",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” không còn khả dụng.",

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentTask, AgentTaskOutcome, AgentTaskStep } from '@/types/agentTaskIpc'
 import { useAgentMode } from './agentMode'
+import { AGENT_PRESET } from './agentModeSessions'
 import { userMessagePrompt } from './agentModeTurn'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
@@ -21,10 +22,17 @@ export type TaskTemplateSummary = {
   capabilityCount: number
 }
 
-export type TaskState = { idle: AgentTaskOutcome | undefined }
+/** A Task Run in flight; `stepIndex` is 1-based. Memory only. */
+export type TaskRun = { stepIndex: number; stepCount: number; sessionId: string }
+
+export type TaskState = { running: TaskRun } | { idle: AgentTaskOutcome | undefined }
 
 export type SaveTaskResult =
   { ok: true; task: AgentTask } | { ok: false; reason: SaveTaskBlocker | 'persist-failed' }
+
+export type RunTaskResult = { ok: true } | { ok: false; reason: 'no-task' | 'running' }
+
+type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
 export const useAgentTasks = defineStore('agentTasks', () => {
   const agentMode = useAgentMode()
@@ -32,6 +40,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const i18n = useI18N()
 
   const tasks = ref<AgentTask[]>([])
+
+  const runs = ref<Record<string, TaskRun>>({})
+  /** The Task as it was when its run started; edits to the list never reach a running run. */
+  const runPlans: Record<string, AgentTask> = {}
 
   async function init(): Promise<void> {
     try {
@@ -82,28 +94,32 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       createdAt: now,
       updatedAt: now,
     }
-    const result = await window.electronAPI.agentMode.saveTask(task).catch((error: unknown) => ({
-      success: false as const,
-      error: String(error),
-    }))
-    if (!result.success) {
-      errors.report(
-        createAppError({
-          category: 'backend',
-          code: 'agent-tasks/save-failed',
-          userMessage: i18n.state.AGENT_TASK_SAVE_FAILED ?? 'Could not save the task.',
-          technicalMessage: result.error,
-          surface: 'toast',
-        }),
-      )
-      return { ok: false, reason: 'persist-failed' }
-    }
+    if (!(await persistTask(task))) return { ok: false, reason: 'persist-failed' }
     tasks.value = [...tasks.value, task]
     return { ok: true, task }
   }
 
-  /** The sessions the Task created stay. */
+  /** Upsert one Task into the tasks file; a failure is toasted. */
+  async function persistTask(task: AgentTask): Promise<boolean> {
+    const result = await window.electronAPI.agentMode
+      .saveTask(cloneForIpc(task))
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+    if (result.success) return true
+    errors.report(
+      createAppError({
+        category: 'backend',
+        code: 'agent-tasks/save-failed',
+        userMessage: i18n.state.AGENT_TASK_SAVE_FAILED ?? 'Could not save the task.',
+        technicalMessage: result.error,
+        surface: 'toast',
+      }),
+    )
+    return false
+  }
+
+  /** The sessions the Task created stay. Refused while the Task runs. */
   async function deleteTask(id: string): Promise<boolean> {
+    if (runs.value[id]) return false
     const result = await window.electronAPI.agentMode.deleteTask(id).catch((error: unknown) => ({
       success: false as const,
       error: String(error),
@@ -125,7 +141,82 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function taskState(id: string): TaskState {
+    const run = runs.value[id]
+    if (run) return { running: { ...run } }
     return { idle: tasks.value.find((task) => task.id === id)?.lastOutcome }
+  }
+
+  /**
+   * Start a Task Run in the background: a new Task Session on the Task's folder and Settings
+   * Template, its Steps sent one by one as each previous turn settles.
+   */
+  function runTask(id: string): RunTaskResult {
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task) return { ok: false, reason: 'no-task' }
+    if (runs.value[id]) return { ok: false, reason: 'running' }
+    const plan = cloneForIpc(task)
+    const sessionId = agentMode.createSession({
+      workspaceDir: plan.workspaceDir,
+      settings: cloneForIpc(plan.settingsTemplate),
+      presetName: AGENT_PRESET,
+      title: plan.name,
+      taskId: plan.id,
+    })
+    runPlans[id] = plan
+    runs.value = { ...runs.value, [id]: { sessionId, stepIndex: 1, stepCount: plan.steps.length } }
+    void sendStep(id, 1)
+    return { ok: true }
+  }
+
+  async function sendStep(taskId: string, stepIndex: number): Promise<void> {
+    const run = runs.value[taskId]
+    const plan = runPlans[taskId]
+    if (!run || !plan) return
+    runs.value = { ...runs.value, [taskId]: { ...run, stepIndex } }
+    const result = await agentMode.sendToSession(run.sessionId, plan.steps[stepIndex - 1].prompt, {
+      settings: cloneForIpc(plan.settingsTemplate),
+    })
+    if (!result.ok) await settleRun(taskId, { kind: 'failed', stepIndex, message: result.message })
+  }
+
+  function runOfSession(sessionId: string): string | undefined {
+    return Object.keys(runs.value).find((id) => runs.value[id].sessionId === sessionId)
+  }
+
+  agentMode.onTurnSettled((sessionId, outcome) => {
+    const taskId = runOfSession(sessionId)
+    if (!taskId) return
+    const { stepIndex, stepCount } = runs.value[taskId]
+    if (outcome.kind === 'completed') {
+      if (stepIndex < stepCount) void sendStep(taskId, stepIndex + 1)
+      else void settleRun(taskId, { kind: 'completed' })
+    } else if (outcome.kind === 'error') {
+      void settleRun(taskId, { kind: 'failed', stepIndex, message: outcome.message })
+    } else {
+      void settleRun(taskId, { kind: 'stopped', stepIndex })
+    }
+  })
+
+  /** End the run and keep how it ended as the Task's only outcome. */
+  async function settleRun(taskId: string, end: RunEnd): Promise<void> {
+    const run = runs.value[taskId]
+    if (!run) return
+    const { [taskId]: _ended, ...rest } = runs.value
+    runs.value = rest
+    delete runPlans[taskId]
+    const task = tasks.value.find((entry) => entry.id === taskId)
+    if (!task) return
+    const lastOutcome: AgentTaskOutcome = {
+      kind: end.kind,
+      at: Date.now(),
+      sessionId: run.sessionId,
+      stepCount: run.stepCount,
+      ...(end.stepIndex !== undefined ? { stepIndex: end.stepIndex } : {}),
+      ...(end.message !== undefined ? { message: end.message } : {}),
+    }
+    const updated: AgentTask = { ...task, lastOutcome }
+    tasks.value = tasks.value.map((entry) => (entry.id === taskId ? updated : entry))
+    await persistTask(updated)
   }
 
   // The Task being built in the Agent Settings panel; memory only.
@@ -196,6 +287,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     saveTask,
     deleteTask,
     taskState,
+    runTask,
     draft,
     draftBlocker,
     draftTemplate,

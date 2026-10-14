@@ -1529,6 +1529,113 @@ describe('chat turns in the Turn Queue', () => {
     finishTextRequest('agent-turn')
   })
 
+  it('gives up its place while a tool waits on the user, then resumes ahead of later turns', async () => {
+    const { awaitUser } = await import('../../kernel/userWait')
+    const ensureBackendReadiness = vi.fn(async () => {})
+    setChatReadinessDeps({
+      getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
+      awaitChatWindow: vi.fn(async () => {}),
+      stopOvmsImageServer: vi.fn(async () => {}),
+      notifyHomeAgentUpstreamReady: vi.fn(),
+    })
+    const download = { answer: () => {} }
+    executeChatSpeechToolMock.mockImplementationOnce(() =>
+      awaitUser(
+        'conv-1',
+        () =>
+          new Promise((resolve) => {
+            download.answer = () => resolve({ ok: true, message: 'done' })
+          }),
+      ),
+    )
+    queueFetchMock(
+      sse(toolCallChunks('synthesizeTextToSpeech', '{"text":"hello"}')),
+      sse(textChunks('spoken')),
+    )
+    const base = turnRequest()
+    const { turnId } = submitChatTurn({
+      ...base,
+      model: {
+        ...base.model,
+        readiness: { serviceName: 'llamacpp-backend', llmModelName: 'test/model.gguf' },
+      },
+      tools: [{ name: 'synthesizeTextToSpeech', description: 'Speak', inputSchema: {} }],
+    })
+    await vi.waitFor(() => expect(executeChatSpeechToolMock).toHaveBeenCalled())
+
+    const started: string[] = []
+    const member = (runId: string) =>
+      submitTextRequest({
+        runId,
+        conversationKey: runId,
+        needsGpu: false,
+        joinsTurnQueue: true,
+        work: 'agent',
+      }).then(() => started.push(`${runId} after ${requests.length} model call(s)`))
+    await member('agent-b')
+    expect(orchestrator.turnQueueHolder()).toBe('agent-b')
+
+    const later = member('agent-c')
+    download.answer()
+    await settle()
+    expect(requests).toHaveLength(1)
+
+    finishTextRequest('agent-b')
+    await waitForTurnDone(turnId)
+    expect(requests).toHaveLength(2)
+    expect(ensureBackendReadiness).toHaveBeenCalledTimes(2)
+
+    await later
+    expect(started).toEqual(['agent-b after 1 model call(s)', 'agent-c after 2 model call(s)'])
+    finishTextRequest('agent-c')
+  })
+
+  it('gives up its place while a confirmation card is open', async () => {
+    const { setAwaitingUser } = await import('../../kernel/userWait')
+    queueFetchMock(
+      sse(toolCallChunks('configureHomeAgent', '{"temperature":0.9}')),
+      sse(textChunks('done')),
+    )
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        tools: [
+          { name: 'configureHomeAgent', description: 'Configure', inputSchema: { type: 'object' } },
+        ],
+        homeAgentInference: homeAgentSnapshot(),
+      }),
+    )
+    const confirm = await vi.waitFor(() => {
+      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-confirm')
+      expect(found).toBeDefined()
+      return found as { requestId: string }
+    })
+    // What the window's confirmation store reports as the card opens.
+    setAwaitingUser('conv-1', true)
+    await submitTextRequest({
+      runId: 'agent-b',
+      conversationKey: 'session-b',
+      needsGpu: false,
+      joinsTurnQueue: true,
+      work: 'agent',
+    })
+    expect(orchestrator.turnQueueHolder()).toBe('agent-b')
+
+    setAwaitingUser('conv-1', false)
+    handleChatAnswer({ requestId: confirm.requestId, result: true })
+    const apply = await vi.waitFor(() => {
+      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-apply')
+      expect(found).toBeDefined()
+      return found as { requestId: string }
+    })
+    handleChatAnswer({ requestId: apply.requestId, result: { backendChanged: false } })
+    await settle()
+    expect(requests).toHaveLength(1)
+
+    finishTextRequest('agent-b')
+    await waitForTurnDone(turnId)
+    expect(requests).toHaveLength(2)
+  })
+
   it('leaves the queue on Stop without touching the holder or reaching the server', async () => {
     await holdAgentTurn()
     queueFetchMock(sse(textChunks('ok')))

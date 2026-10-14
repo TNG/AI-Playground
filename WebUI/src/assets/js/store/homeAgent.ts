@@ -1969,11 +1969,10 @@ export const useHomeAgent = defineStore(
             prompt,
           })
         } catch {
-          // A declined/cancelled required-model download — the in-channel
-          // download flow has already messaged the channel; unwind quietly.
           return
         }
 
+        // Also a declined required-model download: the in-channel flow already said so.
         if (result.state === 'cancelled') return
 
         if (result.state === 'failed') {

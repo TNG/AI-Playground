@@ -29,7 +29,13 @@ vi.mock('../../artifact/runner', () => ({
     owner: payload.owner,
   }),
   startArtifactRun: (payload: { runId: string }) => startArtifactRunMock(payload),
+  prepareRunModels: (payload: { runId: string }, onAsk: () => void) =>
+    prepareRunModelsMock(payload, onAsk),
 }))
+
+// A member run's model pre-flight; unless a test arms it, nothing is missing.
+const prepareRunModelsMock =
+  vi.fn<(payload: { runId: string }, onAsk: () => void) => Promise<unknown>>()
 
 import {
   artifactRunsQueued,
@@ -113,6 +119,7 @@ describe('the orchestrator', () => {
     // once-implementation unconsumed, and the next test's run would inherit
     // a hold it can never resolve.
     vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
     queueEvents.length = 0
     phaseEvents.length = 0
     activeRunId = null
@@ -588,6 +595,7 @@ describe('the orchestrator', () => {
 describe('the Turn Queue', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
     queueEvents.length = 0
     phaseEvents.length = 0
     activeRunId = null
@@ -814,6 +822,7 @@ describe('the Turn Queue', () => {
 describe('panel runs in the Turn Queue', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
     queueEvents.length = 0
     phaseEvents.length = 0
     activeRunId = null
@@ -967,6 +976,7 @@ describe('panel runs in the Turn Queue', () => {
 describe('paused members', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
     queueEvents.length = 0
     phaseEvents.length = 0
     activeRunId = null
@@ -1143,5 +1153,163 @@ describe('paused members', () => {
     expect((await media).state).toBe('completed')
     finishTextRequest('turn-b')
     finishTextRequest('turn-a')
+  })
+})
+
+describe('panel runs waiting on model download consent', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  function member(runId: string, log: string[]) {
+    return submitTextRequest({
+      runId,
+      conversationKey: runId,
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'agent',
+    }).then(() => log.push(`${runId} started`))
+  }
+
+  /** Arms the next pre-flight to find models missing and wait for the user's answer. */
+  function askNextRun(): { answer: (state: 'ready' | 'declined') => void } {
+    const answer = deferred()
+    prepareRunModelsMock.mockImplementationOnce(async (_payload, onAsk) => {
+      onAsk()
+      return { state: await answer.promise }
+    })
+    return { answer: (state) => answer.resolve(state) }
+  }
+
+  it('asks at once, even while it waits behind another turn', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await member('turn-a', log)
+    askNextRun()
+    void submitArtifactRun(payload({ runId: 'panel-1' }))
+    expect(prepareRunModelsMock).toHaveBeenCalledTimes(1)
+    cancelArtifactRun('panel-1')
+    finishTextRequest('turn-a')
+  })
+
+  it('gives its place to the next member while the user decides, then runs first once answered', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    const { answer } = askNextRun()
+    const hold = holdNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await settle()
+    const b = member('turn-b', log)
+    await b
+    expect(log).toEqual(['turn-b started'])
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+
+    const c = member('turn-c', log)
+    answer('ready')
+    await settle()
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+
+    finishTextRequest('turn-b')
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    expect(startArtifactRunMock.mock.calls[0][0]).toMatchObject({ modelsConsented: true })
+    expect(log).toEqual(['turn-b started'])
+
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+    await c
+    expect(log).toEqual(['turn-b started', 'turn-c started'])
+    finishTextRequest('turn-c')
+
+    const moves = queueEvents
+      .filter((e) => e.runKey === 'panel-1' || e.runKey === 'turn-c')
+      .filter((e) => ['yielded', 'reclaimed', 'enqueued', 'moved'].includes(String(e.action)))
+      .map((e) => [e.runKey, e.action, e.position])
+    expect(moves).toEqual([
+      ['panel-1', 'yielded', undefined],
+      ['turn-c', 'enqueued', 1],
+      ['panel-1', 'enqueued', 1],
+      ['turn-c', 'moved', 2],
+      ['turn-c', 'moved', 1],
+      ['panel-1', 'reclaimed', undefined],
+    ])
+  })
+
+  it('returns the GPU to chat when it gives up the place it took after another panel run', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const log: string[] = []
+    const holdFirst = holdNextRun()
+    const first = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    const { answer } = askNextRun()
+    const second = submitArtifactRun(payload({ runId: 'panel-2' }))
+    const b = member('turn-b', log)
+
+    holdFirst.resolve({ state: 'completed', items: [] })
+    await first
+    await b
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+
+    answer('declined')
+    expect((await second).state).toBe('cancelled')
+    finishTextRequest('turn-b')
+    expect(startArtifactRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the queue without running when the download is declined while it waits', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await member('turn-a', log)
+    const { answer } = askNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    const b = member('turn-b', log)
+    await settle()
+
+    answer('declined')
+    expect((await panel).state).toBe('cancelled')
+    expect(phaseEvents.map((e) => e.phase)).toEqual(['queued', 'cancelled'])
+    expect(queueEvents.filter((e) => e.runKey === 'turn-b').map((e) => e.position)).toEqual([2, 1])
+
+    finishTextRequest('turn-a')
+    await b
+    finishTextRequest('turn-b')
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+    expect(artifactWorkOpen()).toBe(false)
+  })
+
+  it('fails with the reason when its models cannot be checked', async () => {
+    setOrchestratorDeps(deps())
+    prepareRunModelsMock.mockResolvedValueOnce({
+      state: 'failed',
+      error: 'Required models are unavailable: gated',
+    })
+    const result = await submitArtifactRun(payload({ runId: 'panel-1' }))
+    expect(result).toEqual({
+      state: 'failed',
+      items: [],
+      error: 'Required models are unavailable: gated',
+    })
+    expect(phaseEvents.map((e) => e.phase)).toEqual(['failed'])
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('a stop while the user decides ends the run, and the answer is ignored', async () => {
+    setOrchestratorDeps(deps())
+    const { answer } = askNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await settle()
+    cancelArtifactRun('panel-1')
+    expect((await panel).state).toBe('cancelled')
+    answer('ready')
+    await settle()
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+    expect(artifactWorkOpen()).toBe(false)
   })
 })

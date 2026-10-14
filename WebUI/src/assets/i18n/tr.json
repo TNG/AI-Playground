@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "Son çalıştırma durduruldu",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Son çalıştırma {count} adımın {step}. adımında durduruldu",
   "AGENT_TASKS_DELETE": "{name} görevini sil",
+  "AGENT_TASKS_RUN": "{name} görevini çalıştır",
+  "AGENT_TASKS_RUNNING_STEP": "Çalışıyor: {count} adımın {step}. adımı",
   "AGENT_TASK_DELETE_FAILED": "Görev silinemedi.",
   "AGENT_SETTINGS_UNUSABLE": "Bu oturumun ayarları şu anda kullanılamıyor. Devam etmek için Agent Ayarları'nda düzeltin.",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} “{value}” artık kullanılamıyor.",

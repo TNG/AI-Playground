@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "Letzter Lauf gestoppt",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Letzter Lauf bei Schritt {step} von {count} gestoppt",
   "AGENT_TASKS_DELETE": "Aufgabe {name} löschen",
+  "AGENT_TASKS_RUN": "Aufgabe {name} ausführen",
+  "AGENT_TASKS_RUNNING_STEP": "Läuft: Schritt {step} von {count}",
   "AGENT_TASK_DELETE_FAILED": "Die Aufgabe konnte nicht gelöscht werden.",
   "AGENT_SETTINGS_UNUSABLE": "Die Einstellungen dieser Sitzung können gerade nicht verwendet werden. Korrigieren Sie sie in den Agent-Einstellungen, um fortzufahren.",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} „{value}“ ist nicht mehr verfügbar.",

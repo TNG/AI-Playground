@@ -611,6 +611,8 @@
   "AGENT_TASKS_OUTCOME_STOPPED": "Ostatnie uruchomienie zatrzymane",
   "AGENT_TASKS_OUTCOME_STOPPED_AT_STEP": "Ostatnie uruchomienie zatrzymane na kroku {step} z {count}",
   "AGENT_TASKS_DELETE": "Usuń zadanie {name}",
+  "AGENT_TASKS_RUN": "Uruchom zadanie {name}",
+  "AGENT_TASKS_RUNNING_STEP": "Trwa: krok {step} z {count}",
   "AGENT_TASK_DELETE_FAILED": "Nie udało się usunąć zadania.",
   "AGENT_SETTINGS_UNUSABLE": "Ustawień tej sesji nie można teraz użyć. Popraw je w ustawieniach Agent, aby kontynuować.",
   "AGENT_SETTINGS_UNUSABLE_DETAIL": "{setting} „{value}” nie jest już dostępny.",

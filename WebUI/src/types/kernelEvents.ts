@@ -195,8 +195,12 @@ export type KernelQueueEvent = {
   type: 'queue-event'
   runKey: string
   kind: 'artifact' | 'media-request' | 'text'
-  /** `moved`: a waiting Turn Queue member's position changed because one ahead left. */
-  action: 'enqueued' | 'moved' | 'started' | 'finished'
+  /**
+   * `moved`: a waiting Turn Queue member's position changed (one ahead left, or a
+   * paused member cut in at the front). `yielded`: a paused member gave up its
+   * place; `reclaimed`: it holds the place again.
+   */
+  action: 'enqueued' | 'moved' | 'started' | 'finished' | 'yielded' | 'reclaimed'
   /** Entries still waiting after this one. */
   queueDepth: number
   /** 1-based place among the Turn Queue members still waiting; absent once it holds the place. */

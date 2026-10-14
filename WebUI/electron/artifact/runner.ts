@@ -153,9 +153,14 @@ export type ArtifactRunnerDeps = {
    * Ask the user for download consent through the renderer's permissions layer
    * (dialog / Home Agent in-channel / pre-grants). `true` implies the download
    * completed; `false` means declined or cancelled. `onProgress` fires while
-   * the download runs, re-arming the idle watchdog.
+   * the download runs, re-arming the idle watchdog. `conversationKey` names the
+   * turn the run belongs to, which pauses while the user is asked.
    */
-  requestModelConsent(models: ArtifactMissingModel[], onProgress?: () => void): Promise<boolean>
+  requestModelConsent(
+    models: ArtifactMissingModel[],
+    onProgress?: () => void,
+    conversationKey?: string,
+  ): Promise<boolean>
   ensureOvmsImageReady(
     modelId: string,
     keepModelsLoaded: boolean,
@@ -734,7 +739,11 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
   if (run.payload.modelsConsented !== true) {
     const missing = await deps.modelsMissing(run.payload.preset)
     if (missing.length > 0) {
-      const approved = await deps.requestModelConsent(missing, () => armIdleTimeout(run))
+      const approved = await deps.requestModelConsent(
+        missing,
+        () => armIdleTimeout(run),
+        run.payload.conversationKey,
+      )
       if (!approved) {
         cancelRun(run)
         return

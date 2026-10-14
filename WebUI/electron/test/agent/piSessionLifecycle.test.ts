@@ -149,7 +149,7 @@ vi.mock('../../agent/piCustomTools', () => ({
   buildSkillsPromptSection: vi.fn(() => ''),
   setToolBridgeWindow: vi.fn(),
   submitAgentToolResult: vi.fn(),
-  rejectAllPendingToolCalls: vi.fn(),
+  rejectPendingToolCalls: vi.fn(),
 }))
 
 // The capability registry reaches the MCP manager and the renderer bridge; what
@@ -1052,6 +1052,7 @@ describe('turn streaming', () => {
         needsGpu: true,
         joinsTurnQueue: true,
         work: 'agent',
+        pause: expect.any(Object),
       },
       expect.any(AbortSignal),
     )

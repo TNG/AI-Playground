@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Needs your input",
   "HISTORY_STATUS_UNSEEN": "New result",
   "HISTORY_STATUS_UNSEEN_FAILED": "Turn failed",
+  "AGENT_SESSION_NEEDS_INPUT": "Session '{title}' needs your input",
+  "AGENT_SESSION_OPEN": "Open",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}st",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}nd",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}rd",

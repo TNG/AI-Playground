@@ -63,8 +63,17 @@ vi.mock('@/assets/js/store/cloudMode', () => ({
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: vi.fn() }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
-  useI18N: () => ({ langName: 'en-US', state: {} }),
+  useI18N: () => ({
+    langName: 'en-US',
+    state: {
+      AGENT_SESSION_NEEDS_INPUT: "Session '{title}' needs your input",
+      AGENT_SESSION_OPEN: 'Open',
+    },
+  }),
 }))
+
+const toastShow = vi.fn()
+vi.mock('@/assets/js/toast', () => ({ show: (...args: unknown[]) => toastShow(...args) }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({ getAgentToolSpecs: () => [] }))
 
@@ -514,5 +523,118 @@ describe('history status of Agent Sessions', () => {
     await vi.waitFor(() =>
       expect(store.sessionTurns['session-b']).toEqual({ state: 'queued', queuePosition: 3 }),
     )
+  })
+})
+
+describe('Paused Sessions', () => {
+  const pause = (state: 'paused' | 'running' = 'paused') =>
+    pushEvent({ type: 'agent-turn-state', sessionId: 'session-b', turnId: 'turn-b', state })
+
+  it('marks a session whose turn waits on the user, and toasts once with a way to open it', async () => {
+    const store = await storeWithBackgroundTurn()
+
+    pause()
+    expect(store.sessionTurns['session-b']).toEqual({ state: 'paused', queuePosition: null })
+    expect(toastShow).toHaveBeenCalledTimes(1)
+    const [text, options] = toastShow.mock.calls[0] as [
+      string,
+      { action: { label: string; run: () => void } },
+    ]
+    expect(text).toBe("Session 'task B' needs your input")
+    expect(options.action.label).toBe('Open')
+
+    pause()
+    expect(toastShow).toHaveBeenCalledTimes(1)
+
+    options.action.run()
+    await vi.waitFor(() => expect(store.openSessionId).toBe('session-b'))
+    expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('toasts again for a later pause, but not for one in the session on screen', async () => {
+    const store = await storeWithBackgroundTurn()
+    pause()
+    pause('running')
+    pause()
+    expect(toastShow).toHaveBeenCalledTimes(2)
+
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    pause('running')
+    pause()
+    expect(toastShow).toHaveBeenCalledTimes(2)
+  })
+
+  it('holds a prompt for a session out of sight until that session is on screen', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setViewShown(true)
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await whenSessionInView('some-chat-conversation')
+    await whenSessionInView('session-a')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+
+    await store.switchSession('session-b')
+    await prompt
+    expect(shown).toBe(true)
+  })
+
+  it('holds a prompt while Agent Mode is not on screen, even for the open session', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    await store.switchSession('session-b')
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+
+    store.setViewShown(true)
+    await prompt
+    expect(shown).toBe(true)
+  })
+
+  it('drops a held prompt once its turn ends', async () => {
+    await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    const prompt = whenSessionInView('session-b')
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-b', turnId: 'turn-b' })
+    await expect(prompt).rejects.toMatchObject({
+      technicalMessage: 'The turn that asked has ended.',
+    })
+  })
+
+  it('stops a paused turn when asked to', async () => {
+    const store = await storeWithBackgroundTurn()
+    pause()
+    await store.switchSession('session-b')
+    await store.stop()
+    expect(cancel).toHaveBeenCalledWith('session-b', 'turn-b')
+  })
+})
+
+describe('confirmation cards', () => {
+  it('tell main a conversation is waiting on the user, and when it no longer is', async () => {
+    const awaitingUser = vi.fn()
+    ;(window.electronAPI as unknown as Record<string, unknown>).permissions = { awaitingUser }
+    const confirmations = useConfirmations()
+    const answer = confirmations.request({
+      conversationKey: 'session-b',
+      title: 'Continue?',
+      summaryMarkdown: '',
+      origin: 'desktop',
+    })
+    expect(awaitingUser).toHaveBeenLastCalledWith('session-b', true)
+    confirmations.resolve(confirmations.items[0].id, true)
+    expect(await answer).toBe(true)
+    expect(awaitingUser).toHaveBeenLastCalledWith('session-b', false)
   })
 })

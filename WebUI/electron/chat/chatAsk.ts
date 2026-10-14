@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { getKernelEventWindow } from '../kernel/kernelBus'
 import { typedSend } from '../kernel/typedIpc'
+import { whileRendererAnswers } from '../kernel/userWait'
 import type { ChatAnswerPayload, ChatAskBody, ChatAskPhase } from '@/types/chatRequests'
 
 /**
@@ -21,7 +22,19 @@ const pending = new Map<string, PendingRequest>()
 
 export function askRenderer<T>(
   body: ChatAskBody,
-  options: { onPhase?: (phase: ChatAskPhase) => void; abortSignal?: AbortSignal } = {},
+  options: {
+    onPhase?: (phase: ChatAskPhase) => void
+    abortSignal?: AbortSignal
+    /** The turn asking: a prompt the window raises while answering pauses it. */
+    conversationKey?: string
+  } = {},
+): Promise<T> {
+  return whileRendererAnswers(options.conversationKey, () => ask<T>(body, options))
+}
+
+function ask<T>(
+  body: ChatAskBody,
+  options: { onPhase?: (phase: ChatAskPhase) => void; abortSignal?: AbortSignal },
 ): Promise<T> {
   const win = getKernelEventWindow()
   if (!win || win.isDestroyed()) {

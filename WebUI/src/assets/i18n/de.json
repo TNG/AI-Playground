@@ -591,6 +591,8 @@
   "HISTORY_STATUS_PAUSED": "Wartet auf deine Eingabe",
   "HISTORY_STATUS_UNSEEN": "Neues Ergebnis",
   "HISTORY_STATUS_UNSEEN_FAILED": "Durchgang fehlgeschlagen",
+  "AGENT_SESSION_NEEDS_INPUT": "Sitzung '{title}' benötigt Ihre Eingabe",
+  "AGENT_SESSION_OPEN": "Öffnen",
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",

@@ -1,4 +1,10 @@
-import type { PermissionsInvokeName, InvokeHandlerMap } from '../ipcRegistries'
+import type {
+  PermissionsInvokeName,
+  PermissionsSendName,
+  InvokeHandlerMap,
+  SendHandlerMap,
+} from '../ipcRegistries'
+import type { setAwaitingUser } from '../userWait'
 import { ipcErrorText, ipcFail } from '../typedIpc'
 import type { handlePermissionsPromptResponse } from '../../permissions/promptAdapter'
 import type {
@@ -93,4 +99,13 @@ export function buildPermissionsRegistry(deps: PermissionsDeps) {
       deps.handlePermissionsPromptResponse(payload)
     },
   } satisfies InvokeHandlerMap<PermissionsInvokeName>
+}
+
+export function buildPermissionsSendRegistry(deps: { setAwaitingUser: typeof setAwaitingUser }) {
+  return {
+    'permissions:awaitingUser': (_event, conversationKey, waiting) => {
+      if (typeof conversationKey !== 'string' || typeof waiting !== 'boolean') return
+      deps.setAwaitingUser(conversationKey, waiting)
+    },
+  } satisfies SendHandlerMap<PermissionsSendName>
 }

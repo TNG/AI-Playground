@@ -443,6 +443,89 @@ describe('what the Task will be saved with', () => {
   })
 })
 
+const savedTask = (id: string, overrides: Partial<AgentTask> = {}): AgentTask => ({
+  id,
+  name: `Task ${id}`,
+  workspaceDir: '/work/open',
+  settingsTemplate: SETTINGS,
+  steps: [{ id: 's1', prompt: 'go' }],
+  createdAt: 1,
+  updatedAt: 1,
+  ...overrides,
+})
+
+describe('deleting a Task', () => {
+  it('removes it from the file and the list, and keeps the sessions', async () => {
+    storedTasks = [savedTask('task-1'), savedTask('task-2')]
+    const runSession = {
+      id: 'session-run',
+      title: 'Task task-1',
+      workspaceDir: '/work/open',
+      messages: [userMessage('r1', 'go'), assistantMessage('r2', 'went')],
+      createdAt: 3,
+      updatedAt: 4,
+      presetName: 'Agent',
+      settings: SETTINGS,
+    }
+    const bootstrap = vi.mocked(window.electronAPI.agentMode.bootstrapSessions)
+    const opened = (await bootstrap()) as { status: 'ok'; sessions: unknown[] }
+    bootstrap.mockResolvedValueOnce({
+      ...opened,
+      sessions: [...opened.sessions, runSession],
+    } as never)
+    const { agentMode, tasks } = await readyStores()
+
+    expect(await tasks.deleteTask('task-1')).toBe(true)
+
+    expect(window.electronAPI.agentMode.deleteTask).toHaveBeenCalledWith('task-1')
+    expect(tasks.tasks.map((task) => task.id)).toEqual(['task-2'])
+    expect(window.electronAPI.agentMode.deleteSession).not.toHaveBeenCalled()
+    expect(Object.keys(agentMode.sessions)).toEqual(
+      expect.arrayContaining([openRecord.id, runSession.id]),
+    )
+  })
+
+  it('keeps the Task and reports when the file cannot be written', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    vi.mocked(window.electronAPI.agentMode.deleteTask).mockResolvedValueOnce({
+      success: false,
+      error: 'disk full',
+    })
+
+    expect(await tasks.deleteTask('task-1')).toBe(false)
+
+    expect(tasks.tasks.map((task) => task.id)).toEqual(['task-1'])
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'agent-tasks/delete-failed', surface: 'toast' }),
+    )
+  })
+})
+
+describe('a Task’s state', () => {
+  it('is idle with no outcome for a Task that never ran', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+
+    expect(tasks.taskState('task-1')).toEqual({ idle: undefined })
+  })
+
+  it('is idle with the last outcome for a Task that ran', async () => {
+    const lastOutcome = {
+      kind: 'failed' as const,
+      at: 5,
+      sessionId: 'session-run',
+      stepIndex: 2,
+      stepCount: 3,
+      message: 'model not available',
+    }
+    storedTasks = [savedTask('task-1', { lastOutcome })]
+    const { tasks } = await readyStores()
+
+    expect(tasks.taskState('task-1')).toEqual({ idle: lastOutcome })
+  })
+})
+
 describe('steps from the Open Session', () => {
   it('turns each user message into one Step prompt, in order', async () => {
     const { tasks } = await readyStores()

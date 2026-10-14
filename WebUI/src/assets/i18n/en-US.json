@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}th",
   "HISTORY_TASK_FILTER_CHIP": "Task: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Clear task filter",
-  "HISTORY_TASK_FILTER_EMPTY": "No sessions from this task yet"
+  "HISTORY_TASK_FILTER_EMPTY": "No sessions from this task yet",
+  "HISTORY_TASK_PICKER_CHIP": "Task",
+  "HISTORY_TASK_PICKER_LABEL": "Filter by task",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "No tasks yet"
 }

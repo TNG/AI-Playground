@@ -668,5 +668,9 @@
   "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.º",
   "HISTORY_TASK_FILTER_CHIP": "Tarea: {name}",
   "HISTORY_TASK_FILTER_CLEAR": "Quitar el filtro de tarea",
-  "HISTORY_TASK_FILTER_EMPTY": "Esta tarea aún no tiene sesiones"
+  "HISTORY_TASK_FILTER_EMPTY": "Esta tarea aún no tiene sesiones",
+  "HISTORY_TASK_PICKER_CHIP": "Tarea",
+  "HISTORY_TASK_PICKER_LABEL": "Filtrar por tarea",
+  "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
+  "HISTORY_TASK_PICKER_EMPTY": "Aún no hay tareas"
 }

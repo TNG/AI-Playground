@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "Çalışıyor: {count} adımın {step}. adımı",
   "AGENT_TASKS_STOP": "{name} görevini durdur",
   "AGENT_TASKS_OPEN_SESSION": "{name} görevinin oturumunu aç",
+  "AGENT_TASKS_SHOW_SESSIONS": "{name} görevinin oturumlarını göster",
   "AGENT_TASKS_PROBLEM": "Bu görevin ayarları şu anda kullanılamıyor. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Bu görev çalıştırılamıyor. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "“{name}” görevi çalışıyor. Bu oturuma yazmak için görevi durdurun.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}."
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.",
+  "HISTORY_TASK_FILTER_CHIP": "Görev: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Görev filtresini temizle",
+  "HISTORY_TASK_FILTER_EMPTY": "Bu görevden henüz oturum yok"
 }

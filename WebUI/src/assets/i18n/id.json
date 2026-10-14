@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "Berjalan: langkah {step} dari {count}",
   "AGENT_TASKS_STOP": "Hentikan tugas {name}",
   "AGENT_TASKS_OPEN_SESSION": "Buka sesi tugas {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "Tampilkan sesi tugas {name}",
   "AGENT_TASKS_PROBLEM": "Pengaturan tugas ini tidak dapat digunakan saat ini. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Tugas ini tidak dapat dijalankan. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Tugas “{name}” sedang berjalan. Hentikan untuk mengetik di sesi ini.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "ke-{n}",
   "HISTORY_QUEUE_ORDINAL_TWO": "ke-{n}",
   "HISTORY_QUEUE_ORDINAL_FEW": "ke-{n}",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "ke-{n}"
+  "HISTORY_QUEUE_ORDINAL_OTHER": "ke-{n}",
+  "HISTORY_TASK_FILTER_CHIP": "Tugas: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Hapus filter tugas",
+  "HISTORY_TASK_FILTER_EMPTY": "Belum ada sesi dari tugas ini"
 }

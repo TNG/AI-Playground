@@ -614,6 +614,7 @@
   "AGENT_TASKS_RUNNING_STEP": "Trwa: krok {step} z {count}",
   "AGENT_TASKS_STOP": "Zatrzymaj zadanie {name}",
   "AGENT_TASKS_OPEN_SESSION": "Otwórz sesję zadania {name}",
+  "AGENT_TASKS_SHOW_SESSIONS": "Pokaż sesje zadania {name}",
   "AGENT_TASKS_PROBLEM": "Ustawień tego zadania nie można teraz użyć. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Nie można uruchomić tego zadania. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Zadanie „{name}” jest uruchomione. Zatrzymaj je, aby pisać w tej sesji.",
@@ -664,5 +665,8 @@
   "HISTORY_QUEUE_ORDINAL_ONE": "{n}.",
   "HISTORY_QUEUE_ORDINAL_TWO": "{n}.",
   "HISTORY_QUEUE_ORDINAL_FEW": "{n}.",
-  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}."
+  "HISTORY_QUEUE_ORDINAL_OTHER": "{n}.",
+  "HISTORY_TASK_FILTER_CHIP": "Zadanie: {name}",
+  "HISTORY_TASK_FILTER_CLEAR": "Wyczyść filtr zadania",
+  "HISTORY_TASK_FILTER_EMPTY": "To zadanie nie ma jeszcze sesji"
 }

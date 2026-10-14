@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "กำลังรัน: ขั้นตอน {step} จาก {count}",
   "AGENT_TASKS_STOP": "หยุดงาน {name}",
   "AGENT_TASKS_OPEN_SESSION": "เปิดเซสชันของงาน {name}",
+  "AGENT_TASKS_PROBLEM": "ไม่สามารถใช้การตั้งค่าของงานนี้ได้ในขณะนี้ {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "ไม่สามารถเรียกใช้งานนี้ได้ {reason}",
   "AGENT_TASK_SESSION_LOCKED": "งาน “{name}” กำลังทำงาน หยุดงานเพื่อพิมพ์ในเซสชันนี้",
   "AGENT_TASK_STOP_RUN": "หยุดงาน",
   "AGENT_TASK_DELETE_FAILED": "ไม่สามารถลบงานได้",

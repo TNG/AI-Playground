@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "Läuft: Schritt {step} von {count}",
   "AGENT_TASKS_STOP": "Aufgabe {name} stoppen",
   "AGENT_TASKS_OPEN_SESSION": "Sitzung der Aufgabe {name} öffnen",
+  "AGENT_TASKS_PROBLEM": "Die Einstellungen dieser Aufgabe können gerade nicht verwendet werden. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "Diese Aufgabe kann nicht ausgeführt werden. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "Aufgabe „{name}“ läuft. Stoppen Sie sie, um in dieser Sitzung zu schreiben.",
   "AGENT_TASK_STOP_RUN": "Aufgabe stoppen",
   "AGENT_TASK_DELETE_FAILED": "Die Aufgabe konnte nicht gelöscht werden.",

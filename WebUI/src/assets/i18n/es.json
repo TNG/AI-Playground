@@ -614,6 +614,8 @@
   "AGENT_TASKS_RUNNING_STEP": "En ejecución: paso {step} de {count}",
   "AGENT_TASKS_STOP": "Detener la tarea {name}",
   "AGENT_TASKS_OPEN_SESSION": "Abrir la sesión de la tarea {name}",
+  "AGENT_TASKS_PROBLEM": "La configuración de esta tarea no se puede usar ahora mismo. {reason}",
+  "AGENT_TASKS_RUN_BLOCKED": "No se puede ejecutar esta tarea. {reason}",
   "AGENT_TASK_SESSION_LOCKED": "La tarea «{name}» se está ejecutando. Detenla para escribir en esta sesión.",
   "AGENT_TASK_STOP_RUN": "Detener tarea",
   "AGENT_TASK_DELETE_FAILED": "No se pudo eliminar la tarea.",

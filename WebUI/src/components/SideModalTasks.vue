@@ -1,0 +1,184 @@
+<template>
+  <SideModalBase
+    :is-visible="isVisible"
+    :title="i18n.AGENT_TASKS_MANAGE"
+    side="left"
+    @close="$emit('close')"
+  >
+    <p v-if="agentTasks.tasks.length === 0" class="text-sm text-muted-foreground">
+      {{ i18n.AGENT_TASKS_EMPTY }}
+    </p>
+    <TooltipProvider v-else :delay-duration="200">
+      <ul class="flex flex-col gap-2">
+        <li
+          v-for="row in rows"
+          :key="row.id"
+          :aria-label="row.name"
+          class="flex items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-2"
+        >
+          <span class="flex flex-col min-w-0 flex-1">
+            <span class="text-sm text-foreground truncate">{{ row.name }}</span>
+            <span class="text-xs text-muted-foreground">{{ row.stepCount }}</span>
+            <span v-if="row.progress" class="text-xs text-primary">{{ row.progress }}</span>
+            <template v-else-if="row.outcome">
+              <span
+                class="text-xs"
+                :class="row.outcome.failed ? 'text-destructive' : 'text-muted-foreground'"
+              >
+                {{ row.outcome.label }}
+              </span>
+              <span v-if="row.outcome.message" class="text-xs text-muted-foreground break-words">
+                {{ row.outcome.message }}
+              </span>
+            </template>
+          </span>
+          <Tooltip v-if="row.sessionId">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                :aria-label="row.openLabel"
+                @click="openSession(row.sessionId)"
+              >
+                <ArrowTopRightOnSquareIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.openLabel }}</TooltipContent>
+          </Tooltip>
+          <Tooltip v-if="row.running">
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-destructive/20"
+                :aria-label="row.stopLabel"
+                @click="agentTasks.stopTask(row.id)"
+              >
+                <StopIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.stopLabel }}</TooltipContent>
+          </Tooltip>
+          <Tooltip v-else>
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                :aria-label="row.runLabel"
+                @click="agentTasks.runTask(row.id)"
+              >
+                <PlayIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.runLabel }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-destructive/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                :aria-label="row.deleteLabel"
+                :disabled="row.running || deleting.has(row.id)"
+                @click="remove(row.id)"
+              >
+                <TrashIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.deleteLabel }}</TooltipContent>
+          </Tooltip>
+        </li>
+      </ul>
+    </TooltipProvider>
+  </SideModalBase>
+</template>
+
+<script setup lang="ts">
+import { computed, reactive } from 'vue'
+import { ArrowTopRightOnSquareIcon, PlayIcon, StopIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useI18N } from '@/assets/js/store/i18n'
+import SideModalBase from '@/components/SideModalBase.vue'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
+defineProps<{
+  isVisible: boolean
+}>()
+
+const emit = defineEmits<{
+  close: []
+}>()
+
+const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
+const i18n = useI18N().state
+
+const deleting = reactive(new Set<string>())
+
+function fill(template: string, vars: Record<string, string | number>): string {
+  return Object.entries(vars).reduce(
+    (result, [name, value]) => result.replace(`{${name}}`, String(value)),
+    template,
+  )
+}
+
+const rows = computed(() =>
+  agentTasks.tasks.map((task) => {
+    const state = agentTasks.taskState(task.id)
+    const run = 'running' in state ? state.running : undefined
+    const outcome = 'idle' in state ? state.idle : undefined
+    return {
+      id: task.id,
+      name: task.name,
+      stepCount: fill(i18n.AGENT_TASKS_STEP_COUNT, { count: task.steps.length }),
+      running: run !== undefined,
+      sessionId: run?.sessionId,
+      progress:
+        run && fill(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
+      runLabel: fill(i18n.AGENT_TASKS_RUN, { name: task.name }),
+      stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
+      openLabel: fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }),
+      deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
+      outcome: outcome && {
+        label: outcomeLabel(outcome),
+        failed: outcome.kind === 'failed',
+        message: outcome.kind === 'failed' ? outcomeMessage(outcome) : undefined,
+      },
+    }
+  }),
+)
+
+function outcomeLabel({ kind, stepIndex, stepCount }: AgentTaskOutcome): string {
+  const step = { step: stepIndex ?? '', count: stepCount }
+  switch (kind) {
+    case 'completed':
+      return i18n.AGENT_TASKS_OUTCOME_COMPLETED
+    case 'failed':
+      return stepIndex
+        ? fill(i18n.AGENT_TASKS_OUTCOME_FAILED_AT_STEP, step)
+        : i18n.AGENT_TASKS_OUTCOME_FAILED
+    case 'stopped':
+      return stepIndex
+        ? fill(i18n.AGENT_TASKS_OUTCOME_STOPPED_AT_STEP, step)
+        : i18n.AGENT_TASKS_OUTCOME_STOPPED
+  }
+}
+
+function outcomeMessage({ message, reason }: AgentTaskOutcome): string | undefined {
+  return reason === 'app-closed' ? i18n.AGENT_TASKS_OUTCOME_APP_CLOSED : message
+}
+
+async function openSession(sessionId: string): Promise<void> {
+  emit('close')
+  await agentMode.openSession(sessionId)
+}
+
+async function remove(id: string): Promise<void> {
+  deleting.add(id)
+  try {
+    await agentTasks.deleteTask(id)
+  } finally {
+    deleting.delete(id)
+  }
+}
+</script>

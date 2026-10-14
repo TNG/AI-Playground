@@ -174,6 +174,11 @@
       @close="uiStore.closeHistory()"
       @conversation-selected="chatRef?.scrollToBottom"
     />
+    <SideModalTasks
+      v-if="tasksAvailable"
+      :isVisible="uiStore.showTasks"
+      @close="uiStore.closeTasks()"
+    />
 
     <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
 
@@ -181,7 +186,7 @@
       <div class="fixed top-18 left-4 z-5 flex flex-col gap-2">
         <button
           id="show-history-button"
-          v-show="!uiStore.showHistory"
+          v-show="!uiStore.leftPanel"
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
@@ -192,15 +197,14 @@
           }}
         </button>
         <button
-          v-if="showTasksButton"
-          v-show="!uiStore.showHistory"
-          @click="tasksDialogOpen = true"
+          v-if="tasksAvailable"
+          v-show="!uiStore.leftPanel"
+          @click="uiStore.openTasks()"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
-          {{ languages.AGENT_TASKS_OPEN }}
+          {{ languages.AGENT_TASKS_MANAGE }}
         </button>
       </div>
-      <AgentTasksDialog v-if="showTasksButton" v-model:open="tasksDialogOpen" />
       <div
         class="fixed left-4 z-5 flex items-center gap-3"
         :class="{
@@ -373,7 +377,7 @@ import Chat from '@/views/Chat.vue'
 import AgentMode from '@/views/AgentMode.vue'
 import { computed, ref, watch } from 'vue'
 import SideModalHistory from '@/components/SideModalHistory.vue'
-import AgentTasksDialog from '@/components/AgentTasksDialog.vue'
+import SideModalTasks from '@/components/SideModalTasks.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
@@ -420,9 +424,7 @@ const footerExpanded = ref(true)
 const showAppSettings = ref(false)
 const fullscreen = ref(false)
 const showSpecificSettings = ref(false)
-const tasksDialogOpen = ref(false)
-// Temporary test entry point for Tasks, until the real tasks UI exists.
-const showTasksButton = computed(
+const tasksAvailable = computed(
   () => promptStore.getCurrentMode() === 'agent' && agentMode.sessionScoped,
 )
 
@@ -559,6 +561,10 @@ function openAppSettings() {
 function startTour() {
   demoModeOverlayDriverJs.value?.startTour?.()
 }
+
+watch(tasksAvailable, (available) => {
+  if (!available) uiStore.closeTasks()
+})
 
 watch(
   () => globalSetup.loadingState,

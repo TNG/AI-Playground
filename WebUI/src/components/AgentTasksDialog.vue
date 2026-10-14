@@ -36,6 +36,19 @@
                 </span>
               </template>
             </span>
+            <Tooltip v-if="row.sessionId">
+              <TooltipTrigger as-child>
+                <button
+                  type="button"
+                  class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                  :aria-label="row.openLabel"
+                  @click="openSession(row.sessionId)"
+                >
+                  <ArrowTopRightOnSquareIcon class="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{{ row.openLabel }}</TooltipContent>
+            </Tooltip>
             <Tooltip v-if="row.running">
               <TooltipTrigger as-child>
                 <button
@@ -85,8 +98,9 @@
 
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import { PlayIcon, StopIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { ArrowTopRightOnSquareIcon, PlayIcon, StopIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import {
@@ -100,6 +114,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 const open = defineModel<boolean>('open', { required: true })
 
+const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const i18n = useI18N().state
 
@@ -122,10 +137,12 @@ const rows = computed(() =>
       name: task.name,
       stepCount: fill(i18n.AGENT_TASKS_STEP_COUNT, { count: task.steps.length }),
       running: run !== undefined,
+      sessionId: run?.sessionId,
       progress:
         run && fill(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
       runLabel: fill(i18n.AGENT_TASKS_RUN, { name: task.name }),
       stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
+      openLabel: fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
       outcome: outcome && {
         label: outcomeLabel(outcome),
@@ -150,6 +167,11 @@ function outcomeLabel({ kind, stepIndex, stepCount }: AgentTaskOutcome): string 
         ? fill(i18n.AGENT_TASKS_OUTCOME_STOPPED_AT_STEP, step)
         : i18n.AGENT_TASKS_OUTCOME_STOPPED
   }
+}
+
+async function openSession(sessionId: string): Promise<void> {
+  open.value = false
+  await agentMode.openSession(sessionId)
 }
 
 async function remove(id: string): Promise<void> {

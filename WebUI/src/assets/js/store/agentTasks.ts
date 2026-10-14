@@ -1,7 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
-import type { AgentTask, AgentTaskStep } from '@/types/agentTaskIpc'
+import type { AgentTask, AgentTaskOutcome, AgentTaskStep } from '@/types/agentTaskIpc'
 import { useAgentMode } from './agentMode'
 import { userMessagePrompt } from './agentModeTurn'
 import { useErrors } from './errors'
@@ -20,6 +20,8 @@ export type TaskTemplateSummary = {
   model: AgentSessionSettings['model']
   capabilityCount: number
 }
+
+export type TaskState = { idle: AgentTaskOutcome | undefined }
 
 export type SaveTaskResult =
   { ok: true; task: AgentTask } | { ok: false; reason: SaveTaskBlocker | 'persist-failed' }
@@ -100,6 +102,32 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return { ok: true, task }
   }
 
+  /** The sessions the Task created stay. */
+  async function deleteTask(id: string): Promise<boolean> {
+    const result = await window.electronAPI.agentMode.deleteTask(id).catch((error: unknown) => ({
+      success: false as const,
+      error: String(error),
+    }))
+    if (!result.success) {
+      errors.report(
+        createAppError({
+          category: 'backend',
+          code: 'agent-tasks/delete-failed',
+          userMessage: i18n.state.AGENT_TASK_DELETE_FAILED ?? 'Could not delete the task.',
+          technicalMessage: result.error,
+          surface: 'toast',
+        }),
+      )
+      return false
+    }
+    tasks.value = tasks.value.filter((task) => task.id !== id)
+    return true
+  }
+
+  function taskState(id: string): TaskState {
+    return { idle: tasks.value.find((task) => task.id === id)?.lastOutcome }
+  }
+
   // The Task being built in the Agent Settings panel; memory only.
   const draft = ref<TaskDraft>(emptyDraft())
 
@@ -166,6 +194,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     stepsFromSession,
     saveBlocker,
     saveTask,
+    deleteTask,
+    taskState,
     draft,
     draftBlocker,
     draftTemplate,

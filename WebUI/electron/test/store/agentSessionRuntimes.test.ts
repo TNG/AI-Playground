@@ -621,6 +621,88 @@ describe('Paused Sessions', () => {
   })
 })
 
+describe('"not run" messages after a restart', () => {
+  const answered = (id: string, text: string) => ({
+    ...record(id, text),
+    messages: [
+      userMessage(`${id}-u1`, text),
+      { id: `${id}-a1`, role: 'assistant', parts: [{ type: 'text', text: 'done' }] },
+    ],
+  })
+
+  function bootWith(sessions: unknown[], activeSessionId = 'session-a') {
+    window.electronAPI.agentMode.bootstrapSessions = vi.fn(async () => ({
+      status: 'ok' as const,
+      activeSessionId,
+      sessions,
+    })) as never
+  }
+
+  it('marks a trailing unanswered message "not run" and queues nothing', async () => {
+    bootWith([record('session-a', 'task A'), answered('session-c', 'task C')])
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(store.notRunMessages).toEqual({ 'session-a': 'session-a-u1' })
+    expect(store.canResendNotRun).toBe(true)
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(store.anyTurnOpen).toBe(false)
+  })
+
+  it('resends the message as a new turn without repeating it in the transcript', async () => {
+    bootWith([record('session-a', 'task A')])
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    store.workspaceDir = '/work/session-a'
+
+    const sent = store.resendNotRun()
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalledTimes(1))
+    const [turnId, prompt, config] = startTurn.mock.calls[0]
+    expect(prompt).toBe('task A')
+    expect((config as { sessionId: string }).sessionId).toBe('session-a')
+    expect(store.notRunMessages).toEqual({})
+    expect(store.canResendNotRun).toBe(false)
+    expect(store.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-a', turnId })
+    await sent
+  })
+
+  it('keeps the mark on the old message when a new prompt is sent instead', async () => {
+    bootWith([record('session-a', 'task A')])
+    const store = useAgentMode()
+    await store.init()
+    resolveSnapshot(snapshotWith([]))
+    store.workspaceDir = '/work/session-a'
+
+    const sent = store.generate('something else')
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalledTimes(1))
+    expect(startTurn.mock.calls[0][1]).toBe('something else')
+    expect(store.notRunMessages).toEqual({ 'session-a': 'session-a-u1' })
+    expect(store.canResendNotRun).toBe(false)
+
+    await store.stop()
+    await sent
+  })
+
+  it('does not mark a turn main still holds, whichever arrives first after a reload', async () => {
+    const afterRecords = await storeWithBackgroundTurn()
+    expect(afterRecords.notRunMessages).not.toHaveProperty('session-b')
+
+    setActivePinia(createPinia())
+    const { unregisterAgentModeIpc } = await import('@/assets/js/store/agentModeIpc')
+    unregisterAgentModeIpc()
+    const beforeRecords = useAgentMode()
+    resolveSnapshot(snapshotWith([RUNNING_B]))
+    await vi.waitFor(() => expect(beforeRecords.anyTurnOpen).toBe(true))
+    await beforeRecords.init()
+    expect(beforeRecords.notRunMessages).not.toHaveProperty('session-b')
+  })
+})
+
 describe('confirmation cards', () => {
   it('tell main a conversation is waiting on the user, and when it no longer is', async () => {
     const awaitingUser = vi.fn()

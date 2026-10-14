@@ -36,7 +36,8 @@ import {
   type MediaEntry,
 } from './historyEntries'
 
-export type TaskPickerEntry = Pick<AgentTask, 'id' | 'name'> & { sessionCount: number }
+export type TaskRef = Pick<AgentTask, 'id' | 'name'>
+export type TaskPickerEntry = TaskRef & { sessionCount: number }
 
 /**
  * Every reopenable unit of work as one list. This projects the three stores that
@@ -184,11 +185,14 @@ export const useHistorySessions = defineStore('historySessions', () => {
   /** Tasks belong to the Agent preset in Agent mode, where Manage Tasks is shown. */
   const tasksAvailable = computed(() => currentMode.value === 'agent' && agentMode.sessionScoped)
 
-  /** The Task the list is narrowed to, named live so a rename shows at once. */
-  const taskFilter = computed<Pick<AgentTask, 'id' | 'name'> | null>(() => {
-    const task = agentTasks.tasks.find((entry) => entry.id === taskFilterId.value)
+  /** Names come from the Tasks store, never a session's title, so a rename shows at once. */
+  function liveTask(taskId: string | null | undefined): TaskRef | null {
+    const task = agentTasks.tasks.find((entry) => entry.id === taskId)
     return task ? { id: task.id, name: task.name } : null
-  })
+  }
+
+  /** The Task the list is narrowed to. */
+  const taskFilter = computed<TaskRef | null>(() => liveTask(taskFilterId.value))
 
   /** The history panel's Task picker: every Task by name, with its Task Session count. */
   const taskPickerEntries = computed<TaskPickerEntry[]>(() => {
@@ -202,8 +206,14 @@ export const useHistorySessions = defineStore('historySessions', () => {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   })
 
+  /** A Task Session row's "From task" marker; hidden while a Task filter would repeat it. */
+  function taskMarker(entry: HistoryEntry): TaskRef | null {
+    if (entry.kind !== 'agent' || !tasksAvailable.value || taskFilter.value) return null
+    return liveTask(entry.taskId)
+  }
+
   function setTaskFilter(taskId: string): void {
-    if (agentTasks.tasks.some((task) => task.id === taskId)) taskFilterId.value = taskId
+    if (liveTask(taskId)) taskFilterId.value = taskId
   }
 
   function clearTaskFilter(): void {
@@ -402,6 +412,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
     taskFilter,
     tasksAvailable,
     taskPickerEntries,
+    taskMarker,
     setTaskFilter,
     clearTaskFilter,
     showTaskSessions,

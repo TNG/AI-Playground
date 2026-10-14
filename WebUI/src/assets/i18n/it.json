@@ -585,6 +585,8 @@
   "AGENT_SETTING_EMBEDDING_MODEL": "Modello di embedding",
   "AGENT_TURN_QUEUED": "In coda",
   "AGENT_TURN_QUEUED_DETAIL": "In attesa che il turno in corso finisca…",
+  "AGENT_TURN_NOT_RUN": "Non eseguito",
+  "AGENT_TURN_RESEND": "Invia di nuovo",
   "HISTORY_STATUS_RUNNING": "In esecuzione",
   "HISTORY_STATUS_QUEUED": "In coda",
   "HISTORY_STATUS_QUEUED_AT": "In coda, posizione {position}",

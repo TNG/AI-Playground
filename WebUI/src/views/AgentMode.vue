@@ -65,6 +65,28 @@
             <ClockIcon class="size-3.5" aria-hidden="true" />
             {{ languages.AGENT_TURN_QUEUED }}
           </span>
+          <div
+            v-else-if="isNotRunMessage(message)"
+            class="self-center flex items-center gap-2 text-xs text-muted-foreground"
+          >
+            <span
+              role="status"
+              class="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5"
+            >
+              <ExclamationCircleIcon class="size-3.5" aria-hidden="true" />
+              {{ languages.AGENT_TURN_NOT_RUN }}
+            </span>
+            <Button
+              v-if="agentMode.canResendNotRun && message.id === agentMode.messages.at(-1)?.id"
+              variant="secondary"
+              size="sm"
+              class="h-6 px-2 text-xs"
+              @click="agentMode.resendNotRun()"
+            >
+              <ArrowPathIcon class="size-3.5" aria-hidden="true" />
+              {{ languages.AGENT_TURN_RESEND }}
+            </Button>
+          </div>
         </div>
         <div v-else-if="message.role === 'assistant'" class="flex items-start gap-3">
           <img src="../assets/svg/ai-icon.svg" class="size-6" />
@@ -132,7 +154,12 @@ import { agentEmptyStateKind } from '@/lib/presetModes'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { useI18N } from '@/assets/js/store/i18n'
-import { ClockIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
+import {
+  ArrowPathIcon,
+  ClockIcon,
+  ExclamationCircleIcon,
+  UserCircleIcon,
+} from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
 const promptStore = usePromptStore()
@@ -151,6 +178,11 @@ function isQueuedMessage(message: UIMessage): boolean {
   if (agentMode.turnState !== 'queued') return false
   const lastUser = agentMode.messages.findLast((entry) => entry.role === 'user')
   return lastUser?.id === message.id
+}
+
+/** A message whose turn never ran before the app last quit. */
+function isNotRunMessage(message: UIMessage): boolean {
+  return agentMode.notRunMessages[agentMode.openSessionId] === message.id
 }
 
 function messageText(message: UIMessage): string {

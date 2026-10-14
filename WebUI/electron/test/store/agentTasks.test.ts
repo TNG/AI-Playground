@@ -559,3 +559,217 @@ describe('steps from the Open Session', () => {
     expect(tasks.stepsFromSession()).toEqual([])
   })
 })
+
+describe('editing a saved Task', () => {
+  it('works on a copy, and is dirty only while the copy differs from the saved Task', async () => {
+    storedTasks = [savedTask('task-1', { steps: [{ id: 's1', prompt: 'go' }] })]
+    const { agentMode, tasks } = await readyStores()
+    const sessionSettings = JSON.stringify(agentMode.openSessionSettings)
+
+    expect(tasks.beginEdit('task-1')).toBe(true)
+    expect(tasks.editingTaskId).toBe('task-1')
+    expect(tasks.editDraft).toEqual({
+      name: 'Task task-1',
+      workspaceDir: '/work/open',
+      steps: [{ id: 's1', prompt: 'go' }],
+      settingsTemplate: SETTINGS,
+    })
+    expect(tasks.editDirty).toBe(false)
+
+    tasks.editDraft!.name = 'Renamed'
+    tasks.editDraft!.steps[0].prompt = 'go faster'
+    tasks.editDraft!.workspaceDir = '/work/elsewhere'
+
+    expect(tasks.editDirty).toBe(true)
+    expect(tasks.tasks[0]).toMatchObject({
+      name: 'Task task-1',
+      workspaceDir: '/work/open',
+      steps: [{ id: 's1', prompt: 'go' }],
+    })
+    expect(JSON.stringify(agentMode.openSessionSettings)).toBe(sessionSettings)
+    expect(agentMode.workspaceDir).toBe('/work/open')
+    expect(saveTask).not.toHaveBeenCalled()
+
+    tasks.editDraft!.name = 'Task task-1'
+    tasks.editDraft!.steps[0].prompt = 'go'
+    tasks.editDraft!.workspaceDir = '/work/open'
+    expect(tasks.editDirty).toBe(false)
+  })
+
+  it('refuses to edit a Task that does not exist', async () => {
+    const { tasks } = await readyStores()
+
+    expect(tasks.beginEdit('missing')).toBe(false)
+    expect(tasks.editingTaskId).toBeNull()
+    expect(tasks.editDraft).toBeNull()
+  })
+
+  it('edits one Task at a time and leaves the creation draft alone', async () => {
+    storedTasks = [savedTask('task-1'), savedTask('task-2')]
+    const { tasks } = await readyStores()
+    tasks.createStepsFromSession()
+
+    tasks.beginEdit('task-1')
+    tasks.beginEdit('task-2')
+
+    expect(tasks.editingTaskId).toBe('task-2')
+    expect(tasks.editDraft?.name).toBe('Task task-2')
+    expect(tasks.draft.name).toBe('Tidy the docs')
+  })
+})
+
+describe('saving an edited Task', () => {
+  const outcome = {
+    kind: 'completed' as const,
+    at: 5,
+    sessionId: 'session-run',
+    stepCount: 1,
+  }
+
+  it.each([
+    ['an empty name', { name: ' ' }, 'name'],
+    ['no Steps', { steps: [] }, 'no-steps'],
+    ['an empty Step', { steps: [{ id: 's1', prompt: '  ' }] }, 'empty-step'],
+    ['no folder', { workspaceDir: '' }, 'no-folder'],
+  ])('is refused with %s, and the draft is kept', async (_case, change, reason) => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    Object.assign(tasks.editDraft!, change)
+
+    expect(tasks.editBlocker).toBe(reason)
+    expect(await tasks.saveEdit()).toEqual({ ok: false, reason })
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(tasks.editingTaskId).toBe('task-1')
+    expect(tasks.editDirty).toBe(true)
+  })
+
+  it('does not depend on the Open Session having a folder', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { agentMode, tasks } = await readyStores()
+    agentMode.workspaceDir = ''
+    tasks.beginEdit('task-1')
+
+    expect(tasks.editBlocker).toBeNull()
+  })
+
+  it('updates the Task in place, keeping its identity, position and last outcome', async () => {
+    storedTasks = [
+      savedTask('task-1'),
+      savedTask('task-2', { createdAt: 10, updatedAt: 11, lastOutcome: outcome }),
+      savedTask('task-3'),
+    ]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-2')
+    tasks.editDraft!.name = ' Nightly docs '
+    tasks.editDraft!.workspaceDir = '/work/docs'
+    tasks.editDraft!.steps = [
+      { id: 's1', prompt: 'build' },
+      { id: 's2', prompt: 'publish' },
+    ]
+
+    const result = await tasks.saveEdit()
+
+    expect(result.ok).toBe(true)
+    const saved = saveTask.mock.calls[0][0]
+    expect(saved).toEqual({
+      id: 'task-2',
+      name: 'Nightly docs',
+      workspaceDir: '/work/docs',
+      settingsTemplate: SETTINGS,
+      steps: [
+        { id: 's1', prompt: 'build' },
+        { id: 's2', prompt: 'publish' },
+      ],
+      createdAt: 10,
+      updatedAt: expect.any(Number),
+      lastOutcome: outcome,
+    })
+    expect(saved.updatedAt).toBeGreaterThan(11)
+    expect(tasks.tasks.map((task) => task.id)).toEqual(['task-1', 'task-2', 'task-3'])
+    expect(tasks.tasks[1]).toEqual(saved)
+    expect(tasks.editingTaskId).toBeNull()
+    expect(tasks.editDraft).toBeNull()
+  })
+
+  it('keeps editing and leaves the Task unchanged when the file cannot be written', async () => {
+    saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editDraft!.name = 'Renamed'
+
+    expect(await tasks.saveEdit()).toEqual({ ok: false, reason: 'persist-failed' })
+
+    expect(tasks.tasks[0].name).toBe('Task task-1')
+    expect(tasks.editDraft?.name).toBe('Renamed')
+  })
+})
+
+describe('typing while an edit is being saved', () => {
+  it('keeps the edit open with the later typing still unsaved', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    let finishWrite = () => {}
+    saveTask.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishWrite = () => resolve({ success: true, error: '' })
+        }),
+    )
+    tasks.beginEdit('task-1')
+    tasks.editDraft!.name = 'Saved name'
+
+    const saving = tasks.saveEdit()
+    tasks.editDraft!.name = 'Typed during save'
+    finishWrite()
+    await saving
+
+    expect(saveTask.mock.calls[0][0].name).toBe('Saved name')
+    expect(tasks.tasks[0].name).toBe('Saved name')
+    expect(tasks.editingTaskId).toBe('task-1')
+    expect(tasks.editDirty).toBe(true)
+  })
+})
+
+describe('discarding an edit', () => {
+  it('drops the draft and leaves the saved Task as it was', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editDraft!.name = 'Renamed'
+    tasks.editDraft!.steps.push({ id: 's2', prompt: 'more' })
+
+    tasks.discardEdit()
+
+    expect(tasks.editingTaskId).toBeNull()
+    expect(tasks.editDraft).toBeNull()
+    expect(tasks.editDirty).toBe(false)
+    expect(tasks.tasks).toEqual([savedTask('task-1')])
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleting the Task being edited', () => {
+  it('ends the edit', async () => {
+    storedTasks = [savedTask('task-1'), savedTask('task-2')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editDraft!.name = 'Renamed'
+
+    expect(await tasks.deleteTask('task-1')).toBe(true)
+
+    expect(tasks.editingTaskId).toBeNull()
+    expect(tasks.editDraft).toBeNull()
+  })
+
+  it('keeps editing when another Task is deleted', async () => {
+    storedTasks = [savedTask('task-1'), savedTask('task-2')]
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+
+    await tasks.deleteTask('task-2')
+
+    expect(tasks.editingTaskId).toBe('task-1')
+  })
+})

@@ -14,7 +14,9 @@
           v-for="row in rows"
           :key="row.id"
           :aria-label="row.name"
-          class="flex items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-2"
+          :aria-current="row.editing ? 'true' : undefined"
+          class="flex items-center gap-3 rounded-md border px-3 py-2"
+          :class="row.editing ? 'border-primary bg-primary/15' : 'border-border bg-muted/40'"
         >
           <span class="flex flex-col min-w-0 flex-1">
             <span class="flex items-center gap-1.5 min-w-0">
@@ -97,6 +99,20 @@
             <TooltipTrigger as-child>
               <button
                 type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                :aria-label="row.editLabel"
+                :aria-pressed="row.editing"
+                @click="edit(row.id)"
+              >
+                <PencilSquareIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.editLabel }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                type="button"
                 class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-destructive/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 :aria-label="row.deleteLabel"
                 :disabled="row.running || deleting.has(row.id)"
@@ -111,13 +127,31 @@
       </ul>
     </TooltipProvider>
   </SideModalBase>
+
+  <AlertDialog v-model:open="runUnsavedOpen">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{{ i18n.AGENT_TASKS_RUN_UNSAVED_TITLE }}</AlertDialogTitle>
+        <AlertDialogDescription>{{
+          i18n.AGENT_TASKS_RUN_UNSAVED_DESCRIPTION
+        }}</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>{{ i18n.COM_CANCEL }}</AlertDialogCancel>
+        <AlertDialogAction @click="runSaved">
+          {{ i18n.AGENT_TASKS_RUN_UNSAVED_CONFIRM }}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   ArrowTopRightOnSquareIcon,
   ExclamationTriangleIcon,
+  PencilSquareIcon,
   PlayIcon,
   StopIcon,
   TrashIcon,
@@ -127,8 +161,20 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useUIStore } from '@/assets/js/store/ui'
 import SideModalBase from '@/components/SideModalBase.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { createAppError } from '@/assets/js/errors/appError'
 import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
 
@@ -144,6 +190,8 @@ const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const errors = useErrors()
 const i18n = useI18N().state
+const uiStore = useUIStore()
+const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 watch(
   () => props.isVisible,
@@ -180,6 +228,8 @@ const rows = computed(() =>
       stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
       openLabel: fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
+      editLabel: fill(i18n.AGENT_TASKS_EDIT, { name: task.name }),
+      editing: agentTasks.editingTaskId === task.id,
       blocked: reasons
         ? {
             marker: fill(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }),
@@ -216,11 +266,38 @@ function outcomeMessage({ message, reason }: AgentTaskOutcome): string | undefin
 }
 
 async function openSession(sessionId: string): Promise<void> {
+  if (!(await leaveTaskEdit())) return
   emit('close')
   await agentMode.openSession(sessionId)
 }
 
-async function run(id: string): Promise<void> {
+async function edit(id: string): Promise<void> {
+  if (agentTasks.editingTaskId !== id) {
+    if (!(await leaveTaskEdit())) return
+    agentTasks.beginEdit(id)
+  }
+  uiStore.openSettings()
+}
+
+// Kept apart from the open state: the dialog may close before its action's click runs.
+const runUnsavedOpen = ref(false)
+const runUnsavedId = ref<string | null>(null)
+
+function run(id: string): void {
+  if (agentTasks.editingTaskId === id && agentTasks.editDirty) {
+    runUnsavedId.value = id
+    runUnsavedOpen.value = true
+  } else {
+    void runSavedTask(id)
+  }
+}
+
+function runSaved(): void {
+  if (runUnsavedId.value) void runSavedTask(runUnsavedId.value)
+  runUnsavedId.value = null
+}
+
+async function runSavedTask(id: string): Promise<void> {
   const result = await agentTasks.runTask(id)
   if (result.ok || result.reason !== 'settings-problems') return
   errors.report(

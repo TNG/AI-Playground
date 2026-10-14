@@ -14,6 +14,7 @@ import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { withStepAdded, withStepMoved, withStepRemoved } from '@/lib/taskSteps'
 import {
   describeSettingsProblems,
   type SessionSettingsProblem,
@@ -21,8 +22,18 @@ import {
 
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
 
+/** A saved Task's editable fields, as task mode holds them until Save. */
+export type TaskEditDraft = Pick<AgentTask, 'name' | 'workspaceDir' | 'steps' | 'settingsTemplate'>
+
 /** Why a draft cannot be saved yet. */
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'no-folder'
+
+export const SAVE_TASK_BLOCKER_KEYS = {
+  name: 'AGENT_TASK_BLOCKED_NAME',
+  'no-steps': 'AGENT_TASK_BLOCKED_NO_STEPS',
+  'empty-step': 'AGENT_TASK_BLOCKED_EMPTY_STEP',
+  'no-folder': 'AGENT_TASK_BLOCKED_NO_FOLDER',
+} as const satisfies Record<SaveTaskBlocker, string>
 
 export type TaskTemplateSummary = {
   workspaceDir: string
@@ -37,7 +48,8 @@ export type TaskRun = { stepIndex: number; stepCount: number; sessionId: string 
 export type TaskState = { running: TaskRun } | { idle: AgentTaskOutcome | undefined }
 
 export type SaveTaskResult =
-  { ok: true; task: AgentTask } | { ok: false; reason: SaveTaskBlocker | 'persist-failed' }
+  | { ok: true; task: AgentTask }
+  | { ok: false; reason: SaveTaskBlocker | 'persist-failed' | 'no-task' }
 
 export type RunTaskResult =
   | { ok: true }
@@ -108,10 +120,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function saveBlocker(draft: TaskDraft): SaveTaskBlocker | null {
+    return blockerOf({ ...draft, workspaceDir: agentMode.workspaceDir })
+  }
+
+  function blockerOf(draft: TaskDraft & { workspaceDir: string }): SaveTaskBlocker | null {
     if (!draft.name.trim()) return 'name'
     if (draft.steps.length === 0) return 'no-steps'
     if (draft.steps.some((step) => !step.prompt.trim())) return 'empty-step'
-    if (!agentMode.workspaceDir) return 'no-folder'
+    if (!draft.workspaceDir) return 'no-folder'
     return null
   }
 
@@ -172,6 +188,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return false
     }
     tasks.value = tasks.value.filter((task) => task.id !== id)
+    if (editing.value?.taskId === id) editing.value = null
     return true
   }
 
@@ -370,26 +387,99 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function addStep(): void {
-    draft.value.steps = [...draft.value.steps, { id: crypto.randomUUID(), prompt: '' }]
+    draft.value.steps = withStepAdded(draft.value.steps)
   }
 
   function removeStep(id: string): void {
-    draft.value.steps = draft.value.steps.filter((step) => step.id !== id)
+    draft.value.steps = withStepRemoved(draft.value.steps, id)
   }
 
   function moveStep(id: string, direction: 'up' | 'down'): void {
-    const steps = [...draft.value.steps]
-    const from = steps.findIndex((step) => step.id === id)
-    const to = direction === 'up' ? from - 1 : from + 1
-    if (from < 0 || to < 0 || to >= steps.length) return
-    ;[steps[from], steps[to]] = [steps[to], steps[from]]
-    draft.value.steps = steps
+    draft.value.steps = withStepMoved(draft.value.steps, id, direction)
   }
 
   async function saveDraft(): Promise<SaveTaskResult> {
     const result = await saveTask(draft.value)
     if (result.ok) draft.value = emptyDraft()
     return result
+  }
+
+  // A saved Task being edited in task mode; memory only, one at a time.
+  const editing = ref<{ taskId: string; draft: TaskEditDraft } | null>(null)
+
+  const editingTaskId = computed(() => editing.value?.taskId ?? null)
+  const editDraft = computed(() => editing.value?.draft ?? null)
+  /** The saved version of the Task being edited. */
+  const editedTask = computed(() =>
+    editing.value ? tasks.value.find((task) => task.id === editing.value?.taskId) : undefined,
+  )
+
+  function editDraftOf(task: AgentTask): TaskEditDraft {
+    return cloneForIpc({
+      name: task.name,
+      workspaceDir: task.workspaceDir,
+      steps: task.steps.map((step) => ({ id: step.id, prompt: step.prompt })),
+      settingsTemplate: task.settingsTemplate,
+    })
+  }
+
+  const editDirty = computed(() => {
+    const current = editing.value
+    if (!current) return false
+    const saved = tasks.value.find((task) => task.id === current.taskId)
+    if (!saved) return false
+    return JSON.stringify(current.draft) !== JSON.stringify(editDraftOf(saved))
+  })
+
+  /** Clone the Task into the edit draft, replacing any edit in progress. */
+  function beginEdit(id: string): boolean {
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task) return false
+    editing.value = { taskId: id, draft: editDraftOf(task) }
+    return true
+  }
+
+  const editBlocker = computed(() => (editing.value ? blockerOf(editing.value.draft) : null))
+
+  /**
+   * Upsert the edited Task by id and end the edit. A run in flight keeps the copy it took
+   * at start, so the saved version applies from the next run.
+   */
+  async function saveEdit(): Promise<SaveTaskResult> {
+    const current = editing.value
+    const saved = current && tasks.value.find((task) => task.id === current.taskId)
+    if (!current || !saved) return { ok: false, reason: 'no-task' }
+    const blocker = blockerOf(current.draft)
+    if (blocker) return { ok: false, reason: blocker }
+    const edited = cloneForIpc(current.draft)
+    const task = replaceTask({
+      ...saved,
+      name: edited.name.trim(),
+      workspaceDir: edited.workspaceDir,
+      steps: edited.steps.map((step) => ({ id: step.id, prompt: step.prompt })),
+      settingsTemplate: cloneForIpc(edited.settingsTemplate),
+      updatedAt: Math.max(Date.now(), saved.updatedAt + 1),
+    })
+    // Applied before the write, so a run marking or settling the Task meanwhile writes it too.
+    if (!(await persistTask(task))) {
+      restoreEditableFields(saved)
+      return { ok: false, reason: 'persist-failed' }
+    }
+    // Typing during the write keeps the edit open, with what was typed still unsaved.
+    const untouched = JSON.stringify(current.draft) === JSON.stringify(edited)
+    if (editing.value === current && untouched) editing.value = null
+    return { ok: true, task }
+  }
+
+  function restoreEditableFields(saved: AgentTask): void {
+    const latest = tasks.value.find((entry) => entry.id === saved.id)
+    if (!latest) return
+    const { name, workspaceDir, steps, settingsTemplate, updatedAt } = saved
+    replaceTask({ ...latest, name, workspaceDir, steps, settingsTemplate, updatedAt })
+  }
+
+  function discardEdit(): void {
+    editing.value = null
   }
 
   return {
@@ -414,6 +504,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     removeStep,
     moveStep,
     saveDraft,
+    editingTaskId,
+    editDraft,
+    editedTask,
+    editDirty,
+    beginEdit,
+    editBlocker,
+    saveEdit,
+    discardEdit,
   }
 })
 

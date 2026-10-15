@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { useSpeechToText, type SttReadyResult } from '../store/speechToText'
-import { useTextToSpeech } from '../store/textToSpeech'
+import { SPEECHT5_MODEL_NAME, useTextToSpeech } from '../store/textToSpeech'
 import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
 import { useErrors } from '../store/errors'
 import { createAppError } from '../errors/appError'
@@ -114,6 +114,41 @@ export async function readyTranscriptionUnattended(): Promise<void> {
     return speechToText.ensureStandaloneServerRunning()
   }
   return speechToText.ensureTranscriptionServerRunning()
+}
+
+export type SpeechModelRef = { repo_id: string; type: 'TTS' | 'STT'; backend: 'openvino' }
+
+/**
+ * The model each speech tool would ask to download on first use with the selected engines;
+ * none for an external engine. Qwen3 counts its default mode's weights.
+ */
+export function speechToolModels(): {
+  synthesizeTextToSpeech?: SpeechModelRef
+  transcribeAudio?: SpeechModelRef
+} {
+  const speechToText = useSpeechToText()
+  const tts = useTextToSpeech()
+  const qwen3 = useQwen3TextToSpeech()
+  const sttModel =
+    speechToText.effectiveSttEngine === 'whisper'
+      ? speechToText.selectedOvmsModel
+      : speechToText.effectiveSttEngine === 'standalone'
+        ? speechToText.selectedStandaloneModel
+        : undefined
+  const ttsModel =
+    tts.selectedEngine === 'qwen3'
+      ? qwen3.modelRepoForMode(qwen3.defaultMode)
+      : tts.selectedEngine === 'kokoro'
+        ? SPEECHT5_MODEL_NAME
+        : undefined
+  return {
+    ...(ttsModel
+      ? { synthesizeTextToSpeech: { repo_id: ttsModel, type: 'TTS', backend: 'openvino' } }
+      : {}),
+    ...(sttModel
+      ? { transcribeAudio: { repo_id: sttModel, type: 'STT', backend: 'openvino' } }
+      : {}),
+  }
 }
 
 /** Whether any STT engine is usable (OpenVINO Whisper, the standalone sidecar

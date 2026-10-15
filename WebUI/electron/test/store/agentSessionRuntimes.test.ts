@@ -612,6 +612,41 @@ describe('Paused Sessions', () => {
     })
   })
 
+  it('carries what the session waits for until it runs again', async () => {
+    const store = await storeWithBackgroundTurn()
+    const pauseReason = { kind: 'download', summary: 'Qwen3.8-27B' }
+    pushEvent({
+      type: 'agent-turn-state',
+      sessionId: 'session-b',
+      turnId: 'turn-b',
+      state: 'paused',
+      pauseReason,
+    })
+    expect(store.sessionTurns['session-b']).toEqual({
+      state: 'paused',
+      queuePosition: null,
+      pauseReason,
+    })
+
+    pause('running')
+    expect(store.sessionTurns['session-b']).toEqual({ state: 'running', queuePosition: null })
+    expect(store.sessionTurns['session-b'].pauseReason).toBeUndefined()
+  })
+
+  it('restores what a paused session waits for from the snapshot after a reload', async () => {
+    const store = useAgentMode()
+    await store.init()
+    const pauseReason = { kind: 'vram-warning' as const, summary: 'Flux' }
+    resolveSnapshot(snapshotWith([{ ...RUNNING_B, state: 'paused', pauseReason }]))
+    await vi.waitFor(() =>
+      expect(store.sessionTurns['session-b']).toEqual({
+        state: 'paused',
+        queuePosition: null,
+        pauseReason,
+      }),
+    )
+  })
+
   it('stops a paused turn when asked to', async () => {
     const store = await storeWithBackgroundTurn()
     pause()
@@ -714,9 +749,12 @@ describe('confirmation cards', () => {
       summaryMarkdown: '',
       origin: 'desktop',
     })
-    expect(awaitingUser).toHaveBeenLastCalledWith('session-b', true)
+    expect(awaitingUser).toHaveBeenLastCalledWith('session-b', true, {
+      kind: 'confirmation',
+      summary: 'Continue?',
+    })
     confirmations.resolve(confirmations.items[0].id, true)
     expect(await answer).toBe(true)
-    expect(awaitingUser).toHaveBeenLastCalledWith('session-b', false)
+    expect(awaitingUser).toHaveBeenLastCalledWith('session-b', false, undefined)
   })
 })

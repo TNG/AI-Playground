@@ -202,6 +202,14 @@ describe('an agent turn whose chat model is not downloaded', () => {
     expect(download).toMatchObject({ conversationKey: 'aipg-agent-a', models: [MODEL_A_FILE] })
     await vi.waitFor(() => expect(stateEvents(turnA)).toEqual(['queued', 'running', 'paused']))
     expect(loaded).toEqual([])
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'agent-turn-state',
+        turnId: turnA,
+        state: 'paused',
+        pauseReason: { kind: 'download', summary: 'model-a' },
+      }),
+    )
 
     // Another session's turn runs while A waits on the user.
     const turnB = crypto.randomUUID()

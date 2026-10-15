@@ -5,6 +5,7 @@ import type {
   AgentTask,
   AgentTaskActiveRun,
   AgentTaskOutcome,
+  AgentTaskSchedule,
   AgentTaskStep,
 } from '@/types/agentTaskIpc'
 import { useAgentMode } from './agentMode'
@@ -15,6 +16,7 @@ import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { withStepAdded, withStepMoved, withStepRemoved } from '@/lib/taskSteps'
+import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import {
   describeSettingsProblems,
   type SessionSettingsProblem,
@@ -55,6 +57,13 @@ export type RunTaskResult =
   | { ok: true }
   | { ok: false; reason: 'no-task' | 'running' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
+
+export type SetScheduleResult =
+  | { ok: true; task: AgentTask }
+  | { ok: false; reason: 'no-task' | 'persist-failed' }
+  | { ok: false; reason: 'invalid'; problem: ScheduleProblem }
+
+export type TaskScheduleState = Pick<AgentTask, 'schedule' | 'nextRunAt'>
 
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
@@ -190,6 +199,48 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     tasks.value = tasks.value.filter((task) => task.id !== id)
     if (editing.value?.taskId === id) editing.value = null
     return true
+  }
+
+  /** Set, replace, pause or resume a Task's Schedule; the Next Run is kept only while enabled. */
+  async function setSchedule(id: string, schedule: AgentTaskSchedule): Promise<SetScheduleResult> {
+    const problem = scheduleProblem(schedule)
+    if (problem) return { ok: false, reason: 'invalid', problem }
+    return writeSchedule(id, {
+      schedule: { ...schedule },
+      ...(schedule.enabled ? { nextRunAt: nextSlotAfter(schedule, Date.now()) } : {}),
+    })
+  }
+
+  async function removeSchedule(id: string): Promise<boolean> {
+    return (await writeSchedule(id, {})).ok
+  }
+
+  async function writeSchedule(id: string, fields: TaskScheduleState): Promise<SetScheduleResult> {
+    const saved = tasks.value.find((entry) => entry.id === id)
+    if (!saved) return { ok: false, reason: 'no-task' }
+    // Applied before the write, so a run marking or settling the Task meanwhile writes it too.
+    const task = replaceTask({ ...withoutSchedule(saved), ...fields })
+    if (await persistTask(task)) return { ok: true, task }
+    const latest = tasks.value.find((entry) => entry.id === id)
+    if (latest) replaceTask({ ...withoutSchedule(latest), ...scheduleStateOf(saved) })
+    return { ok: false, reason: 'persist-failed' }
+  }
+
+  function withoutSchedule(task: AgentTask): AgentTask {
+    const { schedule: _schedule, nextRunAt: _nextRunAt, ...rest } = task
+    return rest
+  }
+
+  function scheduleStateOf(task: AgentTask): TaskScheduleState {
+    return {
+      ...(task.schedule ? { schedule: task.schedule } : {}),
+      ...(task.nextRunAt !== undefined ? { nextRunAt: task.nextRunAt } : {}),
+    }
+  }
+
+  function taskSchedule(id: string): TaskScheduleState {
+    const task = tasks.value.find((entry) => entry.id === id)
+    return task ? scheduleStateOf(task) : {}
   }
 
   function taskState(id: string): TaskState {
@@ -509,6 +560,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     saveBlocker,
     saveTask,
     deleteTask,
+    setSchedule,
+    removeSchedule,
+    taskSchedule,
     taskState,
     taskProblems,
     loadProblemSources,

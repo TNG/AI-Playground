@@ -587,6 +587,8 @@
   "AGENT_TASK_SAVE_FAILED": "Could not save the task.",
   "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Not saved: the task’s chat model {model} has to be downloaded first.",
   "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Not saved: the download of {model} failed: {error}",
+  "AGENT_TASK_RUN_DOWNLOAD_DECLINED": "Not started: the task’s chat model {model} has to be downloaded first.",
+  "AGENT_TASK_RUN_DOWNLOAD_FAILED": "Not started: the download of {model} failed: {error}",
   "AGENT_TASK_READ_FAILED": "Could not read the saved tasks.",
   "AGENT_TASK_BLOCKED_NAME": "Give the task a name.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Add at least one step.",

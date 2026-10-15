@@ -158,6 +158,14 @@ describe('useTaskModelWarnings', () => {
     const { warnings } = mount({ capabilities: ['rag'] })
     await settle()
     expect(warnings.warnings.value).toEqual({ certain: [], maybe: [] })
+    expect(warnings.missingCount.value).toBe(0)
+  })
+
+  it('counts a model two workflows share once', async () => {
+    const { warnings } = mount({ capabilities: ['rag', 'media'] })
+    await settle()
+    // The embedding model, sdxl/lcm, and shared/vae used by both default workflows.
+    expect(warnings.missingCount.value).toBe(3)
   })
 
   it('lists the default workflows’ and speech engine’s missing models with their sizes', async () => {

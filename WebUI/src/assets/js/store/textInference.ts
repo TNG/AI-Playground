@@ -1060,6 +1060,18 @@ export const useTextInference = defineStore(
       options: { needsVision?: boolean } = {},
     ) {
       if (!model) return []
+      const checkedModels = await models.checkModelAlreadyLoaded(
+        llmModelRefs(localBackend, model, options),
+      )
+      return checkedModels.filter((m) => !m.already_loaded)
+    }
+
+    /** The files a turn on `model` loads: the model, and its projector when it needs vision. */
+    function llmModelRefs(
+      localBackend: Exclude<LlmBackend, 'cloud'>,
+      model: string,
+      options: { needsVision?: boolean } = {},
+    ) {
       const backendName = backendToAipgBackendName[localBackend]
       const modelType = backendToAipgModelType[localBackend]
       const checkList = [{ repo_id: model, type: modelType, backend: backendName }]
@@ -1073,8 +1085,7 @@ export const useTextInference = defineStore(
       if (options.needsVision && mmproj) {
         checkList.push({ repo_id: mmproj, type: modelType, backend: backendName })
       }
-      const checkedModels = await models.checkModelAlreadyLoaded(checkList)
-      return checkedModels.filter((m) => !m.already_loaded)
+      return checkList
     }
 
     function toggleMetrics() {
@@ -2261,6 +2272,7 @@ export const useTextInference = defineStore(
       clearSelectionOfModel,
       getDownloadParamsForCurrentModelIfRequired,
       getMissingLlmModels,
+      llmModelRefs,
       toggleMetrics,
       increaseFontSize,
       decreaseFontSize,

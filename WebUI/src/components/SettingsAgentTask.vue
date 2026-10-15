@@ -26,14 +26,14 @@
 
       <p class="text-xs text-muted-foreground break-all">{{ summary }}</p>
 
-      <TaskModelWarnings :template="agentMode.openSessionSettings" />
+      <TaskModelWarnings :state="modelWarnings" />
 
       <div class="flex flex-col gap-1.5">
         <Button
           class="self-start px-3 py-1.5 rounded text-sm"
           :disabled="!!agentTasks.draftBlocker || saving"
           :aria-describedby="describedBy"
-          @click="save"
+          @click="requestSave"
         >
           {{ i18n.AGENT_TASK_SAVE }}
         </Button>
@@ -68,6 +68,8 @@
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
+
+  <TaskModelSaveConfirm v-model:open="confirmModelsOpen" :state="modelWarnings" @confirm="save" />
 </template>
 
 <script setup lang="ts">
@@ -91,8 +93,10 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import TaskModelSaveConfirm from '@/components/TaskModelSaveConfirm.vue'
 import TaskModelWarnings from '@/components/TaskModelWarnings.vue'
 import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
+import { useTaskModelWarnings } from '@/assets/js/taskModelWarnings'
 import * as toast from '@/assets/js/toast'
 
 const agentMode = useAgentMode()
@@ -104,6 +108,9 @@ const saving = ref(false)
 /** Why the last Save stored nothing, when its chat model was not downloaded. */
 const saveError = ref('')
 const confirmReplaceOpen = ref(false)
+const confirmModelsOpen = ref(false)
+
+const modelWarnings = useTaskModelWarnings(() => agentMode.openSessionSettings)
 
 const hasSessionSteps = computed(() => agentTasks.stepsFromSession().length > 0)
 
@@ -134,6 +141,12 @@ const summary = computed(() => {
 function createFromSession(): void {
   if (agentTasks.draft.steps.length > 0) confirmReplaceOpen.value = true
   else agentTasks.createStepsFromSession()
+}
+
+/** Missing models do not block saving, but the user confirms them before the Task is stored. */
+function requestSave(): void {
+  if (modelWarnings.missingCount.value > 0) confirmModelsOpen.value = true
+  else void save()
 }
 
 async function save(): Promise<void> {

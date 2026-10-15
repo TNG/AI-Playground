@@ -8,12 +8,15 @@ import type {
   AgentTaskSchedule,
   AgentTaskStep,
 } from '@/types/agentTaskIpc'
+import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 import { useAgentMode } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { userMessagePrompt } from './agentModeTurn'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
+import { useMcp } from './mcp'
+import { usePresets } from './presets'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { withStepAdded, withStepMoved, withStepRemoved } from '@/lib/taskSteps'
@@ -72,6 +75,13 @@ type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
 
 type ScheduledTask = AgentTask & { schedule: AgentTaskSchedule }
 
+function fill(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(`{${name}}`, String(value)),
+    template,
+  )
+}
+
 const SCHEDULE_TICK_MS = 30_000
 /**
  * A due slot older than this was missed (app closed, machine asleep) and is not run. The margin
@@ -84,12 +94,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const demoMode = useDemoMode()
   const errors = useErrors()
   const i18n = useI18N()
+  const mcp = useMcp()
+  const presets = usePresets()
 
   const tasks = ref<AgentTask[]>([])
 
   const runs = ref<Record<string, TaskRun>>({})
   /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
-  const runContexts: Record<string, { plan: AgentTask; abort: AbortController }> = {}
+  const runContexts: Record<
+    string,
+    { plan: AgentTask; abort: AbortController; scheduled: boolean }
+  > = {}
 
   let scheduleTicker: ReturnType<typeof setInterval> | undefined
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
@@ -126,7 +141,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const fresh = task.nextRunAt !== undefined && now - task.nextRunAt < FRESH_SLOT_MS
       advanceNextRun(task, now)
       // One Task Run at a time: a slot that finds one in flight is skipped, not queued.
-      if (fresh && !runs.value[task.id]) void runTask(task.id)
+      if (fresh && !runs.value[task.id]) void runScheduled(task.id)
     }
   }
 
@@ -328,6 +343,68 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const message = describeSettingsProblems(problems, i18n.state)
       return { ok: false, reason: 'settings-problems', problems, message }
     }
+    startRun(task, false)
+    return { ok: true }
+  }
+
+  /**
+   * A Task Run started by the Schedule. Nobody is watching, so a refusal is kept as the Task's
+   * outcome and toasted; a Task Run already in flight skips the slot silently.
+   */
+  async function runScheduled(id: string): Promise<void> {
+    const slotTask = stillScheduled(id)
+    if (!slotTask) return
+    await agentMode.loadMcpServersFor(slotTask.settingsTemplate.capabilities ?? [])
+    const folderFound = await folderExists(slotTask.workspaceDir)
+    // A delete, pause or manual Run may have overtaken the waits.
+    const task = stillScheduled(id)
+    if (!task) return
+    const refusal = scheduledRefusal(task, folderFound)
+    if (!refusal) return startRun(task, true)
+    await recordOutcome(
+      id,
+      { kind: 'failed', reason: 'not-started', message: refusal, stepCount: task.steps.length },
+      true,
+    )
+  }
+
+  function stillScheduled(id: string): AgentTask | undefined {
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task?.schedule?.enabled || runs.value[id] || deleting.has(id)) return undefined
+    return task
+  }
+
+  async function folderExists(dir: string): Promise<boolean> {
+    if (!dir) return false
+    return (await window.electronAPI.existsPath(dir).catch(() => false)) === true
+  }
+
+  function scheduledRefusal(task: AgentTask, folderFound: boolean): string | null {
+    if (!presets.presets.some((preset) => preset.name === AGENT_PRESET)) {
+      return i18n.state.AGENT_TASK_PRESET_UNAVAILABLE ?? 'The Agent preset is not available.'
+    }
+    const needsMcp = (task.settingsTemplate.capabilities ?? []).some((id) =>
+      id.startsWith(MCP_CAPABILITY_PREFIX),
+    )
+    if (needsMcp && !mcp.serversLoaded) {
+      return fill(
+        i18n.state.AGENT_TASK_MCP_UNAVAILABLE ?? 'The MCP servers could not be loaded: {error}',
+        { error: mcp.configError ?? '' },
+      )
+    }
+    const problems = taskProblems(task.id)
+    if (problems.length > 0) return describeSettingsProblems(problems, i18n.state)
+    if (!folderFound) {
+      return fill(
+        i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}',
+        { path: task.workspaceDir },
+      )
+    }
+    return null
+  }
+
+  function startRun(task: AgentTask, scheduled: boolean): void {
+    const id = task.id
     const plan = cloneForIpc(task)
     const sessionId = agentMode.createSession({
       workspaceDir: plan.workspaceDir,
@@ -336,10 +413,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       title: plan.name,
       taskId: plan.id,
     })
-    runContexts[id] = { plan, abort: new AbortController() }
+    runContexts[id] = { plan, abort: new AbortController(), scheduled }
     runs.value = { ...runs.value, [id]: { sessionId, stepIndex: 1, stepCount: plan.steps.length } }
     void sendStep(id, 1)
-    return { ok: true }
   }
 
   async function sendStep(taskId: string, stepIndex: number): Promise<void> {
@@ -420,19 +496,28 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!run) return
     const { [taskId]: _ended, ...rest } = runs.value
     runs.value = rest
+    const scheduled = runContexts[taskId]?.scheduled === true
     runContexts[taskId]?.abort.abort()
     delete runContexts[taskId]
-    await recordOutcome(taskId, { ...end, sessionId: run.sessionId, stepCount: run.stepCount })
+    await recordOutcome(
+      taskId,
+      { ...end, sessionId: run.sessionId, stepCount: run.stepCount },
+      scheduled,
+    )
   }
 
-  async function recordOutcome(taskId: string, fields: OutcomeFields): Promise<void> {
+  async function recordOutcome(
+    taskId: string,
+    fields: OutcomeFields,
+    scheduled = false,
+  ): Promise<void> {
     const task = tasks.value.find((entry) => entry.id === taskId)
     if (!task) return
-    if (fields.kind === 'failed') reportRunFailure(task, fields)
+    if (fields.kind === 'failed') reportRunFailure(task, fields, scheduled)
     const lastOutcome: AgentTaskOutcome = {
       kind: fields.kind,
       at: Date.now(),
-      sessionId: fields.sessionId,
+      ...(fields.sessionId !== undefined ? { sessionId: fields.sessionId } : {}),
       stepCount: fields.stepCount,
       ...(fields.stepIndex !== undefined ? { stepIndex: fields.stepIndex } : {}),
       ...(fields.message !== undefined ? { message: fields.message } : {}),
@@ -442,9 +527,40 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     await persistTask(replaceTask({ ...rest, lastOutcome }))
   }
 
-  /** A failed run is shown as the Task's outcome, so the sink only records it. */
-  function reportRunFailure(task: AgentTask, end: OutcomeFields): void {
+  /** The outcome shows a failed run, so only a Scheduled Run, which nobody watched, is toasted. */
+  function reportRunFailure(task: AgentTask, end: OutcomeFields, scheduled: boolean): void {
     const message = end.message ?? end.reason ?? ''
+    if (scheduled) {
+      const notStarted = end.reason === 'not-started'
+      const report = notStarted
+        ? {
+            category: 'validation' as const,
+            code: 'agent-tasks/scheduled-run-not-started',
+            template:
+              i18n.state.AGENT_TASK_SCHEDULED_RUN_NOT_STARTED ??
+              'The scheduled run of “{name}” could not start: {reason}',
+          }
+        : {
+            category: 'inference' as const,
+            code: 'agent-tasks/scheduled-run-failed',
+            template:
+              i18n.state.AGENT_TASK_SCHEDULED_RUN_FAILED ??
+              'The scheduled run of “{name}” failed: {reason}',
+          }
+      const userMessage = fill(report.template, { name: task.name, reason: message })
+      errors.report(
+        createAppError({
+          category: report.category,
+          code: report.code,
+          severity: 'warning',
+          surface: 'toast',
+          userMessage,
+          technicalMessage: `Task "${task.name}" at step ${end.stepIndex ?? '-'}: ${userMessage}`,
+          context: { taskId: task.id, stepIndex: end.stepIndex },
+        }),
+      )
+      return
+    }
     errors.report(
       createAppError({
         category: 'inference',

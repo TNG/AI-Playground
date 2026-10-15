@@ -48,12 +48,17 @@
                 {{ row.outcome.message }}
               </span>
             </template>
+            <span v-if="row.pausedLabel" class="text-xs text-amber-500">{{ row.pausedLabel }}</span>
+            <span v-if="row.skippedLabel" class="text-xs text-muted-foreground">
+              {{ row.skippedLabel }}
+            </span>
           </span>
           <Tooltip v-if="row.sessionId">
             <TooltipTrigger as-child>
               <button
                 type="button"
-                class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
+                class="size-7 flex-none flex items-center justify-center rounded-xs hover:bg-primary/20"
+                :class="row.pausedLabel ? 'bg-amber-500/20 text-amber-500' : 'bg-muted'"
                 :aria-label="row.openLabel"
                 @click="openSession(row.sessionId)"
               >
@@ -194,6 +199,7 @@ import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
+import { pausedStatusLabel } from '@/assets/js/store/historyEntries'
 import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { useI18N } from '@/assets/js/store/i18n'
 import SideModalBase from '@/components/SideModalBase.vue'
@@ -253,6 +259,7 @@ const rows = computed(() =>
     const run = 'running' in state ? state.running : undefined
     const outcome = 'idle' in state ? state.idle : undefined
     const reasons = describeSettingsProblems(agentTasks.taskProblems(task.id), i18n)
+    const pausedLabel = run?.paused && pausedStatusLabel(run.paused.reason, i18n).label
     return {
       id: task.id,
       name: task.name,
@@ -261,9 +268,15 @@ const rows = computed(() =>
       sessionId: run?.sessionId,
       progress:
         run && fill(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
+      pausedLabel,
+      skippedLabel: run?.skippedSlots
+        ? fill(i18n.AGENT_TASKS_SKIPPED_RUNS, { count: run.skippedSlots })
+        : undefined,
       runLabel: fill(i18n.AGENT_TASKS_RUN, { name: task.name }),
       stopLabel: fill(i18n.AGENT_TASKS_STOP, { name: task.name }),
-      openLabel: fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }),
+      openLabel: [fill(i18n.AGENT_TASKS_OPEN_SESSION, { name: task.name }), pausedLabel]
+        .filter(Boolean)
+        .join(' · '),
       showSessionsLabel: fill(i18n.AGENT_TASKS_SHOW_SESSIONS, { name: task.name }),
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
       editLabel: fill(i18n.AGENT_TASKS_EDIT, { name: task.name }),
@@ -324,7 +337,9 @@ function outcomeLabel({ kind, stepIndex, stepCount, reason }: AgentTaskOutcome):
 }
 
 function outcomeMessage({ message, reason }: AgentTaskOutcome): string | undefined {
-  return reason === 'app-closed' ? i18n.AGENT_TASKS_OUTCOME_APP_CLOSED : message
+  if (reason === 'app-closed') return i18n.AGENT_TASKS_OUTCOME_APP_CLOSED
+  if (reason === 'download-declined') return i18n.AGENT_TASKS_OUTCOME_DOWNLOAD_DECLINED
+  return message
 }
 
 async function openSession(sessionId: string): Promise<void> {

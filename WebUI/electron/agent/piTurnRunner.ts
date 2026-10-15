@@ -42,6 +42,7 @@ import {
   releaseTurnSession,
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
+import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
 import {
   finishTextRequest,
@@ -358,11 +359,11 @@ export async function startAgentTurn(
     onRequeued: () => emitAgentTurnState(sessionId, turnId, 'queued'),
     readyAgain: async () => {
       emitAgentTurnState(sessionId, turnId, 'running')
+      // Before the session exists the turn is still starting, and the start loads.
+      if (!turn.live) return
       await ready()
-      if (turn.live) {
-        await reapplySession(turn.live, config)
-        setAgentRunIdentity(agentRunIdentity(config))
-      }
+      await reapplySession(turn.live, config)
+      setAgentRunIdentity(agentRunIdentity(config))
     },
   }
   // Pi swallows a failing `context` handler and makes the request anyway, so a
@@ -392,6 +393,10 @@ export async function startAgentTurn(
       abortController.signal,
     )
     emitAgentTurnState(sessionId, turnId, 'running')
+    // Pi's context hook, which reclaims later pauses, does not exist yet.
+    if (await downloadedMissingReadinessModels(config, prompt, abortController.signal)) {
+      await reclaimTurnPlace(turnId, abortController.signal)
+    }
     await ready()
     const current = await ensureSession(config)
     turn.live = current

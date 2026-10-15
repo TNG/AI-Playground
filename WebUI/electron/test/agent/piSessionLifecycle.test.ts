@@ -201,7 +201,18 @@ function fakeWindow() {
   return {
     isDestroyed: () => false,
     webContents: {
-      send: (channel: string, payload: Record<string, unknown>) => sent.push({ channel, payload }),
+      send: (channel: string, payload: Record<string, unknown>) => {
+        sent.push({ channel, payload })
+        // Every chat model is on disk here.
+        if (channel === 'artifact:request') {
+          void import('../../artifact/rendererBridge').then((bridge) =>
+            bridge.handleMediaResponse({
+              requestId: payload.requestId as string,
+              result: { models: [] },
+            }),
+          )
+        }
+      },
     },
   }
 }

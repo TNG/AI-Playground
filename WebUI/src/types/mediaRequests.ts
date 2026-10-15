@@ -26,6 +26,13 @@ export type ArtifactMissingModel = {
 export type MediaRequestBody =
   | { kind: 'artifact-check-models'; requiredModels: RequiredModel[] }
   | { kind: 'artifact-consent'; models: ArtifactMissingModel[] }
+  /** Agent-turn readiness: the chat model (and its vision projector) not yet on disk. */
+  | {
+      kind: 'chat-check-models'
+      serviceName: string
+      llmModelName: string
+      needsVision: boolean
+    }
 
 export type MediaRequestPayload = MediaRequestBody & { requestId: string }
 

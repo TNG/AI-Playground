@@ -1,3 +1,4 @@
+import { backendToService, useTextInference } from '@/assets/js/store/textInference'
 import { getMissingComfyuiBackendModels } from '@/assets/js/store/imageGenerationUtils'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
@@ -18,6 +19,11 @@ import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaReq
 // rejects the request from main's side.
 const PING_INTERVAL_MS = 30_000
 
+function localBackendOfService(serviceName: string) {
+  const backends = ['llamaCPP', 'openVINO'] as const
+  return backends.find((backend) => backendToService[backend] === serviceName)
+}
+
 function respond(payload: MediaResponsePayload): void {
   void window.electronAPI.artifact.respond(payload)
 }
@@ -34,6 +40,15 @@ async function handleRequest(request: MediaRequestPayload): Promise<void> {
         // so main fails the run with the real reason instead of a missing-file
         // mystery later.
         const models = await getMissingComfyuiBackendModels(request.requiredModels)
+        respond({ requestId: request.requestId, result: { models } })
+        break
+      }
+      case 'chat-check-models': {
+        const backend = localBackendOfService(request.serviceName)
+        if (!backend) throw new Error(`No local chat backend runs as ${request.serviceName}`)
+        const models = await useTextInference().getMissingLlmModels(backend, request.llmModelName, {
+          needsVision: request.needsVision,
+        })
         respond({ requestId: request.requestId, result: { models } })
         break
       }

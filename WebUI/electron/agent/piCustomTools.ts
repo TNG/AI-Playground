@@ -8,7 +8,7 @@ import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
 import { agentTurns } from './piAgentState.ts'
-import { whileRendererAnswers } from '../kernel/userWait.ts'
+import { isWaitingOnUser, onUserWaitChange, whileRendererAnswers } from '../kernel/userWait.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
 //
@@ -52,7 +52,7 @@ type PendingToolCall = {
   sessionId: string
   resolve: (result: unknown) => void
   reject: (error: Error) => void
-  timeout: NodeJS.Timeout
+  timeout: PausableTimeout
   cleanupAbort?: () => void
 }
 
@@ -63,6 +63,37 @@ let toolRequestCounter = 0
 // downloads). The renderer tool has its own idle watchdog that fails stalled
 // generations, so this is only a safety net against a lost IPC reply.
 const TOOL_BRIDGE_TIMEOUT_MS = 30 * 60_000
+
+/** A timeout that stops counting while paused and resumes with what was left. */
+type PausableTimeout = { pause: () => void; resume: () => void }
+
+function pausableTimeout(ms: number, onTimeout: () => void): PausableTimeout {
+  let remaining = ms
+  let startedAt = 0
+  let timer: NodeJS.Timeout | null = null
+  return {
+    pause: () => {
+      if (!timer) return
+      clearTimeout(timer)
+      timer = null
+      remaining = Math.max(0, remaining - (Date.now() - startedAt))
+    },
+    resume: () => {
+      if (timer) return
+      startedAt = Date.now()
+      timer = setTimeout(onTimeout, remaining)
+    },
+  }
+}
+
+// A session waiting on the user has no deadline, so neither have its tool calls.
+onUserWaitChange((sessionId, waiting) => {
+  for (const call of pendingToolCalls.values()) {
+    if (call.sessionId !== sessionId) continue
+    if (waiting) call.timeout.pause()
+    else call.timeout.resume()
+  }
+})
 
 let mainWin: BrowserWindow | null = null
 
@@ -75,7 +106,7 @@ export function submitAgentToolResult(requestId: string, result: unknown, error?
   const pending = pendingToolCalls.get(requestId)
   if (!pending) return
   pendingToolCalls.delete(requestId)
-  clearTimeout(pending.timeout)
+  pending.timeout.pause()
   pending.cleanupAbort?.()
   if (error) pending.reject(new Error(error))
   else pending.resolve(result)
@@ -86,7 +117,7 @@ export function rejectPendingToolCalls(reason: string, sessionId?: string): void
   for (const [requestId, call] of [...pendingToolCalls]) {
     if (sessionId !== undefined && call.sessionId !== sessionId) continue
     pendingToolCalls.delete(requestId)
-    clearTimeout(call.timeout)
+    call.timeout.pause()
     call.cleanupAbort?.()
     call.reject(new Error(reason))
   }
@@ -116,17 +147,25 @@ function dispatchToRenderer(
 ): Promise<unknown> {
   const requestId = `tool-req-${Date.now()}-${++toolRequestCounter}`
   return new Promise<unknown>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingToolCalls.delete(requestId)
-      reject(new Error(`Tool '${toolName}' timed out after ${TOOL_BRIDGE_TIMEOUT_MS / 60000}min.`))
-    }, TOOL_BRIDGE_TIMEOUT_MS)
-    const entry: PendingToolCall = { sessionId, resolve, reject, timeout }
+    const entry: PendingToolCall = {
+      sessionId,
+      resolve,
+      reject,
+      timeout: pausableTimeout(TOOL_BRIDGE_TIMEOUT_MS, () => {
+        pendingToolCalls.delete(requestId)
+        entry.cleanupAbort?.()
+        reject(
+          new Error(`Tool '${toolName}' timed out after ${TOOL_BRIDGE_TIMEOUT_MS / 60000}min.`),
+        )
+      }),
+    }
+    if (!isWaitingOnUser(sessionId)) entry.timeout.resume()
     if (abortSignal) {
       const onAbort = () => {
         // The renderer keeps running its side (no remote cancellation); its late
         // submitToolResult finds no pending entry and no-ops.
         pendingToolCalls.delete(requestId)
-        clearTimeout(timeout)
+        entry.timeout.pause()
         reject(new Error('Tool execution aborted.'))
       }
       abortSignal.addEventListener('abort', onAbort, { once: true })

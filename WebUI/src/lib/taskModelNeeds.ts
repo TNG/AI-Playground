@@ -18,6 +18,7 @@ export type MediaType = 'image' | 'video' | 'model3d'
 export type SpeechTool = 'synthesizeTextToSpeech' | 'transcribeAudio'
 
 export type TaskModelNeed =
+  | { kind: 'chat'; models: ModelRef[] }
   | { kind: 'embedding'; models: ModelRef[] }
   | {
       kind: 'workflow'
@@ -33,6 +34,8 @@ export type TaskModelNeeds = { certain: TaskModelNeed[]; maybe: TaskModelNeed[] 
 
 export type TaskModelNeedsInput = {
   template: AgentSessionSettings
+  /** The local chat model, with its vision projector when needed; omitted when not checked. */
+  chat?: ModelRef[]
   /** The embedding model the template resolves to, if any. */
   embedding?: { backend: 'llamaCPP' | 'openVINO'; model: string }
   /** The ComfyUI presets the media tools may pick from. */
@@ -53,9 +56,10 @@ const MEDIA_TYPES: MediaType[] = ['image', 'video', 'model3d']
 const SPEECH_TOOLS: SpeechTool[] = ['synthesizeTextToSpeech', 'transcribeAudio']
 
 export function taskModelNeeds(input: TaskModelNeedsInput): TaskModelNeeds {
-  const { template, embedding } = input
+  const { template, chat, embedding } = input
   const capabilities = template.capabilities ?? []
   const certain: TaskModelNeed[] = []
+  if (chat && chat.length > 0) certain.push({ kind: 'chat', models: chat })
   if (capabilities.includes('rag') && embedding) {
     certain.push({
       kind: 'embedding',

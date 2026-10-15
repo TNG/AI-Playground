@@ -124,8 +124,7 @@ describe('loadPresetFiles', () => {
       path.join(baseDir, 'shared.json'),
       JSON.stringify(comfyTemplate({ name: 'Shared', backend: 'comfyui' })),
     )
-    // excludePresets lists file basenames (as `disabledFeaturePresets` does),
-    // not the preset names inside the files.
+    // excludePresets lists file basenames, not the preset names inside the files.
     writeFileSync(
       path.join(baseDir, 'extra.json'),
       JSON.stringify(comfyTemplate({ name: 'Excluded', backend: 'comfyui' })),

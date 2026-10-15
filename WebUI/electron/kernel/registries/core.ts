@@ -194,7 +194,6 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       if (
         'productMode' in updates ||
         'isDemoModeEnabled' in updates ||
-        'isAgentPresetEnabled' in updates ||
         'showDebugSettingsInUI' in updates
       ) {
         deps.invalidatePresetCatalog()

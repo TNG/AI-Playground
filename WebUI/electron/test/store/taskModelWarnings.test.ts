@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { effectScope, nextTick, ref } from 'vue'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { AgentTaskStep } from '@/types/agentTaskIpc'
 import { PresetSchema, type Preset } from '@/lib/presetSchemas'
 import { createCancellation } from '@/assets/js/errors/appError'
 
@@ -37,15 +38,24 @@ vi.mock('@/assets/js/store/presets', () => ({
   }),
 }))
 
+const CHAT_MODEL = 'unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf'
+const MMPROJ = 'unsloth/Qwen3.8-27B-GGUF/mmproj-F16.gguf'
+
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     inferenceForSettings: (_preset: string, settings: AgentSessionSettings) => ({
       inference: {
         backend: settings.backend ?? 'llamaCPP',
+        activeModel: settings.model ?? CHAT_MODEL,
+        modelSupportsVision: true,
         embeddingBackend: 'llamaCPP',
         activeEmbeddingModel: settings.embeddingModel ?? EMBEDDING,
       },
     }),
+    llmModelRefs: (_backend: string, model: string, options: { needsVision?: boolean } = {}) => [
+      { repo_id: model, type: 'ggufLLM', backend: 'llama_cpp' },
+      ...(options.needsVision ? [{ repo_id: MMPROJ, type: 'ggufLLM', backend: 'llama_cpp' }] : []),
+    ],
   }),
 }))
 
@@ -104,10 +114,12 @@ async function settle(): Promise<void> {
   }
 }
 
-function mount(initial: AgentSessionSettings) {
+function mount(initial: AgentSessionSettings, options?: { chatModelSteps: AgentTaskStep[] }) {
   const template = ref<AgentSessionSettings>(initial)
   const scope = effectScope()
-  const warnings = scope.run(() => useTaskModelWarnings(() => template.value))!
+  const warnings = scope.run(() =>
+    useTaskModelWarnings(() => template.value, { chatModelSteps: () => options?.chatModelSteps }),
+  )!
   return { template, warnings, stop: () => scope.stop() }
 }
 
@@ -247,5 +259,67 @@ describe('useTaskModelWarnings', () => {
 
     expect(warnings.downloadError.value).toContain('disk full')
     expect(warnings.warnings.value.certain).toHaveLength(1)
+  })
+})
+
+describe('useTaskModelWarnings with the chat model checked', () => {
+  const textStep: AgentTaskStep = { id: 's1', prompt: 'Summarize the notes' }
+
+  it('leaves the chat model out unless asked to check it', async () => {
+    const { warnings } = mount({ capabilities: [] })
+    await settle()
+    expect(warnings.warnings.value).toEqual({ certain: [], maybe: [] })
+  })
+
+  it('lists a missing chat model first among the certain needs', async () => {
+    const { warnings } = mount({ capabilities: ['rag'] }, { chatModelSteps: [textStep] })
+    await settle()
+    expect(warnings.warnings.value.certain).toEqual([
+      { kind: 'chat', models: [{ repo_id: CHAT_MODEL, type: 'ggufLLM', backend: 'llama_cpp' }] },
+      {
+        kind: 'embedding',
+        models: [{ repo_id: EMBEDDING, type: 'embedding', backend: 'llama_cpp' }],
+      },
+    ])
+  })
+
+  it('adds the vision projector when a Step hands the model an image', async () => {
+    const imageStep = { id: 's2', prompt: 'Describe @attachments/photo.png' }
+    const { warnings } = mount({ capabilities: [] }, { chatModelSteps: [imageStep] })
+    await settle()
+    expect(warnings.warnings.value.certain).toEqual([
+      {
+        kind: 'chat',
+        models: [
+          { repo_id: CHAT_MODEL, type: 'ggufLLM', backend: 'llama_cpp' },
+          { repo_id: MMPROJ, type: 'ggufLLM', backend: 'llama_cpp' },
+        ],
+      },
+    ])
+  })
+
+  it('shows nothing for a chat model on disk or a cloud model', async () => {
+    onDisk = new Set([CHAT_MODEL])
+    const { template, warnings } = mount({ capabilities: [] }, { chatModelSteps: [textStep] })
+    await settle()
+    expect(warnings.warnings.value).toEqual({ certain: [], maybe: [] })
+
+    onDisk = new Set()
+    template.value = { backend: 'cloud', capabilities: [] }
+    await settle()
+    expect(warnings.warnings.value).toEqual({ certain: [], maybe: [] })
+    expect(checkModelAlreadyLoaded).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloads the chat model only when asked to', async () => {
+    const { warnings } = mount({ capabilities: [] }, { chatModelSteps: [textStep] })
+    await settle()
+    expect(requestDownload).not.toHaveBeenCalled()
+
+    await warnings.download(warnings.warnings.value.certain)
+
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      missingAt(CHAT_MODEL, 'ggufLLM', 'llama_cpp'),
+    ])
   })
 })

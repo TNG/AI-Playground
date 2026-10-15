@@ -6,7 +6,7 @@
     class="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-xs text-foreground"
   >
     <div v-for="warning in certain" :key="warning.kind" class="flex flex-col gap-1.5">
-      <p>{{ i18n.AGENT_TASK_MODELS_EMBEDDING_MISSING }}</p>
+      <p>{{ certainText(warning) }}</p>
       <ul class="flex flex-col gap-0.5 pl-3">
         <li v-for="model in warning.models" :key="model.repo_id" class="break-all">
           {{ modelLine(model) }}
@@ -55,6 +55,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { AgentTaskStep } from '@/types/agentTaskIpc'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Button } from '@/components/ui/button'
 import { useTaskModelWarnings } from '@/assets/js/taskModelWarnings'
@@ -66,13 +67,27 @@ import type {
   TaskModelWarning,
 } from '@/lib/taskModelNeeds'
 
-const props = defineProps<{ template: AgentSessionSettings | null | undefined }>()
+const props = defineProps<{
+  template: AgentSessionSettings | null | undefined
+  chatModelSteps?: readonly AgentTaskStep[]
+}>()
 
 const i18n = useI18N().state
 
 const { warnings, downloading, downloadError, download } = useTaskModelWarnings(
   () => props.template,
+  { chatModelSteps: () => props.chatModelSteps },
 )
+
+const CERTAIN_TEXT_KEYS: Partial<Record<TaskModelWarning['kind'], string>> = {
+  chat: 'AGENT_TASK_MODELS_CHAT_MISSING',
+  embedding: 'AGENT_TASK_MODELS_EMBEDDING_MISSING',
+}
+
+function certainText(warning: TaskModelWarning): string {
+  const key = CERTAIN_TEXT_KEYS[warning.kind]
+  return key ? i18n[key] : warning.kind
+}
 
 const certain = computed(() => warnings.value.certain)
 const maybe = computed(() => warnings.value.maybe)

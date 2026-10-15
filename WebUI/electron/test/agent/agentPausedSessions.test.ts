@@ -103,6 +103,7 @@ let bus: typeof import('../../kernel/kernelBus')
 let chatAsk: typeof import('../../chat/chatAsk')
 let promptAdapter: typeof import('../../permissions/promptAdapter')
 let permissions: typeof import('../../permissions/permissionsService')
+let userWait: typeof import('../../kernel/userWait')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
@@ -110,6 +111,7 @@ beforeAll(async () => {
   chatAsk = await import('../../chat/chatAsk')
   promptAdapter = await import('../../permissions/promptAdapter')
   permissions = await import('../../permissions/permissionsService')
+  userWait = await import('../../kernel/userWait')
   const bridge = await import('../../artifact/rendererBridge')
   const readiness = await import('../../chat/chatReadiness')
   readiness.setChatReadinessDeps({
@@ -217,7 +219,12 @@ describe('a Paused Session', () => {
     expect(await runB).toEqual({ success: true })
     expect(stateEvents(turnA)).toEqual(['queued', 'running', 'paused'])
     expect(bus.getKernelSnapshot().state.agentTurns).toEqual([
-      expect.objectContaining({ sessionId: 'aipg-agent-a', turnId: turnA, state: 'paused' }),
+      expect.objectContaining({
+        sessionId: 'aipg-agent-a',
+        turnId: turnA,
+        state: 'paused',
+        pauseReason: { kind: 'download', summary: 'voice' },
+      }),
     ])
     expect(received.map((r) => r.model)).toEqual(['model-a', 'model-b'])
     expect(loaded).toEqual(['model-a', 'model-b'])
@@ -242,6 +249,52 @@ describe('a Paused Session', () => {
       const { turnId, sessionId } = event as { turnId: string; sessionId: string }
       expect(sessionId).toBe(turnId === turnA ? 'aipg-agent-a' : 'aipg-agent-b')
     }
+  }, 30000)
+
+  it('says what it waits for, and stops saying it once running again', async () => {
+    const turnA = crypto.randomUUID()
+    const runA = manager.startAgentTurn(turnA, 'say hi', configFor('aipg-agent-a', 'model-a', true))
+    await vi.waitFor(() => expect(asks).toHaveLength(1))
+    const reasons = () =>
+      events.flatMap((event) =>
+        event.type === 'agent-turn-state' && event.turnId === turnA
+          ? [[event.state, event.pauseReason]]
+          : [],
+      )
+    const snapshotReason = () => bus.getKernelSnapshot().state.agentTurns[0]?.pauseReason
+
+    const vram = permissions.requestVramWarningConsent({ presetName: 'Flux', message: 'Big' })
+    const warning = await nextPrompt('vram-warning')
+    expect(snapshotReason()).toEqual({ kind: 'vram-warning', summary: 'Flux' })
+    promptAdapter.handlePermissionsPromptResponse({
+      requestId: warning.requestId,
+      result: { confirmed: true, remember: false },
+    })
+    await vram
+    expect(snapshotReason()).toBeUndefined()
+
+    userWait.setAwaitingUser('aipg-agent-a', true, {
+      kind: 'confirmation',
+      summary: 'Continue in Game Agent?',
+    })
+    expect(snapshotReason()).toEqual({ kind: 'confirmation', summary: 'Continue in Game Agent?' })
+    userWait.setAwaitingUser('aipg-agent-a', false)
+    expect(snapshotReason()).toBeUndefined()
+
+    expect(reasons()).toEqual([
+      ['queued', undefined],
+      ['running', undefined],
+      ['paused', { kind: 'vram-warning', summary: 'Flux' }],
+      ['running', undefined],
+      ['paused', { kind: 'confirmation', summary: 'Continue in Game Agent?' }],
+      ['running', undefined],
+    ])
+
+    chatAsk.handleChatAnswer({
+      requestId: asks[0].requestId,
+      result: { audioBase64: '', mediaType: 'audio/wav', voice: 'test', engine: 'kokoro' },
+    })
+    expect(await runA).toEqual({ success: true })
   }, 30000)
 
   it('ends when stopped while paused, letting the queue move on', async () => {

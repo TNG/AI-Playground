@@ -35,8 +35,9 @@ function newId(): string {
   return `confirm-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function tellMain(conversationKey: string, waiting: boolean): void {
-  globalThis.window?.electronAPI?.permissions?.awaitingUser?.(conversationKey, waiting)
+function tellMain(conversationKey: string, waiting: boolean, title?: string): void {
+  const reason = waiting ? { kind: 'confirmation' as const, summary: title } : undefined
+  globalThis.window?.electronAPI?.permissions?.awaitingUser?.(conversationKey, waiting, reason)
 }
 
 export const useConfirmations = defineStore('confirmations', () => {
@@ -52,7 +53,7 @@ export const useConfirmations = defineStore('confirmations', () => {
     const id = newId()
     const pending: PendingConfirmation = { ...input, id }
     items.value = [...items.value, pending]
-    tellMain(input.conversationKey, true)
+    tellMain(input.conversationKey, true, input.title)
     return new Promise<boolean>((resolve) => {
       resolvers.set(id, resolve)
     })

@@ -7,9 +7,11 @@
 // arrives with no conversation attached. That one is attributed to the turn whose
 // renderer request is outstanding, preferring the member that holds the place.
 
+import type { PauseReason } from '@/types/kernelEvents'
+
 /** What this module needs from the Turn Queue; the orchestrator registers it as it loads. */
 export type UserWaitQueue = {
-  beginUserWait(conversationKey: string): () => void
+  beginUserWait(conversationKey: string, reason?: PauseReason): () => void
   hasPausableRun(conversationKey: string): boolean
   turnHolderConversationKey(): string | undefined
 }
@@ -36,8 +38,8 @@ export function isWaitingOnUser(conversationKey: string): boolean {
   return openWaits.has(conversationKey)
 }
 
-function beginUserWait(conversationKey: string): () => void {
-  const answeredInQueue = queue ? queue.beginUserWait(conversationKey) : () => {}
+function beginUserWait(conversationKey: string, reason?: PauseReason): () => void {
+  const answeredInQueue = queue ? queue.beginUserWait(conversationKey, reason) : () => {}
   const open = (openWaits.get(conversationKey) ?? 0) + 1
   openWaits.set(conversationKey, open)
   if (open === 1) for (const listener of listeners) listener(conversationKey, true)
@@ -88,8 +90,9 @@ export function userWaitOwner(): string | undefined {
 export async function awaitUser<T>(
   conversationKey: string | undefined,
   wait: () => Promise<T>,
+  reason?: PauseReason,
 ): Promise<T> {
-  const answered = conversationKey ? beginUserWait(conversationKey) : () => {}
+  const answered = conversationKey ? beginUserWait(conversationKey, reason) : () => {}
   try {
     return await wait()
   } finally {
@@ -98,10 +101,14 @@ export async function awaitUser<T>(
 }
 
 /** The window shows (`true`) or settled (`false`) a card that asks the user for `conversationKey`. */
-export function setAwaitingUser(conversationKey: string, waiting: boolean): void {
+export function setAwaitingUser(
+  conversationKey: string,
+  waiting: boolean,
+  reason?: PauseReason,
+): void {
   const open = rendererWaits.get(conversationKey) ?? []
   if (waiting) {
-    rendererWaits.set(conversationKey, [...open, beginUserWait(conversationKey)])
+    rendererWaits.set(conversationKey, [...open, beginUserWait(conversationKey, reason)])
     return
   }
   const [answered, ...rest] = open

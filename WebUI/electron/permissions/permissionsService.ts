@@ -13,6 +13,7 @@ import {
 } from '../persist/grantsStore'
 import { requestPermissionsPrompt } from './promptAdapter'
 import { awaitUser, userWaitOwner } from '../kernel/userWait'
+import { downloadPauseReason } from './pauseReason'
 
 /**
  * Permissions policy in main (architecture-target §4.7, step 13). Named verbs
@@ -52,7 +53,7 @@ export async function requestDownloadConsent(
       { kind: 'download', models, skipConfirmation },
       { onProgress: options.onProgress, conversationKey: owner },
     )
-  await (skipConfirmation ? prompt() : awaitUser(owner, prompt))
+  await (skipConfirmation ? prompt() : awaitUser(owner, prompt, downloadPauseReason(models)))
 }
 
 export async function requestVramWarningConsent(req: {
@@ -62,11 +63,14 @@ export async function requestVramWarningConsent(req: {
   const key = vramWarningGrantKey(req.presetName)
   if (await hasPermissionGrant(key)) return true
   const owner = userWaitOwner()
-  const answer = await awaitUser(owner, () =>
-    requestPermissionsPrompt<{ confirmed: boolean; remember: boolean }>(
-      { kind: 'vram-warning', presetName: req.presetName, message: req.message },
-      { conversationKey: owner },
-    ),
+  const answer = await awaitUser(
+    owner,
+    () =>
+      requestPermissionsPrompt<{ confirmed: boolean; remember: boolean }>(
+        { kind: 'vram-warning', presetName: req.presetName, message: req.message },
+        { conversationKey: owner },
+      ),
+    { kind: 'vram-warning', summary: req.presetName },
   )
   if (answer.confirmed && answer.remember) {
     await grantPermission(key, 'remember')

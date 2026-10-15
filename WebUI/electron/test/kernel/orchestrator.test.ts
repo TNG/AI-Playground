@@ -988,7 +988,10 @@ describe('paused members', () => {
   /** A pausable member recording what it hears, in order. */
   function pausable(runId: string, conversationKey: string, log: string[], signal?: AbortSignal) {
     const pause: TurnPause = {
-      onUserWait: (waiting) => log.push(`${runId} ${waiting ? 'paused' : 'answered'}`),
+      onUserWait: (waiting, reason) =>
+        log.push(
+          `${runId} ${waiting ? 'paused' : 'answered'}${reason ? ` for ${reason.summary}` : ''}`,
+        ),
       onRequeued: () => log.push(`${runId} requeued`),
       readyAgain: async () => {
         log.push(`${runId} ready again`)
@@ -1098,8 +1101,25 @@ describe('paused members', () => {
     const first = beginUserWait('session-a')
     const second = beginUserWait('session-a')
     first()
-    expect(log).toEqual(['turn-a started', 'turn-a paused'])
+    expect(log).toEqual(['turn-a started', 'turn-a paused', 'turn-a paused'])
     second()
+    expect(log.at(-1)).toBe('turn-a answered')
+    finishTextRequest('turn-a')
+  })
+
+  it('names the latest open question while paused, and the one left once it is answered', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const voice = beginUserWait('session-a', { kind: 'download', summary: 'voice' })
+    const card = beginUserWait('session-a', { kind: 'confirmation', summary: 'card' })
+    expect(log.slice(1)).toEqual(['turn-a paused for voice', 'turn-a paused for card'])
+    card()
+    expect(log.at(-1)).toBe('turn-a paused for voice')
+    const embedding = beginUserWait('session-a', { kind: 'download', summary: 'embedding' })
+    voice()
+    expect(log.at(-1)).toBe('turn-a paused for embedding')
+    embedding()
     expect(log.at(-1)).toBe('turn-a answered')
     finishTextRequest('turn-a')
   })

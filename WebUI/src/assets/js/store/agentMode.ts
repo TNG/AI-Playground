@@ -55,7 +55,7 @@ import {
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
 import type { GameLibraryEntry } from '@/types/agentIpc'
-import type { AgentTurnState } from '@/types/kernelEvents'
+import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
@@ -85,7 +85,12 @@ import {
 
 export type { AgentSessionRecord }
 
-export type SessionTurnInfo = { state: AgentTurnState; queuePosition: number | null }
+export type SessionTurnInfo = {
+  state: AgentTurnState
+  queuePosition: number | null
+  /** What the user is asked, only while paused. */
+  pauseReason?: PauseReason
+}
 
 /** How a turn that ended out of sight went. */
 export type UnseenTurn = 'done' | 'failed'
@@ -896,9 +901,11 @@ export const useAgentMode = defineStore(
       const result: Record<string, SessionTurnInfo> = {}
       for (const [id, runtime] of Object.entries(turns.runtimes.value)) {
         if (!runtime.processing.value) continue
+        const pauseReason = runtime.pauseReason.value
         result[id] = {
           state: runtime.turnState.value ?? 'running',
           queuePosition: runtime.queuePosition.value,
+          ...(pauseReason ? { pauseReason } : {}),
         }
       }
       return result

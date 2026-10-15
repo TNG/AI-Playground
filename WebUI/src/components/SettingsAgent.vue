@@ -226,7 +226,16 @@
           </span>
         </label>
       </div>
+    </fieldset>
 
+    <!-- Between the two fieldsets so a Task Session's read-only rule never disables it. -->
+    <SettingsAgentTask v-if="agentMode.sessionScoped" />
+
+    <fieldset
+      :disabled="settingsReadOnly"
+      class="flex flex-col gap-6 min-w-0"
+      :aria-describedby="settingsReadOnly ? 'agent-settings-read-only' : undefined"
+    >
       <!-- Capabilities (built-in capability set + MCP servers) -->
       <div class="border-t border-border pt-4 flex flex-col gap-3">
         <Label class="whitespace-nowrap">Capabilities</Label>
@@ -322,8 +331,6 @@
         </button>
       </div>
     </fieldset>
-
-    <SettingsAgentTask v-if="agentMode.sessionScoped" />
   </div>
 </template>
 

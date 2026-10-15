@@ -11,6 +11,7 @@ import type {
 import { useAgentMode } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { userMessagePrompt } from './agentModeTurn'
+import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
@@ -69,8 +70,18 @@ type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
 type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
 
+type ScheduledTask = AgentTask & { schedule: AgentTaskSchedule }
+
+const SCHEDULE_TICK_MS = 30_000
+/**
+ * A due slot older than this was missed (app closed, machine asleep) and is not run. The margin
+ * covers Chromium aligning a hidden window's timers to one wake-up a minute.
+ */
+const FRESH_SLOT_MS = SCHEDULE_TICK_MS + 60_000
+
 export const useAgentTasks = defineStore('agentTasks', () => {
   const agentMode = useAgentMode()
+  const demoMode = useDemoMode()
   const errors = useErrors()
   const i18n = useI18N()
 
@@ -79,6 +90,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const runs = ref<Record<string, TaskRun>>({})
   /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
   const runContexts: Record<string, { plan: AgentTask; abort: AbortController }> = {}
+
+  let scheduleTicker: ReturnType<typeof setInterval> | undefined
+  /** Tasks whose delete is in flight; a tick saving one would write it back. */
+  const deleting = new Set<string>()
 
   async function init(): Promise<void> {
     try {
@@ -90,6 +105,39 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return
     }
     await settleInterruptedRuns()
+    skipMissedSlots()
+    clearInterval(scheduleTicker)
+    scheduleTicker = setInterval(tickSchedules, SCHEDULE_TICK_MS)
+  }
+
+  /** No catch-up at launch: slots that fell while the app was closed are skipped. */
+  function skipMissedSlots(): void {
+    const now = Date.now()
+    for (const task of tasks.value) {
+      if (isDue(task, now)) advanceNextRun(task, now)
+    }
+  }
+
+  function tickSchedules(): void {
+    if (demoMode.enabled) return
+    const now = Date.now()
+    for (const task of tasks.value) {
+      if (!isDue(task, now) || deleting.has(task.id)) continue
+      const fresh = task.nextRunAt !== undefined && now - task.nextRunAt < FRESH_SLOT_MS
+      advanceNextRun(task, now)
+      // One Task Run at a time: a slot that finds one in flight is skipped, not queued.
+      if (fresh && !runs.value[task.id]) void runTask(task.id)
+    }
+  }
+
+  function isDue(task: AgentTask, now: number): task is ScheduledTask {
+    return (
+      task.schedule?.enabled === true && !(task.nextRunAt !== undefined && task.nextRunAt > now)
+    )
+  }
+
+  function advanceNextRun(task: ScheduledTask, now: number): void {
+    void persistTask(replaceTask({ ...task, nextRunAt: nextSlotAfter(task.schedule, now) }))
   }
 
   /** A Task still marked as running was cut off by the app closing; runs are not resumed. */
@@ -180,10 +228,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The sessions the Task created stay. Refused while the Task runs. */
   async function deleteTask(id: string): Promise<boolean> {
     if (runs.value[id]) return false
-    const result = await window.electronAPI.agentMode.deleteTask(id).catch((error: unknown) => ({
-      success: false as const,
-      error: String(error),
-    }))
+    deleting.add(id)
+    const result = await window.electronAPI.agentMode
+      .deleteTask(id)
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+      .finally(() => deleting.delete(id))
     if (!result.success) {
       errors.report(
         createAppError({

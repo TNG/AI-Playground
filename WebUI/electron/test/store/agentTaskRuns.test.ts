@@ -127,6 +127,8 @@ vi.mock('@/assets/js/store/developerSettings', () => ({
 }))
 
 const errorsReport = vi.hoisted(() => vi.fn())
+vi.mock('@/assets/js/store/demoMode', () => ({ useDemoMode: () => ({ enabled: false }) }))
+
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: errorsReport }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({

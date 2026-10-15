@@ -37,7 +37,8 @@
 //   nested generation still finishing for it can never wait on the place.
 //   Panel / Home Agent runs ask for their missing models as they are submitted;
 //   one that gets the place while the user is still deciding gives it up the
-//   same way and takes it back at the front once answered.
+//   same way and takes it back at the front once answered. Media nested in a
+//   turn asks at submit too, as a pause of that turn, before it is admitted.
 //
 // What deliberately stays out: which model to load is still data from the last
 // successful load (or the turn request); download consent stays renderer-side.
@@ -85,6 +86,8 @@ export type TurnPause = {
   onUserWait(waiting: boolean, reason?: PauseReason): void
   /** Its place went to another member meanwhile: it waits at the front to get it back. */
   onRequeued(): void
+  /** Holds the place again, taken back by its own media; readiness re-runs at its next reclaim. */
+  onHolding?(): void
   /** Holds the place again; re-run readiness (the model may have been swapped meanwhile). */
   readyAgain(signal?: AbortSignal): Promise<void>
 }
@@ -106,6 +109,9 @@ type TextOccupancy = TextRequest & {
   userWaits: { reason?: PauseReason }[]
   /** Gave up the place while paused and has not taken it back yet. */
   yielded: boolean
+  /** Holds the place again but has not re-run its readiness since the pause. */
+  readinessOwed?: boolean
+  retaking?: Promise<void>
   reclaiming?: Promise<void>
 }
 
@@ -167,6 +173,9 @@ const turnQueue: Array<{ runId: string; take: () => void; drop: () => void }> = 
 // Panel / Home Agent runs that are Turn Queue members, from submission until they
 // settle, each with the abort that withdraws or cancels it.
 const turnMemberRuns = new Map<string, AbortController>()
+// Runs nested in a turn while their models are checked or the user is asked for them.
+const preflightCancels = new Map<string, AbortController>()
+const preflightTails = new Map<string, Promise<void>>()
 
 export function setOrchestratorDeps(deps: OrchestratorDeps): void {
   orchestratorDeps = deps
@@ -190,6 +199,9 @@ export function resetOrchestratorForTest(): void {
   turnHolder = null
   for (const entry of turnQueue.splice(0)) entry.drop()
   turnMemberRuns.clear()
+  for (const cancel of preflightCancels.values()) cancel.abort()
+  preflightCancels.clear()
+  preflightTails.clear()
 }
 
 export function artifactRunsQueued(): number {
@@ -198,7 +210,7 @@ export function artifactRunsQueued(): number {
 
 /** Admitted, executing, or queued — the close policy asks. */
 export function artifactWorkOpen(): boolean {
-  return queueBusy() || turnMemberRuns.size > 0
+  return queueBusy() || turnMemberRuns.size > 0 || preflightCancels.size > 0
 }
 
 export function mediaRequestsQueued(): number {
@@ -252,8 +264,62 @@ export function submitArtifactRun(
   options: { queue: 'turn' | 'queue' } = { queue: 'turn' },
 ): Promise<ArtifactRunResult> {
   if (options.queue === 'turn') return runAsTurnMember(payload)
-  if (queueBusy()) return enqueueRun(payload)
-  return executeRun(payload)
+  return runInTurn(payload)
+}
+
+const DECLINED: RunModelsOutcome = { state: 'declined' }
+
+/**
+ * Media nested in a turn asks for its missing models before it is admitted, so
+ * a prompt waiting on the user holds neither the artifact queue nor the GPU.
+ */
+async function runInTurn(submitted: ArtifactRunPayload): Promise<ArtifactRunResult> {
+  let payload = submitted
+  if (!payload.modelsConsented) {
+    const cancel = new AbortController()
+    preflightCancels.set(payload.runId, cancel)
+    let outcome = DECLINED
+    try {
+      outcome = await askInTurn(payload, cancel.signal)
+      if (outcome.state === 'ready') {
+        await retakePlaceForMedia(payload.conversationKey, cancel.signal)
+      }
+    } catch {
+      // Stopped while retaking its turn's place; settled as cancelled below.
+    } finally {
+      preflightCancels.delete(payload.runId)
+    }
+    if (outcome.state !== 'ready' || cancel.signal.aborted) {
+      return settleUnstartedRun(payload, outcome)
+    }
+    payload = { ...payload, modelsConsented: true }
+  }
+  return queueBusy() ? enqueueRun(payload) : executeRun(payload)
+}
+
+/**
+ * One pre-flight at a time per conversation: a spritesheet's parallel calls share
+ * their models, and the first answer settles what the next ones find missing.
+ */
+function askInTurn(payload: ArtifactRunPayload, signal: AbortSignal): Promise<RunModelsOutcome> {
+  const key = payload.conversationKey ?? payload.runId
+  const onAsk = () => emitArtifactPhase(artifactRunTag(payload), 'preparing-backend')
+  const ask = (preflightTails.get(key) ?? Promise.resolve()).then(() =>
+    signal.aborted ? DECLINED : prepareRunModels(payload, onAsk, payload.conversationKey),
+  )
+  // Follows the run, not the prompt: a stopped run's dialog must not hold up the next one.
+  const asked = untilAborted(ask, signal, cancelledGeneration)
+  const tail = asked.then(
+    () => {},
+    () => {},
+  )
+  preflightTails.set(key, tail)
+  void tail.then(() => {
+    if (preflightTails.get(key) === tail) preflightTails.delete(key)
+  })
+  return asked.catch((error: unknown): RunModelsOutcome =>
+    signal.aborted ? DECLINED : { state: 'failed', error: String(error) },
+  )
 }
 
 function enqueueRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
@@ -288,7 +354,7 @@ async function runAsTurnMember(submitted: ArtifactRunPayload): Promise<ArtifactR
     await place
   } catch {
     turnMemberRuns.delete(payload.runId)
-    return settleUnstartedMember(payload, models?.outcome)
+    return settleUnstartedRun(payload, models?.outcome)
   }
   if (!cancel.signal.aborted && models) {
     const outcome = await holdForMemberModels(payload, models, cancel.signal)
@@ -298,7 +364,7 @@ async function runAsTurnMember(submitted: ArtifactRunPayload): Promise<ArtifactR
   if (cancel.signal.aborted) {
     turnMemberRuns.delete(payload.runId)
     leaveTurnQueue(payload.runId)
-    const result = settleUnstartedMember(payload, models?.outcome)
+    const result = settleUnstartedRun(payload, models?.outcome)
     await drainQueue()
     return result
   }
@@ -306,7 +372,7 @@ async function runAsTurnMember(submitted: ArtifactRunPayload): Promise<ArtifactR
   return queueBusy() ? enqueueRun(payload) : executeRun(payload)
 }
 
-function settleUnstartedMember(
+function settleUnstartedRun(
   payload: ArtifactRunPayload,
   models?: RunModelsOutcome,
 ): ArtifactRunResult {
@@ -350,10 +416,14 @@ type MemberModels = {
 
 function askForMemberModels(payload: ArtifactRunPayload, cancel: AbortController): MemberModels {
   const models: MemberModels = { asking: false, yielded: false, settled: Promise.resolve(READY) }
-  models.settled = prepareRunModels(payload, () => {
-    models.asking = true
-    yieldMemberPlace(payload, models)
-  }).then((outcome) => {
+  models.settled = prepareRunModels(
+    payload,
+    () => {
+      models.asking = true
+      yieldMemberPlace(payload, models)
+    },
+    null,
+  ).then((outcome) => {
     models.asking = false
     models.outcome = outcome
     // Declined while still in line: nothing is left to wait for.
@@ -381,15 +451,15 @@ async function holdForMemberModels(
   try {
     await reclaimMemberPlace(payload, models, signal)
   } catch {
-    return { state: 'declined' }
+    return DECLINED
   }
   return outcome
 }
 
 function untilAnswered(models: MemberModels, signal: AbortSignal): Promise<RunModelsOutcome> {
-  if (signal.aborted) return Promise.resolve(models.outcome ?? { state: 'declined' })
+  if (signal.aborted) return Promise.resolve(models.outcome ?? DECLINED)
   return new Promise((resolve) => {
-    const onAbort = () => resolve(models.outcome ?? { state: 'declined' })
+    const onAbort = () => resolve(models.outcome ?? DECLINED)
     signal.addEventListener('abort', onAbort, { once: true })
     void models.settled.then((outcome) => {
       signal.removeEventListener('abort', onAbort)
@@ -483,6 +553,7 @@ function emitArtifactFinished(payload: ArtifactRunPayload): void {
 export function cancelArtifactRun(runId: string): void {
   admittedCancels.get(runId)?.abort()
   turnMemberRuns.get(runId)?.abort()
+  preflightCancels.get(runId)?.abort()
   if (activeArtifactRunId() === runId) {
     cancelActiveArtifactRun()
     return
@@ -511,6 +582,7 @@ export function cancelAllArtifactRuns(reason = 'Generation cancelled.'): void {
   for (const entry of runQueue.splice(0)) dropQueuedRun(entry, reason)
   for (const cancel of admittedCancels.values()) cancel.abort()
   for (const cancel of turnMemberRuns.values()) cancel.abort()
+  for (const cancel of preflightCancels.values()) cancel.abort()
   cancelActiveArtifactRun()
 }
 
@@ -741,7 +813,7 @@ function yieldTurnPlace(entry: TextOccupancy): void {
  */
 export function reclaimTurnPlace(runId: string, signal?: AbortSignal): Promise<void> {
   const entry = textOccupancy.get(runId)
-  if (!entry?.yielded) return Promise.resolve()
+  if (!entry?.yielded && !entry?.readinessOwed) return Promise.resolve()
   entry.reclaiming ??= reclaim(entry, signal).finally(() => {
     entry.reclaiming = undefined
   })
@@ -749,34 +821,100 @@ export function reclaimTurnPlace(runId: string, signal?: AbortSignal): Promise<v
 }
 
 async function reclaim(entry: TextOccupancy, signal?: AbortSignal): Promise<void> {
-  const place = takeTurnPlace(entry.runId, signal, { front: true })
-  const position = turnQueuePosition(entry.runId)
-  if (position !== undefined) {
-    entry.pause?.onRequeued()
+  if (entry.yielded) await untilAborted(retakePlace(entry), signal, cancelledTurnQueue)
+  if (entry.needsGpu) await awaitChatWindow(signal)
+  if (textOccupancy.get(entry.runId) !== entry) throw cancelledTurnQueue()
+  entry.readinessOwed = false
+  await entry.pause?.readyAgain(signal)
+}
+
+/**
+ * Takes a yielded member's place back at the front, shared by everyone waiting
+ * for it; never while a question to the user is still open for it. Ends when
+ * the member finishes (its `finishTextRequest` drops the wait).
+ */
+function retakePlace(entry: TextOccupancy): Promise<void> {
+  entry.retaking ??= (async () => {
+    for (;;) {
+      while (entry.userWaits.length > 0) {
+        if (textOccupancy.get(entry.runId) !== entry) throw cancelledTurnQueue()
+        await delay(CHAT_REQUEST_POLL_MS)
+      }
+      if (textOccupancy.get(entry.runId) !== entry) throw cancelledTurnQueue()
+      const place = takeTurnPlace(entry.runId, undefined, { front: true })
+      const position = turnQueuePosition(entry.runId)
+      if (position !== undefined) {
+        entry.pause?.onRequeued()
+        emitQueueEvent({
+          runKey: entry.runId,
+          kind: 'text',
+          action: 'enqueued',
+          queueDepth: turnQueue.length - position,
+          position,
+          ...turnQueueContext(entry.runId),
+          conversationKey: entry.conversationKey,
+        })
+        announceTurnPositions(position)
+      }
+      await place
+      if (textOccupancy.get(entry.runId) !== entry) throw cancelledTurnQueue()
+      if (entry.userWaits.length === 0) break
+      // Asked something again while it waited for the place: hand it straight on.
+      yieldTurnPlace(entry)
+    }
+    entry.yielded = false
+    entry.readinessOwed = true
     emitQueueEvent({
       runKey: entry.runId,
       kind: 'text',
-      action: 'enqueued',
-      queueDepth: turnQueue.length - position,
-      position,
-      ...turnQueueContext(entry.runId),
+      action: 'reclaimed',
+      queueDepth: textWaitingCount(),
+      work: entry.work,
       conversationKey: entry.conversationKey,
     })
-    announceTurnPositions(position)
-  }
-  await place
-  if (entry.needsGpu) await awaitChatWindow(signal)
-  if (textOccupancy.get(entry.runId) !== entry) throw cancelledTurnQueue()
-  entry.yielded = false
-  emitQueueEvent({
-    runKey: entry.runId,
-    kind: 'text',
-    action: 'reclaimed',
-    queueDepth: textWaitingCount(),
-    work: entry.work,
-    conversationKey: entry.conversationKey,
+  })().finally(() => {
+    entry.retaking = undefined
   })
-  await entry.pause?.readyAgain(signal)
+  return entry.retaking
+}
+
+/**
+ * Media answered for a paused turn takes that turn's place back before it is
+ * admitted: admitted first, it would wait for the new holder's turn while that
+ * turn's own media queued behind it. Rejects when the run is stopped first; a
+ * turn that finished meanwhile has no place left to take.
+ */
+async function retakePlaceForMedia(
+  conversationKey: string | undefined,
+  signal: AbortSignal,
+): Promise<void> {
+  const entry = conversationKey ? pausableRunOf(conversationKey) : undefined
+  if (!entry?.yielded) return
+  try {
+    await untilAborted(retakePlace(entry), signal, cancelledGeneration)
+  } catch (error) {
+    if (signal.aborted) throw error
+    return
+  }
+  entry.pause?.onHolding?.()
+}
+
+/** Settles with `work`, or rejects as soon as `signal` aborts; `work` carries on regardless. */
+function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+  abortedError: () => Error,
+): Promise<T> {
+  if (!signal) return work
+  if (signal.aborted) {
+    work.catch(() => {})
+    return Promise.reject(abortedError())
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortedError())
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
 }
 
 // ── Media request lane ─────────────────────────────────────────────────────────

@@ -40,6 +40,7 @@ vi.mock('../../persist/mediaItemFiles.ts', () => ({
 }))
 
 import {
+  artifactRunActive,
   cancelActiveArtifactRun,
   resetArtifactRunnerForTest,
   setArtifactRunnerDeps,
@@ -48,9 +49,15 @@ import {
 } from '../../artifact/runner'
 import {
   cancelArtifactRun,
+  finishTextRequest,
+  reclaimTurnPlace,
   resetOrchestratorForTest,
+  setOrchestratorDeps,
   submitArtifactRun,
+  submitTextRequest,
+  type TurnPause,
 } from '../../kernel/orchestrator'
+import { awaitUser, resetUserWaitForTest } from '../../kernel/userWait'
 import {
   resetKernelBusForTest,
   setKernelEventWindow,
@@ -604,5 +611,296 @@ describe('artifact runner', () => {
     const result = await run
     expect(result.state).toBe('failed')
     expect(result.error).toContain('stalled')
+  })
+})
+
+describe('media from a turn asks for its models before the GPU is taken', () => {
+  const MISSING: ArtifactMissingModel[] = [
+    { repo_id: 'some/model.gguf', type: 'unet', backend: 'comfyui', model_path: '/models' },
+  ]
+  type AsyncMock = ReturnType<typeof vi.fn<() => Promise<void>>>
+  let orchestrator: {
+    stopChatForMedia: AsyncMock
+    freeComfyMemory: AsyncMock
+    restartChatBackend: AsyncMock
+    chatRequestsOpen: () => number
+  }
+  let answers: { conversationKey: string | null | undefined; answer: (ok: boolean) => void }[]
+
+  /** Consent the way main asks it: as a pause of the named turn, until the user answers. */
+  function askingConsent(models: (preset: ComfyUiPreset) => ArtifactMissingModel[]) {
+    return deps({
+      modelsMissing: vi.fn(async (preset: ComfyUiPreset) => models(preset)),
+      requestModelConsent: vi.fn(
+        (_models: ArtifactMissingModel[], _onProgress?: () => void, key?: string | null) =>
+          awaitUser(
+            key ?? undefined,
+            () =>
+              new Promise<boolean>((resolve) => {
+                answers.push({ conversationKey: key, answer: resolve })
+              }),
+            { kind: 'download', summary: 'some/model.gguf' },
+          ),
+      ),
+    })
+  }
+
+  function completeBatchOfOne(): void {
+    socketHandlers!.onJson({
+      type: 'executed',
+      data: {
+        node: '2',
+        output: { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] },
+      },
+    })
+  }
+
+  function oneImage(overrides: Partial<ArtifactRunPayload> = {}): ArtifactRunPayload {
+    return payload({
+      origin: 'agent',
+      modelsConsented: undefined,
+      params: { ...payload().params, batchSize: 1 },
+      ...overrides,
+    })
+  }
+
+  beforeEach(() => {
+    resetKernelBusForTest()
+    resetArtifactRunnerForTest()
+    resetOrchestratorForTest()
+    resetUserWaitForTest()
+    kernelEvents = []
+    setKernelEventWindow({
+      isDestroyed: () => false,
+      webContents: {
+        send: (_channel: string, event: { type: string }) => {
+          kernelEvents.push(event as { type: string } & Record<string, unknown>)
+        },
+      },
+    } as never)
+    submittedPrompts = []
+    serviceStatus = 'running'
+    statusListeners = []
+    answers = []
+    socketHandlers = null
+    vi.mocked(getComfySocket).mockImplementation(
+      (_b: string, _d: ComfyClientDeps, _c: string, handlers: ComfySocketHandlers) => {
+        socketHandlers = handlers
+        return FAKE_SOCKET as unknown as ComfySocketHandle
+      },
+    )
+    vi.mocked(submitPrompt).mockImplementation(
+      async (_b: string, _d: ComfyClientDeps, workflow: unknown, clientId: string) => {
+        submittedPrompts.push({ workflow, clientId })
+      },
+    )
+    orchestrator = {
+      stopChatForMedia: vi.fn(async () => {}),
+      freeComfyMemory: vi.fn(async () => {}),
+      restartChatBackend: vi.fn(async () => {}),
+      chatRequestsOpen: () => 0,
+    }
+    setOrchestratorDeps(orchestrator)
+  })
+
+  it('asks at submit, for the turn it belongs to, before the chat model is stopped', async () => {
+    let missing = MISSING
+    setArtifactRunnerDeps(askingConsent(() => missing))
+    const run = submitArtifactRun(oneImage({ conversationKey: 'session-a' }), { queue: 'queue' })
+
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+    expect(answers[0].conversationKey).toBe('session-a')
+    expect(orchestrator.stopChatForMedia).not.toHaveBeenCalled()
+    expect(artifactRunActive()).toBe(false)
+
+    missing = []
+    answers[0].answer(true)
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    expect(orchestrator.stopChatForMedia).toHaveBeenCalledTimes(1)
+    completeBatchOfOne()
+    expect((await run).state).toBe('completed')
+    expect(answers).toHaveLength(1)
+  })
+
+  it('a declined download cancels the run without touching the chat backend', async () => {
+    setArtifactRunnerDeps(askingConsent(() => MISSING))
+    const run = submitArtifactRun(oneImage({ conversationKey: 'session-a' }), { queue: 'queue' })
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+
+    answers[0].answer(false)
+    expect(await run).toMatchObject({ state: 'cancelled', error: 'Generation cancelled.' })
+    expect(orchestrator.stopChatForMedia).not.toHaveBeenCalled()
+    expect(orchestrator.restartChatBackend).not.toHaveBeenCalled()
+    expect(submittedPrompts).toHaveLength(0)
+    expect(phases()).toEqual(['preparing-backend', 'cancelled'])
+  })
+
+  it('asks once for parallel calls from one turn, and none of them asks again', async () => {
+    let missing = MISSING
+    setArtifactRunnerDeps(askingConsent(() => missing))
+    const first = submitArtifactRun(oneImage({ runId: 'sprite-1', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    const second = submitArtifactRun(
+      oneImage({ runId: 'sprite-2', conversationKey: 'session-a' }),
+      { queue: 'queue' },
+    )
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+
+    missing = []
+    answers[0].answer(true)
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    completeBatchOfOne()
+    expect((await first).state).toBe('completed')
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    completeBatchOfOne()
+    expect((await second).state).toBe('completed')
+    expect(answers).toHaveLength(1)
+  })
+
+  it('a stop while the user decides ends the run, and a later answer starts nothing', async () => {
+    setArtifactRunnerDeps(askingConsent(() => MISSING))
+    const run = submitArtifactRun(oneImage({ conversationKey: 'session-a' }), { queue: 'queue' })
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+
+    cancelArtifactRun('run-1')
+    expect((await run).state).toBe('cancelled')
+    answers[0].answer(true)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(orchestrator.stopChatForMedia).not.toHaveBeenCalled()
+    expect(submittedPrompts).toHaveLength(0)
+  })
+
+  it("a stopped run's unanswered prompt does not hold up the turn's next media", async () => {
+    let missing = MISSING
+    setArtifactRunnerDeps(askingConsent(() => missing))
+    const stopped = submitArtifactRun(oneImage({ conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+    cancelArtifactRun('run-1')
+    expect((await stopped).state).toBe('cancelled')
+
+    missing = []
+    const next = submitArtifactRun(oneImage({ runId: 'run-2', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    completeBatchOfOne()
+    expect((await next).state).toBe('completed')
+  })
+
+  it("pauses the asking turn while another session's turn and media run, then resumes first", async () => {
+    const log: string[] = []
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+    const agentTurn = (runId: string, conversationKey: string) => {
+      const pause: TurnPause = {
+        onUserWait: (waiting) => log.push(`${runId} ${waiting ? 'paused' : 'answered'}`),
+        onRequeued: () => log.push(`${runId} requeued`),
+        onHolding: () => log.push(`${runId} holding`),
+        readyAgain: async () => {
+          log.push(`${runId} ready again`)
+        },
+      }
+      return submitTextRequest({
+        runId,
+        conversationKey,
+        needsGpu: true,
+        joinsTurnQueue: true,
+        work: 'agent',
+        pause,
+      }).then(() => log.push(`${runId} started`))
+    }
+    let sessionAMissing = MISSING
+    setArtifactRunnerDeps(
+      askingConsent((preset) => (preset.name === 'Session A Image' ? sessionAMissing : [])),
+    )
+    const sessionAImage = (runId: string) =>
+      oneImage({
+        runId,
+        conversationKey: 'session-a',
+        preset: { ...preset(), name: 'Session A Image' },
+      })
+    const sessionBImage = (runId: string) => oneImage({ runId, conversationKey: 'session-b' })
+
+    await agentTurn('turn-a', 'session-a')
+    const turnB = agentTurn('turn-b', 'session-b')
+    const mediaA = submitArtifactRun(sessionAImage('media-a'), { queue: 'queue' })
+    await turnB
+    expect(answers.map((asked) => asked.conversationKey)).toEqual(['session-a'])
+    expect(log).toEqual(['turn-a started', 'turn-a paused', 'turn-b started'])
+
+    const firstB = submitArtifactRun(sessionBImage('media-b1'), { queue: 'queue' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    completeBatchOfOne()
+    expect((await firstB).state).toBe('completed')
+
+    sessionAMissing = []
+    answers[0].answer(true)
+    await settle()
+    expect(log.slice(-2)).toEqual(['turn-a answered', 'turn-a requeued'])
+    expect(submittedPrompts).toHaveLength(1)
+
+    // Turn B's own media is not stuck behind the answered run waiting for B's place.
+    const secondB = submitArtifactRun(sessionBImage('media-b2'), { queue: 'queue' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    completeBatchOfOne()
+    expect((await secondB).state).toBe('completed')
+
+    finishTextRequest('turn-b')
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(3))
+    expect(log.at(-1)).toBe('turn-a holding')
+    completeBatchOfOne()
+    expect((await mediaA).state).toBe('completed')
+
+    await reclaimTurnPlace('turn-a')
+    expect(log.at(-1)).toBe('turn-a ready again')
+    expect(log.filter((entry) => entry === 'turn-a ready again')).toHaveLength(1)
+    finishTextRequest('turn-a')
+  })
+
+  it('never lets the turn hold its place while a second media prompt of it waits', async () => {
+    const started: string[] = []
+    const turn = (runId: string, conversationKey: string, pausable: boolean) =>
+      submitTextRequest({
+        runId,
+        conversationKey,
+        needsGpu: true,
+        joinsTurnQueue: true,
+        work: 'agent',
+        pause: pausable
+          ? { onUserWait: () => {}, onRequeued: () => {}, readyAgain: async () => {} }
+          : undefined,
+      }).then(() => started.push(runId))
+    const stillMissing = new Set(['Sprite One', 'Sprite Two'])
+    setArtifactRunnerDeps(askingConsent((preset) => (stillMissing.has(preset.name) ? MISSING : [])))
+    const sprite = (name: string) =>
+      oneImage({ runId: name, conversationKey: 'session-a', preset: { ...preset(), name } })
+
+    await turn('turn-a', 'session-a', true)
+    const turnB = turn('turn-b', 'session-b', false)
+    const turnC = turn('turn-c', 'session-c', false)
+    const one = submitArtifactRun(sprite('Sprite One'), { queue: 'queue' })
+    const two = submitArtifactRun(sprite('Sprite Two'), { queue: 'queue' })
+    await turnB
+    await vi.waitFor(() => expect(answers).toHaveLength(1))
+
+    stillMissing.delete('Sprite One')
+    answers[0].answer(true)
+    await vi.waitFor(() => expect(answers).toHaveLength(2))
+    finishTextRequest('turn-b')
+    await turnC
+    expect(started).toEqual(['turn-a', 'turn-b', 'turn-c'])
+
+    stillMissing.delete('Sprite Two')
+    answers[1].answer(true)
+    finishTextRequest('turn-c')
+    for (const run of [one, two]) {
+      await vi.waitFor(() => expect(submittedPrompts.length).toBeGreaterThan(0))
+      completeBatchOfOne()
+      submittedPrompts = []
+      expect((await run).state).toBe('completed')
+    }
+    finishTextRequest('turn-a')
   })
 })

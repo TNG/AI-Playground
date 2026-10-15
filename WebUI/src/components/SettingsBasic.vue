@@ -172,27 +172,6 @@
           </div>
           <Checkbox id="keep-models-loaded" v-model="developerSettings.keepModelsLoaded" />
         </div>
-        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-          <div class="flex items-center gap-2">
-            <Label class="whitespace-nowrap">Agent preset</Label>
-            <TooltipProvider :delay-duration="200">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[300px]">
-                  Add the experimental "Agent" chat preset — the coding agent pointed at a folder
-                  you pick, rather than at one task like Game Agent.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <Checkbox
-            id="agent-preset-enabled"
-            :model-value="debugSettings.agentPresetEnabled"
-            @update:model-value="(v) => setAgentPreset(v === true)"
-          />
-        </div>
         <template v-if="showDebugSettings">
           <div class="flex justify-between pr-4 items-center gap-4 mb-4">
             <div class="flex items-center gap-2">
@@ -357,11 +336,6 @@ import { useDebugSettings, debugSettingsVisible } from '@/assets/js/store/debugS
 const cloudMode = useCloudMode()
 const debugSettings = useDebugSettings()
 const showDebugSettings = debugSettingsVisible()
-
-async function setAgentPreset(enabled: boolean) {
-  await debugSettings.setAgentPresetEnabled(enabled)
-  await presetsStore.loadPresetsFromFiles()
-}
 
 // Vendors the OEM probe can report; `detectOem` treats anything else as unknown.
 const NO_OEM_OVERRIDE = '__none__'

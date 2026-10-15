@@ -531,35 +531,17 @@ const appSize = {
   height: 128,
   maxChatContentHeight: 0,
 }
-/**
- * Bundled presets whose feature is switched off on this machine.
- *
- * They are dropped while presets are read, so nothing downstream — the selector,
- * the settings sidebar, preset switching — ever learns they exist. Anything that
- * still points at one (a persisted `activePresetName`) falls back on its own.
- */
-function disabledFeaturePresets(s: LocalSettings): string[] {
-  const disabled: string[] = []
-  if (!s.isAgentPresetEnabled) disabled.push('agent')
-  return disabled
-}
-
 function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
   const mode = resolveProductMode(s)
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   const modeConfig = loadModeConfig(mode)
   const basePresetsDir = path.join(modesDir, 'base', 'presets')
-  // `includePresets` (when defined) takes precedence over `excludePresets`, so a
-  // disabled preset has to be taken out of both lists.
-  const disabled = new Set(disabledFeaturePresets(s))
-  const includePresets = modeConfig?.includePresets?.filter((p) => !disabled.has(p))
-  const excludePresets = [...(modeConfig?.excludePresets ?? []), ...disabled]
   return {
     baseDir: path.join(modesDir, 'base', variant),
     modeDir: path.join(modesDir, mode, variant),
     imageFallbackDirs: variant === 'demo' ? [basePresetsDir] : [],
-    includePresets,
-    excludePresets,
+    includePresets: modeConfig?.includePresets,
+    excludePresets: modeConfig?.excludePresets ?? [],
     excludeVariantBackends: modeConfig?.excludeVariantBackends,
   }
 }

@@ -9,6 +9,7 @@ import type {
   AgentTaskStep,
 } from '@/types/agentTaskIpc'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
+import { useActivities } from './activities'
 import { useAgentMode } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { userMessagePrompt } from './agentModeTurn'
@@ -90,6 +91,7 @@ const SCHEDULE_TICK_MS = 30_000
 const FRESH_SLOT_MS = SCHEDULE_TICK_MS + 60_000
 
 export const useAgentTasks = defineStore('agentTasks', () => {
+  const activities = useActivities()
   const agentMode = useAgentMode()
   const demoMode = useDemoMode()
   const errors = useErrors()
@@ -105,6 +107,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     string,
     { plan: AgentTask; abort: AbortController; scheduled: boolean }
   > = {}
+
+  // Closing the window hides the app instead, so Schedules keep firing and no run is cut off.
+  watch(
+    () =>
+      Object.keys(runs.value).length > 0 ||
+      (!demoMode.enabled && tasks.value.some((task) => task.schedule?.enabled === true)),
+    (busy) => activities.holdBusy('agent-tasks', busy),
+    { immediate: true },
+  )
 
   let scheduleTicker: ReturnType<typeof setInterval> | undefined
   /** Tasks whose delete is in flight; a tick saving one would write it back. */

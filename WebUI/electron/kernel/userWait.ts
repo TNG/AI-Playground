@@ -22,8 +22,38 @@ export function registerUserWaitQueue(next: UserWaitQueue): void {
   queue = next
 }
 
+const openWaits = new Map<string, number>()
+type UserWaitListener = (conversationKey: string, waiting: boolean) => void
+const listeners = new Set<UserWaitListener>()
+
+/** Hears when `conversationKey` starts waiting on the user, and when the last of its waits ends. */
+export function onUserWaitChange(listener: UserWaitListener): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+export function isWaitingOnUser(conversationKey: string): boolean {
+  return openWaits.has(conversationKey)
+}
+
 function beginUserWait(conversationKey: string): () => void {
-  return queue ? queue.beginUserWait(conversationKey) : () => {}
+  const answeredInQueue = queue ? queue.beginUserWait(conversationKey) : () => {}
+  const open = (openWaits.get(conversationKey) ?? 0) + 1
+  openWaits.set(conversationKey, open)
+  if (open === 1) for (const listener of listeners) listener(conversationKey, true)
+  let ended = false
+  return () => {
+    if (ended) return
+    ended = true
+    answeredInQueue()
+    const left = (openWaits.get(conversationKey) ?? 1) - 1
+    if (left > 0) {
+      openWaits.set(conversationKey, left)
+      return
+    }
+    openWaits.delete(conversationKey)
+    for (const listener of listeners) listener(conversationKey, false)
+  }
 }
 
 const rendererCalls = new Map<string, number>()
@@ -90,4 +120,5 @@ export function clearRendererWaits(): void {
 export function resetUserWaitForTest(): void {
   rendererCalls.clear()
   rendererWaits.clear()
+  openWaits.clear()
 }

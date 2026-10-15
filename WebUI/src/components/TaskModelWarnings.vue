@@ -1,118 +1,54 @@
 <template>
-  <div
-    v-if="certain.length > 0 || maybe.length > 0 || downloadError"
+  <Collapsible
+    v-if="state.missingCount.value > 0 || downloadError"
+    v-model:open="expanded"
     role="group"
     :aria-label="i18n.AGENT_TASK_MODELS_REGION"
-    class="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-xs text-foreground"
+    class="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs"
   >
-    <div v-for="warning in certain" :key="warning.kind" class="flex flex-col gap-1.5">
-      <p>{{ certainText(warning) }}</p>
-      <ul class="flex flex-col gap-0.5 pl-3">
-        <li v-for="model in warning.models" :key="model.repo_id" class="break-all">
-          {{ modelLine(model) }}
-        </li>
-      </ul>
-      <Button
-        variant="secondary"
-        size="sm"
-        class="self-start"
-        :disabled="downloading"
-        @click="download([warning])"
+    <div v-if="state.missingCount.value > 0" class="flex items-center gap-2">
+      <ExclamationTriangleIcon class="size-4 shrink-0 text-amber-500" aria-hidden="true" />
+      <span class="flex-1 text-foreground">{{ summary }}</span>
+      <CollapsibleTrigger
+        class="flex items-center gap-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
       >
-        {{ i18n.AGENT_TASK_MODELS_DOWNLOAD_NOW }}
-      </Button>
+        {{ expanded ? i18n.AGENT_TASK_MODELS_HIDE_DETAILS : i18n.AGENT_TASK_MODELS_DETAILS }}
+        <ChevronDownIcon
+          class="size-3.5 transition-transform"
+          :class="{ 'rotate-180': expanded }"
+          aria-hidden="true"
+        />
+      </CollapsibleTrigger>
     </div>
-
-    <div v-if="maybe.length > 0" class="flex flex-col gap-1.5">
-      <p class="font-medium">{{ i18n.AGENT_TASK_MODELS_MAYBE_TITLE }}</p>
-      <ul class="flex flex-col gap-1.5">
-        <li v-for="warning in maybe" :key="needLabel(warning)" class="flex flex-col gap-0.5">
-          <span>{{ needLabel(warning) }}</span>
-          <ul class="flex flex-col gap-0.5 pl-3 text-muted-foreground">
-            <li v-for="model in warning.models" :key="model.repo_id" class="break-all">
-              {{ modelLine(model) }}
-            </li>
-          </ul>
-        </li>
-      </ul>
-      <p class="text-muted-foreground">{{ i18n.AGENT_TASK_MODELS_OTHER_WORKFLOWS }}</p>
-      <p class="text-muted-foreground">{{ i18n.AGENT_TASK_MODELS_TEST_RUN_HINT }}</p>
-      <Button
-        variant="secondary"
-        size="sm"
-        class="self-start"
-        :disabled="downloading"
-        @click="download(maybe)"
-      >
-        {{ i18n.AGENT_TASK_MODELS_DOWNLOAD_THESE }}
-      </Button>
-    </div>
-
+    <CollapsibleContent class="pb-1.5">
+      <TaskModelWarningList
+        :warnings="state.warnings.value"
+        :downloading="state.downloading.value"
+        actions
+        @download="state.download"
+      />
+    </CollapsibleContent>
     <p v-if="downloadError" role="alert" class="text-destructive">{{ downloadError }}</p>
-  </div>
+  </Collapsible>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { AgentSessionSettings } from '@/types/agentSessionIpc'
-import type { AgentTaskStep } from '@/types/agentTaskIpc'
+import { computed, ref } from 'vue'
+import { ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
-import { Button } from '@/components/ui/button'
-import { useTaskModelWarnings } from '@/assets/js/taskModelWarnings'
-import type {
-  MediaTool,
-  MediaType,
-  MissingModel,
-  SpeechTool,
-  TaskModelWarning,
-} from '@/lib/taskModelNeeds'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import TaskModelWarningList from '@/components/TaskModelWarningList.vue'
+import type { TaskModelWarningsState } from '@/assets/js/taskModelWarnings'
 
-const props = defineProps<{
-  template: AgentSessionSettings | null | undefined
-  chatModelSteps?: readonly AgentTaskStep[]
-}>()
+const props = defineProps<{ state: TaskModelWarningsState }>()
 
 const i18n = useI18N().state
 
-const { warnings, downloading, downloadError, download } = useTaskModelWarnings(
-  () => props.template,
-  { chatModelSteps: () => props.chatModelSteps },
+const expanded = ref(false)
+
+const summary = computed(() =>
+  i18n.AGENT_TASK_MODELS_SUMMARY.replace('{count}', String(props.state.missingCount.value)),
 )
 
-const CERTAIN_TEXT_KEYS: Partial<Record<TaskModelWarning['kind'], string>> = {
-  chat: 'AGENT_TASK_MODELS_CHAT_MISSING',
-  embedding: 'AGENT_TASK_MODELS_EMBEDDING_MISSING',
-}
-
-function certainText(warning: TaskModelWarning): string {
-  const key = CERTAIN_TEXT_KEYS[warning.kind]
-  return key ? i18n[key] : warning.kind
-}
-
-const certain = computed(() => warnings.value.certain)
-const maybe = computed(() => warnings.value.maybe)
-
-const NEED_LABEL_KEYS: Record<`${MediaTool}:${MediaType}` | SpeechTool, string> = {
-  'comfyUI:image': 'AGENT_TASK_MODELS_TEXT_TO_IMAGE',
-  'comfyUI:video': 'AGENT_TASK_MODELS_TEXT_TO_VIDEO',
-  'comfyUI:model3d': 'AGENT_TASK_MODELS_TEXT_TO_3D',
-  'comfyUiImageEdit:image': 'AGENT_TASK_MODELS_IMAGE_TO_IMAGE',
-  'comfyUiImageEdit:video': 'AGENT_TASK_MODELS_IMAGE_TO_VIDEO',
-  'comfyUiImageEdit:model3d': 'AGENT_TASK_MODELS_IMAGE_TO_3D',
-  synthesizeTextToSpeech: 'AGENT_TASK_MODELS_TEXT_TO_SPEECH',
-  transcribeAudio: 'AGENT_TASK_MODELS_SPEECH_TO_TEXT',
-}
-
-function needLabel(warning: TaskModelWarning): string {
-  if (warning.kind === 'workflow') {
-    const label = i18n[NEED_LABEL_KEYS[`${warning.tool}:${warning.mediaType}`]]
-    return `${label} · ${warning.workflow}`
-  }
-  if (warning.kind === 'speech') return i18n[NEED_LABEL_KEYS[warning.tool]]
-  return warning.kind
-}
-
-function modelLine(model: MissingModel): string {
-  return model.size ? `${model.repo_id} (${model.size})` : model.repo_id
-}
+const downloadError = computed(() => props.state.downloadError.value)
 </script>

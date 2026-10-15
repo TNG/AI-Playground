@@ -11,7 +11,7 @@
           class="px-3 py-1.5 rounded text-sm"
           :disabled="!!agentTasks.editBlocker || saving"
           :aria-describedby="describedBy"
-          @click="save"
+          @click="requestSave"
         >
           {{ i18n.AGENT_TASK_EDIT_SAVE }}
         </Button>
@@ -55,7 +55,9 @@
 
     <SettingsTaskTemplate :workspace-dir="draft.workspaceDir" :template="draft.settingsTemplate" />
 
-    <TaskModelWarnings :template="draft.settingsTemplate" />
+    <TaskModelWarnings :state="modelWarnings" />
+
+    <TaskModelSaveConfirm v-model:open="confirmModelsOpen" :state="modelWarnings" @confirm="save" />
   </div>
 </template>
 
@@ -64,11 +66,13 @@ import { computed, ref, watch } from 'vue'
 import { SAVE_TASK_BLOCKER_KEYS, useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import SettingsTaskTemplate from '@/components/SettingsTaskTemplate.vue'
+import TaskModelSaveConfirm from '@/components/TaskModelSaveConfirm.vue'
 import TaskModelWarnings from '@/components/TaskModelWarnings.vue'
 import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useTaskModelWarnings } from '@/assets/js/taskModelWarnings'
 import * as toast from '@/assets/js/toast'
 
 const agentTasks = useAgentTasks()
@@ -83,6 +87,15 @@ watch(
 )
 
 const draft = computed(() => agentTasks.editDraft)
+
+const confirmModelsOpen = ref(false)
+const modelWarnings = useTaskModelWarnings(() => draft.value?.settingsTemplate)
+
+/** Missing models do not block saving, but the user confirms them before the Task is stored. */
+function requestSave(): void {
+  if (modelWarnings.missingCount.value > 0) confirmModelsOpen.value = true
+  else void save()
+}
 
 const bannerText = computed(() =>
   i18n.AGENT_TASK_EDITING.replace('{name}', agentTasks.editedTask?.name ?? ''),

@@ -61,6 +61,8 @@ vi.mock('@/assets/js/store/developerSettings', () => ({
 }))
 
 const report = vi.fn()
+vi.mock('@/assets/js/store/demoMode', () => ({ useDemoMode: () => ({ enabled: false }) }))
+
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({

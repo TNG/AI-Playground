@@ -71,7 +71,9 @@ vi.mock('@/assets/js/store/textInference', () => ({
     activeModel: 'Live-9B',
     settingsPerPreset: {},
     ensureReadyForInference: vi.fn(),
-    getMissingLlmModels: vi.fn(async () => []),
+    getMissingLlmModels: vi.fn(async (_backend: string, model: string | undefined) =>
+      missingModels.list.filter((missing) => missing.repo_id === model),
+    ),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
     settingsAvailability: {
@@ -97,6 +99,14 @@ vi.mock('@/assets/js/store/textInference', () => ({
 
 /** What the models store reports as not on disk. */
 const missingModels = vi.hoisted(() => ({ list: [] as { repo_id: string }[] }))
+
+const requestDownload = vi.hoisted(() => vi.fn(async (_models: unknown[]) => {}))
+
+vi.mock('@/assets/js/permissions/permissions', () => ({
+  requestDownload: (models: unknown[]) => requestDownload(models),
+  requestVramWarning: vi.fn(async () => true),
+  notify: vi.fn(),
+}))
 
 vi.mock('@/assets/js/store/models', () => ({
   useModels: () => ({
@@ -564,6 +574,28 @@ describe('running a scheduled Task by hand', () => {
       expect(saved).toMatchObject({ schedule: every10Minutes(), nextRunAt: NOW + 10 * MINUTE })
     }
   })
+
+  it('skips a slot that comes due while ▶ Run waits on its model download', async () => {
+    missingModels.list = [{ repo_id: TEMPLATE.model! }]
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    const sessionsBefore = Object.keys(agentMode.sessions).length
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+
+    const running = tasks.runTask('t1')
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
+    await runClockTo(NOW + 10 * MINUTE)
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+
+    finishDownload()
+    expect(await running).toEqual({ ok: true })
+    await turnIdOf(0)
+    expect(Object.keys(agentMode.sessions)).toHaveLength(sessionsBefore + 1)
+    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
+  })
 })
 
 const reportedCodes = () =>
@@ -991,6 +1023,7 @@ describe('a Task Run whose Task Session is paused', () => {
     })
     expect(reportedCodes()).not.toContain('agent-tasks/scheduled-run-not-started')
     for (const saved of savedCopies('t1')) expect(saved).not.toHaveProperty('lastOutcome')
+    expect(requestDownload).not.toHaveBeenCalled()
   })
 
   it('fails with “model download declined” when the user declines, and toasts it', async () => {

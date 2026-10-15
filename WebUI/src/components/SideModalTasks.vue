@@ -306,12 +306,13 @@ function openSchedule(id: string): void {
   scheduleOpen.value = true
 }
 
-function outcomeLabel({ kind, stepIndex, stepCount }: AgentTaskOutcome): string {
+function outcomeLabel({ kind, stepIndex, stepCount, reason }: AgentTaskOutcome): string {
   const step = { step: stepIndex ?? '', count: stepCount }
   switch (kind) {
     case 'completed':
       return i18n.AGENT_TASKS_OUTCOME_COMPLETED
     case 'failed':
+      if (reason === 'not-started') return i18n.AGENT_TASKS_OUTCOME_NOT_STARTED
       return stepIndex
         ? fill(i18n.AGENT_TASKS_OUTCOME_FAILED_AT_STEP, step)
         : i18n.AGENT_TASKS_OUTCOME_FAILED

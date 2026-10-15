@@ -115,6 +115,20 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
   })
 
+  it('round-trips the outcome of a Scheduled Run that could not start, which has no session', async () => {
+    const outcome = {
+      kind: 'failed' as const,
+      at: 9,
+      stepCount: 3,
+      message: 'The workspace folder is missing: /work',
+      reason: 'not-started' as const,
+    }
+
+    await saveAgentTask(task('a', { lastOutcome: outcome }))
+
+    expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
+  })
+
   it('round-trips a Schedule and its Next Run', async () => {
     const schedule = { every: 2, unit: 'hours' as const, startAt: 1_000, enabled: true }
 

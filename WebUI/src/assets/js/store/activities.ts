@@ -111,11 +111,19 @@ export const useActivities = defineStore('activities', () => {
     toEnd.forEach((item) => end(item.id, state))
   }
 
+  // Work that is not one activity but must keep the app alive too (e.g. Task Schedules).
+  const busyHolds = ref<string[]>([])
+
+  function holdBusy(holder: string, busy: boolean): void {
+    const others = busyHolds.value.filter((entry) => entry !== holder)
+    busyHolds.value = busy ? [...others, holder] : others
+  }
+
   // The close policy (electron/kernel/windowLifecycle.ts) hides the window
-  // instead of quitting while the renderer is mid-work. This sink already knows
-  // "is anything running", so it owns that signal.
+  // instead of quitting while the renderer is mid-work or holds work for later.
+  // This sink already knows "is anything running", so it owns that signal.
   watch(
-    () => items.value.length > 0,
+    () => items.value.length > 0 || busyHolds.value.length > 0,
     (busy) => window.electronAPI?.setLifecycleBusy?.(busy),
     { immediate: true },
   )
@@ -131,6 +139,7 @@ export const useActivities = defineStore('activities', () => {
     chatActivity,
     imageGenActivity,
     endScope,
+    holdBusy,
   }
 })
 

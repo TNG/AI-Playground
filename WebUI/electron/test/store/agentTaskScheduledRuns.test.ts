@@ -182,6 +182,7 @@ const startTurn = vi.fn(async (_turnId: string, _prompt: string, _config: AgentM
   error: undefined as string | undefined,
 }))
 const saveTask = vi.fn(async (_task: AgentTask) => ({ success: true as boolean, error: '' }))
+const setLifecycleBusy = vi.fn((_busy: boolean) => {})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -220,6 +221,7 @@ beforeEach(() => {
         },
       })),
       existsPath: vi.fn(async () => true),
+      setLifecycleBusy,
       agentMode: {
         startTurn,
         cancel: vi.fn(async () => {}),
@@ -871,5 +873,111 @@ describe('a Schedule that must not fire', () => {
 
     expect(startTurn).not.toHaveBeenCalled()
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+  })
+})
+
+/** What main last heard over `lifecycle:busy`; its close policy hides the window while true. */
+const lastBusy = () => setLifecycleBusy.mock.calls.at(-1)?.[0]
+
+describe('keeping the app alive when the window is closed', () => {
+  it('is not busy with no Schedule and no Task Run', async () => {
+    await readyStores(task('t1'))
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(false)
+  })
+
+  it('is busy once a Schedule is enabled', async () => {
+    const { tasks } = await readyStores(task('t1'))
+
+    await tasks.setSchedule('t1', every10Minutes())
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(true)
+  })
+  it('is no longer busy once the Schedule is paused', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+
+    await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(false)
+  })
+
+  it('is no longer busy once the Schedule is removed', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+
+    await tasks.removeSchedule('t1')
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(false)
+  })
+
+  it('is no longer busy once the scheduled Task is deleted', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await settleMicrotasks()
+    expect(lastBusy()).toBe(true)
+
+    await tasks.deleteTask('t1')
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(false)
+  })
+
+  it('stays busy while another Task keeps an enabled Schedule', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'), scheduledTask('t2'))
+
+    await tasks.removeSchedule('t1')
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(true)
+  })
+  it('is busy for a whole Task Run, between its Steps too, and not after', async () => {
+    const { tasks } = await readyStores(task('t1'))
+    let releaseSecondStep: () => void = () => {}
+    startTurn.mockImplementationOnce(startTurn.getMockImplementation()!)
+    startTurn.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseSecondStep = () => resolve({ success: true, error: undefined })
+        }),
+    )
+    await tasks.runTask('t1')
+    await settleMicrotasks()
+    expect(lastBusy()).toBe(true)
+    setLifecycleBusy.mockClear()
+
+    // Step one settles; Step two has been asked for but its turn has not started yet.
+    await finishTurn(0)
+    await turnIdOf(1)
+    await settleMicrotasks()
+    expect(setLifecycleBusy).not.toHaveBeenCalledWith(false)
+
+    releaseSecondStep()
+    await finishTurn(1)
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))
+    await settleMicrotasks()
+    expect(lastBusy()).toBe(false)
+  })
+
+  it('is busy during a Scheduled Run and stays busy after it while the Schedule is on', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1', { steps: [{ id: 's', prompt: 'x' }] }))
+    await settleMicrotasks()
+    expect(lastBusy()).toBe(true)
+    setLifecycleBusy.mockClear()
+
+    await runClockTo(NOW + 10 * MINUTE)
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))
+    await settleMicrotasks()
+
+    expect(setLifecycleBusy).not.toHaveBeenCalledWith(false)
+  })
+  it('is not kept alive by Schedules in demo mode, where they never fire', async () => {
+    demo.enabled = true
+    await readyStores(scheduledTask('t1'))
+    await settleMicrotasks()
+
+    expect(lastBusy()).toBe(false)
   })
 })

@@ -179,5 +179,12 @@ export function useTaskModelWarnings(
     await refresh()
   }
 
-  return { warnings, downloading, downloadError, download }
+  /** How many distinct models the warnings name. */
+  const missingCount = computed(
+    () => modelsToDownload([...warnings.value.certain, ...warnings.value.maybe]).length,
+  )
+
+  return { warnings, missingCount, downloading, downloadError, download }
 }
+
+export type TaskModelWarningsState = ReturnType<typeof useTaskModelWarnings>

@@ -26,6 +26,7 @@ import {
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
 import {
+  type BagDerivedSetting,
   DEFAULT_CAPABILITIES_KEY,
   DEFAULT_PLANNING_THINKING_ONLY_KEY,
   fillMissingSessionSettings,
@@ -262,6 +263,7 @@ export const useAgentMode = defineStore(
 
     /** Live values right after a sent session loaded; fields still equal to them were not edited. */
     let loadedBaseline: AgentSessionSettings | null = null
+    let editedSinceLoad: ReadonlySet<BagDerivedSetting> = new Set()
 
     /** What in these settings can no longer be used; missing MCP servers only once they are listed. */
     function problemsOf(settings: AgentSessionSettings): SessionSettingsProblem[] {
@@ -354,12 +356,18 @@ export const useAgentMode = defineStore(
           bag,
           embeddingBackend,
         )
-        openSettings.value =
-          stored && loadedBaseline ? keepUneditedSettings(stored, next, loadedBaseline) : next
+        if (!stored || !loadedBaseline) {
+          openSettings.value = next
+          return
+        }
+        const kept = keepUneditedSettings(stored, next, loadedBaseline, editedSinceLoad)
+        editedSinceLoad = kept.edited
+        openSettings.value = kept.settings
       },
       pinned: () => sessionSent.value,
       loaded: (bag, embeddingBackend) => {
         loadedBaseline = updateSessionSettingsFromBag(null, bag, embeddingBackend)
+        editedSinceLoad = new Set()
       },
     })
 
@@ -435,6 +443,7 @@ export const useAgentMode = defineStore(
     function applyOpenSessionSettings(settings: AgentSessionSettings | undefined): void {
       openSettings.value = settings ? { ...settings } : null
       loadedBaseline = null
+      editedSinceLoad = new Set()
       const live = presetsStore.activePresetWithVariant
       if (live?.type !== 'chat' || !usesSessionSettings(live as ChatPreset)) return
       textInference.loadSettingsForActivePreset()

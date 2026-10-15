@@ -33,6 +33,9 @@
               </Tooltip>
             </span>
             <span class="text-xs text-muted-foreground">{{ row.stepCount }}</span>
+            <span v-if="row.scheduleLine" class="text-xs text-muted-foreground">
+              {{ row.scheduleLine }}
+            </span>
             <span v-if="row.progress" class="text-xs text-primary">{{ row.progress }}</span>
             <template v-else-if="row.outcome">
               <span
@@ -112,6 +115,20 @@
             <TooltipTrigger as-child>
               <button
                 type="button"
+                class="size-7 flex-none flex items-center justify-center rounded-xs hover:bg-primary/20"
+                :class="row.scheduleActive ? 'bg-primary/20 text-primary' : 'bg-muted'"
+                :aria-label="row.scheduleLabel"
+                @click="openSchedule(row.id)"
+              >
+                <ClockIcon class="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{{ row.scheduleLabel }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                type="button"
                 class="size-7 flex-none flex items-center justify-center rounded-xs bg-muted hover:bg-primary/20"
                 :aria-label="row.editLabel"
                 :aria-pressed="row.editing"
@@ -157,12 +174,15 @@
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
+
+  <TaskScheduleDialog v-model:open="scheduleOpen" :task-id="scheduleTaskId" />
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import {
   ArrowTopRightOnSquareIcon,
+  ClockIcon,
   ExclamationTriangleIcon,
   PencilSquareIcon,
   PlayIcon,
@@ -177,6 +197,7 @@ import { useErrors } from '@/assets/js/store/errors'
 import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { useI18N } from '@/assets/js/store/i18n'
 import SideModalBase from '@/components/SideModalBase.vue'
+import TaskScheduleDialog from '@/components/TaskScheduleDialog.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog,
@@ -191,6 +212,7 @@ import {
 import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { createAppError } from '@/assets/js/errors/appError'
 import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
+import { describeNextRun } from '@/lib/taskSchedule'
 
 const props = defineProps<{
   isVisible: boolean
@@ -204,7 +226,8 @@ const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const errors = useErrors()
 const history = useHistorySessions()
-const i18n = useI18N().state
+const i18nStore = useI18N()
+const i18n = i18nStore.state
 const { leaveTaskEdit, editTask } = useTaskEditLeaveGuard()
 
 watch(
@@ -245,6 +268,9 @@ const rows = computed(() =>
       deleteLabel: fill(i18n.AGENT_TASKS_DELETE, { name: task.name }),
       editLabel: fill(i18n.AGENT_TASKS_EDIT, { name: task.name }),
       editing: agentTasks.editingTaskId === task.id,
+      scheduleLabel: fill(i18n.AGENT_TASKS_SCHEDULE, { name: task.name }),
+      scheduleActive: task.schedule?.enabled === true,
+      scheduleLine: scheduleLine(task.id),
       blocked: reasons
         ? {
             marker: fill(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }),
@@ -259,6 +285,26 @@ const rows = computed(() =>
     }
   }),
 )
+
+function scheduleLine(id: string): string | undefined {
+  const { schedule, nextRunAt } = agentTasks.taskSchedule(id)
+  if (!schedule) return undefined
+  if (!schedule.enabled) return i18n.AGENT_TASKS_SCHEDULE_PAUSED
+  if (nextRunAt === undefined) return undefined
+  const time = describeNextRun(nextRunAt, Date.now(), i18nStore.langName, {
+    today: i18n.AGENT_TASKS_NEXT_RUN_TODAY,
+    tomorrow: i18n.AGENT_TASKS_NEXT_RUN_TOMORROW,
+  })
+  return fill(i18n.AGENT_TASKS_NEXT_RUN, { time })
+}
+
+const scheduleOpen = ref(false)
+const scheduleTaskId = ref<string | null>(null)
+
+function openSchedule(id: string): void {
+  scheduleTaskId.value = id
+  scheduleOpen.value = true
+}
 
 function outcomeLabel({ kind, stepIndex, stepCount }: AgentTaskOutcome): string {
   const step = { step: stepIndex ?? '', count: stepCount }

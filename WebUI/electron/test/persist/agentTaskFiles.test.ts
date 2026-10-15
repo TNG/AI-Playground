@@ -115,6 +115,24 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
   })
 
+  it('round-trips a Schedule and its Next Run', async () => {
+    const schedule = { every: 2, unit: 'hours' as const, startAt: 1_000, enabled: true }
+
+    await saveAgentTask(task('a', { schedule, nextRunAt: 7_201_000 }))
+
+    expect(await readAgentTasks()).toEqual([task('a', { schedule, nextRunAt: 7_201_000 })])
+  })
+
+  it('reads a file written before Schedules existed', async () => {
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [task('a')] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(task('a'))
+    expect(read).not.toHaveProperty('schedule')
+    expect(read).not.toHaveProperty('nextRunAt')
+  })
+
   it('deletes one Task and keeps the others', async () => {
     await saveAgentTask(task('a'))
     await saveAgentTask(task('b'))

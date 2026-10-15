@@ -32,6 +32,23 @@ export const AgentTaskActiveRunSchema = z.object({
 })
 export type AgentTaskActiveRun = z.infer<typeof AgentTaskActiveRunSchema>
 
+export const AGENT_TASK_SCHEDULE_UNITS = ['minutes', 'hours', 'days', 'weeks'] as const
+export type AgentTaskScheduleUnit = (typeof AGENT_TASK_SCHEDULE_UNITS)[number]
+
+export const MIN_SCHEDULE_MINUTES = 5
+
+/**
+ * Slots are `startAt + k × every unit`; `startAt` also fixes the time of day for days and weeks.
+ * The minimum interval is the store's to enforce: one hand-edited Task must not make the file unreadable.
+ */
+export const AgentTaskScheduleSchema = z.object({
+  every: z.number().int().min(1),
+  unit: z.enum(AGENT_TASK_SCHEDULE_UNITS),
+  startAt: z.number(),
+  enabled: z.boolean(),
+})
+export type AgentTaskSchedule = z.infer<typeof AgentTaskScheduleSchema>
+
 export const AgentTaskSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -42,6 +59,9 @@ export const AgentTaskSchema = z.object({
   updatedAt: z.number(),
   lastOutcome: AgentTaskOutcomeSchema.optional(),
   activeRun: AgentTaskActiveRunSchema.optional(),
+  schedule: AgentTaskScheduleSchema.optional(),
+  /** Present only while the Schedule is enabled. */
+  nextRunAt: z.number().optional(),
 })
 export type AgentTask = z.infer<typeof AgentTaskSchema>
 

@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "ไม่สามารถเริ่มการรันตามกำหนดการได้",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "ไม่สามารถเริ่มการรันตามกำหนดการของ “{name}” ได้: {reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "การรันตามกำหนดการของ “{name}” ล้มเหลว: {reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "พรีเซ็ต Agent ไม่พร้อมใช้งาน",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "พรีเซ็ต Agent Maker ไม่พร้อมใช้งาน",
   "AGENT_TASK_MCP_UNAVAILABLE": "ไม่สามารถโหลดเซิร์ฟเวอร์ MCP ได้: {error}",
   "AGENT_TASKS_DELETE": "ลบงาน {name}",
   "AGENT_TASKS_RUN": "รันงาน {name}",

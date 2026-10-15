@@ -107,19 +107,50 @@ export const useDialogStore = defineStore('dialog', () => {
     warningDontShowAgainKey.value = null
   }
 
+  /** Settles the open request once; a resumable error waits for a retry or for Close. */
+  let downloadRequest: {
+    settled: boolean
+    pendingFailure?: { reason: unknown }
+  } = { settled: true }
+
   function showDownloadDialog(
     downList: DownloadModelParam[],
     success?: () => void,
     fail?: (reason?: unknown) => void,
   ) {
+    // A request still waiting on a retry is superseded; its caller hears the error it saw.
+    if (downloadRequest.pendingFailure) downloadFailed(downloadRequest.pendingFailure.reason)
+    downloadRequest = { settled: false }
     downloadList.value = downList
     downloadSuccessFunction.value = success
     downloadFailFunction.value = fail
     downloadDialogVisible.value = true
   }
 
+  function downloadCompleted() {
+    const request = downloadRequest
+    downloadDialogVisible.value = false
+    if (request.settled) return
+    request.settled = true
+    downloadSuccessFunction.value?.()
+  }
+
+  function downloadFailed(reason?: unknown) {
+    const request = downloadRequest
+    if (request.settled) return
+    request.settled = true
+    request.pendingFailure = undefined
+    downloadFailFunction.value?.(reason)
+  }
+
+  function downloadFailedResumable(reason: unknown) {
+    if (!downloadRequest.settled) downloadRequest.pendingFailure = { reason }
+  }
+
   function closeDownloadDialog() {
     downloadDialogVisible.value = false
+    const pending = downloadRequest.pendingFailure
+    if (pending) downloadFailed(pending.reason)
   }
 
   function showPresetRequirementsDialog(data: PresetRequirementsData, confirmFunction: () => void) {
@@ -316,9 +347,10 @@ export const useDialogStore = defineStore('dialog', () => {
     // Download dialog
     downloadDialogVisible,
     downloadList,
-    downloadSuccessFunction,
-    downloadFailFunction,
     showDownloadDialog,
+    downloadCompleted,
+    downloadFailed,
+    downloadFailedResumable,
     closeDownloadDialog,
 
     // Preset requirements dialog

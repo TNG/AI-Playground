@@ -10,7 +10,7 @@
         <Button
           class="px-3 py-1.5 rounded text-sm"
           :disabled="!!agentTasks.editBlocker || saving"
-          :aria-describedby="blockerText ? 'task-edit-save-blocker' : undefined"
+          :aria-describedby="describedBy"
           @click="save"
         >
           {{ i18n.AGENT_TASK_EDIT_SAVE }}
@@ -21,6 +21,9 @@
       </div>
       <p v-if="blockerText" id="task-edit-save-blocker" class="text-xs text-amber-500">
         {{ blockerText }}
+      </p>
+      <p v-if="saveError" id="task-edit-save-error" role="alert" class="text-xs text-destructive">
+        {{ saveError }}
       </p>
       <p v-if="running" class="text-xs text-muted-foreground">
         {{ i18n.AGENT_TASK_EDIT_RUNNING_NOTE }}
@@ -55,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { SAVE_TASK_BLOCKER_KEYS, useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import SettingsTaskTemplate from '@/components/SettingsTaskTemplate.vue'
@@ -69,6 +72,12 @@ const agentTasks = useAgentTasks()
 const i18n = useI18N().state
 
 const saving = ref(false)
+/** Why the last Save stored nothing, when its chat model was not downloaded. */
+const saveError = ref('')
+watch(
+  () => agentTasks.editingTaskId,
+  () => (saveError.value = ''),
+)
 
 const draft = computed(() => agentTasks.editDraft)
 
@@ -85,6 +94,13 @@ const blockerText = computed(() =>
   agentTasks.editBlocker ? i18n[SAVE_TASK_BLOCKER_KEYS[agentTasks.editBlocker]] : '',
 )
 
+const describedBy = computed(
+  () =>
+    [blockerText.value && 'task-edit-save-blocker', saveError.value && 'task-edit-save-error']
+      .filter(Boolean)
+      .join(' ') || undefined,
+)
+
 // Its own dialog: the session sidebar's picker adopts the folder for the Open Session.
 async function pickFolder(): Promise<void> {
   const picking = draft.value
@@ -99,7 +115,9 @@ async function pickFolder(): Promise<void> {
 async function save(): Promise<void> {
   saving.value = true
   try {
+    saveError.value = ''
     const result = await agentTasks.saveEdit()
+    if (!result.ok && 'message' in result) saveError.value = result.message
     if (result.ok) toast.success(i18n.AGENT_TASK_EDIT_SAVED.replace('{name}', result.task.name))
   } finally {
     saving.value = false

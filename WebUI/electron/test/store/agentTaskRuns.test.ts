@@ -83,6 +83,7 @@ vi.mock('@/assets/js/store/textInference', () => ({
     },
     settingsPerPreset: {},
     ensureReadyForInference: vi.fn(),
+    getMissingLlmModels: vi.fn(async () => []),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
     get settingsAvailability() {

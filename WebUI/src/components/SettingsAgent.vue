@@ -349,6 +349,7 @@ import {
 } from '@/assets/js/store/textInference'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useMcp } from '@/assets/js/store/mcp'
@@ -370,6 +371,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
+const oemBranding = useOemBranding()
 const { editTask } = useTaskEditLeaveGuard()
 const i18n = useI18N().state
 
@@ -497,7 +499,7 @@ function resetToDefault() {
 async function handlePresetChange(presetName: string) {
   const result = await presetSwitching.switchPreset(presetName)
   if (result.success) {
-    toast.success(`Switched to ${presetName}`)
+    toast.success(`Switched to ${oemBranding.presetLabel(presetName)}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
   }

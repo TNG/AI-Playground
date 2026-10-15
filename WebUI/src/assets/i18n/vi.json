@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "Không thể bắt đầu lần chạy theo lịch",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "Không thể bắt đầu lần chạy theo lịch của “{name}”: {reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "Lần chạy theo lịch của “{name}” đã thất bại: {reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "Preset Agent không khả dụng.",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "Preset Agent Maker không khả dụng.",
   "AGENT_TASK_MCP_UNAVAILABLE": "Không thể tải các máy chủ MCP: {error}",
   "AGENT_TASKS_DELETE": "Xóa tác vụ {name}",
   "AGENT_TASKS_RUN": "Chạy tác vụ {name}",

@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "计划运行无法启动",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "“{name}”的计划运行无法启动：{reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "“{name}”的计划运行失败：{reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "Agent 预设不可用。",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "Agent Maker 预设不可用。",
   "AGENT_TASK_MCP_UNAVAILABLE": "无法加载 MCP 服务器：{error}",
   "AGENT_TASKS_DELETE": "删除任务 {name}",
   "AGENT_TASKS_RUN": "运行任务 {name}",

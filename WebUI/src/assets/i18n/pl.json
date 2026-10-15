@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "Zaplanowane uruchomienie nie mogło się rozpocząć",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "Zaplanowane uruchomienie „{name}” nie mogło się rozpocząć: {reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "Zaplanowane uruchomienie „{name}” nie powiodło się: {reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "Preset Agent jest niedostępny.",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "Preset Agent Maker jest niedostępny.",
   "AGENT_TASK_MCP_UNAVAILABLE": "Nie udało się wczytać serwerów MCP: {error}",
   "AGENT_TASKS_DELETE": "Usuń zadanie {name}",
   "AGENT_TASKS_RUN": "Uruchom zadanie {name}",

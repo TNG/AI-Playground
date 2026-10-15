@@ -59,6 +59,8 @@ export type KernelAgentTurnStateEvent = {
   sessionId: string
   turnId: string
   state: AgentTurnState
+  /** What the user is asked; only while `paused`. */
+  pauseReason?: PauseReason
 }
 
 export type KernelAgentTurnDoneEvent = {
@@ -284,6 +286,13 @@ export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 /** Where an open agent turn stands in the Turn Queue. */
 export type AgentTurnState = 'queued' | 'running' | 'paused'
 
+/** What a Paused Session waits on the user for: the kind of decision and what it is about. */
+export type PauseReason = {
+  kind: 'download' | 'vram-warning' | 'confirmation' | 'question'
+  /** Model names (with size where known), the preset, or the card's title. */
+  summary?: string
+}
+
 /**
  * The accumulated state of one agent turn main holds open, for a renderer that
  * (re)connects halfway through. Chunks are stored accumulated — adjacent
@@ -294,6 +303,8 @@ export type AgentTurnSnapshot = {
   sessionId: string
   turnId: string
   state: AgentTurnState
+  /** What the user is asked; only while `paused`. */
+  pauseReason?: PauseReason
   /** Its place in the Turn Queue while queued (1 = next to start). */
   queuePosition?: number
   chunks: unknown[]

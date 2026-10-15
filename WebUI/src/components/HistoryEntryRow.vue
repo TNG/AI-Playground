@@ -86,11 +86,12 @@
                   marker.short
                 }}</span>
               </template>
-              <HandRaisedIcon
-                v-else-if="marker.status === 'paused'"
-                class="size-3.5 text-amber-500"
-                aria-hidden="true"
-              />
+              <template v-else-if="marker.status === 'paused'">
+                <HandRaisedIcon class="size-3.5 text-amber-500" aria-hidden="true" />
+                <span v-if="marker.short" class="text-amber-500" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
               <span
                 v-else
                 class="size-2 rounded-full"
@@ -268,6 +269,7 @@ import { collapseGamesPrefix } from '@/assets/js/store/agentModeSessions'
 import {
   isEmptyDraft,
   mediaSettings,
+  pausedStatusLabel,
   queueOrdinal,
   relativeTime,
   toolMedia,
@@ -342,7 +344,7 @@ const marker = computed(() => {
           }
         : { status, label: i18nState.HISTORY_STATUS_QUEUED }
     case 'paused':
-      return { status, label: i18nState.HISTORY_STATUS_PAUSED }
+      return { status, ...pausedStatusLabel(props.entry.pauseReason, i18nState) }
     case 'unseen':
       return { status, label: i18nState.HISTORY_STATUS_UNSEEN }
     case 'unseenFailed':

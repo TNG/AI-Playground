@@ -30,13 +30,21 @@
         <Button
           class="self-start px-3 py-1.5 rounded text-sm"
           :disabled="!!agentTasks.draftBlocker || saving"
-          :aria-describedby="blockerText ? 'agent-task-save-blocker' : undefined"
+          :aria-describedby="describedBy"
           @click="save"
         >
           {{ i18n.AGENT_TASK_SAVE }}
         </Button>
         <p v-if="blockerText" id="agent-task-save-blocker" class="text-xs text-amber-500">
           {{ blockerText }}
+        </p>
+        <p
+          v-if="saveError"
+          id="agent-task-save-error"
+          role="alert"
+          class="text-xs text-destructive"
+        >
+          {{ saveError }}
         </p>
       </div>
     </CollapsibleContent>
@@ -88,12 +96,21 @@ const i18n = useI18N().state
 
 const open = ref(false)
 const saving = ref(false)
+/** Why the last Save stored nothing, when its chat model was not downloaded. */
+const saveError = ref('')
 const confirmReplaceOpen = ref(false)
 
 const hasSessionSteps = computed(() => agentTasks.stepsFromSession().length > 0)
 
 const blockerText = computed(() =>
   agentTasks.draftBlocker ? i18n[SAVE_TASK_BLOCKER_KEYS[agentTasks.draftBlocker]] : '',
+)
+
+const describedBy = computed(
+  () =>
+    [blockerText.value && 'agent-task-save-blocker', saveError.value && 'agent-task-save-error']
+      .filter(Boolean)
+      .join(' ') || undefined,
 )
 
 const summary = computed(() => {
@@ -117,7 +134,9 @@ function createFromSession(): void {
 async function save(): Promise<void> {
   saving.value = true
   try {
+    saveError.value = ''
     const result = await agentTasks.saveDraft()
+    if (!result.ok && 'message' in result) saveError.value = result.message
     if (result.ok) toast.success(i18n.AGENT_TASK_SAVED.replace('{name}', result.task.name))
   } finally {
     saving.value = false

@@ -27,12 +27,45 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
   usePresetSwitching: () => ({ switchPreset: vi.fn(async () => ({ success: true })) }),
 }))
 
+/** Models not on disk, as the models store would report them. */
+let missingModels: Set<string>
+const VISION_MODEL = 'Vision-8B'
+const VISION_PROJECTOR = 'Vision-8B-mmproj'
+
+const getMissingLlmModels = vi.fn(
+  async (backend: string, model: string | undefined, options: { needsVision?: boolean } = {}) => {
+    const wanted = [
+      model,
+      ...(options.needsVision && model === VISION_MODEL ? [VISION_PROJECTOR] : []),
+    ]
+    return wanted
+      .filter((name): name is string => !!name && missingModels.has(name))
+      .map((repo_id) => ({ repo_id, type: 'ggufLLM', backend }))
+  },
+)
+
+const requestDownload = vi.fn(async (_models: unknown[]) => {})
+
+vi.mock('@/assets/js/permissions/permissions', () => ({
+  requestDownload: (models: unknown[]) => requestDownload(models),
+  requestVramWarning: vi.fn(async () => true),
+  notify: vi.fn(),
+}))
+
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     backend: 'llamaCPP',
     activeModel: 'Live-9B',
     settingsPerPreset: {},
     embeddingBackend: 'llamaCPP',
+    getMissingLlmModels,
+    inferenceForSettings: (_preset: string, settings: AgentSessionSettings) => ({
+      inference: {
+        backend: settings.backend ?? 'llamaCPP',
+        activeModel: settings.model,
+        modelSupportsVision: settings.model === VISION_MODEL,
+      },
+    }),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
     settingsAvailability: {
@@ -98,6 +131,7 @@ const assistantMessage = (id: string, text: string) => ({
 type SessionFixture = { id: string; title: string; workspaceDir: string; messages: unknown[] }
 
 let openRecord: SessionFixture
+let openSessionSettings: AgentSessionSettings
 let storedTasks: AgentTask[]
 
 const saveTask = vi.fn(async (_task: AgentTask) => ({ success: true as boolean, error: '' }))
@@ -107,6 +141,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
   storedTasks = []
+  missingModels = new Set()
+  openSessionSettings = SETTINGS
+  requestDownload.mockImplementation(async () => {})
   saveTask.mockImplementation(async () => ({ success: true, error: '' }))
   openRecord = {
     id: 'session-open',
@@ -160,7 +197,7 @@ beforeEach(() => {
               createdAt: 1,
               updatedAt: 2,
               presetName: 'Agent',
-              settings: SETTINGS,
+              settings: openSessionSettings,
             },
           ],
         })),
@@ -723,6 +760,7 @@ describe('typing while an edit is being saved', () => {
     tasks.editDraft!.name = 'Saved name'
 
     const saving = tasks.saveEdit()
+    await vi.waitFor(() => expect(saveTask).toHaveBeenCalledTimes(1))
     tasks.editDraft!.name = 'Typed during save'
     finishWrite()
     await saving
@@ -867,5 +905,186 @@ describe('editing a Task’s Settings Template', () => {
 
     expect(tasks.editDraft).toBeNull()
     expect(tasks.tasks[0].settingsTemplate).toEqual(SETTINGS)
+  })
+})
+
+describe('saving a Task whose chat model is not downloaded', () => {
+  it('asks to download the model, and saves the new Task once it downloaded', async () => {
+    missingModels = new Set(['Stored-27B'])
+    const { tasks } = await readyStores()
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+
+    const saving = tasks.saveTask(draftOf('Docs', 'go'))
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
+
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ repo_id: 'Stored-27B' }),
+    ])
+    expect(saveTask).not.toHaveBeenCalled()
+    finishDownload()
+    expect((await saving).ok).toBe(true)
+    expect(saveTask).toHaveBeenCalledTimes(1)
+    expect(tasks.tasks).toHaveLength(1)
+  })
+
+  it.each([
+    [
+      'declining',
+      async () => {
+        const { createCancellation } = await import('@/assets/js/errors/appError')
+        throw createCancellation({ technicalMessage: 'Download cancelled by user' })
+      },
+      'download-declined',
+    ],
+    [
+      'a failed download',
+      async () => {
+        throw new Error('Not enough disk space')
+      },
+      'download-failed',
+    ],
+  ])('saves nothing after %s, and says why', async (_case, outcome, reason) => {
+    missingModels = new Set(['Stored-27B'])
+    requestDownload.mockImplementation(outcome)
+    const { tasks } = await readyStores()
+    tasks.createStepsFromSession()
+
+    const result = await tasks.saveDraft()
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason,
+      message: expect.stringContaining('Stored-27B'),
+    })
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(tasks.tasks).toEqual([])
+    expect(tasks.draft.name).toBe('Tidy the docs')
+  })
+
+  it('names the download error in the message', async () => {
+    missingModels = new Set(['Stored-27B'])
+    requestDownload.mockRejectedValue(new Error('Not enough disk space'))
+    const { tasks } = await readyStores()
+
+    const result = await tasks.saveTask(draftOf('Docs', 'go'))
+
+    expect(result).toMatchObject({ error: 'Not enough disk space' })
+    expect(!result.ok && 'message' in result && result.message).toContain('Not enough disk space')
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'agent-tasks/model-download-failed', surface: 'inline' }),
+    )
+  })
+
+  it('saves without asking when the model is already downloaded', async () => {
+    const { tasks } = await readyStores()
+
+    expect((await tasks.saveTask(draftOf('Docs', 'go'))).ok).toBe(true)
+    expect(requestDownload).not.toHaveBeenCalled()
+  })
+
+  it('never asks for a cloud model', async () => {
+    missingModels = new Set(['Stored-27B', 'cloud-model'])
+    openSessionSettings = { ...SETTINGS, backend: 'cloud', model: 'cloud-model' }
+    const { tasks } = await readyStores()
+
+    expect((await tasks.saveTask(draftOf('Docs', 'go'))).ok).toBe(true)
+    expect(requestDownload).not.toHaveBeenCalled()
+  })
+
+  it('asks for the vision projector too when a Step hands the model an image', async () => {
+    missingModels = new Set([VISION_PROJECTOR])
+    openSessionSettings = { ...SETTINGS, model: VISION_MODEL }
+    const { tasks } = await readyStores()
+
+    await tasks.saveTask(draftOf('Docs', `use this sprite${ATTACHMENT_LINE}`))
+
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ repo_id: VISION_PROJECTOR }),
+    ])
+  })
+
+  it('does not ask for the vision projector when no Step carries an image', async () => {
+    missingModels = new Set([VISION_PROJECTOR])
+    openSessionSettings = { ...SETTINGS, model: VISION_MODEL }
+    const { tasks } = await readyStores()
+
+    expect((await tasks.saveTask(draftOf('Docs', 'write the readme'))).ok).toBe(true)
+    expect(requestDownload).not.toHaveBeenCalled()
+  })
+})
+
+describe('typing while a new Task’s model downloads', () => {
+  it('keeps what was typed meanwhile in the draft', async () => {
+    missingModels = new Set(['Stored-27B'])
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+    const { tasks } = await readyStores()
+    tasks.createStepsFromSession()
+
+    const saving = tasks.saveDraft()
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
+    tasks.draft.name = 'Typed during download'
+    finishDownload()
+    await saving
+
+    expect(saveTask.mock.calls[0][0].name).toBe('Tidy the docs')
+    expect(tasks.draft.name).toBe('Typed during download')
+  })
+})
+
+describe('saving an edited Task whose chat model is not downloaded', () => {
+  it('asks even when the model did not change, and saves once it downloaded', async () => {
+    storedTasks = [savedTask('task-1')]
+    missingModels = new Set(['Stored-27B'])
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editDraft!.name = 'Renamed'
+
+    const result = await tasks.saveEdit()
+
+    expect(requestDownload).toHaveBeenCalledTimes(1)
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ repo_id: 'Stored-27B' }),
+    ])
+    expect(result.ok).toBe(true)
+    expect(saveTask.mock.calls[0][0].name).toBe('Renamed')
+    expect(tasks.editingTaskId).toBeNull()
+  })
+
+  it('checks the model the edit picked', async () => {
+    storedTasks = [savedTask('task-1')]
+    missingModels = new Set(['Other-9B'])
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editTemplate({ model: 'Other-9B' })
+
+    await tasks.saveEdit()
+
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ repo_id: 'Other-9B' }),
+    ])
+  })
+
+  it('keeps the editor open and the Task unchanged when the download is declined', async () => {
+    const { createCancellation } = await import('@/assets/js/errors/appError')
+    storedTasks = [savedTask('task-1')]
+    missingModels = new Set(['Stored-27B'])
+    requestDownload.mockRejectedValue(createCancellation())
+    const { tasks } = await readyStores()
+    tasks.beginEdit('task-1')
+    tasks.editDraft!.name = 'Renamed'
+
+    const result = await tasks.saveEdit()
+
+    expect(result).toMatchObject({ ok: false, reason: 'download-declined' })
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(tasks.tasks[0].name).toBe('Task task-1')
+    expect(tasks.editingTaskId).toBe('task-1')
+    expect(tasks.editDraft?.name).toBe('Renamed')
   })
 })

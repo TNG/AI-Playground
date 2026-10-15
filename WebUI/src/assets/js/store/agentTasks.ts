@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { MODEL_DOWNLOAD_DECLINED } from '@/types/agentIpc'
+import { MODEL_DOWNLOAD_DECLINED, promptHasImageAttachment } from '@/types/agentIpc'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type {
@@ -20,7 +20,9 @@ import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { useMcp } from './mcp'
 import { usePresets } from './presets'
-import { createAppError, extractMessage } from '@/assets/js/errors/appError'
+import { useTextInference } from './textInference'
+import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { withStepAdded, withStepMoved, withStepRemoved } from '@/lib/taskSteps'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
@@ -67,9 +69,14 @@ export type TaskRunState = TaskRun & { paused?: { reason?: PauseReason } }
 
 export type TaskState = { running: TaskRunState } | { idle: AgentTaskOutcome | undefined }
 
+/** The chat model a Settings Template runs on was not downloaded. */
+export type ModelDownloadRefusal =
+  { reason: 'download-declined' } | { reason: 'download-failed'; error: string }
+
 export type SaveTaskResult =
   | { ok: true; task: AgentTask }
   | { ok: false; reason: SaveTaskBlocker | 'persist-failed' | 'no-task' }
+  | ({ ok: false; message: string } & ModelDownloadRefusal)
 
 export type RunTaskResult =
   | { ok: true }
@@ -111,6 +118,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const i18n = useI18N()
   const mcp = useMcp()
   const presets = usePresets()
+  const textInference = useTextInference()
 
   const tasks = ref<AgentTask[]>([])
 
@@ -241,17 +249,74 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return null
   }
 
+  /**
+   * Nothing is saved until the Task's local chat model is on disk, with its vision projector
+   * when a Step hands it an image; a missing one is downloaded with the user's consent.
+   */
+  async function saveRefusal(
+    template: AgentSessionSettings,
+    steps: readonly AgentTaskStep[],
+  ): Promise<SaveTaskResult | null> {
+    const { inference } = textInference.inferenceForSettings(AGENT_PRESET, template)
+    if (inference.backend === 'cloud') return null
+    const model = inference.activeModel ?? ''
+    const needsVision =
+      inference.modelSupportsVision && steps.some((step) => promptHasImageAttachment(step.prompt))
+    try {
+      const missing = await textInference.getMissingLlmModels(
+        inference.backend as 'llamaCPP' | 'openVINO',
+        model,
+        { needsVision },
+      )
+      if (missing.length > 0) await requestDownload(missing)
+      return null
+    } catch (error) {
+      if (isCancellation(error)) {
+        const message = fill(
+          i18n.state.AGENT_TASK_SAVE_DOWNLOAD_DECLINED ??
+            'Not saved: the task’s chat model {model} has to be downloaded first.',
+          { model },
+        )
+        return { ok: false, reason: 'download-declined', message }
+      }
+      const technical = extractMessage(error)
+      const message = fill(
+        i18n.state.AGENT_TASK_SAVE_DOWNLOAD_FAILED ??
+          'Not saved: the download of {model} failed: {error}',
+        { model, error: technical },
+      )
+      errors.report(
+        createAppError({
+          category: 'backend',
+          code: 'agent-tasks/model-download-failed',
+          severity: 'warning',
+          surface: 'inline',
+          userMessage: message,
+          technicalMessage: technical,
+          cause: error,
+        }),
+      )
+      return { ok: false, reason: 'download-failed', error: technical, message }
+    }
+  }
+
   /** Store the draft with the Open Session's folder and the panel's Session Settings. */
   async function saveTask(draft: TaskDraft): Promise<SaveTaskResult> {
     const blocker = saveBlocker(draft)
     if (blocker) return { ok: false, reason: blocker }
+    const name = draft.name.trim()
+    const workspaceDir = agentMode.workspaceDir
+    const settingsTemplate = cloneForIpc(agentMode.openSessionSettings)
+    const steps = draft.steps.map((step) => ({ id: step.id, prompt: step.prompt }))
+    const refusal = await saveRefusal(settingsTemplate, steps)
+    if (refusal) return refusal
     const now = Date.now()
     const task: AgentTask = {
       id: crypto.randomUUID(),
-      name: draft.name.trim(),
-      workspaceDir: agentMode.workspaceDir,
-      settingsTemplate: cloneForIpc(agentMode.openSessionSettings),
-      steps: draft.steps.map((step) => ({ id: step.id, prompt: step.prompt })),
+      name,
+      workspaceDir,
+      settingsTemplate,
+      steps,
       createdAt: now,
       updatedAt: now,
     }
@@ -675,8 +740,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   async function saveDraft(): Promise<SaveTaskResult> {
-    const result = await saveTask(draft.value)
-    if (result.ok) draft.value = emptyDraft()
+    const saving = draft.value
+    const snapshot = JSON.stringify(saving)
+    const result = await saveTask(saving)
+    // Typing during the model download keeps the draft, with what was typed still unsaved.
+    if (result.ok && draft.value === saving && JSON.stringify(saving) === snapshot) {
+      draft.value = emptyDraft()
+    }
     return result
   }
 
@@ -734,11 +804,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
    */
   async function saveEdit(): Promise<SaveTaskResult> {
     const current = editing.value
-    const saved = current && tasks.value.find((task) => task.id === current.taskId)
-    if (!current || !saved) return { ok: false, reason: 'no-task' }
+    if (!current || !tasks.value.some((task) => task.id === current.taskId)) {
+      return { ok: false, reason: 'no-task' }
+    }
     const blocker = blockerOf(current.draft)
     if (blocker) return { ok: false, reason: blocker }
     const edited = cloneForIpc(current.draft)
+    const refusal = await saveRefusal(edited.settingsTemplate, edited.steps)
+    if (refusal) return refusal
+    // Read after the download, which a delete or a run settling may have overtaken.
+    const saved = tasks.value.find((task) => task.id === current.taskId)
+    if (!saved) return { ok: false, reason: 'no-task' }
     const task = replaceTask({
       ...saved,
       name: edited.name.trim(),

@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "Görev olarak kaydet",
   "AGENT_TASK_SAVED": "“{name}” görevi kaydedildi",
   "AGENT_TASK_SAVE_FAILED": "Görev kaydedilemedi.",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Kaydedilmedi: Önce görevin sohbet modeli {model} indirilmelidir.",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Kaydedilmedi: {model} indirilemedi: {error}",
   "AGENT_TASK_READ_FAILED": "Kaydedilen görevler okunamadı.",
   "AGENT_TASK_BLOCKED_NAME": "Göreve bir ad verin.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "En az bir adım ekleyin.",

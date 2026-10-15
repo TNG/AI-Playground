@@ -6,7 +6,6 @@
   "remoteRepository": "asdf/ai-playground",
   "huggingfaceEndpoint": "https://huggingface.co",
   "openvinoImageGenDevices": ["CPU", "GPU"],
-  "isAgentPresetEnabled": true,
   "showDebugSettingsInUI": true,
   "oemVendorOverride": "acer"
 }

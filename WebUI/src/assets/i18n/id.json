@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "Proses terjadwal tidak dapat dimulai",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "Proses terjadwal “{name}” tidak dapat dimulai: {reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "Proses terjadwal “{name}” gagal: {reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "Preset Agent tidak tersedia.",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "Preset Agent Maker tidak tersedia.",
   "AGENT_TASK_MCP_UNAVAILABLE": "Server MCP tidak dapat dimuat: {error}",
   "AGENT_TASKS_DELETE": "Hapus tugas {name}",
   "AGENT_TASKS_RUN": "Jalankan tugas {name}",

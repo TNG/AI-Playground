@@ -310,6 +310,7 @@ import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { reasoningEfforts, type ReasoningEffort } from '@/types/shared'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import { useUIStore } from '@/assets/js/store/ui'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 
 const showUploader = ref(false)
 const processing = ref(false)
@@ -326,6 +327,7 @@ const conversations = useConversations()
 const homeAgent = useHomeAgent()
 const cloudMode = useCloudMode()
 const uiStore = useUIStore()
+const oemBranding = useOemBranding()
 
 // Non-null service name for the local-backend DeviceSelector (only rendered for
 // non-cloud backends; cloud uses ProviderSelector instead).
@@ -445,7 +447,7 @@ async function handlePresetChange(presetName: string) {
     } else if (onHomeAgentThread) {
       conversations.addNewConversation()
     }
-    toast.success(`Switched to ${presetName}`)
+    toast.success(`Switched to ${oemBranding.presetLabel(presetName)}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
   }

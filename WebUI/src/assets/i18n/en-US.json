@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "Scheduled run could not start",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "The scheduled run of “{name}” could not start: {reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "The scheduled run of “{name}” failed: {reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "The Agent preset is not available.",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "The Agent Maker preset is not available.",
   "AGENT_TASK_MCP_UNAVAILABLE": "The MCP servers could not be loaded: {error}",
   "AGENT_TASKS_DELETE": "Delete task {name}",
   "AGENT_TASKS_RUN": "Run task {name}",

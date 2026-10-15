@@ -48,7 +48,7 @@
 import { appLoggerInstance } from '../observability/logger'
 import { emitArtifactPhase, emitQueueEvent } from './kernelBus'
 import { registerUserWaitQueue } from './userWait'
-import type { TurnWork } from '@/types/kernelEvents'
+import type { PauseReason, TurnWork } from '@/types/kernelEvents'
 import {
   artifactRunActive,
   artifactRunTag,
@@ -81,8 +81,8 @@ export type TextRequest = {
 
 /** How a Turn Queue member hears about its pause and gets ready again after it. */
 export type TurnPause = {
-  /** The user is being waited on (`true`), or has answered everything asked (`false`). */
-  onUserWait(waiting: boolean): void
+  /** The user is being waited on (`true`, for the latest question), or has answered everything. */
+  onUserWait(waiting: boolean, reason?: PauseReason): void
   /** Its place went to another member meanwhile: it waits at the front to get it back. */
   onRequeued(): void
   /** Holds the place again; re-run readiness (the model may have been swapped meanwhile). */
@@ -102,8 +102,8 @@ export type KernelRequest<K extends keyof KernelRequestMap> = {
 
 type TextOccupancy = TextRequest & {
   phase: 'waiting' | 'running'
-  /** Questions to the user still open for this run; it is paused while above zero. */
-  userWaits: number
+  /** Questions to the user still open for this run, latest last; it is paused while any are. */
+  userWaits: { reason?: PauseReason }[]
   /** Gave up the place while paused and has not taken it back yet. */
   yielded: boolean
   reclaiming?: Promise<void>
@@ -532,7 +532,7 @@ export async function submitTextRequest(request: TextRequest, signal?: AbortSign
   if (textOccupancy.has(request.runId)) {
     throw new Error(`Text request ${request.runId} is already occupying the queue`)
   }
-  textOccupancy.set(request.runId, { ...request, phase: 'waiting', userWaits: 0, yielded: false })
+  textOccupancy.set(request.runId, { ...request, phase: 'waiting', userWaits: [], yielded: false })
   // Joined before announcing, so the enqueued event already carries its position.
   const place = request.joinsTurnQueue ? takeTurnPlace(request.runId, signal) : null
   emitQueueEvent({
@@ -697,21 +697,23 @@ export function turnHolderConversationKey(): string | undefined {
  * pausable member gives up its place (the next member starts) until it reclaims
  * it; anything else is unaffected. Returns the call that marks the answer.
  */
-export function beginUserWait(conversationKey: string): () => void {
+export function beginUserWait(conversationKey: string, reason?: PauseReason): () => void {
   const entry = pausableRunOf(conversationKey)
   if (!entry) return () => {}
-  entry.userWaits += 1
-  if (entry.userWaits === 1) {
-    entry.pause?.onUserWait(true)
-    yieldTurnPlace(entry)
-  }
+  const wait = { reason }
+  entry.userWaits.push(wait)
+  entry.pause?.onUserWait(true, reason)
+  if (entry.userWaits.length === 1) yieldTurnPlace(entry)
   let ended = false
   return () => {
     if (ended) return
     ended = true
     if (textOccupancy.get(entry.runId) !== entry) return
-    entry.userWaits -= 1
-    if (entry.userWaits === 0) entry.pause?.onUserWait(false)
+    const wasLatest = entry.userWaits.at(-1) === wait
+    entry.userWaits = entry.userWaits.filter((open) => open !== wait)
+    const latest = entry.userWaits.at(-1)
+    if (!latest) entry.pause?.onUserWait(false)
+    else if (wasLatest) entry.pause?.onUserWait(true, latest.reason)
   }
 }
 

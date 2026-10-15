@@ -3,6 +3,7 @@ import { appLoggerInstance } from '../observability/logger'
 import type {
   AgentTurnSnapshot,
   AgentTurnState,
+  PauseReason,
   ArtifactRunSnapshot,
   ArtifactRunTag,
   ArtifactPhase,
@@ -129,10 +130,29 @@ export function beginAgentTurnSnapshot(sessionId: string, turnId: string): void 
   })
 }
 
-export function emitAgentTurnState(sessionId: string, turnId: string, state: AgentTurnState): void {
+export function emitAgentTurnState(
+  sessionId: string,
+  turnId: string,
+  state: AgentTurnState,
+  pauseReason?: PauseReason,
+): void {
+  const reason = state === 'paused' ? pauseReason : undefined
   const turn = agentTurnOf(sessionId, turnId)
-  if (turn) turn.state = state
-  emit({ type: 'agent-turn-state', sessionId, turnId, state }, { kind: 'run', runId: turnId })
+  if (turn) {
+    turn.state = state
+    if (reason) turn.pauseReason = reason
+    else delete turn.pauseReason
+  }
+  emit(
+    {
+      type: 'agent-turn-state',
+      sessionId,
+      turnId,
+      state,
+      ...(reason ? { pauseReason: reason } : {}),
+    },
+    { kind: 'run', runId: turnId },
+  )
 }
 
 function isMergeableAgentDelta(

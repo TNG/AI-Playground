@@ -355,7 +355,8 @@ export async function startAgentTurn(
     }
   }
   const pause: TurnPause = {
-    onUserWait: (waiting) => emitAgentTurnState(sessionId, turnId, waiting ? 'paused' : 'running'),
+    onUserWait: (waiting, reason) =>
+      emitAgentTurnState(sessionId, turnId, waiting ? 'paused' : 'running', reason),
     onRequeued: () => emitAgentTurnState(sessionId, turnId, 'queued'),
     readyAgain: async () => {
       emitAgentTurnState(sessionId, turnId, 'running')

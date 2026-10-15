@@ -5,6 +5,7 @@ import type {
   SendHandlerMap,
 } from '../ipcRegistries'
 import type { setAwaitingUser } from '../userWait'
+import type { PauseReason } from '@/types/kernelEvents'
 import { ipcErrorText, ipcFail } from '../typedIpc'
 import type { handlePermissionsPromptResponse } from '../../permissions/promptAdapter'
 import type {
@@ -101,11 +102,26 @@ export function buildPermissionsRegistry(deps: PermissionsDeps) {
   } satisfies InvokeHandlerMap<PermissionsInvokeName>
 }
 
+const PAUSE_KINDS = Object.keys({
+  download: true,
+  'vram-warning': true,
+  confirmation: true,
+  question: true,
+} satisfies Record<PauseReason['kind'], true>)
+
+function validPauseReason(reason: unknown): PauseReason | undefined {
+  const { kind, summary } = (reason ?? {}) as { kind?: unknown; summary?: unknown }
+  if (typeof kind !== 'string' || !PAUSE_KINDS.includes(kind)) return undefined
+  return typeof summary === 'string' && summary
+    ? { kind: kind as PauseReason['kind'], summary: summary.slice(0, 200) }
+    : { kind: kind as PauseReason['kind'] }
+}
+
 export function buildPermissionsSendRegistry(deps: { setAwaitingUser: typeof setAwaitingUser }) {
   return {
-    'permissions:awaitingUser': (_event, conversationKey, waiting) => {
+    'permissions:awaitingUser': (_event, conversationKey, waiting, reason) => {
       if (typeof conversationKey !== 'string' || typeof waiting !== 'boolean') return
-      deps.setAwaitingUser(conversationKey, waiting)
+      deps.setAwaitingUser(conversationKey, waiting, waiting ? validPauseReason(reason) : undefined)
     },
   } satisfies SendHandlerMap<PermissionsSendName>
 }

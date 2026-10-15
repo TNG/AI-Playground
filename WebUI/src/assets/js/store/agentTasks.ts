@@ -1,6 +1,8 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { MODEL_DOWNLOAD_DECLINED } from '@/types/agentIpc'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { PauseReason } from '@/types/kernelEvents'
 import type {
   AgentTask,
   AgentTaskActiveRun,
@@ -10,7 +12,7 @@ import type {
 } from '@/types/agentTaskIpc'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 import { useActivities } from './activities'
-import { useAgentMode } from './agentMode'
+import { useAgentMode, type SessionTurnInfo } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { userMessagePrompt } from './agentModeTurn'
 import { useDemoMode } from './demoMode'
@@ -49,10 +51,21 @@ export type TaskTemplateSummary = {
   capabilityCount: number
 }
 
-/** A Task Run in flight; `stepIndex` is 1-based. Memory only. */
-export type TaskRun = { stepIndex: number; stepCount: number; sessionId: string }
+/**
+ * A Task Run in flight; `stepIndex` is 1-based. `skippedSlots` counts the Schedule slots that
+ * passed while its Task Session was paused. Memory only.
+ */
+export type TaskRun = {
+  stepIndex: number
+  stepCount: number
+  sessionId: string
+  skippedSlots?: number
+}
 
-export type TaskState = { running: TaskRun } | { idle: AgentTaskOutcome | undefined }
+/** A Task Run as shown: `paused` while its Task Session waits on the user. */
+export type TaskRunState = TaskRun & { paused?: { reason?: PauseReason } }
+
+export type TaskState = { running: TaskRunState } | { idle: AgentTaskOutcome | undefined }
 
 export type SaveTaskResult =
   | { ok: true; task: AgentTask }
@@ -151,9 +164,23 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       if (!isDue(task, now) || deleting.has(task.id)) continue
       const fresh = task.nextRunAt !== undefined && now - task.nextRunAt < FRESH_SLOT_MS
       advanceNextRun(task, now)
+      if (!fresh) continue
       // One Task Run at a time: a slot that finds one in flight is skipped, not queued.
-      if (fresh && !runs.value[task.id]) void runScheduled(task.id)
+      const run = runs.value[task.id]
+      if (!run) void runScheduled(task.id)
+      else if (pausedTurnOf(run)) countSkippedSlot(task.id)
     }
+  }
+
+  function pausedTurnOf(run: TaskRun): SessionTurnInfo | undefined {
+    const turn = agentMode.sessionTurns[run.sessionId]
+    return turn?.state === 'paused' ? turn : undefined
+  }
+
+  function countSkippedSlot(taskId: string): void {
+    const run = runs.value[taskId]
+    const skippedSlots = (run.skippedSlots ?? 0) + 1
+    runs.value = { ...runs.value, [taskId]: { ...run, skippedSlots } }
   }
 
   function isDue(task: AgentTask, now: number): task is ScheduledTask {
@@ -320,7 +347,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function taskState(id: string): TaskState {
     const run = runs.value[id]
-    if (run) return { running: { ...run } }
+    if (run) {
+      const turn = pausedTurnOf(run)
+      if (!turn) return { running: { ...run } }
+      const reason = turn.pauseReason
+      return { running: { ...run, paused: reason ? { reason } : {} } }
+    }
     return { idle: tasks.value.find((task) => task.id === id)?.lastOutcome }
   }
 
@@ -510,9 +542,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const scheduled = runContexts[taskId]?.scheduled === true
     runContexts[taskId]?.abort.abort()
     delete runContexts[taskId]
+    const declined = end.kind === 'failed' && end.message === MODEL_DOWNLOAD_DECLINED
     await recordOutcome(
       taskId,
-      { ...end, sessionId: run.sessionId, stepCount: run.stepCount },
+      {
+        ...end,
+        sessionId: run.sessionId,
+        stepCount: run.stepCount,
+        ...(declined ? { reason: 'download-declined' as const } : {}),
+      },
       scheduled,
     )
   }
@@ -540,7 +578,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** The outcome shows a failed run, so only a Scheduled Run, which nobody watched, is toasted. */
   function reportRunFailure(task: AgentTask, end: OutcomeFields, scheduled: boolean): void {
-    const message = end.message ?? end.reason ?? ''
+    const declined =
+      end.reason === 'download-declined' ? i18n.state.AGENT_TASKS_OUTCOME_DOWNLOAD_DECLINED : null
+    const message = declined ?? end.message ?? end.reason ?? ''
     if (scheduled) {
       const notStarted = end.reason === 'not-started'
       const report = notStarted

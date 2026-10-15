@@ -4,7 +4,7 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTask, AgentTaskSchedule } from '@/types/agentTaskIpc'
-import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
+import type { KernelEvent, KernelSnapshot, PauseReason } from '@/types/kernelEvents'
 
 // Scheduled Runs: the Tasks store's ticker starts a Task Run by itself when a
 // Task's Next Run arrives, skips slots that find a run in flight or that were
@@ -94,8 +94,18 @@ vi.mock('@/assets/js/store/textInference', () => ({
   backendToAipgBackendName: { llamaCPP: 'llama_cpp', openVINO: 'openvino' },
 }))
 
+/** What the models store reports as not on disk. */
+const missingModels = vi.hoisted(() => ({ list: [] as { repo_id: string }[] }))
+
 vi.mock('@/assets/js/store/models', () => ({
-  useModels: () => ({ checkModelAlreadyLoaded: vi.fn().mockResolvedValue([]) }),
+  useModels: () => ({
+    checkModelAlreadyLoaded: vi.fn(async (models: { repo_id: string }[]) =>
+      models.map((model) => ({
+        ...model,
+        already_loaded: !missingModels.list.some((missing) => missing.repo_id === model.repo_id),
+      })),
+    ),
+  }),
 }))
 
 vi.mock('@/assets/js/store/cloudMode', () => ({
@@ -191,6 +201,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   seq = 10
   storedTasks = []
+  missingModels.list = []
   demo.enabled = false
   activePreset.state!.preset = AGENT
   activePreset.list = [AGENT, IMAGE_GEN]
@@ -873,6 +884,150 @@ describe('a Schedule that must not fire', () => {
 
     expect(startTurn).not.toHaveBeenCalled()
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+  })
+})
+
+const DOWNLOAD_PAUSE = { kind: 'download' as const, summary: 'Template-27B' }
+
+async function pauseTurn(call: number, pauseReason?: PauseReason): Promise<void> {
+  const turnId = await turnIdOf(call)
+  const sessionId = sentConfig(call).sessionId
+  pushEvent({
+    type: 'agent-turn-state',
+    sessionId,
+    turnId,
+    state: 'paused',
+    ...(pauseReason ? { pauseReason } : {}),
+  })
+}
+
+async function resumeTurn(call: number): Promise<void> {
+  const turnId = await turnIdOf(call)
+  pushEvent({
+    type: 'agent-turn-state',
+    sessionId: sentConfig(call).sessionId,
+    turnId,
+    state: 'running',
+  })
+}
+
+describe('a Task Run whose Task Session is paused', () => {
+  it('shows what the session waits for, and stops showing it once it runs again', async () => {
+    const { tasks } = await readyStores(task('t1'))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    await pauseTurn(0, DOWNLOAD_PAUSE)
+
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 1, stepCount: 2, sessionId, paused: { reason: DOWNLOAD_PAUSE } },
+    })
+
+    await resumeTurn(0)
+
+    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+  })
+
+  it('is shown as paused when main names no reason', async () => {
+    const { tasks } = await readyStores(task('t1'))
+    await tasks.runTask('t1')
+
+    await pauseTurn(0)
+
+    expect(tasks.taskState('t1')).toMatchObject({ running: { paused: {} } })
+  })
+
+  it('counts the slots it skips while paused, keeping one Task Run at a time', async () => {
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    await runClockTo(NOW + 10 * MINUTE)
+    await pauseTurn(0, DOWNLOAD_PAUSE)
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    await runClockTo(NOW + 40 * MINUTE)
+    await settleMicrotasks()
+
+    expect(startTurn).toHaveBeenCalledTimes(1)
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(tasks.taskState('t1')).toMatchObject({ running: { skippedSlots: 3 } })
+    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 50 * MINUTE)
+  })
+
+  it('keeps the count once it runs again, but not in the saved Task', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await runClockTo(NOW + 10 * MINUTE)
+    await pauseTurn(0, DOWNLOAD_PAUSE)
+    await runClockTo(NOW + 20 * MINUTE)
+
+    await resumeTurn(0)
+
+    expect(tasks.taskState('t1')).toMatchObject({ running: { skippedSlots: 1 } })
+    for (const saved of savedCopies('t1')) {
+      expect(JSON.stringify(saved)).not.toContain('skipped')
+    }
+  })
+
+  it('does not count slots skipped while the run is not paused', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+
+    await runClockTo(NOW + 30 * MINUTE)
+
+    expect(tasks.taskState('t1')).not.toHaveProperty('running.skippedSlots')
+  })
+
+  it('is a Scheduled Run whose chat model is missing: started, then paused, not refused', async () => {
+    missingModels.list = [{ repo_id: TEMPLATE.model! }]
+    const { tasks } = await readyStores(scheduledTask('t1'))
+
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+    await pauseTurn(0, DOWNLOAD_PAUSE)
+
+    expect(tasks.taskState('t1')).toMatchObject({
+      running: { stepIndex: 1, paused: { reason: DOWNLOAD_PAUSE } },
+    })
+    expect(reportedCodes()).not.toContain('agent-tasks/scheduled-run-not-started')
+    for (const saved of savedCopies('t1')) expect(saved).not.toHaveProperty('lastOutcome')
+  })
+
+  it('fails with “model download declined” when the user declines, and toasts it', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await runClockTo(NOW + 10 * MINUTE)
+    await pauseTurn(0, DOWNLOAD_PAUSE)
+    const sessionId = sentConfig(0).sessionId
+
+    await failTurn(0, 'model download declined')
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({
+          kind: 'failed',
+          sessionId,
+          stepIndex: 1,
+          message: 'model download declined',
+          reason: 'download-declined',
+        }),
+      }),
+    )
+    expect(lastSavedTask('t1')?.lastOutcome).toMatchObject({ reason: 'download-declined' })
+    expect(reported('agent-tasks/scheduled-run-failed')).toMatchObject({ surface: 'toast' })
+  })
+
+  it('starts the next run with no count', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1', { steps: [{ id: 's', prompt: 'x' }] }))
+    await runClockTo(NOW + 10 * MINUTE)
+    await pauseTurn(0, DOWNLOAD_PAUSE)
+    await runClockTo(NOW + 20 * MINUTE)
+    await resumeTurn(0)
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))
+
+    await runClockTo(NOW + 30 * MINUTE)
+
+    await turnIdOf(1)
+    expect(tasks.taskState('t1')).not.toHaveProperty('running.skippedSlots')
   })
 })
 

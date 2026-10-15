@@ -21,7 +21,7 @@ export const AgentTaskOutcomeSchema = z.object({
   stepCount: z.number(),
   message: z.string().optional(),
   // Translated where shown, since `app-closed` is written at boot before the locale has loaded.
-  reason: z.enum(['app-closed', 'not-started']).optional(),
+  reason: z.enum(['app-closed', 'not-started', 'download-declined']).optional(),
 })
 export type AgentTaskOutcome = z.infer<typeof AgentTaskOutcomeSchema>
 

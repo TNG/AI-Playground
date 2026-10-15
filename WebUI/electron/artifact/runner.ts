@@ -112,9 +112,9 @@ export type ArtifactRunPayload = {
   /** Which surface renders this run's progress; stamped on every artifact event. */
   owner?: ArtifactRunOwner
   /**
-   * Whether required models were already consented AND downloaded by the
-   * driver (the renderer's pre-flight). In-process tool runs leave this false
-   * and the runner performs the missing-check and consent request itself.
+   * Whether required models were already consented AND downloaded. The
+   * orchestrator's submit-time pre-flight sets it; a run reaching the runner
+   * without it gets the missing-check and consent request there instead.
    */
   modelsConsented?: boolean
   showPreview?: boolean
@@ -219,13 +219,14 @@ export type RunModelsOutcome =
   { state: 'ready' } | { state: 'declined' } | { state: 'failed'; error: string }
 
 /**
- * The model pre-flight of a Turn Queue member (panel / Home Agent run), asked
- * as it is submitted rather than once it runs. `onAsk` fires when something is
- * missing and the user is about to be asked for it.
+ * A run's model pre-flight, asked as it is submitted rather than once it runs.
+ * `onAsk` fires when something is missing and the user is about to be asked for
+ * it. `conversationKey` names the turn that pauses meanwhile (`null`: none).
  */
 export async function prepareRunModels(
   payload: ArtifactRunPayload,
   onAsk: () => void,
+  conversationKey: string | null | undefined,
 ): Promise<RunModelsOutcome> {
   if (!runnerDeps) return { state: 'ready' }
   let missing: ArtifactMissingModel[]
@@ -236,7 +237,7 @@ export async function prepareRunModels(
   }
   if (missing.length === 0) return { state: 'ready' }
   onAsk()
-  const approved = await runnerDeps.requestModelConsent(missing, undefined, null)
+  const approved = await runnerDeps.requestModelConsent(missing, undefined, conversationKey)
   return approved ? { state: 'ready' } : { state: 'declined' }
 }
 
@@ -760,7 +761,7 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
   armIdleTimeout(run)
   setPhase(run, 'preparing-backend')
 
-  // In-process tool runs did not go through the renderer's model pre-flight.
+  // Fallback for a run submitted without the orchestrator's pre-flight.
   if (run.payload.modelsConsented !== true) {
     const missing = await deps.modelsMissing(run.payload.preset)
     if (missing.length > 0) {

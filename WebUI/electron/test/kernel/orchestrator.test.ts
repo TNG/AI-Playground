@@ -90,6 +90,11 @@ function payload(overrides: Partial<ArtifactRunPayload> = {}): ArtifactRunPayloa
   } as ArtifactRunPayload
 }
 
+/** A run whose models were already consented, so admission starts at once. */
+function consented(overrides: Partial<ArtifactRunPayload> = {}): ArtifactRunPayload {
+  return payload({ modelsConsented: true, ...overrides })
+}
+
 /**
  * Arms the runner stub so the NEXT submitted run holds the active slot until
  * the returned deferred resolves.
@@ -133,7 +138,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
     const owner = { kind: 'tool' as const, toolCallId: 'call-2' }
-    const queued = submitArtifactRun(payload({ runId: 'run-2', owner }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-2', owner }), { queue: 'queue' })
     expect(phaseEvents).toEqual([{ tag: { runId: 'run-2', owner }, phase: 'queued' }])
 
     cancelArtifactRun('run-2')
@@ -153,7 +158,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
     const holdTwo = holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-3' }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-3' }), { queue: 'queue' })
     expect(artifactRunsQueued()).toBe(1)
 
     holdOne.resolve({ state: 'completed', items: [] })
@@ -169,7 +174,7 @@ describe('the orchestrator', () => {
     const active = submitArtifactRun(payload({ conversationKey: 'c1', activityId: 'act-1' }))
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
     const queued = submitArtifactRun(
-      payload({ runId: 'run-2', conversationKey: 'c1', activityId: 'act-2' }),
+      consented({ runId: 'run-2', conversationKey: 'c1', activityId: 'act-2' }),
       { queue: 'queue' },
     )
 
@@ -202,7 +207,7 @@ describe('the orchestrator', () => {
     expect(activeRunId).toBe('run-1')
 
     const holdTwo = holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2' }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-2' }), { queue: 'queue' })
 
     // The head settles with work queued behind: no swap-back.
     holdOne.resolve({ state: 'completed', items: [] })
@@ -271,7 +276,7 @@ describe('the orchestrator', () => {
     holdNextRun()
     const acquiring = submitArtifactRun(payload())
     await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
-    const queued = submitArtifactRun(payload({ runId: 'run-2' }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-2' }), { queue: 'queue' })
     expect(artifactWorkOpen()).toBe(true)
     expect(artifactRunsQueued()).toBe(1)
 
@@ -307,7 +312,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
 
     const holdTwo = holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2', keepModelsLoaded: true }), {
+    const queued = submitArtifactRun(consented({ runId: 'run-2', keepModelsLoaded: true }), {
       queue: 'queue',
     })
     holdOne.resolve({ state: 'completed', items: [] })
@@ -397,7 +402,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
     holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2', activityId: 'act-2' }), {
+    const queued = submitArtifactRun(consented({ runId: 'run-2', activityId: 'act-2' }), {
       queue: 'queue',
     })
     cancelArtifactRun('run-2')

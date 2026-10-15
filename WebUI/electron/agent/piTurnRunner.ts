@@ -358,6 +358,7 @@ export async function startAgentTurn(
     onUserWait: (waiting, reason) =>
       emitAgentTurnState(sessionId, turnId, waiting ? 'paused' : 'running', reason),
     onRequeued: () => emitAgentTurnState(sessionId, turnId, 'queued'),
+    onHolding: () => emitAgentTurnState(sessionId, turnId, 'running'),
     readyAgain: async () => {
       emitAgentTurnState(sessionId, turnId, 'running')
       // Before the session exists the turn is still starting, and the start loads.

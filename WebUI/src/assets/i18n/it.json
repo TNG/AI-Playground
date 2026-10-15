@@ -587,6 +587,8 @@
   "AGENT_TASK_SAVE_FAILED": "Impossibile salvare l'attività.",
   "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Non salvata: prima occorre scaricare il modello di chat {model} dell'attività.",
   "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Non salvata: il download di {model} non è riuscito: {error}",
+  "AGENT_TASK_RUN_DOWNLOAD_DECLINED": "Non avviata: prima occorre scaricare il modello di chat {model} dell'attività.",
+  "AGENT_TASK_RUN_DOWNLOAD_FAILED": "Non avviata: il download di {model} non è riuscito: {error}",
   "AGENT_TASK_READ_FAILED": "Impossibile leggere le attività salvate.",
   "AGENT_TASK_BLOCKED_NAME": "Dai un nome all'attività.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Aggiungi almeno un passaggio.",

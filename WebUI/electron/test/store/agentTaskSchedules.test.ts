@@ -27,13 +27,22 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
   usePresetSwitching: () => ({ switchPreset: vi.fn(async () => ({ success: true })) }),
 }))
 
+const missingModel = { repo_id: 'Template-27B', type: 'ggufLLM', backend: 'llama_cpp' }
+const getMissingLlmModels = vi.hoisted(() => vi.fn(async (): Promise<unknown[]> => []))
+const checkModelAlreadyLoaded = vi.hoisted(() => vi.fn(async (): Promise<unknown[]> => []))
+const requestDownload = vi.hoisted(() => vi.fn(async (_models: unknown[]) => {}))
+
+vi.mock('@/assets/js/permissions/permissions', () => ({
+  requestDownload: (models: unknown[]) => requestDownload(models),
+}))
+
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     backend: 'llamaCPP',
     activeModel: 'Live-9B',
     settingsPerPreset: {},
     embeddingBackend: 'llamaCPP',
-    getMissingLlmModels: vi.fn(async () => []),
+    getMissingLlmModels,
     inferenceForSettings: () => ({ inference: { backend: 'llamaCPP', activeModel: 'Stored-27B' } }),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
@@ -50,7 +59,7 @@ vi.mock('@/assets/js/store/textInference', () => ({
 }))
 
 vi.mock('@/assets/js/store/models', () => ({
-  useModels: () => ({ checkModelAlreadyLoaded: vi.fn().mockResolvedValue([]) }),
+  useModels: () => ({ checkModelAlreadyLoaded }),
 }))
 
 vi.mock('@/assets/js/store/cloudMode', () => ({
@@ -106,6 +115,8 @@ beforeEach(() => {
   setActivePinia(createPinia())
   storedTasks = []
   saveTask.mockImplementation(async () => ({ success: true, error: '' }))
+  getMissingLlmModels.mockResolvedValue([])
+  checkModelAlreadyLoaded.mockResolvedValue([])
   const storage = new Map<string, string>()
   const storageShim = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -254,6 +265,18 @@ describe('giving a Task a Schedule', () => {
 
     expect(saveTask).not.toHaveBeenCalled()
     expect(tasks.taskSchedule('t1')).toEqual({})
+  })
+
+  it('is not held back by a missing model and starts no download', async () => {
+    vi.setSystemTime(NOW)
+    getMissingLlmModels.mockResolvedValue([{ ...missingModel, already_loaded: false }])
+    checkModelAlreadyLoaded.mockResolvedValue([{ ...missingModel, already_loaded: false }])
+    const { tasks } = await readyStores(task('t1'))
+
+    expect(await tasks.setSchedule('t1', schedule())).toMatchObject({ ok: true })
+
+    expect(lastSavedTask('t1')).toMatchObject({ schedule: schedule() })
+    expect(requestDownload).not.toHaveBeenCalled()
   })
 
   it('accepts exactly five minutes', async () => {

@@ -15,12 +15,13 @@ export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
 export const AgentTaskOutcomeSchema = z.object({
   kind: z.enum(['completed', 'failed', 'stopped']),
   at: z.number(),
-  sessionId: z.string(),
+  /** Absent when a Scheduled Run could not start, so no Task Session exists. */
+  sessionId: z.string().optional(),
   stepIndex: z.number().optional(),
   stepCount: z.number(),
   message: z.string().optional(),
-  // Translated where shown, since it is written at boot before the locale has loaded.
-  reason: z.literal('app-closed').optional(),
+  // Translated where shown, since `app-closed` is written at boot before the locale has loaded.
+  reason: z.enum(['app-closed', 'not-started']).optional(),
 })
 export type AgentTaskOutcome = z.infer<typeof AgentTaskOutcomeSchema>
 

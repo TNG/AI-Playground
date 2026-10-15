@@ -23,7 +23,11 @@ const AGENT: ChatPreset = {
 
 const IMAGE_GEN = { type: 'comfy', category: 'create-images', name: 'Flux' }
 
-const activePreset = vi.hoisted(() => ({ state: null as { preset: unknown } | null }))
+const activePreset = vi.hoisted(() => ({
+  state: null as { preset: unknown } | null,
+  /** The presets read on this machine; the Agent preset is absent while switched off. */
+  list: [] as unknown[],
+}))
 
 vi.mock('@/assets/js/store/presets', async () => {
   const { reactive } = await import('vue')
@@ -31,7 +35,9 @@ vi.mock('@/assets/js/store/presets', async () => {
   const state = activePreset.state
   return {
     usePresets: () => ({
-      presets: [AGENT],
+      get presets() {
+        return activePreset.list
+      },
       get activePresetWithVariant() {
         return state.preset
       },
@@ -186,6 +192,7 @@ beforeEach(() => {
   storedTasks = []
   demo.enabled = false
   activePreset.state!.preset = AGENT
+  activePreset.list = [AGENT, IMAGE_GEN]
   const storage = new Map<string, string>()
   const storageShim = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -542,6 +549,250 @@ describe('running a scheduled Task by hand', () => {
     for (const saved of savedCopies('t1')) {
       expect(saved).toMatchObject({ schedule: every10Minutes(), nextRunAt: NOW + 10 * MINUTE })
     }
+  })
+})
+
+const reportedCodes = () =>
+  errorsReport.mock.calls.map(([error]) => (error as { code?: string }).code)
+
+const reported = (code: string) =>
+  errorsReport.mock.calls
+    .map(([error]) => error as { code?: string; surface?: string; userMessage?: string })
+    .find((error) => error.code === code)
+
+/** A template the app cannot serve: Cloud Mode is off. */
+const UNUSABLE_TEMPLATE: AgentSessionSettings = { backend: 'cloud', model: 'gpt-x' }
+
+describe('a Scheduled Run that cannot start', () => {
+  it('records a failed outcome with the reason, toasts, and keeps the Schedule', async () => {
+    const { agentMode, tasks } = await readyStores(
+      scheduledTask('t1', { settingsTemplate: UNUSABLE_TEMPLATE }),
+    )
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({ kind: 'failed', reason: 'not-started', stepCount: 2 }),
+      }),
+    )
+    const outcome = lastSavedTask('t1')?.lastOutcome
+    expect(outcome?.message).toBeTruthy()
+    expect(outcome).not.toHaveProperty('sessionId')
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(reported('agent-tasks/scheduled-run-not-started')).toMatchObject({ surface: 'toast' })
+    expect(lastSavedTask('t1')).toMatchObject({
+      schedule: every10Minutes(),
+      nextRunAt: NOW + 20 * MINUTE,
+    })
+  })
+
+  it('is refused when the workspace folder is missing', async () => {
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({ kind: 'failed', reason: 'not-started' }),
+      }),
+    )
+    expect(lastSavedTask('t1')?.lastOutcome?.message).toContain('/work/task')
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(reportedCodes()).toEqual(['agent-tasks/scheduled-run-not-started'])
+  })
+
+  it('is refused while the Agent preset is switched off', async () => {
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    activePreset.list = [IMAGE_GEN]
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({ kind: 'failed', reason: 'not-started' }),
+      }),
+    )
+    expect(lastSavedTask('t1')?.lastOutcome?.message).toBeTruthy()
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(reportedCodes()).toEqual(['agent-tasks/scheduled-run-not-started'])
+  })
+
+  it('is refused when the MCP servers it needs cannot be listed', async () => {
+    const { agentMode, tasks } = await readyStores(
+      scheduledTask('t1', { settingsTemplate: { ...TEMPLATE, capabilities: ['mcp:github'] } }),
+    )
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    // The fake electronAPI has no `mcp`, so listing the servers throws.
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({ kind: 'failed', reason: 'not-started' }),
+      }),
+    )
+    expect(lastSavedTask('t1')?.lastOutcome?.message).toBeTruthy()
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(reportedCodes()).toEqual(['agent-tasks/scheduled-run-not-started'])
+  })
+
+  it('neither starts nor writes back a Task deleted while its start is checked', async () => {
+    let folderChecked: (found: boolean) => void = () => {}
+    let finishDelete: () => void = () => {}
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+      () => new Promise((resolve) => (folderChecked = resolve)),
+    )
+    vi.mocked(window.electronAPI.agentMode.deleteTask).mockImplementation(
+      () => new Promise((resolve) => (finishDelete = () => resolve({ success: true }))),
+    )
+    const sessionsBefore = Object.keys(agentMode.sessions)
+    await runClockTo(NOW + 10 * MINUTE)
+    saveTask.mockClear()
+
+    const deleted = tasks.deleteTask('t1')
+    folderChecked(false)
+    await settleMicrotasks()
+    finishDelete()
+
+    expect(await deleted).toBe(true)
+    await settleMicrotasks()
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(errorsReport).not.toHaveBeenCalled()
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+  })
+
+  it('does not start once paused while its start is checked', async () => {
+    let folderChecked: (found: boolean) => void = () => {}
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+      () => new Promise((resolve) => (folderChecked = resolve)),
+    )
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
+    folderChecked(true)
+    await settleMicrotasks()
+
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(tasks.taskState('t1')).toEqual({ idle: undefined })
+  })
+
+  it('tries again at its Next Run', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValueOnce(false)
+    await runClockTo(NOW + 10 * MINUTE)
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'failed'))
+
+    await runClockTo(NOW + 20 * MINUTE)
+
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual(['t1 one'])
+    expect(tasks.taskSchedule('t1')).toEqual({
+      schedule: every10Minutes(),
+      nextRunAt: NOW + 30 * MINUTE,
+    })
+  })
+})
+
+/** End the turn the `call`-th `startTurn` started with an error chunk. */
+async function failTurn(call: number, errorText: string): Promise<void> {
+  const turnId = await turnIdOf(call)
+  const sessionId = sentConfig(call).sessionId
+  pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk: { type: 'start' } })
+  pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk: { type: 'error', errorText } })
+  pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+}
+
+describe('a Scheduled Run that fails part-way', () => {
+  it('keeps the failed outcome, toasts it, and keeps the Schedule', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await runClockTo(NOW + 10 * MINUTE)
+    await finishTurn(0)
+    const sessionId = sentConfig(0).sessionId
+
+    await failTurn(1, 'model refused')
+
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toEqual({
+        idle: expect.objectContaining({
+          kind: 'failed',
+          sessionId,
+          stepIndex: 2,
+          message: 'model refused',
+        }),
+      }),
+    )
+    const toast = reported('agent-tasks/scheduled-run-failed')
+    expect(toast).toMatchObject({ surface: 'toast' })
+    expect(toast?.userMessage).toContain('model refused')
+    expect(lastSavedTask('t1')).toMatchObject({
+      schedule: every10Minutes(),
+      nextRunAt: NOW + 20 * MINUTE,
+    })
+  })
+
+  it('toasts a Step that main refuses to start', async () => {
+    startTurn.mockImplementationOnce(async () => ({ success: false, error: 'refused by main' }))
+    const { tasks } = await readyStores(scheduledTask('t1'))
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'failed'))
+    expect(reported('agent-tasks/scheduled-run-failed')).toMatchObject({ surface: 'toast' })
+  })
+
+  it('shows no error toast when the user stops it', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+
+    await tasks.stopTask('t1')
+
+    expect(tasks.taskState('t1')).toEqual({
+      idle: expect.objectContaining({ kind: 'stopped', stepIndex: 1 }),
+    })
+    await settleMicrotasks()
+    expect(errorsReport).not.toHaveBeenCalled()
+  })
+})
+
+describe('a scheduled Task run by hand', () => {
+  it('is refused with no outcome and no toast from the Tasks store', async () => {
+    const { agentMode, tasks } = await readyStores(
+      scheduledTask('t1', { settingsTemplate: UNUSABLE_TEMPLATE }),
+    )
+    const sessionsBefore = Object.keys(agentMode.sessions)
+
+    expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'settings-problems' })
+
+    await settleMicrotasks()
+    expect(tasks.taskState('t1')).toEqual({ idle: undefined })
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(errorsReport).not.toHaveBeenCalled()
+  })
+
+  it('fails part-way without a toast', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    await tasks.runTask('t1')
+
+    await failTurn(0, 'model refused')
+
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'failed'))
+    expect(reportedCodes()).not.toContain('agent-tasks/scheduled-run-failed')
+    expect(errorsReport.mock.calls.map(([error]) => error)).not.toContainEqual(
+      expect.objectContaining({ surface: 'toast' }),
+    )
   })
 })
 

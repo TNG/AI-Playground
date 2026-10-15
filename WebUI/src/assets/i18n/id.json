@@ -587,6 +587,8 @@
   "AGENT_TASK_SAVE_FAILED": "Tidak dapat menyimpan tugas.",
   "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Tidak disimpan: model chat tugas {model} harus diunduh terlebih dahulu.",
   "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Tidak disimpan: unduhan {model} gagal: {error}",
+  "AGENT_TASK_RUN_DOWNLOAD_DECLINED": "Tidak dimulai: model chat tugas {model} harus diunduh terlebih dahulu.",
+  "AGENT_TASK_RUN_DOWNLOAD_FAILED": "Tidak dimulai: unduhan {model} gagal: {error}",
   "AGENT_TASK_READ_FAILED": "Tidak dapat membaca tugas yang disimpan.",
   "AGENT_TASK_BLOCKED_NAME": "Beri nama tugas.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Tambahkan setidaknya satu langkah.",

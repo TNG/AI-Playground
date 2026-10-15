@@ -587,6 +587,8 @@
   "AGENT_TASK_SAVE_FAILED": "Die Aufgabe konnte nicht gespeichert werden.",
   "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Nicht gespeichert: Das Chat-Modell {model} der Aufgabe muss zuerst heruntergeladen werden.",
   "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Nicht gespeichert: Der Download von {model} ist fehlgeschlagen: {error}",
+  "AGENT_TASK_RUN_DOWNLOAD_DECLINED": "Nicht gestartet: Das Chat-Modell {model} der Aufgabe muss zuerst heruntergeladen werden.",
+  "AGENT_TASK_RUN_DOWNLOAD_FAILED": "Nicht gestartet: Der Download von {model} ist fehlgeschlagen: {error}",
   "AGENT_TASK_READ_FAILED": "Die gespeicherten Aufgaben konnten nicht gelesen werden.",
   "AGENT_TASK_BLOCKED_NAME": "Gib der Aufgabe einen Namen.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Füge mindestens einen Schritt hinzu.",

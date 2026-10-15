@@ -587,6 +587,8 @@
   "AGENT_TASK_SAVE_FAILED": "No se pudo guardar la tarea.",
   "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "No se guardó: primero hay que descargar el modelo de chat {model} de la tarea.",
   "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "No se guardó: la descarga de {model} falló: {error}",
+  "AGENT_TASK_RUN_DOWNLOAD_DECLINED": "No se inició: primero hay que descargar el modelo de chat {model} de la tarea.",
+  "AGENT_TASK_RUN_DOWNLOAD_FAILED": "No se inició: la descarga de {model} falló: {error}",
   "AGENT_TASK_READ_FAILED": "No se pudieron leer las tareas guardadas.",
   "AGENT_TASK_BLOCKED_NAME": "Ponle un nombre a la tarea.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Añade al menos un paso.",

@@ -587,6 +587,8 @@
   "AGENT_TASK_SAVE_FAILED": "无法保存任务。",
   "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "未保存：需要先下载任务的聊天模型 {model}。",
   "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "未保存：{model} 下载失败：{error}",
+  "AGENT_TASK_RUN_DOWNLOAD_DECLINED": "未启动：需要先下载任务的聊天模型 {model}。",
+  "AGENT_TASK_RUN_DOWNLOAD_FAILED": "未启动：{model} 下载失败：{error}",
   "AGENT_TASK_READ_FAILED": "无法读取已保存的任务。",
   "AGENT_TASK_BLOCKED_NAME": "请为任务命名。",
   "AGENT_TASK_BLOCKED_NO_STEPS": "请至少添加一个步骤。",

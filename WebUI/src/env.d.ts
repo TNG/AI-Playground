@@ -75,7 +75,6 @@ type LocalSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
-  isAgentPresetEnabled?: boolean
   /** Shows the machine-level debug controls in Settings → Developer. */
   showDebugSettingsInUI?: boolean
   oemVendorOverride?: string | null

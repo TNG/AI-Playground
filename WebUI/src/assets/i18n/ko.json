@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "작업으로 저장",
   "AGENT_TASK_SAVED": "작업 “{name}”을(를) 저장했습니다",
   "AGENT_TASK_SAVE_FAILED": "작업을 저장할 수 없습니다.",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "저장되지 않음: 먼저 작업의 채팅 모델 {model}을(를) 다운로드해야 합니다.",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "저장되지 않음: {model} 다운로드에 실패했습니다: {error}",
   "AGENT_TASK_READ_FAILED": "저장된 작업을 읽을 수 없습니다.",
   "AGENT_TASK_BLOCKED_NAME": "작업 이름을 입력하세요.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "단계를 하나 이상 추가하세요.",

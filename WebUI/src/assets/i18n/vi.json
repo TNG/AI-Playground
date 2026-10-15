@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "Lưu thành tác vụ",
   "AGENT_TASK_SAVED": "Đã lưu tác vụ “{name}”",
   "AGENT_TASK_SAVE_FAILED": "Không thể lưu tác vụ.",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Chưa lưu: cần tải xuống mô hình chat {model} của tác vụ trước.",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Chưa lưu: tải xuống {model} thất bại: {error}",
   "AGENT_TASK_READ_FAILED": "Không thể đọc các tác vụ đã lưu.",
   "AGENT_TASK_BLOCKED_NAME": "Hãy đặt tên cho tác vụ.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Thêm ít nhất một bước.",

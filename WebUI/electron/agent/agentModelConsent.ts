@@ -2,16 +2,17 @@ import { appLoggerInstance } from '../observability/logger.ts'
 import { requestRenderer } from '../artifact/rendererBridge'
 import { requestDownloadConsent } from '../permissions/permissionsService'
 import type { CancellableError } from '../permissions/promptAdapter'
-import { MODEL_DOWNLOAD_DECLINED, type AgentModeTurnConfig } from '@/types/agentIpc'
+import {
+  MODEL_DOWNLOAD_DECLINED,
+  promptHasImageAttachment,
+  type AgentModeTurnConfig,
+} from '@/types/agentIpc'
 import { LOG_SOURCE } from './piAgentLog.ts'
 
 const TURN_CANCELLED = 'Agent turn cancelled.'
 
-// Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).
-const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
-
 function needsVision(config: AgentModeTurnConfig, prompt: string): boolean {
-  return config.modelConfig.supportsVision === true && IMAGE_ATTACHMENT.test(prompt)
+  return config.modelConfig.supportsVision === true && promptHasImageAttachment(prompt)
 }
 
 /** The models the turn's readiness would load that are not on disk; never any for cloud. */

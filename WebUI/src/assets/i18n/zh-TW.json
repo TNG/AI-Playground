@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "另存為工作",
   "AGENT_TASK_SAVED": "已儲存工作「{name}」",
   "AGENT_TASK_SAVE_FAILED": "無法儲存工作。",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "未儲存：必須先下載工作的聊天模型 {model}。",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "未儲存：{model} 下載失敗：{error}",
   "AGENT_TASK_READ_FAILED": "無法讀取已儲存的工作。",
   "AGENT_TASK_BLOCKED_NAME": "請為工作命名。",
   "AGENT_TASK_BLOCKED_NO_STEPS": "請至少新增一個步驟。",

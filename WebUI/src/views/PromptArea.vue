@@ -704,7 +704,7 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
     } else if (onHomeAgentThread) {
       conversations.addNewConversation()
     }
-    toast.success(`Switched to ${preset.name}`)
+    toast.success(`Switched to ${oemBranding.presetLabel(preset.name)}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
   }

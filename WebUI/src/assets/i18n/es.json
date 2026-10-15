@@ -640,7 +640,7 @@
   "AGENT_TASKS_OUTCOME_NOT_STARTED": "La ejecución programada no pudo iniciarse",
   "AGENT_TASK_SCHEDULED_RUN_NOT_STARTED": "La ejecución programada de «{name}» no pudo iniciarse: {reason}",
   "AGENT_TASK_SCHEDULED_RUN_FAILED": "La ejecución programada de «{name}» falló: {reason}",
-  "AGENT_TASK_PRESET_UNAVAILABLE": "El preajuste Agent no está disponible.",
+  "AGENT_TASK_PRESET_UNAVAILABLE": "El preajuste Agent Maker no está disponible.",
   "AGENT_TASK_MCP_UNAVAILABLE": "No se pudieron cargar los servidores MCP: {error}",
   "AGENT_TASKS_DELETE": "Eliminar la tarea {name}",
   "AGENT_TASKS_RUN": "Ejecutar la tarea {name}",

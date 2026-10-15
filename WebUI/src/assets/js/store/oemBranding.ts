@@ -15,6 +15,9 @@ import { computed, ref } from 'vue'
 /** Presets whose displayed name is prefixed with the OEM's brand. */
 const CO_BRANDED_PRESETS = new Set(['Game Agent', 'Quick Coder'])
 
+/** Presets shown under another name; the key stays their identity, as above. */
+const PRESET_DISPLAY_NAMES: Record<string, string> = { Agent: 'Agent Maker' }
+
 export const useOemBranding = defineStore('oemBranding', () => {
   const vendor = ref<string>('unknown')
   const manufacturer = ref<string>('')
@@ -43,11 +46,10 @@ export const useOemBranding = defineStore('oemBranding', () => {
     return detecting
   }
 
-  /** The name to show for a preset — its own, unless the OEM co-brands it. */
+  /** The name to show for a preset — its own, unless renamed or co-branded by the OEM. */
   function presetLabel(presetName: string): string {
-    return brand.value && CO_BRANDED_PRESETS.has(presetName)
-      ? `${brand.value} ${presetName}`
-      : presetName
+    const name = PRESET_DISPLAY_NAMES[presetName] ?? presetName
+    return brand.value && CO_BRANDED_PRESETS.has(presetName) ? `${brand.value} ${name}` : name
   }
 
   /**

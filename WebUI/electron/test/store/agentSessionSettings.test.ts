@@ -700,6 +700,21 @@ describe('Agent Session Settings', () => {
       expect(store.chat.messages.length).toBe(before + 1)
     })
 
+    it('takes the loaded model again when the user picks another one and then switches back', async () => {
+      chat.state.catalog = [
+        { name: 'Loaded-9B', type: 'llamaCPP' },
+        { name: 'Missing-27B', type: 'llamaCPP' },
+      ]
+      const store = await openedWith(sentWithModel('Loaded-9B'))
+      chat.edit({ model: 'Missing-27B' })
+      expect(store.openSessionSettings.model).toBe('Missing-27B')
+
+      chat.edit({ model: 'Loaded-9B' })
+
+      expect(store.openSessionSettings.model).toBe('Loaded-9B')
+      expect(store.sessions['aipg-agent-sent'].settings?.model).toBe('Loaded-9B')
+    })
+
     it('never blocks a Draft Session', async () => {
       chat.state.catalog = [{ name: 'Other-4B', type: 'llamaCPP' }]
       const store = await startedStore()

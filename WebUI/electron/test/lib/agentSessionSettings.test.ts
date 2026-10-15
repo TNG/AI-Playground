@@ -172,7 +172,7 @@ describe('keepUneditedSettings', () => {
     const stored = { backend: 'llamaCPP' as const, model: 'Gone-7B', thinkingEnabled: true }
     const baseline = { backend: 'llamaCPP' as const, model: 'Substitute-9B', thinkingEnabled: true }
     const next = { backend: 'llamaCPP' as const, model: 'Substitute-9B', thinkingEnabled: false }
-    expect(keepUneditedSettings(stored, next, baseline)).toEqual({
+    expect(keepUneditedSettings(stored, next, baseline).settings).toEqual({
       backend: 'llamaCPP',
       model: 'Gone-7B',
       thinkingEnabled: false,
@@ -182,7 +182,32 @@ describe('keepUneditedSettings', () => {
   it('takes a field the user changed', () => {
     const stored = { model: 'Gone-7B' }
     expect(
-      keepUneditedSettings(stored, { model: 'Picked-4B' }, { model: 'Substitute-9B' }),
+      keepUneditedSettings(stored, { model: 'Picked-4B' }, { model: 'Substitute-9B' }).settings,
     ).toEqual({ model: 'Picked-4B' })
+  })
+
+  it('takes a field changed back to the value the session loaded with', () => {
+    const baseline = { model: 'Loaded-9B' }
+    const first = keepUneditedSettings({ model: 'Loaded-9B' }, { model: 'Missing-27B' }, baseline)
+    expect(first.settings).toEqual({ model: 'Missing-27B' })
+    const back = keepUneditedSettings(
+      first.settings,
+      { model: 'Loaded-9B' },
+      baseline,
+      first.edited,
+    )
+    expect(back.settings).toEqual({ model: 'Loaded-9B' })
+  })
+
+  it('takes the substitute once the user picked another model and then the substitute', () => {
+    const baseline = { model: 'Substitute-9B' }
+    const first = keepUneditedSettings({ model: 'Gone-7B' }, { model: 'Picked-4B' }, baseline)
+    const back = keepUneditedSettings(
+      first.settings,
+      { model: 'Substitute-9B' },
+      baseline,
+      first.edited,
+    )
+    expect(back.settings).toEqual({ model: 'Substitute-9B' })
   })
 })

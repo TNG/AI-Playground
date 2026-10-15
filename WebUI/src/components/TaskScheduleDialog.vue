@@ -64,7 +64,7 @@
           <p class="text-sm text-muted-foreground">
             {{ i18n.AGENT_TASK_SCHEDULE_PAUSES_FOR_MODELS }}
           </p>
-          <TaskModelWarnings :template="task.settingsTemplate" :chat-model-steps="task.steps" />
+          <TaskModelWarnings :state="modelWarnings" />
         </template>
         <DialogFooter class="gap-2">
           <Button
@@ -112,6 +112,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import TaskModelWarnings from '@/components/TaskModelWarnings.vue'
+import { useTaskModelWarnings } from '@/assets/js/taskModelWarnings'
 import {
   describeNextRun,
   nextSlotAfter,
@@ -132,6 +133,10 @@ const i18n = i18nStore.state
 const task = computed(() => agentTasks.tasks.find((entry) => entry.id === props.taskId))
 const title = computed(() => i18n.AGENT_TASKS_SCHEDULE.replace('{name}', task.value?.name ?? ''))
 const hasSchedule = computed(() => task.value?.schedule !== undefined)
+
+const modelWarnings = useTaskModelWarnings(() => task.value?.settingsTemplate, {
+  chatModelSteps: () => task.value?.steps,
+})
 
 const UNIT_KEYS = {
   minutes: 'AGENT_TASK_SCHEDULE_UNIT_MINUTES',

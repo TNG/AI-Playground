@@ -72,8 +72,25 @@ const inference = vi.hoisted(() => {
     base,
     live: { ...base, backend: 'llamaCPP', activeModel: 'Live-9B' },
     catalog: [] as { name: string; type: string }[],
+    /** Models not on disk, as the models store would report them. */
+    missing: new Set<string>(),
+    cloudProviderIds: [] as string[],
   }
 })
+
+const getMissingLlmModels = vi.hoisted(() =>
+  vi.fn(async (backend: string, model: string | undefined) =>
+    model && inference.missing.has(model) ? [{ repo_id: model, type: 'ggufLLM', backend }] : [],
+  ),
+)
+
+const requestDownload = vi.hoisted(() => vi.fn(async (_models: unknown[]) => {}))
+
+vi.mock('@/assets/js/permissions/permissions', () => ({
+  requestDownload: (models: unknown[]) => requestDownload(models),
+  requestVramWarning: vi.fn(async () => true),
+  notify: vi.fn(),
+}))
 
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
@@ -83,7 +100,7 @@ vi.mock('@/assets/js/store/textInference', () => ({
     },
     settingsPerPreset: {},
     ensureReadyForInference: vi.fn(),
-    getMissingLlmModels: vi.fn(async () => []),
+    getMissingLlmModels,
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
     get settingsAvailability() {
@@ -91,8 +108,8 @@ vi.mock('@/assets/js/store/textInference', () => ({
         models: inference.catalog,
         embeddingModels: [],
         services: [],
-        cloudEnabled: false,
-        cloudProviderIds: [],
+        cloudEnabled: inference.cloudProviderIds.length > 0,
+        cloudProviderIds: inference.cloudProviderIds,
         embeddingBackend: 'llamaCPP',
       }
     },
@@ -194,6 +211,9 @@ beforeEach(() => {
   activePreset.state!.preset = AGENT
   inference.live.activeModel = 'Live-9B'
   inference.catalog = []
+  inference.missing = new Set()
+  inference.cloudProviderIds = []
+  requestDownload.mockImplementation(async () => {})
   startTurn.mockImplementation(async () => ({ success: true, error: undefined }))
   const storage = new Map<string, string>()
   const storageShim = {
@@ -687,6 +707,125 @@ describe('a Task whose Settings Template has a problem', () => {
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
     expect(sentPrompts()).toEqual(['one'])
+  })
+})
+
+describe('running a Task whose chat model is not downloaded', () => {
+  const decline = async () => {
+    const { createCancellation } = await import('@/assets/js/errors/appError')
+    throw createCancellation({ technicalMessage: 'Download cancelled by user' })
+  }
+
+  it('asks to download the model before any Task Session exists, then starts the run', async () => {
+    inference.missing = new Set(['Template-27B'])
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    const sessionsBefore = Object.keys(agentMode.sessions)
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+
+    const running = tasks.runTask('t1')
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
+
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ repo_id: 'Template-27B' }),
+    ])
+    expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+    expect(tasks.taskState('t1')).toEqual({ idle: undefined })
+    finishDownload()
+
+    expect(await running).toEqual({ ok: true })
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it.each([
+    ['declining', decline, 'download-declined'],
+    [
+      'a failed download',
+      async () => {
+        throw new Error('Not enough disk space')
+      },
+      'download-failed',
+    ],
+  ])(
+    'refuses the run after %s, creating no Task Session and no outcome',
+    async (_c, outcome, reason) => {
+      inference.missing = new Set(['Template-27B'])
+      requestDownload.mockImplementation(outcome)
+      const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+      const sessionsBefore = Object.keys(agentMode.sessions)
+
+      expect(await tasks.runTask('t1')).toMatchObject({
+        ok: false,
+        reason,
+        message: expect.stringContaining('Template-27B'),
+      })
+
+      await settleMicrotasks()
+      expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
+      expect(startTurn).not.toHaveBeenCalled()
+      expect(saveSession).not.toHaveBeenCalled()
+      expect(saveTask).not.toHaveBeenCalled()
+      expect(tasks.taskState('t1')).toEqual({ idle: undefined })
+    },
+  )
+
+  it('reports a failed download through the error sink, naming the error', async () => {
+    inference.missing = new Set(['Template-27B'])
+    requestDownload.mockRejectedValue(new Error('Not enough disk space'))
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(await tasks.runTask('t1')).toMatchObject({ error: 'Not enough disk space' })
+    expect(errorsReport).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'agent-tasks/model-download-failed', surface: 'toast' }),
+    )
+  })
+
+  it('does not ask when the Settings Template has a problem; that refusal comes first', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    inference.missing = new Set(['Template-27B'])
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'settings-problems' })
+    expect(requestDownload).not.toHaveBeenCalled()
+  })
+
+  it('refuses a second Run while the first waits on the download', async () => {
+    inference.missing = new Set(['Template-27B'])
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    const sessionsBefore = Object.keys(agentMode.sessions).length
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+
+    const first = tasks.runTask('t1')
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: false, reason: 'running' })
+    finishDownload()
+    expect(await first).toEqual({ ok: true })
+    expect(requestDownload).toHaveBeenCalledTimes(1)
+    expect(Object.keys(agentMode.sessions)).toHaveLength(sessionsBefore + 1)
+  })
+
+  it('starts without asking when the model is already downloaded', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    expect(requestDownload).not.toHaveBeenCalled()
+  })
+
+  it('never asks for a cloud model', async () => {
+    inference.missing = new Set(['cloud-model'])
+    inference.cloudProviderIds = ['custom']
+    const cloud = { ...TEMPLATE, backend: 'cloud' as const, model: 'cloud-model' }
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: cloud }))
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    expect(requestDownload).not.toHaveBeenCalled()
   })
 })
 

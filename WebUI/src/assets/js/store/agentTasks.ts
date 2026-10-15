@@ -82,6 +82,7 @@ export type RunTaskResult =
   | { ok: true }
   | { ok: false; reason: 'no-task' | 'running' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
+  | ({ ok: false; message: string } & ModelDownloadRefusal)
 
 export type SetScheduleResult =
   | { ok: true; task: AgentTask }
@@ -141,6 +142,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   let scheduleTicker: ReturnType<typeof setInterval> | undefined
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
+  /** Tasks whose ▶ Run is still being checked, possibly waiting on a model download. */
+  const starting = new Set<string>()
 
   async function init(): Promise<void> {
     try {
@@ -249,14 +252,37 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return null
   }
 
+  type DownloadRefusalText = { declined: string; failed: string; surface: 'inline' | 'toast' }
+
+  const saveRefusalText = (): DownloadRefusalText => ({
+    declined:
+      i18n.state.AGENT_TASK_SAVE_DOWNLOAD_DECLINED ??
+      'Not saved: the task’s chat model {model} has to be downloaded first.',
+    failed:
+      i18n.state.AGENT_TASK_SAVE_DOWNLOAD_FAILED ??
+      'Not saved: the download of {model} failed: {error}',
+    surface: 'inline',
+  })
+
+  const runRefusalText = (): DownloadRefusalText => ({
+    declined:
+      i18n.state.AGENT_TASK_RUN_DOWNLOAD_DECLINED ??
+      'Not started: the task’s chat model {model} has to be downloaded first.',
+    failed:
+      i18n.state.AGENT_TASK_RUN_DOWNLOAD_FAILED ??
+      'Not started: the download of {model} failed: {error}',
+    surface: 'toast',
+  })
+
   /**
-   * Nothing is saved until the Task's local chat model is on disk, with its vision projector
-   * when a Step hands it an image; a missing one is downloaded with the user's consent.
+   * The Task's local chat model, with its vision projector when a Step hands it an image, is
+   * downloaded with the user's consent when missing; a refusal says why it is not on disk.
    */
-  async function saveRefusal(
+  async function chatModelRefusal(
     template: AgentSessionSettings,
     steps: readonly AgentTaskStep[],
-  ): Promise<SaveTaskResult | null> {
+    text: DownloadRefusalText,
+  ): Promise<(ModelDownloadRefusal & { message: string }) | null> {
     const { inference } = textInference.inferenceForSettings(AGENT_PRESET, template)
     if (inference.backend === 'cloud') return null
     const model = inference.activeModel ?? ''
@@ -272,32 +298,31 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return null
     } catch (error) {
       if (isCancellation(error)) {
-        const message = fill(
-          i18n.state.AGENT_TASK_SAVE_DOWNLOAD_DECLINED ??
-            'Not saved: the task’s chat model {model} has to be downloaded first.',
-          { model },
-        )
-        return { ok: false, reason: 'download-declined', message }
+        return { reason: 'download-declined', message: fill(text.declined, { model }) }
       }
       const technical = extractMessage(error)
-      const message = fill(
-        i18n.state.AGENT_TASK_SAVE_DOWNLOAD_FAILED ??
-          'Not saved: the download of {model} failed: {error}',
-        { model, error: technical },
-      )
+      const message = fill(text.failed, { model, error: technical })
       errors.report(
         createAppError({
           category: 'backend',
           code: 'agent-tasks/model-download-failed',
           severity: 'warning',
-          surface: 'inline',
+          surface: text.surface,
           userMessage: message,
           technicalMessage: technical,
           cause: error,
         }),
       )
-      return { ok: false, reason: 'download-failed', error: technical, message }
+      return { reason: 'download-failed', error: technical, message }
     }
+  }
+
+  async function saveRefusal(
+    template: AgentSessionSettings,
+    steps: readonly AgentTaskStep[],
+  ): Promise<SaveTaskResult | null> {
+    const refusal = await chatModelRefusal(template, steps, saveRefusalText())
+    return refusal && { ok: false, ...refusal }
   }
 
   /** Store the draft with the Open Session's folder and the panel's Session Settings. */
@@ -436,21 +461,41 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /**
    * Start a Task Run in the background: a new Task Session on the Task's folder and Settings
-   * Template, its Steps sent one by one as each previous turn settles. Refused while the
-   * Settings Template has a problem, before any Task Session exists.
+   * Template, its Steps sent one by one as each previous turn settles. Refused, before any Task
+   * Session exists, while the Settings Template has a problem or its chat model is not downloaded.
    */
   async function runTask(id: string): Promise<RunTaskResult> {
+    if (starting.has(id)) return { ok: false, reason: 'running' }
+    starting.add(id)
+    try {
+      return await startManualRun(id)
+    } finally {
+      starting.delete(id)
+    }
+  }
+
+  async function startManualRun(id: string): Promise<RunTaskResult> {
     const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate.capabilities
     await agentMode.loadMcpServersFor(capabilities ?? [])
     // Looked up after the wait, which a delete or a second Run may have overtaken.
-    const task = tasks.value.find((entry) => entry.id === id)
-    if (!task) return { ok: false, reason: 'no-task' }
+    const checked = tasks.value.find((entry) => entry.id === id)
+    if (!checked) return { ok: false, reason: 'no-task' }
     if (runs.value[id]) return { ok: false, reason: 'running' }
     const problems = taskProblems(id)
     if (problems.length > 0) {
       const message = describeSettingsProblems(problems, i18n.state)
       return { ok: false, reason: 'settings-problems', problems, message }
     }
+    const refusal = await chatModelRefusal(
+      checked.settingsTemplate,
+      checked.steps,
+      runRefusalText(),
+    )
+    if (refusal) return { ok: false, ...refusal }
+    // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task) return { ok: false, reason: 'no-task' }
+    if (runs.value[id]) return { ok: false, reason: 'running' }
     startRun(task, false)
     return { ok: true }
   }
@@ -478,7 +523,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function stillScheduled(id: string): AgentTask | undefined {
     const task = tasks.value.find((entry) => entry.id === id)
-    if (!task?.schedule?.enabled || runs.value[id] || deleting.has(id)) return undefined
+    if (!task?.schedule?.enabled || runs.value[id] || starting.has(id) || deleting.has(id)) {
+      return undefined
+    }
     return task
   }
 

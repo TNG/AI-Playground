@@ -26,6 +26,8 @@
 
       <p class="text-xs text-muted-foreground break-all">{{ summary }}</p>
 
+      <TaskModelWarnings :template="agentMode.openSessionSettings" />
+
       <div class="flex flex-col gap-1.5">
         <Button
           class="self-start px-3 py-1.5 rounded text-sm"
@@ -71,6 +73,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ChevronDownIcon } from '@heroicons/vue/24/outline'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { SAVE_TASK_BLOCKER_KEYS, useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import { textInferenceBackendDisplayName } from '@/assets/js/store/textInference'
@@ -88,9 +91,11 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import TaskModelWarnings from '@/components/TaskModelWarnings.vue'
 import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import * as toast from '@/assets/js/toast'
 
+const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const i18n = useI18N().state
 

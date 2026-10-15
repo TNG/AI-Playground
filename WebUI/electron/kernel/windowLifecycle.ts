@@ -15,7 +15,7 @@ export type CloseDecision = 'hide' | 'close'
 export type ClosePolicyInputs = {
   /** The Home Agent backend is installed and its channel server is running. */
   homeAgentRunning: boolean
-  /** The renderer reported tracked work (an activity is in flight). */
+  /** The renderer reported tracked work (an activity, a Task Run or an enabled Schedule). */
   rendererBusy: boolean
   /** Main itself is running an agent turn (Pi session). */
   agentTurnActive: boolean

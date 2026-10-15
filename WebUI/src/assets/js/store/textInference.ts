@@ -1022,49 +1022,46 @@ export const useTextInference = defineStore(
       // models, however, run on a LOCAL backend even in Cloud Mode (see
       // embeddingBackend), so an embedding download can still be required.
       if (backend.value === 'cloud' && type === 'llm') return []
-      // For embeddings, resolve against the (possibly local-fallback) embedding
-      // backend; for the LLM, use the chat backend (never 'cloud' here).
-      const localBackend =
-        type === 'embedding'
-          ? embeddingBackend.value
-          : (backend.value as Exclude<LlmBackend, 'cloud'>)
-      let model: string | undefined
       if (type === 'llm') {
-        model = activeModel.value
-      } else {
-        model = activeEmbeddingModel.value
+        // The chat backend, never 'cloud' here.
+        const localBackend = backend.value as Exclude<LlmBackend, 'cloud'>
+        return getMissingLlmModels(localBackend, activeModel.value, options)
       }
+      // Resolved against the (possibly local-fallback) embedding backend.
+      const model = activeEmbeddingModel.value
       if (!model) return []
-
-      const modelMetaData = llmModels.value
-        .filter((m) => m.type === localBackend)
-        .find((m) => m.active)
-      const modelType = type === 'embedding' ? 'embedding' : backendToAipgModelType[localBackend]
-      const backendName = backendToAipgBackendName[localBackend]
-
-      const checkList = [
+      const checkedModels = await models.checkModelAlreadyLoaded([
         {
           repo_id: model,
-          type: modelType,
-          backend: backendName,
+          type: 'embedding',
+          backend: backendToAipgBackendName[embeddingBackend.value],
         },
-      ]
-      // The multimodal projector only applies to a vision LLM — never pull it for
-      // an embedding-only download (its "active model" lookup is incidental here).
-      // A text turn runs without it (llama.cpp only passes --mmproj when the file
-      // is beside the model), so asking for it would be a gigabyte the turn does
-      // not use — and on a remote Home Agent turn, a download question nobody
-      // expected.
-      if (type === 'llm' && options.needsVision && modelMetaData?.mmproj) {
-        checkList.push({
-          repo_id: modelMetaData.mmproj,
-          type: backendToAipgModelType[localBackend],
-          backend: backendName,
-        })
+      ])
+      return checkedModels.filter((m) => !m.already_loaded)
+    }
+
+    /** `model` on `localBackend`, and its projector when the turn needs vision, if not on disk. */
+    async function getMissingLlmModels(
+      localBackend: Exclude<LlmBackend, 'cloud'>,
+      model: string | undefined,
+      options: { needsVision?: boolean } = {},
+    ) {
+      if (!model) return []
+      const backendName = backendToAipgBackendName[localBackend]
+      const modelType = backendToAipgModelType[localBackend]
+      const checkList = [{ repo_id: model, type: modelType, backend: backendName }]
+      // A text turn runs without the projector (llama.cpp only passes --mmproj when
+      // the file is beside the model), so asking for it would be a gigabyte the
+      // turn does not use — and on a remote Home Agent turn, a download question
+      // nobody expected.
+      const mmproj = llmModels.value.find(
+        (m) => m.type === localBackend && m.name === model,
+      )?.mmproj
+      if (options.needsVision && mmproj) {
+        checkList.push({ repo_id: mmproj, type: modelType, backend: backendName })
       }
       const checkedModels = await models.checkModelAlreadyLoaded(checkList)
-      const notYetDownloaded = checkedModels.filter((m) => !m.already_loaded)
-      return notYetDownloaded
+      return checkedModels.filter((m) => !m.already_loaded)
     }
 
     function toggleMetrics() {
@@ -2246,6 +2243,7 @@ export const useTextInference = defineStore(
       selectEmbeddingModel,
       clearSelectionOfModel,
       getDownloadParamsForCurrentModelIfRequired,
+      getMissingLlmModels,
       toggleMetrics,
       increaseFontSize,
       decreaseFontSize,

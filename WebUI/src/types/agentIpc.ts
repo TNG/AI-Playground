@@ -4,6 +4,14 @@ import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 
+// Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).
+const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
+
+/** Whether an agent prompt hands the model an image, so a vision model needs its projector. */
+export function promptHasImageAttachment(prompt: string): boolean {
+  return IMAGE_ATTACHMENT.test(prompt)
+}
+
 const SamplingParamsSchema = z.record(z.string(), z.unknown())
 
 const LocalModelConfigSchema = z.object({

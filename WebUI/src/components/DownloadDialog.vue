@@ -240,8 +240,7 @@ const modelFolderReadOnly = computed(() => globalSetup.state.modelFolderReadOnly
 const models = useModels()
 const dialogStore = useDialogStore()
 
-const { downloadDialogVisible, downloadList, downloadSuccessFunction, downloadFailFunction } =
-  storeToRefs(dialogStore)
+const { downloadDialogVisible, downloadList } = storeToRefs(dialogStore)
 
 let downloding = false
 const curDownloadTip = ref('')
@@ -290,7 +289,7 @@ watch(downloadDialogVisible, async (isVisible) => {
 async function initializeDownloadDialog() {
   if (downloding) {
     toast.error(i18nState.DOWNLOADER_CONFLICT)
-    downloadFailFunction.value?.({ type: 'conflict' })
+    dialogStore.downloadFailed({ type: 'conflict' })
     dialogStore.closeDownloadDialog()
     return
   }
@@ -321,7 +320,7 @@ async function initializeDownloadDialog() {
     }
     sizeRequesting.value = false
   } catch (ex) {
-    downloadFailFunction.value?.({ type: 'error', error: ex })
+    dialogStore.downloadFailed({ type: 'error', error: ex })
     sizeRequesting.value = false
   }
 }
@@ -416,13 +415,15 @@ function download() {
           errorText.value = i18nState.ERROR_GENERATE_UNKONW_EXCEPTION
           break
       }
-      downloadFailFunction.value?.({ type: 'error', error: errorText.value })
+      const failure = { type: 'error', error: errorText.value }
+      // A resumable error is only final once the user closes instead of retrying.
+      if (e.retryable) dialogStore.downloadFailedResumable(failure)
+      else dialogStore.downloadFailed(failure)
     },
   })
     .then(() => {
       downloding = false
-      dialogStore.closeDownloadDialog()
-      downloadSuccessFunction.value?.()
+      dialogStore.downloadCompleted()
     })
     .catch(() => {
       // onError already surfaced a structured failure; an abort or other
@@ -432,9 +433,7 @@ function download() {
 }
 
 function cancelConfirm() {
-  downloadFailFunction.value?.(
-    createCancellation({ technicalMessage: 'Download cancelled by user' }),
-  )
+  dialogStore.downloadFailed(createCancellation({ technicalMessage: 'Download cancelled by user' }))
   dialogStore.closeDownloadDialog()
 }
 
@@ -456,9 +455,7 @@ function retryDownload() {
 function cancelDownload() {
   abortController?.abort()
   aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
-  downloadFailFunction.value?.(
-    createCancellation({ technicalMessage: 'Download cancelled by user' }),
-  )
+  dialogStore.downloadFailed(createCancellation({ technicalMessage: 'Download cancelled by user' }))
   downloding = false
   dialogStore.closeDownloadDialog()
 }

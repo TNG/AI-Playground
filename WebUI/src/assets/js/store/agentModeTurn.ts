@@ -21,7 +21,7 @@ import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
-import type { AgentTurnSnapshot, AgentTurnState } from '@/types/kernelEvents'
+import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
 
 type ActiveTurn = {
   sessionId: string
@@ -216,6 +216,8 @@ export type AgentSessionRuntime = {
   turnState: Ref<AgentTurnState | null>
   /** 1-based place in the Turn Queue while queued; null when unknown or not waiting. */
   queuePosition: Ref<number | null>
+  /** What the user is asked while paused; null otherwise. */
+  pauseReason: Ref<PauseReason | null>
   toolProgress: Ref<Record<string, string>>
   toolImages: Ref<Record<string, AgentToolImage[]>>
   /** A turn streams into this runtime, or waits to be adopted from the kernel snapshot. */
@@ -228,7 +230,7 @@ type SessionRuntime = AgentSessionRuntime & {
   onChunk: (turnId: string, chunk: unknown) => void
   onToolProgress: (turnId: string, toolCallId: string, text: string) => void
   onToolImage: (image: AgentToolImage) => void
-  onTurnState: (turnId: string, state: AgentTurnState) => void
+  onTurnState: (turnId: string, state: AgentTurnState, pauseReason?: PauseReason) => void
   onTurnDone: (turnId: string) => void
   onQueuePosition: (turnId: string, position: number | undefined) => void
   resume: (turn: AgentTurnSnapshot) => void
@@ -253,6 +255,7 @@ function createSessionRuntime(options: {
   const processing = ref(false)
   const turnState = ref<AgentTurnState | null>(null)
   const queuePosition = ref<number | null>(null)
+  const pauseReason = ref<PauseReason | null>(null)
   const toolProgress = ref<Record<string, string>>({})
   const toolImages = ref<Record<string, AgentToolImage[]>>({})
   let activeTurn: ActiveTurn | null = null
@@ -332,6 +335,7 @@ function createSessionRuntime(options: {
       adoptedTurnId = turn.turnId
       turnState.value = turn.state
       queuePosition.value = turn.state === 'queued' ? (turn.queuePosition ?? null) : null
+      pauseReason.value = turn.state === 'paused' ? (turn.pauseReason ?? null) : null
       toolProgress.value = { ...turn.toolProgress }
       const restoredImages: Record<string, AgentToolImage[]> = {}
       for (const [toolCallId, images] of Object.entries(turn.toolImages)) {
@@ -381,6 +385,7 @@ function createSessionRuntime(options: {
       if (isProcessing) return
       turnState.value = null
       queuePosition.value = null
+      pauseReason.value = null
       if (wasProcessing) options.onTurnSettled?.(sessionId)
     })
   })
@@ -421,14 +426,16 @@ function createSessionRuntime(options: {
     toolImages.value = { ...toolImages.value, [image.toolCallId]: [...shown, image] }
   }
 
-  function onTurnState(turnId: string, state: AgentTurnState): void {
+  function onTurnState(turnId: string, state: AgentTurnState, reason?: PauseReason): void {
+    const reasonNow = state === 'paused' ? reason : undefined
     if (pendingResume && pendingResume.turn.turnId === turnId) {
-      pendingResume.turn = { ...pendingResume.turn, state }
+      pendingResume.turn = { ...pendingResume.turn, state, pauseReason: reasonNow }
       return
     }
     if (!activeTurn || activeTurn.turnId !== turnId) return
     const was = turnState.value
     turnState.value = state
+    pauseReason.value = reasonNow ?? null
     if (state !== 'queued') queuePosition.value = null
     if (state === 'paused' && was !== 'paused') options.onTurnPaused?.(sessionId)
   }
@@ -500,6 +507,7 @@ function createSessionRuntime(options: {
     processing,
     turnState,
     queuePosition,
+    pauseReason,
     toolProgress,
     toolImages,
     hasTurn: () => processing.value || activeTurn !== null || pendingResume !== null,
@@ -604,8 +612,8 @@ export function createAgentTurnRuntimes(options: {
     onToolImage: (image) => {
       runtimes.value[image.sessionId]?.onToolImage(image)
     },
-    onTurnState: ({ sessionId, turnId, state }) => {
-      runtimes.value[sessionId]?.onTurnState(turnId, state)
+    onTurnState: ({ sessionId, turnId, state, pauseReason }) => {
+      runtimes.value[sessionId]?.onTurnState(turnId, state, pauseReason)
     },
     onTurnDone: ({ sessionId, turnId }) => {
       finishedTurns.add(turnId)

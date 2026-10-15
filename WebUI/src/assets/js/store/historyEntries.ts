@@ -3,6 +3,7 @@ import type { ThreadKind } from './conversations'
 import type { GenerationSettings, MediaItem } from './imageGenerationPresets'
 import { sessionListedUnderPreset } from './agentModeSessions'
 import { extractToolMedia, type ToolMediaItem } from '@/assets/js/tools/toolMedia'
+import type { PauseReason } from '@/types/kernelEvents'
 
 // One history model for every reopenable unit of work. The window filters; the
 // runtimes behind a row stay specialized (LLM chat, direct TTS, direct STT,
@@ -42,6 +43,8 @@ export type AgentEntry = EntryBase & {
   status?: AgentSessionStatus
   /** 1-based Turn Queue place, only while `queued` and known. */
   queuePosition?: number
+  /** What the user is asked, only while `paused` and known. */
+  pauseReason?: PauseReason
   taskId?: string
 }
 
@@ -81,19 +84,44 @@ const WORKFLOW_MODES: readonly string[] = ['imageGen', 'imageEdit', 'video']
  * a new one has already started.
  */
 export function agentSessionStatus(input: {
-  turn?: { state: 'queued' | 'running' | 'paused'; queuePosition?: number | null }
+  turn?: {
+    state: 'queued' | 'running' | 'paused'
+    queuePosition?: number | null
+    pauseReason?: PauseReason
+  }
   unseen?: 'done' | 'failed'
-}): { status?: AgentSessionStatus; queuePosition?: number } {
+}): { status?: AgentSessionStatus; queuePosition?: number; pauseReason?: PauseReason } {
   const { turn, unseen } = input
   if (turn?.state === 'queued') {
     return turn.queuePosition
       ? { status: 'queued', queuePosition: turn.queuePosition }
       : { status: 'queued' }
   }
+  if (turn?.state === 'paused' && turn.pauseReason) {
+    return { status: 'paused', pauseReason: turn.pauseReason }
+  }
   if (turn) return { status: turn.state }
   if (unseen === 'failed') return { status: 'unseenFailed' }
   if (unseen === 'done') return { status: 'unseen' }
   return {}
+}
+
+const PAUSE_KIND_KEYS: Record<PauseReason['kind'], string> = {
+  download: 'HISTORY_PAUSE_DOWNLOAD',
+  'vram-warning': 'HISTORY_PAUSE_VRAM_WARNING',
+  confirmation: 'HISTORY_PAUSE_CONFIRMATION',
+  question: 'HISTORY_PAUSE_QUESTION',
+}
+
+/** "Needs you: model download · Qwen3.8-27B", plus the kind alone for the row's marker. */
+export function pausedStatusLabel(
+  reason: PauseReason | undefined,
+  labels: Record<string, string>,
+): { label: string; short?: string } {
+  const kind = reason ? labels[PAUSE_KIND_KEYS[reason.kind]] : undefined
+  if (!reason || !kind) return { label: labels.HISTORY_STATUS_PAUSED }
+  const label = labels.HISTORY_STATUS_PAUSED_FOR.replace('{reason}', kind)
+  return { label: reason.summary ? `${label} · ${reason.summary}` : label, short: kind }
 }
 
 const ORDINAL_KEYS: Partial<Record<Intl.LDMLPluralRule, string>> = {

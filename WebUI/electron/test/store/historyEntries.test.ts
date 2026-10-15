@@ -15,6 +15,7 @@ import {
   mediaTimes,
   mediaTitle,
   mediaSettings,
+  pausedStatusLabel,
   queueOrdinal,
   searchEntries,
   sortEntries,
@@ -317,6 +318,17 @@ describe('agentSessionStatus', () => {
     expect(agentSessionStatus({ turn: { state: 'paused' } })).toEqual({ status: 'paused' })
   })
 
+  it('says what a paused session waits for, and only while it is paused', () => {
+    const pauseReason = { kind: 'download' as const, summary: 'Qwen3.8-27B' }
+    expect(agentSessionStatus({ turn: { state: 'paused', pauseReason } })).toEqual({
+      status: 'paused',
+      pauseReason,
+    })
+    expect(agentSessionStatus({ turn: { state: 'running', pauseReason } })).toEqual({
+      status: 'running',
+    })
+  })
+
   it('marks a turn that ended out of sight, red when it failed', () => {
     expect(agentSessionStatus({ unseen: 'done' })).toEqual({ status: 'unseen' })
     expect(agentSessionStatus({ unseen: 'failed' })).toEqual({ status: 'unseenFailed' })
@@ -327,6 +339,35 @@ describe('agentSessionStatus', () => {
     expect(agentSessionStatus({ turn: { state: 'running' }, unseen: 'failed' })).toEqual({
       status: 'running',
     })
+  })
+})
+
+describe('pausedStatusLabel', () => {
+  const labels = {
+    HISTORY_STATUS_PAUSED: 'Needs your input',
+    HISTORY_STATUS_PAUSED_FOR: 'Needs you: {reason}',
+    HISTORY_PAUSE_DOWNLOAD: 'model download',
+    HISTORY_PAUSE_VRAM_WARNING: 'memory warning',
+    HISTORY_PAUSE_CONFIRMATION: 'confirmation',
+    HISTORY_PAUSE_QUESTION: 'question',
+  }
+
+  it('names the kind of decision and what it is about', () => {
+    expect(pausedStatusLabel({ kind: 'download', summary: 'Qwen3.8-27B' }, labels)).toEqual({
+      label: 'Needs you: model download · Qwen3.8-27B',
+      short: 'model download',
+    })
+    expect(pausedStatusLabel({ kind: 'vram-warning', summary: 'Flux' }, labels).label).toBe(
+      'Needs you: memory warning · Flux',
+    )
+    expect(pausedStatusLabel({ kind: 'confirmation' }, labels)).toEqual({
+      label: 'Needs you: confirmation',
+      short: 'confirmation',
+    })
+  })
+
+  it('falls back to the plain marker when nothing says why', () => {
+    expect(pausedStatusLabel(undefined, labels)).toEqual({ label: 'Needs your input' })
   })
 })
 

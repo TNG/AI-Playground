@@ -16,6 +16,7 @@ import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ComputeSnapshot } from '@/types/computeMetrics'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
+import type { PauseReason } from '@/types/kernelEvents'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type {
@@ -227,8 +228,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrate: (incoming: Record<string, PermissionGrant>) =>
       invoke('permissions:migrate', cloneForIpc(incoming)),
     respond: (payload: PermissionsPromptResponse) => invoke('permissions:respond', payload),
-    awaitingUser: (conversationKey: string, waiting: boolean) =>
-      send('permissions:awaitingUser', conversationKey, waiting),
+    awaitingUser: (conversationKey: string, waiting: boolean, reason?: PauseReason) =>
+      send('permissions:awaitingUser', conversationKey, waiting, reason),
     onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
       onPush('permissions:prompt', callback),
   },

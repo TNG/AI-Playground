@@ -1,6 +1,6 @@
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-md">
+    <DialogContent class="max-w-md max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>{{ i18n.AGENT_TASK_SCHEDULE_DESCRIPTION }}</DialogDescription>
@@ -60,6 +60,12 @@
           </p>
         </div>
         <p role="status" class="text-sm text-muted-foreground">{{ preview }}</p>
+        <template v-if="active && task">
+          <p class="text-sm text-muted-foreground">
+            {{ i18n.AGENT_TASK_SCHEDULE_PAUSES_FOR_MODELS }}
+          </p>
+          <TaskModelWarnings :template="task.settingsTemplate" :chat-model-steps="task.steps" />
+        </template>
         <DialogFooter class="gap-2">
           <Button
             v-if="hasSchedule"
@@ -105,6 +111,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import TaskModelWarnings from '@/components/TaskModelWarnings.vue'
 import {
   describeNextRun,
   nextSlotAfter,

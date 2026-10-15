@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "タスクとして保存",
   "AGENT_TASK_SAVED": "タスク「{name}」を保存しました",
   "AGENT_TASK_SAVE_FAILED": "タスクを保存できませんでした。",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "保存されていません: 先にタスクのチャットモデル {model} をダウンロードする必要があります。",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "保存されていません: {model} のダウンロードに失敗しました: {error}",
   "AGENT_TASK_READ_FAILED": "保存したタスクを読み込めませんでした。",
   "AGENT_TASK_BLOCKED_NAME": "タスクに名前を付けてください。",
   "AGENT_TASK_BLOCKED_NO_STEPS": "ステップを 1 つ以上追加してください。",

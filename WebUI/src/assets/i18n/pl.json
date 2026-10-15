@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "Zapisz jako zadanie",
   "AGENT_TASK_SAVED": "Zapisano zadanie „{name}”",
   "AGENT_TASK_SAVE_FAILED": "Nie udało się zapisać zadania.",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "Nie zapisano: najpierw trzeba pobrać model czatu {model} używany przez zadanie.",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "Nie zapisano: pobieranie {model} nie powiodło się: {error}",
   "AGENT_TASK_READ_FAILED": "Nie udało się odczytać zapisanych zadań.",
   "AGENT_TASK_BLOCKED_NAME": "Nadaj zadaniu nazwę.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Dodaj co najmniej jeden krok.",

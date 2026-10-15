@@ -585,6 +585,8 @@
   "AGENT_TASK_SAVE": "บันทึกเป็นงาน",
   "AGENT_TASK_SAVED": "บันทึกงาน “{name}” แล้ว",
   "AGENT_TASK_SAVE_FAILED": "ไม่สามารถบันทึกงานได้",
+  "AGENT_TASK_SAVE_DOWNLOAD_DECLINED": "ไม่ได้บันทึก: ต้องดาวน์โหลดโมเดลแชท {model} ของงานก่อน",
+  "AGENT_TASK_SAVE_DOWNLOAD_FAILED": "ไม่ได้บันทึก: การดาวน์โหลด {model} ล้มเหลว: {error}",
   "AGENT_TASK_READ_FAILED": "ไม่สามารถอ่านงานที่บันทึกไว้ได้",
   "AGENT_TASK_BLOCKED_NAME": "ตั้งชื่องาน",
   "AGENT_TASK_BLOCKED_NO_STEPS": "เพิ่มอย่างน้อยหนึ่งขั้นตอน",

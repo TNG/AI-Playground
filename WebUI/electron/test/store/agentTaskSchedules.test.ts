@@ -33,6 +33,8 @@ vi.mock('@/assets/js/store/textInference', () => ({
     activeModel: 'Live-9B',
     settingsPerPreset: {},
     embeddingBackend: 'llamaCPP',
+    getMissingLlmModels: vi.fn(async () => []),
+    inferenceForSettings: () => ({ inference: { backend: 'llamaCPP', activeModel: 'Stored-27B' } }),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
     settingsAvailability: {

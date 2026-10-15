@@ -2,10 +2,9 @@ import { appLoggerInstance } from '../observability/logger.ts'
 import { requestRenderer } from '../artifact/rendererBridge'
 import { requestDownloadConsent } from '../permissions/permissionsService'
 import type { CancellableError } from '../permissions/promptAdapter'
-import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { MODEL_DOWNLOAD_DECLINED, type AgentModeTurnConfig } from '@/types/agentIpc'
 import { LOG_SOURCE } from './piAgentLog.ts'
 
-export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 const TURN_CANCELLED = 'Agent turn cancelled.'
 
 // Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).

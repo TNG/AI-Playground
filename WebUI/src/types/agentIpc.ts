@@ -1,6 +1,9 @@
 import z from 'zod'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 
+/** The error an agent turn fails with when the user declines its model's download. */
+export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
+
 const SamplingParamsSchema = z.record(z.string(), z.unknown())
 
 const LocalModelConfigSchema = z.object({

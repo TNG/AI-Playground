@@ -110,6 +110,7 @@ beforeAll(async () => {
   chatAsk = await import('../../chat/chatAsk')
   promptAdapter = await import('../../permissions/promptAdapter')
   permissions = await import('../../permissions/permissionsService')
+  const bridge = await import('../../artifact/rendererBridge')
   const readiness = await import('../../chat/chatReadiness')
   readiness.setChatReadinessDeps({
     getService: () => ({
@@ -127,7 +128,12 @@ beforeAll(async () => {
     webContents: {
       send: (channel: string, payload: unknown) => {
         if (channel === 'chat:ask') asks.push(payload as ChatAskPayload)
-        else if (channel === 'permissions:prompt') prompts.push(payload as PermissionsPromptPayload)
+        else if (channel === 'artifact:request') {
+          // Every chat model is on disk here.
+          const { requestId } = payload as { requestId: string }
+          queueMicrotask(() => bridge.handleMediaResponse({ requestId, result: { models: [] } }))
+        } else if (channel === 'permissions:prompt')
+          prompts.push(payload as PermissionsPromptPayload)
         else if (channel === 'kernel:event') events.push(payload as KernelEvent)
       },
     },

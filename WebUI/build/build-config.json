@@ -68,6 +68,14 @@
       "to": "uv.exe"
     },
     {
+      "from": "app.ico",
+      "to": "tray/app.ico"
+    },
+    {
+      "from": "build/icons/icon.png",
+      "to": "tray/icon.png"
+    },
+    {
       "from": "external/backend-versions.json",
       "to": "backend-versions.json"
     },

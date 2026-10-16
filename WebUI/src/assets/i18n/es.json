@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Aún no hay tareas",
   "HISTORY_TASK_MARKER": "De la tarea: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Hay una tarea programada o aún en ejecución. ¿Mantener AI Playground en segundo plano, o salir y detenerla?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Hay una tarea programada o aún en ejecución. ¿Mantener AI Playground en segundo plano, o salir y detenerla? Para volver más tarde, usa el icono de AI Playground en la bandeja del sistema o abre AI Playground de nuevo.",
   "AGENT_TASKS_KEEP_RUNNING": "Seguir en ejecución",
-  "AGENT_TASKS_QUIT": "Salir"
+  "AGENT_TASKS_QUIT": "Salir",
+  "BACKGROUND_TRAY_SHOW": "Mostrar AI Playground",
+  "BACKGROUND_TRAY_QUIT": "Salir",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground se está ejecutando en segundo plano"
 }

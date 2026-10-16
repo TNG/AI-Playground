@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Belum ada tugas",
   "HISTORY_TASK_MARKER": "Dari tugas: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Ada tugas yang dijadwalkan atau masih berjalan. Biarkan AI Playground tetap berjalan di latar belakang, atau keluar dan hentikan?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Ada tugas yang dijadwalkan atau masih berjalan. Biarkan AI Playground tetap berjalan di latar belakang, atau keluar dan hentikan? Untuk kembali nanti, gunakan ikon AI Playground di baki sistem atau buka AI Playground lagi.",
   "AGENT_TASKS_KEEP_RUNNING": "Tetap jalankan",
-  "AGENT_TASKS_QUIT": "Keluar"
+  "AGENT_TASKS_QUIT": "Keluar",
+  "BACKGROUND_TRAY_SHOW": "Tampilkan AI Playground",
+  "BACKGROUND_TRAY_QUIT": "Keluar",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground berjalan di latar belakang"
 }

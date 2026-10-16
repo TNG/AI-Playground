@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Henüz görev yok",
   "HISTORY_TASK_MARKER": "Görevden: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Zamanlanmış veya hâlâ çalışan bir görev var. AI Playground arka planda çalışmaya devam etsin mi, yoksa çıkıp durdurulsun mu?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Zamanlanmış veya hâlâ çalışan bir görev var. AI Playground arka planda çalışmaya devam etsin mi, yoksa çıkıp durdurulsun mu? Daha sonra geri dönmek için sistem tepsisindeki AI Playground simgesini kullanın veya AI Playground’u yeniden başlatın.",
   "AGENT_TASKS_KEEP_RUNNING": "Çalışmaya devam et",
-  "AGENT_TASKS_QUIT": "Çık"
+  "AGENT_TASKS_QUIT": "Çık",
+  "BACKGROUND_TRAY_SHOW": "AI Playground’u göster",
+  "BACKGROUND_TRAY_QUIT": "Çık",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground arka planda çalışıyor"
 }

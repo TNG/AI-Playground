@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "ยังไม่มีงาน",
   "HISTORY_TASK_MARKER": "จากงาน: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "มีงานที่ตั้งเวลาไว้หรืองานที่ยังทำงานอยู่ ให้ AI Playground ทำงานต่อในพื้นหลัง หรือออกและหยุดงาน?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "มีงานที่ตั้งเวลาไว้หรืองานที่ยังทำงานอยู่ ให้ AI Playground ทำงานต่อในพื้นหลัง หรือออกและหยุดงาน? หากต้องการกลับมาภายหลัง ให้ใช้ไอคอน AI Playground ในถาดระบบ หรือเปิด AI Playground อีกครั้ง",
   "AGENT_TASKS_KEEP_RUNNING": "ทำงานต่อ",
-  "AGENT_TASKS_QUIT": "ออก"
+  "AGENT_TASKS_QUIT": "ออก",
+  "BACKGROUND_TRAY_SHOW": "แสดง AI Playground",
+  "BACKGROUND_TRAY_QUIT": "ออก",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground กำลังทำงานอยู่ในพื้นหลัง"
 }

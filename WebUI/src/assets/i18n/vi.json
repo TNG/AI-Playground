@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Chưa có tác vụ nào",
   "HISTORY_TASK_MARKER": "Từ tác vụ: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Có một tác vụ đã lên lịch hoặc vẫn đang chạy. Giữ AI Playground chạy ở chế độ nền, hay thoát và dừng tác vụ?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Có một tác vụ đã lên lịch hoặc vẫn đang chạy. Giữ AI Playground chạy ở chế độ nền, hay thoát và dừng tác vụ? Để quay lại sau, hãy dùng biểu tượng AI Playground trong khay hệ thống hoặc mở lại AI Playground.",
   "AGENT_TASKS_KEEP_RUNNING": "Tiếp tục chạy",
-  "AGENT_TASKS_QUIT": "Thoát"
+  "AGENT_TASKS_QUIT": "Thoát",
+  "BACKGROUND_TRAY_SHOW": "Hiện AI Playground",
+  "BACKGROUND_TRAY_QUIT": "Thoát",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground đang chạy ở chế độ nền"
 }

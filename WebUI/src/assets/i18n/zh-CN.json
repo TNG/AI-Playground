@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name}（{count}）",
   "HISTORY_TASK_PICKER_EMPTY": "暂无任务",
   "HISTORY_TASK_MARKER": "来自任务：{name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "有任务已排程或仍在运行。让 AI Playground 在后台继续运行，还是退出并停止它？",
+  "AGENT_TASKS_CLOSE_CONFIRM": "有任务已排程或仍在运行。让 AI Playground 在后台继续运行，还是退出并停止它？稍后要返回，请使用系统托盘中的 AI Playground 图标，或再次启动 AI Playground。",
   "AGENT_TASKS_KEEP_RUNNING": "继续运行",
-  "AGENT_TASKS_QUIT": "退出"
+  "AGENT_TASKS_QUIT": "退出",
+  "BACKGROUND_TRAY_SHOW": "显示 AI Playground",
+  "BACKGROUND_TRAY_QUIT": "退出",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground 正在后台运行"
 }

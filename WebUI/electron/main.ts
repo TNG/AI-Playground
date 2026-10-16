@@ -117,6 +117,7 @@ import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
+import { bindBackgroundTray, trayIconPath } from './adapters/backgroundTray.ts'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -707,6 +708,14 @@ async function createWindow() {
       contextIsolation: true,
     },
   })
+  bindBackgroundTray(
+    win,
+    trayIconPath(
+      process.platform,
+      app.isPackaged ? packagedResourcesRoot() : path.join(__dirname, '../..'),
+      app.isPackaged,
+    ),
+  )
   setWebBrowserMainWindow(win)
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
@@ -736,8 +745,8 @@ async function createWindow() {
     event.preventDefault()
     if (closeDecision) return
     // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
-    // the renderer. A hidden window is reopened by relaunching (second-instance)
-    // or dock activation. `tasksKeepAlive` is the tasks file, not a renderer flag.
+    // the renderer. A hidden window is reopened from the tray icon, by relaunching
+    // (second-instance) or by dock activation. `tasksKeepAlive` is the tasks file, not a renderer flag.
     closeDecision = (async () => {
       const tasksKeepAlive = await agentTasksKeepAppAlive()
       if (!win || win.isDestroyed()) return

@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "タスクはまだありません",
   "HISTORY_TASK_MARKER": "タスクから: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "タスクがスケジュールされているか、まだ実行中です。AI Playground をバックグラウンドで動かし続けますか、それとも終了して止めますか？",
+  "AGENT_TASKS_CLOSE_CONFIRM": "タスクがスケジュールされているか、まだ実行中です。AI Playground をバックグラウンドで動かし続けますか、それとも終了して止めますか？あとで戻るには、システムトレイの AI Playground アイコンを使うか、AI Playground をもう一度起動してください。",
   "AGENT_TASKS_KEEP_RUNNING": "実行を続ける",
-  "AGENT_TASKS_QUIT": "終了"
+  "AGENT_TASKS_QUIT": "終了",
+  "BACKGROUND_TRAY_SHOW": "AI Playground を表示",
+  "BACKGROUND_TRAY_QUIT": "終了",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground はバックグラウンドで実行中です"
 }

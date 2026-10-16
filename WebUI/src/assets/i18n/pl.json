@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Brak zadań",
   "HISTORY_TASK_MARKER": "Z zadania: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Zadanie jest zaplanowane albo wciąż trwa. Zostawić AI Playground działające w tle, czy zakończyć i je zatrzymać?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Zadanie jest zaplanowane albo wciąż trwa. Zostawić AI Playground działające w tle, czy zakończyć i je zatrzymać? Aby wrócić później, użyj ikony AI Playground w zasobniku systemowym albo uruchom AI Playground ponownie.",
   "AGENT_TASKS_KEEP_RUNNING": "Kontynuuj",
-  "AGENT_TASKS_QUIT": "Zakończ"
+  "AGENT_TASKS_QUIT": "Zakończ",
+  "BACKGROUND_TRAY_SHOW": "Pokaż AI Playground",
+  "BACKGROUND_TRAY_QUIT": "Zakończ",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground działa w tle"
 }

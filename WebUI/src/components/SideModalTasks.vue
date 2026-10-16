@@ -1,7 +1,7 @@
 <template>
   <SideModalBase
     :is-visible="isVisible"
-    :title="i18n.AGENT_TASKS_MANAGE"
+    :title="i18n.AGENT_TASKS_TITLE"
     side="left"
     @close="$emit('close')"
   >

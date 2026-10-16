@@ -1,7 +1,7 @@
 <template>
   <SideModalBase
     :is-visible="isVisible"
-    :title="languages.COM_HISTORY"
+    :title="history.currentMode === 'agent' ? languages.COM_SESSIONS : languages.COM_HISTORY"
     side="left"
     @close="$emit('close')"
   >

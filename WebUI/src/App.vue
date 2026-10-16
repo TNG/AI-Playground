@@ -202,7 +202,7 @@
           @click="uiStore.openTasks()"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
-          {{ languages.AGENT_TASKS_MANAGE }}
+          {{ languages.AGENT_TASKS_SHOW }}
         </button>
       </div>
       <div

@@ -1,4 +1,6 @@
 import { type Locator, type Page, expect } from '@playwright/test'
+import { type AgentPresetLabel } from './MainPage'
+import { settingsRegion } from './uiControls'
 
 /**
  * The parts of a game library entry this suite asserts on. Read through the app's
@@ -35,38 +37,33 @@ export class AgentModePage {
   }
 
   /**
-   * The folder picker in the Agent settings sidebar, for presets that work in a
-   * folder the user chooses (`agentWorkspace: 'pick'` — the "Agent" preset).
+   * The folder picker in the agent preset's settings sidebar, for presets that work
+   * in a folder the user chooses (`agentWorkspace: 'pick'` — Agent Maker).
    * AgentMode.vue offers the same action in its empty state, but only while no
    * workspace is set; this one is there either way, so a re-run that inherited a
    * folder from a previous run can still be pointed somewhere else.
    */
-  get selectFolderButton(): Locator {
-    return this.page
-      .getByRole('region', { name: 'Agent Settings' })
-      .getByRole('button', { name: 'Select folder…' })
+  selectFolderButton(preset: AgentPresetLabel): Locator {
+    return settingsRegion(this.page, preset).getByRole('button', { name: 'Select folder…' })
   }
 
   /**
-   * Give the agent its workspace, with the Agent settings sidebar open. The click
+   * Give the agent its workspace, with the preset's settings sidebar open. The click
    * opens a native directory dialog, so the caller must have pointed that dialog
    * at `dir` first (`stubDirectoryPicker` in helpers.ts); this then waits for the
    * app to echo the folder back, which is what says it was actually adopted.
    */
-  async selectWorkspaceFolder(dir: string): Promise<void> {
-    await this.selectFolderButton.click()
+  async selectWorkspaceFolder(dir: string, preset: AgentPresetLabel): Promise<void> {
+    await this.selectFolderButton(preset).click()
     await expect(
       this.page.getByText(dir, { exact: false }).first(),
       'the agent should show the workspace folder it adopted',
     ).toBeVisible({ timeout: 15_000 })
   }
 
-  /** The "New game" control in the Agent settings sidebar (managed workspaces only). */
-  get newGameButton(): Locator {
-    return this.page.getByRole('region', { name: 'Agent Settings' }).getByRole('button', {
-      name: 'New game',
-      exact: true,
-    })
+  /** The "New game" control in the game preset's settings sidebar (managed workspaces only). */
+  newGameButton(preset: AgentPresetLabel): Locator {
+    return settingsRegion(this.page, preset).getByRole('button', { name: 'New game', exact: true })
   }
 
   /**

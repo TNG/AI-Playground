@@ -19,6 +19,7 @@ import { LocalSettingsSchema } from '../localSettings'
 import { agentTasksKeepAppAlive } from '../../persist/agentTaskFiles'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
+import { setBackgroundTrayLabels } from '../../adapters/backgroundTray.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -1632,6 +1633,8 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
       const win = deps.getWin()
       if (win && !win.isDestroyed()) win.hide()
     },
+
+    setBackgroundTrayLabels: (_event, labels) => setBackgroundTrayLabels(labels),
 
     // Save a generated image to a file the user picks in a save dialog.
     saveImage: async (event, url) => {

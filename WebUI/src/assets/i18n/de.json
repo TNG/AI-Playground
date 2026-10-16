@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Noch keine Aufgaben",
   "HISTORY_TASK_MARKER": "Aus Aufgabe: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Eine Aufgabe ist geplant oder läuft noch. AI Playground im Hintergrund weiterlaufen lassen, oder beenden und sie stoppen?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Eine Aufgabe ist geplant oder läuft noch. AI Playground im Hintergrund weiterlaufen lassen, oder beenden und sie stoppen? Später zurück geht es über das AI Playground-Symbol im Infobereich oder durch erneutes Starten von AI Playground.",
   "AGENT_TASKS_KEEP_RUNNING": "Weiterlaufen lassen",
-  "AGENT_TASKS_QUIT": "Beenden"
+  "AGENT_TASKS_QUIT": "Beenden",
+  "BACKGROUND_TRAY_SHOW": "AI Playground anzeigen",
+  "BACKGROUND_TRAY_QUIT": "Beenden",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground läuft im Hintergrund"
 }

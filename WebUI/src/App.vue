@@ -548,7 +548,7 @@ async function closeWindow() {
     if (keepAlive) {
       const keep = await dialogStore.requestConfirmation(
         i18n.state.AGENT_TASKS_CLOSE_CONFIRM ??
-          'A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it?',
+          'A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it? To come back later, use the AI Playground icon in the system tray or launch AI Playground again.',
         {
           confirm: i18n.state.AGENT_TASKS_KEEP_RUNNING ?? 'Keep running',
           cancel: i18n.state.AGENT_TASKS_QUIT ?? 'Quit',
@@ -594,6 +594,18 @@ function openAppSettings() {
 function startTour() {
   demoModeOverlayDriverJs.value?.startTour?.()
 }
+
+watch(
+  () => [
+    i18n.state.BACKGROUND_TRAY_SHOW,
+    i18n.state.BACKGROUND_TRAY_QUIT,
+    i18n.state.BACKGROUND_TRAY_TOOLTIP,
+  ],
+  ([show, quit, tooltip]) => {
+    if (show && quit && tooltip) window.electronAPI.setBackgroundTrayLabels({ show, quit, tooltip })
+  },
+  { immediate: true },
+)
 
 watch(tasksAvailable, (available) => {
   if (!available) uiStore.closeTasks()

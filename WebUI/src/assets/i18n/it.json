@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Ancora nessuna attività",
   "HISTORY_TASK_MARKER": "Dall’attività: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "Un’attività è pianificata o ancora in corso. Lasciare AI Playground in esecuzione in background, oppure uscire e interromperla?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Un’attività è pianificata o ancora in corso. Lasciare AI Playground in esecuzione in background, oppure uscire e interromperla? Per tornare in seguito, usa l’icona di AI Playground nell’area di notifica oppure avvia di nuovo AI Playground.",
   "AGENT_TASKS_KEEP_RUNNING": "Continua",
-  "AGENT_TASKS_QUIT": "Esci"
+  "AGENT_TASKS_QUIT": "Esci",
+  "BACKGROUND_TRAY_SHOW": "Mostra AI Playground",
+  "BACKGROUND_TRAY_QUIT": "Esci",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground è in esecuzione in background"
 }

@@ -734,7 +734,10 @@
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "No tasks yet",
   "HISTORY_TASK_MARKER": "From task: {name}",
-  "AGENT_TASKS_CLOSE_CONFIRM": "A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it?",
+  "AGENT_TASKS_CLOSE_CONFIRM": "A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it? To come back later, use the AI Playground icon in the system tray or launch AI Playground again.",
   "AGENT_TASKS_KEEP_RUNNING": "Keep running",
-  "AGENT_TASKS_QUIT": "Quit"
+  "AGENT_TASKS_QUIT": "Quit",
+  "BACKGROUND_TRAY_SHOW": "Show AI Playground",
+  "BACKGROUND_TRAY_QUIT": "Quit",
+  "BACKGROUND_TRAY_TOOLTIP": "AI Playground is running in the background"
 }

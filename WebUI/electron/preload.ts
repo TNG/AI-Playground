@@ -120,6 +120,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exitApp: () => send('exitApp'),
   tasksKeepAlive: () => invoke('tasksKeepAlive'),
   hideMainWindow: () => send('hideMainWindow'),
+  setBackgroundTrayLabels: (labels: { show: string; quit: string; tooltip: string }) =>
+    send('setBackgroundTrayLabels', labels),
   getInitialPage: () => invoke('getInitialPage'),
   getDemoModeSettings: () => invoke('getDemoModeSettings'),
   showOpenDialog: (options: OpenDialogOptions) => invoke('showOpenDialog', options),

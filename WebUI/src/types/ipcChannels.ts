@@ -1137,6 +1137,12 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
   },
+  /** Localized labels for the tray icon shown while the main window is hidden. */
+  setBackgroundTrayLabels: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [{ show: string; quit: string; tooltip: string }],
+  },
   /** Save a generated image to a file the user picks in a save dialog. */
   saveImage: {
     kind: 'send',

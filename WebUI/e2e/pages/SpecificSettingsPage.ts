@@ -1,5 +1,5 @@
 import { type Locator, type Page, expect } from '@playwright/test'
-import { type ChatMode } from './MainPage'
+import { type SettingsOwner } from './MainPage'
 
 /**
  * Page object for the mode-specific settings sidebar (the one with the PRESET
@@ -12,15 +12,15 @@ export class SpecificSettingsPage {
   // The settings sidebar renders with `hide-header` (no <h2> banner — see
   // SideModalSpecificSettings.vue), so its only stable handle is the SideModalBase
   // region, whose aria-label is `${mode} Settings`.
-  private panel(mode: ChatMode): Locator {
+  private panel(mode: SettingsOwner): Locator {
     return this.page.getByRole('region', { name: `${mode} Settings` })
   }
 
-  private openButton(mode: ChatMode): Locator {
+  private openButton(mode: SettingsOwner): Locator {
     return this.page.getByRole('button', { name: `${mode} Settings` })
   }
 
-  async open(mode: ChatMode = 'Chat'): Promise<void> {
+  async open(mode: SettingsOwner = 'Chat'): Promise<void> {
     if (
       await this.panel(mode)
         .isVisible()
@@ -37,7 +37,7 @@ export class SpecificSettingsPage {
    * target them as a semantic element type scoped to the mode's settings region
    * (the labels differ per preset — "Reference Image", "Input Image", etc.).
    */
-  private imageInputs(mode: ChatMode): Locator {
+  private imageInputs(mode: SettingsOwner): Locator {
     return this.page.getByRole('region', { name: `${mode} Settings` }).locator('input[type="file"]')
   }
 
@@ -46,7 +46,7 @@ export class SpecificSettingsPage {
    * (edit-image, image-to-video and reference-based create-image presets need one).
    * Returns how many slots were filled.
    */
-  async attachReferenceImages(mode: ChatMode, filePath: string): Promise<number> {
+  async attachReferenceImages(mode: SettingsOwner, filePath: string): Promise<number> {
     const inputs = this.imageInputs(mode)
     // The LoadImage inputs render a beat after the preset's settings load, so wait for
     // the first one before counting rather than racing an empty grid.
@@ -68,7 +68,7 @@ export class SpecificSettingsPage {
    * "Manage Models" gear — so it's pinned on the menu trigger's `aria-haspopup`
    * rather than on being the only button in the group.
    */
-  private modelTrigger(mode: ChatMode): Locator {
+  private modelTrigger(mode: SettingsOwner): Locator {
     return this.panel(mode)
       .getByRole('group', { name: 'Model' })
       .locator('button[aria-haspopup="menu"]')
@@ -80,7 +80,7 @@ export class SpecificSettingsPage {
    *
    * Opens and closes the dropdown without changing the selection.
    */
-  async availableModels(mode: ChatMode = 'Chat'): Promise<string[]> {
+  async availableModels(mode: SettingsOwner = 'Chat'): Promise<string[]> {
     const trigger = this.modelTrigger(mode)
     if (!(await trigger.isVisible().catch(() => false))) return []
     await trigger.click()
@@ -102,7 +102,7 @@ export class SpecificSettingsPage {
    * narrows the list to the wanted row instead of scrolling for it. Must be called
    * with the settings sidebar open.
    */
-  async selectModel(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+  async selectModel(label: string, mode: SettingsOwner = 'Chat'): Promise<void> {
     const trigger = this.modelTrigger(mode)
     await trigger.click()
     const menu = this.page.getByRole('menu')
@@ -132,7 +132,7 @@ export class SpecificSettingsPage {
    */
   async selectFirstOfferedModel(
     labels: readonly string[],
-    mode: ChatMode = 'Chat',
+    mode: SettingsOwner = 'Chat',
   ): Promise<string> {
     const offered = await this.availableModels(mode)
     const wanted = labels.find((label) => offered.some((item) => item.includes(label)))
@@ -150,7 +150,7 @@ export class SpecificSettingsPage {
    * active preset allows more than one backend (see SettingsChat.vue `isBackendLocked`);
    * located via its "Backend" label row inside the settings region.
    */
-  private backendTrigger(mode: ChatMode): Locator {
+  private backendTrigger(mode: SettingsOwner): Locator {
     return this.panel(mode).locator('div.grid', { hasText: 'Backend' }).getByRole('button')
   }
 
@@ -159,7 +159,7 @@ export class SpecificSettingsPage {
    * empty list when the preset is locked to one backend / the picker isn't shown.
    * Opens and closes the dropdown without changing the selection.
    */
-  async availableBackends(mode: ChatMode = 'Chat'): Promise<string[]> {
+  async availableBackends(mode: SettingsOwner = 'Chat'): Promise<string[]> {
     const trigger = this.backendTrigger(mode)
     if (!(await trigger.isVisible().catch(() => false))) return []
     await trigger.click()
@@ -179,7 +179,7 @@ export class SpecificSettingsPage {
    * sidebar open. Switching backend can kick off a backend (re)start, so callers
    * should let the app settle (and resolve any model-download dialog) before sending.
    */
-  async selectBackend(label: string, mode: ChatMode = 'Chat'): Promise<void> {
+  async selectBackend(label: string, mode: SettingsOwner = 'Chat'): Promise<void> {
     const trigger = this.backendTrigger(mode)
     await trigger.click()
     const menu = this.page.getByRole('menu')
@@ -193,7 +193,7 @@ export class SpecificSettingsPage {
    * "Device" label row (SettingsChat.vue). Shown for local backends; Cloud Mode swaps
    * it for a Provider picker, so it's absent there.
    */
-  private deviceTrigger(mode: ChatMode): Locator {
+  private deviceTrigger(mode: SettingsOwner): Locator {
     return this.panel(mode).locator('div.grid', { hasText: 'Device' }).getByRole('button')
   }
 
@@ -203,7 +203,7 @@ export class SpecificSettingsPage {
    * (cloud backend, or a backend with no selectable device). Opens and closes the
    * dropdown without changing the selection.
    */
-  async availableDevices(mode: ChatMode = 'Chat'): Promise<string[]> {
+  async availableDevices(mode: SettingsOwner = 'Chat'): Promise<string[]> {
     const trigger = this.deviceTrigger(mode)
     if (!(await trigger.isVisible().catch(() => false))) return []
     await trigger.click()
@@ -224,7 +224,7 @@ export class SpecificSettingsPage {
    * resolve any model-download dialog) before sending. Returns false — selection
    * unchanged — when no device matches or no device picker is shown.
    */
-  async selectDeviceContaining(substring: string, mode: ChatMode = 'Chat'): Promise<boolean> {
+  async selectDeviceContaining(substring: string, mode: SettingsOwner = 'Chat'): Promise<boolean> {
     const trigger = this.deviceTrigger(mode)
     if (!(await trigger.isVisible().catch(() => false))) return false
     await trigger.click()
@@ -256,7 +256,7 @@ export class SpecificSettingsPage {
    * — selection unchanged — when there is no device picker or no second device to move
    * to.
    */
-  async selectOtherDevice(mode: ChatMode = 'Chat'): Promise<boolean> {
+  async selectOtherDevice(mode: SettingsOwner = 'Chat'): Promise<boolean> {
     const trigger = this.deviceTrigger(mode)
     if (!(await trigger.isVisible().catch(() => false))) return false
     const current = (await trigger.innerText()).trim()
@@ -301,7 +301,7 @@ export class SpecificSettingsPage {
       expectOverwrite?: boolean
       resolveDownloads?: () => Promise<unknown>
     },
-    mode: ChatMode = 'Audio',
+    mode: SettingsOwner = 'Audio',
   ): Promise<void> {
     const panel = this.panel(mode)
     // The form fields are the only inputs carrying these placeholders (name = "e.g.
@@ -352,23 +352,23 @@ export class SpecificSettingsPage {
   }
 
   /** The seed input on the create/edit-voice form (the shared RandomNumber row). */
-  private ttsSeedInput(mode: ChatMode): Locator {
+  private ttsSeedInput(mode: SettingsOwner): Locator {
     return this.panel(mode).locator('.v-random .v-random-input')
   }
 
   /** Read the seed currently on the create/edit-voice form. */
-  async ttsSeed(mode: ChatMode = 'Audio'): Promise<string> {
+  async ttsSeed(mode: SettingsOwner = 'Audio'): Promise<string> {
     return (await this.ttsSeedInput(mode).inputValue()).trim()
   }
 
   /** Set the seed on the create/edit-voice form, pinning which speaker is drawn. */
-  async setTtsSeed(seed: number, mode: ChatMode = 'Audio'): Promise<void> {
+  async setTtsSeed(seed: number, mode: SettingsOwner = 'Audio'): Promise<void> {
     await this.ttsSeedInput(mode).fill(String(seed))
     await expect(this.ttsSeedInput(mode)).toHaveValue(String(seed))
   }
 
   /** Roll a different speaker for the same description (the seed row's dice). */
-  async rollTtsSeed(mode: ChatMode = 'Audio'): Promise<string> {
+  async rollTtsSeed(mode: SettingsOwner = 'Audio'): Promise<string> {
     const before = await this.ttsSeed(mode)
     await this.panel(mode).locator('.v-random .v-random-btns button').first().click()
     await expect.poll(() => this.ttsSeed(mode), { timeout: 10_000 }).not.toEqual(before)
@@ -376,26 +376,26 @@ export class SpecificSettingsPage {
   }
 
   /** A saved voice's row in the "Your voices" list. */
-  private savedVoiceRow(name: string, mode: ChatMode): Locator {
+  private savedVoiceRow(name: string, mode: SettingsOwner): Locator {
     return this.panel(mode).locator('li').filter({ hasText: name })
   }
 
   /** Play a saved voice's stored preview (no synthesis). */
-  async playSavedTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+  async playSavedTtsVoice(name: string, mode: SettingsOwner = 'Audio'): Promise<void> {
     await this.savedVoiceRow(name, mode)
       .getByRole('button', { name: `Play ${name}` })
       .click()
   }
 
   /** Whether a saved voice offers playback — i.e. it has a stored preview WAV. */
-  async savedTtsVoiceHasPreview(name: string, mode: ChatMode = 'Audio'): Promise<boolean> {
+  async savedTtsVoiceHasPreview(name: string, mode: SettingsOwner = 'Audio'): Promise<boolean> {
     return this.savedVoiceRow(name, mode)
       .getByRole('button', { name: `Play ${name}` })
       .isEnabled()
   }
 
   /** Load a saved voice back into the create/edit form. */
-  async editSavedTtsVoice(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+  async editSavedTtsVoice(name: string, mode: SettingsOwner = 'Audio'): Promise<void> {
     await this.savedVoiceRow(name, mode)
       .getByRole('button', { name: `Edit ${name}` })
       .click()
@@ -407,7 +407,7 @@ export class SpecificSettingsPage {
    * on a label whose text is exactly "Voice", so it can't drift onto the neighbouring
    * "Your voices" list or the two "Language" rows.
    */
-  private ttsVoiceTrigger(mode: ChatMode): Locator {
+  private ttsVoiceTrigger(mode: SettingsOwner): Locator {
     return this.panel(mode)
       .locator('div.grid')
       .filter({ has: this.page.getByText('Voice', { exact: true }) })
@@ -419,7 +419,7 @@ export class SpecificSettingsPage {
    * "Ryan — English") or a saved one ("Tammy (your voice)"). Pass a regex to match a
    * prefix. Requires the settings sidebar open with the "Text to Speech" preset active in the Audio mode.
    */
-  async selectTtsVoice(label: string | RegExp, mode: ChatMode = 'Audio'): Promise<void> {
+  async selectTtsVoice(label: string | RegExp, mode: SettingsOwner = 'Audio'): Promise<void> {
     await this.selectFromPicker(this.ttsVoiceTrigger(mode), label)
   }
 
@@ -429,7 +429,7 @@ export class SpecificSettingsPage {
    * ("Qwen TTS" or "Kokoro …") rather than by the ambiguous "Model" row label (the
    * fallback-endpoint form also has a "Model" field).
    */
-  private ttsEngineTrigger(mode: ChatMode): Locator {
+  private ttsEngineTrigger(mode: SettingsOwner): Locator {
     return this.panel(mode)
       .getByRole('button')
       .filter({ hasText: /Qwen TTS|Kokoro/ })
@@ -442,7 +442,7 @@ export class SpecificSettingsPage {
    * the "Text to Speech" preset active. The trigger's label reflects the choice once
    * it lands.
    */
-  async selectTtsEngine(label: string, mode: ChatMode = 'Audio'): Promise<void> {
+  async selectTtsEngine(label: string, mode: SettingsOwner = 'Audio'): Promise<void> {
     await this.selectFromPicker(this.ttsEngineTrigger(mode), label)
   }
 
@@ -461,7 +461,7 @@ export class SpecificSettingsPage {
    * with an earlier one still *creates* the voice rather than re-saving it. No-op when
    * the voice isn't there.
    */
-  async deleteTtsVoiceIfPresent(name: string, mode: ChatMode = 'Audio'): Promise<void> {
+  async deleteTtsVoiceIfPresent(name: string, mode: SettingsOwner = 'Audio'): Promise<void> {
     const row = this.savedVoiceRow(name, mode)
     if ((await row.count()) === 0) return
     await row
@@ -486,7 +486,7 @@ export class SpecificSettingsPage {
    * a fixed setting, so there is no input to fill and no oversized allocation to
    * guard against either. Only llama.cpp (and OpenVINO on the NPU) render one.
    */
-  async setContextSize(tokens: number, mode: ChatMode = 'Chat'): Promise<boolean> {
+  async setContextSize(tokens: number, mode: SettingsOwner = 'Chat'): Promise<boolean> {
     const input = this.panel(mode).getByLabel('Context Size')
     // Wait briefly rather than probing with a bare isVisible(): the row renders a
     // beat after a backend switch, so an immediate check would race the re-render
@@ -508,7 +508,7 @@ export class SpecificSettingsPage {
    * Audio, workflow). Its accessible name starts with the icon's own "Reset" text,
    * hence the substring match rather than an exact one.
    */
-  private resetButton(mode: ChatMode): Locator {
+  private resetButton(mode: SettingsOwner): Locator {
     return this.panel(mode).getByRole('button', { name: /Reset Preset Settings/ })
   }
 
@@ -521,14 +521,14 @@ export class SpecificSettingsPage {
    * reset (the Audio panel only renders one for the TTS/STT presets), so a caller
    * driving another preset there isn't failed for it.
    */
-  async resetPresetDefaults(mode: ChatMode = 'Chat'): Promise<boolean> {
+  async resetPresetDefaults(mode: SettingsOwner = 'Chat'): Promise<boolean> {
     const button = this.resetButton(mode)
     if (!(await button.isVisible().catch(() => false))) return false
     await button.click()
     return true
   }
 
-  async close(mode: ChatMode = 'Chat'): Promise<void> {
+  async close(mode: SettingsOwner = 'Chat'): Promise<void> {
     const sidebar = this.page.getByRole('region', { name: `${mode} Settings` })
     const closers = sidebar.getByRole('button', { name: 'Close' })
     const count = await closers.count()

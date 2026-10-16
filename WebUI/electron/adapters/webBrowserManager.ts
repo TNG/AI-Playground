@@ -82,6 +82,19 @@ let currentTitle = ''
 // Set during app shutdown / main-window close so the window actually closes
 // instead of merely hiding (see the `close` handler below).
 let forceClose = false
+// One hidden window cannot navigate twice. Chat tools and the web capability
+// share it, and a cloud chat turn is outside the Turn Queue, so the lock lives
+// here rather than in one caller.
+let browserChain: Promise<unknown> = Promise.resolve()
+
+function withBrowserLock<T>(job: () => Promise<T>): Promise<T> {
+  const next = browserChain.then(job, job)
+  browserChain = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
 
 export function setWebBrowserMainWindow(win: BrowserWindow): void {
   mainWin = win
@@ -249,7 +262,7 @@ function waitForPossibleNavigation(win: BrowserWindow, ms = CLICK_NAV_TIMEOUT_MS
   })
 }
 
-export async function readPage(): Promise<WebPageSnapshot> {
+async function readPageNow(): Promise<WebPageSnapshot> {
   const win = ensureWindow()
   const raw = (await win.webContents.executeJavaScript(READ_SCRIPT, true)) as {
     title?: string
@@ -269,7 +282,7 @@ export async function readPage(): Promise<WebPageSnapshot> {
   return { title: currentTitle, url: currentUrl, text, links }
 }
 
-export async function navigate(url: string): Promise<WebPageSnapshot> {
+async function navigateNow(url: string): Promise<WebPageSnapshot> {
   const normalized = normalizeUrl(url)
   const win = ensureWindow()
   appLogger.info(`Navigating web browser to ${normalized}`, 'web-browser')
@@ -277,7 +290,7 @@ export async function navigate(url: string): Promise<WebPageSnapshot> {
   currentUrl = win.webContents.getURL()
   currentTitle = win.webContents.getTitle()
   emitState()
-  return await readPage()
+  return await readPageNow()
 }
 
 // Parses DuckDuckGo's HTML results page into clean {title, url, snippet}. The
@@ -313,7 +326,7 @@ function buildSearchScript(maxResults: number): string {
   })()`
 }
 
-export async function search(
+async function searchNow(
   query: string,
   maxResults: number = DEFAULT_MAX_SEARCH_RESULTS,
 ): Promise<WebSearchResults> {
@@ -334,7 +347,7 @@ export async function search(
   return { query: trimmed, results: results ?? [] }
 }
 
-export async function interact(interaction: WebBrowserInteraction): Promise<WebPageSnapshot> {
+async function interactNow(interaction: WebBrowserInteraction): Promise<WebPageSnapshot> {
   const win = ensureWindow()
   const wc = win.webContents
 
@@ -381,7 +394,7 @@ export async function interact(interaction: WebBrowserInteraction): Promise<WebP
         if (!href) {
           throw new Error(`No link at index ${interaction.linkIndex}`)
         }
-        return await navigate(href)
+        return await navigateNow(href)
       } else {
         throw new Error('click requires either a linkIndex or a selector')
       }
@@ -389,10 +402,33 @@ export async function interact(interaction: WebBrowserInteraction): Promise<WebP
     }
   }
 
-  return await readPage()
+  return await readPageNow()
 }
 
-export async function screenshot(): Promise<string> {
+export function readPage(): Promise<WebPageSnapshot> {
+  return withBrowserLock(() => readPageNow())
+}
+
+export function navigate(url: string): Promise<WebPageSnapshot> {
+  return withBrowserLock(() => navigateNow(url))
+}
+
+export function search(
+  query: string,
+  maxResults: number = DEFAULT_MAX_SEARCH_RESULTS,
+): Promise<WebSearchResults> {
+  return withBrowserLock(() => searchNow(query, maxResults))
+}
+
+export function interact(interaction: WebBrowserInteraction): Promise<WebPageSnapshot> {
+  return withBrowserLock(() => interactNow(interaction))
+}
+
+export function screenshot(): Promise<string> {
+  return withBrowserLock(() => captureScreenshot())
+}
+
+async function captureScreenshot(): Promise<string> {
   const win = ensureWindow()
   const image = await win.webContents.capturePage()
   return image.toPNG().toString('base64')

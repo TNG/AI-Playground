@@ -7,9 +7,9 @@
       :aria-describedby="describedBy"
     >
       <div class="grid grid-cols-[120px_1fr] items-center gap-4" :class="problemClass('backend')">
-        <Label class="whitespace-nowrap">Backend</Label>
+        <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTING_BACKEND }}</Label>
         <drop-down-new
-          title="Select Backend"
+          :title="i18n.AGENT_SETTINGS_SELECT_BACKEND"
           :value="binding.backend"
           :items="binding.backendItems"
           @change="binding.setBackend"
@@ -21,7 +21,7 @@
         class="grid grid-cols-[120px_1fr] items-center gap-4"
         :class="problemClass('cloudProvider')"
       >
-        <Label class="whitespace-nowrap">Provider</Label>
+        <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTING_PROVIDER }}</Label>
         <slot name="provider" />
       </div>
       <div
@@ -69,18 +69,18 @@
             @keydown.enter="contextSizeField.commit"
           />
           <span v-if="binding.contextSize < 16384" class="text-xs text-amber-500">
-            Agentic sessions typically need 32k+ context.
+            {{ i18n.AGENT_SETTINGS_CONTEXT_HINT }}
           </span>
         </div>
       </div>
       <p v-if="binding.sharedWithChat" class="text-xs text-muted-foreground">
-        Backend, device/provider, model and context size are shared with Chat mode.
+        {{ i18n.AGENT_SETTINGS_SHARED_WITH_CHAT }}
       </p>
 
       <!-- Only models whose template honours enable_thinking can be told to stop, and only a
            session that thinks has anything to shorten. -->
       <div v-if="binding.thinkingToggleSupported" class="flex flex-col gap-2">
-        <Label class="whitespace-nowrap">Thinking</Label>
+        <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTINGS_THINKING }}</Label>
         <label class="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
@@ -89,9 +89,9 @@
             @change="binding.setThinkingEnabled(!binding.thinkingEnabled)"
           />
           <span class="flex flex-col">
-            <span class="text-foreground">Think before acting</span>
+            <span class="text-foreground">{{ i18n.AGENT_SETTINGS_THINK_BEFORE_ACTING }}</span>
             <span v-if="binding.sharedWithChat" class="text-xs text-muted-foreground">
-              Shared with Chat mode, where it applies to every answer.
+              {{ i18n.AGENT_SETTINGS_THINKING_SHARED }}
             </span>
           </span>
         </label>
@@ -105,12 +105,10 @@
           />
           <span class="flex flex-col">
             <span class="text-foreground" :class="{ 'opacity-50': !binding.thinkingEnabled }">
-              Reasoning only during planning
+              {{ i18n.AGENT_SETTINGS_PLANNING_ONLY }}
             </span>
             <span class="text-xs text-muted-foreground">
-              The agent thinks while it works out what to build and stops once it starts building:
-              Game Agent follows the checklist in its plan file from then on, and Quick Coder writes
-              its game as a second step, after the plan. Presets that do not plan think throughout.
+              {{ i18n.AGENT_SETTINGS_PLANNING_ONLY_HINT }}
             </span>
           </span>
         </label>
@@ -126,10 +124,9 @@
       :aria-describedby="describedBy"
     >
       <div class="border-t border-border pt-4 flex flex-col gap-3">
-        <Label class="whitespace-nowrap">Capabilities</Label>
+        <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTINGS_CAPABILITIES }}</Label>
         <p class="text-xs text-muted-foreground">
-          What the agent is equipped with, on top of its file and shell tools. Each capability adds
-          its tools and instructions to the session.
+          {{ i18n.AGENT_SETTINGS_CAPABILITIES_HINT }}
         </p>
         <AgentCapabilityChecklist
           :model-value="binding.capabilities"
@@ -145,7 +142,7 @@
             class="grid grid-cols-[120px_1fr] items-center gap-4"
             :class="problemClass('embeddingModel')"
           >
-            <Label class="whitespace-nowrap">Embeddings</Label>
+            <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTINGS_EMBEDDINGS }}</Label>
             <drop-down-new
               :title="i18n.RAG_DOCUMENT_EMBEDDING_MODEL"
               :value="binding.embeddingModelName"
@@ -176,8 +173,7 @@
           </template>
         </AgentCapabilityChecklist>
         <p v-if="liveSession" class="text-xs text-amber-500">
-          Changes take effect on the next turn, which starts a fresh Pi session. Attached MCP
-          servers are started then too.
+          {{ i18n.AGENT_SETTINGS_NEXT_TURN }}
         </p>
       </div>
 

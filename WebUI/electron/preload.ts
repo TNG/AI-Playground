@@ -8,6 +8,7 @@ import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
+import type { AgentTask } from '@/types/agentTaskIpc'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
@@ -15,6 +16,7 @@ import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ComputeSnapshot } from '@/types/computeMetrics'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
+import type { PauseReason } from '@/types/kernelEvents'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type {
@@ -116,6 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
   miniWindow: () => send('miniWindow'),
   exitApp: () => send('exitApp'),
+  tasksKeepAlive: () => invoke('tasksKeepAlive'),
+  hideMainWindow: () => send('hideMainWindow'),
   getInitialPage: () => invoke('getInitialPage'),
   getDemoModeSettings: () => invoke('getDemoModeSettings'),
   showOpenDialog: (options: OpenDialogOptions) => invoke('showOpenDialog', options),
@@ -208,7 +212,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     args: NonNullable<import('../src/types/chatIpc').ChatModelConfig['readiness']>,
   ) => invoke('rememberChatBackendLoad', args),
   artifact: {
-    run: (request: ArtifactRunRequest, options?: { queue?: 'fail-fast' | 'queue' }) =>
+    run: (request: ArtifactRunRequest, options?: { queue?: 'turn' | 'queue' }) =>
       invoke('artifact:run', cloneForIpc(request), options),
     cancel: (runId?: string) => invoke('artifact:cancel', runId),
     respond: (payload: MediaResponsePayload) => invoke('artifact:respond', payload),
@@ -226,6 +230,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrate: (incoming: Record<string, PermissionGrant>) =>
       invoke('permissions:migrate', cloneForIpc(incoming)),
     respond: (payload: PermissionsPromptResponse) => invoke('permissions:respond', payload),
+    awaitingUser: (conversationKey: string, waiting: boolean, reason?: PauseReason) =>
+      send('permissions:awaitingUser', conversationKey, waiting, reason),
     onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
       onPush('permissions:prompt', callback),
   },
@@ -320,7 +326,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentMode: {
     startTurn: (turnId: string, prompt: string, config: AgentModeTurnConfig) =>
       invoke('agentMode:startTurn', turnId, prompt, cloneForIpc(config)),
-    cancel: () => invoke('agentMode:cancel'),
+    cancel: (sessionId: string, turnId?: string) => invoke('agentMode:cancel', sessionId, turnId),
     resetSession: () => invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => invoke('agentMode:deleteSession', sessionId),
     bootstrapSessions: () => invoke('agentMode:bootstrapSessions'),
@@ -333,6 +339,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke('agentMode:migrateWorkspaceState', cloneForIpc(payload)),
     writeWorkspaceState: (value: unknown) =>
       invoke('agentMode:writeWorkspaceState', cloneForIpc(value)),
+    readTasks: () => invoke('agentMode:readTasks'),
+    saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
+    deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

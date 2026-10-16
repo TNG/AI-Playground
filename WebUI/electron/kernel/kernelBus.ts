@@ -2,6 +2,8 @@ import type { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../observability/logger'
 import type {
   AgentTurnSnapshot,
+  AgentTurnState,
+  PauseReason,
   ArtifactRunSnapshot,
   ArtifactRunTag,
   ArtifactPhase,
@@ -108,11 +110,49 @@ export function emitServiceUpdate(info: unknown): void {
 
 // ── Agent turn accumulator ─────────────────────────────────────────────────────
 
-let activeTurn: AgentTurnSnapshot | null = null
+const agentTurns = new Map<string, AgentTurnSnapshot>()
 
-/** Track a turn main is about to run, so snapshots can name it. */
-export function beginAgentTurnSnapshot(turnId: string): void {
-  activeTurn = { turnId, chunks: [], toolProgress: {}, toolImages: {} }
+/** The open turn of `sessionId`, if it is the one named `turnId`. */
+function agentTurnOf(sessionId: string, turnId: string): AgentTurnSnapshot | undefined {
+  const turn = agentTurns.get(sessionId)
+  return turn?.turnId === turnId ? turn : undefined
+}
+
+/** Track a turn main has accepted, so snapshots can name it; it starts out queued. */
+export function beginAgentTurnSnapshot(sessionId: string, turnId: string): void {
+  agentTurns.set(sessionId, {
+    sessionId,
+    turnId,
+    state: 'queued',
+    chunks: [],
+    toolProgress: {},
+    toolImages: {},
+  })
+}
+
+export function emitAgentTurnState(
+  sessionId: string,
+  turnId: string,
+  state: AgentTurnState,
+  pauseReason?: PauseReason,
+): void {
+  const reason = state === 'paused' ? pauseReason : undefined
+  const turn = agentTurnOf(sessionId, turnId)
+  if (turn) {
+    turn.state = state
+    if (reason) turn.pauseReason = reason
+    else delete turn.pauseReason
+  }
+  emit(
+    {
+      type: 'agent-turn-state',
+      sessionId,
+      turnId,
+      state,
+      ...(reason ? { pauseReason: reason } : {}),
+    },
+    { kind: 'run', runId: turnId },
+  )
 }
 
 function isMergeableAgentDelta(
@@ -127,9 +167,10 @@ function isMergeableAgentDelta(
   )
 }
 
-export function emitAgentChunk(turnId: string, chunk: unknown): void {
-  if (activeTurn?.turnId === turnId) {
-    const last = activeTurn.chunks.at(-1)
+export function emitAgentChunk(sessionId: string, turnId: string, chunk: unknown): void {
+  const turn = agentTurnOf(sessionId, turnId)
+  if (turn) {
+    const last = turn.chunks.at(-1)
     if (
       isMergeableAgentDelta(last) &&
       isMergeableAgentDelta(chunk) &&
@@ -138,37 +179,62 @@ export function emitAgentChunk(turnId: string, chunk: unknown): void {
     ) {
       last.delta += chunk.delta
     } else {
-      activeTurn.chunks.push(chunk)
+      turn.chunks.push(chunk)
     }
   }
-  emit({ type: 'agent-chunk', turnId, chunk }, { kind: 'run', runId: turnId })
+  emit({ type: 'agent-chunk', sessionId, turnId, chunk }, { kind: 'run', runId: turnId })
 }
 
 export function emitAgentToolProgress(
+  sessionId: string,
   turnId: string,
   toolCallId: string,
   toolName: string,
   text: string,
 ): void {
-  if (activeTurn?.turnId === turnId) activeTurn.toolProgress[toolCallId] = text
+  const turn = agentTurnOf(sessionId, turnId)
+  if (turn) turn.toolProgress[toolCallId] = text
   emit(
-    { type: 'agent-tool-progress', turnId, toolCallId, toolName, text },
+    { type: 'agent-tool-progress', sessionId, turnId, toolCallId, toolName, text },
     { kind: 'run', runId: turnId },
   )
 }
 
-export function emitAgentToolImage(toolCallId: string, dataUri: string, label: string): void {
-  const event: KernelAgentToolImageEvent = { type: 'agent-tool-image', toolCallId, dataUri, label }
-  if (activeTurn) {
-    const shown = activeTurn.toolImages[toolCallId] ?? []
-    activeTurn.toolImages[toolCallId] = [...shown, event]
+export function emitAgentToolImage(
+  sessionId: string,
+  turnId: string,
+  toolCallId: string,
+  dataUri: string,
+  label: string,
+): void {
+  const event: KernelAgentToolImageEvent = {
+    type: 'agent-tool-image',
+    sessionId,
+    turnId,
+    toolCallId,
+    dataUri,
+    label,
   }
-  emit(event, { kind: 'run', runId: activeTurn?.turnId ?? '' })
+  const turn = agentTurnOf(sessionId, turnId)
+  if (turn) {
+    const shown = turn.toolImages[toolCallId] ?? []
+    turn.toolImages[toolCallId] = [...shown, event]
+  }
+  emit(event, { kind: 'run', runId: turnId })
 }
 
-export function emitAgentTurnDone(turnId: string): void {
-  emit({ type: 'agent-turn-done', turnId }, { kind: 'run', runId: turnId })
-  if (activeTurn?.turnId === turnId) activeTurn = null
+export function emitAgentTurnDone(sessionId: string, turnId: string): void {
+  emit({ type: 'agent-turn-done', sessionId, turnId }, { kind: 'run', runId: turnId })
+  if (agentTurnOf(sessionId, turnId)) agentTurns.delete(sessionId)
+}
+
+function agentTurnSnapshots(): AgentTurnSnapshot[] {
+  return [...agentTurns.values()].map((turn) => ({
+    ...turn,
+    chunks: [...turn.chunks],
+    toolProgress: { ...turn.toolProgress },
+    toolImages: { ...turn.toolImages },
+  }))
 }
 
 // ── Artifact run accumulator ──────────────────────────────────────────────────
@@ -285,11 +351,20 @@ export function endMediaAgentRun(runKey: string): void {
 
 // ── Orchestrator queue events (§4.4, step 7) ─────────────────────────────────
 //
-// Queue positions are transient state, not coalesced and not snapshotted: a
-// reloaded renderer does not adopt queue positions, and the entries either
-// run or were cancelled with their callers.
+// Queue positions are transient state, not coalesced: the entries either run or
+// were cancelled with their callers. The one exception is an agent turn's Turn
+// Queue position, kept on its snapshot so a reloaded history still shows it.
+
+function agentTurnByTurnId(turnId: string): AgentTurnSnapshot | undefined {
+  for (const turn of agentTurns.values()) if (turn.turnId === turnId) return turn
+  return undefined
+}
 
 export function emitQueueEvent(event: Omit<KernelQueueEvent, 'type'>): void {
+  if (event.kind === 'text') {
+    const turn = agentTurnByTurnId(event.runKey)
+    if (turn) turn.queuePosition = event.position
+  }
   emit(
     { type: 'queue-event', ...event },
     event.conversationKey
@@ -517,7 +592,7 @@ export function getKernelSnapshot(): KernelSnapshot {
     sequence,
     state: {
       services: [...services.values()],
-      activeTurn: activeTurn ? { ...activeTurn } : null,
+      agentTurns: agentTurnSnapshots(),
       activeArtifactRun: activeArtifactRun ? { ...activeArtifactRun } : null,
       chatTurns: chatTurnSnapshots,
       activities: [...activeActivities.values()],
@@ -531,7 +606,7 @@ export function resetKernelBusForTest(): void {
   currentWin = null
   sequence = 0
   services.clear()
-  activeTurn = null
+  agentTurns.clear()
   activeArtifactRun = null
   for (const state of chatTurns.values()) {
     if (state.timer) clearTimeout(state.timer)

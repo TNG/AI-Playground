@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { registerAgentModeIpc } from '@/assets/js/store/agentModeIpc'
-import { buildTurnConfig, createAgentTurnRuntime } from '@/assets/js/store/agentModeTurn'
+import { buildTurnConfig, createAgentTurnRuntimes } from '@/assets/js/store/agentModeTurn'
 import type { AgentTurnSnapshot } from '@/types/kernelEvents'
 
 const chatResume = vi.hoisted(() => {
@@ -42,9 +42,14 @@ vi.mock('@ai-sdk/vue', () => ({
     constructor(options: { transport: { reconnectToStream: () => Promise<unknown> } }) {
       this.transport = options.transport
     }
+    // Like the SDK, settles only once the resumed stream has been read to its end.
     async resumeStream() {
       await chatResume.promise
-      return this.transport.reconnectToStream()
+      const stream = (await this.transport.reconnectToStream()) as ReadableStream | null
+      const reader = stream?.getReader()
+      while (reader && !(await reader.read()).done) {
+        // Drain.
+      }
     }
   },
 }))
@@ -208,43 +213,143 @@ describe('buildTurnConfig readiness (step 15)', () => {
   })
 })
 
+function snapshotOf(turns: AgentTurnSnapshot[]) {
+  return {
+    scope: { kind: 'global' as const },
+    sequence: 1,
+    state: {
+      services: [],
+      agentTurns: turns,
+      activeArtifactRun: null,
+      chatTurns: [],
+      activities: [],
+      inferenceProfile: null,
+    },
+  }
+}
+
+function freshRuntimes() {
+  const runtimes = createAgentTurnRuntimes({
+    errors: { report: vi.fn() },
+    buildTurnConfig: async () => ({}) as never,
+  })
+  const handlers = vi.mocked(registerAgentModeIpc).mock.calls.at(-1)?.[0]
+  if (!handlers) throw new Error('expected registerAgentModeIpc')
+  return { runtimes, handlers }
+}
+
 describe('pendingResume tool progress', () => {
   it('buffers onToolProgress onto the snapshot until reconnect adopts it', async () => {
     chatResume.hold()
-    const runtime = createAgentTurnRuntime({
-      errors: { report: vi.fn() },
-      buildTurnConfig: async () => ({}) as never,
-    })
-    const handlers = vi.mocked(registerAgentModeIpc).mock.calls.at(-1)?.[0]
-    if (!handlers) throw new Error('expected registerAgentModeIpc')
+    const { runtimes, handlers } = freshRuntimes()
 
     const turn: AgentTurnSnapshot = {
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
+      state: 'running',
       chunks: [],
       toolProgress: { 'call-1': 'start' },
       toolImages: {},
     }
-    handlers.onSnapshot({
-      scope: { kind: 'global' },
-      sequence: 1,
-      state: {
-        services: [],
-        activeTurn: turn,
-        activeArtifactRun: null,
-        chatTurns: [],
-        activities: [],
-        inferenceProfile: null,
-      },
-    })
+    handlers.onSnapshot(snapshotOf([turn]))
     handlers.onToolProgress({
+      sessionId: 'aipg-agent-1',
       turnId: 'turn-1',
       toolCallId: 'call-1',
       toolName: 'browser',
       text: 'halfway',
     })
+    const runtime = runtimes.runtimeOf('aipg-agent-1')!
     expect(runtime.toolProgress.value).toEqual({})
 
     chatResume.release()
     await vi.waitFor(() => expect(runtime.toolProgress.value).toEqual({ 'call-1': 'halfway' }))
+  })
+})
+
+describe('routing kernel events by session', () => {
+  const turnOf = (sessionId: string, turnId: string): AgentTurnSnapshot => ({
+    sessionId,
+    turnId,
+    state: 'running',
+    chunks: [],
+    toolProgress: {},
+    toolImages: {},
+  })
+
+  it('adopts every open turn into its own session runtime', async () => {
+    chatResume.hold()
+    const { runtimes, handlers } = freshRuntimes()
+    handlers.onSnapshot(snapshotOf([turnOf('session-a', 'turn-a'), turnOf('session-b', 'turn-b')]))
+    chatResume.release()
+
+    const a = runtimes.runtimeOf('session-a')!
+    const b = runtimes.runtimeOf('session-b')!
+    await vi.waitFor(() => expect(a.processing.value && b.processing.value).toBe(true))
+
+    handlers.onToolProgress({
+      sessionId: 'session-b',
+      turnId: 'turn-b',
+      toolCallId: 'call-1',
+      toolName: 'bash',
+      text: 'only B',
+    })
+    handlers.onToolImage({
+      sessionId: 'session-a',
+      turnId: 'turn-a',
+      toolCallId: 'call-2',
+      dataUri: 'data:image/png;base64,',
+      label: 'only A',
+    })
+
+    expect(b.toolProgress.value).toEqual({ 'call-1': 'only B' })
+    expect(a.toolProgress.value).toEqual({})
+    expect(a.toolImages.value['call-2']).toHaveLength(1)
+    expect(b.toolImages.value).toEqual({})
+  })
+
+  it('ignores events whose session id does not own the turn', async () => {
+    chatResume.hold()
+    const { runtimes, handlers } = freshRuntimes()
+    handlers.onSnapshot(snapshotOf([turnOf('session-a', 'turn-a')]))
+    chatResume.release()
+    const a = runtimes.runtimeOf('session-a')!
+    await vi.waitFor(() => expect(a.processing.value).toBe(true))
+
+    handlers.onToolProgress({
+      sessionId: 'session-z',
+      turnId: 'turn-a',
+      toolCallId: 'call-1',
+      toolName: 'bash',
+      text: 'stray',
+    })
+
+    expect(a.toolProgress.value).toEqual({})
+    expect(runtimes.runtimeOf('session-z')).toBeUndefined()
+  })
+
+  it('hands store tools the session that called them', async () => {
+    const offer = vi.fn(async () => ({ accepted: true }))
+    const submitToolResult = vi.fn(async () => {})
+    globalThis.window = {
+      electronAPI: { agentMode: { submitToolResult } },
+    } as unknown as Window & typeof globalThis
+    createAgentTurnRuntimes({
+      errors: { report: vi.fn() },
+      buildTurnConfig: async () => ({}) as never,
+      storeTools: { offerGameAgent: offer },
+    })
+    const handlers = vi.mocked(registerAgentModeIpc).mock.calls.at(-1)![0]
+
+    await handlers.onExecuteTool({
+      requestId: 'req-1',
+      sessionId: 'session-b',
+      toolCallId: 'call-1',
+      toolName: 'offerGameAgent',
+      input: { reason: 'boss' },
+    })
+
+    expect(offer).toHaveBeenCalledWith({ reason: 'boss' }, 'session-b')
+    expect(submitToolResult).toHaveBeenCalledWith('req-1', { accepted: true })
   })
 })

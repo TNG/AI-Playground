@@ -75,7 +75,6 @@ type LocalSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: number | null
   demoModePasscode?: string
-  isAgentPresetEnabled?: boolean
   /** Shows the machine-level debug controls in Settings → Developer. */
   showDebugSettingsInUI?: boolean
   oemVendorOverride?: string | null
@@ -223,6 +222,7 @@ type AgentModeTurnConfig = import('./types/agentIpc').AgentModeTurnConfig
 
 /** Streaming output of a running tool, keyed by the tool call it belongs to. */
 type AgentToolProgress = {
+  sessionId: string
   turnId: string
   toolCallId: string
   toolName: string
@@ -231,6 +231,8 @@ type AgentToolProgress = {
 
 /** An image a tool produced, shown to the user under that tool's card. */
 type AgentToolImage = {
+  sessionId: string
+  turnId: string
   toolCallId: string
   /** The image itself, inlined — it never enters the model's context. */
   dataUri: string

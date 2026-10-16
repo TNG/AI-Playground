@@ -9,10 +9,9 @@
  * submission and the websocket progress through to a settled outcome —
  * streaming phase/item events on the kernel bus so the renderer's stores are
  * pure projections of this module. One run is active at a time; later
- * submissions either fail fast ("Another generation is already in progress",
- * the panel and Home Agent behavior) or queue behind it (the chat tools'
- * lane, and in-process agent direct tools waiting for the GPU — all of which
- * is the orchestrator's queue now).
+ * submissions wait in the orchestrator's queues — panel and Home Agent runs in
+ * the Turn Queue, media nested in a turn (the chat tools' lane, in-process
+ * agent direct tools) on the artifact queue.
  *
  * The single stall owner is here, unchanged from the renderer runner it
  * replaces: one re-arming 5-minute idle watchdog over every phase — backend
@@ -113,9 +112,9 @@ export type ArtifactRunPayload = {
   /** Which surface renders this run's progress; stamped on every artifact event. */
   owner?: ArtifactRunOwner
   /**
-   * Whether required models were already consented AND downloaded by the
-   * driver (the renderer's pre-flight). In-process tool runs leave this false
-   * and the runner performs the missing-check and consent request itself.
+   * Whether required models were already consented AND downloaded. The
+   * orchestrator's submit-time pre-flight sets it; a run reaching the runner
+   * without it gets the missing-check and consent request there instead.
    */
   modelsConsented?: boolean
   showPreview?: boolean
@@ -153,9 +152,14 @@ export type ArtifactRunnerDeps = {
    * Ask the user for download consent through the renderer's permissions layer
    * (dialog / Home Agent in-channel / pre-grants). `true` implies the download
    * completed; `false` means declined or cancelled. `onProgress` fires while
-   * the download runs, re-arming the idle watchdog.
+   * the download runs, re-arming the idle watchdog. `conversationKey` names the
+   * turn the run belongs to, which pauses while the user is asked (`null`: none).
    */
-  requestModelConsent(models: ArtifactMissingModel[], onProgress?: () => void): Promise<boolean>
+  requestModelConsent(
+    models: ArtifactMissingModel[],
+    onProgress?: () => void,
+    conversationKey?: string | null,
+  ): Promise<boolean>
   ensureOvmsImageReady(
     modelId: string,
     keepModelsLoaded: boolean,
@@ -208,6 +212,32 @@ export function activeArtifactRunId(): string | null {
  */
 export function startArtifactRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
   return startRun(payload)
+}
+
+export type RunModelsOutcome =
+  { state: 'ready' } | { state: 'declined' } | { state: 'failed'; error: string }
+
+/**
+ * A run's model pre-flight, asked as it is submitted rather than once it runs.
+ * `onAsk` fires when something is missing and the user is about to be asked for
+ * it. `conversationKey` names the turn that pauses meanwhile (`null`: none).
+ */
+export async function prepareRunModels(
+  payload: ArtifactRunPayload,
+  onAsk: () => void,
+  conversationKey: string | null | undefined,
+): Promise<RunModelsOutcome> {
+  if (!runnerDeps) return { state: 'ready' }
+  let missing: ArtifactMissingModel[]
+  try {
+    missing = await runnerDeps.modelsMissing(payload.preset)
+  } catch (error) {
+    return { state: 'failed', error: `Required models are unavailable: ${extractMessage(error)}` }
+  }
+  if (missing.length === 0) return { state: 'ready' }
+  onAsk()
+  const approved = await runnerDeps.requestModelConsent(missing, undefined, conversationKey)
+  return approved ? { state: 'ready' } : { state: 'declined' }
 }
 
 /** Cancels the active run — the Stop button. Queued runs are untouched. */
@@ -729,11 +759,15 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
   armIdleTimeout(run)
   setPhase(run, 'preparing-backend')
 
-  // In-process tool runs did not go through the renderer's model pre-flight.
+  // Fallback for a run submitted without the orchestrator's pre-flight.
   if (run.payload.modelsConsented !== true) {
     const missing = await deps.modelsMissing(run.payload.preset)
     if (missing.length > 0) {
-      const approved = await deps.requestModelConsent(missing, () => armIdleTimeout(run))
+      const approved = await deps.requestModelConsent(
+        missing,
+        () => armIdleTimeout(run),
+        run.payload.conversationKey,
+      )
       if (!approved) {
         cancelRun(run)
         return

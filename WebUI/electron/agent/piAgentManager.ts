@@ -4,10 +4,11 @@ import { setToolBridgeWindow, submitAgentToolResult } from './piCustomTools.ts'
 import { listCapabilities, type CapabilityInfo } from './capabilities/index.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import { piAgentDir } from './piSessionStore.ts'
-import { setMainWin, currentTurn } from './piAgentState.ts'
+import { setMainWin } from './piAgentState.ts'
 import {
   cancelAgentTurn,
   deleteAgentSession,
+  hasOpenAgentTurn,
   resetAgentSession,
   shutdownAgentMode,
   startAgentTurn,
@@ -15,10 +16,16 @@ import {
 
 // ── Agent Mode: Pi coding agent in the Electron main process ─────────────────
 //
-// Holds at most ONE live Pi `AgentSession`, keyed by the renderer-minted session
-// id (one per archived conversation). The session is long-lived: it survives
-// across turns and is only rebuilt when the conversation, workspace, model or
-// tool set changes. Pi persists the transcript to its own session file on every
+// Keeps one live Pi `AgentSession` for the next turn to reuse, keyed by the
+// renderer-minted session id (one per archived conversation), plus the session
+// of any paused turn. Open turns are tracked per session id (piAgentState
+// `agentTurns`), at most one per session; every turn waits in the orchestrator's
+// Turn Queue and is readied (backend, model, Pi session) only once it holds the
+// place, so only one runs at a time. A turn waiting on the user gives the place
+// up and keeps its Pi session alive; before its next model call it takes the
+// place back and re-applies readiness and the per-call globals. The reused
+// session is long-lived: it survives across turns and is only rebuilt when the
+// conversation, workspace, model or tool set changes. Pi persists the transcript to its own session file on every
 // message, so restart survival is just remembering that file path per session.
 //
 // The renderer consumes a standard AI SDK UI message stream, so this module
@@ -42,9 +49,9 @@ export function setAgentModeMainWindow(win: BrowserWindow): void {
   setToolBridgeWindow(win)
 }
 
-/** Whether main is mid-agent-turn — input to the hidden-window close policy. */
+/** Whether main holds an agent turn open — input to the hidden-window close policy. */
 export function isAgentTurnActive(): boolean {
-  return currentTurn !== null
+  return hasOpenAgentTurn()
 }
 
 /**

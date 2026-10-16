@@ -100,7 +100,7 @@ async function synthesize(
           rememberAsDefault: args.rememberAsDefault,
         },
       },
-      { abortSignal: signal },
+      { abortSignal: signal, conversationKey: host.sessionId },
     )
     const { fullPath, relativePath } = generatedAudioPath(
       host.workspaceDir,
@@ -143,7 +143,7 @@ async function transcribeWorkspaceAudio(
         audioBase64: (await fs.promises.readFile(fullPath)).toString('base64'),
         mediaType,
       },
-      { abortSignal: signal },
+      { abortSignal: signal, conversationKey: host.sessionId },
     )
     return { ok: true, message: `Transcribed ${relativePath}.`, transcript: text }
   } catch (error) {

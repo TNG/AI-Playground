@@ -7,6 +7,8 @@ import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
+import { agentTurns } from './piAgentState.ts'
+import { isWaitingOnUser, onUserWaitChange, whileRendererAnswers } from '../kernel/userWait.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
 //
@@ -47,9 +49,10 @@ export function jsonSchemaParameters(schema: Record<string, unknown>): TSchema {
 // ── Renderer tool bridge ─────────────────────────────────────────────────────
 
 type PendingToolCall = {
+  sessionId: string
   resolve: (result: unknown) => void
   reject: (error: Error) => void
-  timeout: NodeJS.Timeout
+  timeout: PausableTimeout
   cleanupAbort?: () => void
 }
 
@@ -60,6 +63,37 @@ let toolRequestCounter = 0
 // downloads). The renderer tool has its own idle watchdog that fails stalled
 // generations, so this is only a safety net against a lost IPC reply.
 const TOOL_BRIDGE_TIMEOUT_MS = 30 * 60_000
+
+/** A timeout that stops counting while paused and resumes with what was left. */
+type PausableTimeout = { pause: () => void; resume: () => void }
+
+function pausableTimeout(ms: number, onTimeout: () => void): PausableTimeout {
+  let remaining = ms
+  let startedAt = 0
+  let timer: NodeJS.Timeout | null = null
+  return {
+    pause: () => {
+      if (!timer) return
+      clearTimeout(timer)
+      timer = null
+      remaining = Math.max(0, remaining - (Date.now() - startedAt))
+    },
+    resume: () => {
+      if (timer) return
+      startedAt = Date.now()
+      timer = setTimeout(onTimeout, remaining)
+    },
+  }
+}
+
+// A session waiting on the user has no deadline, so neither have its tool calls.
+onUserWaitChange((sessionId, waiting) => {
+  for (const call of pendingToolCalls.values()) {
+    if (call.sessionId !== sessionId) continue
+    if (waiting) call.timeout.pause()
+    else call.timeout.resume()
+  }
+})
 
 let mainWin: BrowserWindow | null = null
 
@@ -72,23 +106,25 @@ export function submitAgentToolResult(requestId: string, result: unknown, error?
   const pending = pendingToolCalls.get(requestId)
   if (!pending) return
   pendingToolCalls.delete(requestId)
-  clearTimeout(pending.timeout)
+  pending.timeout.pause()
   pending.cleanupAbort?.()
   if (error) pending.reject(new Error(error))
   else pending.resolve(result)
 }
 
-export function rejectAllPendingToolCalls(reason: string): void {
-  const pending = [...pendingToolCalls.values()]
-  pendingToolCalls.clear()
-  for (const call of pending) {
-    clearTimeout(call.timeout)
+/** Settles the renderer tool calls of one session, or of every session when none is named. */
+export function rejectPendingToolCalls(reason: string, sessionId?: string): void {
+  for (const [requestId, call] of [...pendingToolCalls]) {
+    if (sessionId !== undefined && call.sessionId !== sessionId) continue
+    pendingToolCalls.delete(requestId)
+    call.timeout.pause()
     call.cleanupAbort?.()
     call.reject(new Error(reason))
   }
 }
 
 export function executeToolInRenderer(
+  sessionId: string,
   toolName: string,
   input: Record<string, unknown>,
   toolCallId: string,
@@ -97,19 +133,39 @@ export function executeToolInRenderer(
   if (!mainWin) {
     return Promise.reject(new Error('No renderer window available for tool execution.'))
   }
+  return whileRendererAnswers(sessionId, () =>
+    dispatchToRenderer(sessionId, toolName, input, toolCallId, abortSignal),
+  )
+}
+
+function dispatchToRenderer(
+  sessionId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  toolCallId: string,
+  abortSignal?: AbortSignal,
+): Promise<unknown> {
   const requestId = `tool-req-${Date.now()}-${++toolRequestCounter}`
   return new Promise<unknown>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingToolCalls.delete(requestId)
-      reject(new Error(`Tool '${toolName}' timed out after ${TOOL_BRIDGE_TIMEOUT_MS / 60000}min.`))
-    }, TOOL_BRIDGE_TIMEOUT_MS)
-    const entry: PendingToolCall = { resolve, reject, timeout }
+    const entry: PendingToolCall = {
+      sessionId,
+      resolve,
+      reject,
+      timeout: pausableTimeout(TOOL_BRIDGE_TIMEOUT_MS, () => {
+        pendingToolCalls.delete(requestId)
+        entry.cleanupAbort?.()
+        reject(
+          new Error(`Tool '${toolName}' timed out after ${TOOL_BRIDGE_TIMEOUT_MS / 60000}min.`),
+        )
+      }),
+    }
+    if (!isWaitingOnUser(sessionId)) entry.timeout.resume()
     if (abortSignal) {
       const onAbort = () => {
         // The renderer keeps running its side (no remote cancellation); its late
         // submitToolResult finds no pending entry and no-ops.
         pendingToolCalls.delete(requestId)
-        clearTimeout(timeout)
+        entry.timeout.pause()
         reject(new Error('Tool execution aborted.'))
       }
       abortSignal.addEventListener('abort', onAbort, { once: true })
@@ -122,6 +178,7 @@ export function executeToolInRenderer(
     if (mainWin) {
       typedSend(mainWin.webContents, 'agentMode:executeTool', {
         requestId,
+        sessionId,
         toolCallId,
         toolName,
         input,
@@ -136,9 +193,17 @@ export function executeToolInRenderer(
  * Tool results are model context, so an image can only be put in front of the
  * USER over a side channel: the renderer merges these by tool call id and draws
  * them under the tool card, the same way it does with streamed tool output.
+ * The image belongs to the open turn of the session whose tool produced it.
  */
-export function sendToolImage(toolCallId: string, dataUri: string, label: string): void {
-  emitAgentToolImage(toolCallId, dataUri, label)
+export function sendToolImage(
+  sessionId: string,
+  toolCallId: string,
+  dataUri: string,
+  label: string,
+): void {
+  const turn = agentTurns.get(sessionId)
+  if (!turn) return
+  emitAgentToolImage(sessionId, turn.turnId, toolCallId, dataUri, label)
 }
 
 const DATA_URI_MIME_BY_EXT: Record<string, string> = {

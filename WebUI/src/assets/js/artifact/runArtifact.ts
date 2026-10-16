@@ -10,7 +10,6 @@ import type { MediaItem } from '@/types/mediaItem'
 import { usePresets, type ComfyInput, type ComfyUiPreset, type Preset } from '../store/presets'
 import { imageUrlToDataUri } from '@/lib/utils'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { isCancellation } from '../errors/appError'
 import { presetToMode } from '@/lib/presetModes'
 
 /**
@@ -64,8 +63,8 @@ export type ArtifactRunContext = {
   parentActivityId?: string | null
   abortSignal?: AbortSignal
   /**
-   * `'queue'` parks the run behind an active one (chat tool calls); the
-   * default fail-fast keeps the panel's one-generation-at-a-time contract.
+   * `'queue'` parks the run behind an active one (media nested in a turn); by
+   * default the run joins the Turn Queue like the panel's own runs.
    */
   queueMode?: 'queue'
   /** The conversation this run was asked from — routes orchestrator queue events. */
@@ -210,13 +209,11 @@ function buildSettings(
 }
 
 /**
- * Resolve and run one media generation. Model pre-flight stays renderer-side
- * (the permissions layer); everything after — readiness, installs, submission,
- * progress, the idle watchdog — is the main-process runner's, reached over
+ * Resolve and run one media generation. Everything after resolution — the
+ * required-model consent (through the permissions layer), readiness, installs,
+ * submission, progress, the idle watchdog — is main's, reached over
  * `artifact:run`. Resolves when the run settles; `items` carries what reached
- * 'done'. A user cancelling the required-model download still throws
- * (`isCancellation`) so the UI's pre-existing catch — which resets the prompt
- * bar — keeps working.
+ * 'done'. A declined required-model download settles as `cancelled`.
  */
 export async function runArtifact(
   request: ArtifactRequest,
@@ -267,25 +264,10 @@ export async function runArtifact(
     }
   }
 
-  // Cancelled before anything was queued — don't pull in models nobody waits for.
+  // Cancelled before anything was queued — don't register placeholders for it.
   if (ctx.abortSignal?.aborted) return { state: 'cancelled', items: [] }
 
-  // 3. Required models. Download approval routes through the dialog (or the
-  // remote channel on Home Agent turns) exactly as the UI path always did.
-  try {
-    await imageGen.ensureModelsAreAvailableFor(preset)
-  } catch (error) {
-    if (isCancellation(error)) throw error
-    return failed(
-      `Required models are unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    )
-  }
-
-  // Aborted while the model dialog was open — don't register placeholders for
-  // a run whose caller is already gone.
-  if (ctx.abortSignal?.aborted) return { state: 'cancelled', items: [] }
-
-  // 4. Create the tracked items — the run's only footprint on shared state.
+  // 3. Create the tracked items — the run's only footprint on shared state.
   const baseSeed = params.seed === -1 ? Math.floor(Math.random() * 1_000_000) : params.seed
   const baseSettings = buildSettings(
     preset,
@@ -316,7 +298,7 @@ export async function runArtifact(
     imageGen.generatedImages = imageGen.generatedImages.filter((img) => !trackedIds.has(img.id))
   }
 
-  // 5. Submit to the main-process runner. Readiness, installs, submission and
+  // 4. Submit to the main-process runner. Readiness, installs, submission and
   // the progress stream are main's; live UI state arrives through the kernel
   // artifact events (the imageGenerationPresets projection), and this promise
   // settles with the run. The abort listener is armed BEFORE submit so the
@@ -341,7 +323,9 @@ export async function runArtifact(
         source: request.source,
         variant: variantName,
         origin: 'renderer' as const,
-        modelsConsented: true,
+        // Main asks for missing models as the run joins the queue, so a run
+        // waiting on that answer can give up its Turn Queue place.
+        modelsConsented: false,
         showPreview: imageGen.showPreview,
         safetyCheck: imageGen.safetyCheck,
         keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
@@ -363,17 +347,12 @@ export async function runArtifact(
     ctx.abortSignal?.removeEventListener('abort', onAbort)
   }
 
-  // A refused submission left nothing of this run in flight — drop the queued
-  // stubs so the history shows no permanent placeholders.
+  // A failure that never started left nothing of this run in flight — drop the
+  // queued stubs so the history shows no permanent placeholders.
   if (result.state === 'failed' && result.items.length === 0) {
-    if (
-      result.error === 'Another generation is already in progress' ||
-      !items.some((item) => item.state !== 'queued')
-    ) {
-      removeQueuedStubs()
-    }
-    // Fail-fast (and other no-event failures) never emit a terminal phase, so
-    // the projection would keep this runId forever without an explicit untrack.
+    if (!items.some((item) => item.state !== 'queued')) removeQueuedStubs()
+    // A malformed request (and other no-event failures) never emits a terminal
+    // phase, so the projection would keep this runId forever without an untrack.
     imageGen.untrackArtifactRun(runId)
   }
   return result

@@ -131,8 +131,8 @@ describe('the capability catalog', () => {
     expect(ids.indexOf('mcp:filesystem')).toBeLessThan(ids.indexOf('media'))
   })
 
-  it('defaults to media, web debugging and document search, with memory opt-in', () => {
-    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['media', 'web-debug', 'rag'])
+  it('defaults to media, web debugging, document search and web access, with memory opt-in', () => {
+    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['media', 'web-debug', 'rag', 'web'])
   })
 
   it('reports availability and commands for the settings UI', () => {
@@ -276,6 +276,14 @@ describe('resolveCapabilities', () => {
     const send = vi.fn()
     const { setKernelEventWindow } = await import('../../kernel/kernelBus')
     setKernelEventWindow({ isDestroyed: () => false, webContents: { send } } as never)
+    // The image belongs to the open turn of the session whose tool took it.
+    const { agentTurns } = await import('../../agent/piAgentState')
+    agentTurns.set(host.sessionId, {
+      sessionId: host.sessionId,
+      turnId: 'turn-1',
+      abort: new AbortController(),
+      live: null,
+    })
 
     const resolution = await resolveCapabilities(host, ['web-debug'])
     const registry = fakeExtensionApi()
@@ -289,12 +297,15 @@ describe('resolveCapabilities', () => {
       'kernel:event',
       expect.objectContaining({
         type: 'agent-tool-image',
+        sessionId: host.sessionId,
+        turnId: 'turn-1',
         toolCallId: 'call-1',
         dataUri: expect.stringMatching(/^data:image\/png;base64,/),
         label: 'generated/shot.png',
       }),
     )
     expect(result.content[0].text).toBe('Saved screenshot to generated/shot.png')
+    agentTurns.delete(host.sessionId)
   })
 
   it('skips a capability that cannot run and says why in the log', async () => {

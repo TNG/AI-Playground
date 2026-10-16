@@ -9,20 +9,79 @@
           placeholder="Search history"
         />
         <div class="flex items-center gap-1" role="group" aria-label="History filter">
-          <button
-            v-for="chip in chips"
-            :key="chip.value"
-            class="rounded-full px-2.5 py-1 text-xs border transition"
-            :class="
-              history.filter === chip.value
-                ? 'border-primary bg-primary/10 text-foreground'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            "
-            :aria-pressed="history.filter === chip.value"
-            @click="history.filter = chip.value"
+          <span
+            v-if="history.taskFilter"
+            class="flex items-center gap-1 rounded-full pl-2.5 pr-1 py-0.5 text-xs border border-primary bg-primary/10 text-foreground min-w-0"
           >
-            {{ chip.label }}
-          </button>
+            <span class="truncate">{{ taskChipLabel }}</span>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <button
+                  type="button"
+                  class="size-5 flex-none flex items-center justify-center rounded-full hover:bg-primary/20"
+                  :aria-label="i18n.HISTORY_TASK_FILTER_CLEAR"
+                  @click="history.clearTaskFilter()"
+                >
+                  <XMarkIcon class="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{{ i18n.HISTORY_TASK_FILTER_CLEAR }}</TooltipContent>
+            </Tooltip>
+          </span>
+          <template v-else>
+            <button
+              v-for="chip in chips"
+              :key="chip.value"
+              class="rounded-full px-2.5 py-1 text-xs border transition"
+              :class="
+                history.filter === chip.value
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-border text-muted-foreground hover:text-foreground'
+              "
+              :aria-pressed="history.filter === chip.value"
+              @click="history.filter = chip.value"
+            >
+              {{ chip.label }}
+            </button>
+            <!-- Tooltip outside the menu: a nested TooltipTrigger steals the menu's popper anchor. -->
+            <Tooltip v-if="history.tasksAvailable">
+              <TooltipTrigger as-child>
+                <span class="inline-flex">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <button
+                        type="button"
+                        class="flex items-center gap-0.5 rounded-full pl-2.5 pr-1.5 py-1 text-xs border transition border-border text-muted-foreground hover:text-foreground"
+                        :aria-label="i18n.HISTORY_TASK_PICKER_LABEL"
+                      >
+                        {{ i18n.HISTORY_TASK_PICKER_CHIP }}
+                        <ChevronDownIcon class="size-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      class="min-w-[200px] max-w-[320px] max-h-[60vh] overflow-y-auto"
+                    >
+                      <DropdownMenuLabel class="text-xs text-muted-foreground">
+                        {{ i18n.HISTORY_TASK_PICKER_LABEL }}
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem
+                        v-for="task in history.taskPickerEntries"
+                        :key="task.id"
+                        @select="history.setTaskFilter(task.id)"
+                      >
+                        <span class="truncate">{{ taskPickerEntryLabel(task) }}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem v-if="history.taskPickerEntries.length === 0" disabled>
+                        {{ i18n.HISTORY_TASK_PICKER_EMPTY }}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{{ i18n.HISTORY_TASK_PICKER_LABEL }}</TooltipContent>
+            </Tooltip>
+          </template>
         </div>
       </div>
 
@@ -73,7 +132,9 @@
             :entry="entry"
             :active="history.isActive(entry)"
             :renamable="history.canRename(entry)"
+            :task-marker="history.taskMarker(entry)"
             @select="onSelect(entry)"
+            @filter-by-task="history.setTaskFilter"
             @delete="history.remove(entry)"
             @rename="(title) => history.rename(entry, title)"
           />
@@ -86,9 +147,20 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { Input } from '@/components/ui/input'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import HistoryEntryRow from '@/components/HistoryEntryRow.vue'
-import { useHistorySessions } from '@/assets/js/store/historySessions'
+import { useHistorySessions, type TaskPickerEntry } from '@/assets/js/store/historySessions'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useI18N } from '@/assets/js/store/i18n'
+import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { dayLabel, isWorkflowMode, type HistoryEntry } from '@/assets/js/store/historyEntries'
 import { mapModeToLabel } from '@/lib/utils'
 
@@ -97,8 +169,13 @@ const emit = defineEmits<{
 }>()
 
 const history = useHistorySessions()
+const agentMode = useAgentMode()
+const i18n = useI18N().state
+const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 async function onSelect(entry: HistoryEntry) {
+  const opensAnotherSession = entry.kind === 'agent' && entry.id !== agentMode.openSessionId
+  if (opensAnotherSession && !(await leaveTaskEdit())) return
   await history.select(entry)
   emit('selected', entry)
 }
@@ -122,6 +199,16 @@ const chips = computed(() => [
   { value: 'all' as const, label: 'All' },
 ])
 
+const taskChipLabel = computed(() =>
+  (i18n.HISTORY_TASK_FILTER_CHIP ?? '').replace('{name}', history.taskFilter?.name ?? ''),
+)
+
+function taskPickerEntryLabel(task: TaskPickerEntry): string {
+  return (i18n.HISTORY_TASK_PICKER_ENTRY ?? '')
+    .replace('{name}', task.name)
+    .replace('{count}', String(task.sessionCount))
+}
+
 const groups = computed(() => {
   const groupedByDay: { label: string; entries: HistoryEntry[] }[] = []
   for (const entry of history.visibleEntries) {
@@ -139,6 +226,7 @@ const showNewMediaRow = computed(
 
 const emptyMessage = computed(() => {
   if (history.query.trim()) return 'Nothing matches that search.'
+  if (history.taskFilter) return i18n.HISTORY_TASK_FILTER_EMPTY
   if (history.filter === 'all') return 'No history yet.'
   if (history.currentMode === 'agent')
     return 'No sessions yet. Each turn is archived automatically.'

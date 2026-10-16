@@ -31,13 +31,22 @@ import { claimOvmsMtpStaleNotice, ovmsMtpRequestFields } from '@/lib/ovmsMtp'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useHomeAgent } from './homeAgent'
-import { useCloudMode, CLOUD_DEFAULT_MODEL } from './cloudMode'
+import { useCloudMode, CLOUD_DEFAULT_MODEL, ASSUME_ALL_CAPABILITIES } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { useUIStore } from './ui'
 import { renamePresetKeys } from '@/lib/presetRenames'
+import { repairChatSettings } from '@/lib/chatSettingsRepair'
+import {
+  sessionSettingsToBag,
+  usesSessionSettings,
+  withoutSessionOwnedKeys,
+  type SettingsBag,
+} from '@/lib/agentSessionSettings'
+import { storedSessionInference, type StoredSessionInference } from '@/lib/storedSessionInference'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import { formatRagSources } from '@/lib/ragSources'
@@ -52,6 +61,7 @@ import {
   toolEnablementForPreset,
   type ToolEnablement,
 } from '@/lib/builtinToolEnablement'
+import { isWorkflowEnabled, resolveDefaultWorkflow } from '@/lib/mediaToolSettings'
 import {
   createPhisonKmRag,
   PHISON_KM_CONTEXT_FLOOR,
@@ -60,6 +70,11 @@ import {
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
 import { withPreferenceFlags } from '../models/favorites'
+import {
+  contextSizeSettingSupported as contextSizeSupportedFor,
+  isNpuDevice,
+} from '@/lib/llmBackendChoices'
+import { modelSupportsThinkingToggle as supportsThinkingToggleFor } from '@/lib/llmModelChoices'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -390,12 +405,12 @@ export const useTextInference = defineStore(
       return newEmbeddingModels
     })
 
-    const runningOnOpenvinoNpu = computed(
-      () =>
-        !!backendServices.info
+    const runningOnOpenvinoNpu = computed(() =>
+      isNpuDevice(
+        backendServices.info
           .find((s) => s.serviceName === backendToService[backend.value])
-          ?.devices.find((d) => d.selected)
-          ?.id.includes('NPU'),
+          ?.devices.find((d) => d.selected)?.id,
+      ),
     )
 
     const selectModel = (backend: LlmBackend, modelName: string) => {
@@ -490,10 +505,8 @@ export const useTextInference = defineStore(
       return newActiveEmbeddingModel
     })
 
-    const contextSizeSettingSupported = computed(
-      () =>
-        backend.value === 'llamaCPP' ||
-        (backend.value === 'openVINO' && runningOnOpenvinoNpu.value),
+    const contextSizeSettingSupported = computed(() =>
+      contextSizeSupportedFor(backend.value, runningOnOpenvinoNpu.value),
     )
 
     // OpenVINO on GPU uses a dynamic KV cache: the effective context size is
@@ -653,7 +666,7 @@ export const useTextInference = defineStore(
     const builtinToolPresetEnablement = ref<Record<string, boolean>>({})
 
     function isWorkflowPresetEnabled(presetName: string): boolean {
-      return builtinToolPresetEnablement.value[presetName] ?? true
+      return isWorkflowEnabled(builtinToolPresetEnablement.value, presetName)
     }
 
     function setWorkflowPresetEnabled(presetName: string, enabled: boolean): void {
@@ -669,25 +682,9 @@ export const useTextInference = defineStore(
     // chat preset via settingsPerPreset (mirrors builtinToolPresetEnablement).
     const builtinToolDefaultPresets = ref<Record<string, string>>({})
 
-    // Initial per-slot defaults, preserving the workflows that used to be
-    // hard-coded in the tool descriptions. Used when the user hasn't explicitly
-    // picked a default yet, so behavior is unchanged out of the box. Slots not
-    // listed here fall back to the first available preset.
-    const INITIAL_DEFAULT_WORKFLOWS: Record<string, string> = {
-      'comfyUI:image': 'Draft Image',
-      'comfyUiImageEdit:image': 'Edit By Prompt',
-    }
-
-    // Resolve the effective default for a slot: the stored choice if it is among
-    // the currently-available (enabled) presets, else the previous hard-coded
-    // default, else the first available. Callers pass the candidate list so this
-    // stays free of preset-grouping logic and can never return a disabled preset.
+    // Callers pass the enabled candidates, so this can never return a disabled preset.
     function getDefaultWorkflow(key: string, availableNames: string[]): string | null {
-      const stored = builtinToolDefaultPresets.value[key]
-      if (stored && availableNames.includes(stored)) return stored
-      const initial = INITIAL_DEFAULT_WORKFLOWS[key]
-      if (initial && availableNames.includes(initial)) return initial
-      return availableNames[0] ?? null
+      return resolveDefaultWorkflow(builtinToolDefaultPresets.value, key, availableNames)
     }
 
     function setDefaultWorkflow(key: string, presetName: string): void {
@@ -774,12 +771,13 @@ export const useTextInference = defineStore(
     })
 
     // Check if the active model supports toggling thinking on/off (Qwen3 family, gemma4)
-    const modelSupportsThinkingToggle = computed(() => {
-      const currentModel = llmModels.value
-        .filter((m) => m.type === backend.value)
-        .find((m) => m.active)
-      return currentModel?.supportsThinkingToggle === true
-    })
+    const modelSupportsThinkingToggle = computed(() =>
+      supportsThinkingToggleFor(
+        llmModels.value,
+        backend.value,
+        llmModels.value.find((m) => m.type === backend.value && m.active)?.name,
+      ),
+    )
 
     // ── Per-model recommended inference settings ────────────────────────────
     //
@@ -1024,49 +1022,57 @@ export const useTextInference = defineStore(
       // models, however, run on a LOCAL backend even in Cloud Mode (see
       // embeddingBackend), so an embedding download can still be required.
       if (backend.value === 'cloud' && type === 'llm') return []
-      // For embeddings, resolve against the (possibly local-fallback) embedding
-      // backend; for the LLM, use the chat backend (never 'cloud' here).
-      const localBackend =
-        type === 'embedding'
-          ? embeddingBackend.value
-          : (backend.value as Exclude<LlmBackend, 'cloud'>)
-      let model: string | undefined
       if (type === 'llm') {
-        model = activeModel.value
-      } else {
-        model = activeEmbeddingModel.value
+        // The chat backend, never 'cloud' here.
+        const localBackend = backend.value as Exclude<LlmBackend, 'cloud'>
+        return getMissingLlmModels(localBackend, activeModel.value, options)
       }
+      // Resolved against the (possibly local-fallback) embedding backend.
+      const model = activeEmbeddingModel.value
       if (!model) return []
-
-      const modelMetaData = llmModels.value
-        .filter((m) => m.type === localBackend)
-        .find((m) => m.active)
-      const modelType = type === 'embedding' ? 'embedding' : backendToAipgModelType[localBackend]
-      const backendName = backendToAipgBackendName[localBackend]
-
-      const checkList = [
+      const checkedModels = await models.checkModelAlreadyLoaded([
         {
           repo_id: model,
-          type: modelType,
-          backend: backendName,
+          type: 'embedding',
+          backend: backendToAipgBackendName[embeddingBackend.value],
         },
-      ]
-      // The multimodal projector only applies to a vision LLM — never pull it for
-      // an embedding-only download (its "active model" lookup is incidental here).
-      // A text turn runs without it (llama.cpp only passes --mmproj when the file
-      // is beside the model), so asking for it would be a gigabyte the turn does
-      // not use — and on a remote Home Agent turn, a download question nobody
-      // expected.
-      if (type === 'llm' && options.needsVision && modelMetaData?.mmproj) {
-        checkList.push({
-          repo_id: modelMetaData.mmproj,
-          type: backendToAipgModelType[localBackend],
-          backend: backendName,
-        })
+      ])
+      return checkedModels.filter((m) => !m.already_loaded)
+    }
+
+    /** `model` on `localBackend`, and its projector when the turn needs vision, if not on disk. */
+    async function getMissingLlmModels(
+      localBackend: Exclude<LlmBackend, 'cloud'>,
+      model: string | undefined,
+      options: { needsVision?: boolean } = {},
+    ) {
+      if (!model) return []
+      const checkedModels = await models.checkModelAlreadyLoaded(
+        llmModelRefs(localBackend, model, options),
+      )
+      return checkedModels.filter((m) => !m.already_loaded)
+    }
+
+    /** The files a turn on `model` loads: the model, and its projector when it needs vision. */
+    function llmModelRefs(
+      localBackend: Exclude<LlmBackend, 'cloud'>,
+      model: string,
+      options: { needsVision?: boolean } = {},
+    ) {
+      const backendName = backendToAipgBackendName[localBackend]
+      const modelType = backendToAipgModelType[localBackend]
+      const checkList = [{ repo_id: model, type: modelType, backend: backendName }]
+      // A text turn runs without the projector (llama.cpp only passes --mmproj when
+      // the file is beside the model), so asking for it would be a gigabyte the
+      // turn does not use — and on a remote Home Agent turn, a download question
+      // nobody expected.
+      const mmproj = llmModels.value.find(
+        (m) => m.type === localBackend && m.name === model,
+      )?.mmproj
+      if (options.needsVision && mmproj) {
+        checkList.push({ repo_id: mmproj, type: modelType, backend: backendName })
       }
-      const checkedModels = await models.checkModelAlreadyLoaded(checkList)
-      const notYetDownloaded = checkedModels.filter((m) => !m.already_loaded)
-      return notYetDownloaded
+      return checkList
     }
 
     function toggleMetrics() {
@@ -1503,84 +1509,49 @@ export const useTextInference = defineStore(
       // Set flag to prevent watcher from interfering
       isLoadingSettings = true
 
-      const savedSettings = settingsPerPreset.value[settingsKey] || {}
+      const defaultSettings = settingsPerPreset.value[settingsKey] || {}
+      const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+      const sessionSettings = binding?.load(defaultSettings, embeddingBackend.value) ?? null
+      const savedSettings = sessionSettings ?? defaultSettings
+      // A sent session's stored backend is applied as-is; an unusable one blocks Send instead.
+      const pinned = sessionSettings !== null && binding !== null && binding.pinned()
+      const pinnedBackend = pinned ? (savedSettings.backend as LlmBackend | undefined) : undefined
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
 
-      // Load backend - smart selection based on what's running
-      if (savedSettings.backend !== undefined) {
-        const savedBackend = savedSettings.backend as LlmBackend
-        // Cloud Mode is a global, feature-flagged backend that SettingsChat offers
-        // for any chat preset (see availableBackends), so a preset rarely lists it
-        // in `backends`. Honor a saved 'cloud' choice whenever the feature is on —
-        // otherwise a temporary preset switch (e.g. an image-gen tool call in an
-        // agentic chat) would restore to llamaCPP instead of Cloud Mode.
-        const cloudAllowed = savedBackend === 'cloud' && cloudMode.isFeatureEnabled
-        // Only apply saved backend if it's in the preset's allowed backends
-        if (preset.backends?.includes(savedBackend) || cloudAllowed) {
-          backend.value = savedBackend
-        } else {
-          // Fall through to smart selection below
-          selectBestBackend(preset)
-        }
-      } else {
-        selectBestBackend(preset)
-      }
-
-      // Helper to select the best available backend from preset's allowed list.
-      //
-      // We intentionally do NOT carry over `backend.value` when the new preset
-      // has no persisted choice: that branch caused per-preset settings to
-      // silently inherit whichever preset was active just before. Concretely,
-      // editing the Home Agent backend would change the Basic Chat backend on
-      // the next switch, because Basic Chat had no saved entry yet and
-      // "if current backend is allowed, keep it" pulled in the Home Agent
-      // value from the global ref. Deterministic per-preset defaults make the
-      // user's explicit choices the only thing that crosses presets.
-      function selectBestBackend(preset: ChatPreset) {
-        if (!preset.backends || preset.backends.length === 0) return
-
-        if (preset.backends.length === 1) {
-          backend.value = preset.backends[0]
-          return
-        }
-
-        const runningBackend = preset.backends.find((b) => {
-          const serviceName = backendToService[b] as BackendServiceName
-          const backendInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-          return backendInfo && backendInfo.status === 'running'
-        })
-
-        backend.value = runningBackend ?? preset.backends[0]
-      }
+      // Backend, device and preferred model go through the shared silent repair:
+      // an unavailable choice is replaced rather than restored. A preset with no
+      // saved backend never inherits the previously active preset's backend.
+      const savedDeviceId = savedSettings.selectedDeviceId as string | undefined
+      const repaired = repairChatSettings(
+        {
+          backend: savedSettings.backend as LlmBackend | undefined,
+          deviceId: savedDeviceId,
+          deviceUuid:
+            typeof savedSettings.selectedDeviceUuid === 'string'
+              ? savedSettings.selectedDeviceUuid
+              : null,
+        },
+        {
+          presetBackends: pinnedBackend ? [pinnedBackend] : (preset.backends ?? []),
+          presetPreferredModels: preset.preferredModels,
+          cloudEnabled: pinned || cloudMode.isFeatureEnabled,
+          runningBackends: llmBackendTypes.filter((b) => {
+            const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
+            return info?.status === 'running'
+          }),
+          devices: (b) =>
+            backendServices.info.find((s) => s.serviceName === backendToService[b])?.devices ?? [],
+          models: llmModels.value,
+        },
+      )
+      if (repaired.backend) backend.value = repaired.backend
 
       const serviceName = backendToService[backend.value] as BackendServiceName
       const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-
-      if (savedSettings.selectedDeviceId !== undefined) {
-        // Restore saved device preference. Prefer the saved UUID so the preset
-        // re-binds to the same physical device even if its id shifted (driver
-        // update / enumeration reorder); fall back to the saved id.
-        const savedDeviceId = savedSettings.selectedDeviceId as string
-        const savedDeviceUuid =
-          typeof savedSettings.selectedDeviceUuid === 'string'
-            ? savedSettings.selectedDeviceUuid
-            : null
-        const byUuid = savedDeviceUuid
-          ? serviceInfo?.devices.find((d) => d.uuid != null && d.uuid === savedDeviceUuid)
-          : undefined
-        const targetId =
-          byUuid?.id ??
-          (serviceInfo?.devices.some((d) => d.id === savedDeviceId) ? savedDeviceId : undefined)
-        if (targetId !== undefined) {
-          backendServices.selectDevice(serviceName, targetId)
-        }
-      } else {
-        // Default to GPU if no preference saved
-        const gpuDevice = serviceInfo?.devices.find((d) => d.id.includes('GPU'))
-        if (gpuDevice && !gpuDevice.selected) {
-          backendServices.selectDevice(serviceName, gpuDevice.id)
-        }
+      const targetDevice = serviceInfo?.devices.find((d) => d.id === repaired.deviceId)
+      if (targetDevice && (savedDeviceId !== undefined || !targetDevice.selected)) {
+        backendServices.selectDevice(serviceName, targetDevice.id)
       }
 
       // Load selected models (per backend)
@@ -1589,18 +1560,8 @@ export const useTextInference = defineStore(
           ...selectedModels.value,
           ...(savedSettings.selectedModels as LlmBackendKV),
         }
-      } else {
-        // Check for preferredModels (per-backend defaults)
-        const preferredModel = preset.preferredModels?.[backend.value]
-        if (preferredModel) {
-          // Only select if model exists in available models
-          const modelExists = llmModels.value.some(
-            (m) => m.name === preferredModel && m.type === backend.value,
-          )
-          if (modelExists) {
-            selectModel(backend.value, preferredModel)
-          }
-        }
+      } else if (repaired.model) {
+        selectModel(backend.value, repaired.model)
       }
 
       // Load selected embedding models (per backend)
@@ -1801,6 +1762,19 @@ export const useTextInference = defineStore(
       // itself did not change here, so the watcher would not fire.
       applyModelInferenceDefaults()
 
+      // The cloud provider is global for every other preset, so only a session restores it.
+      const sessionProvider = binding ? savedSettings.cloudProviderId : undefined
+      if (
+        typeof sessionProvider === 'string' &&
+        cloudMode.providers.some((p) => p.id === sessionProvider)
+      ) {
+        cloudMode.selectProvider(sessionProvider)
+      }
+
+      // A session with no settings of its own (a Draft Session) takes the repaired defaults.
+      if (binding && !sessionSettings) binding.save(sessionSettingsBag(), embeddingBackend.value)
+      if (pinned) binding.loaded(sessionSettingsBag(), embeddingBackend.value)
+
       // Defer clearing the flag so the persistence watcher (default flush:
       // 'pre') sees `isLoadingSettings === true` when it runs for the writes
       // above. Otherwise it would re-save the freshly-loaded values and
@@ -1918,6 +1892,130 @@ export const useTextInference = defineStore(
     // Track if we're currently loading settings to prevent watcher from saving during load
     let isLoadingSettings = false
 
+    /** The live settings in the shape `settingsPerPreset` stores them. */
+    function currentSettingsBag(): SettingsBag {
+      return {
+        backend: backend.value,
+        selectedModels: { ...selectedModels.value },
+        selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
+        selectedDeviceId: getCurrentDeviceId(),
+        selectedDeviceUuid: getCurrentDeviceUuid(),
+        maxTokens: maxTokens.value,
+        contextSize: contextSize.value,
+        requestedContextSize: requestedContextSize.value,
+        contextSizeEdited: contextSizeEdited.value,
+        temperature: temperature.value,
+        temperatureFromModel: temperatureFromModel.value,
+        reasoningEffort: reasoningEffort.value,
+        reasoningEffortFromModel: reasoningEffortFromModel.value,
+        systemPrompt: systemPrompt.value,
+        metricsEnabled: metricsEnabled.value,
+        aipgToolsEnabled: aipgToolsEnabled.value,
+        mcpToolsEnabled: mcpToolsEnabled.value,
+        toolDelegationEnabled: toolDelegationEnabled.value,
+        builtinToolEnablement: { ...builtinToolEnablement.value },
+        speakReplies: speakReplies.value,
+        builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
+        builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
+        thinkingEnabled: thinkingEnabled.value,
+        ragMode: ragMode.value,
+        // Persisted so switching back to standard RAG still restores the pre-KM
+        // value after an app restart (see stashedStandardContextSize declaration).
+        stashedStandardContextSize: stashedStandardContextSize.value,
+      }
+    }
+
+    /**
+     * Where the Agent preset's live settings come from and go to: the active Agent Session
+     * (registered by the agent store) instead of the preset's bag, which holds the defaults.
+     */
+    type SessionSettingsBinding = {
+      /** The session's settings laid over the defaults, or null when it has none yet. */
+      load: (
+        defaults: SettingsBag,
+        embeddingBackend: Exclude<LlmBackend, 'cloud'>,
+      ) => SettingsBag | null
+      save: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
+      /** Whether the active session was already sent, so its stored values must not be swapped. */
+      pinned: () => boolean
+      /** The live values right after a pinned session loaded. */
+      loaded: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
+    }
+    let sessionSettingsBinding: SessionSettingsBinding | null = null
+
+    /** The live bag plus the cloud provider, which only a session stores. */
+    function sessionSettingsBag(): SettingsBag {
+      return { ...currentSettingsBag(), cloudProviderId: cloudMode.selectedProviderId }
+    }
+
+    const sessionSettingsBindingRef = shallowRef<SessionSettingsBinding | null>(null)
+
+    function bindSessionSettings(binding: SessionSettingsBinding | null): void {
+      sessionSettingsBinding = binding
+      sessionSettingsBindingRef.value = binding
+    }
+
+    /** True while the Agent preset shows a sent session: nothing may replace its stored model. */
+    const sessionSettingsPinned = computed(
+      () =>
+        usesSessionSettings(activePreset.value) &&
+        sessionSettingsBindingRef.value?.pinned() === true,
+    )
+
+    /** What can be served right now, for checking a sent session's stored settings. */
+    const settingsAvailability = computed(() => ({
+      models: llmModels.value.map((m) => ({ name: m.name, type: m.type })),
+      embeddingModels: llmEmbeddingModels.value.map((m) => ({ name: m.name, type: m.type })),
+      services: (['llamaCPP', 'openVINO'] as const).flatMap((b) => {
+        const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
+        return info ? [{ backend: b, isSetUp: info.isSetUp, devices: info.devices }] : []
+      }),
+      cloudEnabled: cloudMode.isFeatureEnabled,
+      cloudProviderIds: cloudMode.providers.map((p) => p.id),
+      embeddingBackend: embeddingBackend.value,
+    }))
+
+    /**
+     * What a turn on a preset with these Session Settings runs on, resolved against the
+     * catalogs without touching the live controls (a session that is not the open one).
+     */
+    function inferenceForSettings(
+      presetName: string,
+      settings: AgentSessionSettings,
+    ): StoredSessionInference {
+      const preset = presetsStore.presets.find((entry) => entry.name === presetName)
+      const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
+      const base = findSettingsForPreset(presetName) ?? {}
+      const bag = sessionSettingsToBag(settings, base, embeddingBackend.value)
+      return storedSessionInference(
+        {
+          ...bag,
+          builtinToolEnablement: toolEnablementForPreset(
+            bag.builtinToolEnablement,
+            legacyToolEnablement.value,
+          ),
+        },
+        {
+          models: llmModels.value.filter((m) => m.type !== 'cloud'),
+          embeddingModels: llmEmbeddingModels.value,
+          services: (['llamaCPP', 'openVINO'] as const).flatMap((b) => {
+            const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
+            return info ? [{ backend: b, ...info }] : []
+          }),
+          cloudProviders: cloudMode.providers.map((provider) => ({
+            ...provider,
+            models: provider.models.length ? provider.models : [CLOUD_DEFAULT_MODEL],
+            capabilitiesFor: (name: string) =>
+              provider.modelCapabilities?.[name] ?? { ...ASSUME_ALL_CAPABILITIES },
+          })),
+          selectedCloudProviderId: cloudMode.selectedProviderId,
+          cloudEmbeddingBackend: embeddingBackend.value,
+          presetTemperature: chatPreset?.temperature,
+          presetContextSize: chatPreset?.contextSize,
+        },
+      )
+    }
+
     // Watch for setting changes and save them to settingsPerPreset
     // Note: Preset/variant changes are now handled by the orchestrator, not by watchers
     watch(
@@ -1943,6 +2041,7 @@ export const useTextInference = defineStore(
         thinkingEnabled,
         ragMode,
         stashedStandardContextSize,
+        () => cloudMode.selectedProviderId,
       ],
       () => {
         // Don't save if we're loading settings (prevents overwriting during preset switch)
@@ -1952,37 +2051,18 @@ export const useTextInference = defineStore(
         // Allow saving when settingsKey exists (preset name is available)
         if (!settingsKey) return
 
-        // Save settings to per-preset storage
-        settingsPerPreset.value[settingsKey] = {
-          ...settingsPerPreset.value[settingsKey],
-          backend: backend.value,
-          selectedModels: { ...selectedModels.value },
-          selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
-          selectedDeviceId: getCurrentDeviceId(),
-          selectedDeviceUuid: getCurrentDeviceUuid(),
-          maxTokens: maxTokens.value,
-          contextSize: contextSize.value,
-          requestedContextSize: requestedContextSize.value,
-          contextSizeEdited: contextSizeEdited.value,
-          temperature: temperature.value,
-          temperatureFromModel: temperatureFromModel.value,
-          reasoningEffort: reasoningEffort.value,
-          reasoningEffortFromModel: reasoningEffortFromModel.value,
-          systemPrompt: systemPrompt.value,
-          metricsEnabled: metricsEnabled.value,
-          aipgToolsEnabled: aipgToolsEnabled.value,
-          mcpToolsEnabled: mcpToolsEnabled.value,
-          toolDelegationEnabled: toolDelegationEnabled.value,
-          builtinToolEnablement: { ...builtinToolEnablement.value },
-          speakReplies: speakReplies.value,
-          builtinToolPresetEnablement: { ...builtinToolPresetEnablement.value },
-          builtinToolDefaultPresets: { ...builtinToolDefaultPresets.value },
-          thinkingEnabled: thinkingEnabled.value,
-          ragMode: ragMode.value,
-          // Persisted so switching back to standard RAG still restores the pre-KM
-          // value after an app restart (see stashedStandardContextSize declaration).
-          stashedStandardContextSize: stashedStandardContextSize.value,
+        const bag = currentSettingsBag()
+        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+        if (binding) {
+          // The preset's bag holds the Default Settings; session-owned values go to the session.
+          binding.save(sessionSettingsBag(), embeddingBackend.value)
+          settingsPerPreset.value[settingsKey] = {
+            ...settingsPerPreset.value[settingsKey],
+            ...withoutSessionOwnedKeys(bag),
+          }
+          return
         }
+        settingsPerPreset.value[settingsKey] = { ...settingsPerPreset.value[settingsKey], ...bag }
       },
       { deep: true },
     )
@@ -1998,7 +2078,10 @@ export const useTextInference = defineStore(
         if (!settingsKey) return
 
         const currentDeviceId = getCurrentDeviceId()
-        if (currentDeviceId) {
+        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+        if (currentDeviceId && binding) {
+          binding.save(sessionSettingsBag(), embeddingBackend.value)
+        } else if (currentDeviceId) {
           settingsPerPreset.value[settingsKey] = {
             ...settingsPerPreset.value[settingsKey],
             selectedDeviceId: currentDeviceId,
@@ -2112,6 +2195,10 @@ export const useTextInference = defineStore(
     )
 
     return {
+      bindSessionSettings,
+      sessionSettingsPinned,
+      settingsAvailability,
+      inferenceForSettings,
       backend,
       activeModel,
       selectedModels,
@@ -2167,6 +2254,8 @@ export const useTextInference = defineStore(
       selectEmbeddingModel,
       clearSelectionOfModel,
       getDownloadParamsForCurrentModelIfRequired,
+      getMissingLlmModels,
+      llmModelRefs,
       toggleMetrics,
       increaseFontSize,
       decreaseFontSize,

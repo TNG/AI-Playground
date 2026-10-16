@@ -15,7 +15,7 @@ export type CloseDecision = 'hide' | 'close'
 export type ClosePolicyInputs = {
   /** The Home Agent backend is installed and its channel server is running. */
   homeAgentRunning: boolean
-  /** The renderer reported tracked work (an activity is in flight). */
+  /** The renderer reported tracked work (an activity, or a Task Run not yet on disk). */
   rendererBusy: boolean
   /** Main itself is running an agent turn (Pi session). */
   agentTurnActive: boolean
@@ -23,12 +23,18 @@ export type ClosePolicyInputs = {
   chatTurnActive: boolean
   /** An artifact run is admitted, executing, or queued. */
   artifactWorkOpen: boolean
+  /**
+   * `agent-tasks.json` has an enabled schedule or a run marker. Demo mode and an
+   * unreadable file are never this — main reads the file, the renderer does not say.
+   */
+  tasksKeepAlive: boolean
 }
 
 /**
  * Closing the app window hides it while headless work would be orphaned by a
  * quit — a Home Agent serving channels, an in-flight agent/chat/artifact run,
- * or anything the renderer reported busy. Otherwise the normal close/quit
+ * a saved task with an enabled schedule or a run still marked in flight, or
+ * anything the renderer reported busy. Otherwise the normal close/quit
  * policy applies. Chat and artifact occupancy are main-owned: they must not
  * round-trip through `lifecycle:busy` (that flag clears when the renderer dies).
  */
@@ -38,7 +44,8 @@ export function resolveClosePolicy(inputs: ClosePolicyInputs): CloseDecision {
     inputs.rendererBusy ||
     inputs.agentTurnActive ||
     inputs.chatTurnActive ||
-    inputs.artifactWorkOpen
+    inputs.artifactWorkOpen ||
+    inputs.tasksKeepAlive
   return headlessWork ? 'hide' : 'close'
 }
 

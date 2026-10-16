@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 
 export type AgentSessionRecord = {
   id: string
@@ -30,6 +31,10 @@ export type AgentSessionRecord = {
    * response-language clause (Pi rebuilds if instructions change).
    */
   responseLocale?: string
+  /** The session's own Session Settings (Agent preset only). */
+  settings?: AgentSessionSettings
+  /** The Task whose run created this session (a Task Session). */
+  taskId?: string
 }
 
 /**
@@ -169,6 +174,7 @@ export function snapshotSession(options: {
   capabilities: string[]
   presetName: string
   responseLocale?: string
+  settings?: AgentSessionSettings
 }): AgentSessionRecord | null {
   const plainMessages = JSON.parse(JSON.stringify(options.messages)) as UIMessage[]
   if (plainMessages.length === 0) return null
@@ -177,16 +183,24 @@ export function snapshotSession(options: {
   const existing = options.existing
   const unchanged =
     existing !== undefined && JSON.stringify(existing.messages) === JSON.stringify(plainMessages)
+  // A title that is not the one its transcript derives was given on purpose (createSession).
+  const titled = existing !== undefined && existing.title !== deriveSessionTitle(existing.messages)
   return {
     id: options.id,
     workspaceDir: existing?.workspaceDir ?? options.workspaceDir,
-    title: deriveSessionTitle(plainMessages),
+    title: titled ? existing.title : deriveSessionTitle(plainMessages),
     messages: plainMessages,
     createdAt: existing?.createdAt ?? Date.now(),
     updatedAt: unchanged && existing ? existing.updatedAt : Date.now(),
     capabilities: options.existing?.capabilities ?? [...options.capabilities],
     presetName: options.existing?.presetName ?? options.presetName,
     responseLocale: existing?.responseLocale ?? options.responseLocale,
+    ...(options.settings
+      ? { settings: { ...options.settings } }
+      : existing?.settings
+        ? { settings: existing.settings }
+        : {}),
+    ...(existing?.taskId ? { taskId: existing.taskId } : {}),
   }
 }
 

@@ -23,8 +23,9 @@ import type {
   readAgentWorkspaceState,
   writeAgentWorkspaceState,
 } from '../../persist/workspaceStateFiles'
+import type { deleteAgentTask, readAgentTasks, saveAgentTask } from '../../persist/agentTaskFiles'
 
-/** The Pi manager, session-record and workspace-state seams the fourteen agentMode handlers close over. */
+/** The Pi manager, session-record, workspace-state and Tasks seams the agentMode handlers close over. */
 export type AgentModeDeps = {
   startAgentTurn: typeof startAgentTurn
   cancelAgentTurn: typeof cancelAgentTurn
@@ -41,6 +42,9 @@ export type AgentModeDeps = {
   readAgentWorkspaceState: typeof readAgentWorkspaceState
   migrateAgentWorkspaceState: typeof migrateAgentWorkspaceState
   writeAgentWorkspaceState: typeof writeAgentWorkspaceState
+  readAgentTasks: typeof readAgentTasks
+  saveAgentTask: typeof saveAgentTask
+  deleteAgentTask: typeof deleteAgentTask
 }
 
 export function buildAgentModeRegistry(deps: AgentModeDeps) {
@@ -93,8 +97,9 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       }
       return await deps.startAgentTurn(turnId, prompt, parsed.data)
     },
-    'agentMode:cancel': () => {
-      deps.cancelAgentTurn()
+    'agentMode:cancel': (_event, sessionId, turnId) => {
+      if (typeof sessionId !== 'string') return
+      deps.cancelAgentTurn(sessionId, typeof turnId === 'string' ? turnId : undefined)
     },
     'agentMode:resetSession': async () => {
       await deps.resetAgentSession()
@@ -119,6 +124,29 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:writeWorkspaceState': async (_event, value) => {
       try {
         await deps.writeAgentWorkspaceState(value)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:readTasks': async () => {
+      try {
+        return { success: true as const, tasks: await deps.readAgentTasks() }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:saveTask': async (_event, task) => {
+      try {
+        await deps.saveAgentTask(task)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:deleteTask': async (_event, id) => {
+      try {
+        await deps.deleteAgentTask(id)
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

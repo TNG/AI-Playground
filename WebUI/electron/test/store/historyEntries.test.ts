@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { UIMessage } from 'ai'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import {
+  agentSessionStatus,
   collectToolMediaUrls,
   conversationMode,
   conversationTimes,
@@ -10,9 +11,12 @@ import {
   entryRuntimeShown,
   isEmptyDraft,
   matchesFilter,
+  matchesTask,
   mediaTimes,
   mediaTitle,
   mediaSettings,
+  pausedStatusLabel,
+  queueOrdinal,
   searchEntries,
   sortEntries,
   type AgentEntry,
@@ -219,6 +223,16 @@ describe('matchesFilter', () => {
   })
 })
 
+describe('matchesTask', () => {
+  it('matches only agent sessions created by that Task', () => {
+    expect(matchesTask(agent({ taskId: 'a' }), 'a')).toBe(true)
+    expect(matchesTask(agent({ taskId: 'b' }), 'a')).toBe(false)
+    expect(matchesTask(agent(), 'a')).toBe(false)
+    expect(matchesTask(conversation(), 'a')).toBe(false)
+    expect(matchesTask(media(), 'a')).toBe(false)
+  })
+})
+
 describe('entryRuntimeShown', () => {
   it('marks only the kind the app is showing, so All has one active row', () => {
     expect(entryRuntimeShown(conversation(), 'chat')).toBe(true)
@@ -288,5 +302,100 @@ describe('sortEntries', () => {
     const entries = [conversation(), media()]
     sortEntries(entries)
     expect(entries.map((entry) => entry.id)).toEqual(['1000', 'm1'])
+  })
+})
+
+describe('agentSessionStatus', () => {
+  it('names what a session’s turn is doing', () => {
+    expect(agentSessionStatus({ turn: { state: 'running' } })).toEqual({ status: 'running' })
+    expect(agentSessionStatus({ turn: { state: 'queued', queuePosition: 2 } })).toEqual({
+      status: 'queued',
+      queuePosition: 2,
+    })
+    expect(agentSessionStatus({ turn: { state: 'queued', queuePosition: null } })).toEqual({
+      status: 'queued',
+    })
+    expect(agentSessionStatus({ turn: { state: 'paused' } })).toEqual({ status: 'paused' })
+  })
+
+  it('says what a paused session waits for, and only while it is paused', () => {
+    const pauseReason = { kind: 'download' as const, summary: 'Qwen3.8-27B' }
+    expect(agentSessionStatus({ turn: { state: 'paused', pauseReason } })).toEqual({
+      status: 'paused',
+      pauseReason,
+    })
+    expect(agentSessionStatus({ turn: { state: 'running', pauseReason } })).toEqual({
+      status: 'running',
+    })
+  })
+
+  it('marks a turn that ended out of sight, red when it failed', () => {
+    expect(agentSessionStatus({ unseen: 'done' })).toEqual({ status: 'unseen' })
+    expect(agentSessionStatus({ unseen: 'failed' })).toEqual({ status: 'unseenFailed' })
+    expect(agentSessionStatus({})).toEqual({})
+  })
+
+  it('lets a new turn in flight outrank the last one’s unseen result', () => {
+    expect(agentSessionStatus({ turn: { state: 'running' }, unseen: 'failed' })).toEqual({
+      status: 'running',
+    })
+  })
+})
+
+describe('pausedStatusLabel', () => {
+  const labels = {
+    HISTORY_STATUS_PAUSED: 'Needs your input',
+    HISTORY_STATUS_PAUSED_FOR: 'Needs you: {reason}',
+    HISTORY_PAUSE_DOWNLOAD: 'model download',
+    HISTORY_PAUSE_VRAM_WARNING: 'memory warning',
+    HISTORY_PAUSE_CONFIRMATION: 'confirmation',
+    HISTORY_PAUSE_QUESTION: 'question',
+  }
+
+  it('names the kind of decision and what it is about', () => {
+    expect(pausedStatusLabel({ kind: 'download', summary: 'Qwen3.8-27B' }, labels)).toEqual({
+      label: 'Needs you: model download · Qwen3.8-27B',
+      short: 'model download',
+    })
+    expect(pausedStatusLabel({ kind: 'vram-warning', summary: 'Flux' }, labels).label).toBe(
+      'Needs you: memory warning · Flux',
+    )
+    expect(pausedStatusLabel({ kind: 'confirmation' }, labels)).toEqual({
+      label: 'Needs you: confirmation',
+      short: 'confirmation',
+    })
+  })
+
+  it('falls back to the plain marker when nothing says why', () => {
+    expect(pausedStatusLabel(undefined, labels)).toEqual({ label: 'Needs your input' })
+  })
+})
+
+describe('queueOrdinal', () => {
+  const english = {
+    HISTORY_QUEUE_ORDINAL_ONE: '{n}st',
+    HISTORY_QUEUE_ORDINAL_TWO: '{n}nd',
+    HISTORY_QUEUE_ORDINAL_FEW: '{n}rd',
+    HISTORY_QUEUE_ORDINAL_OTHER: '{n}th',
+  }
+
+  it('follows the locale’s ordinal rules', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22].map((n) => queueOrdinal(n, 'en-US', english))).toEqual([
+      '1st',
+      '2nd',
+      '3rd',
+      '4th',
+      '11th',
+      '12th',
+      '13th',
+      '21st',
+      '22nd',
+    ])
+  })
+
+  it('uses the generic pattern where a language has no ordinal forms', () => {
+    const german = { ...english, HISTORY_QUEUE_ORDINAL_OTHER: '{n}.' }
+    expect(queueOrdinal(2, 'de', german)).toBe('2.')
+    expect(queueOrdinal(2, 'not a locale!', german)).toBe('2.')
   })
 })

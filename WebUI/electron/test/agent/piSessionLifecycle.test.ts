@@ -149,7 +149,7 @@ vi.mock('../../agent/piCustomTools', () => ({
   buildSkillsPromptSection: vi.fn(() => ''),
   setToolBridgeWindow: vi.fn(),
   submitAgentToolResult: vi.fn(),
-  rejectAllPendingToolCalls: vi.fn(),
+  rejectPendingToolCalls: vi.fn(),
 }))
 
 // The capability registry reaches the MCP manager and the renderer bridge; what
@@ -181,6 +181,7 @@ const finishTextRequest = vi.hoisted(() => vi.fn())
 vi.mock('../../kernel/orchestrator.ts', () => ({
   submitTextRequest,
   finishTextRequest,
+  turnQueueHolder: () => null,
 }))
 
 vi.mock('../../agent/agentBrowser', () => ({
@@ -200,7 +201,18 @@ function fakeWindow() {
   return {
     isDestroyed: () => false,
     webContents: {
-      send: (channel: string, payload: Record<string, unknown>) => sent.push({ channel, payload }),
+      send: (channel: string, payload: Record<string, unknown>) => {
+        sent.push({ channel, payload })
+        // Every chat model is on disk here.
+        if (channel === 'artifact:request') {
+          void import('../../artifact/rendererBridge').then((bridge) =>
+            bridge.handleMediaResponse({
+              requestId: payload.requestId as string,
+              result: { models: [] },
+            }),
+          )
+        }
+      },
     },
   }
 }
@@ -297,7 +309,7 @@ describe('session reuse', () => {
     expect(disposed).toHaveLength(1)
   })
 
-  it('refuses a second turn while one is running', async () => {
+  it('refuses a second turn for the same session while one is running', async () => {
     const manager = await loadManager()
     let release = () => {}
     // Hold the first turn open in session construction, so the second one has to
@@ -312,7 +324,7 @@ describe('session reuse', () => {
 
     const first = manager.startAgentTurn('t1', 'first', configFor())
     const second = await manager.startAgentTurn('t2', 'second', configFor())
-    expect(second).toEqual({ success: false, error: 'An agent turn is already running.' })
+    expect(second).toEqual({ success: false, error: 'This session already has a turn in flight.' })
 
     release()
     expect(await first).toEqual({ success: false, error: 'cancelled' })
@@ -733,7 +745,7 @@ describe('turn streaming', () => {
       const session = await sessionEndingWith(silent)
       const manager = await loadManager()
       session.prompt.mockImplementationOnce(async () => {
-        manager.cancelAgentTurn()
+        manager.cancelAgentTurn(configFor().sessionId)
         session.messages = [...session.messages, silent]
       })
 
@@ -819,7 +831,7 @@ describe('turn streaming', () => {
       const session = await sessionEndingWith()
       const manager = await loadManager()
       session.prompt.mockImplementationOnce(async () => {
-        manager.cancelAgentTurn()
+        manager.cancelAgentTurn(configFor().sessionId)
         session.messages = [...session.messages, refused('aborted by the user')]
       })
 
@@ -1049,6 +1061,9 @@ describe('turn streaming', () => {
         runId: 't1',
         conversationKey: 'aipg-agent-1',
         needsGpu: true,
+        joinsTurnQueue: true,
+        work: 'agent',
+        pause: expect.any(Object),
       },
       expect.any(AbortSignal),
     )

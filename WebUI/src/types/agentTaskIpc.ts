@@ -25,11 +25,16 @@ export const AgentTaskOutcomeSchema = z.object({
 })
 export type AgentTaskOutcome = z.infer<typeof AgentTaskOutcomeSchema>
 
-/** Persisted while a Task Run is in flight; still present at boot means the app closed mid-run. */
+/**
+ * Persisted while a Task Run is in flight. Still present at boot means the app
+ * closed, unless that session's turn is still in the kernel snapshot.
+ */
 export const AgentTaskActiveRunSchema = z.object({
   sessionId: z.string(),
   stepIndex: z.number(),
   stepCount: z.number(),
+  /** Set for a Scheduled Run, so a reattached one still toasts a failure. */
+  scheduled: z.boolean().optional(),
 })
 export type AgentTaskActiveRun = z.infer<typeof AgentTaskActiveRunSchema>
 

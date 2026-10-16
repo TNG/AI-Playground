@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "กรองตามงาน",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "ยังไม่มีงาน",
-  "HISTORY_TASK_MARKER": "จากงาน: {name}"
+  "HISTORY_TASK_MARKER": "จากงาน: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "มีงานที่ตั้งเวลาไว้หรืองานที่ยังทำงานอยู่ ให้ AI Playground ทำงานต่อในพื้นหลัง หรือออกและหยุดงาน?",
+  "AGENT_TASKS_KEEP_RUNNING": "ทำงานต่อ",
+  "AGENT_TASKS_QUIT": "ออก"
 }

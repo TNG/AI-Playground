@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "依任務篩選",
   "HISTORY_TASK_PICKER_ENTRY": "{name}（{count}）",
   "HISTORY_TASK_PICKER_EMPTY": "尚無任務",
-  "HISTORY_TASK_MARKER": "來自任務：{name}"
+  "HISTORY_TASK_MARKER": "來自任務：{name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "有工作已排程或仍在執行。讓 AI Playground 在背景繼續執行，還是結束並停止它？",
+  "AGENT_TASKS_KEEP_RUNNING": "繼續執行",
+  "AGENT_TASKS_QUIT": "結束"
 }

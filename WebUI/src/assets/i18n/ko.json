@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "작업별 필터",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "아직 작업이 없습니다",
-  "HISTORY_TASK_MARKER": "작업에서: {name}"
+  "HISTORY_TASK_MARKER": "작업에서: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "예약되었거나 아직 실행 중인 작업이 있습니다. AI Playground를 백그라운드에서 계속 실행할까요, 아니면 종료하고 멈출까요?",
+  "AGENT_TASKS_KEEP_RUNNING": "계속 실행",
+  "AGENT_TASKS_QUIT": "종료"
 }

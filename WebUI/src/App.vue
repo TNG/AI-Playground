@@ -398,6 +398,7 @@ import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useI18N } from '@/assets/js/store/i18n'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
@@ -411,6 +412,7 @@ const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 const agentMode = useAgentMode()
+const i18n = useI18N()
 const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
@@ -536,8 +538,31 @@ function toggleFullScreen() {
   window.electronAPI.setFullScreen(fullscreen.value)
 }
 
-function closeWindow() {
-  window.electronAPI.exitApp()
+let closeInFlight = false
+
+async function closeWindow() {
+  if (closeInFlight) return
+  closeInFlight = true
+  try {
+    const keepAlive = await window.electronAPI.tasksKeepAlive().catch(() => false)
+    if (keepAlive) {
+      const keep = await dialogStore.requestConfirmation(
+        i18n.state.AGENT_TASKS_CLOSE_CONFIRM ??
+          'A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it?',
+        {
+          confirm: i18n.state.AGENT_TASKS_KEEP_RUNNING ?? 'Keep running',
+          cancel: i18n.state.AGENT_TASKS_QUIT ?? 'Quit',
+        },
+      )
+      if (keep) {
+        window.electronAPI.hideMainWindow()
+        return
+      }
+    }
+    window.electronAPI.exitApp()
+  } finally {
+    closeInFlight = false
+  }
 }
 
 function openDevTools() {

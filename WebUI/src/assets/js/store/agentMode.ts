@@ -1600,6 +1600,27 @@ export const useAgentMode = defineStore(
       return { ok: true }
     }
 
+    /**
+     * A task run records its own failure. The in-flight step adopted after a reload
+     * never went through `sendToSession`, so it would otherwise toast twice.
+     */
+    function quietSessionErrors(sessionId: string): void {
+      const existing = turnContexts[sessionId]
+      if (existing) {
+        existing.quietErrors = true
+        return
+      }
+      const record = sessions.value[sessionId]
+      turnContexts[sessionId] = {
+        workspaceDir: record?.workspaceDir ?? '',
+        presetName: record?.presetName ?? AGENT_PRESET,
+        capabilities: [...(record?.settings?.capabilities ?? [])],
+        settings: record?.settings ? { ...record.settings } : undefined,
+        stored: true,
+        quietErrors: true,
+      }
+    }
+
     /** Stop one session's turn and save its transcript as it stands. */
     async function stopSession(sessionId: string): Promise<void> {
       const runtime = turns.runtimeOf(sessionId)
@@ -1685,6 +1706,7 @@ export const useAgentMode = defineStore(
       generate,
       createSession,
       sendToSession,
+      quietSessionErrors,
       onTurnSettled,
       stopSession,
       stop,

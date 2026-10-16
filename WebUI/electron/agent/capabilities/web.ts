@@ -82,14 +82,6 @@ export function formatPage(page: WebPageSnapshot): string {
   return lines.join('\n')
 }
 
-// One shared browser window: parallel tool calls must not navigate it under each other.
-let queue: Promise<unknown> = Promise.resolve()
-function serialized<T>(job: () => Promise<T>): Promise<T> {
-  const next = queue.then(job, job)
-  queue = next.catch(() => undefined)
-  return next
-}
-
 async function failureText(job: () => Promise<string>): Promise<string> {
   try {
     return await job()
@@ -109,9 +101,7 @@ async function buildWebTools(): Promise<ToolDefinition[]> {
       execute: async (_toolCallId, params) => {
         const { query, maxResults } = params as { query: string; maxResults?: number }
         return textResult(
-          await failureText(async () =>
-            formatSearchResults(await serialized(() => search(query, maxResults))),
-          ),
+          await failureText(async () => formatSearchResults(await search(query, maxResults))),
         )
       },
     }) as ToolDefinition,
@@ -122,9 +112,7 @@ async function buildWebTools(): Promise<ToolDefinition[]> {
       parameters: jsonSchemaParameters(FETCH_SCHEMA),
       execute: async (_toolCallId, params) => {
         const { url } = params as { url: string }
-        return textResult(
-          await failureText(async () => formatPage(await serialized(() => navigate(url)))),
-        )
+        return textResult(await failureText(async () => formatPage(await navigate(url))))
       },
     }) as ToolDefinition,
   ]

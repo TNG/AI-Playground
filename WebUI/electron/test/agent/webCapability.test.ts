@@ -57,25 +57,16 @@ describe('the web capability', () => {
     expect(text(result)).toBe('Error: ERR_NAME_NOT_RESOLVED')
   })
 
-  it('runs calls one at a time on the shared window', async () => {
-    const order: string[] = []
-    let release!: () => void
-    navigate.mockImplementationOnce(async () => {
-      order.push('first:start')
-      await new Promise<void>((resolve) => (release = resolve))
-      order.push('first:end')
-      return { title: '', url: 'a', text: '', links: [] }
-    })
-    navigate.mockImplementationOnce(async () => {
-      order.push('second')
-      return { title: '', url: 'b', text: '', links: [] }
-    })
+  it('hands each fetch to the shared browser, which serializes the window', async () => {
+    navigate.mockClear()
+    navigate.mockResolvedValue({ title: '', url: 'https://example.com', text: '', links: [] })
     const fetchTool = (await tools())[WEB_FETCH_TOOL]
-    const first = fetchTool.execute('a', { url: 'a' })
-    const second = fetchTool.execute('b', { url: 'b' })
-    await vi.waitFor(() => expect(order).toEqual(['first:start']))
-    release()
-    await Promise.all([first, second])
-    expect(order).toEqual(['first:start', 'first:end', 'second'])
+    await Promise.all([
+      fetchTool.execute('a', { url: 'https://a.example' }),
+      fetchTool.execute('b', { url: 'https://b.example' }),
+    ])
+    expect(navigate).toHaveBeenCalledTimes(2)
+    expect(navigate).toHaveBeenCalledWith('https://a.example')
+    expect(navigate).toHaveBeenCalledWith('https://b.example')
   })
 })

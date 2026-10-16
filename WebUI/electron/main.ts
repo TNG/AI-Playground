@@ -1958,14 +1958,9 @@ app.whenReady().then(async () => {
 
   /**Single instance processing */
   if (!singleInstanceLock) {
-    dialog.showMessageBoxSync({
-      message:
-        app.getLocale() == 'zh-CN'
-          ? '本程序仅允许单实例运行，确认后本次运行将自动结束'
-          : 'This program only allows a single instance to run, and the run will automatically end after confirmation',
-      title: 'error',
-      type: 'error',
-    })
+    // The running instance gets `second-instance` and brings its window back, which is how a
+    // backgrounded app is reopened; an error box here would read as a failure.
+    appLogger.info('Another instance is running; handing over to it', 'electron-backend', true)
     app.exit()
   } else {
     // Step markers around each startup await, written straight to the log file

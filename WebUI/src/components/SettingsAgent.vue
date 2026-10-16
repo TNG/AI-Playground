@@ -67,6 +67,9 @@
       </p>
     </div>
 
+    <!-- Above the settings fieldsets, so a Task Session's read-only rule never disables it. -->
+    <SettingsAgentTask v-if="agentMode.sessionScoped" />
+
     <!-- Shell sandbox (per-workspace opt-in) -->
     <div v-if="!isManagedWorkspace" class="flex flex-col gap-2">
       <Label class="whitespace-nowrap">Shell</Label>
@@ -119,10 +122,6 @@
       <!-- Same picker as Chat Settings, so an agent preset's requirements (tool calling, and
            coding for Game Agent) filter the list here too. -->
       <template #model><ModelSelector auto-select /></template>
-
-      <template #between>
-        <SettingsAgentTask v-if="agentMode.sessionScoped" />
-      </template>
 
       <!-- Slash commands of the enabled capabilities: sending one as a prompt is exactly how
            the agent's own input dispatches it. -->

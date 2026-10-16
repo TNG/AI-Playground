@@ -5,185 +5,70 @@
       <p class="text-xs text-muted-foreground">{{ i18n.AGENT_TASK_EDIT_SETTINGS_HINT }}</p>
     </div>
 
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4" :class="problemClass('backend')">
-      <Label class="whitespace-nowrap">Backend</Label>
-      <drop-down-new
-        title="Select Backend"
-        :value="backend"
-        :items="backendItems"
-        @change="changeBackend"
-      ></drop-down-new>
-    </div>
-    <div
-      v-if="backend === 'cloud'"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-      :class="problemClass('cloudProvider')"
-    >
-      <Label class="whitespace-nowrap">Provider</Label>
-      <ProviderSelector
-        bound
-        :model-value="template.cloudProviderId ?? cloudMode.selectedProviderId"
-        @update:model-value="changeProvider"
-      />
-    </div>
-    <div
-      v-else
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-      :class="problemClass('device')"
-    >
-      <Label class="whitespace-nowrap">{{ i18n.DEVICE }}</Label>
-      <DeviceSelector
-        bound
-        :backend="deviceServiceName"
-        :model-value="deviceId"
-        @update:model-value="changeDevice"
-      />
-    </div>
-    <div
-      role="group"
-      :aria-label="i18n.MODEL"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-      :class="problemClass('model')"
-    >
-      <Label class="whitespace-nowrap">{{ i18n.MODEL }}</Label>
-      <div class="flex items-center gap-2 min-w-0">
-        <div class="flex-1 min-w-0">
-          <drop-down-new
-            v-if="backend === 'cloud'"
-            :title="i18n.MODEL"
-            :value="template.model ?? ''"
-            :items="cloudModelItems"
-            @change="(model) => agentTasks.editTemplate({ model })"
-          ></drop-down-new>
-          <!-- No auto-select: a saved model the list no longer offers is a problem to show. -->
-          <ModelSelector
-            v-else
-            bound
-            :backend="backend"
-            :preset="agentMode.activeAgentPreset"
-            :on-npu="onNpu"
-            :model-value="template.model"
-            @update:model-value="(model) => agentTasks.editTemplate({ model })"
-          />
-        </div>
-        <CapabilityIcons v-if="currentModel" :model="currentModel" />
-      </div>
-    </div>
-    <div v-if="contextSizeSupported" class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label for="task-edit-context-size" class="whitespace-nowrap">
-        {{ i18n.ANSWER_CONTEXT_SIZE }}
-      </Label>
-      <div class="flex items-center gap-3">
-        <input
-          id="task-edit-context-size"
-          type="text"
-          inputmode="numeric"
-          autocomplete="off"
-          :value="contextSizeField.draft"
-          class="rounded-sm text-foreground text-center h-7 w-24 leading-7 p-0 bg-transparent border border-border"
-          @focus="contextSizeField.onFocus"
-          @input="contextSizeField.onInput"
-          @blur="contextSizeField.commit"
-          @keydown.enter="contextSizeField.commit"
+    <AgentSettingsForm :binding="binding" id-prefix="task-edit">
+      <template #provider>
+        <ProviderSelector
+          bound
+          :model-value="template.cloudProviderId ?? cloudMode.selectedProviderId"
+          @update:model-value="changeProvider"
         />
-        <span v-if="contextSize < 16384" class="text-xs text-amber-500">
-          Agentic sessions typically need 32k+ context.
-        </span>
-      </div>
-    </div>
-
-    <div v-if="supportsThinkingToggle" class="flex flex-col gap-2">
-      <Label class="whitespace-nowrap">Thinking</Label>
-      <label class="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          :checked="thinkingEnabled"
-          @change="agentTasks.editTemplate({ thinkingEnabled: !thinkingEnabled })"
+      </template>
+      <template #device>
+        <DeviceSelector
+          bound
+          :backend="deviceServiceName"
+          :model-value="deviceId"
+          @update:model-value="changeDevice"
         />
-        <span class="text-foreground">Think before acting</span>
-      </label>
-      <label class="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          :disabled="!thinkingEnabled"
-          :checked="planningThinkingOnly"
-          @change="agentTasks.editTemplate({ planningThinkingOnly: !planningThinkingOnly })"
+      </template>
+      <template #model>
+        <drop-down-new
+          v-if="backend === 'cloud'"
+          :title="i18n.MODEL"
+          :value="template.model ?? ''"
+          :items="cloudModelItems"
+          @change="(model) => agentTasks.editTemplate({ model })"
+        ></drop-down-new>
+        <!-- No auto-select: a saved model the list no longer offers is a problem to show. -->
+        <ModelSelector
+          v-else
+          bound
+          :backend="backend"
+          :preset="agentMode.activeAgentPreset"
+          :on-npu="onNpu"
+          :model-value="template.model"
+          @update:model-value="(model) => agentTasks.editTemplate({ model })"
         />
-        <span class="text-foreground" :class="{ 'opacity-50': !thinkingEnabled }">
-          Reasoning only during planning
-        </span>
-      </label>
-    </div>
-
-    <div class="border-t border-border pt-4 flex flex-col gap-3">
-      <Label class="whitespace-nowrap">Capabilities</Label>
-      <AgentCapabilityChecklist
-        :model-value="capabilities"
-        :catalog="capabilityCatalog"
-        :mcp-servers="mcp.allServers"
-        @update:model-value="(ids) => agentTasks.editTemplate({ capabilities: ids })"
-      >
-        <div
-          v-if="ragEnabled"
-          class="grid grid-cols-[120px_1fr] items-center gap-4"
-          :class="problemClass('embeddingModel')"
-        >
-          <Label class="whitespace-nowrap">Embeddings</Label>
-          <drop-down-new
-            :title="i18n.RAG_DOCUMENT_EMBEDDING_MODEL"
-            :value="embeddingModelName"
-            :items="embeddingModelItems"
-            @change="(embeddingModel) => agentTasks.editTemplate({ embeddingModel })"
-          ></drop-down-new>
-        </div>
-
-        <SettingsBuiltinTools v-if="hasMediaCapability" variant="media" :settings="mediaTools" />
-
-        <template #mcp-notices>
-          <p
-            v-for="serverId in missingMcpServers"
-            :key="serverId"
-            class="text-xs text-amber-500 rounded-sm ring-1 ring-amber-500 px-2 py-1"
-          >
-            {{ describeMissingMcpServer(serverId) }}
-          </p>
-        </template>
-      </AgentCapabilityChecklist>
-    </div>
+      </template>
+    </AgentSettingsForm>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { CLOUD_DEFAULT_MODEL, useCloudMode } from '@/assets/js/store/cloudMode'
 import { useI18N } from '@/assets/js/store/i18n'
-import { useMcp } from '@/assets/js/store/mcp'
 import {
   backendToService,
   type LlmBackend,
   useTextInference,
 } from '@/assets/js/store/textInference'
-import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
-import CapabilityIcons from '@/components/CapabilityIcons.vue'
+import AgentSettingsForm from '@/components/AgentSettingsForm.vue'
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
 import ProviderSelector from '@/components/ProviderSelector.vue'
-import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import { Label } from '@/components/ui/label'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
-import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
-import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 import { contextSizeSettingSupported, isNpuDevice } from '@/lib/llmBackendChoices'
 import { llmModelChoices, modelSupportsThinkingToggle } from '@/lib/llmModelChoices'
+import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { draftMediaToolSettings } from '@/lib/mediaToolSettings'
 import {
   templateBackendChange,
@@ -199,7 +84,6 @@ const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const backendServices = useBackendServices()
 const cloudMode = useCloudMode()
-const mcp = useMcp()
 const textInference = useTextInference()
 const i18n = useI18N().state
 
@@ -288,12 +172,6 @@ const currentModel = computed(() =>
 
 const contextSizeSupported = computed(() => contextSizeSettingSupported(backend.value, onNpu.value))
 
-const contextSize = computed<number>({
-  get: () => props.template.contextSize ?? agentMode.activeAgentPreset?.contextSize ?? 8192,
-  set: (value) => agentTasks.editTemplate({ contextSize: value, contextSizeEdited: true }),
-})
-const contextSizeField = useContextSizeField(contextSize)
-
 const supportsThinkingToggle = computed(() =>
   modelSupportsThinkingToggle(textInference.llmModels, backend.value, props.template.model),
 )
@@ -316,16 +194,6 @@ const { catalog: capabilityCatalog, refresh: refreshCapabilityCatalog } = useCap
   }),
 )
 
-const hasMediaCapability = computed(() =>
-  capabilityCatalog.value.some((capability) => capability.id === 'media'),
-)
-
-const ragEnabled = computed(
-  () =>
-    capabilityCatalog.value.some((capability) => capability.id === 'rag') &&
-    capabilities.value.includes('rag'),
-)
-
 const { activeName: embeddingModelName, items: embeddingModelItems } = useEmbeddingModelPicker(
   () => textInference.llmEmbeddingModels,
   () => textInference.embeddingBackend,
@@ -333,11 +201,34 @@ const { activeName: embeddingModelName, items: embeddingModelItems } = useEmbedd
 )
 
 onMounted(async () => {
-  void mcp.refreshAvailableServers()
   await refreshCapabilityCatalog()
 })
 
-const { problemClass, missingMcpServers, describeMissingMcpServer } = useSettingsProblemMarks(
-  () => agentTasks.editProblems,
-)
+const binding: AgentSettingsBinding = reactive({
+  backend,
+  backendItems,
+  setBackend: changeBackend,
+  currentModel,
+  contextSizeSupported,
+  contextSize: computed(
+    () => props.template.contextSize ?? agentMode.activeAgentPreset?.contextSize ?? 8192,
+  ),
+  setContextSize: (contextSize: number) =>
+    agentTasks.editTemplate({ contextSize, contextSizeEdited: true }),
+  thinkingToggleSupported: supportsThinkingToggle,
+  thinkingEnabled,
+  setThinkingEnabled: (enabled: boolean) => agentTasks.editTemplate({ thinkingEnabled: enabled }),
+  planningThinkingOnly,
+  setPlanningThinkingOnly: (enabled: boolean) =>
+    agentTasks.editTemplate({ planningThinkingOnly: enabled }),
+  capabilities,
+  setCapabilities: (ids: string[]) => agentTasks.editTemplate({ capabilities: ids }),
+  capabilityCatalog,
+  embeddingModelName,
+  embeddingModelItems,
+  setEmbeddingModel: (embeddingModel: string) => agentTasks.editTemplate({ embeddingModel }),
+  mediaTools,
+  problems: computed(() => agentTasks.editProblems),
+  sharedWithChat: false,
+})
 </script>

@@ -17,8 +17,8 @@ files, run commands in an emulated shell, search the folder, open pages in a rea
 read their console, and generate images, video or 3D models. Where Game Agent aims all of that
 at one outcome, Agent leaves the aim to you.
 
-_Shipped copy:_ "Give the model a task and a folder to work in. It writes and runs files,
-browses its own pages, and can generate images and video along the way."
+_Shipped copy:_ "Pick a folder and describe the job. The agent edits files there until it is
+done, with no undo. Save the session as a task to run again or on a schedule."
 
 ## When you would reach for it
 
@@ -109,8 +109,7 @@ settings key on that name — and the label **Agent Maker** is presentation only
 (`presetDisplayName` in `WebUI/src/lib/presetDisplayName.ts`). Pick it like any other chat
 preset. There is no developer flag and no restart.
 
-It writes in the folder you point it at, with no undo, so the shipped copy says to use a folder
-you are willing to lose.
+It writes in the folder you point it at, with no undo, which the shipped copy says outright.
 
 ## Open questions for review
 

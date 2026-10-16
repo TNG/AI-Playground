@@ -10,7 +10,7 @@
         <GameBar />
       </div>
 
-      <!-- Empty state: configuration lives in Agent Settings, model/context in
+      <!-- Empty state: configuration lives in the settings sidebar, model/context in
            the prompt status bar — so an empty transcript just needs a hint. -->
       <div
         v-if="agentMode.messages.length === 0 && !agentMode.processing"
@@ -42,9 +42,7 @@
           <Button v-else variant="secondary" @click="agentMode.pickWorkspaceFolder()">
             Select a workspace folder…
           </Button>
-          <p class="text-xs">
-            Configure workspace, model and tools via Agent Settings in the settings sidebar.
-          </p>
+          <p class="text-xs">Configure workspace, model and tools in {{ settingsLabel }}.</p>
         </template>
       </div>
 
@@ -155,6 +153,7 @@ import { agentEmptyStateKind } from '@/lib/presetModes'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
 import {
   ArrowPathIcon,
   ClockIcon,
@@ -167,6 +166,7 @@ const agentTasks = useAgentTasks()
 const promptStore = usePromptStore()
 const mediaRuns = useMediaAgentRuns()
 const languages = useI18N().state
+const settingsLabel = useModeSettingsLabel('agent')
 
 const panel = ref<HTMLElement | null>(null)
 

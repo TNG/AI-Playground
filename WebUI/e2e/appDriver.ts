@@ -2,7 +2,7 @@ import { type Page, test, expect } from '@playwright/test'
 import path from 'path'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
-import { MainPage, type ChatMode } from './pages/MainPage'
+import { MainPage, type ChatMode, type SettingsOwner } from './pages/MainPage'
 import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
@@ -263,7 +263,7 @@ export class AppDriver {
    * after the pin would not help either: the reset re-picks the backend and would
    * undo the pin. Pin a model explicitly where the choice has to be exact.
    */
-  async resetPresetDefaults(mode: ChatMode = 'Chat'): Promise<void> {
+  async resetPresetDefaults(mode: SettingsOwner = 'Chat'): Promise<void> {
     await test.step(`Reset the ${mode} preset to its defaults`, async () => {
       await this.settings.open(mode)
       const reset = await this.settings.resetPresetDefaults(mode)
@@ -283,7 +283,7 @@ export class AppDriver {
    * sidebar open; leaves it open. Returns the label it settled on, which is also
    * recorded as a test annotation so a failed run says which backend it ran on.
    */
-  private async pickRandomBackend(mode: ChatMode): Promise<string> {
+  private async pickRandomBackend(mode: SettingsOwner): Promise<string> {
     let chosen = 'default'
     const offered = await test.step(`Read ${mode} backends`, () =>
       this.settings.availableBackends(mode))
@@ -373,35 +373,36 @@ export class AppDriver {
     if (!selected) return false
 
     // Agent Mode has no mode button of its own — its sidebar is opened from the
-    // prompt area like any other mode's, under the name "Agent Settings". Reset
-    // before the pins below, never after: a reset would undo them.
-    await this.resetPresetDefaults('Agent')
+    // prompt area like any other mode's, under the preset's name ("Game Agent
+    // Settings"). Reset before the pins below, never after: a reset would undo them.
+    const owner = await this.main.activePresetLabel()
+    await this.resetPresetDefaults(owner)
 
     await test.step('Start a fresh game on a randomly chosen backend', async () => {
-      const backend = await this.pickRandomBackend('Agent')
+      const backend = await this.pickRandomBackend(owner)
       // After the backend, never before: the model list is per-backend, so a model
       // picked first would be replaced when the backend changes under it. 'default'
       // means the picker wasn't offered, which only happens on the lone llama.cpp.
       const model =
         AppDriver.AGENT_GAME_MODEL[backend] ?? AppDriver.AGENT_GAME_MODEL['llamaCPP - GGUF']
       await test.step(`Pin the small agent model: ${model}`, () =>
-        this.settings.selectModel(model, 'Agent'))
+        this.settings.selectModel(model, owner))
       // The preset asks for 128k, the size its big preferred model is tuned for. The
       // pinned model on a laptop GPU cannot allocate a KV cache that size, and llama.cpp then
       // refuses to load the model at all — the turn dies inside ensureReadyForInference
       // before it ever starts. Still well above the 32k the panel says agentic sessions
       // want. A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_GAME_CONTEXT}`, () =>
-        this.settings.setContextSize(AppDriver.AGENT_GAME_CONTEXT, 'Agent'))
+        this.settings.setContextSize(AppDriver.AGENT_GAME_CONTEXT, owner))
       // Switching preset by hand already clears the workspace (agentMode.ts), but a
       // re-run that lands on the preset already active doesn't — so ask explicitly.
       // The folder itself is minted by the first turn.
       await expect(
-        this.agent.newGameButton,
+        this.agent.newGameButton(owner),
         'a game preset should manage its own folder and offer "New game"',
       ).toBeVisible({ timeout: 15_000 })
-      await this.agent.newGameButton.click()
-      await this.settings.close('Agent')
+      await this.agent.newGameButton(owner).click()
+      await this.settings.close(owner)
     })
     return true
   }
@@ -487,15 +488,16 @@ export class AppDriver {
     if (!selected) return false
 
     // Reset before the context size below, never after — a reset would undo it.
-    await this.resetPresetDefaults('Agent')
+    const owner = await this.main.activePresetLabel()
+    await this.resetPresetDefaults(owner)
 
     await test.step('Point the agent at a scratch workspace on a random backend', async () => {
-      await this.pickRandomBackend('Agent')
+      await this.pickRandomBackend(owner)
       // A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
-        this.settings.setContextSize(AppDriver.AGENT_CONTEXT, 'Agent'))
-      await this.agent.selectWorkspaceFolder(opts.workspaceDir)
-      await this.settings.close('Agent')
+        this.settings.setContextSize(AppDriver.AGENT_CONTEXT, owner))
+      await this.agent.selectWorkspaceFolder(opts.workspaceDir, owner)
+      await this.settings.close(owner)
     })
 
     let imagesBefore = 0

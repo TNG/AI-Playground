@@ -346,8 +346,7 @@ describe('an agent turn that needs no download', () => {
       modelConfig: {
         source: 'cloud',
         model: 'cloud-model',
-        proxyBaseUrl: BACKEND,
-        upstreamBaseUrl: 'https://cloud.test/v1',
+        upstreamBaseUrl: BACKEND,
         providerId: 'test',
         authStyle: 'bearer',
       },

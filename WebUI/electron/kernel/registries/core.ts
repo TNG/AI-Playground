@@ -16,6 +16,7 @@ import {
 } from 'electron'
 import z from 'zod'
 import { LocalSettingsSchema } from '../localSettings'
+import { agentTasksKeepAppAlive } from '../../persist/agentTaskFiles'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
 import type {
@@ -1548,6 +1549,9 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
         return undefined
       })
     },
+
+    // Enabled schedule or in-flight run marker in the tasks file. Demo mode is false.
+    tasksKeepAlive: () => agentTasksKeepAppAlive(),
   } satisfies InvokeHandlerMap<CoreInvokeName>
 }
 
@@ -1618,8 +1622,15 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
 
     // Quit outright instead of closing the window and hoping that cascades into a
     // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
+    // The title bar asks first when a task schedule or run would be killed; Home
+    // Agent and ordinary turns still quit here with no question.
     exitApp: async () => {
       app.quit()
+    },
+
+    hideMainWindow: () => {
+      const win = deps.getWin()
+      if (win && !win.isDestroyed()) win.hide()
     },
 
     // Save a generated image to a file the user picks in a save dialog.

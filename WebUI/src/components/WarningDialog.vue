@@ -23,10 +23,10 @@
         </div>
         <div class="flex justify-center items-center gap-9">
           <button @click="cancelConfirm" class="bg-muted text-foreground py-1 px-4 rounded">
-            {{ i18nState.COM_CANCEL }}
+            {{ warningCancelLabel ?? i18nState.COM_CANCEL }}
           </button>
           <button @click="confirmAdd" class="bg-primary text-foreground py-1 px-4 rounded">
-            {{ i18nState.COM_CONFIRM }}
+            {{ warningConfirmLabel ?? i18nState.COM_CONFIRM }}
           </button>
         </div>
       </div>
@@ -45,8 +45,14 @@ const dialogStore = useDialogStore()
 const animate = ref(false)
 const dontShowAgainChecked = ref(false)
 
-const { warningMessage, warningConfirmFunction, warningDialogVisible, warningDontShowAgainKey } =
-  storeToRefs(dialogStore)
+const {
+  warningMessage,
+  warningConfirmFunction,
+  warningDialogVisible,
+  warningDontShowAgainKey,
+  warningConfirmLabel,
+  warningCancelLabel,
+} = storeToRefs(dialogStore)
 
 watch(warningDialogVisible, (newValue) => {
   if (newValue) {

@@ -11,6 +11,7 @@ const idle = {
   agentTurnActive: false,
   chatTurnActive: false,
   artifactWorkOpen: false,
+  tasksKeepAlive: false,
 }
 
 describe('resolveClosePolicy', () => {
@@ -38,6 +39,10 @@ describe('resolveClosePolicy', () => {
     expect(resolveClosePolicy({ ...idle, artifactWorkOpen: true })).toBe('hide')
   })
 
+  it('hides while a saved task has an enabled schedule or a run marker', () => {
+    expect(resolveClosePolicy({ ...idle, tasksKeepAlive: true })).toBe('hide')
+  })
+
   it('hides when several are in flight at once', () => {
     expect(
       resolveClosePolicy({
@@ -46,6 +51,7 @@ describe('resolveClosePolicy', () => {
         agentTurnActive: true,
         chatTurnActive: true,
         artifactWorkOpen: true,
+        tasksKeepAlive: true,
       }),
     ).toBe('hide')
   })

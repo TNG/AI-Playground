@@ -40,6 +40,7 @@ import { computed } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
 import SideModalBase from '@/components/SideModalBase.vue'
 import SettingsChat from '@/components/SettingsChat.vue'
 import SettingsAgent from '@/components/SettingsAgent.vue'
@@ -60,6 +61,7 @@ defineEmits<{
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const i18n = useI18N().state
+const settingsLabel = useModeSettingsLabel(() => props.mode)
 
 const taskMode = computed(
   () => props.mode === 'agent' && agentMode.sessionScoped && agentTasks.editingTaskId !== null,
@@ -68,6 +70,6 @@ const taskMode = computed(
 const title = computed(() =>
   taskMode.value
     ? i18n.AGENT_TASK_EDITING.replace('{name}', agentTasks.editedTask?.name ?? '')
-    : `${mapModeToLabel(props.mode)} Settings`,
+    : settingsLabel.value,
 )
 </script>

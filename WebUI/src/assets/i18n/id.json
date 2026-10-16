@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "Filter menurut tugas",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Belum ada tugas",
-  "HISTORY_TASK_MARKER": "Dari tugas: {name}"
+  "HISTORY_TASK_MARKER": "Dari tugas: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Ada tugas yang dijadwalkan atau masih berjalan. Biarkan AI Playground tetap berjalan di latar belakang, atau keluar dan hentikan?",
+  "AGENT_TASKS_KEEP_RUNNING": "Tetap jalankan",
+  "AGENT_TASKS_QUIT": "Keluar"
 }

@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "タスクで絞り込む",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "タスクはまだありません",
-  "HISTORY_TASK_MARKER": "タスクから: {name}"
+  "HISTORY_TASK_MARKER": "タスクから: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "タスクがスケジュールされているか、まだ実行中です。AI Playground をバックグラウンドで動かし続けますか、それとも終了して止めますか？",
+  "AGENT_TASKS_KEEP_RUNNING": "実行を続ける",
+  "AGENT_TASKS_QUIT": "終了"
 }

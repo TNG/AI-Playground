@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "Filtruj według zadania",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Brak zadań",
-  "HISTORY_TASK_MARKER": "Z zadania: {name}"
+  "HISTORY_TASK_MARKER": "Z zadania: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Zadanie jest zaplanowane albo wciąż trwa. Zostawić AI Playground działające w tle, czy zakończyć i je zatrzymać?",
+  "AGENT_TASKS_KEEP_RUNNING": "Kontynuuj",
+  "AGENT_TASKS_QUIT": "Zakończ"
 }

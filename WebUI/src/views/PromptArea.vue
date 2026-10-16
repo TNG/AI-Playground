@@ -397,7 +397,7 @@
               class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
               @click="handleAdvancedSettingsClick"
             >
-              {{ mapModeToLabel(promptStore.getCurrentMode()) }} Settings
+              {{ settingsLabel }}
             </Button>
             <!-- Send / stop / loading cluster — hidden for the STT preset, which
                  submits via its own record/upload controls. -->
@@ -486,6 +486,7 @@ import {
   type SessionSettingsProblem,
 } from '@/lib/sessionSettingsProblems'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
+import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
@@ -530,6 +531,7 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const oemBranding = useOemBranding()
+const settingsLabel = useModeSettingsLabel(() => promptStore.getCurrentMode())
 const textInference = useTextInference()
 const conversations = useConversations()
 const activities = useActivities()

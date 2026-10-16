@@ -6,6 +6,8 @@ import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
 import { transcribeAudio } from './transcribeAudio'
 import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
+import { useTextToSpeech } from '../store/textToSpeech'
+import { externalTtsEngineNote, kokoroEngineNote } from '@/lib/kokoroVoice'
 import type { AgentToolSpec } from '@/types/agentIpc'
 
 // ── Agent Mode tool specs (renderer side) ────────────────────────────────────
@@ -71,8 +73,18 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
 
 const TTS_FILES_NOTE =
   '\n\nFILES: The clip is written into the "generated/" folder of your workspace; the result ' +
-  'gives its workspace-relative path in "savedFilePath". Reference that path in files you write ' +
-  '(e.g. an <audio src="generated/....wav"> on an HTML page).'
+  'gives its workspace-relative path in "savedFilePath". The app plays it under the tool card. ' +
+  'Tell the user what you spoke and the voice the result names. Do not send them to the browser ' +
+  'tool, and do not paste an <audio> tag into the chat. An <audio src> belongs only in an HTML ' +
+  'page the user asked you to write, using the savedFilePath the tool just reported.'
+
+/** Kokoro and an external endpoint ignore the Qwen3 voice arguments the base description offers. */
+function ttsEngineNote(): string {
+  const tts = useTextToSpeech()
+  if (tts.selectedEngine === 'kokoro') return kokoroEngineNote(tts.selectedKokoroVoice)
+  if (tts.selectedEngine === 'external') return externalTtsEngineNote(tts.fallback.voice)
+  return ''
+}
 
 const STT_SOURCE_NOTE =
   '\n\nAGENT MODE: There is no conversation audio history here. Name the file to transcribe with ' +
@@ -96,7 +108,7 @@ function speechToolSpecs(): AgentToolSpec[] {
   if (textInference.isBuiltinToolEnabled('synthesizeTextToSpeech')) {
     specs.push({
       name: 'synthesizeTextToSpeech',
-      description: (synthesizeTextToSpeech.description ?? '') + TTS_FILES_NOTE,
+      description: (synthesizeTextToSpeech.description ?? '') + TTS_FILES_NOTE + ttsEngineNote(),
       inputSchema: asSchema(synthesizeTextToSpeech.inputSchema).jsonSchema as Record<
         string,
         unknown

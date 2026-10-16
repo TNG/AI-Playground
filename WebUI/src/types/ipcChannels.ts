@@ -321,6 +321,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
   },
+  /** Read a workspace audio clip for the in-chat player. Confined to that workspace. */
+  'agentMode:readWorkspaceAudio': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ dataUri: string }>,
+  },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {
     kind: 'invoke',

@@ -61,6 +61,59 @@ export function mediaToolNameOf(part: unknown): string | undefined {
   return name && MEDIA_BRIDGE_TOOL_NAMES.has(name) ? name : undefined
 }
 
+/** Speech synthesis, whose clip renders as a player under the tool card. */
+const SPEECH_TOOL_NAME = 'synthesizeTextToSpeech'
+
+export function speechToolNameOf(part: unknown): string | undefined {
+  const name = toolPartNameOf(part)
+  return name === SPEECH_TOOL_NAME ? name : undefined
+}
+
+export type SpeechClipOutput = {
+  ok?: boolean
+  message?: string
+  savedFilePath?: string
+  /** Legacy persisted payloads only — stripped before the next save. */
+  audioDataUri?: string
+}
+
+/** The clip a synthesize call produced. Pi wraps the JSON in a text content block. */
+export function speechClipOf(part: unknown): SpeechClipOutput | undefined {
+  if (!speechToolNameOf(part)) return undefined
+  return speechClipFromOutput(shapeOf(part).output)
+}
+
+function speechClipFromOutput(output: unknown): SpeechClipOutput | undefined {
+  if (typeof output === 'string') {
+    try {
+      return speechClipFromOutput(JSON.parse(output))
+    } catch {
+      return undefined
+    }
+  }
+  if (typeof output !== 'object' || output === null) return undefined
+  const record = output as Record<string, unknown>
+  if (typeof record.ok === 'boolean' || typeof record.savedFilePath === 'string') {
+    return {
+      ...(typeof record.ok === 'boolean' ? { ok: record.ok } : {}),
+      ...(typeof record.message === 'string' ? { message: record.message } : {}),
+      ...(typeof record.savedFilePath === 'string' ? { savedFilePath: record.savedFilePath } : {}),
+      ...(typeof record.audioDataUri === 'string' ? { audioDataUri: record.audioDataUri } : {}),
+    }
+  }
+  const content = record.content
+  if (!Array.isArray(content)) return undefined
+  const text = content
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return ''
+      const text = (entry as { text?: unknown }).text
+      return typeof text === 'string' ? text : ''
+    })
+    .join('\n')
+    .trim()
+  return text ? speechClipFromOutput(text) : undefined
+}
+
 export type TranscriptSegment =
   | { kind: 'part'; key: string; part: unknown }
   | { kind: 'chain'; key: string; parts: unknown[]; summary: string }

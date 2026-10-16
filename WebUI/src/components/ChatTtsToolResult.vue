@@ -16,6 +16,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
+type AudioLoadResult = { success: true; dataUri: string } | { success: false; error: string }
+
 const props = defineProps<{
   output?: {
     ok?: boolean
@@ -24,6 +26,8 @@ const props = defineProps<{
     /** Legacy persisted payloads only — stripped before the next save. */
     audioDataUri?: string
   }
+  /** Workspace clips live outside the app audio folder, so Agent Mode supplies its own read. */
+  loadAudio?: (filePath: string) => Promise<AudioLoadResult>
 }>()
 
 const playbackSrc = ref<string | null>(null)
@@ -41,7 +45,9 @@ onMounted(async () => {
   if (!out.savedFilePath) return
 
   try {
-    const result = await window.electronAPI.readLocalAudioAsDataUri(out.savedFilePath)
+    const result = props.loadAudio
+      ? await props.loadAudio(out.savedFilePath)
+      : await window.electronAPI.readLocalAudioAsDataUri(out.savedFilePath)
     if (result.success) {
       playbackSrc.value = result.dataUri
     } else {

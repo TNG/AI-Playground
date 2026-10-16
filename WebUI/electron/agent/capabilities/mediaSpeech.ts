@@ -4,6 +4,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { jsonResult, jsonSchemaParameters, resolveWorkspaceFile } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
+import { describeKokoroVoice } from '@/lib/kokoroVoice'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
 import type { AgentToolSpec, CapabilityHost } from './types.ts'
 
@@ -66,12 +67,17 @@ function generatedAudioPath(
   return { fullPath: path.join(dir, name), relativePath: path.posix.join('generated', name) }
 }
 
+const PLAYER_NOTE = 'The clip plays under this tool card.'
+
 function describeClip(clip: SpeechClipPayload): string {
   if (clip.engine === 'qwen3') {
     return `Synthesized ${clip.mode} speech (${clip.language}, ${clip.voice}).`
   }
-  const engine = clip.engine === 'kokoro' ? 'Kokoro' : 'the external endpoint'
-  return `Synthesized speech with ${engine} (${clip.voice}).`
+  if (clip.engine === 'kokoro') {
+    return `Synthesized speech with Kokoro, ${describeKokoroVoice(clip.voice)}.`
+  }
+  const voice = clip.voice.trim() || 'its configured voice'
+  return `Synthesized speech with the external endpoint (${voice}).`
 }
 
 function failure(error: unknown): { ok: false; message: string } {
@@ -110,7 +116,7 @@ async function synthesize(
     await fs.promises.writeFile(fullPath, Buffer.from(clip.audioBase64, 'base64'))
     return {
       ok: true,
-      message: `${describeClip(clip)} Saved into the workspace at ${relativePath}.`,
+      message: `${describeClip(clip)} Saved into the workspace at ${relativePath}. ${PLAYER_NOTE}`,
       savedFilePath: relativePath,
       speaker: clip.voice,
       ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),

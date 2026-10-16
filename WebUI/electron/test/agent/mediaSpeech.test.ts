@@ -95,6 +95,7 @@ describe('mediaSpeech (agent speech tools)', () => {
       voice: { speaker: 'Vivian' },
     })
     expect(output).toMatchObject({ ok: true, savedFilePath: 'generated/speech.wav' })
+    expect(output.message).toContain('The clip plays under this tool card.')
     expect(fs.readFileSync(path.join(workspaceDir, 'generated', 'speech.wav'), 'utf8')).toBe('riff')
   })
 
@@ -112,6 +113,23 @@ describe('mediaSpeech (agent speech tools)', () => {
 
     expect(first.savedFilePath).toBe('generated/news_summary.wav')
     expect(second.savedFilePath).toBe('generated/news_summary_1.wav')
+  })
+
+  it('names a Kokoro voice by accent instead of leaving the id to be guessed', async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('a').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'af_heart',
+      engine: 'kokoro',
+    })
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    const output = await run(tool, { text: 'Die wichtigsten Meldungen' })
+
+    expect(output.message).toContain('American English female')
+    expect(output.message).toContain('af_heart')
+    expect(output.message).not.toContain('Afrikaans')
+    expect(output.message).toContain('The clip plays under this tool card.')
   })
 
   it('reports empty text and an engine failure as a tool failure', async () => {

@@ -39,6 +39,8 @@ export const useDialogStore = defineStore('dialog', () => {
   const warningConfirmFunction = ref<(_dontShowAgain?: boolean) => void>(() => {})
   const warningCancelFunction = ref<() => void>(() => {})
   const warningDontShowAgainKey = ref<string | null>(null)
+  const warningConfirmLabel = ref<string | null>(null)
+  const warningCancelLabel = ref<string | null>(null)
 
   // Download dialog state
   const downloadDialogVisible = ref(false)
@@ -83,6 +85,8 @@ export const useDialogStore = defineStore('dialog', () => {
     warningConfirmFunction.value = func
     warningCancelFunction.value = options?.onCancel ?? (() => {})
     warningDontShowAgainKey.value = options?.dontShowAgainKey ?? null
+    warningConfirmLabel.value = null
+    warningCancelLabel.value = null
     warningDialogVisible.value = true
   }
 
@@ -92,10 +96,15 @@ export const useDialogStore = defineStore('dialog', () => {
    * dismissed). Used for human-in-the-loop approvals (e.g. the Home Agent
    * self-configuration tool on the desktop).
    */
-  function requestConfirmation(message: string): Promise<boolean> {
+  function requestConfirmation(
+    message: string,
+    buttons?: { confirm?: string; cancel?: string },
+  ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       warningMessage.value = sanitizeMarkdown(parse(message) as string)
       warningDontShowAgainKey.value = null
+      warningConfirmLabel.value = buttons?.confirm ?? null
+      warningCancelLabel.value = buttons?.cancel ?? null
       warningConfirmFunction.value = () => resolve(true)
       warningCancelFunction.value = () => resolve(false)
       warningDialogVisible.value = true
@@ -105,6 +114,8 @@ export const useDialogStore = defineStore('dialog', () => {
   function closeWarningDialog() {
     warningDialogVisible.value = false
     warningDontShowAgainKey.value = null
+    warningConfirmLabel.value = null
+    warningCancelLabel.value = null
   }
 
   /** Settles the open request once; a resumable error waits for a retry or for Close. */
@@ -340,6 +351,8 @@ export const useDialogStore = defineStore('dialog', () => {
     warningConfirmFunction,
     warningCancelFunction,
     warningDontShowAgainKey,
+    warningConfirmLabel,
+    warningCancelLabel,
     showWarningDialog,
     requestConfirmation,
     closeWarningDialog,

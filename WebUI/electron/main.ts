@@ -263,6 +263,7 @@ import {
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
 import {
+  agentTasksKeepAppAlive,
   deleteAgentTask,
   readAgentTasks,
   saveAgentTask,
@@ -732,34 +733,50 @@ async function createWindow() {
     cancelAllArtifactRuns('The app window was replaced')
   })
   for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
+  // The file read is async, so the first close is always deferred. A later
+  // close with this set is the real one (macOS, after the policy says quit).
+  let allowWindowClose = false
+  let closeDecision: Promise<void> | null = null
   win.on('close', (event) => {
+    if (allowWindowClose) return
+    event.preventDefault()
+    if (closeDecision) return
     // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
-    // the renderer: closing the window only hides it while headless work a
-    // quit would orphan is in flight — Home Agent, in-flight agent/chat/artifact
-    // work in main, or anything the renderer reported busy. A hidden window is
-    // reopened by relaunching (second-instance) or dock activation.
-    const decision = resolveClosePolicy({
-      homeAgentRunning: isHomeAgentRunning(),
-      rendererBusy,
-      agentTurnActive: isAgentTurnActive(),
-      chatTurnActive: anyChatTurnActive(),
-      artifactWorkOpen: artifactWorkOpen(),
+    // the renderer. A hidden window is reopened by relaunching (second-instance)
+    // or dock activation. `tasksKeepAlive` is the tasks file, not a renderer flag.
+    closeDecision = (async () => {
+      const tasksKeepAlive = await agentTasksKeepAppAlive()
+      if (!win || win.isDestroyed()) return
+      const decision = resolveClosePolicy({
+        homeAgentRunning: isHomeAgentRunning(),
+        rendererBusy,
+        agentTurnActive: isAgentTurnActive(),
+        chatTurnActive: anyChatTurnActive(),
+        artifactWorkOpen: artifactWorkOpen(),
+        tasksKeepAlive,
+      })
+      if (decision === 'hide') {
+        win.hide()
+        return
+      }
+      // Tear down the headless web-browser window so the app can quit cleanly.
+      destroyWebBrowser()
+      // Quit from the main window's own close rather than waiting for
+      // `window-all-closed`, which Electron only emits once EVERY window is
+      // destroyed. Hidden helper windows (agent browser sessions, an image
+      // preview) used to swallow that event, and with it the whole teardown: the
+      // backends kept running and the single-instance lock stayed held, so the
+      // next launch was refused. macOS keeps the app alive by convention, so
+      // there the backends are freed in `window-all-closed` instead.
+      if (process.platform !== 'darwin') {
+        app.quit()
+        return
+      }
+      allowWindowClose = true
+      win.close()
+    })().finally(() => {
+      closeDecision = null
     })
-    if (decision === 'hide') {
-      event.preventDefault()
-      win?.hide()
-      return
-    }
-    // Tear down the headless web-browser window so the app can quit cleanly.
-    destroyWebBrowser()
-    // Quit from the main window's own close rather than waiting for
-    // `window-all-closed`, which Electron only emits once EVERY window is
-    // destroyed. Hidden helper windows (agent browser sessions, an image
-    // preview) used to swallow that event, and with it the whole teardown: the
-    // backends kept running and the single-instance lock stayed held, so the
-    // next launch was refused. macOS keeps the app alive by convention, so
-    // there the backends are freed in `window-all-closed` instead.
-    if (process.platform !== 'darwin') app.quit()
   })
 
   // Windows log-off / shutdown / restart. The session cannot be stopped and the

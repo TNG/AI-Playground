@@ -446,6 +446,7 @@ describe('a slot that finds a Task Run in flight', () => {
     expect(startTurn).toHaveBeenCalledTimes(1)
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
     expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(lastSavedTask('t1')?.activeRun).not.toHaveProperty('scheduled')
     expect(lastSavedTask('t1')).not.toHaveProperty('lastOutcome')
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
     expect(lastSavedTask('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
@@ -1076,50 +1077,25 @@ describe('keeping the app alive when the window is closed', () => {
     expect(lastBusy()).toBe(false)
   })
 
-  it('is busy once a Schedule is enabled', async () => {
+  it('is not busy merely because a Schedule is enabled', async () => {
     const { tasks } = await readyStores(task('t1'))
 
     await tasks.setSchedule('t1', every10Minutes())
     await settleMicrotasks()
 
-    expect(lastBusy()).toBe(true)
+    expect(lastBusy()).toBe(false)
   })
-  it('is no longer busy once the Schedule is paused', async () => {
-    const { tasks } = await readyStores(scheduledTask('t1'))
+  it('stays not busy when the Schedule is paused, removed, or the Task is deleted', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'), scheduledTask('t2'))
+    await settleMicrotasks()
+    expect(lastBusy()).toBe(false)
 
     await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
-    await settleMicrotasks()
-
-    expect(lastBusy()).toBe(false)
-  })
-
-  it('is no longer busy once the Schedule is removed', async () => {
-    const { tasks } = await readyStores(scheduledTask('t1'))
-
-    await tasks.removeSchedule('t1')
-    await settleMicrotasks()
-
-    expect(lastBusy()).toBe(false)
-  })
-
-  it('is no longer busy once the scheduled Task is deleted', async () => {
-    const { tasks } = await readyStores(scheduledTask('t1'))
-    await settleMicrotasks()
-    expect(lastBusy()).toBe(true)
-
+    await tasks.removeSchedule('t2')
     await tasks.deleteTask('t1')
     await settleMicrotasks()
 
     expect(lastBusy()).toBe(false)
-  })
-
-  it('stays busy while another Task keeps an enabled Schedule', async () => {
-    const { tasks } = await readyStores(scheduledTask('t1'), scheduledTask('t2'))
-
-    await tasks.removeSchedule('t1')
-    await settleMicrotasks()
-
-    expect(lastBusy()).toBe(true)
   })
   it('is busy for a whole Task Run, between its Steps too, and not after', async () => {
     const { tasks } = await readyStores(task('t1'))
@@ -1149,18 +1125,22 @@ describe('keeping the app alive when the window is closed', () => {
     expect(lastBusy()).toBe(false)
   })
 
-  it('is busy during a Scheduled Run and stays busy after it while the Schedule is on', async () => {
+  it('is busy during a Scheduled Run and not after, even while the Schedule stays on', async () => {
     const { tasks } = await readyStores(scheduledTask('t1', { steps: [{ id: 's', prompt: 'x' }] }))
     await settleMicrotasks()
-    expect(lastBusy()).toBe(true)
-    setLifecycleBusy.mockClear()
+    expect(lastBusy()).toBe(false)
 
     await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+    await settleMicrotasks()
+    expect(lastBusy()).toBe(true)
+    expect(lastSavedTask('t1')?.activeRun).toMatchObject({ scheduled: true, stepIndex: 1 })
+
     await finishTurn(0)
     await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))
     await settleMicrotasks()
 
-    expect(setLifecycleBusy).not.toHaveBeenCalledWith(false)
+    expect(lastBusy()).toBe(false)
   })
   it('is not kept alive by Schedules in demo mode, where they never fire', async () => {
     demo.enabled = true

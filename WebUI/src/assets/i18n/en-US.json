@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "Filter by task",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "No tasks yet",
-  "HISTORY_TASK_MARKER": "From task: {name}"
+  "HISTORY_TASK_MARKER": "From task: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it?",
+  "AGENT_TASKS_KEEP_RUNNING": "Keep running",
+  "AGENT_TASKS_QUIT": "Quit"
 }

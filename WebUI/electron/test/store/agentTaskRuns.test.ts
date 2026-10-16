@@ -938,6 +938,7 @@ describe('the app closing during a run', () => {
     const sessionId = sentConfig(0).sessionId
 
     expect(lastSavedTask('t1')?.activeRun).toMatchObject({ sessionId, stepIndex: 1 })
+    expect(lastSavedTask('t1')?.activeRun).not.toHaveProperty('scheduled')
     await finishTurn(0)
     await turnIdOf(1)
     await vi.waitFor(() => expect(lastSavedTask('t1')?.activeRun).toMatchObject({ stepIndex: 2 }))
@@ -985,6 +986,83 @@ describe('the app closing during a run', () => {
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
     expect(sentPrompts()).toEqual(['one'])
+  })
+
+  it('reattaches a run whose turn main still holds, and sends the next step when it ends', async () => {
+    const sessionId = 'session-old'
+    const turnId = 'turn-live'
+    vi.mocked(window.electronAPI.agentMode.bootstrapSessions).mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'session-open',
+      sessions: [
+        openRecord,
+        {
+          id: sessionId,
+          workspaceDir: '/work/task',
+          title: 'Task t1',
+          messages: [],
+          createdAt: 1,
+          updatedAt: 2,
+          presetName: 'Agent',
+          settings: TEMPLATE,
+          taskId: 't1',
+        },
+      ],
+    } as never)
+    vi.mocked(window.electronAPI.getKernelSnapshot).mockResolvedValue({
+      scope: { kind: 'global' },
+      sequence: 5,
+      state: {
+        services: [],
+        agentTurns: [
+          {
+            sessionId,
+            turnId,
+            state: 'running',
+            chunks: [],
+            toolProgress: {},
+            toolImages: {},
+          },
+        ],
+        activeArtifactRun: null,
+        chatTurns: [],
+        activities: [],
+        inferenceProfile: null,
+      },
+    })
+    const { agentMode, tasks } = await readyStores(
+      task('t1', ['one', 'two'], {
+        activeRun: { sessionId, stepIndex: 1, stepCount: 2, scheduled: true },
+      }),
+    )
+
+    expect(tasks.taskState('t1')).toEqual({
+      running: { sessionId, stepIndex: 1, stepCount: 2 },
+    })
+    expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
+    expect(saveTask.mock.calls.some(([saved]) => saved.lastOutcome?.reason === 'app-closed')).toBe(
+      false,
+    )
+
+    await vi.waitFor(() => expect(agentMode.sessionTurns[sessionId]?.state).toBe('running'))
+    for (const chunk of [
+      { type: 'start' },
+      { type: 'text-start', id: 't' },
+      { type: 'text-delta', id: 't', delta: 'done' },
+      { type: 'text-end', id: 't' },
+      { type: 'finish' },
+    ]) {
+      pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk })
+    }
+    pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual(['two'])
+    expect(lastSavedTask('t1')?.activeRun).toMatchObject({
+      sessionId,
+      stepIndex: 2,
+      scheduled: true,
+    })
   })
 
   it('keeps the interrupted Task Session’s "not run" message and resend action', async () => {

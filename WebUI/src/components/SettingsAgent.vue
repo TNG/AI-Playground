@@ -128,7 +128,9 @@
            the agent's own input dispatches it. -->
       <template #capability-extras>
         <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
-          <Label class="whitespace-nowrap mt-2">Capability commands</Label>
+          <Label class="whitespace-nowrap mt-2">{{
+            i18n.AGENT_SETTINGS_CAPABILITY_COMMANDS
+          }}</Label>
           <div class="flex flex-wrap gap-2">
             <Button
               v-for="command in capabilityCommands"

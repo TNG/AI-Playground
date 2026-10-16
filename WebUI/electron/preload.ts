@@ -335,6 +335,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke('agentMode:writeWorkspaceState', cloneForIpc(value)),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
+    readWorkspaceAudio: (workspaceDir: string, relativePath: string) =>
+      invoke('agentMode:readWorkspaceAudio', workspaceDir, relativePath),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

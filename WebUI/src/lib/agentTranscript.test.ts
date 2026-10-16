@@ -3,6 +3,8 @@ import {
   compactionOutputOf,
   groupTranscriptParts,
   mediaToolNameOf,
+  speechClipOf,
+  speechToolNameOf,
   toolPartNameOf,
   busyLabelOf,
   type TranscriptSegment,
@@ -120,6 +122,37 @@ describe('part classification', () => {
     expect(mediaToolNameOf({ type: 'tool-media' })).toBe('media')
     expect(mediaToolNameOf(tool('generateImage'))).toBe('generateImage')
     expect(mediaToolNameOf(tool('bash'))).toBeUndefined()
+  })
+
+  it('keeps a speech clip out of a folded run', () => {
+    const staysOpen = (part: unknown) =>
+      !mediaToolNameOf(part) &&
+      !speechToolNameOf(part) &&
+      (part as { type?: string }).type !== 'text'
+    const segments = groupTranscriptParts(
+      [reasoning(1_000), tool('bash'), tool('synthesizeTextToSpeech'), text],
+      { messageId: 'm1', live: false, foldable: staysOpen },
+    )
+
+    expect(segments.map((segment) => segment.kind)).toEqual(['chain', 'part', 'part'])
+    expect(speechToolNameOf(tool('synthesizeTextToSpeech'))).toBe('synthesizeTextToSpeech')
+    expect(speechToolNameOf(tool('bash'))).toBeUndefined()
+  })
+
+  it('reads a speech clip out of the text block Pi wraps the tool JSON in', () => {
+    const clip = {
+      ok: true,
+      message: 'Synthesized speech with Kokoro, American English female voice Heart (af_heart).',
+      savedFilePath: 'generated/heise-headlines-summary.wav',
+    }
+    const wrapped = tool('synthesizeTextToSpeech')
+    ;(wrapped as { output?: unknown }).output = {
+      content: [{ type: 'text', text: JSON.stringify(clip) }],
+    }
+
+    expect(speechClipOf(wrapped)).toEqual(clip)
+    expect(speechClipOf({ ...tool('synthesizeTextToSpeech'), output: clip })).toEqual(clip)
+    expect(speechClipOf(tool('bash'))).toBeUndefined()
   })
 
   it('recognizes the synthetic compaction call', () => {

@@ -255,6 +255,10 @@ describe('resolveCapabilities', () => {
       'transcribeAudio',
     ])
     expect(resolution.announcedSkillNames).toContain('speech-audio')
+    const speech = resolution.skillSources.find((skill) => skill.name === 'speech-audio')
+    expect(speech?.body).toContain('plays the clip under the tool card')
+    expect(speech?.body).toContain('af_ and am_ are American English')
+    expect(speech?.body).not.toContain('src="generated')
 
     // Speech alone is enough to keep the capability available.
     const speechOnly = listCapabilities(

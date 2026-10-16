@@ -34,6 +34,7 @@
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatTtsToolResult v-if="speechClip" :output="speechClip" :load-audio="loadWorkspaceClip" />
     <!-- Live output while the tool is still running (Pi streams partial results,
          e.g. a long-running bash command). -->
     <pre
@@ -66,8 +67,9 @@ import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
-import { compactionOutputOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import { compactionOutputOf, mediaToolNameOf, speechClipOf } from '@/lib/agentTranscript'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -113,6 +115,17 @@ function streamedArgument(input: unknown): string | undefined {
 const toolImages = computed<AgentToolImage[]>(
   () => agentMode.toolImages[toolPart.value.toolCallId] ?? [],
 )
+
+const speechClip = computed(() => {
+  if (toolPart.value.state !== 'output-available') return undefined
+  return speechClipOf(props.part)
+})
+
+async function loadWorkspaceClip(relativePath: string) {
+  const dir = agentMode.workspaceDir
+  if (!dir) return { success: false as const, error: 'No workspace folder is open.' }
+  return window.electronAPI.agentMode.readWorkspaceAudio(dir, relativePath)
+}
 
 const compaction = computed(() => compactionOutputOf(props.part))
 const reasoningTiming = computed(() => reasoningTimingOf(props.part))

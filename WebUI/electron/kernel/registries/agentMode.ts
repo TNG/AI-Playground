@@ -10,6 +10,7 @@ import type {
   startAgentTurn,
   submitAgentToolResult,
 } from '../../agent/piAgentManager'
+import { workspaceAudioDataUri } from '../../agent/piCustomTools'
 import type { importAttachment } from '../../agent/workspaceAttachments'
 import type {
   bootstrapAgentSessions,
@@ -24,7 +25,7 @@ import type {
   writeAgentWorkspaceState,
 } from '../../persist/workspaceStateFiles'
 
-/** The Pi manager, session-record and workspace-state seams the fourteen agentMode handlers close over. */
+/** The Pi manager, session-record and workspace-state seams the agentMode handlers close over. */
 export type AgentModeDeps = {
   startAgentTurn: typeof startAgentTurn
   cancelAgentTurn: typeof cancelAgentTurn
@@ -141,6 +142,21 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:importAttachment': (_event, workspaceDir, name, bytes) => {
       try {
         return { success: true as const, ...deps.importAttachment(workspaceDir, name, bytes) }
+      } catch (error) {
+        return ipcFail(error)
+      }
+    },
+    // The speech player reads the clip the tool wrote. The path is workspace-relative;
+    // containment is the same check the agent's file tools use.
+    'agentMode:readWorkspaceAudio': async (_event, workspaceDir, relativePath) => {
+      try {
+        if (typeof workspaceDir !== 'string' || typeof relativePath !== 'string') {
+          return { success: false as const, error: 'invalid arguments' }
+        }
+        return {
+          success: true as const,
+          dataUri: await workspaceAudioDataUri(workspaceDir, relativePath),
+        }
       } catch (error) {
         return ipcFail(error)
       }

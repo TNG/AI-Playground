@@ -175,6 +175,31 @@ export function workspaceFileToDataUri(workspaceDir: string, relativePath: strin
   return `data:${mime};base64,${fs.readFileSync(fullPath).toString('base64')}`
 }
 
+const AUDIO_DATA_URI_MIME_BY_EXT: Record<string, string> = {
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.flac': 'audio/flac',
+  '.webm': 'audio/webm',
+}
+
+/** Inline a workspace audio file as a data URI. Rejects escapes and non-audio files. */
+export async function workspaceAudioDataUri(
+  workspaceDir: string,
+  relativePath: string,
+): Promise<string> {
+  const fullPath = resolveWorkspaceFile(workspaceDir, relativePath)
+  const mime = AUDIO_DATA_URI_MIME_BY_EXT[path.extname(fullPath).toLowerCase()]
+  if (!mime) throw new Error(`Unsupported audio file type: ${relativePath}`)
+  const bytes = await fs.promises.readFile(fullPath)
+  return `data:${mime};base64,${bytes.toString('base64')}`
+}
+
 /**
  * Copy generated media (aipg-media:// URLs in the ComfyUI-shaped tool result)
  * into `<workspace>/generated/` so Pi can reference the files, and annotate

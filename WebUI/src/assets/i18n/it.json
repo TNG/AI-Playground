@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "Filtra per attività",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Ancora nessuna attività",
-  "HISTORY_TASK_MARKER": "Dall’attività: {name}"
+  "HISTORY_TASK_MARKER": "Dall’attività: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Un’attività è pianificata o ancora in corso. Lasciare AI Playground in esecuzione in background, oppure uscire e interromperla?",
+  "AGENT_TASKS_KEEP_RUNNING": "Continua",
+  "AGENT_TASKS_QUIT": "Esci"
 }

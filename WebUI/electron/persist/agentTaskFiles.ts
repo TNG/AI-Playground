@@ -32,6 +32,20 @@ function tasksFile(): string {
   return agentTaskFilesDeps?.isDemoMode() ? getAgentTasksDemoFile() : getAgentTasksFile()
 }
 
+/**
+ * OS close hides the window while this is true. Demo schedules never count, and
+ * an unreadable file must not trap the app open.
+ */
+export async function agentTasksKeepAppAlive(): Promise<boolean> {
+  if (agentTaskFilesDeps?.isDemoMode()) return false
+  try {
+    const tasks = await readAgentTasks()
+    return tasks.some((task) => task.schedule?.enabled === true || task.activeRun !== undefined)
+  } catch {
+    return false
+  }
+}
+
 /** Every saved Task; an absent file is none, an unreadable one throws. */
 export async function readAgentTasks(): Promise<AgentTask[]> {
   const read = await readJson(tasksFile(), LOG_SCOPE)

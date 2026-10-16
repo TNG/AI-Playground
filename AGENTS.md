@@ -931,12 +931,12 @@ picks — and the last-used preset names to the kernel-owned file via
 reads them synchronously). The backendServices launch flags went one step further, to
 machine-level `settings.json` — that store has no Pinia persistence left.
 
-**Settings → Developer** is the UI. Always visible: keep models loaded, dev console on startup,
-and the **Agent preset** checkbox (writes `isAgentPresetEnabled`, then re-reads presets — no
-restart). Behind `showDebugSettingsInUI`: verbose agent logging, dummy media workflows, pretend
-Phison SSD, OEM vendor override, remote repository, OpenVINO image-gen devices — and the same
-flag shows the title-bar setup-wizard shortcut and unlocks the dev-only test LLM + dummy
-workflows, so a packaged build can use them.
+**Settings → Developer** is the UI. Always visible: keep models loaded and dev console on
+startup. The Agent preset ships in the chat list as Agent Maker (its identity stays `Agent`).
+Behind `showDebugSettingsInUI`: verbose agent logging, dummy media workflows, pretend Phison
+SSD, OEM vendor override, remote repository, OpenVINO image-gen devices — and the same flag
+shows the title-bar setup-wizard shortcut and unlocks the dev-only test LLM + dummy workflows,
+so a packaged build can use them.
 
 Two things are deliberately not flags any more. DevTools follows `openDevConsoleOnStartup`
 alone, whose default is "on when unpackaged" — main falls back to `!app.isPackaged` when the

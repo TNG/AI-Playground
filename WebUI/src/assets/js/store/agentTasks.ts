@@ -130,11 +130,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     { plan: AgentTask; abort: AbortController; scheduled: boolean }
   > = {}
 
-  // Closing the window hides the app instead, so Schedules keep firing and no run is cut off.
+  // A standing schedule is main's to read from the tasks file. This only covers the
+  // gap before an in-flight run's marker reaches disk, including between Steps.
   watch(
-    () =>
-      Object.keys(runs.value).length > 0 ||
-      (!demoMode.enabled && tasks.value.some((task) => task.schedule?.enabled === true)),
+    () => Object.keys(runs.value).length > 0,
     (busy) => activities.holdBusy('agent-tasks', busy),
     { immediate: true },
   )
@@ -204,11 +203,36 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     void persistTask(replaceTask({ ...task, nextRunAt: nextSlotAfter(task.schedule, now) }))
   }
 
-  /** A Task still marked as running was cut off by the app closing; runs are not resumed. */
+  /** Sessions whose agent turn main still holds, so a reload must not call the run closed. */
+  async function liveAgentSessions(): Promise<Set<string>> {
+    try {
+      const snapshot = await window.electronAPI.getKernelSnapshot()
+      return new Set(
+        snapshot.state.agentTurns
+          .filter(
+            (turn) =>
+              turn.state === 'queued' || turn.state === 'running' || turn.state === 'paused',
+          )
+          .map((turn) => turn.sessionId),
+      )
+    } catch {
+      return new Set()
+    }
+  }
+
+  /**
+   * A run marker with no turn left in main was cut off (process death). A turn
+   * main still holds is the same run: keep the step loop attached to it.
+   */
   async function settleInterruptedRuns(): Promise<void> {
+    const live = await liveAgentSessions()
     for (const task of tasks.value) {
       if (!task.activeRun) continue
       const { sessionId, stepIndex, stepCount } = task.activeRun
+      if (live.has(sessionId)) {
+        reattachRun(task)
+        continue
+      }
       await recordOutcome(task.id, {
         kind: 'failed',
         sessionId,
@@ -217,6 +241,25 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         reason: 'app-closed',
       })
     }
+  }
+
+  function reattachRun(task: AgentTask): void {
+    const activeRun = task.activeRun
+    if (!activeRun) return
+    runs.value = {
+      ...runs.value,
+      [task.id]: {
+        sessionId: activeRun.sessionId,
+        stepIndex: activeRun.stepIndex,
+        stepCount: activeRun.stepCount,
+      },
+    }
+    runContexts[task.id] = {
+      plan: cloneForIpc(task),
+      abort: new AbortController(),
+      scheduled: activeRun.scheduled === true,
+    }
+    agentMode.quietSessionErrors(activeRun.sessionId)
   }
 
   function reportReadFailure(error: unknown): void {
@@ -592,7 +635,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function markRunInFlight(taskId: string, activeRun: AgentTaskActiveRun): void {
     const task = tasks.value.find((entry) => entry.id === taskId)
-    if (task) void persistTask(replaceTask({ ...task, activeRun }))
+    if (!task) return
+    const scheduled = runContexts[taskId]?.scheduled === true
+    const marked = scheduled ? { ...activeRun, scheduled: true as const } : activeRun
+    void persistTask(replaceTask({ ...task, activeRun: marked }))
   }
 
   function replaceTask(updated: AgentTask): AgentTask {

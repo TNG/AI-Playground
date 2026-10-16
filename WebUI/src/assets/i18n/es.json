@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "Filtrar por tarea",
   "HISTORY_TASK_PICKER_ENTRY": "{name} ({count})",
   "HISTORY_TASK_PICKER_EMPTY": "Aún no hay tareas",
-  "HISTORY_TASK_MARKER": "De la tarea: {name}"
+  "HISTORY_TASK_MARKER": "De la tarea: {name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "Hay una tarea programada o aún en ejecución. ¿Mantener AI Playground en segundo plano, o salir y detenerla?",
+  "AGENT_TASKS_KEEP_RUNNING": "Seguir en ejecución",
+  "AGENT_TASKS_QUIT": "Salir"
 }

@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
   miniWindow: () => send('miniWindow'),
   exitApp: () => send('exitApp'),
+  tasksKeepAlive: () => invoke('tasksKeepAlive'),
+  hideMainWindow: () => send('hideMainWindow'),
   getInitialPage: () => invoke('getInitialPage'),
   getDemoModeSettings: () => invoke('getDemoModeSettings'),
   showOpenDialog: (options: OpenDialogOptions) => invoke('showOpenDialog', options),

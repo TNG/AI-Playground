@@ -1151,6 +1151,22 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
   },
+  /**
+   * Whether a saved task should keep the app alive: an enabled schedule or a run
+   * marker in `agent-tasks.json`. Demo mode and an unreadable file are false.
+   */
+  tasksKeepAlive: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: false as boolean,
+  },
+  /** Hide the main window without quitting. */
+  hideMainWindow: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
   /** Save a generated image to a file the user picks in a save dialog. */
   saveImage: {
     kind: 'send',

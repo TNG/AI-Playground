@@ -21,6 +21,7 @@ vi.mock('../../observability/logger', () => ({
 }))
 
 const {
+  agentTasksKeepAppAlive,
   deleteAgentTask,
   readAgentTasks,
   resetAgentTaskFilesForTest,
@@ -208,5 +209,29 @@ describe('the kernel Tasks file', () => {
     expect(await readRaw(files.demo)).toBeNull()
     setAgentTaskFilesDeps({ isDemoMode: () => false })
     expect(await readAgentTasks()).toEqual([task('real')])
+  })
+
+  it('keeps the app alive for an enabled schedule or a run marker', async () => {
+    expect(await agentTasksKeepAppAlive()).toBe(false)
+    const schedule = { every: 10, unit: 'minutes' as const, startAt: 1, enabled: true }
+    await saveAgentTask(task('a', { schedule }))
+    expect(await agentTasksKeepAppAlive()).toBe(true)
+
+    await saveAgentTask(task('a', { schedule: { ...schedule, enabled: false } }))
+    expect(await agentTasksKeepAppAlive()).toBe(false)
+
+    await saveAgentTask(task('a', { activeRun: { sessionId: 's', stepIndex: 1, stepCount: 2 } }))
+    expect(await agentTasksKeepAppAlive()).toBe(true)
+  })
+
+  it('does not keep the app alive for demo tasks or an unreadable file', async () => {
+    const schedule = { every: 10, unit: 'minutes' as const, startAt: 1, enabled: true }
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    await saveAgentTask(task('demo', { schedule }))
+    expect(await agentTasksKeepAppAlive()).toBe(false)
+
+    setAgentTaskFilesDeps({ isDemoMode: () => false })
+    await fs.writeFile(files.real, 'not json', 'utf8')
+    expect(await agentTasksKeepAppAlive()).toBe(false)
   })
 })

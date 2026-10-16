@@ -733,5 +733,8 @@
   "HISTORY_TASK_PICKER_LABEL": "按任务筛选",
   "HISTORY_TASK_PICKER_ENTRY": "{name}（{count}）",
   "HISTORY_TASK_PICKER_EMPTY": "暂无任务",
-  "HISTORY_TASK_MARKER": "来自任务：{name}"
+  "HISTORY_TASK_MARKER": "来自任务：{name}",
+  "AGENT_TASKS_CLOSE_CONFIRM": "有任务已排程或仍在运行。让 AI Playground 在后台继续运行，还是退出并停止它？",
+  "AGENT_TASKS_KEEP_RUNNING": "继续运行",
+  "AGENT_TASKS_QUIT": "退出"
 }

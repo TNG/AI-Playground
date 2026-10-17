@@ -158,9 +158,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import HistoryEntryRow from '@/components/HistoryEntryRow.vue'
 import { useHistorySessions, type TaskPickerEntry } from '@/assets/js/store/historySessions'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
-import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { dayLabel, isWorkflowMode, type HistoryEntry } from '@/assets/js/store/historyEntries'
 import { mapModeToLabel } from '@/lib/utils'
 
@@ -169,13 +167,9 @@ const emit = defineEmits<{
 }>()
 
 const history = useHistorySessions()
-const agentMode = useAgentMode()
 const i18n = useI18N().state
-const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 async function onSelect(entry: HistoryEntry) {
-  const opensAnotherSession = entry.kind === 'agent' && entry.id !== agentMode.openSessionId
-  if (opensAnotherSession && !(await leaveTaskEdit())) return
   await history.select(entry)
   emit('selected', entry)
 }

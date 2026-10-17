@@ -2,7 +2,7 @@ import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
-import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { AgentSessionSettings, AgentTaskStep } from '@/types/agentSessionIpc'
 
 export type AgentSessionRecord = {
   id: string
@@ -33,8 +33,10 @@ export type AgentSessionRecord = {
   responseLocale?: string
   /** The session's own Session Settings (Agent preset only). */
   settings?: AgentSessionSettings
-  /** The Task whose run created this session (a Task Session). */
+  /** The Agent this session was loaded from, saved as, or run by. */
   taskId?: string
+  /** The Steps the session's prompts are carried out in (Agent preset only). */
+  steps?: AgentTaskStep[]
 }
 
 /**
@@ -175,6 +177,10 @@ export function snapshotSession(options: {
   presetName: string
   responseLocale?: string
   settings?: AgentSessionSettings
+  /** Replaces the record's Steps; absent keeps them. */
+  steps?: AgentTaskStep[]
+  /** Kept only when the record has none. */
+  taskId?: string
 }): AgentSessionRecord | null {
   const plainMessages = JSON.parse(JSON.stringify(options.messages)) as UIMessage[]
   if (plainMessages.length === 0) return null
@@ -200,7 +206,12 @@ export function snapshotSession(options: {
       : existing?.settings
         ? { settings: existing.settings }
         : {}),
-    ...(existing?.taskId ? { taskId: existing.taskId } : {}),
+    ...((existing?.taskId ?? options.taskId) ? { taskId: existing?.taskId ?? options.taskId } : {}),
+    ...(options.steps
+      ? { steps: options.steps.map((step) => ({ ...step })) }
+      : existing?.steps
+        ? { steps: existing.steps }
+        : {}),
   }
 }
 

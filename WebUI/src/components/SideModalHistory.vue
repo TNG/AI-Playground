@@ -56,7 +56,6 @@ import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { isWorkflowMode, type HistoryEntry } from '@/assets/js/store/historyEntries'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
-import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 
 defineProps<{
   isVisible: boolean
@@ -70,7 +69,6 @@ const emit = defineEmits<{
 const history = useHistorySessions()
 const agentMode = useAgentMode()
 const i18nState = useI18N().state
-const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 const showClearMedia = computed(
   () => history.filter === 'current' && isWorkflowMode(history.currentMode),
@@ -83,7 +81,6 @@ const newTitle = computed(() =>
 )
 
 async function startNew() {
-  if (history.currentMode === 'agent' && !(await leaveTaskEdit())) return
   await history.startNew()
 }
 

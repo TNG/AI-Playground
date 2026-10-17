@@ -12,9 +12,8 @@ import type {
 } from '@/types/agentTaskIpc'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 import { useActivities } from './activities'
-import { useAgentMode, type SessionTurnInfo } from './agentMode'
+import { useAgentMode, type SessionTurnInfo, type TurnOutcome } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
-import { userMessagePrompt } from './agentModeTurn'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
@@ -24,7 +23,7 @@ import { useTextInference } from './textInference'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { withStepAdded, withStepMoved, withStepRemoved } from '@/lib/taskSteps'
+import { firstStepTurn, stepPrompts, stepTurn } from '@/lib/taskSteps'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import {
   describeSettingsProblems,
@@ -33,8 +32,8 @@ import {
 
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
 
-/** A saved Task's editable fields, as task mode holds them until Save. */
-export type TaskEditDraft = Pick<AgentTask, 'name' | 'workspaceDir' | 'steps' | 'settingsTemplate'>
+/** A prompt being carried out in its session's Steps; `stepIndex` is 1-based. */
+export type PromptRun = { stepIndex: number; stepCount: number }
 
 /** Why a draft cannot be saved yet. */
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'no-folder'
@@ -45,13 +44,6 @@ export const SAVE_TASK_BLOCKER_KEYS = {
   'empty-step': 'AGENT_TASK_BLOCKED_EMPTY_STEP',
   'no-folder': 'AGENT_TASK_BLOCKED_NO_FOLDER',
 } as const satisfies Record<SaveTaskBlocker, string>
-
-export type TaskTemplateSummary = {
-  workspaceDir: string
-  backend: AgentSessionSettings['backend']
-  model: AgentSessionSettings['model']
-  capabilityCount: number
-}
 
 /**
  * A Task Run in flight; `stepIndex` is 1-based. `skippedSlots` counts the Schedule slots that
@@ -130,10 +122,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     { plan: AgentTask; abort: AbortController; scheduled: boolean }
   > = {}
 
+  /** Prompts being carried out in their session's Steps. Memory only: a reload ends them. */
+  const promptRuns = ref<Record<string, PromptRun>>({})
+  const promptRunContexts: Record<string, { steps: string[]; abort: AbortController }> = {}
+
   // A standing schedule is main's to read from the tasks file. This only covers the
   // gap before an in-flight run's marker reaches disk, including between Steps.
   watch(
-    () => Object.keys(runs.value).length > 0,
+    () => Object.keys(runs.value).length > 0 || Object.keys(promptRuns.value).length > 0,
     (busy) => activities.holdBusy('agent-tasks', busy),
     { immediate: true },
   )
@@ -269,18 +265,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         code: 'agent-tasks/read-failed',
         severity: 'warning',
         surface: 'toast',
-        userMessage: i18n.state.AGENT_TASK_READ_FAILED ?? 'Could not read the saved tasks.',
+        userMessage: i18n.state.AGENT_TASK_READ_FAILED ?? 'Could not read the saved agents.',
         technicalMessage: extractMessage(error),
         cause: error,
       }),
     )
-  }
-
-  /** The Open Session's user messages as Step prompts, "not run" ones included. */
-  function stepsFromSession(): string[] {
-    return agentMode.messages
-      .filter((message) => message.role === 'user')
-      .map((message) => userMessagePrompt(message))
   }
 
   function saveBlocker(draft: TaskDraft): SaveTaskBlocker | null {
@@ -300,7 +289,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const saveRefusalText = (): DownloadRefusalText => ({
     declined:
       i18n.state.AGENT_TASK_SAVE_DOWNLOAD_DECLINED ??
-      'Not saved: the task’s chat model {model} has to be downloaded first.',
+      'Not saved: the agent’s chat model {model} has to be downloaded first.',
     failed:
       i18n.state.AGENT_TASK_SAVE_DOWNLOAD_FAILED ??
       'Not saved: the download of {model} failed: {error}',
@@ -310,7 +299,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const runRefusalText = (): DownloadRefusalText => ({
     declined:
       i18n.state.AGENT_TASK_RUN_DOWNLOAD_DECLINED ??
-      'Not started: the task’s chat model {model} has to be downloaded first.',
+      'Not started: the agent’s chat model {model} has to be downloaded first.',
     failed:
       i18n.state.AGENT_TASK_RUN_DOWNLOAD_FAILED ??
       'Not started: the download of {model} failed: {error}',
@@ -403,7 +392,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       createAppError({
         category: 'backend',
         code: 'agent-tasks/save-failed',
-        userMessage: i18n.state.AGENT_TASK_SAVE_FAILED ?? 'Could not save the task.',
+        userMessage: i18n.state.AGENT_TASK_SAVE_FAILED ?? 'Could not save the agent.',
         technicalMessage: result.error,
         surface: 'toast',
       }),
@@ -424,7 +413,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         createAppError({
           category: 'backend',
           code: 'agent-tasks/delete-failed',
-          userMessage: i18n.state.AGENT_TASK_DELETE_FAILED ?? 'Could not delete the task.',
+          userMessage: i18n.state.AGENT_TASK_DELETE_FAILED ?? 'Could not delete the agent.',
           technicalMessage: result.error,
           surface: 'toast',
         }),
@@ -432,7 +421,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return false
     }
     tasks.value = tasks.value.filter((task) => task.id !== id)
-    if (editing.value?.taskId === id) editing.value = null
+    if (agentMode.openTaskId === id) agentMode.linkOpenSessionToAgent(undefined)
     return true
   }
 
@@ -668,9 +657,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
   }
 
-  /** The Task the Open Session was created by, while that Task still exists. */
+  /** The Agent the Open Session was loaded from or saved as, while it still exists. */
   const openSessionTask = computed(() => {
-    const taskId = agentMode.sessions[agentMode.openSessionId]?.taskId
+    const taskId = agentMode.openTaskId
     return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
   })
 
@@ -678,6 +667,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 
   agentMode.onTurnSettled((sessionId, outcome) => {
+    if (promptRuns.value[sessionId]) {
+      void advancePromptRun(sessionId, outcome)
+      return
+    }
     const taskId = runOfSession(sessionId)
     if (!taskId) return
     const { stepIndex, stepCount } = runs.value[taskId]
@@ -783,147 +776,48 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     )
   }
 
-  // The Task being built in the Agent Settings panel; memory only.
-  const draft = ref<TaskDraft>(emptyDraft())
-
-  const draftBlocker = computed(() => saveBlocker(draft.value))
-
-  /** The folder and Settings Template a save would capture right now. */
-  const draftTemplate = computed<TaskTemplateSummary>(() => {
-    const settings = agentMode.openSessionSettings
-    return {
-      workspaceDir: agentMode.workspaceDir,
-      backend: settings.backend,
-      model: settings.model,
-      capabilityCount: settings.capabilities?.length ?? 0,
-    }
-  })
-
-  // Steps, folder and settings must all come from one session.
-  watch(
-    () => agentMode.openSessionId,
-    () => {
-      draft.value = emptyDraft()
-    },
-  )
-
-  function emptyDraft(): TaskDraft {
-    return { name: '', steps: [] }
+  /** Why the Open Session cannot be saved as an Agent under `name` yet. */
+  function saveAgentBlocker(name: string): SaveTaskBlocker | null {
+    return saveBlocker({ name, steps: agentMode.openSteps })
   }
 
-  /** Replace the draft's Steps with the Open Session's; the name defaults to its title. */
-  function createStepsFromSession(): void {
-    const title = agentMode.sessions[agentMode.openSessionId]?.title ?? ''
-    draft.value = {
-      name: title || draft.value.name,
-      steps: stepsFromSession().map((prompt) => ({ id: crypto.randomUUID(), prompt })),
-    }
-  }
-
-  function addStep(): void {
-    draft.value.steps = withStepAdded(draft.value.steps)
-  }
-
-  function removeStep(id: string): void {
-    draft.value.steps = withStepRemoved(draft.value.steps, id)
-  }
-
-  function moveStep(id: string, direction: 'up' | 'down'): void {
-    draft.value.steps = withStepMoved(draft.value.steps, id, direction)
-  }
-
-  async function saveDraft(): Promise<SaveTaskResult> {
-    const saving = draft.value
-    const snapshot = JSON.stringify(saving)
-    const result = await saveTask(saving)
-    // Typing during the model download keeps the draft, with what was typed still unsaved.
-    if (result.ok && draft.value === saving && JSON.stringify(saving) === snapshot) {
-      draft.value = emptyDraft()
-    }
+  /** Save the Open Session's folder, settings and Steps as a new Agent, and link it. */
+  async function saveAgent(name: string): Promise<SaveTaskResult> {
+    const result = await saveTask({ name, steps: agentMode.openSteps })
+    if (result.ok) agentMode.linkOpenSessionToAgent(result.task.id)
     return result
   }
 
-  // A saved Task being edited in task mode; memory only, one at a time.
-  const editing = ref<{ taskId: string; draft: TaskEditDraft } | null>(null)
-
-  const editingTaskId = computed(() => editing.value?.taskId ?? null)
-  const editDraft = computed(() => editing.value?.draft ?? null)
-  /** The saved version of the Task being edited. */
-  const editedTask = computed(() =>
-    editing.value ? tasks.value.find((task) => task.id === editing.value?.taskId) : undefined,
-  )
-
-  function editDraftOf(task: AgentTask): TaskEditDraft {
-    return cloneForIpc({
-      name: task.name,
-      workspaceDir: task.workspaceDir,
-      steps: task.steps.map((step) => ({ id: step.id, prompt: step.prompt })),
-      settingsTemplate: task.settingsTemplate,
-    })
-  }
-
-  const editDirty = computed(() => {
-    const current = editing.value
-    if (!current) return false
-    const saved = tasks.value.find((task) => task.id === current.taskId)
-    if (!saved) return false
-    return JSON.stringify(current.draft) !== JSON.stringify(editDraftOf(saved))
-  })
-
-  /** Clone the Task into the edit draft, replacing any edit in progress. */
-  function beginEdit(id: string): boolean {
-    const task = tasks.value.find((entry) => entry.id === id)
-    if (!task) return false
-    editing.value = { taskId: id, draft: editDraftOf(task) }
-    return true
-  }
-
-  const editBlocker = computed(() => (editing.value ? blockerOf(editing.value.draft) : null))
-
-  /** What in the draft's Settings Template cannot be used right now; never blocks Save. */
-  const editProblems = computed<SessionSettingsProblem[]>(() =>
-    editing.value ? agentMode.problemsOf(editing.value.draft.settingsTemplate) : [],
-  )
-
-  /** Change fields of the draft's Settings Template; nothing outside the draft is written. */
-  function editTemplate(change: AgentSessionSettings): void {
-    const draft = editing.value?.draft
-    if (draft) draft.settingsTemplate = { ...draft.settingsTemplate, ...change }
-  }
-
   /**
-   * Upsert the edited Task by id and end the edit. A run in flight keeps the copy it took
-   * at start, so the saved version applies from the next run.
+   * Overwrite an Agent with the Open Session's folder, settings and Steps, keeping its identity,
+   * Schedule and last outcome. A run in flight keeps the copy it took at start.
    */
-  async function saveEdit(): Promise<SaveTaskResult> {
-    const current = editing.value
-    if (!current || !tasks.value.some((task) => task.id === current.taskId)) {
-      return { ok: false, reason: 'no-task' }
-    }
-    const blocker = blockerOf(current.draft)
+  async function updateAgent(id: string, name: string): Promise<SaveTaskResult> {
+    if (!tasks.value.some((task) => task.id === id)) return { ok: false, reason: 'no-task' }
+    const workspaceDir = agentMode.workspaceDir
+    const steps = agentMode.openSteps.map((step) => ({ id: step.id, prompt: step.prompt }))
+    const blocker = blockerOf({ name, steps, workspaceDir })
     if (blocker) return { ok: false, reason: blocker }
-    const edited = cloneForIpc(current.draft)
-    const refusal = await saveRefusal(edited.settingsTemplate, edited.steps)
+    const settingsTemplate = cloneForIpc(agentMode.openSessionSettings)
+    const refusal = await saveRefusal(settingsTemplate, steps)
     if (refusal) return refusal
     // Read after the download, which a delete or a run settling may have overtaken.
-    const saved = tasks.value.find((task) => task.id === current.taskId)
+    const saved = tasks.value.find((task) => task.id === id)
     if (!saved) return { ok: false, reason: 'no-task' }
     const task = replaceTask({
       ...saved,
-      name: edited.name.trim(),
-      workspaceDir: edited.workspaceDir,
-      steps: edited.steps.map((step) => ({ id: step.id, prompt: step.prompt })),
-      settingsTemplate: cloneForIpc(edited.settingsTemplate),
+      name: name.trim(),
+      workspaceDir,
+      steps,
+      settingsTemplate,
       updatedAt: Math.max(Date.now(), saved.updatedAt + 1),
     })
-    // Applied before the write, so a run marking or settling the Task meanwhile writes it too.
+    // Applied before the write, so a run marking or settling the Agent meanwhile writes it too.
     if (!(await persistTask(task))) {
       restoreEditableFields(saved)
       return { ok: false, reason: 'persist-failed' }
     }
-    // Typing during the write keeps the edit open, with what was typed still unsaved.
-    const untouched = JSON.stringify(current.draft) === JSON.stringify(edited)
-    if (editing.value === current && untouched) editing.value = null
+    agentMode.linkOpenSessionToAgent(id)
     return { ok: true, task }
   }
 
@@ -934,16 +828,104 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     replaceTask({ ...latest, name, workspaceDir, steps, settingsTemplate, updatedAt })
   }
 
-  function discardEdit(): void {
-    editing.value = null
+  /** Open a new Draft Session set up as the Agent is. */
+  async function loadAgent(id: string): Promise<boolean> {
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task) return false
+    const plan = cloneForIpc(task)
+    await agentMode.startSessionFrom({
+      taskId: plan.id,
+      workspaceDir: plan.workspaceDir,
+      settings: plan.settingsTemplate,
+      steps: plan.steps,
+    })
+    return true
+  }
+
+  /**
+   * Send a prompt from the prompt bar. With Steps set it starts them, each sent as the previous
+   * turn completes; without, or for a slash command, it is one turn.
+   */
+  async function submitPrompt(prompt: string): Promise<void> {
+    if (isSessionLockedByTask(agentMode.openSessionId)) return
+    if (promptRuns.value[agentMode.openSessionId]) return
+    const steps = agentMode.sessionScoped ? stepPrompts(agentMode.openSteps) : []
+    if (steps.length === 0 || prompt.trim().startsWith('/')) {
+      await agentMode.generate(prompt)
+      return
+    }
+    const sessionId = agentMode.ensureOpenSessionId()
+    promptRunContexts[sessionId] = { steps, abort: new AbortController() }
+    promptRuns.value = {
+      ...promptRuns.value,
+      [sessionId]: { stepIndex: 1, stepCount: steps.length },
+    }
+    const started = await agentMode.generate(firstStepTurn(prompt, steps)).catch((error) => {
+      endPromptRun(sessionId)
+      throw error
+    })
+    if (!started) endPromptRun(sessionId)
+  }
+
+  function promptRunOf(sessionId: string): PromptRun | undefined {
+    return promptRuns.value[sessionId]
+  }
+
+  function endPromptRun(sessionId: string): void {
+    if (!promptRuns.value[sessionId]) return
+    const { [sessionId]: _ended, ...rest } = promptRuns.value
+    promptRuns.value = rest
+    promptRunContexts[sessionId]?.abort.abort()
+    delete promptRunContexts[sessionId]
+  }
+
+  /** Ended first, so the stopped turn's own settle sends no further Step. */
+  async function stopPromptRun(sessionId: string): Promise<void> {
+    if (!promptRuns.value[sessionId]) return
+    endPromptRun(sessionId)
+    await agentMode.stopSession(sessionId)
+  }
+
+  async function advancePromptRun(sessionId: string, outcome: TurnOutcome): Promise<void> {
+    const run = promptRuns.value[sessionId]
+    const context = promptRunContexts[sessionId]
+    if (!run || !context) return
+    if (outcome.kind !== 'completed' || run.stepIndex >= run.stepCount) {
+      endPromptRun(sessionId)
+      return
+    }
+    const stepIndex = run.stepIndex + 1
+    promptRuns.value = { ...promptRuns.value, [sessionId]: { ...run, stepIndex } }
+    const result = await agentMode.sendToSession(sessionId, stepTurn(stepIndex, context.steps), {
+      signal: context.abort.signal,
+    })
+    if (result.ok) return
+    endPromptRun(sessionId)
+    if (result.reason === 'aborted') return
+    errors.report(
+      createAppError({
+        category: 'inference',
+        code: 'agent/step-not-sent',
+        severity: 'warning',
+        surface: 'toast',
+        userMessage: fill(
+          i18n.state.AGENT_STEPS_STEP_NOT_SENT ?? 'Step {step} was not sent: {reason}',
+          { step: stepIndex, reason: result.message },
+        ),
+        technicalMessage: `${result.reason}: ${result.message}`,
+      }),
+    )
   }
 
   return {
     tasks,
     init,
-    stepsFromSession,
     saveBlocker,
     saveTask,
+    saveAgentBlocker,
+    saveAgent,
+    updateAgent,
+    loadAgent,
     deleteTask,
     setSchedule,
     removeSchedule,
@@ -957,24 +939,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     taskLockingSession,
     openSessionTask,
     openSessionSettingsReadOnly,
-    draft,
-    draftBlocker,
-    draftTemplate,
-    createStepsFromSession,
-    addStep,
-    removeStep,
-    moveStep,
-    saveDraft,
-    editingTaskId,
-    editDraft,
-    editedTask,
-    editDirty,
-    beginEdit,
-    editBlocker,
-    editTemplate,
-    editProblems,
-    saveEdit,
-    discardEdit,
+    promptRuns,
+    promptRunOf,
+    submitPrompt,
+    stopPromptRun,
   }
 })
 

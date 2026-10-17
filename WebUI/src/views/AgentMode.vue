@@ -240,14 +240,15 @@ const busyLabel = computed<string>(() =>
 )
 
 function handlePromptSubmit(prompt: string) {
-  if (agentTasks.isSessionLockedByTask(agentMode.openSessionId)) return
-  void agentMode.generate(prompt)
+  void agentTasks.submitPrompt(prompt)
 }
 
-// A running Task may be between Steps with no turn to stop, so its run is stopped instead.
+// A run may be between Steps with no turn to stop, so the run is stopped instead.
 function handleCancel() {
-  const task = agentTasks.taskLockingSession(agentMode.openSessionId)
+  const sessionId = agentMode.openSessionId
+  const task = agentTasks.taskLockingSession(sessionId)
   if (task) void agentTasks.stopTask(task.id)
+  else if (agentTasks.promptRunOf(sessionId)) void agentTasks.stopPromptRun(sessionId)
   else void agentMode.stop()
 }
 

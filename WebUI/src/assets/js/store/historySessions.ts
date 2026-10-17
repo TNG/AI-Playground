@@ -182,7 +182,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
     return conversations.getThreadKind(conversations.activeKey)
   })
 
-  /** Tasks belong to the Agent preset in Agent mode, where Manage Tasks is shown. */
+  /** Agents belong to the Agent preset in Agent mode, where its settings panel lists them. */
   const tasksAvailable = computed(() => currentMode.value === 'agent' && agentMode.sessionScoped)
 
   /** Names come from the Tasks store, never a session's title, so a rename shows at once. */
@@ -222,7 +222,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
     filter.value = 'current'
   }
 
-  /** Manage Tasks' "Show sessions": History takes the Tasks panel's slot, narrowed to the Task. */
+  /** An Agent's "Show sessions": History opens narrowed to that Agent. */
   function showTaskSessions(taskId: string): void {
     query.value = ''
     setTaskFilter(taskId)

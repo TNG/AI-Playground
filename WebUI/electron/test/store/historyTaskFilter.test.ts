@@ -351,7 +351,12 @@ const visibleIds = (history: ReturnType<typeof useHistorySessions>) =>
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-describe('showing a Task’s sessions from Manage Tasks', () => {
+async function renameAgent(tasks: ReturnType<typeof useAgentTasks>, id: string, name: string) {
+  await tasks.loadAgent(id)
+  expect((await tasks.updateAgent(id, name)).ok).toBe(true)
+}
+
+describe('showing an Agent’s sessions from the Agents list', () => {
   it('lists only that Task’s Task Sessions, in any state, with the history panel open', async () => {
     const { tasks, ui, history } = await readyStores(task('a', 'Alpha'), task('b', 'Beta'))
     const completed = await runOnce(tasks, 'a', 'complete')
@@ -359,7 +364,6 @@ describe('showing a Task’s sessions from Manage Tasks', () => {
     const stopped = await runOnce(tasks, 'a', 'stop')
     const running = await runOnce(tasks, 'a', 'leave-running')
     await runOnce(tasks, 'b', 'complete')
-    ui.openTasks()
 
     history.showTaskSessions('a')
 
@@ -367,7 +371,6 @@ describe('showing a Task’s sessions from Manage Tasks', () => {
     expect(history.pinnedDraft).toBeNull()
     expect(history.taskFilter).toEqual({ id: 'a', name: 'Alpha' })
     expect(ui.showHistory).toBe(true)
-    expect(ui.showTasks).toBe(false)
   })
 })
 
@@ -413,9 +416,7 @@ describe('the Task filter while it is active', () => {
     const { tasks, history } = await readyStores(task('a', 'Alpha'))
     history.showTaskSessions('a')
 
-    tasks.beginEdit('a')
-    tasks.editDraft!.name = 'Renamed'
-    await tasks.saveEdit()
+    await renameAgent(tasks, 'a', 'Renamed')
 
     expect(history.taskFilter).toEqual({ id: 'a', name: 'Renamed' })
   })
@@ -553,9 +554,7 @@ describe('picking a Task in the history panel', () => {
   it('shows a rename at once and re-sorts by the new name', async () => {
     const { tasks, history } = await readyStores(task('a', 'Alpha'), task('b', 'Beta'))
 
-    tasks.beginEdit('b')
-    tasks.editDraft!.name = 'Aardvark'
-    await tasks.saveEdit()
+    await renameAgent(tasks, 'b', 'Aardvark')
 
     expect(history.taskPickerEntries.map((entry) => entry.name)).toEqual(['Aardvark', 'Alpha'])
   })
@@ -643,9 +642,7 @@ describe('the "From task" marker on Task Session rows', () => {
     const sessionId = await runOnce(tasks, 'a', 'complete')
     const title = entryOf(history, sessionId).title
 
-    tasks.beginEdit('a')
-    tasks.editDraft!.name = 'Renamed'
-    await tasks.saveEdit()
+    await renameAgent(tasks, 'a', 'Renamed')
 
     expect(history.taskMarker(entryOf(history, sessionId))).toEqual({
       id: 'a',

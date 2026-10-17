@@ -1,22 +1,5 @@
 <template>
   <div class="flex flex-col gap-6 p-1">
-    <div
-      v-if="agentMode.sessionScoped && openSessionTask"
-      class="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2"
-    >
-      <span class="text-sm text-muted-foreground min-w-0 break-words">
-        {{ i18n.AGENT_TASK_FROM_TASK.replace('{name}', openSessionTask.name) }}
-      </span>
-      <Button
-        variant="link"
-        class="h-auto flex-none p-0 text-sm"
-        :aria-label="i18n.AGENT_TASKS_EDIT.replace('{name}', openSessionTask.name)"
-        @click="editTask(openSessionTask.id)"
-      >
-        {{ i18n.AGENT_TASK_SESSION_EDIT_TASK }}
-      </Button>
-    </div>
-
     <!-- Same picker as Chat Settings: agent presets are chat presets, so this is how
          the user gets back to a plain chat preset (and vice versa). -->
     <PresetSelector
@@ -24,6 +7,8 @@
       :model-value="presetsStore.activePresetName || undefined"
       @update:model-value="handlePresetChange"
     />
+
+    <SettingsAgents v-if="agentMode.sessionScoped" />
 
     <!-- Managed workspace: the app owns one folder per game, so there is nothing
          to pick — only the game to start over with. -->
@@ -67,8 +52,14 @@
       </p>
     </div>
 
-    <!-- Above the settings fieldsets, so a Task Session's read-only rule never disables it. -->
-    <SettingsAgentTask v-if="agentMode.sessionScoped" />
+    <div v-if="agentMode.sessionScoped" class="flex flex-col gap-2">
+      <TaskStepsEditor
+        :steps="agentMode.openSteps"
+        id-prefix="agent-steps"
+        @update:steps="agentMode.setOpenSteps"
+      />
+      <p class="text-xs text-muted-foreground">{{ i18n.AGENT_STEPS_HINT }}</p>
+    </div>
 
     <!-- Shell sandbox (per-workspace opt-in) -->
     <div v-if="!isManagedWorkspace" class="flex flex-col gap-2">
@@ -185,7 +176,6 @@ import {
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
-import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
@@ -193,7 +183,8 @@ import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import AgentSettingsForm from '@/components/AgentSettingsForm.vue'
-import SettingsAgentTask from '@/components/SettingsAgentTask.vue'
+import SettingsAgents from '@/components/SettingsAgents.vue'
+import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
@@ -204,10 +195,8 @@ import { useI18N } from '@/assets/js/store/i18n'
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const oemBranding = useOemBranding()
-const { editTask } = useTaskEditLeaveGuard()
 const i18n = useI18N().state
 
-const openSessionTask = computed(() => agentTasks.openSessionTask)
 const settingsReadOnly = computed(
   () => agentMode.sessionScoped && agentTasks.openSessionSettingsReadOnly,
 )

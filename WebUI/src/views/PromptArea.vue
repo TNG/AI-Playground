@@ -32,6 +32,22 @@
           {{ languages?.AGENT_TASK_STOP_RUN }}
         </Button>
       </div>
+      <div
+        v-else-if="promptRun"
+        role="status"
+        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <p class="flex-1 min-w-0">{{ promptRunNote }}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-7 px-2 text-xs"
+          @click="agentTasks.stopPromptRun(agentMode.openSessionId)"
+        >
+          <StopIcon class="size-3.5" aria-hidden="true" />
+          {{ languages?.AGENT_STEPS_STOP }}
+        </Button>
+      </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <div class="w-full max-w-3xl flex flex-col">
         <PromptStatusBar />
@@ -878,13 +894,26 @@ const lockedNote = computed(() =>
   (languages?.AGENT_TASK_SESSION_LOCKED ?? '').replace('{name}', lockingTask.value?.name ?? ''),
 )
 
+const promptRun = computed(() =>
+  promptStore.getCurrentMode() === 'agent'
+    ? agentTasks.promptRunOf(agentMode.openSessionId)
+    : undefined,
+)
+
+const promptRunNote = computed(() =>
+  (languages?.AGENT_STEPS_RUNNING ?? '')
+    .replace('{step}', String(promptRun.value?.stepIndex ?? ''))
+    .replace('{count}', String(promptRun.value?.stepCount ?? '')),
+)
+
 // Busy state follows only what the prompt bar would send to (`promptBusy`). For the
 // open conversation that includes any chat activity on it (backend prep, a queued
 // turn, RAG search, tool resolution, thinking), so send/stop matches the in-turn
 // activity indicator.
 const isProcessing = computed(() =>
   promptBusy(promptStore.getCurrentMode(), {
-    agentSession: agentMode.processing || lockingTask.value !== undefined,
+    agentSession:
+      agentMode.processing || lockingTask.value !== undefined || promptRun.value !== undefined,
     conversation:
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,

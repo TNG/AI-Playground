@@ -65,8 +65,13 @@ export function deriveSessionTitle(sessionMessages: UIMessage[]): string {
       .map((p) => p.text)
       .join(' ')
       .trim() ?? ''
-  if (!text) return 'New session'
-  return text.length > 60 ? `${text.slice(0, 60)}…` : text
+  return sessionTitleOf(text)
+}
+
+export function sessionTitleOf(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return 'New session'
+  return trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed
 }
 
 /** The game library's folder, which every game folder sits directly under. */
@@ -181,6 +186,8 @@ export function snapshotSession(options: {
   steps?: AgentTaskStep[]
   /** Kept only when the record has none. */
   taskId?: string
+  /** Names a new record instead of its first message. */
+  title?: string
 }): AgentSessionRecord | null {
   const plainMessages = JSON.parse(JSON.stringify(options.messages)) as UIMessage[]
   if (plainMessages.length === 0) return null
@@ -194,7 +201,11 @@ export function snapshotSession(options: {
   return {
     id: options.id,
     workspaceDir: existing?.workspaceDir ?? options.workspaceDir,
-    title: titled ? existing.title : deriveSessionTitle(plainMessages),
+    title: titled
+      ? existing.title
+      : !existing && options.title?.trim()
+        ? sessionTitleOf(options.title)
+        : deriveSessionTitle(plainMessages),
     messages: plainMessages,
     createdAt: existing?.createdAt ?? Date.now(),
     updatedAt: unchanged && existing ? existing.updatedAt : Date.now(),

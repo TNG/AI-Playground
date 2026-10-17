@@ -1,16 +1,12 @@
 import { z } from 'zod'
-import { AgentSessionSettingsSchema } from './agentSessionIpc'
+import { AgentSessionSettingsSchema, AgentTaskStepSchema } from './agentSessionIpc'
+
+export { AgentTaskStepSchema, type AgentTaskStep } from './agentSessionIpc'
 
 /**
- * Wire shapes for the kernel-owned Tasks file (`AI-Playground/agent-tasks.json`): the
- * Agent preset's reusable recipes — a folder, a Settings Template and ordered Steps.
+ * Wire shapes for the kernel-owned Agents file (`AI-Playground/agent-tasks.json`): the
+ * Agent preset's named settings — a folder, a Settings Template and ordered Steps.
  */
-
-export const AgentTaskStepSchema = z.object({
-  id: z.string(),
-  prompt: z.string(),
-})
-export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
 
 export const AgentTaskOutcomeSchema = z.object({
   kind: z.enum(['completed', 'failed', 'stopped']),

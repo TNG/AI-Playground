@@ -174,11 +174,6 @@
       @close="uiStore.closeHistory()"
       @conversation-selected="chatRef?.scrollToBottom"
     />
-    <SideModalTasks
-      v-if="tasksAvailable"
-      :isVisible="uiStore.showTasks"
-      @close="uiStore.closeTasks()"
-    />
 
     <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
 
@@ -195,14 +190,6 @@
               ? languages.COM_SHOW_SESSIONS
               : languages.COM_SHOW_HISTORY
           }}
-        </button>
-        <button
-          v-if="tasksAvailable"
-          v-show="!uiStore.leftPanel"
-          @click="uiStore.openTasks()"
-          class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
-        >
-          {{ languages.AGENT_TASKS_SHOW }}
         </button>
       </div>
       <div
@@ -261,7 +248,6 @@
       :mode="promptStore.getCurrentMode()"
       @close="closeSpecificSettings"
     />
-    <TaskEditDiscardDialog />
     <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
          decides, and the download / delete dialogs this view opens must be able
          to appear on top of it. -->
@@ -378,13 +364,10 @@ import Chat from '@/views/Chat.vue'
 import AgentMode from '@/views/AgentMode.vue'
 import { computed, ref, watch } from 'vue'
 import SideModalHistory from '@/components/SideModalHistory.vue'
-import SideModalTasks from '@/components/SideModalTasks.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
 import SideModalSpecificSettings from '@/components/SideModalSpecificSettings.vue'
-import TaskEditDiscardDialog from '@/components/TaskEditDiscardDialog.vue'
-import { useTaskEditLeaveGuard } from '@/assets/js/taskEditLeaveGuard'
 import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import * as toast from '@/assets/js/toast'
@@ -397,7 +380,6 @@ import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
 
 const theme = useTheme()
@@ -411,9 +393,7 @@ const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
-const agentMode = useAgentMode()
 const i18n = useI18N()
-const { leaveTaskEdit } = useTaskEditLeaveGuard()
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
@@ -429,9 +409,6 @@ const isOpen = ref(false)
 const footerExpanded = ref(true)
 const showAppSettings = ref(false)
 const fullscreen = ref(false)
-const tasksAvailable = computed(
-  () => promptStore.getCurrentMode() === 'agent' && agentMode.sessionScoped,
-)
 
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
@@ -578,12 +555,12 @@ function openHistory() {
 }
 
 function openSpecificSettings() {
-  if (uiStore.showSettings) void closeSpecificSettings()
+  if (uiStore.showSettings) closeSpecificSettings()
   else uiStore.openSettings()
 }
 
-async function closeSpecificSettings() {
-  if (await leaveTaskEdit()) uiStore.closeSettings()
+function closeSpecificSettings() {
+  uiStore.closeSettings()
 }
 
 function openAppSettings() {
@@ -594,10 +571,6 @@ function openAppSettings() {
 function startTour() {
   demoModeOverlayDriverJs.value?.startTour?.()
 }
-
-watch(tasksAvailable, (available) => {
-  if (!available) uiStore.closeTasks()
-})
 
 watch(
   () => globalSetup.loadingState,

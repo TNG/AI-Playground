@@ -860,7 +860,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       ...promptRuns.value,
       [sessionId]: { stepIndex: 1, stepCount: steps.length },
     }
-    const started = await agentMode.generate(firstStepTurn(prompt, steps)).catch((error) => {
+    const turn = firstStepTurn(prompt, steps)
+    const started = await agentMode.generate(turn, { title: prompt }).catch((error) => {
       endPromptRun(sessionId)
       throw error
     })

@@ -158,6 +158,41 @@ describe('snapshotSession', () => {
     })
     expect(next?.responseLocale).toBe('ja')
   })
+
+  it('names a new record by the given title and keeps it as the transcript grows', () => {
+    const first = snapshotSession({
+      id: 's1',
+      workspaceDir: '/code/app',
+      messages: [userTurn('Get news\n\nCarry this out in 3 steps. Step 1 of 3: Search')],
+      capabilities: [],
+      presetName: 'Agent',
+      title: 'Get news',
+    })
+    expect(first?.title).toBe('Get news')
+    const next = snapshotSession({
+      id: 's1',
+      workspaceDir: '/code/app',
+      messages: [...first!.messages, userTurn('Step 2 of 3: Summarise')],
+      existing: first!,
+      capabilities: [],
+      presetName: 'Agent',
+    })
+    expect(next?.title).toBe('Get news')
+  })
+
+  it('ignores a title for a record that already exists', () => {
+    const existing = archived()
+    const next = snapshotSession({
+      id: existing.id,
+      workspaceDir: existing.workspaceDir,
+      messages: [...existing.messages, userTurn('again')],
+      existing,
+      capabilities: [],
+      presetName: 'Game Agent',
+      title: 'something else',
+    })
+    expect(next?.title).toBe(existing.title)
+  })
 })
 
 describe('gameAgentHandoffPrompt', () => {

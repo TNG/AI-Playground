@@ -1345,6 +1345,7 @@ describe('a prompt sent with Steps set', () => {
     const sessionId = sentConfig(0).sessionId
 
     expect(sessionId).toBe(agentMode.openSessionId)
+    expect(agentMode.sessions[sessionId].title).toBe('Intel news')
     expect(agentMode.sessions[sessionId].steps?.map((step) => step.prompt)).toEqual([
       'Search for today’s news',
       'Summarise it by topic',

@@ -735,6 +735,7 @@ export const useAgentMode = defineStore(
     // Frozen per session so a later turn does not rebuild Pi (instructions are
     // part of the session key) or pick up a Language-selector change mid-run.
     const pendingResponseLocales: Record<string, string> = {}
+    const pendingTitles: Record<string, string> = {}
 
     function sessionResponseLocale(sessionId: string): string {
       const stored = sessions.value[sessionId]?.responseLocale ?? pendingResponseLocales[sessionId]
@@ -1141,12 +1142,14 @@ export const useAgentMode = defineStore(
         capabilities: open ? capabilities.value : (context?.capabilities ?? []),
         presetName: heldWith,
         responseLocale: existing?.responseLocale ?? pendingResponseLocales[id],
+        title: pendingTitles[id],
         settings: presetUsesSessionSettings(heldWith) && settings ? settings : undefined,
         ...(open && presetUsesSessionSettings(heldWith)
           ? { steps: openSteps.value, taskId: openTaskId.value }
           : {}),
       })
       if (!record) return
+      delete pendingTitles[id]
       if (record.settings) delete record.capabilities
       rewriteSession(id, record)
     }
@@ -1505,8 +1508,11 @@ export const useAgentMode = defineStore(
       await refreshCurrentGame()
     })
 
-    /** Resolves once the turn ended, with whether one was started at all. */
-    async function generate(prompt: string): Promise<boolean> {
+    /**
+     * Resolves once the turn ended, with whether one was started at all. `title` names a session
+     * this turn opens, when the message sent is not what the user typed.
+     */
+    async function generate(prompt: string, options: { title?: string } = {}): Promise<boolean> {
       if (await blockedBySettingsProblems()) return false
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
@@ -1522,7 +1528,9 @@ export const useAgentMode = defineStore(
       }
       if (!workspaceReady()) return false
       const attached = await importAttachments(workspaceDir.value)
-      await runTurn(ensureSessionId(openSessionId), liveTurnContext(), (chat) =>
+      const sessionId = ensureSessionId(openSessionId)
+      if (options.title && !sessions.value[sessionId]) pendingTitles[sessionId] = options.title
+      await runTurn(sessionId, liveTurnContext(), (chat) =>
         chat.sendMessage({ text: `${prompt}${attached}` }),
       )
       return true

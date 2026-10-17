@@ -4,6 +4,38 @@ export function withStepAdded(steps: AgentTaskStep[]): AgentTaskStep[] {
   return [...steps, { id: crypto.randomUUID(), prompt: '' }]
 }
 
+/** An empty Step right after `afterId`; at the end when that Step is gone. */
+export function withStepInserted(steps: AgentTaskStep[], afterId: string): AgentTaskStep[] {
+  const index = steps.findIndex((step) => step.id === afterId)
+  if (index < 0) return withStepAdded(steps)
+  const inserted = { id: crypto.randomUUID(), prompt: '' }
+  return [...steps.slice(0, index + 1), inserted, ...steps.slice(index + 1)]
+}
+
+/** Steps whose prompt says something, trimmed. */
+export function stepPrompts(steps: readonly AgentTaskStep[]): string[] {
+  return steps.map((step) => step.prompt.trim()).filter(Boolean)
+}
+
+/**
+ * The turn that starts a prompt's Steps: the request, how it will be carried out, and Step 1.
+ * Model-facing, so not translated.
+ */
+export function firstStepTurn(prompt: string, steps: readonly string[]): string {
+  const plan =
+    steps.length === 1
+      ? 'Carry this out in one step:'
+      : `Carry this out in ${steps.length} steps. I will send them one at a time; do only the ` +
+        'current one, then stop.'
+  return [prompt.trim(), '', plan, '', stepTurn(1, steps)].join('\n')
+}
+
+/** The turn for Step `index` (1-based) of a prompt's Steps. */
+export function stepTurn(index: number, steps: readonly string[]): string {
+  if (steps.length === 1) return steps[0]
+  return `Step ${index} of ${steps.length}: ${steps[index - 1]}`
+}
+
 export function withStepRemoved(steps: AgentTaskStep[], id: string): AgentTaskStep[] {
   return steps.filter((step) => step.id !== id)
 }

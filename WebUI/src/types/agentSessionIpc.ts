@@ -32,6 +32,12 @@ export const AgentSessionSettingsSchema = z.object({
 })
 export type AgentSessionSettings = z.infer<typeof AgentSessionSettingsSchema>
 
+export const AgentTaskStepSchema = z.object({
+  id: z.string(),
+  prompt: z.string(),
+})
+export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
+
 export const AgentSessionFileSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
@@ -43,8 +49,10 @@ export const AgentSessionFileSchema = z.object({
   presetName: z.string().optional(),
   responseLocale: z.string().optional(),
   settings: AgentSessionSettingsSchema.optional(),
-  /** The Task whose run created this session. */
+  /** The Agent this session was loaded from or saved as. */
   taskId: z.string().optional(),
+  /** The Steps a prompt is carried out in; edited in the settings panel like any setting. */
+  steps: z.array(AgentTaskStepSchema).optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

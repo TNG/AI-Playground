@@ -1,10 +1,7 @@
-import type { AgentSessionSettings } from '@/types/agentSessionIpc'
-import { isToolEnabled } from '@/lib/builtinToolEnablement'
-
 /**
  * The media tools' settings — delegation, built-in tool enablement, per-workflow
  * enablement and default workflows — behind one interface, so the media tools panel
- * can edit the chat store's live values or a draft Settings Template alike.
+ * can edit the chat store's live values.
  */
 export type MediaToolSettings = {
   delegationEnabled(): boolean
@@ -68,41 +65,5 @@ export function storeMediaToolSettings(store: MediaToolStore): MediaToolSettings
       store.setWorkflowPresetEnabled(presetName, enabled),
     defaultWorkflow: (slot, available) => store.getDefaultWorkflow(slot, available),
     setDefaultWorkflow: (slot, presetName) => store.setDefaultWorkflow(slot, presetName),
-  }
-}
-
-type TemplateDraft = {
-  read: () => AgentSessionSettings
-  update: (change: AgentSessionSettings) => void
-}
-
-/** Reads and writes the media tool fields of a Settings Template draft. */
-export function draftMediaToolSettings(draft: TemplateDraft): MediaToolSettings {
-  return {
-    delegationEnabled: () => draft.read().toolDelegationEnabled ?? true,
-    setDelegationEnabled: (enabled) => draft.update({ toolDelegationEnabled: enabled }),
-    isToolEnabled: (toolName) => isToolEnabled(draft.read().builtinToolEnablement ?? {}, toolName),
-    setToolEnabled: (toolName, enabled) =>
-      draft.update({
-        builtinToolEnablement: { ...draft.read().builtinToolEnablement, [toolName]: enabled },
-      }),
-    isWorkflowEnabled: (presetName) =>
-      isWorkflowEnabled(draft.read().builtinToolPresetEnablement ?? {}, presetName),
-    setWorkflowEnabled: (presetName, enabled) =>
-      draft.update({
-        builtinToolPresetEnablement: {
-          ...draft.read().builtinToolPresetEnablement,
-          [presetName]: enabled,
-        },
-      }),
-    defaultWorkflow: (slot, available) =>
-      resolveDefaultWorkflow(draft.read().builtinToolDefaultPresets ?? {}, slot, available),
-    setDefaultWorkflow: (slot, presetName) =>
-      draft.update({
-        builtinToolDefaultPresets: {
-          ...draft.read().builtinToolDefaultPresets,
-          [slot]: presetName,
-        },
-      }),
   }
 }

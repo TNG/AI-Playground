@@ -66,7 +66,13 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { withStepAdded, withStepMoved, withStepPrompt, withStepRemoved } from '@/lib/taskSteps'
+import {
+  withStepAdded,
+  withStepInserted,
+  withStepMoved,
+  withStepPrompt,
+  withStepRemoved,
+} from '@/lib/taskSteps'
 
 const props = defineProps<{
   steps: AgentTaskStep[]
@@ -89,6 +95,7 @@ type NumberedKey =
   | 'AGENT_TASK_MOVE_STEP_UP'
   | 'AGENT_TASK_MOVE_STEP_DOWN'
   | 'AGENT_TASK_REMOVE_STEP'
+  | 'AGENT_STEPS_INSERT_AFTER'
 
 function numbered(key: NumberedKey, index: number): string {
   return i18n[key].replace('{number}', String(index + 1))
@@ -103,7 +110,7 @@ function stepTextLabel(index: number): string {
 }
 
 type StepControl = {
-  kind: 'up' | 'down' | 'remove'
+  kind: 'insert' | 'up' | 'down' | 'remove'
   label: string
   icon: Component
   disabled: boolean
@@ -113,6 +120,13 @@ type StepControl = {
 function stepControls(id: string, index: number): StepControl[] {
   const last = props.steps.length - 1
   return [
+    {
+      kind: 'insert',
+      label: numbered('AGENT_STEPS_INSERT_AFTER', index),
+      icon: PlusIcon,
+      disabled: false,
+      run: () => update(withStepInserted(props.steps, id)),
+    },
     {
       kind: 'up',
       label: numbered('AGENT_TASK_MOVE_STEP_UP', index),

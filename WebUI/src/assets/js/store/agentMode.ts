@@ -23,6 +23,7 @@ import {
   LegacyAgentSessionStateSchema,
   type AgentSessionBootstrap,
   type AgentSessionSettings,
+  type AgentTaskStep,
   type LegacyAgentSessionState,
 } from '@/types/agentSessionIpc'
 import {
@@ -253,6 +254,10 @@ export const useAgentMode = defineStore(
      * Session has taken the Default Settings; the chat store's next load fills it.
      */
     const openSettings = ref<AgentSessionSettings | null>(null)
+    /** The Open Session's Steps (Agent preset only); a Draft Session's live here until it is sent. */
+    const openSteps = ref<AgentTaskStep[]>([])
+    /** The Agent the Open Session was loaded from or saved as. */
+    const openTaskId = ref<string | undefined>(undefined)
 
     const sessionScoped = computed(() => usesSessionSettings(activeAgentPreset.value))
 
@@ -1137,6 +1142,9 @@ export const useAgentMode = defineStore(
         presetName: heldWith,
         responseLocale: existing?.responseLocale ?? pendingResponseLocales[id],
         settings: presetUsesSessionSettings(heldWith) && settings ? settings : undefined,
+        ...(open && presetUsesSessionSettings(heldWith)
+          ? { steps: openSteps.value, taskId: openTaskId.value }
+          : {}),
       })
       if (!record) return
       if (record.settings) delete record.capabilities
@@ -1152,7 +1160,57 @@ export const useAgentMode = defineStore(
       const record = sessions.value[openSessionId.value]
       const runtime = openRuntime.value
       if (!runtime.hasTurn()) runtime.chat.messages = (record?.messages ?? []) as UIMessage[]
+      applyOpenSessionAgent(record)
       applyOpenSessionSettings(settingsOfRecord(record))
+    }
+
+    function applyOpenSessionAgent(record: AgentSessionRecord | undefined): void {
+      openSteps.value = (record?.steps ?? []).map((step) => ({ ...step }))
+      openTaskId.value = record?.taskId
+    }
+
+    /** Edit the Open Session's Steps; a sent session's record keeps them. */
+    function setOpenSteps(steps: AgentTaskStep[]): void {
+      openSteps.value = steps.map((step) => ({ ...step }))
+      const session = sessions.value[openSessionId.value]
+      if (!session) return
+      rewriteSession(openSessionId.value, { ...session, steps: cloneForIpc(openSteps.value) })
+    }
+
+    /** Mark the Open Session as loaded from (or saved as) an Agent; `undefined` unlinks it. */
+    function linkOpenSessionToAgent(taskId: string | undefined): void {
+      openTaskId.value = taskId
+      const session = sessions.value[openSessionId.value]
+      if (!session) return
+      const { taskId: _previous, ...rest } = session
+      rewriteSession(openSessionId.value, taskId ? { ...rest, taskId } : rest)
+    }
+
+    /**
+     * Open a new Draft Session on an Agent's folder, settings and Steps. Nothing is stored until
+     * its first prompt, like any other draft.
+     */
+    async function startSessionFrom(agent: {
+      taskId: string
+      workspaceDir: string
+      settings: AgentSessionSettings
+      steps: AgentTaskStep[]
+    }): Promise<void> {
+      await leaveOpenSession()
+      openSessionId.value = mintSessionId()
+      sessionCapabilities.value = null
+      if (agent.workspaceDir) {
+        workspaceDir.value = agent.workspaceDir
+        lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, pick: agent.workspaceDir }
+      }
+      openSteps.value = agent.steps.map((step) => ({ ...step }))
+      openTaskId.value = agent.taskId
+      applyOpenSessionSettings(cloneForIpc(agent.settings))
+      await refreshCurrentGame()
+    }
+
+    function ensureOpenSessionId(): string {
+      return ensureSessionId(openSessionId)
     }
 
     /**
@@ -1182,6 +1240,7 @@ export const useAgentMode = defineStore(
     function blankSession(): void {
       openSessionId.value = mintSessionId()
       sessionCapabilities.value = null
+      applyOpenSessionAgent(undefined)
       applyOpenSessionSettings(undefined)
     }
 
@@ -1330,6 +1389,7 @@ export const useAgentMode = defineStore(
       if (id === openSessionId.value) {
         openSessionId.value = mintSessionId()
         sessionCapabilities.value = null
+        applyOpenSessionAgent(undefined)
         applyOpenSessionSettings(undefined)
       } else {
         turns.release(id)
@@ -1338,6 +1398,11 @@ export const useAgentMode = defineStore(
 
     async function adoptWorkspace(dir: string): Promise<void> {
       await leaveOpenSession()
+      // A Draft Session set up before its folder was picked keeps what was set up.
+      const draft =
+        sessionScoped.value && !sessions.value[openSessionId.value]
+          ? { settings: openSettings.value, steps: openSteps.value, taskId: openTaskId.value }
+          : null
       workspaceDir.value = dir
       const latest = Object.values(sessions.value)
         .filter((s) => s.workspaceDir === dir)
@@ -1345,6 +1410,11 @@ export const useAgentMode = defineStore(
       openSessionId.value = latest?.id ?? ''
       sessionCapabilities.value = null
       restoreOpenSession()
+      if (!latest && draft) {
+        openSteps.value = draft.steps
+        openTaskId.value = draft.taskId
+        if (draft.settings) applyOpenSessionSettings(draft.settings)
+      }
       await refreshCurrentGame()
     }
 
@@ -1374,6 +1444,7 @@ export const useAgentMode = defineStore(
       currentGame.value = null
       if (!openRuntime.value.hasTurn()) openRuntime.value.chat.messages = []
       openSettings.value = null
+      applyOpenSessionAgent(undefined)
     }
 
     async function newGame(): Promise<void> {
@@ -1434,8 +1505,9 @@ export const useAgentMode = defineStore(
       await refreshCurrentGame()
     })
 
-    async function generate(prompt: string): Promise<void> {
-      if (await blockedBySettingsProblems()) return
+    /** Resolves once the turn ended, with whether one was started at all. */
+    async function generate(prompt: string): Promise<boolean> {
+      if (await blockedBySettingsProblems()) return false
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games' && !(await isGameFolder(workspaceDir.value))) {
         const game = await window.electronAPI.games.create(prompt, {
@@ -1448,11 +1520,12 @@ export const useAgentMode = defineStore(
         lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: game.dir }
         currentGame.value = game
       }
-      if (!workspaceReady()) return
+      if (!workspaceReady()) return false
       const attached = await importAttachments(workspaceDir.value)
       await runTurn(ensureSessionId(openSessionId), liveTurnContext(), (chat) =>
         chat.sendMessage({ text: `${prompt}${attached}` }),
       )
+      return true
     }
 
     /** Send the Open Session's "not run" message again, as a new turn. */
@@ -1665,6 +1738,12 @@ export const useAgentMode = defineStore(
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
       openSessionSettings,
+      openSteps,
+      setOpenSteps,
+      openTaskId,
+      linkOpenSessionToAgent,
+      startSessionFrom,
+      ensureOpenSessionId,
       sessionScoped,
       settingsProblems,
       problemsOf,

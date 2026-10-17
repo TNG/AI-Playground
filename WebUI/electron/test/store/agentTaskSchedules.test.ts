@@ -364,13 +364,15 @@ describe('a Schedule and the rest of the Task', () => {
     expect(tasks.taskSchedule('t2')).toEqual({})
   })
 
-  it('keeps the Schedule and Next Run when the Task is edited', async () => {
+  it('keeps the Schedule and Next Run when the Agent is updated', async () => {
     vi.setSystemTime(NOW)
-    const { tasks } = await readyStores(task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }))
+    const { agentMode, tasks } = await readyStores(
+      task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }),
+    )
 
-    tasks.beginEdit('t1')
-    tasks.editDraft!.steps = [{ id: 'n1', prompt: 'reworded' }]
-    expect((await tasks.saveEdit()).ok).toBe(true)
+    await tasks.loadAgent('t1')
+    agentMode.setOpenSteps([{ id: 'n1', prompt: 'reworded' }])
+    expect((await tasks.updateAgent('t1', 'Task t1')).ok).toBe(true)
 
     expect(lastSavedTask('t1')).toMatchObject({
       steps: [{ prompt: 'reworded' }],

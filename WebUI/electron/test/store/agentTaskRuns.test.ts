@@ -31,6 +31,8 @@ const GAME_AGENT: ChatPreset = {
   systemPrompt: 'You make games.',
 } as ChatPreset
 
+const NEWS_PRESET: ChatPreset = { ...AGENT, name: 'Morning news', agentTaskId: 't-news' }
+
 const IMAGE_GEN = { type: 'comfy', category: 'create-images', name: 'Flux' }
 
 const activePreset = vi.hoisted(() => ({ state: null as { preset: unknown } | null }))
@@ -41,7 +43,7 @@ vi.mock('@/assets/js/store/presets', async () => {
   const state = activePreset.state
   return {
     usePresets: () => ({
-      presets: [AGENT, GAME_AGENT],
+      presets: [AGENT, GAME_AGENT, NEWS_PRESET],
       get activePresetWithVariant() {
         return state.preset
       },
@@ -342,6 +344,18 @@ describe('running a Task', () => {
     expect(agentMode.workspaceDir).toBe('/work/open')
     expect(JSON.stringify(agentMode.messages)).toContain('what I am doing')
     expect(JSON.stringify(agentMode.messages)).not.toContain('"one"')
+  })
+
+  it('files the Task Session under the Chat preset the Agent was saved as', async () => {
+    const { agentMode } = await readyStores(task('t-news', ['one']))
+    const tasks = useAgentTasks()
+
+    await tasks.runTask('t-news')
+
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Morning news' })
+    expect(sentConfig(0)).toMatchObject({ presetName: 'Morning news' })
   })
 
   it('sends each Step only after the previous one settled, then records completed', async () => {

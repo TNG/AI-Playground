@@ -100,6 +100,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getUserPresetsPath: () => invoke('getUserPresetsPath'),
   loadUserPresets: () => invoke('loadUserPresets'),
   saveUserPreset: (presetContent: string) => invoke('saveUserPreset', presetContent),
+  deleteUserPreset: (name: string) => invoke('deleteUserPreset', name),
   resolveBackendVersion: (serviceName: BackendServiceName) =>
     invoke('resolveBackendVersion', serviceName),
   getInstalledBackendVersion: (serviceName: BackendServiceName) =>

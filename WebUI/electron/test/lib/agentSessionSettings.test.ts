@@ -17,6 +17,13 @@ describe('usesSessionSettings', () => {
     expect(usesSessionSettings({ name: 'Assistant' })).toBe(false)
     expect(usesSessionSettings(null)).toBe(false)
   })
+
+  it('is true for an agent preset saved from an Agent', () => {
+    expect(
+      usesSessionSettings({ name: 'Morning news', agentPreset: true, agentTaskId: 't1' }),
+    ).toBe(true)
+    expect(usesSessionSettings({ name: 'Morning news', agentTaskId: 't1' })).toBe(false)
+  })
 })
 
 describe('Session Settings ↔ settings bag', () => {

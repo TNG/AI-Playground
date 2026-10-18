@@ -336,8 +336,12 @@ export const usePresets = defineStore(
           }
         }
 
-        // Merge user presets with built-in presets
-        presets.value = [...presets.value, ...validatedPresets]
+        // A preset saved again replaces the copy loaded before it.
+        const reloaded = new Set(validatedPresets.map((preset) => preset.name))
+        presets.value = [
+          ...presets.value.filter((preset) => !reloaded.has(preset.name)),
+          ...validatedPresets,
+        ]
         console.log(`Loaded ${validatedPresets.length} user presets`)
       } catch (error) {
         console.error('Failed to load user presets:', error)
@@ -421,6 +425,12 @@ export const usePresets = defineStore(
         console.error('Failed to save user preset:', error)
         return false
       }
+    }
+
+    async function removeUserPreset(name: string): Promise<boolean> {
+      const removed = await window.electronAPI.deleteUserPreset(name).catch(() => false)
+      if (removed) presets.value = presets.value.filter((preset) => preset.name !== name)
+      return removed
     }
 
     // ========================================================================
@@ -664,6 +674,7 @@ export const usePresets = defineStore(
       reloadAfterProductModeChange,
       loadPresetsFromIntel,
       addPreset,
+      removeUserPreset,
       saveSettingsForPreset,
       getSettingsForPreset,
       resetSettingsForPreset,

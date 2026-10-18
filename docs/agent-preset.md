@@ -18,7 +18,8 @@ read their console, and generate images, video or 3D models. Where Game Agent ai
 at one outcome, Agent leaves the aim to you.
 
 _Shipped copy:_ "Pick a folder and describe the job. The agent edits files there until it is
-done, with no undo. Save the session as a task to run again or on a schedule."
+done, with no undo. Name the settings to save them as an agent you can run again or on a
+schedule."
 
 ## When you would reach for it
 

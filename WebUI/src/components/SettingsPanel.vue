@@ -23,6 +23,8 @@ const props = withDefaults(
     enabled?: boolean
     /** Why the switch can't be used, when it can't (e.g. the model has no tool calling). */
     disabledReason?: string
+    /** Content only, for a panel already inside a section that carries its title. */
+    bare?: boolean
   }>(),
   { enabled: undefined },
 )
@@ -40,7 +42,10 @@ function toggle() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3 rounded-md border border-border p-3">
+  <div v-if="bare" class="flex flex-col gap-3">
+    <slot />
+  </div>
+  <div v-else class="flex flex-col gap-3 rounded-md border border-border p-3">
     <div
       class="flex items-center justify-between gap-3 border-b border-border pb-2"
       :class="{ 'opacity-50': !!disabledReason }"

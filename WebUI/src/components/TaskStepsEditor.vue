@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-1.5">
-    <Label :id="`${idPrefix}-steps`">{{ i18n.AGENT_TASK_STEPS }}</Label>
+    <Label :id="`${idPrefix}-steps`" class="sr-only">{{ i18n.AGENT_TASK_STEPS }}</Label>
     <TooltipProvider :delay-duration="200">
       <ol
         v-if="steps.length > 0"

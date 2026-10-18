@@ -3,6 +3,7 @@
     <SettingsPanel
       :title="isMediaVariant ? 'Media tools' : 'Built-in tools'"
       :switch-id="isMediaVariant ? 'media-tools' : 'tools'"
+      :bare="bare"
       :enabled="isMediaVariant ? undefined : textInference.aipgToolsEnabled"
       :disabled-reason="
         isMediaVariant || textInference.modelSupportsToolCalling
@@ -350,8 +351,8 @@ import { storeMediaToolSettings, type MediaToolSettings } from '@/lib/mediaToolS
 // capability) and without the tools an agent gets as capabilities instead.
 // `settings` defaults to the chat store's live values; a task draft passes its own.
 const props = withDefaults(
-  defineProps<{ variant?: 'chat' | 'media'; settings?: MediaToolSettings }>(),
-  { variant: 'chat', settings: undefined },
+  defineProps<{ variant?: 'chat' | 'media'; settings?: MediaToolSettings; bare?: boolean }>(),
+  { variant: 'chat', settings: undefined, bare: false },
 )
 
 const textInference = useTextInference()

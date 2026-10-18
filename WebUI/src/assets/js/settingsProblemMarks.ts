@@ -17,6 +17,10 @@ export function useSettingsProblemMarks(
     return fields.value.has(field) ? 'rounded-sm ring-1 ring-amber-500 p-1' : ''
   }
 
+  function hasProblem(...candidates: SessionSettingsProblemField[]): boolean {
+    return candidates.some((field) => fields.value.has(field))
+  }
+
   const missingMcpServers = computed(() =>
     toValue(problems)
       .filter((p) => p.field === 'mcpServer')
@@ -27,5 +31,5 @@ export function useSettingsProblemMarks(
     return describeSettingsProblem({ field: 'mcpServer', value: serverId }, i18n)
   }
 
-  return { problemClass, missingMcpServers, describeMissingMcpServer }
+  return { problemClass, hasProblem, missingMcpServers, describeMissingMcpServer }
 }

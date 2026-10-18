@@ -19,9 +19,41 @@ const AGENT: ChatPreset = {
   systemPrompt: 'You are the agent.',
 } as ChatPreset
 
-vi.mock('@/assets/js/store/presets', () => ({
-  usePresets: () => ({ presets: [AGENT], activePresetWithVariant: AGENT }),
+const catalogRef = vi.hoisted(() => ({
+  state: null as { presets: ChatPreset[]; active: ChatPreset | null; saved: boolean } | null,
 }))
+
+const catalog = new Proxy({} as NonNullable<typeof catalogRef.state>, {
+  get: (_target, key) => Reflect.get(catalogRef.state!, key),
+  set: (_target, key, value) => Reflect.set(catalogRef.state!, key, value),
+})
+
+const addPreset = vi.fn(async (preset: ChatPreset) => {
+  if (!catalog.saved) return false
+  catalog.presets = [...catalog.presets.filter((entry) => entry.name !== preset.name), preset]
+  return true
+})
+const removeUserPreset = vi.fn(async (name: string) => {
+  catalog.presets = catalog.presets.filter((entry) => entry.name !== name)
+  return true
+})
+
+vi.mock('@/assets/js/store/presets', async () => {
+  const { reactive } = await import('vue')
+  catalogRef.state = reactive({ presets: [] as ChatPreset[], active: null, saved: true })
+  return {
+    usePresets: () => ({
+      get presets() {
+        return catalog.presets
+      },
+      get activePresetWithVariant() {
+        return catalog.active
+      },
+      addPreset,
+      removeUserPreset,
+    }),
+  }
+})
 
 vi.mock('@/assets/js/store/presetSwitching', () => ({
   usePresetSwitching: () => ({ switchPreset: vi.fn(async () => ({ success: true })) }),
@@ -140,6 +172,9 @@ const readTasks = vi.fn(async () => ({ success: true as const, tasks: storedTask
 beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
+  catalog.presets = [{ ...AGENT, image: 'data:image/png;base64,AGENT', extendedDescription: 'How' }]
+  catalog.active = AGENT
+  catalog.saved = true
   storedTasks = []
   missingModels = new Set()
   openSessionSettings = SETTINGS
@@ -741,5 +776,107 @@ describe('unsaved changes to a loaded Agent', () => {
     await tasks.updateAgent('task-1', 'Task task-1')
 
     expect(tasks.openSessionAgentChanged).toBe(false)
+  })
+})
+
+describe('saving an Agent as a Chat preset', () => {
+  const ICON = 'data:image/png;base64,ICON'
+
+  it('adds an agent preset named after the Agent, bound to it, with its description and icon', async () => {
+    storedTasks = [savedTask('task-1', { name: 'Morning news' })]
+    const { tasks } = await readyStores()
+
+    const result = await tasks.saveAgentAsPreset('task-1', {
+      description: '  Reads the news  ',
+      image: ICON,
+    })
+
+    expect(result.ok).toBe(true)
+    const preset = tasks.presetOfAgent('task-1')
+    expect(preset).toMatchObject({
+      type: 'chat',
+      name: 'Morning news',
+      agentPreset: true,
+      agentWorkspace: 'pick',
+      systemPrompt: 'You are the agent.',
+      description: 'Reads the news',
+      image: ICON,
+      agentTaskId: 'task-1',
+    })
+    expect(preset?.extendedDescription).toBeUndefined()
+  })
+
+  it('uses the Agent preset’s icon when none is chosen', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+
+    await tasks.saveAgentAsPreset('task-1', { description: 'x' })
+
+    expect(tasks.presetOfAgent('task-1')?.image).toBe('data:image/png;base64,AGENT')
+  })
+
+  it('refuses a name another preset already has', async () => {
+    storedTasks = [savedTask('task-1', { name: 'Agent' })]
+    const { tasks } = await readyStores()
+
+    expect(await tasks.saveAgentAsPreset('task-1', { description: 'x' })).toEqual({
+      ok: false,
+      reason: 'name-taken',
+    })
+    expect(addPreset).not.toHaveBeenCalled()
+  })
+
+  it('keeps the preset’s name when it is updated after the Agent was renamed', async () => {
+    storedTasks = [savedTask('task-1', { name: 'Morning news' })]
+    const { tasks } = await readyStores()
+    await tasks.saveAgentAsPreset('task-1', { description: 'first' })
+    await tasks.renameAgent('task-1', 'Evening news')
+
+    const result = await tasks.saveAgentAsPreset('task-1', { description: 'second' })
+
+    expect(result.ok).toBe(true)
+    expect(catalog.presets.filter((preset) => preset.agentTaskId === 'task-1')).toEqual([
+      expect.objectContaining({ name: 'Morning news', description: 'second' }),
+    ])
+  })
+
+  it('reports when the preset file cannot be written', async () => {
+    storedTasks = [savedTask('task-1')]
+    catalog.saved = false
+    const { tasks } = await readyStores()
+
+    expect(await tasks.saveAgentAsPreset('task-1', { description: 'x' })).toEqual({
+      ok: false,
+      reason: 'persist-failed',
+    })
+    expect(tasks.presetOfAgent('task-1')).toBeUndefined()
+  })
+
+  it('is removed with the Agent', async () => {
+    storedTasks = [savedTask('task-1', { name: 'Morning news' })]
+    const { tasks } = await readyStores()
+    await tasks.saveAgentAsPreset('task-1', { description: 'x' })
+
+    await tasks.deleteTask('task-1')
+
+    expect(removeUserPreset).toHaveBeenCalledWith('Morning news')
+    expect(tasks.presetOfAgent('task-1')).toBeUndefined()
+  })
+
+  it('starts each new session of the preset set up as its Agent', async () => {
+    storedTasks = [
+      savedTask('task-1', { name: 'Morning news', steps: [{ id: 's1', prompt: 'read' }] }),
+    ]
+    const { agentMode, tasks } = await readyStores()
+    const saved = await tasks.saveAgentAsPreset('task-1', { description: 'x' })
+    if (!saved.ok) throw new Error('not saved')
+    catalog.active = saved.preset
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await agentMode.newSession()
+
+    expect(agentMode.openTaskId).toBe('task-1')
+    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['read'])
+    expect(tasks.presetAgent?.id).toBe('task-1')
   })
 })

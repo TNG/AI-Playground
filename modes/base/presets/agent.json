@@ -2,7 +2,7 @@
   "type": "chat",
   "category": "chat",
   "name": "Agent",
-  "description": "Pick a folder and describe the job. The agent edits files there until it is done, with no undo. Save the session as a task to run again or on a schedule.",
+  "description": "Pick a folder and describe the job. The agent edits files there until it is done, with no undo. Name the settings to save them as an agent you can run again or on a schedule.",
   "displayPriority": 50,
   "tags": ["Agent", "Coding", "Tools"],
   "backends": ["llamaCPP", "openVINO"],

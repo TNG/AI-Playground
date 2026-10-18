@@ -10,7 +10,7 @@
           :aria-label="i18n.AGENT_AGENTS_NAME"
           :aria-describedby="status ? 'agent-save-bar-status' : undefined"
           :placeholder="i18n.AGENT_AGENTS_UNTITLED"
-          class="flex h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          class="flex h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring read-only:cursor-default read-only:border-transparent read-only:bg-transparent read-only:px-0 read-only:shadow-none read-only:focus-visible:ring-0"
           @keydown.enter.prevent="savePrimary"
         />
         <Button size="sm" class="h-8 flex-none" :disabled="!canSave" @click="savePrimary">

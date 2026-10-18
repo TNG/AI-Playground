@@ -1506,6 +1506,20 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       }
     },
 
+    deleteUserPreset: async (_event, name: string) => {
+      try {
+        const presetsPath = path.join(app.getPath('documents'), 'AI Playground', 'presets')
+        const filePath = path.join(presetsPath, `${name.replace(/[^a-z0-9]/gi, '_')}.json`)
+        await fs.promises.rm(filePath, { force: true })
+        deps.appLogger.info(`Deleted user preset ${filePath}`, 'electron-backend')
+        deps.invalidatePresetCatalog()
+        return true
+      } catch (error) {
+        deps.appLogger.error(`Failed to delete user preset: ${error}`, 'electron-backend')
+        return false
+      }
+    },
+
     // Version management IPC handlers for frontend store integration
     resolveBackendVersion: async (_event, serviceName: BackendServiceName) => {
       return await deps.resolveBackendVersion(serviceName, deps.settings)

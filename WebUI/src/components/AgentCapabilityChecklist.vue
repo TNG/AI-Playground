@@ -24,43 +24,15 @@
       </span>
     </label>
   </div>
-
-  <!-- What belongs to the enabled built-in capabilities (embeddings, media tools,
-       commands) sits between them and the MCP servers. -->
-  <slot />
-
-  <Label class="whitespace-nowrap mt-2">MCP servers</Label>
-  <slot name="mcp-notices" />
-  <div v-if="mcpServers.length > 0" class="flex flex-col gap-2">
-    <label v-for="server in mcpServers" :key="server.id" class="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        :checked="isEnabled(mcpCapabilityId(server.id))"
-        @change="toggle(mcpCapabilityId(server.id), $event)"
-      />
-      <span class="flex flex-col">
-        <span class="text-foreground">{{ server.name }}</span>
-        <span v-if="server.instructions" class="text-xs text-muted-foreground">
-          {{ server.instructions }}
-        </span>
-      </span>
-    </label>
-  </div>
-  <p v-else class="text-xs text-muted-foreground italic">
-    No MCP servers configured. Add one under App Settings → MCP.
-  </p>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Label } from '@/components/ui/label'
 import { toggleCapabilityIds } from '@/assets/js/store/agentModeSessions'
-import { MCP_CAPABILITY_PREFIX, mcpCapabilityId } from '@/types/agentCapabilities'
+import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 
 const props = defineProps<{
   catalog: AgentCapabilityInfo[]
-  mcpServers: { id: string; name: string; instructions?: string }[]
 }>()
 
 const capabilities = defineModel<string[]>({ required: true })

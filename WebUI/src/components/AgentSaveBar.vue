@@ -6,6 +6,7 @@
           id="agent-save-bar-name"
           v-model="name"
           autocomplete="off"
+          :readonly="bound"
           :aria-label="i18n.AGENT_AGENTS_NAME"
           :aria-describedby="status ? 'agent-save-bar-status' : undefined"
           :placeholder="i18n.AGENT_AGENTS_UNTITLED"
@@ -16,7 +17,7 @@
           {{ i18n.AGENT_AGENTS_SAVE }}
         </Button>
         <Button
-          v-if="loaded && dirty"
+          v-if="loaded && dirty && !bound"
           variant="secondary"
           size="sm"
           class="h-8 flex-none"
@@ -26,7 +27,7 @@
           {{ i18n.AGENT_AGENTS_SAVE_AS_NEW }}
         </Button>
         <AgentRowAction
-          v-if="loaded"
+          v-if="loaded && !bound"
           :label="i18n.AGENT_AGENTS_NEW"
           :disabled="agentMode.processing"
           @click="agentMode.newSession()"
@@ -76,6 +77,8 @@ function fill(template: string, values: Record<string, string>): string {
 }
 
 const loaded = computed(() => agentTasks.openSessionTask)
+/** Under a preset saved from an Agent, Save updates that Agent and nothing else. */
+const bound = computed(() => !!agentTasks.presetAgent && !!loaded.value)
 const name = ref('')
 
 watch(

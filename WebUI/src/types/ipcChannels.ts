@@ -782,6 +782,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as boolean,
   },
+  /** Delete the user preset file named after `name`; true when none is left. */
+  deleteUserPreset: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
+  },
   /** The resolved model catalog — remote models.json when reachable, local fallback. */
   loadModels: {
     kind: 'invoke',

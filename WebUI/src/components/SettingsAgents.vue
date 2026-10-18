@@ -92,6 +92,15 @@
                 <ClockSolidIcon v-if="row.scheduled" class="size-4" />
                 <ClockIcon v-else class="size-4" />
               </AgentRowAction>
+              <AgentRowAction
+                :label="row.presetLabel"
+                :tooltip="row.hasPreset ? i18n.AGENT_PRESET_EDIT : i18n.AGENT_PRESET_SAVE"
+                :active="row.hasPreset"
+                @click="openPreset(row.id)"
+              >
+                <ArrowUpOnSquareSolidIcon v-if="row.hasPreset" class="size-4" />
+                <ArrowUpOnSquareIcon v-else class="size-4" />
+              </AgentRowAction>
               <DropdownMenu>
                 <DropdownMenuTrigger as-child>
                   <Button
@@ -165,11 +174,13 @@
   </TooltipProvider>
 
   <TaskScheduleDialog v-model:open="scheduleOpen" :task-id="scheduleTaskId" />
+  <AgentPresetDialog v-model:open="presetOpen" :task-id="presetTaskId" />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
+  ArrowUpOnSquareIcon,
   ClockIcon,
   CpuChipIcon,
   EllipsisVerticalIcon,
@@ -180,7 +191,10 @@ import {
   StopIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
-import { ClockIcon as ClockSolidIcon } from '@heroicons/vue/24/solid'
+import {
+  ArrowUpOnSquareIcon as ArrowUpOnSquareSolidIcon,
+  ClockIcon as ClockSolidIcon,
+} from '@heroicons/vue/24/solid'
 import type { AgentTaskOutcome } from '@/types/agentTaskIpc'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
@@ -188,6 +202,7 @@ import { useErrors } from '@/assets/js/store/errors'
 import { useHistorySessions } from '@/assets/js/store/historySessions'
 import { useI18N } from '@/assets/js/store/i18n'
 import AgentNameField from '@/components/AgentNameField.vue'
+import AgentPresetDialog from '@/components/AgentPresetDialog.vue'
 import AgentRowAction from '@/components/AgentRowAction.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import TaskScheduleDialog from '@/components/TaskScheduleDialog.vue'
@@ -260,6 +275,13 @@ const rows = computed(() =>
       stopLabel: fill(i18n.AGENT_TASKS_STOP, label),
       runLabel: fill(i18n.AGENT_AGENTS_RUN_LABEL, label),
       scheduleLabel: fill(i18n.AGENT_AGENTS_SCHEDULE_LABEL, label),
+      hasPreset: agentTasks.presetOfAgent(task.id) !== undefined,
+      presetLabel: fill(
+        agentTasks.presetOfAgent(task.id)
+          ? i18n.AGENT_PRESET_EDIT_LABEL
+          : i18n.AGENT_PRESET_SAVE_LABEL,
+        label,
+      ),
       moreLabel: fill(i18n.AGENT_AGENTS_MORE_LABEL, label),
       renameLabel: fill(i18n.AGENT_AGENTS_RENAME_LABEL, label),
       deleteLabel: fill(i18n.AGENT_AGENTS_DELETE_LABEL, label),
@@ -337,6 +359,14 @@ async function rename(id: string): Promise<void> {
 async function remove(id: string): Promise<void> {
   confirmDeleteId.value = null
   await agentTasks.deleteTask(id)
+}
+
+const presetOpen = ref(false)
+const presetTaskId = ref<string | null>(null)
+
+function openPreset(id: string): void {
+  presetTaskId.value = id
+  presetOpen.value = true
 }
 
 const scheduleOpen = ref(false)

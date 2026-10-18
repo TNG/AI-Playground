@@ -144,7 +144,7 @@
            offers a way back to its defaults. -->
       <template #footer>
         <div
-          v-if="agentMode.sessionScoped"
+          v-if="agentMode.sessionScoped && !agentTasks.presetAgent"
           class="border-t border-border pt-4 flex flex-wrap items-center gap-2"
         >
           <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="saveAsDefault">
@@ -154,7 +154,10 @@
             {{ languages.AGENT_RESET_TO_DEFAULT }}
           </Button>
         </div>
-        <div v-else class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2">
+        <div
+          v-else-if="!agentMode.sessionScoped"
+          class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2"
+        >
           <button class="mt-4" @click="resetPresetSettings">
             <div class="svg-icon i-refresh">Reset</div>
             {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
@@ -163,7 +166,7 @@
       </template>
     </AgentSettingsForm>
 
-    <SettingsAgents v-if="agentMode.sessionScoped" />
+    <SettingsAgents v-if="agentMode.sessionScoped && !agentTasks.presetAgent" />
   </div>
 </template>
 

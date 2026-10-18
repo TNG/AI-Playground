@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-6 p-1">
+  <div class="flex flex-col gap-4 p-1">
     <!-- Same picker as Chat Settings: agent presets are chat presets, so this is how
          the user gets back to a plain chat preset (and vice versa). -->
     <PresetSelector
@@ -8,7 +8,7 @@
       @update:model-value="handlePresetChange"
     />
 
-    <SettingsAgents v-if="agentMode.sessionScoped" />
+    <AgentSaveBar v-if="agentMode.sessionScoped" />
 
     <!-- Managed workspace: the app owns one folder per game, so there is nothing
          to pick — only the game to start over with. -->
@@ -52,18 +52,21 @@
       </p>
     </div>
 
-    <div v-if="agentMode.sessionScoped" class="flex flex-col gap-2">
+    <SettingsSection
+      v-if="agentMode.sessionScoped"
+      :title="i18n.AGENT_TASK_STEPS"
+      :summary="stepsSummary"
+    >
       <TaskStepsEditor
         :steps="agentMode.openSteps"
         id-prefix="agent-steps"
         @update:steps="agentMode.setOpenSteps"
       />
       <p class="text-xs text-muted-foreground">{{ i18n.AGENT_STEPS_HINT }}</p>
-    </div>
+    </SettingsSection>
 
     <!-- Shell sandbox (per-workspace opt-in) -->
-    <div v-if="!isManagedWorkspace" class="flex flex-col gap-2">
-      <Label class="whitespace-nowrap">Shell</Label>
+    <SettingsSection v-if="!isManagedWorkspace" :title="i18n.AGENT_SECTION_SHELL">
       <label class="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
@@ -91,7 +94,7 @@
       <p v-else-if="!agentMode.workspaceDir" class="text-xs text-muted-foreground italic">
         Select a workspace folder first.
       </p>
-    </div>
+    </SettingsSection>
 
     <p
       v-if="settingsReadOnly"
@@ -159,6 +162,8 @@
         </div>
       </template>
     </AgentSettingsForm>
+
+    <SettingsAgents v-if="agentMode.sessionScoped" />
   </div>
 </template>
 
@@ -183,7 +188,9 @@ import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
 import AgentSettingsForm from '@/components/AgentSettingsForm.vue'
+import AgentSaveBar from '@/components/AgentSaveBar.vue'
 import SettingsAgents from '@/components/SettingsAgents.vue'
+import SettingsSection from '@/components/SettingsSection.vue'
 import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
@@ -196,6 +203,10 @@ const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const oemBranding = useOemBranding()
 const i18n = useI18N().state
+
+const stepsSummary = computed(() =>
+  i18n.AGENT_TASKS_STEP_COUNT.replace('{count}', String(agentMode.openSteps.length)),
+)
 
 const settingsReadOnly = computed(
   () => agentMode.sessionScoped && agentTasks.openSessionSettingsReadOnly,

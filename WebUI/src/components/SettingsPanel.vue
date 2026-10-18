@@ -12,16 +12,20 @@ import { computed } from 'vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 
-const props = defineProps<{
-  /** Heading text, and the master switch's label — clicking it toggles the switch. */
-  title: string
-  /** Id of the master switch, so the heading can point at it. */
-  switchId: string
-  /** Omit for a section governed elsewhere (an agent capability), leaving the frame only. */
-  enabled?: boolean
-  /** Why the switch can't be used, when it can't (e.g. the model has no tool calling). */
-  disabledReason?: string
-}>()
+// An omitted boolean prop is cast to `false`; the default keeps "omitted" visible as `undefined`.
+const props = withDefaults(
+  defineProps<{
+    /** Heading text, and the master switch's label — clicking it toggles the switch. */
+    title: string
+    /** Id of the master switch, so the heading can point at it. */
+    switchId: string
+    /** Omit for a section governed elsewhere (an agent capability), leaving the frame only. */
+    enabled?: boolean
+    /** Why the switch can't be used, when it can't (e.g. the model has no tool calling). */
+    disabledReason?: string
+  }>(),
+  { enabled: undefined },
+)
 
 const emit = defineEmits<{ (e: 'update:enabled', value: boolean): void }>()
 

@@ -23,6 +23,7 @@ import { useTextInference } from './textInference'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { sameAgentSetup } from '@/lib/agentSetup'
 import { firstStepTurn, stepPrompts, stepTurn } from '@/lib/taskSteps'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import {
@@ -68,7 +69,6 @@ export type ModelDownloadRefusal =
 export type SaveTaskResult =
   | { ok: true; task: AgentTask }
   | { ok: false; reason: SaveTaskBlocker | 'persist-failed' | 'no-task' }
-  | ({ ok: false; message: string } & ModelDownloadRefusal)
 
 export type RunTaskResult =
   | { ok: true }
@@ -284,28 +284,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return null
   }
 
-  type DownloadRefusalText = { declined: string; failed: string; surface: 'inline' | 'toast' }
-
-  const saveRefusalText = (): DownloadRefusalText => ({
-    declined:
-      i18n.state.AGENT_TASK_SAVE_DOWNLOAD_DECLINED ??
-      'Not saved: the agent’s chat model {model} has to be downloaded first.',
-    failed:
-      i18n.state.AGENT_TASK_SAVE_DOWNLOAD_FAILED ??
-      'Not saved: the download of {model} failed: {error}',
-    surface: 'inline',
-  })
-
-  const runRefusalText = (): DownloadRefusalText => ({
-    declined:
-      i18n.state.AGENT_TASK_RUN_DOWNLOAD_DECLINED ??
-      'Not started: the agent’s chat model {model} has to be downloaded first.',
-    failed:
-      i18n.state.AGENT_TASK_RUN_DOWNLOAD_FAILED ??
-      'Not started: the download of {model} failed: {error}',
-    surface: 'toast',
-  })
-
   /**
    * The Task's local chat model, with its vision projector when a Step hands it an image, is
    * downloaded with the user's consent when missing; a refusal says why it is not on disk.
@@ -313,7 +291,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   async function chatModelRefusal(
     template: AgentSessionSettings,
     steps: readonly AgentTaskStep[],
-    text: DownloadRefusalText,
   ): Promise<(ModelDownloadRefusal & { message: string }) | null> {
     const { inference } = textInference.inferenceForSettings(AGENT_PRESET, template)
     if (inference.backend === 'cloud') return null
@@ -330,16 +307,22 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return null
     } catch (error) {
       if (isCancellation(error)) {
-        return { reason: 'download-declined', message: fill(text.declined, { model }) }
+        const declined =
+          i18n.state.AGENT_TASK_RUN_DOWNLOAD_DECLINED ??
+          'Not started: the agent’s chat model {model} has to be downloaded first.'
+        return { reason: 'download-declined', message: fill(declined, { model }) }
       }
       const technical = extractMessage(error)
-      const message = fill(text.failed, { model, error: technical })
+      const failed =
+        i18n.state.AGENT_TASK_RUN_DOWNLOAD_FAILED ??
+        'Not started: the download of {model} failed: {error}'
+      const message = fill(failed, { model, error: technical })
       errors.report(
         createAppError({
           category: 'backend',
           code: 'agent-tasks/model-download-failed',
           severity: 'warning',
-          surface: text.surface,
+          surface: 'toast',
           userMessage: message,
           technicalMessage: technical,
           cause: error,
@@ -347,14 +330,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       )
       return { reason: 'download-failed', error: technical, message }
     }
-  }
-
-  async function saveRefusal(
-    template: AgentSessionSettings,
-    steps: readonly AgentTaskStep[],
-  ): Promise<SaveTaskResult | null> {
-    const refusal = await chatModelRefusal(template, steps, saveRefusalText())
-    return refusal && { ok: false, ...refusal }
   }
 
   /** Store the draft with the Open Session's folder and the panel's Session Settings. */
@@ -365,8 +340,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const workspaceDir = agentMode.workspaceDir
     const settingsTemplate = cloneForIpc(agentMode.openSessionSettings)
     const steps = draft.steps.map((step) => ({ id: step.id, prompt: step.prompt }))
-    const refusal = await saveRefusal(settingsTemplate, steps)
-    if (refusal) return refusal
     const now = Date.now()
     const task: AgentTask = {
       id: crypto.randomUUID(),
@@ -518,11 +491,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const message = describeSettingsProblems(problems, i18n.state)
       return { ok: false, reason: 'settings-problems', problems, message }
     }
-    const refusal = await chatModelRefusal(
-      checked.settingsTemplate,
-      checked.steps,
-      runRefusalText(),
-    )
+    const refusal = await chatModelRefusal(checked.settingsTemplate, checked.steps)
     if (refusal) return { ok: false, ...refusal }
     // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
     const task = tasks.value.find((entry) => entry.id === id)
@@ -799,9 +768,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const blocker = blockerOf({ name, steps, workspaceDir })
     if (blocker) return { ok: false, reason: blocker }
     const settingsTemplate = cloneForIpc(agentMode.openSessionSettings)
-    const refusal = await saveRefusal(settingsTemplate, steps)
-    if (refusal) return refusal
-    // Read after the download, which a delete or a run settling may have overtaken.
     const saved = tasks.value.find((task) => task.id === id)
     if (!saved) return { ok: false, reason: 'no-task' }
     const task = replaceTask({
@@ -820,6 +786,38 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     agentMode.linkOpenSessionToAgent(id)
     return { ok: true, task }
   }
+
+  /** Rename an Agent, leaving its settings and Steps as they were saved. */
+  async function renameAgent(id: string, name: string): Promise<SaveTaskResult> {
+    const saved = tasks.value.find((task) => task.id === id)
+    if (!saved) return { ok: false, reason: 'no-task' }
+    if (!name.trim()) return { ok: false, reason: 'name' }
+    if (name.trim() === saved.name) return { ok: true, task: saved }
+    const task = replaceTask({
+      ...saved,
+      name: name.trim(),
+      updatedAt: Math.max(Date.now(), saved.updatedAt + 1),
+    })
+    if (!(await persistTask(task))) {
+      restoreEditableFields(saved)
+      return { ok: false, reason: 'persist-failed' }
+    }
+    return { ok: true, task }
+  }
+
+  /** The Open Session's folder, settings or Steps differ from the Agent it was loaded from. */
+  const openSessionAgentChanged = computed(() => {
+    const task = openSessionTask.value
+    if (!task) return false
+    return !sameAgentSetup(
+      { workspaceDir: task.workspaceDir, settings: task.settingsTemplate, steps: task.steps },
+      {
+        workspaceDir: agentMode.workspaceDir,
+        settings: agentMode.openSessionSettings ?? {},
+        steps: agentMode.openSteps,
+      },
+    )
+  })
 
   function restoreEditableFields(saved: AgentTask): void {
     const latest = tasks.value.find((entry) => entry.id === saved.id)
@@ -939,6 +937,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     isSessionLockedByTask,
     taskLockingSession,
     openSessionTask,
+    openSessionAgentChanged,
+    renameAgent,
     openSessionSettingsReadOnly,
     promptRuns,
     promptRunOf,

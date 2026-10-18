@@ -649,143 +649,97 @@ describe('a Task’s state', () => {
   })
 })
 
-describe('saving a Task whose chat model is not downloaded', () => {
-  it('asks to download the model, and saves the new Task once it downloaded', async () => {
+describe('saving an Agent whose chat model is not downloaded', () => {
+  it('saves without asking for a download', async () => {
     missingModels = new Set(['Stored-27B'])
-    const { tasks } = await readyStores()
-    let finishDownload = () => {}
-    requestDownload.mockImplementation(
-      () => new Promise<void>((resolve) => (finishDownload = resolve)),
-    )
-
-    const saving = tasks.saveTask(draftOf('Docs', 'go'))
-    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
-
-    expect(requestDownload.mock.calls[0][0]).toEqual([
-      expect.objectContaining({ repo_id: 'Stored-27B' }),
-    ])
-    expect(saveTask).not.toHaveBeenCalled()
-    finishDownload()
-    expect((await saving).ok).toBe(true)
-    expect(saveTask).toHaveBeenCalledTimes(1)
-    expect(tasks.tasks).toHaveLength(1)
-  })
-
-  it.each([
-    [
-      'declining',
-      async () => {
-        const { createCancellation } = await import('@/assets/js/errors/appError')
-        throw createCancellation({ technicalMessage: 'Download cancelled by user' })
-      },
-      'download-declined',
-    ],
-    [
-      'a failed download',
-      async () => {
-        throw new Error('Not enough disk space')
-      },
-      'download-failed',
-    ],
-  ])('saves nothing after %s, and says why', async (_case, outcome, reason) => {
-    missingModels = new Set(['Stored-27B'])
-    requestDownload.mockImplementation(outcome)
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(stepsOf('go'))
 
-    const result = await tasks.saveAgent('News')
-
-    expect(result).toMatchObject({
-      ok: false,
-      reason,
-      message: expect.stringContaining('Stored-27B'),
-    })
-    expect(saveTask).not.toHaveBeenCalled()
-    expect(tasks.tasks).toEqual([])
-    expect(agentMode.openTaskId).toBeUndefined()
+    expect((await tasks.saveAgent('News')).ok).toBe(true)
+    expect(getMissingLlmModels).not.toHaveBeenCalled()
+    expect(requestDownload).not.toHaveBeenCalled()
+    expect(saveTask).toHaveBeenCalledTimes(1)
   })
 
-  it('names the download error in the message', async () => {
+  it('updates without asking for a download', async () => {
+    storedTasks = [savedTask('task-1')]
     missingModels = new Set(['Stored-27B'])
-    requestDownload.mockRejectedValue(new Error('Not enough disk space'))
-    const { tasks } = await readyStores()
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(stepsOf('go'))
 
-    const result = await tasks.saveTask(draftOf('Docs', 'go'))
-
-    expect(result).toMatchObject({ error: 'Not enough disk space' })
-    expect(!result.ok && 'message' in result && result.message).toContain('Not enough disk space')
-    expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'agent-tasks/model-download-failed', surface: 'inline' }),
-    )
-  })
-
-  it('saves without asking when the model is already downloaded', async () => {
-    const { tasks } = await readyStores()
-
-    expect((await tasks.saveTask(draftOf('Docs', 'go'))).ok).toBe(true)
+    expect((await tasks.updateAgent('task-1', 'Renamed')).ok).toBe(true)
     expect(requestDownload).not.toHaveBeenCalled()
-  })
-
-  it('never asks for a cloud model', async () => {
-    missingModels = new Set(['Stored-27B', 'cloud-model'])
-    openSessionSettings = { ...SETTINGS, backend: 'cloud', model: 'cloud-model' }
-    const { tasks } = await readyStores()
-
-    expect((await tasks.saveTask(draftOf('Docs', 'go'))).ok).toBe(true)
-    expect(requestDownload).not.toHaveBeenCalled()
-  })
-
-  it('asks for the vision projector too when a Step hands the model an image', async () => {
-    missingModels = new Set([VISION_PROJECTOR])
-    openSessionSettings = { ...SETTINGS, model: VISION_MODEL }
-    const { tasks } = await readyStores()
-
-    await tasks.saveTask(draftOf('Docs', `use this sprite${ATTACHMENT_LINE}`))
-
-    expect(requestDownload.mock.calls[0][0]).toEqual([
-      expect.objectContaining({ repo_id: VISION_PROJECTOR }),
-    ])
-  })
-
-  it('does not ask for the vision projector when no Step carries an image', async () => {
-    missingModels = new Set([VISION_PROJECTOR])
-    openSessionSettings = { ...SETTINGS, model: VISION_MODEL }
-    const { tasks } = await readyStores()
-
-    expect((await tasks.saveTask(draftOf('Docs', 'write the readme'))).ok).toBe(true)
-    expect(requestDownload).not.toHaveBeenCalled()
+    expect(saveTask.mock.calls.at(-1)![0].name).toBe('Renamed')
   })
 })
 
-describe('updating an Agent whose chat model is not downloaded', () => {
-  it('asks even when the model did not change, and saves once it downloaded', async () => {
-    storedTasks = [savedTask('task-1')]
-    missingModels = new Set(['Stored-27B'])
+describe('renaming an Agent', () => {
+  it('changes only its name, whatever the Open Session holds', async () => {
+    storedTasks = [savedTask('task-1'), savedTask('task-2')]
     const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('go'))
+    agentMode.setOpenSteps(stepsOf('something else entirely'))
 
-    const result = await tasks.updateAgent('task-1', 'Renamed')
+    const result = await tasks.renameAgent('task-2', ' Nightly ')
 
-    expect(requestDownload).toHaveBeenCalledTimes(1)
-    expect(requestDownload.mock.calls[0][0]).toEqual([
-      expect.objectContaining({ repo_id: 'Stored-27B' }),
-    ])
     expect(result.ok).toBe(true)
-    expect(saveTask.mock.calls[0][0].name).toBe('Renamed')
+    expect(saveTask.mock.calls.at(-1)![0]).toMatchObject({
+      ...savedTask('task-2'),
+      name: 'Nightly',
+      updatedAt: expect.any(Number),
+    })
+    expect(tasks.tasks[1].steps).toEqual(savedTask('task-2').steps)
+    expect(agentMode.openTaskId).toBeUndefined()
   })
 
-  it('keeps the Agent unchanged when the download is declined', async () => {
-    const { createCancellation } = await import('@/assets/js/errors/appError')
+  it('refuses an empty name and writes nothing for the same name', async () => {
     storedTasks = [savedTask('task-1')]
-    missingModels = new Set(['Stored-27B'])
-    requestDownload.mockRejectedValue(createCancellation())
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('go'))
+    const { tasks } = await readyStores()
 
-    const result = await tasks.updateAgent('task-1', 'Renamed')
-
-    expect(result).toMatchObject({ ok: false, reason: 'download-declined' })
+    expect(await tasks.renameAgent('task-1', '  ')).toEqual({ ok: false, reason: 'name' })
+    expect((await tasks.renameAgent('task-1', 'Task task-1')).ok).toBe(true)
     expect(saveTask).not.toHaveBeenCalled()
+  })
+
+  it('puts the old name back when the file cannot be written', async () => {
+    saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
+    storedTasks = [savedTask('task-1')]
+    const { tasks } = await readyStores()
+
+    expect(await tasks.renameAgent('task-1', 'New')).toEqual({
+      ok: false,
+      reason: 'persist-failed',
+    })
     expect(tasks.tasks[0].name).toBe('Task task-1')
+  })
+})
+
+describe('unsaved changes to a loaded Agent', () => {
+  it('are none right after loading, and show once a Step or setting changes', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { agentMode, tasks } = await readyStores()
+    expect(tasks.openSessionAgentChanged).toBe(false)
+
+    await tasks.loadAgent('task-1')
+    expect(tasks.openSessionAgentChanged).toBe(false)
+
+    agentMode.setOpenSteps(stepsOf('go', 'and more'))
+    expect(tasks.openSessionAgentChanged).toBe(true)
+
+    agentMode.setOpenSteps(stepsOf('go'))
+    expect(tasks.openSessionAgentChanged).toBe(false)
+
+    agentMode.setCapabilityEnabled('web', false)
+    expect(tasks.openSessionAgentChanged).toBe(true)
+  })
+
+  it('are gone once the Agent is updated', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { agentMode, tasks } = await readyStores()
+    await tasks.loadAgent('task-1')
+    agentMode.setOpenSteps(stepsOf('go', 'and more'))
+
+    await tasks.updateAgent('task-1', 'Task task-1')
+
+    expect(tasks.openSessionAgentChanged).toBe(false)
   })
 })

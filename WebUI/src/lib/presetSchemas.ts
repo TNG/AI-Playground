@@ -227,6 +227,8 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // Where the agent works: 'pick' lets the user choose any folder, 'games' has the
   // app provision a folder per game under the games library (no folder picker).
   agentWorkspace: z.enum(['pick', 'games']).optional(),
+  // A user preset saved from an Agent: picking it opens a session set up as that Agent.
+  agentTaskId: z.string().optional(),
   requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
   // Filter models to ones reliable at multi-step tool use (Agent, Game Agent, Quick Coder).
   requiresAgentic: z.boolean().optional(),

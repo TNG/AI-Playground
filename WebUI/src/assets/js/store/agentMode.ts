@@ -432,13 +432,28 @@ export const useAgentMode = defineStore(
       record: AgentSessionRecord | undefined,
     ): AgentSessionSettings | undefined {
       if (!record || record.messages.length === 0) return record?.settings
-      if (!presetNameUsesSessionSettings(record.presetName)) return record.settings
+      if (!nameUsesSessionSettings(record.presetName)) return record.settings
       return record.settings ?? {}
     }
 
     function presetUsesSessionSettings(presetName: string): boolean {
       const preset = presetsStore.presets.find((entry) => entry.name === presetName)
       return preset?.type === 'chat' && usesSessionSettings(preset as ChatPreset)
+    }
+
+    /** By name, also before the preset catalog has loaded (the Agent preset's records). */
+    function nameUsesSessionSettings(presetName: string | undefined): boolean {
+      return (
+        presetNameUsesSessionSettings(presetName) ||
+        (presetName !== undefined && presetUsesSessionSettings(presetName))
+      )
+    }
+
+    /** Opens a new session for a preset that starts its own way; false leaves it blank. */
+    let presetSessionStarter: ((presetName: string) => Promise<boolean>) | null = null
+
+    function setPresetSessionStarter(starter: (presetName: string) => Promise<boolean>): void {
+      presetSessionStarter = starter
     }
 
     /**
@@ -529,7 +544,7 @@ export const useAgentMode = defineStore(
       const next = { ...sessions.value }
       let changed = false
       for (const [id, record] of Object.entries(next)) {
-        if (!presetNameUsesSessionSettings(record.presetName)) continue
+        if (!nameUsesSessionSettings(record.presetName)) continue
         if (!record.capabilities || record.settings?.capabilities) continue
         const { capabilities: legacy, ...rest } = record
         next[id] = { ...rest, settings: { ...record.settings, capabilities: legacy } }
@@ -1236,7 +1251,7 @@ export const useAgentMode = defineStore(
      * running. Game Agent and Quick Coder sessions keep stop-on-switch.
      */
     async function leaveOpenSession(heldWith = agentPresetName.value): Promise<void> {
-      if (presetNameUsesSessionSettings(heldWith)) return
+      if (nameUsesSessionSettings(heldWith)) return
       await stop()
     }
 
@@ -1249,6 +1264,7 @@ export const useAgentMode = defineStore(
 
     async function newSession(): Promise<void> {
       await leaveOpenSession()
+      if (await presetSessionStarter?.(agentPresetName.value)) return
       blankSession()
     }
 
@@ -1503,6 +1519,7 @@ export const useAgentMode = defineStore(
         blankGame()
         return
       }
+      if (await presetSessionStarter?.(name)) return
       workspaceDir.value = lastWorkspaceByKind.value.pick ?? ''
       blankSession()
       await refreshCurrentGame()
@@ -1751,6 +1768,7 @@ export const useAgentMode = defineStore(
       openTaskId,
       linkOpenSessionToAgent,
       startSessionFrom,
+      setPresetSessionStarter,
       ensureOpenSessionId,
       sessionScoped,
       settingsProblems,

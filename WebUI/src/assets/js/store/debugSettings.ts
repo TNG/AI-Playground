@@ -30,6 +30,11 @@ export function debugSettingsVisible(): boolean {
   return snapshot?.showDebugSettingsInUI === true
 }
 
+/** Running from source (`npm run dev`) or with the debug controls shown. */
+export function developerMode(): boolean {
+  return window.envVars?.debugToolsEnabled === true || debugSettingsVisible()
+}
+
 export const useDebugSettings = defineStore('debugSettings', () => {
   const visible = ref(debugSettingsVisible())
   const oemVendorOverride = ref<string | null>(snapshot?.oemVendorOverride ?? null)

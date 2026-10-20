@@ -6,6 +6,7 @@ import type {
   ExtensionUIContext,
 } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { isDeveloperMode } from '../kernel/developerMode.ts'
 import { loadPi } from './piRuntime.ts'
 import {
   buildSkillsPromptSection,
@@ -453,7 +454,15 @@ function applyMediaSpecialistTurn(config: AgentModeTurnConfig): void {
   )
 }
 
-export async function ensureSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
+// The renderer's opt-in is persisted, so a stale one must not outlive developer mode.
+function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
+  if (!config.unsandboxed || isDeveloperMode()) return config
+  logger.warn('agent tools: host shell requested but developer mode is off — sandboxed', LOG_SOURCE)
+  return { ...config, unsandboxed: false }
+}
+
+export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
+  const config = withShellPolicy(requested)
   const configKey = configKeyOf(config)
   if (active && active.configKey === configKey) {
     applyMediaSpecialistTurn(config)

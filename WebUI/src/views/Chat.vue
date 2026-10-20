@@ -1,14 +1,5 @@
 <template>
-  <button
-    v-if="showScrollButton"
-    class="absolute bottom-65 left-1/2 transform -translate-x-1/2 bg-background text-foreground p-2 rounded-full shadow-lg z-50 hover:bg-muted transition-colors"
-    @click="scrollToBottom()"
-    title="Scroll to bottom"
-  >
-    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-    </svg>
-  </button>
+  <ScrollToBottomButton v-if="showScrollButton" @click="scrollToBottom()" />
   <div
     v-if="
       (activeConversation && activeConversation.length > 0) ||
@@ -19,7 +10,6 @@
     id="chatPanel"
     ref="chatPanel"
     class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative"
-    @scroll="handleScroll"
   >
     <!-- eslint-disable vue/require-v-for-key -->
     <!-- pt-20 reserves space for the fixed "Show History" button (App.vue) so short
@@ -537,6 +527,7 @@ import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatActivityIndicator from '@/components/ChatActivityIndicator.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
+import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useActivities } from '@/assets/js/store/activities'
 import { useConfirmations } from '@/assets/js/store/confirmations'
@@ -555,6 +546,7 @@ import {
   isChatWebBrowseToolPart,
 } from '@/lib/chatToolParts'
 import { UserCircleIcon } from '@heroicons/vue/24/outline'
+import { useStickToBottom } from '@/lib/useStickToBottom'
 import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib/chatEnergy'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
 
@@ -605,9 +597,8 @@ const lastMessageIsAssistant = computed(
 
 const i18nState = useI18N().state
 const languages = i18nState
-const autoScrollEnabled = ref(true)
-const showScrollButton = ref(false)
 const chatPanel = ref<HTMLElement | null>(null)
+const { showScrollButton, scrollToBottom } = useStickToBottom(chatPanel)
 
 const activeConversation = computed(() => openAiCompatibleChat.messages)
 const conversationEnergy = computed(() => estimateConversationEnergy(activeConversation.value))
@@ -637,19 +628,6 @@ onMounted(() => {
     promptStore.registerSubmitCallback(mode, handlePromptSubmit)
     promptStore.registerCancelCallback(mode, handleCancel)
   }
-})
-
-// When async content (e.g. a generated picture) finishes loading, the panel
-// grows after the initial scroll. Re-pin to the bottom on such load events so
-// the view doesn't lag behind. `load` doesn't bubble but does fire in the
-// capture phase, so a single listener on the container catches all images.
-watch(chatPanel, (el, _old, onCleanup) => {
-  if (!el) return
-  const onContentLoad = () => {
-    if (autoScrollEnabled.value) nextTick(() => scrollToBottom())
-  }
-  el.addEventListener('load', onContentLoad, true)
-  onCleanup(() => el.removeEventListener('load', onContentLoad, true))
 })
 
 onUnmounted(() => {
@@ -683,10 +661,6 @@ watch(
           if (state === 'output-error') mediaAgentRuns.endRun(id, 'failed')
         }
       })
-    }
-
-    if (autoScrollEnabled.value) {
-      nextTick(() => scrollToBottom())
     }
   },
   { deep: true, immediate: true },
@@ -729,35 +703,6 @@ function handleCancel() {
 
   // Immediately reset prompt state to unblock UI
   promptStore.promptSubmitted = false
-}
-
-let lastScrollTop = 0
-
-function handleScroll(e: Event) {
-  const target = e.target as HTMLElement
-  const scrollTop = target.scrollTop
-  const distanceFromBottom = target.scrollHeight - (scrollTop + target.clientHeight)
-
-  showScrollButton.value = distanceFromBottom > 60
-
-  // Only a genuine upward scroll (user dragging up) disables autoscroll.
-  // Programmatic scroll-to-bottom and content growth only move scrollTop down or
-  // leave it unchanged, so the smooth animation can't wrongly disable autoscroll.
-  if (scrollTop < lastScrollTop - 1) {
-    autoScrollEnabled.value = false
-  } else if (distanceFromBottom <= 35) {
-    autoScrollEnabled.value = true
-  }
-  lastScrollTop = scrollTop
-}
-
-function scrollToBottom(smooth = true) {
-  if (chatPanel.value) {
-    chatPanel.value.scrollTo({
-      top: chatPanel.value.scrollHeight,
-      behavior: smooth ? 'smooth' : 'auto',
-    })
-  }
 }
 
 function copyText(text: string) {

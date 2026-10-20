@@ -1,4 +1,5 @@
 <template>
+  <ScrollToBottomButton v-if="showScrollButton" @click="scrollToBottom()" />
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative" ref="panel">
     <div class="w-full max-w-4xl mx-auto flex flex-col gap-4">
       <!-- Game Agent works on one game at a time, and what to do with that game
@@ -140,6 +141,7 @@ import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import AgentActivitySummary from '@/components/AgentActivitySummary.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import GameBar from '@/components/GameBar.vue'
+import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import {
   busyLabelOf,
   compactionOutputOf,
@@ -150,6 +152,7 @@ import {
   type TranscriptSegment,
 } from '@/lib/agentTranscript'
 import { agentEmptyStateKind } from '@/lib/presetModes'
+import { useStickToBottom } from '@/lib/useStickToBottom'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -169,6 +172,7 @@ const languages = useI18N().state
 const settingsLabel = useModeSettingsLabel('agent')
 
 const panel = ref<HTMLElement | null>(null)
+const { showScrollButton, scrollToBottom } = useStickToBottom(panel)
 
 // The game bar and the game-specific empty state belong to the preset that works
 // on a managed game folder, not to Agent Mode in general.
@@ -240,6 +244,7 @@ const busyLabel = computed<string>(() =>
 )
 
 function handlePromptSubmit(prompt: string) {
+  scrollToBottom()
   void agentTasks.submitPrompt(prompt)
 }
 
@@ -253,11 +258,8 @@ function handleCancel() {
 }
 
 watch(
-  () => agentMode.messages.length + (agentMode.messages.at(-1)?.parts?.length ?? 0),
-  async () => {
-    await nextTick()
-    panel.value?.scrollTo({ top: panel.value.scrollHeight })
-  },
+  () => agentMode.openSessionId,
+  () => nextTick(() => scrollToBottom(false)),
 )
 
 onMounted(() => {

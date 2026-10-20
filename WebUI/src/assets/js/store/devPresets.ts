@@ -9,18 +9,14 @@
  */
 import type { Preset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
-import { debugSettingsVisible } from './debugSettings'
+import { developerMode } from './debugSettings'
 import { devPresets } from '@/lib/devPresetWorkflows'
 
 export { buildDummyGlb, devPresets, DEV_PRESET_NAMES } from '@/lib/devPresetWorkflows'
 
-function devPresetsEnabled(): boolean {
-  return window.envVars?.debugToolsEnabled === true || debugSettingsVisible()
-}
-
 /** Appends the dev-only dummy presets to a freshly loaded preset list. */
 export function withDevPresets(presets: Preset[]): Preset[] {
-  if (!devPresetsEnabled()) return presets
+  if (!developerMode()) return presets
   return [...presets, ...devPresets]
 }
 
@@ -30,5 +26,5 @@ export function withDevPresets(presets: Preset[]): Preset[] {
  * makes a verification run take minutes as soon as it reaches for a real one.
  */
 export function dummyWorkflowsOnly(): boolean {
-  return devPresetsEnabled() && useDeveloperSettings().forceDummyMediaWorkflows
+  return developerMode() && useDeveloperSettings().forceDummyMediaWorkflows
 }

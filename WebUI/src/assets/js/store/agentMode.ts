@@ -209,7 +209,7 @@ export const useAgentMode = defineStore(
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
 
-    const { unsandboxedWorkspaces, unsandboxed, setUnsandboxed } =
+    const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
 
     const sessions = ref<Record<string, AgentSessionRecord>>({})
@@ -857,7 +857,7 @@ export const useAgentMode = defineStore(
           sessionResponseLocale(sessionId),
         ),
         capabilities: [...context.capabilities],
-        unsandboxed: unsandboxedWorkspaces.value.includes(context.workspaceDir),
+        unsandboxed: isUnsandboxed(context.workspaceDir),
         planningThinkingOnly:
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,

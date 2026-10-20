@@ -938,6 +938,13 @@ SSD, OEM vendor override, remote repository, OpenVINO image-gen devices — and 
 shows the title-bar setup-wizard shortcut and unlocks the dev-only test LLM + dummy workflows,
 so a packaged build can use them.
 
+**Developer mode** is `npm run dev` or `showDebugSettingsInUI`: `isDeveloperMode()`
+(`electron/kernel/developerMode.ts`) in main, `developerMode()` (`store/debugSettings.ts`) in the
+renderer. Besides the test LLM and dummy workflows it gates Agent Settings' "Use the real system
+shell in this folder". The toggle is hidden outside it, and main clamps `unsandboxed` to `false`
+in `ensureSession` too, because the per-folder opt-ins stay persisted and a stale one must
+never reach an end user's build.
+
 Two things are deliberately not flags any more. DevTools follows `openDevConsoleOnStartup`
 alone, whose default is "on when unpackaged" — main falls back to `!app.isPackaged` when the
 renderer has stored nothing. And verbose agent logging is a setting rather than the `AGENT_DEBUG`

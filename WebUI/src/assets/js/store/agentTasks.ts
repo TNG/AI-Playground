@@ -904,18 +904,22 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return true
   }
 
-  /**
-   * Send a prompt from the prompt bar. With Steps set it starts them, each sent as the previous
-   * turn completes; without, or for a slash command, it is one turn.
-   */
+  /** Send a prompt from the prompt bar as one turn; the Open Session's Steps are not run. */
   async function submitPrompt(prompt: string): Promise<void> {
     if (isSessionLockedByTask(agentMode.openSessionId)) return
     if (promptRuns.value[agentMode.openSessionId]) return
+    await agentMode.generate(prompt)
+  }
+
+  /**
+   * Carry out the Open Session's Steps, the prompt (which may be empty) leading the first one.
+   * Each Step is sent as the previous turn completes.
+   */
+  async function runSteps(prompt: string): Promise<void> {
+    if (isSessionLockedByTask(agentMode.openSessionId)) return
+    if (promptRuns.value[agentMode.openSessionId]) return
     const steps = agentMode.sessionScoped ? stepPrompts(agentMode.openSteps) : []
-    if (steps.length === 0 || prompt.trim().startsWith('/')) {
-      await agentMode.generate(prompt)
-      return
-    }
+    if (steps.length === 0) return
     const sessionId = agentMode.ensureOpenSessionId()
     promptRunContexts[sessionId] = { steps, abort: new AbortController() }
     promptRuns.value = {
@@ -923,7 +927,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       [sessionId]: { stepIndex: 1, stepCount: steps.length },
     }
     const turn = firstStepTurn(prompt, steps)
-    const started = await agentMode.generate(turn, { title: prompt }).catch((error) => {
+    const title = prompt.trim() || openSessionTask.value?.name || steps[0]
+    const started = await agentMode.generate(turn, { title }).catch((error) => {
       endPromptRun(sessionId)
       throw error
     })
@@ -1011,6 +1016,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     promptRuns,
     promptRunOf,
     submitPrompt,
+    runSteps,
     stopPromptRun,
   }
 })

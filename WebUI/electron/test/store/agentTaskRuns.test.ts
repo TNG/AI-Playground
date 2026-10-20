@@ -1309,12 +1309,12 @@ const STEPS = [
   { id: 'p3', prompt: 'Read the summary aloud' },
 ]
 
-describe('a prompt sent with Steps set', () => {
+describe('running Steps from the prompt bar', () => {
   it('carries out the Steps one turn at a time in the Open Session, then ends', async () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS)
 
-    const submitting = tasks.submitPrompt('Get news focused on Intel Corporation')
+    const submitting = tasks.runSteps('Get news focused on Intel Corporation')
     await turnIdOf(0)
 
     expect(sentPrompts()[0]).toBe(
@@ -1354,7 +1354,7 @@ describe('a prompt sent with Steps set', () => {
     await agentMode.newSession()
     agentMode.setOpenSteps(STEPS.slice(0, 2))
 
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
 
@@ -1373,7 +1373,7 @@ describe('a prompt sent with Steps set', () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS.slice(0, 1))
 
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
     await turnIdOf(0)
 
     expect(sentPrompts()[0]).toBe(
@@ -1389,30 +1389,59 @@ describe('a prompt sent with Steps set', () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps([STEPS[0], { id: 'blank', prompt: '  ' }, STEPS[1]])
 
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
     await turnIdOf(0)
 
     expect(tasks.promptRunOf('session-open')).toEqual({ stepIndex: 1, stepCount: 2 })
   })
 
-  it.each([
-    ['no Steps are set', [], 'just chat'],
-    ['the prompt is a slash command', STEPS, '/compact'],
-  ])('is one plain turn when %s', async (_case, steps, prompt) => {
+  it('starts from Step 1 when there is no prompt', async () => {
     const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(steps)
+    agentMode.setOpenSteps(STEPS.slice(0, 2))
 
-    void tasks.submitPrompt(prompt)
+    void tasks.runSteps('  ')
     await turnIdOf(0)
 
-    expect(sentPrompts()).toEqual([prompt])
-    expect(tasks.promptRunOf('session-open')).toBeUndefined()
+    expect(sentPrompts()[0]).toBe(
+      'Carry this out in 2 steps. I will send them one at a time; do only the current one, ' +
+        'then stop.\n\nStep 1 of 2: Search for today’s news',
+    )
+  })
+
+  it('names a new session after Step 1 when there is no prompt', async () => {
+    const { agentMode, tasks } = await readyStores()
+    await agentMode.newSession()
+    agentMode.setOpenSteps(STEPS.slice(0, 2))
+
+    void tasks.runSteps('')
+    await turnIdOf(0)
+
+    expect(agentMode.sessions[sentConfig(0).sessionId].title).toBe('Search for today’s news')
+  })
+
+  it('names a new session after its Agent when there is no prompt', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.loadAgent('t1')
+
+    void tasks.runSteps('')
+    await turnIdOf(0)
+
+    expect(agentMode.sessions[sentConfig(0).sessionId].title).toBe('Task t1')
+  })
+
+  it('sends nothing when no Steps are set', async () => {
+    const { tasks } = await readyStores()
+
+    await tasks.runSteps('Intel news')
+
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
   })
 
   it('keeps carrying out the Steps it started with when they are edited mid-run', async () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS.slice(0, 2))
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
     await turnIdOf(0)
 
     agentMode.setOpenSteps([STEPS[0], { id: 'src', prompt: 'Find a source' }, STEPS[1]])
@@ -1425,7 +1454,7 @@ describe('a prompt sent with Steps set', () => {
   it('ends without a further Step when a turn fails', async () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS)
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
 
     await failTurn(0, 'model crashed')
 
@@ -1439,7 +1468,7 @@ describe('a prompt sent with Steps set', () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS)
 
-    await tasks.submitPrompt('Intel news')
+    await tasks.runSteps('Intel news')
 
     await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
     expect(startTurn).toHaveBeenCalledTimes(1)
@@ -1448,10 +1477,10 @@ describe('a prompt sent with Steps set', () => {
   it('ignores another prompt while the Steps are being carried out', async () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS)
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
     await turnIdOf(0)
 
-    await tasks.submitPrompt('something else')
+    await tasks.runSteps('something else')
 
     await settleMicrotasks()
     expect(startTurn).toHaveBeenCalledTimes(1)
@@ -1460,7 +1489,7 @@ describe('a prompt sent with Steps set', () => {
   it('stops the running turn and sends no further Step when stopped', async () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(STEPS)
-    void tasks.submitPrompt('Intel news')
+    void tasks.runSteps('Intel news')
     const turnId = await turnIdOf(0)
 
     await tasks.stopPromptRun('session-open')
@@ -1480,10 +1509,38 @@ describe('a prompt sent with Steps set', () => {
     await agentMode.switchSession(sessionId)
     agentMode.setOpenSteps(STEPS)
 
-    await tasks.submitPrompt('Intel news')
+    await tasks.runSteps('Intel news')
 
     await settleMicrotasks()
     expect(sentPrompts()).toEqual(['one'])
     expect(tasks.promptRunOf(sessionId)).toBeUndefined()
+  })
+})
+
+describe('a prompt sent with Steps set', () => {
+  it.each([
+    ['a prompt', 'just chat'],
+    ['a slash command', '/compact'],
+  ])('sends %s as one plain turn', async (_case, prompt) => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(STEPS)
+
+    void tasks.submitPrompt(prompt)
+    await turnIdOf(0)
+
+    expect(sentPrompts()).toEqual([prompt])
+    expect(tasks.promptRunOf('session-open')).toBeUndefined()
+  })
+
+  it('is ignored while the Steps are being carried out', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(STEPS)
+    void tasks.runSteps('Intel news')
+    await turnIdOf(0)
+
+    await tasks.submitPrompt('something else')
+
+    await settleMicrotasks()
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 })

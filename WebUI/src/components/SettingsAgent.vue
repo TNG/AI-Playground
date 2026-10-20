@@ -65,8 +65,8 @@
       <p class="text-xs text-muted-foreground">{{ i18n.AGENT_STEPS_HINT }}</p>
     </SettingsSection>
 
-    <!-- Shell sandbox (per-workspace opt-in) -->
-    <SettingsSection v-if="!isManagedWorkspace" :title="i18n.AGENT_SECTION_SHELL">
+    <!-- Shell sandbox (per-workspace opt-in, developer mode only) -->
+    <SettingsSection v-if="showShellOption" :title="i18n.AGENT_SECTION_SHELL">
       <label class="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
@@ -185,6 +185,7 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
@@ -252,6 +253,7 @@ onMounted(async () => {
 // Game Agent's folders are the app's to create, and they stay sandboxed: a game is
 // plain HTML with no build step, so a real shell would only add risk.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
+const showShellOption = computed(() => !isManagedWorkspace.value && developerMode())
 
 // Consent is stored per workspace folder, so this only ever affects the folder
 // currently selected — pointing the agent elsewhere needs a fresh opt-in.

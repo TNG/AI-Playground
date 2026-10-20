@@ -46,6 +46,13 @@ describe('the turns a prompt is carried out in', () => {
     )
   })
 
+  it('starts with the plan when there is no request', () => {
+    expect(firstStepTurn(' ', ['search', 'summarise'])).toBe(
+      'Carry this out in 2 steps. I will send them one at a time; do only the ' +
+        'current one, then stop.\n\nStep 1 of 2: search',
+    )
+  })
+
   it('numbers each later Step', () => {
     expect(stepTurn(2, ['search', 'summarise'])).toBe('Step 2 of 2: summarise')
   })

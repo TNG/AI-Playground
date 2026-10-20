@@ -418,6 +418,21 @@
             <!-- Send / stop / loading cluster — hidden for the STT preset, which
                  submits via its own record/upload controls. -->
             <template v-if="!isSttPreset">
+              <TooltipProvider v-if="readyForNewSubmit && canRunSteps" :delay-duration="200">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      @click="handleRunStepsClick"
+                      :aria-label="languages?.AGENT_STEPS_RUN"
+                      :disabled="agentSettingsProblems.length > 0 || isSlashCommand"
+                      class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+                    >
+                      <PlayIcon class="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN }}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <Button
                 v-if="readyForNewSubmit"
                 @click="handleSubmitPromptClick"
@@ -523,6 +538,7 @@ import {
   StopIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
+import { PlayIcon } from '@heroicons/vue/24/solid'
 import AcerCameraIcon from '@/components/AcerCameraIcon.vue'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
@@ -535,6 +551,7 @@ import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
+import { stepPrompts } from '@/lib/taskSteps'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -1086,6 +1103,23 @@ function handleSubmitPromptClick() {
   }
   emits('autoHideFooter')
   promptStore.submitPrompt(prompt.value)
+}
+
+/** Agent Maker sessions with Steps can carry them out; Send then talks to the agent alone. */
+const canRunSteps = computed(
+  () =>
+    promptStore.getCurrentMode() === 'agent' &&
+    agentMode.sessionScoped &&
+    stepPrompts(agentMode.openSteps).length > 0,
+)
+
+const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
+
+function handleRunStepsClick() {
+  if (agentSettingsProblems.value.length > 0 || isSlashCommand.value) return
+  emits('autoHideFooter')
+  promptStore.promptSubmitted = true
+  void agentTasks.runSteps(prompt.value)
 }
 
 function handleCancelClick() {

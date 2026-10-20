@@ -1,5 +1,6 @@
 import { computed, ref, type Ref } from 'vue'
 import type { GameLibraryEntry } from '@/types/agentIpc'
+import { developerMode } from './debugSettings'
 
 export type WorkspaceAttachment = { name: string; bytes: ArrayBuffer }
 
@@ -76,9 +77,11 @@ export async function isGameFolder(dir: string): Promise<boolean> {
 
 export function createUnsandboxedWorkspaces(workspaceDir: Ref<string>) {
   const unsandboxedWorkspaces = ref<string[]>([])
-  const unsandboxed = computed(
-    () => !!workspaceDir.value && unsandboxedWorkspaces.value.includes(workspaceDir.value),
-  )
+  // The opt-ins survive leaving developer mode, but only count inside it.
+  function isUnsandboxed(folder: string): boolean {
+    return !!folder && developerMode() && unsandboxedWorkspaces.value.includes(folder)
+  }
+  const unsandboxed = computed(() => isUnsandboxed(workspaceDir.value))
 
   function setUnsandboxed(enabled: boolean): void {
     const folder = workspaceDir.value
@@ -87,7 +90,7 @@ export function createUnsandboxedWorkspaces(workspaceDir: Ref<string>) {
     unsandboxedWorkspaces.value = enabled ? [...others, folder] : others
   }
 
-  return { unsandboxedWorkspaces, unsandboxed, setUnsandboxed }
+  return { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed }
 }
 
 /**

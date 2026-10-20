@@ -290,7 +290,6 @@ describe('session reuse', () => {
     ['the workspace changes', {}],
     ['the tool set changes', { toolSpecs: [{ name: 'media', description: 'x', inputSchema: {} }] }],
     ['capabilities change', { capabilities: ['media', 'web-debug', 'mcp:filesystem'] }],
-    ['the shell mode changes', { unsandboxed: true }],
     ['the conversation changes', { sessionId: 'aipg-agent-2' }],
     [
       'the embedding model changes',
@@ -330,6 +329,52 @@ describe('session reuse', () => {
     expect(await first).toEqual({ success: false, error: 'cancelled' })
     // Once it settled, the next turn is accepted again.
     expect(await manager.startAgentTurn('t3', 'third', configFor())).toEqual({ success: true })
+  })
+})
+
+describe('shell policy', () => {
+  async function shellModes(): Promise<boolean[]> {
+    const { createAgentToolAccess } = await import('../../agent/piToolOperations')
+    return vi
+      .mocked(createAgentToolAccess)
+      .mock.calls.map(([options]) => (options as { unsandboxed: boolean }).unsandboxed)
+  }
+
+  async function setDeveloperMode(enabled: boolean): Promise<void> {
+    const { setDeveloperModeSettings } = await import('../../kernel/developerMode')
+    setDeveloperModeSettings(() => enabled)
+  }
+
+  beforeEach(async () => {
+    const { createAgentToolAccess } = await import('../../agent/piToolOperations')
+    vi.mocked(createAgentToolAccess).mockClear()
+  })
+
+  it('gives a host shell in developer mode', async () => {
+    const manager = await loadManager()
+    await setDeveloperMode(true)
+    await manager.startAgentTurn('t1', 'first', configFor({ unsandboxed: true }))
+
+    expect(await shellModes()).toEqual([true])
+  })
+
+  it('keeps the sandbox outside developer mode, whatever the renderer asked for', async () => {
+    const manager = await loadManager()
+    await setDeveloperMode(false)
+    await manager.startAgentTurn('t1', 'first', configFor({ unsandboxed: true }))
+
+    expect(await shellModes()).toEqual([false])
+  })
+
+  it('rebuilds a host-shell session sandboxed once developer mode is off', async () => {
+    const manager = await loadManager()
+    await setDeveloperMode(true)
+    await manager.startAgentTurn('t1', 'first', configFor({ unsandboxed: true }))
+    await setDeveloperMode(false)
+    await manager.startAgentTurn('t2', 'second', configFor({ unsandboxed: true }))
+
+    expect(await shellModes()).toEqual([true, false])
+    expect(disposed).toHaveLength(1)
   })
 })
 

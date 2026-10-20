@@ -3,7 +3,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
 import { useModelPreferences } from './modelPreferences'
-import { debugSettingsVisible } from './debugSettings'
+import { developerMode } from './debugSettings'
 import { pathKeyForCatalogModel } from '../models/library'
 import { mergeCapabilities } from '../models/overrides'
 import type { ModelCapabilityValues } from '../models/types'
@@ -69,7 +69,7 @@ export const useModels = defineStore(
 
     async function refreshModels() {
       const predefinedModels = (await window.electronAPI.loadModels()) as Model[]
-      if (window.envVars.debugToolsEnabled || debugSettingsVisible()) {
+      if (developerMode()) {
         predefinedModels.push(...devOnlyModels)
       }
       const ggufModels = await window.electronAPI.getDownloadedGGUFLLMs()

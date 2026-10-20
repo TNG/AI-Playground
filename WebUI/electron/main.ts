@@ -42,6 +42,7 @@ import {
   type LocalSettings,
 } from './kernel/localSettings.ts'
 import { writableConfigFile } from './kernel/userConfig.ts'
+import { isDeveloperMode, setDeveloperModeSettings } from './kernel/developerMode.ts'
 import { appLoggerInstance } from './observability/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -552,6 +553,7 @@ function getModeDemoDir(s: LocalSettings): string {
 }
 
 let settings = LocalSettingsSchema.parse({})
+setDeveloperModeSettings(() => settings.showDebugSettingsInUI)
 let demoProfile: DemoProfile | null = null
 
 /** Packaged read-only default: `resources/settings.json` (dev: `external/settings-dev.json`). */
@@ -1396,12 +1398,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
 
   // The in-process media tools resolve workflows from the same catalog the
   // runner trusts (bundle + user presets, dummies behind the debug gate).
-  setMediaCatalogProvider(() =>
-    getPresetCatalog(
-      getPresetLoadConfig(settings),
-      !app.isPackaged || settings.showDebugSettingsInUI,
-    ),
-  )
+  setMediaCatalogProvider(() => getPresetCatalog(getPresetLoadConfig(settings), isDeveloperMode()))
 
   setArtifactRunnerDeps({
     getComfyService: comfyService,
@@ -1431,7 +1428,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
       ensureOvmsImageServerReady('openvino-backend', modelId, keepModelsLoaded, resolution),
     readMediaAsDataUri: readAipgMediaAsDataUri,
     getPlatform: () => process.platform,
-    devPresetsEnabled: () => !app.isPackaged || settings.showDebugSettingsInUI,
+    devPresetsEnabled: () => isDeveloperMode(),
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,

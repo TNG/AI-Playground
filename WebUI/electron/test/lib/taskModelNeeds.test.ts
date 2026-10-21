@@ -220,11 +220,9 @@ describe('taskModelWarnings', () => {
     ],
   }
 
-  it('keeps only the missing models, with their sizes where known, and drops needs fully met', () => {
+  it('keeps only the missing models and drops needs fully met', () => {
     const missing = new Set([modelKey(comfyModel('shared/vae')), modelKey(comfyModel('fast/lcm'))])
-    const warnings = taskModelWarnings(needs, missing, {
-      [modelKey(comfyModel('shared/vae'))]: '320.00M',
-    })
+    const warnings = taskModelWarnings(needs, missing)
     expect(warnings.certain).toEqual([])
     expect(warnings.maybe).toEqual([
       {
@@ -232,21 +230,21 @@ describe('taskModelWarnings', () => {
         tool: 'comfyUI',
         mediaType: 'image',
         workflow: 'Draft Image',
-        models: [comfyModel('fast/lcm'), { ...comfyModel('shared/vae'), size: '320.00M' }],
+        models: [comfyModel('fast/lcm'), comfyModel('shared/vae')],
       },
       {
         kind: 'workflow',
         tool: 'comfyUiImageEdit',
         mediaType: 'image',
         workflow: 'Edit By Prompt',
-        models: [{ ...comfyModel('shared/vae'), size: '320.00M' }],
+        models: [comfyModel('shared/vae')],
       },
     ])
   })
 
   it('lists a model shared by several needs once for downloading', () => {
     const missing = new Set([modelKey(comfyModel('shared/vae')), modelKey(comfyModel('fast/lcm'))])
-    const warnings = taskModelWarnings(needs, missing, {})
+    const warnings = taskModelWarnings(needs, missing)
     expect(modelsToDownload(warnings.maybe)).toEqual([
       comfyModel('fast/lcm'),
       comfyModel('shared/vae'),

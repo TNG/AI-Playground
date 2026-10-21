@@ -4,7 +4,7 @@
       <p class="font-medium">{{ certainText(warning) }}</p>
       <ul class="flex flex-col gap-0.5 pl-3 text-muted-foreground">
         <li v-for="model in warning.models" :key="model.repo_id" class="break-all">
-          {{ modelLine(model) }}
+          {{ model.repo_id }}
         </li>
       </ul>
       <Button
@@ -26,7 +26,7 @@
           <span>{{ needLabel(warning) }}</span>
           <ul class="flex flex-col gap-0.5 pl-3 text-muted-foreground">
             <li v-for="model in warning.models" :key="model.repo_id" class="break-all">
-              {{ modelLine(model) }}
+              {{ model.repo_id }}
             </li>
           </ul>
         </li>
@@ -54,7 +54,6 @@ import { Button } from '@/components/ui/button'
 import type {
   MediaTool,
   MediaType,
-  MissingModel,
   SpeechTool,
   TaskModelWarning,
   TaskModelWarnings,
@@ -98,9 +97,5 @@ function needLabel(warning: TaskModelWarning): string {
   }
   if (warning.kind === 'speech') return i18n[NEED_LABEL_KEYS[warning.tool]]
   return warning.kind
-}
-
-function modelLine(model: MissingModel): string {
-  return model.size ? `${model.repo_id} (${model.size})` : model.repo_id
 }
 </script>

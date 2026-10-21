@@ -69,23 +69,7 @@ const checkModelAlreadyLoaded = vi.fn(async (params: CheckParam[]) =>
   })),
 )
 vi.mock('@/assets/js/store/models', () => ({
-  useModels: () => ({ checkModelAlreadyLoaded, hfToken: undefined }),
-}))
-
-vi.mock('@/assets/js/store/globalSetup', () => ({
-  useGlobalSetup: () => ({ apiHost: 'http://127.0.0.1:59000' }),
-}))
-
-const SIZES: Record<string, string> = { 'sdxl/lcm': '6.46G', 'shared/vae': '319.14M' }
-vi.mock('@/lib/modelDownloader', () => ({
-  fetchModelMeta: vi.fn(async (list: CheckParam[]) =>
-    list.map((item) => ({
-      ...item,
-      size: SIZES[item.repo_id] ?? '',
-      gated: false,
-      accessGranted: false,
-    })),
-  ),
+  useModels: () => ({ checkModelAlreadyLoaded }),
 }))
 
 let speechModels: Record<string, CheckParam>
@@ -168,7 +152,7 @@ describe('useTaskModelWarnings', () => {
     expect(warnings.missingCount.value).toBe(3)
   })
 
-  it('lists the default workflows’ and speech engine’s missing models with their sizes', async () => {
+  it('lists the default workflows’ and speech engine’s missing models', async () => {
     speechModels = {
       synthesizeTextToSpeech: { repo_id: TTS_MODEL, type: 'TTS', backend: 'openvino' },
     }
@@ -181,14 +165,14 @@ describe('useTaskModelWarnings', () => {
         tool: 'comfyUI',
         mediaType: 'image',
         workflow: 'Draft Image',
-        models: [{ repo_id: 'shared/vae', type: 'vae', backend: 'comfyui', size: '319.14M' }],
+        models: [{ repo_id: 'shared/vae', type: 'vae', backend: 'comfyui' }],
       },
       {
         kind: 'workflow',
         tool: 'comfyUiImageEdit',
         mediaType: 'image',
         workflow: 'Edit By Prompt',
-        models: [{ repo_id: 'shared/vae', type: 'vae', backend: 'comfyui', size: '319.14M' }],
+        models: [{ repo_id: 'shared/vae', type: 'vae', backend: 'comfyui' }],
       },
       {
         kind: 'speech',

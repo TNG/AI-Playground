@@ -5,10 +5,9 @@ const props = defineProps<CollapsibleContentProps>()
 </script>
 
 <template>
-  <CollapsibleContent
-    v-bind="props"
-    class="overflow-hidden transition-all data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down"
-  >
+  <!-- No height animation: Electron then leaves parts of the content (labels, status dots,
+       input values) unpainted until the next interaction. -->
+  <CollapsibleContent v-bind="props" class="overflow-hidden">
     <slot />
   </CollapsibleContent>
 </template>

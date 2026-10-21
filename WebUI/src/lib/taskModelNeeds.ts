@@ -129,14 +129,8 @@ function workflowModels(preset: Preset): ModelRef[] {
   }))
 }
 
-export type MissingModel = ModelRef & { size?: string }
-
-type WithMissing<T> = T extends TaskModelNeed
-  ? Omit<T, 'models'> & { models: MissingModel[] }
-  : never
-
 /** A need narrowed to its models that are not on disk. */
-export type TaskModelWarning = WithMissing<TaskModelNeed>
+export type TaskModelWarning = TaskModelNeed
 
 export type TaskModelWarnings = { certain: TaskModelWarning[]; maybe: TaskModelWarning[] }
 
@@ -144,30 +138,24 @@ export function modelKey(model: ModelRef): string {
   return `${model.backend}|${model.type}|${model.repo_id}`
 }
 
-/** The needs narrowed to the models in `missing`, each with its size when known. */
+/** The needs narrowed to the models in `missing`. */
 export function taskModelWarnings(
   needs: TaskModelNeeds,
   missing: ReadonlySet<string>,
-  sizes: Readonly<Record<string, string>>,
 ): TaskModelWarnings {
   const narrow = (list: TaskModelNeed[]): TaskModelWarning[] =>
     list.flatMap((need) => {
-      const models = need.models
-        .filter((model) => missing.has(modelKey(model)))
-        .map((model) => {
-          const size = sizes[modelKey(model)]
-          return size ? { ...model, size } : model
-        })
-      return models.length > 0 ? [{ ...need, models } as TaskModelWarning] : []
+      const models = need.models.filter((model) => missing.has(modelKey(model)))
+      return models.length > 0 ? [{ ...need, models }] : []
     })
   return { certain: narrow(needs.certain), maybe: narrow(needs.maybe) }
 }
 
-/** The warnings' models once each, without their sizes, for one download request. */
+/** The warnings' models once each, for one download request. */
 export function modelsToDownload(warnings: readonly TaskModelWarning[]): ModelRef[] {
   const unique = new Map<string, ModelRef>()
   for (const { models } of warnings) {
-    for (const { size: _size, ...model } of models) unique.set(modelKey(model), model)
+    for (const model of models) unique.set(modelKey(model), model)
   }
   return [...unique.values()]
 }

@@ -170,6 +170,24 @@
       </div>
     </div>
 
+    <div
+      v-if="homeAgent.notificationChannelOptions.length > 0"
+      class="flex items-center gap-3 pt-6"
+    >
+      <label for="home-agent-notification-channel" class="text-sm font-medium">
+        {{ i18n.HOME_AGENT_NOTIFICATION_CHANNEL }}
+      </label>
+      <select
+        id="home-agent-notification-channel"
+        v-model="notificationChannel"
+        class="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <option v-for="kind in homeAgent.notificationChannelOptions" :key="kind" :value="kind">
+          {{ channelName(kind) }}
+        </option>
+      </select>
+    </div>
+
     <SetupWizardFooter
       :show-back="!isEditMode"
       :primary-label="isEditMode ? 'Done' : 'Continue'"
@@ -183,7 +201,8 @@
 import { computed, reactive, ref } from 'vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
-import { CHANNELS } from '@/assets/js/store/channels/channelRegistry'
+import { useI18N } from '@/assets/js/store/i18n'
+import { CHANNELS, getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
@@ -195,7 +214,17 @@ const emit = defineEmits<{
 
 const wizard = useSetupWizard()
 const homeAgent = useHomeAgent()
+const i18n = useI18N().state
 const isEditMode = computed(() => wizard.homeAgentSetupOrigin === 'edit')
+
+const notificationChannel = computed({
+  get: () => homeAgent.notificationConfig.notificationChannel,
+  set: (kind: ChannelKind | null) => (homeAgent.chosenNotificationChannel = kind),
+})
+
+function channelName(kind: ChannelKind): string {
+  return getDescriptor(kind)?.displayName ?? kind
+}
 
 const anyEnabled = computed(() => CHANNELS.some((c) => homeAgent.channelPrefs[c.kind].enabled))
 

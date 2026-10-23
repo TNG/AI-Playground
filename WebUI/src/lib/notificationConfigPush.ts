@@ -1,7 +1,10 @@
 import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useI18N } from '@/assets/js/store/i18n'
+import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
+import { notificationSessionLabel } from '@/lib/notificationLabel'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
 // Main delivers Notifications while the window is hidden, so it keeps its own copy.
@@ -39,4 +42,14 @@ export function startNotificationConfigPush(): void {
   stop = watch(config, (next) => window.electronAPI?.notifications?.setConfig?.(next), {
     immediate: true,
   })
+  // A Channel Question names its session the way main's Notifications do.
+  const agentTasks = useAgentTasks()
+  registerSessionLabeler((sessionId) =>
+    notificationSessionLabel(
+      config.value.templates,
+      sessionId,
+      agentMode.sessions[sessionId]?.title ?? '',
+      agentTasks.tasks,
+    ),
+  )
 }

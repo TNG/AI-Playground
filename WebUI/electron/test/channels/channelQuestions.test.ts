@@ -60,6 +60,18 @@ describe('channel question registry', () => {
     expect(ch.edits[1]).toEqual({ messageId: 1, text: 'Download A?\n\n❌ Cancelled.' })
   })
 
+  it('takes the buttons away from a question settled before its send landed', async () => {
+    const reg = registry()
+    const ch = fakeChannel()
+    const question = reg.ask({ adapter: ch.adapter, summaryMarkdown: 'Download A?' })
+    reg.settle(question.id, false, '✔ Answered in AI Playground.')
+    await flush()
+    expect(ch.prompts).toHaveLength(1)
+    expect(ch.edits).toEqual([
+      { messageId: 1, text: 'Download A?\n\n✔ Answered in AI Playground.' },
+    ])
+  })
+
   it('keeps callback data within Telegram’s 64-byte limit', async () => {
     const reg = createChannelQuestionRegistry({ log: () => {} })
     const ch = fakeChannel('telegram')

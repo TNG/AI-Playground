@@ -3,6 +3,7 @@ import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
+import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
@@ -25,6 +26,7 @@ const OFF_CONFIG: NotificationConfig = {
     paused: '',
     pauseReason: '',
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
+    failed: '',
     untitled: '',
   },
 }
@@ -80,16 +82,34 @@ function pauseReasonText(reason: PauseReason | undefined): string {
   return reason?.summary ? fill(pauseReason, { kind, summary: reason.summary }) : kind
 }
 
+async function sessionLabel(sessionId: string): Promise<string> {
+  return (await readAgentSessionTitle(sessionId)) || config.templates.untitled
+}
+
 async function notifyPaused(sessionId: string, reason: PauseReason | undefined): Promise<void> {
   if (!config.autoNotify || !offScreen(sessionId)) return
-  const title = (await readAgentSessionTitle(sessionId)) || config.templates.untitled
+  const title = await sessionLabel(sessionId)
   await sendNotification(fill(config.templates.paused, { title, reason: pauseReasonText(reason) }))
 }
 
-/** Notifies when a Background Session's turn pauses for the user; returns the unsubscribe. */
+async function notifyFailed(sessionId: string, error: string): Promise<void> {
+  if (!config.autoNotify || !offScreen(sessionId)) return
+  const title = await sessionLabel(sessionId)
+  // The template supplies its own full stop after the error.
+  const reason = error.trim().replace(/[.。]+$/, '')
+  await sendNotification(fill(config.templates.failed, { title, error: reason }))
+}
+
+/** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */
 export function startAutoNotifications(): () => void {
+  const stopFailures = onAgentTurnEnd((end) => {
+    if (end.outcome !== 'failed') return
+    void notifyFailed(end.sessionId, end.error).catch((error) =>
+      appLoggerInstance.warn(`failure notification failed: ${error}`, LOG_SOURCE),
+    )
+  })
   const pausedTurns = new Set<string>()
-  return onKernelEvent((event) => {
+  const stopPauses = onKernelEvent((event) => {
     if (event.type === 'agent-turn-done') {
       pausedTurns.delete(event.turnId)
       return
@@ -106,4 +126,8 @@ export function startAutoNotifications(): () => void {
       appLoggerInstance.warn(`pause notification failed: ${error}`, LOG_SOURCE),
     )
   })
+  return () => {
+    stopFailures()
+    stopPauses()
+  }
 }

@@ -29,6 +29,7 @@ export function startNotificationConfigPush(): void {
           confirmation: text.AGENT_NOTIFY_PAUSE_CONFIRMATION ?? '',
           question: text.AGENT_NOTIFY_PAUSE_QUESTION ?? '',
         },
+        failed: text.AGENT_NOTIFY_FAILED ?? '',
         untitled: text.AGENT_NOTIFY_UNTITLED ?? '',
       },
     }

@@ -5,6 +5,7 @@ import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
+import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
 // Main delivers Notifications while the window is hidden, so it keeps its own copy.
@@ -52,4 +53,24 @@ export function startNotificationConfigPush(): void {
       agentTasks.tasks,
     ),
   )
+  registerChannelQuestionTemplates(() => {
+    const text = i18n.state
+    return {
+      askOne: text.CHANNEL_QUESTION_DOWNLOAD_ONE ?? '',
+      askMany: text.CHANNEL_QUESTION_DOWNLOAD_MANY ?? '',
+      lookupFailed: text.CHANNEL_QUESTION_LOOKUP_FAILED ?? '',
+      gated: text.CHANNEL_QUESTION_GATED ?? '',
+      confirm: text.CHANNEL_QUESTION_CONFIRM ?? '',
+      cancel: text.CHANNEL_QUESTION_CANCEL ?? '',
+      confirmed: text.CHANNEL_QUESTION_CONFIRMED ?? '',
+      cancelled: text.CHANNEL_QUESTION_CANCELLED ?? '',
+      progress: text.CHANNEL_QUESTION_PROGRESS ?? '',
+      complete: text.CHANNEL_QUESTION_COMPLETE ?? '',
+      failed: text.CHANNEL_QUESTION_FAILED ?? '',
+      answeredInApp: text.CHANNEL_QUESTION_ANSWERED_IN_APP ?? '',
+      closed: text.CHANNEL_QUESTION_CLOSED ?? '',
+      unavailable: text.CHANNEL_QUESTION_UNAVAILABLE ?? '',
+      stale: text.CHANNEL_QUESTION_STALE ?? '',
+    }
+  })
 }

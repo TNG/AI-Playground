@@ -256,14 +256,25 @@ function pauseFor(sessionId: string, kind: 'confirmation' | 'question', summary:
   userWait.setAwaitingUser(sessionId, true, { kind, summary })
 }
 
-const DOWNLOAD_TEXT =
-  '⏸ "Morning news" is waiting for you: a model download (kokoro-voice). ' +
+async function pauseForQuestion(): Promise<void> {
+  pauseFor(SESSION, 'question', 'Which colour?')
+  await settle()
+  userWait.setAwaitingUser(SESSION, false)
+}
+
+const QUESTION_TEXT =
+  '⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
 
 describe('a Background Session pausing for the user', () => {
-  it('sends one Notification naming the session and the model', async () => {
+  it('sends one Notification naming the session and the question', async () => {
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT }])
+  }, 30000)
+
+  it('sends no Notification for a download pause, which the window asks as a Channel Question', async () => {
     await withWaitingTurn(SESSION, pauseForDownload)
-    expect(sent).toEqual([{ kind: 'telegram', text: DOWNLOAD_TEXT }])
+    expect(sent).toEqual([])
   }, 30000)
 
   it('notifies every pause kind, once per transition into paused', async () => {
@@ -311,15 +322,15 @@ describe('a Background Session pausing for the user', () => {
 
   it('stays quiet for the session open on screen', async () => {
     notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
-    await withWaitingTurn(SESSION, pauseForDownload)
+    await withWaitingTurn(SESSION, pauseForQuestion)
     expect(sent).toEqual([])
   }, 30000)
 
   it('notifies for the open session while the window is hidden or minimized', async () => {
     notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
     windowShown = false
-    await withWaitingTurn(SESSION, pauseForDownload)
-    expect(sent).toEqual([{ kind: 'telegram', text: DOWNLOAD_TEXT }])
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT }])
   }, 30000)
 
   it.each([
@@ -330,7 +341,7 @@ describe('a Background Session pausing for the user', () => {
     'sends nothing when %s',
     async (_case, override) => {
       notifier.setNotificationConfig({ ...CONFIG, ...override })
-      await withWaitingTurn(SESSION, pauseForDownload)
+      await withWaitingTurn(SESSION, pauseForQuestion)
       expect(sent).toEqual([])
     },
     30000,

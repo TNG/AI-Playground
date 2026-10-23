@@ -38,6 +38,8 @@ type OpenQuestion = {
   resolve: (answer: boolean) => void
   timeoutId?: ReturnType<typeof setTimeout>
   ref?: ChannelMessageRef
+  /** Set once settled, so a send that lands afterwards still loses its buttons. */
+  outcome?: string
 }
 
 function randomId(): string {
@@ -74,7 +76,8 @@ export function createChannelQuestionRegistry(deps?: {
     if (!q) return false
     open.delete(id)
     clearTimeout(q.timeoutId)
-    editInPlace(q, outcomeNote ?? (answer ? '✅ Confirmed.' : '❌ Cancelled.'))
+    q.outcome = outcomeNote ?? (answer ? '✅ Confirmed.' : '❌ Cancelled.')
+    editInPlace(q, q.outcome)
     q.resolve(answer)
     return true
   }
@@ -122,8 +125,11 @@ export function createChannelQuestionRegistry(deps?: {
         }
         try {
           const res = await adapter.keyboard(adapter.formatMarkdown(summaryMarkdown), buttons, meta)
-          // The user may answer before the send round-trips.
-          if (res.ref && open.get(id) === entry) entry.ref = res.ref
+          // The question may be settled before the send round-trips.
+          if (res.ref) {
+            entry.ref = res.ref
+            if (entry.outcome !== undefined) editInPlace(entry, entry.outcome)
+          }
         } catch (e) {
           log('channelQuestions: prompt send failed:', e)
         }

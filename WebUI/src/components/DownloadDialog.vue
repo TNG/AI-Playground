@@ -438,6 +438,7 @@ function cancelConfirm() {
 }
 
 function confirmDownload() {
+  dialogStore.downloadConfirmed()
   showConfirm.value = false
   hashError.value = false
   downloadErrorRetryable.value = false

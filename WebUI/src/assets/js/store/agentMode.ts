@@ -1037,6 +1037,7 @@ export const useAgentMode = defineStore(
           })
         })
       },
+      isAgentTurn: (sessionId) => !!turns.runtimeOf(sessionId)?.hasTurn(),
     })
 
     function settleHeldPrompts(sessionId: string, how: 'show' | 'drop'): void {

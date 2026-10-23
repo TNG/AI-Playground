@@ -12,7 +12,6 @@ import { useConfirmations } from './confirmations'
 import { useActivities } from './activities'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
-import { parseConfirmationReply } from './confirmationReply'
 import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationRoute } from '@/types/notificationsIpc'
@@ -55,7 +54,6 @@ import {
   type RemoteDocument,
   type KeyboardButton,
   type ChannelQueueItem,
-  type ChannelMessageRef,
 } from './channels/types'
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
@@ -64,6 +62,7 @@ import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
+import { createChannelQuestionRegistry } from './channels/channelQuestions'
 import { registerRemoteTurnPort } from '@/assets/js/permissions/remoteTurnPort'
 
 // ── Channel registry ────────────────────────────────────────────────────────
@@ -238,44 +237,7 @@ export const useHomeAgent = defineStore(
       checkpoint?: () => Promise<void>
     } | null = null
 
-    /**
-     * In-flight in-channel confirmations keyed by channel kind. Resolved by the
-     * next inbound yes/no reply (intercepted in `processChannelMessages` so it
-     * never blocks on the busy drain loop) or by timeout.
-     */
-    type PendingConfirmation = {
-      resolve: (_v: boolean) => void
-      timeoutId: ReturnType<typeof setTimeout>
-      adapter: ChannelAdapter
-      meta?: InboundMeta
-      summaryMarkdown: string
-      // Handle to the posted button message, set once the keyboard send round-
-      // trips. Lets us edit the prompt in place (drop the buttons, show the
-      // outcome) when the confirmation settles.
-      ref?: ChannelMessageRef
-    }
-    const pendingConfirmations: Partial<Record<ChannelKind, PendingConfirmation>> = {}
-
-    function settleConfirmation(kind: ChannelKind, answer: boolean, outcomeNote?: string): void {
-      const pending = pendingConfirmations[kind]
-      if (!pending) return
-      clearTimeout(pending.timeoutId)
-      delete pendingConfirmations[kind]
-      // Settle the interactive prompt in place: replace the buttons with the
-      // outcome so it no longer looks tappable/pending. Best-effort — a failed
-      // edit must not block resolving the confirmation.
-      if (pending.ref) {
-        const outcome = outcomeNote ?? (answer ? '✅ Confirmed.' : '❌ Cancelled.')
-        pending.adapter
-          .editKeyboardMessage(
-            pending.ref,
-            pending.adapter.formatMarkdown(`${pending.summaryMarkdown}\n\n${outcome}`),
-            pending.meta,
-          )
-          .catch((e: unknown) => console.error('homeAgent: confirmation settle edit failed:', e))
-      }
-      pending.resolve(answer)
-    }
+    const channelQuestions = createChannelQuestionRegistry()
 
     /** Visibility flag for the dedicated Home Agent inference settings panel. */
     const showSettings = ref(false)
@@ -732,82 +694,31 @@ export const useHomeAgent = defineStore(
       await reply(adapter, `⚠️ ${escapeHtml(message)}`, meta)
     }
 
-    /**
-     * Ask the user to confirm a settings change over the active channel.
-     * Posts the summary, then resolves with the next yes/no reply (intercepted
-     * in `processChannelMessages`) or `false` on timeout.
-     */
+    /** In-turn confirmation over the active channel: buttons or a typed yes/no, declined on timeout. */
     function requestRemoteConfirmation(
       adapter: ChannelAdapter,
       summaryMarkdown: string,
       meta?: InboundMeta,
-    ): Promise<boolean> {
-      const kind = adapter.kind
-      // Cancel any earlier pending confirmation on this channel.
-      settleConfirmation(kind, false)
-      return new Promise<boolean>((resolve) => {
-        const timeoutId = setTimeout(() => {
-          const pending = pendingConfirmations[kind]
-          delete pendingConfirmations[kind]
-          // Settle the prompt visually in place when possible, else fall back
-          // to a fresh message.
-          if (pending?.ref) {
-            adapter
-              .editKeyboardMessage(
-                pending.ref,
-                adapter.formatMarkdown(`${summaryMarkdown}\n\n⌛ No response — cancelled.`),
-                meta,
-              )
-              .catch((e: unknown) =>
-                console.error('homeAgent: confirmation timeout edit failed:', e),
-              )
-          } else {
-            reply(adapter, '⌛ No response — cancelled.', meta).catch((e: unknown) =>
-              console.error('homeAgent: confirmation timeout reply failed:', e),
-            )
-          }
-          resolve(false)
-        }, CONFIRM_TIMEOUT_MS)
-        const entry: PendingConfirmation = {
-          resolve,
-          timeoutId,
-          adapter,
-          meta,
-          summaryMarkdown,
-        }
-        pendingConfirmations[kind] = entry
-        // Interactive buttons instead of a typed yes/no reply: a tap resolves
-        // the confirmation (intercepted in processChannelMessages) and the
-        // prompt is edited in place to show the outcome.
-        const buttons: KeyboardButton[][] = [
-          [
-            { text: '✅ Confirm', callbackData: 'confirm:yes' },
-            { text: '✖ Cancel', callbackData: 'confirm:no' },
-          ],
-        ]
-        ;(async () => {
-          // Freeze the in-progress streamed reply first so the prompt (and any
-          // follow-up content) lands below a settled message rather than having
-          // the message above it rewritten when the turn finalizes.
-          try {
-            await activeRemoteTurn?.checkpoint?.()
-          } catch (e) {
-            console.error('homeAgent: confirmation checkpoint failed:', e)
-          }
-          try {
-            const res = await adapter.keyboard(
-              adapter.formatMarkdown(summaryMarkdown),
-              buttons,
-              meta,
-            )
-            // The user may answer before the send round-trips; only keep the ref
-            // if this confirmation is still the pending one.
-            if (res.ref && pendingConfirmations[kind] === entry) entry.ref = res.ref
-          } catch {
-            // best-effort
-          }
-        })().catch((e: unknown) => console.error('homeAgent: confirmation prompt failed:', e))
+    ) {
+      return channelQuestions.ask({
+        adapter,
+        meta,
+        summaryMarkdown,
+        typedReply: true,
+        timeoutMs: CONFIRM_TIMEOUT_MS,
+        beforeSend: async () => {
+          // Freeze the streamed reply so the prompt lands below a settled message.
+          await activeRemoteTurn?.checkpoint?.()
+        },
       })
+    }
+
+    function settleFromDesktop(id: string, answer: boolean): void {
+      channelQuestions.settle(
+        id,
+        answer,
+        answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
+      )
     }
 
     /**
@@ -836,18 +747,9 @@ export const useHomeAgent = defineStore(
           channelLabel: kind,
         })
         const channel = requestRemoteConfirmation(turn.adapter, summaryMarkdown, turn.meta)
-        const answer = await Promise.race([mirror, channel])
-        // If the desktop card answered first the channel is still waiting:
-        // settle it and edit the in-channel prompt in place to note the desktop
-        // origin. (The channel-answered and timeout paths already delete their
-        // own pending entry + settle the prompt.)
-        if (pendingConfirmations[kind]) {
-          settleConfirmation(
-            kind,
-            answer,
-            answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
-          )
-        }
+        const answer = await Promise.race([mirror, channel.answer])
+        // A no-op when the channel answered or timed out first.
+        settleFromDesktop(channel.id, answer)
         // Remove the mirror card if it is still showing (channel/timeout win).
         confirmations.cancelForConversation(conversationKey, answer)
         return answer
@@ -883,14 +785,8 @@ export const useHomeAgent = defineStore(
         channelLabel: kind,
       })
       const channel = requestRemoteConfirmation(turn.adapter, summaryMarkdown, turn.meta)
-      const answer = await Promise.race([mirror, channel])
-      if (pendingConfirmations[kind]) {
-        settleConfirmation(
-          kind,
-          answer,
-          answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
-        )
-      }
+      const answer = await Promise.race([mirror, channel.answer])
+      settleFromDesktop(channel.id, answer)
       confirmations.cancelForConversation(conversationKey, answer)
       return answer
     }
@@ -2244,26 +2140,8 @@ export const useHomeAgent = defineStore(
         if (!msgs || msgs.length === 0) return
         const queue = messageQueues[kind]
         for (const msg of msgs) {
-          // Resolve a pending settings/download confirmation here (independent of
-          // the busy drain loop, which is blocked awaiting this very answer).
-          if (pendingConfirmations[kind]) {
-            // Primary path: an interactive Confirm/Cancel button tap.
-            if (msg.callback === 'confirm:yes' || msg.callback === 'confirm:no') {
-              settleConfirmation(kind, msg.callback === 'confirm:yes')
-              continue
-            }
-            // Fallback path: a typed yes/no reply. A recognized answer is
-            // consumed; anything else cancels the change and falls through as a
-            // normal message.
-            if (!msg.callback) {
-              const answer = parseConfirmationReply(msg.text ?? '')
-              if (answer !== null) {
-                settleConfirmation(kind, answer)
-                continue
-              }
-              settleConfirmation(kind, false)
-            }
-          }
+          // Answered here, not in the drain loop, which is blocked awaiting this very answer.
+          if (channelQuestions.handleInbound(kind, msg)) continue
           if (queue.length >= MAX_QUEUE_SIZE) {
             toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
             queue.shift()

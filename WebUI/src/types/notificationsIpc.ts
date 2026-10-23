@@ -15,13 +15,15 @@ export type NotificationTemplates = {
   /** `{kind}`, `{summary}` */
   pauseReason: string
   pauseKinds: Record<PauseReason['kind'], string>
+  /** `{title}`, `{error}` */
+  failed: string
   /** The label of a session with no title. */
   untitled: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0003). */
 export type NotificationConfig = NotificationRoute & {
-  /** Background Sessions notify when they pause. */
+  /** Background Sessions notify when they pause or fail. */
   autoNotify: boolean
   /** The Agent Mode session open on screen; null while Agent Mode is not shown. */
   sessionInView: string | null

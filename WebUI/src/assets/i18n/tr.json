@@ -651,6 +651,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "Aralık birimi",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "Kanalı ayarlanmış bir Home Agent gerektirir",
   "AGENT_NOTIFY_PAUSED": "⏸ \"{title}\" sizi bekliyor: {reason}. Devam etmek için AI Playground'u açın.",
+  "AGENT_NOTIFY_FAILED": "❌ \"{title}\" başarısız oldu: {error}. Ayrıntılar için AI Playground'u açın.",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind} ({summary})",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "bir model indirmesi",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "bir vRAM uyarısı",

@@ -651,6 +651,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "Satuan interval",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "Memerlukan Home Agent dengan saluran yang sudah disiapkan",
   "AGENT_NOTIFY_PAUSED": "⏸ \"{title}\" sedang menunggu Anda: {reason}. Buka AI Playground untuk melanjutkan.",
+  "AGENT_NOTIFY_FAILED": "❌ \"{title}\" gagal: {error}. Buka AI Playground untuk detailnya.",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind} ({summary})",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "unduhan model",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "peringatan vRAM",

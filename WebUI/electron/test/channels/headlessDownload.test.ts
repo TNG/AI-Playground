@@ -119,4 +119,41 @@ describe('headless model download', () => {
     expect(ch.finals).toEqual([])
     expect(acts.ended).toEqual(['act-1'])
   })
+
+  it('writes progress, completion and failure in the wording it is given', async () => {
+    const text = {
+      progress: (p: { repoId: string; percent: number }) => `⬇️ Lade ${p.repoId} — ${p.percent}%`,
+      complete: '✅ Fertig. "Spiel" läuft weiter.',
+      failed: (error: string) => `⚠️ Fehlgeschlagen: ${error}`,
+    }
+    const ok = fakeChannel()
+    vi.useFakeTimers()
+    await runHeadlessDownload(
+      { adapter: ok.adapter, list, scope: { kind: 'global' }, text },
+      {
+        download: async (_list, cb: ModelDownloadCallbacks) => {
+          at(10_000)
+          cb.onProgress?.(progress(40, '10 MB/s'))
+        },
+        activities: fakeActivities().sink,
+        refreshModels: () => {},
+      },
+    )
+    expect(ok.drafts).toEqual(['⬇️ Lade org/model-a — 40%'])
+    expect(ok.finals).toEqual(['✅ Fertig. "Spiel" läuft weiter.'])
+
+    const failing = fakeChannel()
+    const run = runHeadlessDownload(
+      { adapter: failing.adapter, list, scope: { kind: 'global' }, text },
+      {
+        download: async () => {
+          throw new Error('disk <full>')
+        },
+        activities: fakeActivities().sink,
+        refreshModels: () => {},
+      },
+    )
+    await expect(run).rejects.toMatchObject({ code: 'model/download-failed' })
+    expect(failing.replies).toEqual(['⚠️ Fehlgeschlagen: disk &lt;full&gt;'])
+  })
 })

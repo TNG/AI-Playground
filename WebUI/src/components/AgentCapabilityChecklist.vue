@@ -10,6 +10,7 @@
         class="mt-0.5"
         :disabled="!!capability.unavailableReason"
         :checked="isEnabled(capability.id)"
+        :aria-describedby="showNotifyHint(capability.id) ? 'agent-notify-hint' : undefined"
         @change="toggle(capability.id, $event)"
       />
       <span class="flex flex-col">
@@ -17,6 +18,13 @@
         <span class="text-xs text-muted-foreground">{{ capability.summary }}</span>
         <span v-if="capability.requires.length > 0" class="text-xs text-muted-foreground">
           Also enables: {{ capabilityLabels(capability.requires) }}
+        </span>
+        <span
+          v-if="showNotifyHint(capability.id)"
+          id="agent-notify-hint"
+          class="text-xs text-amber-500"
+        >
+          {{ i18n.AGENT_NOTIFY_NEEDS_HOME_AGENT }}
         </span>
         <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
           {{ capability.unavailableReason }}
@@ -29,13 +37,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { toggleCapabilityIds } from '@/assets/js/store/agentModeSessions'
-import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
+import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useI18N } from '@/assets/js/store/i18n'
+import { MCP_CAPABILITY_PREFIX, NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 
 const props = defineProps<{
   catalog: AgentCapabilityInfo[]
 }>()
 
 const capabilities = defineModel<string[]>({ required: true })
+
+const homeAgent = useHomeAgent()
+const i18n = useI18N().state
+
+function showNotifyHint(id: string): boolean {
+  return id === NOTIFY_CAPABILITY_ID && !homeAgent.notificationsReady
+}
 
 const builtInCapabilities = computed(() =>
   props.catalog.filter((capability) => !capability.id.startsWith(MCP_CAPABILITY_PREFIX)),

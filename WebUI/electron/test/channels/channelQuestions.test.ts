@@ -264,4 +264,36 @@ describe('channel question registry', () => {
     expect(ch.edits).toEqual([{ messageId: 1, text: 'Download?\n\n⏹ Not here.' }])
     expect(reg.isOpen(q.id)).toBe(false)
   })
+
+  it('writes the buttons, the tap outcome and the stale reply in the given wording', async () => {
+    const reg = createChannelQuestionRegistry({
+      newId: () => `q${++ids}`,
+      log: () => {},
+      staleReply: () => 'Diese Frage ist nicht mehr offen.',
+    })
+    const ch = fakeChannel()
+    const q = reg.ask({
+      adapter: ch.adapter,
+      summaryMarkdown: 'Herunterladen?',
+      labels: {
+        confirm: '✅ Bestätigen',
+        cancel: '✖ Abbrechen',
+        confirmed: '✅ Bestätigt.',
+        cancelled: '❌ Abgebrochen.',
+      },
+    })
+    await flush()
+    expect(ch.prompts[0].buttons.flat().map((b) => b.text)).toEqual([
+      '✅ Bestätigen',
+      '✖ Abbrechen',
+    ])
+    const cancel = ch.prompts[0].buttons.flat()[1].callbackData
+    reg.handleInbound(ch.adapter, { callback: cancel })
+    await expect(q.answer).resolves.toBe(false)
+    expect(ch.edits).toEqual([{ messageId: 1, text: 'Herunterladen?\n\n❌ Abgebrochen.' }])
+
+    reg.handleInbound(ch.adapter, { callback: cancel })
+    await flush()
+    expect(ch.replies).toEqual(['Diese Frage ist nicht mehr offen.'])
+  })
 })

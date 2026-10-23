@@ -16,7 +16,11 @@ import { parseConfirmationReply } from './confirmationReply'
 import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationConfig } from '@/types/notificationsIpc'
-import { resolveNotificationChannel } from '@/lib/notificationChannel'
+import {
+  canDeliverNotifications,
+  resolveNotificationChannel,
+  usableNotificationChannels,
+} from '@/lib/notificationChannel'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
@@ -162,6 +166,9 @@ export const useHomeAgent = defineStore(
       discord: emptyPrefs(),
       'local-web': emptyPrefs(),
     })
+
+    /** Falls back to the default order while the pick is disabled or unverified. */
+    const chosenNotificationChannel = ref<ChannelKind | null>(null)
 
     // Runtime-only per-channel state (secret config + derived `active`). Never
     // persisted; rebuilt on launch from safeStorage + channelPrefs.
@@ -339,8 +346,13 @@ export const useHomeAgent = defineStore(
     // Main delivers Notifications while the window is hidden, so it keeps its own copy.
     const notificationConfig = computed<NotificationConfig>(() => ({
       homeAgentEnabled: isAvailable.value && masterEnabled.value,
-      notificationChannel: resolveNotificationChannel(channelPrefs),
+      notificationChannel: resolveNotificationChannel(
+        channelPrefs,
+        chosenNotificationChannel.value,
+      ),
     }))
+    const notificationChannelOptions = computed(() => usableNotificationChannels(channelPrefs))
+    const notificationsReady = computed(() => canDeliverNotifications(notificationConfig.value))
     watch(
       notificationConfig,
       (config) => window.electronAPI?.notifications?.setConfig?.({ ...config }),
@@ -2459,6 +2471,10 @@ export const useHomeAgent = defineStore(
       // Master title-bar switch + persisted per-channel prefs.
       masterEnabled,
       channelPrefs,
+      chosenNotificationChannel,
+      notificationConfig,
+      notificationChannelOptions,
+      notificationsReady,
       // Runtime channel state map (secrets + derived `active`); in-memory only.
       channels,
       // Read-only per-kind convenience getters over channelPrefs.
@@ -2506,7 +2522,13 @@ export const useHomeAgent = defineStore(
       // safeStorage by initConfig() and never serialized here.
       // activeRemoteConversationKey persisted so /load <id> survives restart.
       // summaryCache persisted so /load menu summaries survive restarts.
-      pick: ['masterEnabled', 'channelPrefs', 'activeRemoteConversationKey', 'summaryCache'],
+      pick: [
+        'masterEnabled',
+        'channelPrefs',
+        'chosenNotificationChannel',
+        'activeRemoteConversationKey',
+        'summaryCache',
+      ],
     },
   },
 )

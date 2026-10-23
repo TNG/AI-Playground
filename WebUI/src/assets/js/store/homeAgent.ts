@@ -63,6 +63,7 @@ import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry } from './channels/channelQuestions'
+import { runHeadlessDownload } from './channels/headlessDownload'
 import { registerRemoteTurnPort } from '@/assets/js/permissions/remoteTurnPort'
 
 // ── Channel registry ────────────────────────────────────────────────────────
@@ -90,8 +91,6 @@ const CONFIRM_TIMEOUT_MS = 2 * 60_000
 const SETTINGS_CONFIRM_TITLE = 'Apply Home Agent settings?'
 /** Title shown on the inline desktop confirmation card for remote downloads. */
 const DOWNLOAD_CONFIRM_TITLE = 'Download model?'
-/** Min gap between in-channel download progress draft updates. */
-const DOWNLOAD_DRAFT_THROTTLE_MS = 3000
 
 /** Module-level so Vite HMR does not orphan intervals across Pinia setup
  *  closures. Indexed by ChannelKind so adding a kind = one map entry. */
@@ -796,8 +795,8 @@ export const useHomeAgent = defineStore(
      * models during a remote turn (no desktop user to drive the modal). Declines
      * gated models that need browser interaction, asks approval in-channel
      * (mirrored on the desktop) unless the caller passes a pre-grant's
-     * `skipConfirmation`, then runs the download headlessly with progress
-     * streamed to both the channel and the desktop activity sink. Resolves on
+     * `skipConfirmation`, then runs the download via the shared
+     * `runHeadlessDownload` (channel + desktop activity progress). Resolves on
      * success; throws (silent/cancelled AppError) on decline or failure so the
      * caller's `reject` unwinds the inference attempt cleanly.
      */
@@ -859,50 +858,19 @@ export const useHomeAgent = defineStore(
         throw createCancellation({ technicalMessage: 'remote model download declined' })
       }
 
-      const activityId = activities.begin({
-        category: 'backend',
-        label: 'Downloading model…',
-        scope: { kind: 'chat', conversationKey },
-        progress: 0,
-      })
-      const draft = draftStream(adapter, meta)
-      let lastChannelUpdate = 0
-      try {
-        await runModelDownload(list, {
-          apiHost: globalSetup.apiHost,
-          hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
-          onProgress: (p) => {
-            activities.update(activityId, {
-              label: `Downloading ${p.repoId}… (${p.completed}/${p.total})`,
-              progress: Math.max(0, Math.min(1, p.percent / 100)),
-            })
-            const now = Date.now()
-            if (p.speed !== undefined && now - lastChannelUpdate > DOWNLOAD_DRAFT_THROTTLE_MS) {
-              lastChannelUpdate = now
-              draft.update(
-                `⬇️ Downloading \`${p.repoId}\` — ${p.percent}% (${p.completed}/${p.total} models)`,
-              )
-            }
-          },
-          onModelCompleted: () => {
-            models.refreshModels()
-          },
-        })
-        await draft.finalize('✅ Download complete.')
-      } catch (e) {
-        draft.cancel()
-        const message = isAppError(e) ? e.userMessage : extractMessage(e)
-        await reply(adapter, `⚠️ The model download failed: ${escapeHtml(message)}`, meta)
-        throw createAppError({
-          category: 'inference',
-          code: 'model/download-failed',
-          userMessage: 'The model download failed.',
-          surface: 'silent',
-          cause: e,
-        })
-      } finally {
-        activities.end(activityId)
-      }
+      await runHeadlessDownload(
+        { adapter, meta, list, scope: { kind: 'chat', conversationKey } },
+        {
+          download: (toDownload, callbacks) =>
+            runModelDownload(toDownload, {
+              apiHost: globalSetup.apiHost,
+              hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
+              ...callbacks,
+            }),
+          activities,
+          refreshModels: () => models.refreshModels(),
+        },
+      )
     }
 
     /**

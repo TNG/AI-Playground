@@ -9,6 +9,8 @@ export type SessionPromptPort = {
   whenInView: (conversationKey: string) => Promise<void>
   /** `conversationKey` is an Agent Mode session with a turn in flight. */
   isAgentTurn: (conversationKey: string) => boolean
+  /** Resolves once that session's turn has ended (stopped, finished, failed or deleted). */
+  whenTurnEnds: (conversationKey: string) => Promise<void>
 }
 
 let registered: SessionPromptPort | null = null
@@ -21,6 +23,11 @@ export function registerSessionPromptPort(port: SessionPromptPort | null): void 
 export function whenSessionInView(conversationKey: string | undefined): Promise<void> {
   if (!conversationKey || !registered) return Promise.resolve()
   return registered.whenInView(conversationKey)
+}
+
+/** Never resolves for a turn no session owns. */
+export function whenSessionTurnEnds(conversationKey: string): Promise<void> {
+  return registered?.whenTurnEnds(conversationKey) ?? new Promise<void>(() => {})
 }
 
 export function isAgentSessionTurn(conversationKey: string | undefined): boolean {

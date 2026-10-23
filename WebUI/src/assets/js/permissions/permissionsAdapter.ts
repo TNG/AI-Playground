@@ -1,16 +1,84 @@
 import { useDialogStore } from '../store/dialogs'
-import { remoteTurnPort } from './remoteTurnPort'
-import { whenSessionInView } from './sessionPromptPort'
-import { extractMessage, isCancellation } from '../errors/appError'
+import { remoteTurnPort, type DownloadChannelQuestion } from './remoteTurnPort'
+import { isAgentSessionTurn, sessionLabel, whenSessionInView } from './sessionPromptPort'
+import { createCancellation, extractMessage, isCancellation } from '../errors/appError'
 
 /**
  * Renderer half of the Permissions prompt adapter (step 13). Main owns grant
  * lookup and skip-confirmation; this module shows the desktop modal, routes a
- * remote turn to the registered Home Agent port, and asks the VRAM warning.
+ * remote turn to the registered Home Agent port, races an Agent Mode download
+ * against its Channel Question, and asks the VRAM warning.
  * `notify` stays local — it is display-only, not a consent decision.
  */
 
 const PING_INTERVAL_MS = 30_000
+
+const never = new Promise<never>(() => {})
+
+/** The desktop modal, held until the session is on screen; `dismiss` keeps it from ever showing. */
+function desktopDownload(
+  models: DownloadModelParam[],
+  conversationKey: string | undefined,
+  onConfirm?: () => void,
+) {
+  let dismissed = false
+  let shown = false
+  let modal: { dismiss: () => void } | undefined
+  const done = (async () => {
+    await whenSessionInView(conversationKey)
+    if (dismissed) return never
+    shown = true
+    await new Promise<void>((resolve, reject) => {
+      modal = useDialogStore().showDownloadDialog(models, resolve, reject, { onConfirm })
+    })
+  })()
+  return {
+    done,
+    wasShown: () => shown,
+    dismiss: () => {
+      dismissed = true
+      modal?.dismiss()
+    },
+  }
+}
+
+/** The first answer, from the modal or the Channel Question, wins (docs/adr/0004). */
+async function raceDownload(
+  models: DownloadModelParam[],
+  conversationKey: string,
+  question: DownloadChannelQuestion,
+): Promise<void> {
+  const desktop = desktopDownload(models, conversationKey, () => question.retire('answered-in-app'))
+  const fromDesktop = desktop.done.then(
+    () => ({ side: 'desktop' as const }),
+    (error: unknown) => ({ side: 'desktop' as const, error }),
+  )
+  const fromChannel = question.answer.then((answer) => ({ side: 'channel' as const, answer }))
+  const winner = await Promise.race([fromDesktop, fromChannel])
+  if (winner.side === 'desktop') {
+    question.retire(desktop.wasShown() ? 'answered-in-app' : 'closed')
+    if ('error' in winner) throw winner.error
+    return
+  }
+  desktop.dismiss()
+  if (!winner.answer) {
+    throw createCancellation({ technicalMessage: 'Download declined in the Notification Channel' })
+  }
+  await question.download()
+}
+
+function channelQuestionFor(
+  models: DownloadModelParam[],
+  conversationKey: string | undefined,
+): DownloadChannelQuestion | null {
+  if (!conversationKey || !isAgentSessionTurn(conversationKey)) return null
+  const port = remoteTurnPort()
+  if (!port.canAskChannelQuestion()) return null
+  return port.askDownloadQuestion(models, {
+    label: sessionLabel(conversationKey),
+    conversationKey,
+  })
+}
 
 function respond(payload: import('@/types/permissionsIpc').PermissionsPromptResponse): void {
   void window.electronAPI.permissions.respond(payload)
@@ -31,15 +99,16 @@ async function handlePrompt(
       }
       case 'download': {
         const models = request.models as DownloadModelParam[]
-        if (remoteTurnPort().isActive()) {
+        // Asked before the remote-turn branch: the pre-grant must never skip it.
+        const question = channelQuestionFor(models, request.conversationKey)
+        if (question && request.conversationKey) {
+          await raceDownload(models, request.conversationKey, question)
+        } else if (remoteTurnPort().isActive()) {
           await remoteTurnPort().downloadModels(models, {
             skipConfirmation: request.skipConfirmation,
           })
         } else {
-          await whenSessionInView(request.conversationKey)
-          await new Promise<void>((resolve, reject) => {
-            useDialogStore().showDownloadDialog(models, resolve, reject)
-          })
+          await desktopDownload(models, request.conversationKey).done
         }
         respond({ requestId: request.requestId, result: true })
         break

@@ -2,6 +2,7 @@ import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
+import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
@@ -75,39 +76,28 @@ function offScreen(sessionId: string): boolean {
   return config.sessionInView !== sessionId || !windowShown()
 }
 
-function fill(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (token, key: string) => values[key] ?? token)
-}
-
 function pauseReasonText(reason: PauseReason | undefined): string {
   const { pauseReason, pauseKinds } = config.templates
   const kind = pauseKinds[reason?.kind ?? 'question']
-  return reason?.summary ? fill(pauseReason, { kind, summary: reason.summary }) : kind
-}
-
-async function taskRunLabel(sessionId: string): Promise<string | undefined> {
-  const tasks = await readAgentTasks().catch(() => [])
-  const task = tasks.find((entry) => entry.activeRun?.sessionId === sessionId)
-  if (!task?.activeRun) return undefined
-  const { stepIndex, stepCount } = task.activeRun
-  const { sessionLabel, taskLabel } = config.templates
-  if (!Number.isInteger(stepIndex) || stepIndex < 1 || stepIndex > stepCount) {
-    return fill(sessionLabel, { title: task.name })
-  }
-  return fill(taskLabel, { task: task.name, step: String(stepIndex), steps: String(stepCount) })
+  return reason?.summary ? fillTemplate(pauseReason, { kind, summary: reason.summary }) : kind
 }
 
 async function sessionLabel(sessionId: string): Promise<string> {
-  const taskRun = await taskRunLabel(sessionId)
-  if (taskRun) return taskRun
-  const title = (await readAgentSessionTitle(sessionId)) || config.templates.untitled
-  return fill(config.templates.sessionLabel, { title })
+  const tasks = await readAgentTasks().catch(() => [])
+  const title = tasks.some((task) => task.activeRun?.sessionId === sessionId)
+    ? ''
+    : await readAgentSessionTitle(sessionId)
+  return notificationSessionLabel(config.templates, sessionId, title, tasks)
 }
 
 async function notifyPaused(sessionId: string, reason: PauseReason | undefined): Promise<void> {
+  // A download pause is asked as a Channel Question by the window instead (docs/adr/0004).
+  if (reason?.kind === 'download') return
   if (!config.autoNotify || !offScreen(sessionId)) return
   const title = await sessionLabel(sessionId)
-  await sendNotification(fill(config.templates.paused, { title, reason: pauseReasonText(reason) }))
+  await sendNotification(
+    fillTemplate(config.templates.paused, { title, reason: pauseReasonText(reason) }),
+  )
 }
 
 async function notifyFailed(sessionId: string, error: string): Promise<void> {
@@ -115,7 +105,7 @@ async function notifyFailed(sessionId: string, error: string): Promise<void> {
   const title = await sessionLabel(sessionId)
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
-  await sendNotification(fill(config.templates.failed, { title, error: reason }))
+  await sendNotification(fillTemplate(config.templates.failed, { title, error: reason }))
 }
 
 /** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */

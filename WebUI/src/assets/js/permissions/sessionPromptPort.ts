@@ -7,9 +7,12 @@
 export type SessionPromptPort = {
   /** Resolves once `conversationKey`'s session is in view; rejects if its turn ends first. */
   whenInView: (conversationKey: string) => Promise<void>
+  /** `conversationKey` is an Agent Mode session with a turn in flight. */
+  isAgentTurn: (conversationKey: string) => boolean
 }
 
 let registered: SessionPromptPort | null = null
+let labeler: ((conversationKey: string) => string) | null = null
 
 export function registerSessionPromptPort(port: SessionPromptPort | null): void {
   registered = port
@@ -18,4 +21,17 @@ export function registerSessionPromptPort(port: SessionPromptPort | null): void 
 export function whenSessionInView(conversationKey: string | undefined): Promise<void> {
   if (!conversationKey || !registered) return Promise.resolve()
   return registered.whenInView(conversationKey)
+}
+
+export function isAgentSessionTurn(conversationKey: string | undefined): boolean {
+  return !!conversationKey && !!registered?.isAgentTurn(conversationKey)
+}
+
+/** Names a session or Task run the way Notifications do. */
+export function registerSessionLabeler(next: ((conversationKey: string) => string) | null): void {
+  labeler = next
+}
+
+export function sessionLabel(conversationKey: string): string {
+  return labeler?.(conversationKey) ?? ''
 }

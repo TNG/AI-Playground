@@ -651,6 +651,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "間隔の単位",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "チャネルが設定された Home Agent が必要です",
   "AGENT_NOTIFY_PAUSED": "⏸「{title}」があなたを待っています: {reason}。続行するには AI Playground を開いてください。",
+  "AGENT_NOTIFY_FAILED": "❌「{title}」が失敗しました: {error}。詳細は AI Playground を開いて確認してください。",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind}（{summary}）",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "モデルのダウンロード",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "vRAM の警告",

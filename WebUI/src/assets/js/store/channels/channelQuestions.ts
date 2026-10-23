@@ -7,6 +7,20 @@ const CALLBACK_RE = /^confirm:([a-z0-9]{1,16}):(yes|no)$/
 
 const STALE_REPLY = 'This question is no longer open. Use AI Playground on your computer.'
 
+export type ChannelQuestionLabels = {
+  confirm: string
+  cancel: string
+  confirmed: string
+  cancelled: string
+}
+
+const ENGLISH_LABELS: ChannelQuestionLabels = {
+  confirm: '✅ Confirm',
+  cancel: '✖ Cancel',
+  confirmed: '✅ Confirmed.',
+  cancelled: '❌ Cancelled.',
+}
+
 export type ChannelQuestionAsk = {
   adapter: ChannelAdapter
   meta?: InboundMeta
@@ -17,6 +31,8 @@ export type ChannelQuestionAsk = {
   timeoutMs?: number
   /** Runs before the buttons are sent (freezes a streaming draft above the prompt). */
   beforeSend?: () => Promise<void>
+  /** Button texts and the notes a tap leaves; English when omitted. */
+  labels?: ChannelQuestionLabels
 }
 
 export type ChannelQuestion = { id: string; answer: Promise<boolean> }
@@ -41,6 +57,7 @@ type OpenQuestion = {
   meta?: InboundMeta
   summaryMarkdown: string
   typedReply: boolean
+  labels: ChannelQuestionLabels
   resolve: (answer: boolean) => void
   timeoutId?: ReturnType<typeof setTimeout>
   ref?: ChannelMessageRef
@@ -61,8 +78,10 @@ export function confirmCallback(id: string, answer: boolean): string {
 export function createChannelQuestionRegistry(deps?: {
   newId?: () => string
   log?: (message: string, error: unknown) => void
+  staleReply?: () => string
 }): ChannelQuestionRegistry {
   const newId = deps?.newId ?? randomId
+  const staleReply = deps?.staleReply ?? (() => STALE_REPLY)
   const log = deps?.log ?? ((message, error) => console.error(message, error))
   const open = new Map<string, OpenQuestion>()
 
@@ -82,7 +101,7 @@ export function createChannelQuestionRegistry(deps?: {
     if (!q) return false
     open.delete(id)
     clearTimeout(q.timeoutId)
-    q.outcome = outcomeNote ?? (answer ? '✅ Confirmed.' : '❌ Cancelled.')
+    q.outcome = outcomeNote ?? (answer ? q.labels.confirmed : q.labels.cancelled)
     editInPlace(q, q.outcome)
     q.resolve(answer)
     return true
@@ -119,6 +138,7 @@ export function createChannelQuestionRegistry(deps?: {
 
   function ask(question: ChannelQuestionAsk): ChannelQuestion {
     const { adapter, meta, summaryMarkdown } = question
+    const labels = question.labels ?? ENGLISH_LABELS
     let id = newId()
     while (open.has(id)) id = newId()
     const answer = new Promise<boolean>((resolve) => {
@@ -127,6 +147,7 @@ export function createChannelQuestionRegistry(deps?: {
         meta,
         summaryMarkdown,
         typedReply: question.typedReply === true,
+        labels,
         resolve,
       }
       if (question.timeoutMs !== undefined) {
@@ -135,8 +156,8 @@ export function createChannelQuestionRegistry(deps?: {
       open.set(id, entry)
       const buttons: KeyboardButton[][] = [
         [
-          { text: '✅ Confirm', callbackData: confirmCallback(id, true) },
-          { text: '✖ Cancel', callbackData: confirmCallback(id, false) },
+          { text: labels.confirm, callbackData: confirmCallback(id, true) },
+          { text: labels.cancel, callbackData: confirmCallback(id, false) },
         ],
       ]
       ;(async () => {
@@ -168,7 +189,7 @@ export function createChannelQuestionRegistry(deps?: {
       const q = match ? open.get(match[1]) : undefined
       if (match && q && q.adapter.kind === kind) return settle(match[1], match[2] === 'yes')
       adapter
-        .reply(adapter.formatRichSnippet(STALE_REPLY), meta)
+        .reply(adapter.formatRichSnippet(staleReply()), meta)
         .catch((e: unknown) => log('channelQuestions: stale-tap reply failed:', e))
       return true
     }

@@ -5,6 +5,7 @@ import type { NotificationConfig } from '@/types/notificationsIpc'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
+import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
 // The one sender of Notifications (docs/adr/0003): owns the delivery decision and
@@ -27,6 +28,8 @@ const OFF_CONFIG: NotificationConfig = {
     pauseReason: '',
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
     failed: '',
+    sessionLabel: '',
+    taskLabel: '',
     untitled: '',
   },
 }
@@ -82,8 +85,23 @@ function pauseReasonText(reason: PauseReason | undefined): string {
   return reason?.summary ? fill(pauseReason, { kind, summary: reason.summary }) : kind
 }
 
+async function taskRunLabel(sessionId: string): Promise<string | undefined> {
+  const tasks = await readAgentTasks().catch(() => [])
+  const task = tasks.find((entry) => entry.activeRun?.sessionId === sessionId)
+  if (!task?.activeRun) return undefined
+  const { stepIndex, stepCount } = task.activeRun
+  const { sessionLabel, taskLabel } = config.templates
+  if (!Number.isInteger(stepIndex) || stepIndex < 1 || stepIndex > stepCount) {
+    return fill(sessionLabel, { title: task.name })
+  }
+  return fill(taskLabel, { task: task.name, step: String(stepIndex), steps: String(stepCount) })
+}
+
 async function sessionLabel(sessionId: string): Promise<string> {
-  return (await readAgentSessionTitle(sessionId)) || config.templates.untitled
+  const taskRun = await taskRunLabel(sessionId)
+  if (taskRun) return taskRun
+  const title = (await readAgentSessionTitle(sessionId)) || config.templates.untitled
+  return fill(config.templates.sessionLabel, { title })
 }
 
 async function notifyPaused(sessionId: string, reason: PauseReason | undefined): Promise<void> {

@@ -107,6 +107,8 @@ function route(next: NotificationRoute): void {
       pauseReason: '',
       pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
       failed: '',
+      sessionLabel: '',
+      taskLabel: '',
       untitled: '',
     },
   })

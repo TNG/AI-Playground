@@ -167,6 +167,8 @@ import {
   rejectAllPermissionPrompts,
 } from './permissions/promptAdapter'
 import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
+import { setNotificationChannelReply, setNotificationConfig } from './agent/notifier'
+import { buildNotificationsSendRegistry } from './kernel/registries/notifications'
 import {
   grant as grantPermission,
   listGrants,
@@ -1242,6 +1244,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
+    setNotificationChannelReply((kind, text) => homeAgent.channelSend(kind, 'reply', { text }))
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
@@ -1695,6 +1698,7 @@ function initEventHandle() {
   )
 
   registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
+  registerSendHandlers(buildNotificationsSendRegistry({ setNotificationConfig }))
 
   registerInvokeHandlers(
     buildPermissionsRegistry({

@@ -19,6 +19,7 @@ import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
+import type { NotificationConfig } from '@/types/notificationsIpc'
 import type {
   PermissionGrant,
   PermissionGrantOrigin,
@@ -241,6 +242,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       send('permissions:awaitingUser', conversationKey, waiting, reason),
     onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
       onPush('permissions:prompt', callback),
+  },
+  notifications: {
+    setConfig: (config: NotificationConfig) => send('notifications:setConfig', config),
   },
   chat: {
     submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),

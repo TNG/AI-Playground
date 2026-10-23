@@ -137,23 +137,26 @@
         :model-value="binding.capabilities"
         :catalog="binding.capabilityCatalog"
         @update:model-value="binding.setCapabilities"
-      />
-      <!-- Same selector as Chat Settings' Embeddings row, but bound to the embedding
-           backend rather than the chat backend: an agent can run on a cloud model while
-           its document search stays local. The model downloads on first rag use. -->
-      <div
-        v-if="ragEnabled"
-        class="grid grid-cols-[120px_1fr] items-center gap-4"
-        :class="problemClass('embeddingModel')"
       >
-        <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTINGS_EMBEDDINGS }}</Label>
-        <drop-down-new
-          :title="i18n.RAG_DOCUMENT_EMBEDDING_MODEL"
-          :value="binding.embeddingModelName"
-          :items="binding.embeddingModelItems"
-          @change="binding.setEmbeddingModel"
-        ></drop-down-new>
-      </div>
+        <template #after="{ id }">
+          <!-- Same selector as Chat Settings' Embeddings row, but bound to the embedding
+               backend rather than the chat backend: an agent can run on a cloud model while
+               its document search stays local. The model downloads on first rag use. -->
+          <div
+            v-if="id === 'rag' && ragEnabled"
+            class="grid grid-cols-[120px_1fr] items-center gap-4"
+            :class="problemClass('embeddingModel')"
+          >
+            <Label class="whitespace-nowrap">{{ i18n.AGENT_SETTINGS_EMBEDDINGS }}</Label>
+            <drop-down-new
+              :title="i18n.RAG_DOCUMENT_EMBEDDING_MODEL"
+              :value="binding.embeddingModelName"
+              :items="binding.embeddingModelItems"
+              @change="binding.setEmbeddingModel"
+            ></drop-down-new>
+          </div>
+        </template>
+      </AgentCapabilityChecklist>
       <slot name="capability-extras" />
     </fieldset>
   </SettingsSection>

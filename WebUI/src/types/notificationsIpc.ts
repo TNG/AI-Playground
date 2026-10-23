@@ -10,14 +10,18 @@ export type NotificationRoute = {
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {
-  /** `{title}`, `{reason}` */
+  /** `{title}` (a label), `{reason}` */
   paused: string
   /** `{kind}`, `{summary}` */
   pauseReason: string
   pauseKinds: Record<PauseReason['kind'], string>
-  /** `{title}`, `{error}` */
+  /** `{title}` (a label), `{error}` */
   failed: string
-  /** The label of a session with no title. */
+  /** The label of a session, quoted: `{title}` */
+  sessionLabel: string
+  /** The label of a Task run: `{task}`, `{step}`, `{steps}` */
+  taskLabel: string
+  /** The title of a session with no title. */
   untitled: string
 }
 

@@ -15,7 +15,7 @@ import { useModels } from './models'
 import { parseConfirmationReply } from './confirmationReply'
 import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
-import type { NotificationConfig } from '@/types/notificationsIpc'
+import type { NotificationRoute } from '@/types/notificationsIpc'
 import {
   canDeliverNotifications,
   resolveNotificationChannel,
@@ -169,6 +169,8 @@ export const useHomeAgent = defineStore(
 
     /** Falls back to the default order while the pick is disabled or unverified. */
     const chosenNotificationChannel = ref<ChannelKind | null>(null)
+    /** Background agent runs notify on their own when they need the user. */
+    const autoNotify = ref(true)
 
     // Runtime-only per-channel state (secret config + derived `active`). Never
     // persisted; rebuilt on launch from safeStorage + channelPrefs.
@@ -343,8 +345,7 @@ export const useHomeAgent = defineStore(
       { immediate: true, deep: true },
     )
 
-    // Main delivers Notifications while the window is hidden, so it keeps its own copy.
-    const notificationConfig = computed<NotificationConfig>(() => ({
+    const notificationRoute = computed<NotificationRoute>(() => ({
       homeAgentEnabled: isAvailable.value && masterEnabled.value,
       notificationChannel: resolveNotificationChannel(
         channelPrefs,
@@ -352,12 +353,7 @@ export const useHomeAgent = defineStore(
       ),
     }))
     const notificationChannelOptions = computed(() => usableNotificationChannels(channelPrefs))
-    const notificationsReady = computed(() => canDeliverNotifications(notificationConfig.value))
-    watch(
-      notificationConfig,
-      (config) => window.electronAPI?.notifications?.setConfig?.({ ...config }),
-      { immediate: true },
-    )
+    const notificationsReady = computed(() => canDeliverNotifications(notificationRoute.value))
 
     // When the backend + channel credentials are ready, inject so the bot
     // starts (or restarts if creds changed). One watcher per kind so each
@@ -2472,7 +2468,8 @@ export const useHomeAgent = defineStore(
       masterEnabled,
       channelPrefs,
       chosenNotificationChannel,
-      notificationConfig,
+      autoNotify,
+      notificationRoute,
       notificationChannelOptions,
       notificationsReady,
       // Runtime channel state map (secrets + derived `active`); in-memory only.
@@ -2526,6 +2523,7 @@ export const useHomeAgent = defineStore(
         'masterEnabled',
         'channelPrefs',
         'chosenNotificationChannel',
+        'autoNotify',
         'activeRemoteConversationKey',
         'summaryCache',
       ],

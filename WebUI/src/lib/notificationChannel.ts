@@ -1,5 +1,5 @@
 import type { ChannelKind, ChannelPrefs } from '@/assets/js/store/channels/types'
-import type { NotificationConfig } from '@/types/notificationsIpc'
+import type { NotificationRoute } from '@/types/notificationsIpc'
 
 const DEFAULT_ORDER: readonly ChannelKind[] = ['telegram', 'slack', 'local-web']
 
@@ -20,6 +20,6 @@ export function resolveNotificationChannel(
   return options[0] ?? null
 }
 
-export function canDeliverNotifications(config: NotificationConfig): boolean {
+export function canDeliverNotifications(config: NotificationRoute): boolean {
   return config.homeAgentEnabled && config.notificationChannel !== null
 }

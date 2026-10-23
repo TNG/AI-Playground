@@ -1,6 +1,13 @@
 export const WEB_CAPABILITY_ID = 'web'
+export const NOTIFY_CAPABILITY_ID = 'notify'
 
-export const DEFAULT_CAPABILITY_IDS = ['media', 'web-debug', 'rag', WEB_CAPABILITY_ID] as const
+export const DEFAULT_CAPABILITY_IDS = [
+  'media',
+  'web-debug',
+  'rag',
+  WEB_CAPABILITY_ID,
+  NOTIFY_CAPABILITY_ID,
+] as const
 
 export const MCP_CAPABILITY_PREFIX = 'mcp:'
 

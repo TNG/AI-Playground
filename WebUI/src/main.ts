@@ -25,6 +25,7 @@ import { startChatAskBridge } from './assets/js/chat/chatAskBridge'
 import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
 import { usePermissionGrants } from './assets/js/store/permissionGrants'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
+import { startNotificationConfigPush } from './lib/notificationConfigPush'
 import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
 
 const [settings, initialPage] = await Promise.all([
@@ -130,6 +131,7 @@ useAgentMode().adoptNotifyCapability()
 // stored) project onto the renderer sinks (step 14).
 startQueueActivityProjection()
 startKernelLedgerProjection()
+startNotificationConfigPush()
 
 const i18n = useI18N()
 i18n.init().then(() => {

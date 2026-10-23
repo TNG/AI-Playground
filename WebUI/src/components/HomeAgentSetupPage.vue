@@ -188,6 +188,11 @@
       </select>
     </div>
 
+    <div class="flex items-center gap-3 pt-4">
+      <Switch id="home-agent-auto-notify" v-model="homeAgent.autoNotify" />
+      <Label for="home-agent-auto-notify">{{ i18n.HOME_AGENT_AUTO_NOTIFY }}</Label>
+    </div>
+
     <SetupWizardFooter
       :show-back="!isEditMode"
       :primary-label="isEditMode ? 'Done' : 'Continue'"
@@ -204,6 +209,8 @@ import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useI18N } from '@/assets/js/store/i18n'
 import { CHANNELS, getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
 
@@ -218,7 +225,7 @@ const i18n = useI18N().state
 const isEditMode = computed(() => wizard.homeAgentSetupOrigin === 'edit')
 
 const notificationChannel = computed({
-  get: () => homeAgent.notificationConfig.notificationChannel,
+  get: () => homeAgent.notificationRoute.notificationChannel,
   set: (kind: ChannelKind | null) => (homeAgent.chosenNotificationChannel = kind),
 })
 

@@ -167,7 +167,12 @@ import {
   rejectAllPermissionPrompts,
 } from './permissions/promptAdapter'
 import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
-import { setNotificationChannelReply, setNotificationConfig } from './agent/notifier'
+import {
+  setNotificationChannelReply,
+  setNotificationConfig,
+  setNotificationWindowShown,
+  startAutoNotifications,
+} from './agent/notifier'
 import { buildNotificationsSendRegistry } from './kernel/registries/notifications'
 import {
   grant as grantPermission,
@@ -1699,6 +1704,10 @@ function initEventHandle() {
 
   registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
   registerSendHandlers(buildNotificationsSendRegistry({ setNotificationConfig }))
+  setNotificationWindowShown(
+    () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
+  )
+  startAutoNotifications()
 
   registerInvokeHandlers(
     buildPermissionsRegistry({

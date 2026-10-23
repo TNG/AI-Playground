@@ -15,6 +15,8 @@ import { useModels } from './models'
 import { parseConfirmationReply } from './confirmationReply'
 import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
+import type { NotificationConfig } from '@/types/notificationsIpc'
+import { resolveNotificationChannel } from '@/lib/notificationChannel'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
@@ -332,6 +334,17 @@ export const useHomeAgent = defineStore(
       ],
       recomputeActive,
       { immediate: true, deep: true },
+    )
+
+    // Main delivers Notifications while the window is hidden, so it keeps its own copy.
+    const notificationConfig = computed<NotificationConfig>(() => ({
+      homeAgentEnabled: isAvailable.value && masterEnabled.value,
+      notificationChannel: resolveNotificationChannel(channelPrefs),
+    }))
+    watch(
+      notificationConfig,
+      (config) => window.electronAPI?.notifications?.setConfig?.({ ...config }),
+      { immediate: true },
     )
 
     // When the backend + channel credentials are ready, inject so the bot

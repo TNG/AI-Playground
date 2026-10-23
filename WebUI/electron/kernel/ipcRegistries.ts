@@ -51,6 +51,8 @@ export type GamesInvokeName = Extract<MainInvokeChannelName, `games:${string}`>
 export type GamesSendName = Extract<MainSendChannelName, `games:${string}`>
 export type PermissionsInvokeName = Extract<MainInvokeChannelName, `permissions:${string}`>
 export type PermissionsSendName = Extract<MainSendChannelName, `permissions:${string}`>
+export type NotificationsInvokeName = Extract<MainInvokeChannelName, `notifications:${string}`>
+export type NotificationsSendName = Extract<MainSendChannelName, `notifications:${string}`>
 export type ScreenshotInvokeName = Extract<MainInvokeChannelName, `screenshot:${string}`>
 export type ScreenshotSendName = Extract<MainSendChannelName, `screenshot:${string}`>
 export type MediaItemsInvokeName = Extract<MainInvokeChannelName, `mediaItems:${string}`>
@@ -83,6 +85,7 @@ export type CoreInvokeName = Exclude<
   | WebBrowserInvokeName
   | GamesInvokeName
   | PermissionsInvokeName
+  | NotificationsInvokeName
   | ScreenshotInvokeName
   | MediaItemsInvokeName
   | CloudProviderInvokeName
@@ -105,6 +108,7 @@ export type CoreSendName = Exclude<
   | WebBrowserSendName
   | GamesSendName
   | PermissionsSendName
+  | NotificationsSendName
   | ScreenshotSendName
   | MediaItemsSendName
   | CloudProviderSendName

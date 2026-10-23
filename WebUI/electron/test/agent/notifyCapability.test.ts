@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { IpcMutationResult } from '@/types/ipcChannels'
+import type { NotificationRoute } from '@/types/notificationsIpc'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.
@@ -96,6 +97,20 @@ afterAll(() => {
 let sent: Array<{ kind: ChannelKind; text: string }> = []
 let channelResult: IpcMutationResult = { success: true }
 
+function route(next: NotificationRoute): void {
+  notifier.setNotificationConfig({
+    ...next,
+    autoNotify: false,
+    sessionInView: null,
+    templates: {
+      paused: '',
+      pauseReason: '',
+      pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
+      untitled: '',
+    },
+  })
+}
+
 let manager: typeof import('../../agent/piAgentManager')
 let notifier: typeof import('../../agent/notifier')
 
@@ -139,7 +154,7 @@ beforeEach(() => {
   requests = []
   sent = []
   channelResult = { success: true }
-  notifier.setNotificationConfig({ homeAgentEnabled: true, notificationChannel: 'telegram' })
+  route({ homeAgentEnabled: true, notificationChannel: 'telegram' })
   workspace = fs.mkdtempSync(path.join(tempRoot, 'ws-'))
 })
 
@@ -176,14 +191,14 @@ describe('notify_user', () => {
   }, 30000)
 
   it('sends nothing with Home Agent off and returns the reason', async () => {
-    notifier.setNotificationConfig({ homeAgentEnabled: false, notificationChannel: 'telegram' })
+    route({ homeAgentEnabled: false, notificationChannel: 'telegram' })
     await runTurn('aipg-agent-notify-off')
     expect(sent).toEqual([])
     expect(toolResultText()).toContain('not delivered: Home Agent is off')
   }, 30000)
 
   it('sends nothing without a Notification Channel and returns the reason', async () => {
-    notifier.setNotificationConfig({ homeAgentEnabled: true, notificationChannel: null })
+    route({ homeAgentEnabled: true, notificationChannel: null })
     await runTurn('aipg-agent-notify-none')
     expect(sent).toEqual([])
     expect(toolResultText()).toContain('not delivered: no Notification Channel set up')

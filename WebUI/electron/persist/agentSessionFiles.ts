@@ -189,6 +189,12 @@ function bootstrapFromIndex(index: AgentSessionIndexFile): Promise<AgentSessionB
   }))
 }
 
+/** Empty while the session has no record on disk yet, or no title. */
+export async function readAgentSessionTitle(id: string): Promise<string> {
+  if (!isSafeFileId(id)) return ''
+  return recordFromDocOrNull(await readJson(sessionFile(id), LOG_SCOPE))?.title ?? ''
+}
+
 // ── Public API (IPC handlers) ─────────────────────────────────────────────────
 
 export async function bootstrapAgentSessions(): Promise<AgentSessionBootstrap> {

@@ -42,6 +42,7 @@ import {
   releaseTurnSession,
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
+import { reportAgentTurnEnd } from './agentTurnOutcome.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
 import {
@@ -382,6 +383,7 @@ export async function startAgentTurn(
       throw error
     }
   }
+  let failedWith: string | undefined
   try {
     await submitTextRequest(
       {
@@ -474,11 +476,22 @@ export async function startAgentTurn(
     // Deliver the failure as a stream error chunk BEFORE the finally block sends
     // turnDone (which closes the renderer-side stream).
     translator.fail(message)
+    if (!abortController.signal.aborted) failedWith = message
     return { success: false, error: message }
   } finally {
     if (turnQueueHolder() === turnId) setTurnChatBackendLoad(null)
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
+    // Decided by the abort, not the thrown error: a stop or shutdown is never a failure.
+    reportAgentTurnEnd(
+      failedWith !== undefined
+        ? { sessionId, turnId, outcome: 'failed', error: failedWith }
+        : {
+            sessionId,
+            turnId,
+            outcome: abortController.signal.aborted ? 'cancelled' : 'completed',
+          },
+    )
     if (turn.live) await releaseTurnSession(turn.live)
     emitAgentTurnDone(sessionId, turnId)
   }

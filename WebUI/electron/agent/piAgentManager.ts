@@ -89,4 +89,5 @@ export {
 }
 
 export { COMPACTION_TOOL_NAME } from './piStreamTranslate.ts'
+export { onAgentTurnEnd, type AgentTurnEnd, type AgentTurnOutcome } from './agentTurnOutcome.ts'
 export type { ToolDefinition }

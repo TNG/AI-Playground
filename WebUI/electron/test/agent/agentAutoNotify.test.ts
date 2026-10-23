@@ -15,6 +15,7 @@ import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 
 const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-auto-notify-')))
 const sessionsDir = path.join(tempRoot, 'agent-sessions')
+const tasksFile = path.join(tempRoot, 'agent-tasks.json')
 
 vi.mock('electron', () => ({
   app: { getPath: () => tempRoot, isPackaged: false, getAppPath: () => tempRoot },
@@ -26,6 +27,7 @@ vi.mock('electron', () => ({
 vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths')>()),
   getAgentSessionsDir: () => sessionsDir,
+  getAgentTasksFile: () => tasksFile,
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -105,7 +107,7 @@ const CONFIG: NotificationConfig = {
   autoNotify: true,
   sessionInView: null,
   templates: {
-    paused: '⏸ "{title}" is waiting for you: {reason}. Open AI Playground to continue.',
+    paused: '⏸ {title} is waiting for you: {reason}. Open AI Playground to continue.',
     pauseReason: '{kind} ({summary})',
     pauseKinds: {
       download: 'a model download',
@@ -113,7 +115,9 @@ const CONFIG: NotificationConfig = {
       confirmation: 'a confirmation',
       question: 'a question',
     },
-    failed: '❌ "{title}" failed: {error}. Open AI Playground for details.',
+    failed: '❌ {title} failed: {error}. Open AI Playground for details.',
+    sessionLabel: '"{title}"',
+    taskLabel: '"{task}" (step {step}/{steps})',
     untitled: 'An agent run',
   },
 }
@@ -130,6 +134,7 @@ let promptAdapter: typeof import('../../permissions/promptAdapter')
 let permissions: typeof import('../../permissions/permissionsService')
 let userWait: typeof import('../../kernel/userWait')
 let sessionFiles: typeof import('../../persist/agentSessionFiles')
+let taskFiles: typeof import('../../persist/agentTaskFiles')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
@@ -139,6 +144,7 @@ beforeAll(async () => {
   permissions = await import('../../permissions/permissionsService')
   userWait = await import('../../kernel/userWait')
   sessionFiles = await import('../../persist/agentSessionFiles')
+  taskFiles = await import('../../persist/agentTaskFiles')
   const bus = await import('../../kernel/kernelBus')
   const bridge = await import('../../artifact/rendererBridge')
   const readiness = await import('../../chat/chatReadiness')
@@ -190,6 +196,7 @@ beforeEach(() => {
   prompts = []
   windowShown = true
   modelRetired = false
+  fs.rmSync(tasksFile, { force: true })
   notifier.setNotificationConfig(CONFIG)
 })
 
@@ -328,6 +335,77 @@ describe('a Background Session pausing for the user', () => {
     },
     30000,
   )
+})
+
+const TASK_SESSION = 'aipg-agent-task-run'
+
+/** Saves a "Daily digest" Task whose run is in flight in `TASK_SESSION`. */
+async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number }) {
+  await sessionFiles.saveAgentSession({
+    id: TASK_SESSION,
+    workspaceDir: tempRoot,
+    title: 'Fetch the headlines',
+    createdAt: 1,
+    updatedAt: 1,
+    messages: [],
+  })
+  await taskFiles.saveAgentTask({
+    id: 'task-digest',
+    name: 'Daily digest',
+    workspaceDir: tempRoot,
+    settingsTemplate: { capabilities: ['media'] },
+    steps: ['one', 'two', 'three'].map((prompt) => ({ id: prompt, prompt })),
+    createdAt: 1,
+    updatedAt: 1,
+    ...(activeRun ? { activeRun: { sessionId: TASK_SESSION, ...activeRun } } : {}),
+  })
+}
+
+describe('a Task run', () => {
+  it('is labelled by its Task name and step when it pauses', async () => {
+    await saveTaskRun({ stepIndex: 2, stepCount: 3 })
+    await withWaitingTurn(TASK_SESSION, async () => {
+      pauseFor(TASK_SESSION, 'question', 'Which source?')
+      await settle()
+      userWait.setAwaitingUser(TASK_SESSION, false)
+    })
+    expect(sent.map((s) => s.text)).toEqual([
+      '⏸ "Daily digest" (step 2/3) is waiting for you: a question (Which source?). ' +
+        'Open AI Playground to continue.',
+    ])
+  }, 30000)
+
+  it('is labelled the same way when it fails', async () => {
+    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
+    await settle()
+    expect(sent.map((s) => s.text)).toEqual([
+      '❌ "Daily digest" (step 3/3) failed: 400: model test-model was retired. ' +
+        'Open AI Playground for details.',
+    ])
+  }, 30000)
+
+  it('falls back to the Task name when the step cannot be resolved', async () => {
+    await saveTaskRun({ stepIndex: 0, stepCount: 0 })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
+    await settle()
+    expect(sent.map((s) => s.text)).toEqual([
+      '❌ "Daily digest" failed: 400: model test-model was retired. Open AI Playground for details.',
+    ])
+  }, 30000)
+
+  it('keeps the session title once the run is over', async () => {
+    await saveTaskRun()
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
+    await settle()
+    expect(sent.map((s) => s.text)).toEqual([
+      '❌ "Fetch the headlines" failed: 400: model test-model was retired. ' +
+        'Open AI Playground for details.',
+    ])
+  }, 30000)
 })
 
 describe('a Background Session whose turn fails', () => {

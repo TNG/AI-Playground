@@ -12,7 +12,11 @@ import { useConfirmations } from './confirmations'
 import { useActivities } from './activities'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
-import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
+import {
+  fetchModelMeta,
+  runModelDownload,
+  type ModelDownloadCallbacks,
+} from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationRoute } from '@/types/notificationsIpc'
 import {
@@ -64,7 +68,11 @@ import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry } from './channels/channelQuestions'
 import { runHeadlessDownload } from './channels/headlessDownload'
-import { registerRemoteTurnPort } from '@/assets/js/permissions/remoteTurnPort'
+import {
+  registerRemoteTurnPort,
+  type ChannelQuestionOutcome,
+  type DownloadChannelQuestion,
+} from '@/assets/js/permissions/remoteTurnPort'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -816,7 +824,6 @@ export const useHomeAgent = defineStore(
       const { adapter, meta } = turn
       const globalSetup = useGlobalSetup()
       const models = useModels()
-      const activities = useActivities()
       const conversationKey = conversations.activeKey
 
       let metaList
@@ -839,11 +846,7 @@ export const useHomeAgent = defineStore(
       const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
       if (blocked.length > 0) {
         const names = blocked.map((m) => m.repo_id).join(', ')
-        await reply(
-          adapter,
-          `🔒 ${names} ${blocked.length === 1 ? 'is gated' : 'are gated'} and can't be downloaded remotely. Open AI Playground on your computer to accept the license / set a Hugging Face token, then try again.`,
-          meta,
-        )
+        await reply(adapter, gatedDownloadText(blocked), meta)
         throw createCancellation({
           technicalMessage: `gated model(s) not downloadable remotely: ${names}`,
         })
@@ -860,17 +863,109 @@ export const useHomeAgent = defineStore(
 
       await runHeadlessDownload(
         { adapter, meta, list, scope: { kind: 'chat', conversationKey } },
-        {
-          download: (toDownload, callbacks) =>
-            runModelDownload(toDownload, {
-              apiHost: globalSetup.apiHost,
-              hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
-              ...callbacks,
-            }),
-          activities,
-          refreshModels: () => models.refreshModels(),
-        },
+        headlessDownloadDeps(),
       )
+    }
+
+    function headlessDownloadDeps() {
+      const globalSetup = useGlobalSetup()
+      const models = useModels()
+      return {
+        download: (toDownload: DownloadModelParam[], callbacks: ModelDownloadCallbacks) =>
+          runModelDownload(toDownload, {
+            apiHost: globalSetup.apiHost,
+            hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
+            ...callbacks,
+          }),
+        activities: useActivities(),
+        refreshModels: () => models.refreshModels(),
+      }
+    }
+
+    function gatedDownloadText(blocked: { repo_id: string }[]): string {
+      const names = blocked.map((m) => m.repo_id).join(', ')
+      return `🔒 ${names} ${blocked.length === 1 ? 'is gated' : 'are gated'} and can't be downloaded remotely. Open AI Playground on your computer to accept the license / set a Hugging Face token, then try again.`
+    }
+
+    const CHANNEL_QUESTION_NOTES: Record<ChannelQuestionOutcome, string> = {
+      'answered-in-app': '✔ Answered in AI Playground.',
+      closed: '⏹ No longer needed — the session stopped waiting for this download.',
+    }
+
+    function canAskChannelQuestion(): boolean {
+      return notificationsReady.value && autoNotify.value
+    }
+
+    /** An Agent Mode download asked in the Paired Chat; buttons only, no timeout (docs/adr/0004). */
+    function askDownloadQuestion(
+      list: DownloadModelParam[],
+      context: { label: string; conversationKey: string },
+    ): DownloadChannelQuestion {
+      const kind = notificationRoute.value.notificationChannel
+      const adapter = kind ? adapters[kind] : null
+      let retired: ChannelQuestionOutcome | null = null
+      let questionId: string | null = null
+      const never = new Promise<boolean>(() => {})
+
+      const answer = (async (): Promise<boolean> => {
+        if (!adapter) return never
+        const globalSetup = useGlobalSetup()
+        const models = useModels()
+        let metaList
+        try {
+          metaList = await fetchModelMeta(list, {
+            apiHost: globalSetup.apiHost,
+            hfToken: models.hfToken,
+          })
+        } catch (e) {
+          errors.report(e, { surface: 'silent' })
+          if (!retired) {
+            await reply(
+              adapter,
+              `⏸ ${escapeHtml(context.label)} needs a model download. Open AI Playground to continue.`,
+            ).catch((err: unknown) => errors.report(err, { surface: 'silent' }))
+          }
+          return never
+        }
+        if (retired) return never
+        const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
+        if (blocked.length > 0) {
+          await reply(adapter, gatedDownloadText(blocked)).catch((err: unknown) =>
+            errors.report(err, { surface: 'silent' }),
+          )
+          return never
+        }
+        const lines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
+        const what = metaList.length === 1 ? 'a model' : `${metaList.length} models`
+        const question = channelQuestions.ask({
+          adapter,
+          summaryMarkdown: `${context.label} needs to download ${what} before it can continue:\n${lines.join('\n')}`,
+        })
+        questionId = question.id
+        const tapped = await question.answer
+        return retired ? never : tapped
+      })()
+
+      return {
+        answer,
+        download: () => {
+          if (!adapter) return Promise.reject(new Error('No Notification Channel'))
+          return runHeadlessDownload(
+            {
+              adapter,
+              list,
+              scope: { kind: 'chat', conversationKey: context.conversationKey },
+            },
+            headlessDownloadDeps(),
+          )
+        },
+        retire: (outcome) => {
+          if (retired) return
+          retired = outcome
+          if (questionId)
+            channelQuestions.settle(questionId, false, CHANNEL_QUESTION_NOTES[outcome])
+        },
+      }
     }
 
     /**
@@ -2298,6 +2393,8 @@ export const useHomeAgent = defineStore(
     registerRemoteTurnPort({
       isActive: () => isRemoteTurnActive(),
       downloadModels: (models, options) => handleRemoteModelDownload(models, options),
+      canAskChannelQuestion,
+      askDownloadQuestion,
     })
 
     // ── Read-only convenience getters ───────────────────────────────────────

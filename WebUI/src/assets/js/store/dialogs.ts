@@ -122,20 +122,36 @@ export const useDialogStore = defineStore('dialog', () => {
   let downloadRequest: {
     settled: boolean
     pendingFailure?: { reason: unknown }
+    onConfirm?: () => void
   } = { settled: true }
 
   function showDownloadDialog(
     downList: DownloadModelParam[],
     success?: () => void,
     fail?: (reason?: unknown) => void,
-  ) {
+    options?: { onConfirm?: () => void },
+  ): { dismiss: () => void } {
     // A request still waiting on a retry is superseded; its caller hears the error it saw.
     if (downloadRequest.pendingFailure) downloadFailed(downloadRequest.pendingFailure.reason)
-    downloadRequest = { settled: false }
+    const request: typeof downloadRequest = { settled: false, onConfirm: options?.onConfirm }
+    downloadRequest = request
     downloadList.value = downList
     downloadSuccessFunction.value = success
     downloadFailFunction.value = fail
     downloadDialogVisible.value = true
+    return {
+      /** Closes this request's modal without calling back; the caller settled it elsewhere. */
+      dismiss: () => {
+        if (downloadRequest !== request || request.settled) return
+        request.settled = true
+        downloadDialogVisible.value = false
+      },
+    }
+  }
+
+  /** The user confirmed the modal; the download itself is still to run. */
+  function downloadConfirmed() {
+    if (!downloadRequest.settled) downloadRequest.onConfirm?.()
   }
 
   function downloadCompleted() {
@@ -361,6 +377,7 @@ export const useDialogStore = defineStore('dialog', () => {
     downloadDialogVisible,
     downloadList,
     showDownloadDialog,
+    downloadConfirmed,
     downloadCompleted,
     downloadFailed,
     downloadFailedResumable,

@@ -122,6 +122,9 @@ await Promise.all([
   usePermissionGrants().init(),
 ])
 
+// Reads the Agent preset's saved defaults, which hydrate with textInference above.
+useAgentMode().adoptNotifyCapability()
+
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7). Ledger events (activity / error /
 // stored) project onto the renderer sinks (step 14).

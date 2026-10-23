@@ -8,6 +8,21 @@ import type { InboundMeta } from './types'
 
 const DRAFT_THROTTLE_MS = 3000
 
+/** The channel lines of a download; the Home Agent chat path keeps the English defaults. */
+export type HeadlessDownloadText = {
+  progress: (p: { repoId: string; percent: number; completed: number; total: number }) => string
+  complete: string
+  /** Receives the failure reason already HTML-escaped. */
+  failed: (escapedMessage: string) => string
+}
+
+const ENGLISH_TEXT: HeadlessDownloadText = {
+  progress: (p) =>
+    `⬇️ Downloading \`${p.repoId}\` — ${p.percent}% (${p.completed}/${p.total} models)`,
+  complete: '✅ Download complete.',
+  failed: (message) => `⚠️ The model download failed: ${message}`,
+}
+
 export type HeadlessDownloadDeps = {
   download: (list: DownloadModelParam[], callbacks: ModelDownloadCallbacks) => Promise<void>
   activities: {
@@ -25,10 +40,12 @@ export async function runHeadlessDownload(
     meta?: InboundMeta
     list: DownloadModelParam[]
     scope: ActivityScope
+    text?: HeadlessDownloadText
   },
   deps: HeadlessDownloadDeps,
 ): Promise<void> {
   const { adapter, meta, list, scope } = args
+  const text = args.text ?? ENGLISH_TEXT
   const { activities } = deps
   const activityId = activities.begin({
     category: 'backend',
@@ -48,21 +65,16 @@ export async function runHeadlessDownload(
         const now = Date.now()
         if (p.speed !== undefined && now - lastChannelUpdate > DRAFT_THROTTLE_MS) {
           lastChannelUpdate = now
-          draft.update(
-            `⬇️ Downloading \`${p.repoId}\` — ${p.percent}% (${p.completed}/${p.total} models)`,
-          )
+          draft.update(text.progress(p))
         }
       },
       onModelCompleted: () => deps.refreshModels(),
     })
-    await draft.finalize('✅ Download complete.')
+    await draft.finalize(text.complete)
   } catch (e) {
     draft.cancel()
     const message = isAppError(e) ? e.userMessage : extractMessage(e)
-    await adapter.reply(
-      adapter.formatRichSnippet(`⚠️ The model download failed: ${escapeHtml(message)}`),
-      meta,
-    )
+    await adapter.reply(adapter.formatRichSnippet(text.failed(escapeHtml(message))), meta)
     throw createAppError({
       category: 'inference',
       code: 'model/download-failed',

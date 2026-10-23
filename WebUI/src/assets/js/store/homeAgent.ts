@@ -67,7 +67,9 @@ import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry } from './channels/channelQuestions'
-import { runHeadlessDownload } from './channels/headlessDownload'
+import { runHeadlessDownload, type HeadlessDownloadText } from './channels/headlessDownload'
+import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
+import { fillTemplate } from '@/lib/notificationLabel'
 import {
   registerRemoteTurnPort,
   type ChannelQuestionOutcome,
@@ -244,7 +246,9 @@ export const useHomeAgent = defineStore(
       checkpoint?: () => Promise<void>
     } | null = null
 
-    const channelQuestions = createChannelQuestionRegistry()
+    const channelQuestions = createChannelQuestionRegistry({
+      staleReply: () => channelQuestionTemplates().stale,
+    })
 
     /** Visibility flag for the dedicated Home Agent inference settings panel. */
     const showSettings = ref(false)
@@ -887,10 +891,25 @@ export const useHomeAgent = defineStore(
       return `🔒 ${names} ${blocked.length === 1 ? 'is gated' : 'are gated'} and can't be downloaded remotely. Open AI Playground on your computer to accept the license / set a Hugging Face token, then try again.`
     }
 
-    const CHANNEL_QUESTION_NOTES: Record<ChannelQuestionOutcome, string> = {
-      'answered-in-app': '✔ Answered in AI Playground.',
-      closed: '⏹ No longer needed — the session stopped waiting for this download.',
-      unavailable: '⏹ No longer answerable here — answer it in AI Playground.',
+    function channelQuestionNote(outcome: ChannelQuestionOutcome): string {
+      const text = channelQuestionTemplates()
+      if (outcome === 'answered-in-app') return text.answeredInApp
+      return outcome === 'closed' ? text.closed : text.unavailable
+    }
+
+    function downloadText(label: string): HeadlessDownloadText {
+      const text = channelQuestionTemplates()
+      return {
+        progress: (p) =>
+          fillTemplate(text.progress, {
+            model: p.repoId,
+            percent: String(p.percent),
+            completed: String(p.completed),
+            total: String(p.total),
+          }),
+        complete: fillTemplate(text.complete, { label }),
+        failed: (error) => fillTemplate(text.failed, { label: escapeHtml(label), error }),
+      }
     }
 
     function canAskChannelQuestion(): boolean {
@@ -903,11 +922,11 @@ export const useHomeAgent = defineStore(
 
     // A channel the user left must not download anything; the desktop keeps asking.
     watch(questionChannel, (kind) =>
-      channelQuestions.retireOutside(kind, CHANNEL_QUESTION_NOTES.unavailable),
+      channelQuestions.retireOutside(kind, channelQuestionNote('unavailable')),
     )
 
     window.addEventListener('beforeunload', () =>
-      channelQuestions.retireOutside(null, CHANNEL_QUESTION_NOTES.closed),
+      channelQuestions.retireOutside(null, channelQuestionNote('closed')),
     )
 
     /** An Agent Mode download asked in the Paired Chat; buttons only, no timeout (docs/adr/0004). */
@@ -936,7 +955,9 @@ export const useHomeAgent = defineStore(
           if (!retired) {
             await reply(
               adapter,
-              `⏸ ${escapeHtml(context.label)} needs a model download. Open AI Playground to continue.`,
+              fillTemplate(channelQuestionTemplates().lookupFailed, {
+                label: escapeHtml(context.label),
+              }),
             ).catch((err: unknown) => errors.report(err, { surface: 'silent' }))
           }
           return never
@@ -945,16 +966,25 @@ export const useHomeAgent = defineStore(
         if (retired || questionChannel.value !== kind) return never
         const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
         if (blocked.length > 0) {
-          await reply(adapter, gatedDownloadText(blocked)).catch((err: unknown) =>
+          const gated = fillTemplate(channelQuestionTemplates().gated, {
+            label: escapeHtml(context.label),
+            models: escapeHtml(blocked.map((m) => m.repo_id).join(', ')),
+          })
+          await reply(adapter, gated).catch((err: unknown) =>
             errors.report(err, { surface: 'silent' }),
           )
           return never
         }
+        const text = channelQuestionTemplates()
         const lines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
-        const what = metaList.length === 1 ? 'a model' : `${metaList.length} models`
+        const heading = fillTemplate(metaList.length === 1 ? text.askOne : text.askMany, {
+          label: context.label,
+          count: String(metaList.length),
+        })
         const question = channelQuestions.ask({
           adapter,
-          summaryMarkdown: `${context.label} needs to download ${what} before it can continue:\n${lines.join('\n')}`,
+          summaryMarkdown: `${heading}\n${lines.join('\n')}`,
+          labels: text,
         })
         questionId = question.id
         return question.answer
@@ -969,6 +999,7 @@ export const useHomeAgent = defineStore(
               adapter,
               list,
               scope: { kind: 'chat', conversationKey: context.conversationKey },
+              text: downloadText(context.label),
             },
             headlessDownloadDeps(),
           )
@@ -976,7 +1007,7 @@ export const useHomeAgent = defineStore(
         retire: (outcome) => {
           if (retired) return
           retired = outcome
-          if (questionId) channelQuestions.retire(questionId, CHANNEL_QUESTION_NOTES[outcome])
+          if (questionId) channelQuestions.retire(questionId, channelQuestionNote(outcome))
         },
       }
     }

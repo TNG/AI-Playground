@@ -6,6 +6,7 @@ import { gameStudioCapability, gameStudioQuickCapability } from './gameStudio.ts
 import { mediaCapability } from './media.ts'
 import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
 import { memoryCapability } from './memory.ts'
+import { notifyCapability } from './notify.ts'
 import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
 import { webCapability } from './web.ts'
@@ -46,6 +47,7 @@ const BUILT_IN_CAPABILITIES: AgentCapability[] = [
   mediaCapability,
   memoryCapability,
   ragCapability,
+  notifyCapability,
   gameStudioCapability,
   gameStudioQuickCapability,
 ]

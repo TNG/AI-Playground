@@ -35,6 +35,7 @@ import type {
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type { SpeechSynthesisRequest } from './speechIpc'
+import type { NotificationConfig } from './notificationsIpc'
 import type {
   McpServerConfig,
   McpServerInfo,
@@ -522,6 +523,12 @@ export const CHANNELS = {
     kind: 'push',
     owner: 'main',
     payload: null as unknown as PermissionsPromptPayload,
+  },
+  /** The Home Agent state main's Notifier delivers through; pushed on every change. */
+  'notifications:setConfig': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [NotificationConfig],
   },
 
   // ── Flat members (no `prefix:` — these sit at the top level of electronAPI) ──

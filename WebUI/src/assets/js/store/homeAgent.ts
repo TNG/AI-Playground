@@ -890,18 +890,32 @@ export const useHomeAgent = defineStore(
     const CHANNEL_QUESTION_NOTES: Record<ChannelQuestionOutcome, string> = {
       'answered-in-app': '✔ Answered in AI Playground.',
       closed: '⏹ No longer needed — the session stopped waiting for this download.',
+      unavailable: '⏹ No longer answerable here — answer it in AI Playground.',
     }
 
     function canAskChannelQuestion(): boolean {
       return notificationsReady.value && autoNotify.value
     }
 
+    const questionChannel = computed(() =>
+      canAskChannelQuestion() ? notificationRoute.value.notificationChannel : null,
+    )
+
+    // A channel the user left must not download anything; the desktop keeps asking.
+    watch(questionChannel, (kind) =>
+      channelQuestions.retireOutside(kind, CHANNEL_QUESTION_NOTES.unavailable),
+    )
+
+    window.addEventListener('beforeunload', () =>
+      channelQuestions.retireOutside(null, CHANNEL_QUESTION_NOTES.closed),
+    )
+
     /** An Agent Mode download asked in the Paired Chat; buttons only, no timeout (docs/adr/0004). */
     function askDownloadQuestion(
       list: DownloadModelParam[],
       context: { label: string; conversationKey: string },
     ): DownloadChannelQuestion {
-      const kind = notificationRoute.value.notificationChannel
+      const kind = questionChannel.value
       const adapter = kind ? adapters[kind] : null
       let retired: ChannelQuestionOutcome | null = null
       let questionId: string | null = null
@@ -927,7 +941,8 @@ export const useHomeAgent = defineStore(
           }
           return never
         }
-        if (retired) return never
+        // The channel may have been left while the model sizes were looked up.
+        if (retired || questionChannel.value !== kind) return never
         const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
         if (blocked.length > 0) {
           await reply(adapter, gatedDownloadText(blocked)).catch((err: unknown) =>
@@ -942,8 +957,7 @@ export const useHomeAgent = defineStore(
           summaryMarkdown: `${context.label} needs to download ${what} before it can continue:\n${lines.join('\n')}`,
         })
         questionId = question.id
-        const tapped = await question.answer
-        return retired ? never : tapped
+        return question.answer
       })()
 
       return {
@@ -962,8 +976,7 @@ export const useHomeAgent = defineStore(
         retire: (outcome) => {
           if (retired) return
           retired = outcome
-          if (questionId)
-            channelQuestions.settle(questionId, false, CHANNEL_QUESTION_NOTES[outcome])
+          if (questionId) channelQuestions.retire(questionId, CHANNEL_QUESTION_NOTES[outcome])
         },
       }
     }
@@ -2202,9 +2215,15 @@ export const useHomeAgent = defineStore(
         const msgs = await window.electronAPI.homeAgent.channel.poll(kind)
         if (!msgs || msgs.length === 0) return
         const queue = messageQueues[kind]
+        const adapter = adapters[kind]
         for (const msg of msgs) {
+          // Threaded so adapters can target reactions / threaded sends at the originating message.
+          const meta =
+            msg.channel || msg.ts || msg.chat_id
+              ? { channel: msg.channel, ts: msg.ts, chatId: msg.chat_id }
+              : undefined
           // Answered here, not in the drain loop, which is blocked awaiting this very answer.
-          if (channelQuestions.handleInbound(kind, msg)) continue
+          if (adapter && channelQuestions.handleInbound(adapter, msg, meta)) continue
           if (queue.length >= MAX_QUEUE_SIZE) {
             toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
             queue.shift()
@@ -2215,13 +2234,7 @@ export const useHomeAgent = defineStore(
             audio: msg.audio,
             documents: msg.documents,
             callback: msg.callback,
-            // Thread inbound metadata so adapters can target reactions /
-            // threaded sends at the originating message (only Slack uses this
-            // today; benign for Telegram).
-            meta:
-              msg.channel || msg.ts || msg.chat_id
-                ? { channel: msg.channel, ts: msg.ts, chatId: msg.chat_id }
-                : undefined,
+            meta,
           })
         }
         drainCommonQueue(kind).catch((e: unknown) =>

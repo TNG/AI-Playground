@@ -1,6 +1,11 @@
 import { useDialogStore } from '../store/dialogs'
 import { remoteTurnPort, type DownloadChannelQuestion } from './remoteTurnPort'
-import { isAgentSessionTurn, sessionLabel, whenSessionInView } from './sessionPromptPort'
+import {
+  isAgentSessionTurn,
+  sessionLabel,
+  whenSessionInView,
+  whenSessionTurnEnds,
+} from './sessionPromptPort'
 import { createCancellation, extractMessage, isCancellation } from '../errors/appError'
 
 /**
@@ -49,6 +54,8 @@ async function raceDownload(
   question: DownloadChannelQuestion,
 ): Promise<void> {
   const desktop = desktopDownload(models, conversationKey, () => question.retire('answered-in-app'))
+  // The modal may already be up when the turn ends; the channel must not keep a live question.
+  void whenSessionTurnEnds(conversationKey).then(() => question.retire('closed'))
   const fromDesktop = desktop.done.then(
     () => ({ side: 'desktop' as const }),
     (error: unknown) => ({ side: 'desktop' as const, error }),

@@ -29,10 +29,7 @@
     </div>
     <div class="flex justify-between items-center gap-5">
       <HomeAgentToggle
-        v-if="
-          globalSetup.loadingState === 'running' &&
-          (promptStore.getCurrentMode() === 'chat' || promptStore.getCurrentMode() === 'imageGen')
-        "
+        v-if="globalSetup.loadingState === 'running' && showHomeAgentToggle"
         class="self-center"
       />
       <button
@@ -381,6 +378,8 @@ import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { usesSessionSettings } from '@/lib/agentSessionSettings'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
@@ -394,6 +393,14 @@ const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 const i18n = useI18N()
+const agentMode = useAgentMode()
+
+// Agent Maker sessions can notify over Home Agent; the games presets cannot.
+const showHomeAgentToggle = computed(() => {
+  const mode = promptStore.getCurrentMode()
+  if (mode === 'chat' || mode === 'imageGen') return true
+  return mode === 'agent' && usesSessionSettings(agentMode.activeAgentPreset)
+})
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()

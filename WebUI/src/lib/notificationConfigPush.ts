@@ -30,6 +30,8 @@ export function startNotificationConfigPush(): void {
           question: text.AGENT_NOTIFY_PAUSE_QUESTION ?? '',
         },
         failed: text.AGENT_NOTIFY_FAILED ?? '',
+        sessionLabel: text.AGENT_NOTIFY_SESSION_LABEL ?? '',
+        taskLabel: text.AGENT_NOTIFY_TASK_LABEL ?? '',
         untitled: text.AGENT_NOTIFY_UNTITLED ?? '',
       },
     }

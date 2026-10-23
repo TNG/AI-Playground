@@ -1,36 +1,35 @@
 <template>
   <div class="flex flex-col gap-2">
-    <label
-      v-for="capability in builtInCapabilities"
-      :key="capability.id"
-      class="flex items-start gap-2 text-sm"
-    >
-      <input
-        type="checkbox"
-        class="mt-0.5"
-        :disabled="!!capability.unavailableReason"
-        :checked="isEnabled(capability.id)"
-        :aria-describedby="showNotifyHint(capability.id) ? 'agent-notify-hint' : undefined"
-        @change="toggle(capability.id, $event)"
-      />
-      <span class="flex flex-col">
-        <span class="text-foreground">{{ capability.label }}</span>
-        <span class="text-xs text-muted-foreground">{{ capability.summary }}</span>
-        <span v-if="capability.requires.length > 0" class="text-xs text-muted-foreground">
-          Also enables: {{ capabilityLabels(capability.requires) }}
+    <template v-for="capability in builtInCapabilities" :key="capability.id">
+      <label class="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="mt-0.5"
+          :disabled="!!capability.unavailableReason"
+          :checked="isEnabled(capability.id)"
+          :aria-describedby="showNotifyHint(capability.id) ? 'agent-notify-hint' : undefined"
+          @change="toggle(capability.id, $event)"
+        />
+        <span class="flex flex-col">
+          <span class="text-foreground">{{ capability.label }}</span>
+          <span class="text-xs text-muted-foreground">{{ capability.summary }}</span>
+          <span v-if="capability.requires.length > 0" class="text-xs text-muted-foreground">
+            Also enables: {{ capabilityLabels(capability.requires) }}
+          </span>
+          <span
+            v-if="showNotifyHint(capability.id)"
+            id="agent-notify-hint"
+            class="text-xs text-amber-500"
+          >
+            {{ i18n.AGENT_NOTIFY_NEEDS_HOME_AGENT }}
+          </span>
+          <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
+            {{ capability.unavailableReason }}
+          </span>
         </span>
-        <span
-          v-if="showNotifyHint(capability.id)"
-          id="agent-notify-hint"
-          class="text-xs text-amber-500"
-        >
-          {{ i18n.AGENT_NOTIFY_NEEDS_HOME_AGENT }}
-        </span>
-        <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
-          {{ capability.unavailableReason }}
-        </span>
-      </span>
-    </label>
+      </label>
+      <slot name="after" :id="capability.id" />
+    </template>
   </div>
 </template>
 

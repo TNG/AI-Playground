@@ -8,8 +8,11 @@
  * (no remote turn is active).
  */
 
-/** Why an open Channel Question stops being answerable in the channel. */
-export type ChannelQuestionOutcome = 'answered-in-app' | 'closed'
+/**
+ * Why an open Channel Question stops being answerable in the channel: answered on the desktop,
+ * the pause ended, or the channel it was asked on is no longer the Notification Channel.
+ */
+export type ChannelQuestionOutcome = 'answered-in-app' | 'closed' | 'unavailable'
 
 /** An Agent Mode download asked on the Notification Channel (docs/adr/0004). */
 export type DownloadChannelQuestion = {

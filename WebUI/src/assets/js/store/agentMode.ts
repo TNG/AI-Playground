@@ -1025,6 +1025,7 @@ export const useAgentMode = defineStore(
     // A download or VRAM prompt a turn raised out of sight waits here until its
     // session is in view, so a Paused Session never pops up over other work.
     const heldPrompts: Record<string, Array<{ show: () => void; drop: () => void }>> = {}
+    const turnEndWaiters: Record<string, Array<() => void>> = {}
 
     registerSessionPromptPort({
       whenInView: (sessionId) => {
@@ -1038,6 +1039,10 @@ export const useAgentMode = defineStore(
         })
       },
       isAgentTurn: (sessionId) => !!turns.runtimeOf(sessionId)?.hasTurn(),
+      whenTurnEnds: (sessionId) => {
+        if (!turns.runtimeOf(sessionId)?.hasTurn()) return Promise.resolve()
+        return new Promise<void>((resolve) => (turnEndWaiters[sessionId] ??= []).push(resolve))
+      },
     })
 
     function settleHeldPrompts(sessionId: string, how: 'show' | 'drop'): void {
@@ -1113,6 +1118,9 @@ export const useAgentMode = defineStore(
       }
       confirmations.cancelForConversation(sessionId, false)
       settleHeldPrompts(sessionId, 'drop')
+      const waiters = turnEndWaiters[sessionId] ?? []
+      delete turnEndWaiters[sessionId]
+      for (const resolve of waiters) resolve()
       const handoff = pendingHandoffs[sessionId]
       if (handoff) {
         delete pendingHandoffs[sessionId]

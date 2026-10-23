@@ -5,6 +5,8 @@ import type { ChannelKind, ChannelMessageRef, InboundMeta, KeyboardButton } from
 // Telegram caps callback_data at 64 bytes, so the id stays short.
 const CALLBACK_RE = /^confirm:([a-z0-9]{1,16}):(yes|no)$/
 
+const STALE_REPLY = 'This question is no longer open. Use AI Playground on your computer.'
+
 export type ChannelQuestionAsk = {
   adapter: ChannelAdapter
   meta?: InboundMeta
@@ -25,9 +27,13 @@ export type ChannelQuestionRegistry = {
   ask: (question: ChannelQuestionAsk) => ChannelQuestion
   /** Settles an open question and edits its buttons into the outcome; false if it was not open. */
   settle: (id: string, answer: boolean, outcomeNote?: string) => boolean
+  /** Takes an open question's buttons away with a note; its `answer` never resolves. */
+  retire: (id: string, note: string) => boolean
+  /** Retires every button-only Channel Question not asked on `kind` (all of them for `null`). */
+  retireOutside: (kind: ChannelKind | null, note: string) => void
   isOpen: (id: string) => boolean
-  /** True when the message answered a question and must not reach the Home Agent. */
-  handleInbound: (kind: ChannelKind, msg: InboundAnswer) => boolean
+  /** True when the message answered a question, or tapped a closed one, and must not reach the Home Agent. */
+  handleInbound: (adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta) => boolean
 }
 
 type OpenQuestion = {
@@ -80,6 +86,22 @@ export function createChannelQuestionRegistry(deps?: {
     editInPlace(q, q.outcome)
     q.resolve(answer)
     return true
+  }
+
+  function retire(id: string, note: string): boolean {
+    const q = open.get(id)
+    if (!q) return false
+    open.delete(id)
+    clearTimeout(q.timeoutId)
+    q.outcome = note
+    editInPlace(q, note)
+    return true
+  }
+
+  function retireOutside(kind: ChannelKind | null, note: string): void {
+    for (const [id, q] of [...open]) {
+      if (!q.typedReply && q.adapter.kind !== kind) retire(id, note)
+    }
   }
 
   function expire(id: string): void {
@@ -138,13 +160,17 @@ export function createChannelQuestionRegistry(deps?: {
     return { id, answer }
   }
 
-  function handleInbound(kind: ChannelKind, msg: InboundAnswer): boolean {
+  function handleInbound(adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta): boolean {
+    const kind = adapter.kind
     if (msg.callback) {
+      if (!msg.callback.startsWith('confirm:')) return false
       const match = CALLBACK_RE.exec(msg.callback)
-      if (!match) return false
-      const q = open.get(match[1])
-      if (!q || q.adapter.kind !== kind) return false
-      return settle(match[1], match[2] === 'yes')
+      const q = match ? open.get(match[1]) : undefined
+      if (match && q && q.adapter.kind === kind) return settle(match[1], match[2] === 'yes')
+      adapter
+        .reply(adapter.formatRichSnippet(STALE_REPLY), meta)
+        .catch((e: unknown) => log('channelQuestions: stale-tap reply failed:', e))
+      return true
     }
     const typed = [...open].filter(([, q]) => q.typedReply && q.adapter.kind === kind)
     if (typed.length === 0) return false
@@ -153,5 +179,5 @@ export function createChannelQuestionRegistry(deps?: {
     return answer !== null
   }
 
-  return { ask, settle, isOpen: (id) => open.has(id), handleInbound }
+  return { ask, settle, retire, retireOutside, isOpen: (id) => open.has(id), handleInbound }
 }

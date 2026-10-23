@@ -11,6 +11,7 @@ const showDownloadDialog = vi.fn()
 const dismissDialog = vi.fn()
 const isAgentSessionTurn = vi.fn((_key: string | undefined) => false)
 const whenSessionInView = vi.fn(async (_key: string | undefined) => {})
+const whenSessionTurnEnds = vi.fn((_key: string) => new Promise<void>(() => {}))
 const showWarningDialog = vi.fn()
 const respondMock = vi.fn(async (_payload: unknown) => {})
 const onPromptMock = vi.fn<(callback: (payload: PermissionsPromptPayload) => void) => () => void>()
@@ -30,6 +31,7 @@ vi.mock('@/assets/js/permissions/remoteTurnPort', () => ({
 
 vi.mock('@/assets/js/permissions/sessionPromptPort', () => ({
   whenSessionInView,
+  whenSessionTurnEnds,
   isAgentSessionTurn,
   sessionLabel: (key: string) => `"${key} title"`,
 }))
@@ -56,6 +58,7 @@ beforeEach(() => {
   canAskChannelQuestion.mockReturnValue(false)
   isAgentSessionTurn.mockReturnValue(false)
   whenSessionInView.mockImplementation(async () => {})
+  whenSessionTurnEnds.mockImplementation(() => new Promise<void>(() => {}))
   showDownloadDialog.mockImplementation(() => ({ dismiss: dismissDialog }))
   onPromptMock.mockImplementation((callback) => {
     handler = callback
@@ -276,6 +279,22 @@ describe('an Agent Mode download asked as a Channel Question', () => {
     const responded = agentDownload('q7')
     expect(await responded).toMatchObject({ requestId: 'q7', cancelled: true })
     expect(question.retire).toHaveBeenCalledWith('closed')
+  })
+
+  it('retires the question when the turn ends while the modal is already up', async () => {
+    let endTurn: () => void = () => {}
+    whenSessionTurnEnds.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          endTurn = resolve
+        }),
+    )
+    void agentDownload('q13')
+    await vi.waitFor(() => expect(showDownloadDialog).toHaveBeenCalled())
+    expect(question.retire).not.toHaveBeenCalled()
+    endTurn()
+    await vi.waitFor(() => expect(question.retire).toHaveBeenCalledWith('closed'))
+    expect(whenSessionTurnEnds).toHaveBeenCalledWith(SESSION)
   })
 
   it('leaves a question the channel cannot answer to the desktop modal', async () => {

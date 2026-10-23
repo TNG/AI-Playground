@@ -650,6 +650,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "หน่วยของช่วงเวลา",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "ต้องใช้ Home Agent ที่ตั้งค่าช่องทางแล้ว",
   "AGENT_NOTIFY_PAUSED": "⏸ \"{title}\" กำลังรอคุณอยู่: {reason} เปิด AI Playground เพื่อดำเนินการต่อ",
+  "AGENT_NOTIFY_FAILED": "❌ \"{title}\" ล้มเหลว: {error} เปิด AI Playground เพื่อดูรายละเอียด",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind} ({summary})",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "การดาวน์โหลดโมเดล",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "คำเตือน vRAM",

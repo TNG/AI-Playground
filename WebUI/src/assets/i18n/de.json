@@ -650,6 +650,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "Intervalleinheit",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "Erfordert Home Agent mit eingerichtetem Kanal",
   "AGENT_NOTIFY_PAUSED": "⏸ „{title}“ wartet auf Sie: {reason}. Öffnen Sie AI Playground, um fortzufahren.",
+  "AGENT_NOTIFY_FAILED": "❌ „{title}“ ist fehlgeschlagen: {error}. Öffnen Sie AI Playground für Details.",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind} ({summary})",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "ein Modell-Download",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "eine vRAM-Warnung",

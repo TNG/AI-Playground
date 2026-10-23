@@ -650,6 +650,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "间隔单位",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "需要已设置渠道的 Home Agent",
   "AGENT_NOTIFY_PAUSED": "⏸ “{title}”正在等待你：{reason}。请打开 AI Playground 继续。",
+  "AGENT_NOTIFY_FAILED": "❌ “{title}”失败：{error}。请打开 AI Playground 查看详情。",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind}（{summary}）",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "模型下载",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "vRAM 警告",

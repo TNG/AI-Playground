@@ -650,6 +650,7 @@
   "AGENT_TASK_SCHEDULE_UNIT": "간격 단위",
   "AGENT_NOTIFY_NEEDS_HOME_AGENT": "채널이 설정된 Home Agent가 필요합니다",
   "AGENT_NOTIFY_PAUSED": "⏸ \"{title}\"이(가) 기다리고 있습니다: {reason}. 계속하려면 AI Playground를 여세요.",
+  "AGENT_NOTIFY_FAILED": "❌ \"{title}\"이(가) 실패했습니다: {error}. 자세한 내용은 AI Playground를 여세요.",
   "AGENT_NOTIFY_PAUSE_REASON": "{kind}({summary})",
   "AGENT_NOTIFY_PAUSE_DOWNLOAD": "모델 다운로드",
   "AGENT_NOTIFY_PAUSE_VRAM_WARNING": "vRAM 경고",

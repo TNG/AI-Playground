@@ -8,9 +8,10 @@ import type { ChatAskPayload } from '@/types/chatRequests'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 
-// Automatic Notifications for a Paused Session, seen at the Channel: a real Pi
+// Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the
-// test raises the prompts that pause it, and a fake channel records what is sent.
+// test raises the prompts that pause it or makes the model call fail, and a fake
+// channel records what is sent.
 
 const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-auto-notify-')))
 const sessionsDir = path.join(tempRoot, 'agent-sessions')
@@ -29,6 +30,8 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
 
 const BACKEND = 'http://fake-llm.test/v1'
 
+let modelRetired = false
+
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
 }
@@ -45,6 +48,12 @@ function completion(delta: Record<string, unknown>, finish: string | null = null
 
 /** The first step calls the speech tool; the step after its result just answers. */
 function reply(body: { messages?: Array<{ role: string }> }): Response {
+  if (modelRetired) {
+    return new Response(JSON.stringify({ error: { message: 'model test-model was retired' } }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
   const callsTool = !body.messages?.some((message) => message.role === 'tool')
   const chunks = callsTool
     ? [
@@ -104,6 +113,7 @@ const CONFIG: NotificationConfig = {
       confirmation: 'a confirmation',
       question: 'a question',
     },
+    failed: '❌ "{title}" failed: {error}. Open AI Playground for details.',
     untitled: 'An agent run',
   },
 }
@@ -179,6 +189,7 @@ beforeEach(() => {
   asks = []
   prompts = []
   windowShown = true
+  modelRetired = false
   notifier.setNotificationConfig(CONFIG)
 })
 
@@ -317,4 +328,85 @@ describe('a Background Session pausing for the user', () => {
     },
     30000,
   )
+})
+
+describe('a Background Session whose turn fails', () => {
+  const FAILED_TEXT =
+    '❌ "Morning news" failed: 400: model test-model was retired. Open AI Playground for details.'
+
+  async function failingTurn(): Promise<void> {
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(SESSION))
+    await settle()
+  }
+
+  it('sends one Notification with the error the app shows', async () => {
+    await failingTurn()
+    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT }])
+  }, 30000)
+
+  it('stays quiet for the session open on screen', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    await failingTurn()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('notifies for the open session while the window is hidden or minimized', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    windowShown = false
+    await failingTurn()
+    expect(sent.map((m) => m.text)).toEqual([FAILED_TEXT])
+  }, 30000)
+
+  it.each([
+    ['automatic Notifications are off', { autoNotify: false }],
+    ['Home Agent is off', { homeAgentEnabled: false }],
+    ['no Notification Channel is set up', { notificationChannel: null }],
+  ])(
+    'sends nothing when %s',
+    async (_case, override) => {
+      notifier.setNotificationConfig({ ...CONFIG, ...override })
+      await failingTurn()
+      expect(sent).toEqual([])
+    },
+    30000,
+  )
+
+  it('sends nothing when the turn succeeds', async () => {
+    await withWaitingTurn(SESSION, async () => {})
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends nothing when the user stops the turn and its held prompt is dropped', async () => {
+    const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', configFor(SESSION))
+    await vi.waitFor(() => expect(asks).toHaveLength(1))
+    // The pause itself would notify; only what follows the stop is under test.
+    notifier.setNotificationConfig({ ...CONFIG, autoNotify: false })
+    const consent = permissions.requestDownloadConsent([{ repo_id: 'voice' }]).catch(() => {})
+    const remote = await nextPrompt('is-remote')
+    promptAdapter.handlePermissionsPromptResponse({ requestId: remote.requestId, result: false })
+    const download = await nextPrompt('download')
+    notifier.setNotificationConfig(CONFIG)
+
+    manager.cancelAgentTurn(SESSION)
+    await run
+    promptAdapter.handlePermissionsPromptResponse({
+      requestId: download.requestId,
+      error: 'The turn that asked has ended.',
+      cancelled: true,
+    })
+    await consent
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends nothing when the app shuts down mid-turn', async () => {
+    const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', configFor(SESSION))
+    await vi.waitFor(() => expect(asks).toHaveLength(1))
+    await manager.shutdownAgentMode()
+    await run
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
 })

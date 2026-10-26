@@ -16,6 +16,7 @@ import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-auto-notify-')))
 const sessionsDir = path.join(tempRoot, 'agent-sessions')
 const tasksFile = path.join(tempRoot, 'agent-tasks.json')
+const messageMapFile = path.join(tempRoot, 'channel-messages.json')
 
 vi.mock('electron', () => ({
   app: { getPath: () => tempRoot, isPackaged: false, getAppPath: () => tempRoot },
@@ -28,6 +29,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths')>()),
   getAgentSessionsDir: () => sessionsDir,
   getAgentTasksFile: () => tasksFile,
+  getChannelMessageMapFile: () => messageMapFile,
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -107,6 +109,7 @@ const CONFIG: NotificationConfig = {
   autoNotify: true,
   sessionInView: null,
   templates: {
+    header: '🤖 Agent · {title}',
     paused: '⏸ {title} is waiting for you: {reason}. Open AI Playground to continue.',
     pauseReason: '{kind} ({summary})',
     pauseKinds: {
@@ -135,6 +138,7 @@ let permissions: typeof import('../../permissions/permissionsService')
 let userWait: typeof import('../../kernel/userWait')
 let sessionFiles: typeof import('../../persist/agentSessionFiles')
 let taskFiles: typeof import('../../persist/agentTaskFiles')
+let messageMap: typeof import('../../persist/channelMessageMap')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
@@ -145,6 +149,7 @@ beforeAll(async () => {
   userWait = await import('../../kernel/userWait')
   sessionFiles = await import('../../persist/agentSessionFiles')
   taskFiles = await import('../../persist/agentTaskFiles')
+  messageMap = await import('../../persist/channelMessageMap')
   const bus = await import('../../kernel/kernelBus')
   const bridge = await import('../../artifact/rendererBridge')
   const readiness = await import('../../chat/chatReadiness')
@@ -170,9 +175,9 @@ beforeAll(async () => {
   }
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
-  notifier.setNotificationChannelReply(async (kind, text) => {
-    sent.push({ kind, text })
-    return { success: true }
+  notifier.setNotificationChannelSend(async (kind, message) => {
+    sent.push({ kind, text: message.text })
+    return { success: true, ref: `msg-${sent.length}` }
   })
   notifier.setNotificationWindowShown(() => windowShown)
   notifier.startAutoNotifications()
@@ -197,6 +202,7 @@ beforeEach(() => {
   windowShown = true
   modelRetired = false
   fs.rmSync(tasksFile, { force: true })
+  fs.rmSync(messageMapFile, { force: true })
   notifier.setNotificationConfig(CONFIG)
 })
 
@@ -263,7 +269,7 @@ async function pauseForQuestion(): Promise<void> {
 }
 
 const QUESTION_TEXT =
-  '⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
+  '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
 
 describe('a Background Session pausing for the user', () => {
@@ -319,10 +325,10 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser(SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '⏸ "Morning news" is waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
-      '⏸ "Morning news" is waiting for you: a confirmation (Continue in Game Agent?). ' +
+      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
+      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a confirmation (Continue in Game Agent?). ' +
         'Open AI Playground to continue.',
-      '⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
+      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -334,7 +340,7 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser('aipg-agent-fresh', false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '⏸ "An agent run" is waiting for you: a question (Which colour?). ' +
+      '🤖 Agent · "An agent run"\n⏸ "An agent run" is waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -400,7 +406,7 @@ describe('a Task run', () => {
       userWait.setAwaitingUser(TASK_SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '⏸ "Daily digest" (step 2/3) is waiting for you: a question (Which source?). ' +
+      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ "Daily digest" (step 2/3) is waiting for you: a question (Which source?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -411,7 +417,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '❌ "Daily digest" (step 3/3) failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Daily digest" (step 3/3)\n❌ "Daily digest" (step 3/3) failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.',
     ])
   }, 30000)
@@ -422,7 +428,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '❌ "Daily digest" failed: 400: model test-model was retired. Open AI Playground for details.',
+      '🤖 Agent · "Daily digest"\n❌ "Daily digest" failed: 400: model test-model was retired. Open AI Playground for details.',
     ])
   }, 30000)
 
@@ -432,15 +438,37 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '❌ "Fetch the headlines" failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Fetch the headlines"\n❌ "Fetch the headlines" failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.',
     ])
   }, 30000)
 })
 
+describe('a sent Notification', () => {
+  async function failingTurn(): Promise<void> {
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(SESSION))
+    await settle()
+  }
+
+  it('is recorded under its channel and message, so a reply to it finds the session', async () => {
+    await failingTurn()
+    expect(sent).toHaveLength(1)
+    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBe(SESSION)
+    expect(await messageMap.lookupChannelMessage('slack', 'msg-1')).toBeNull()
+    expect(await messageMap.lookupChannelMessage('telegram', 'msg-2')).toBeNull()
+  }, 30000)
+
+  it('is forgotten when its session is deleted', async () => {
+    await failingTurn()
+    await messageMap.forgetSessionMessages(SESSION)
+    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBeNull()
+  }, 30000)
+})
+
 describe('a Background Session whose turn fails', () => {
   const FAILED_TEXT =
-    '❌ "Morning news" failed: 400: model test-model was retired. Open AI Playground for details.'
+    '🤖 Agent · "Morning news"\n❌ "Morning news" failed: 400: model test-model was retired. Open AI Playground for details.'
 
   async function failingTurn(): Promise<void> {
     modelRetired = true

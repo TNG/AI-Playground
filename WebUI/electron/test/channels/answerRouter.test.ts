@@ -1,0 +1,174 @@
+import { describe, expect, it } from 'vitest'
+import {
+  createAnswerRouter,
+  type AnswerSendResult,
+  type AnswerSessions,
+} from '../../../src/assets/js/store/channels/answerRouter'
+import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
+import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
+import type { ChannelKind } from '../../../src/assets/js/store/channels/types'
+
+function fakeChannel(kind: ChannelKind = 'telegram') {
+  const replies: string[] = []
+  const adapter = {
+    kind,
+    formatMarkdown: (md: string) => md,
+    formatRichSnippet: (html: string) => html,
+    keyboard: async () => ({ success: true, ref: { messageId: 900 } }),
+    editKeyboardMessage: async () => ({ success: true }),
+    reply: async (text: string) => {
+      replies.push(text)
+      return { success: true }
+    },
+  } as unknown as ChannelAdapter
+  return { adapter, replies }
+}
+
+type FakeSession = { label: string; result?: AnswerSendResult }
+
+/** Agent sessions as the router sees them: which message each sent, and what a send does. */
+function fakeSessions(
+  sessions: Record<string, FakeSession>,
+  sentMessages: { kind: ChannelKind; ref: string; sessionId: string }[],
+) {
+  const received: { sessionId: string; text: string }[] = []
+  const port: AnswerSessions = {
+    lookup: async (kind, ref) =>
+      sentMessages.find((m) => m.kind === kind && m.ref === ref)?.sessionId ?? null,
+    label: (sessionId) => `"${sessions[sessionId]?.label ?? 'An agent run'}"`,
+    send: async (sessionId, text) => {
+      received.push({ sessionId, text })
+      return sessions[sessionId]?.result ?? { ok: true, queuePosition: null }
+    },
+  }
+  return { port, received }
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0))
+
+function setup(
+  sessions: Record<string, FakeSession> = { asteroids: { label: 'Asteroids clone' } },
+  sentMessages = [{ kind: 'telegram' as ChannelKind, ref: '1234', sessionId: 'asteroids' }],
+) {
+  const questions = createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} })
+  const fake = fakeSessions(sessions, sentMessages)
+  const router = createAnswerRouter({
+    sessions: () => fake.port,
+    questions,
+    log: () => {},
+  })
+  return { router, questions, received: fake.received }
+}
+
+describe('answer router', () => {
+  it('sends a reply to an agent’s Notification into its session and says it is starting', async () => {
+    const { router, received } = setup()
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })).toBe(
+      true,
+    )
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
+    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+  })
+
+  it('says the Answer is queued, with its place, when the Turn Queue is busy', async () => {
+    const { router } = setup({
+      asteroids: { label: 'Asteroids clone', result: { ok: true, queuePosition: 2 } },
+    })
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
+    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — queued (position 2)'])
+  })
+
+  it('says why when the session refuses the Answer', async () => {
+    const { router } = setup({
+      asteroids: {
+        label: 'Asteroids clone',
+        result: { ok: false, reason: 'missing-folder', message: 'The workspace folder is missing' },
+      },
+    })
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { text: 'again', replyTo: '1234' })).toBe(true)
+    expect(ch.replies).toEqual([
+      '⚠️ Not sent to "Asteroids clone": The workspace folder is missing',
+    ])
+  })
+
+  it('leaves a plain message to Home Agent', async () => {
+    const { router, received } = setup()
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { text: 'what is the weather?' })).toBe(false)
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('leaves a reply to a message no agent sent to Home Agent', async () => {
+    const { router, received } = setup()
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { text: 'and tomorrow?', replyTo: '77' })).toBe(false)
+    expect(received).toEqual([])
+  })
+
+  it('finds the session by the channel the reply came on', async () => {
+    const { router, received } = setup(
+      { asteroids: { label: 'Asteroids clone' }, digest: { label: 'Daily digest' } },
+      [
+        { kind: 'telegram', ref: '5', sessionId: 'asteroids' },
+        { kind: 'slack', ref: '5', sessionId: 'digest' },
+      ],
+    )
+    const slack = fakeChannel('slack')
+    await router.route(slack.adapter, { text: 'more sources', replyTo: '5' })
+    expect(received).toEqual([{ sessionId: 'digest', text: 'more sources' }])
+    expect(slack.replies).toEqual(['➡️ Sent to "Daily digest" — starting…'])
+  })
+
+  it('hands a button tap to its Channel Question, even on a reply', async () => {
+    const { router, received } = setup()
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { callback: 'confirm:gone:yes', replyTo: '1234' })).toBe(
+      true,
+    )
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      'This question is no longer open. Use AI Playground on your computer.',
+    ])
+  })
+
+  it('never settles an open Home Agent confirmation with a typed Answer', async () => {
+    const { router, questions, received } = setup()
+    const ch = fakeChannel()
+    const confirmation = questions.ask({
+      adapter: ch.adapter,
+      summaryMarkdown: 'Turn on Slack?',
+      typedReply: true,
+    })
+    await flush()
+    expect(await router.route(ch.adapter, { text: 'yes', replyTo: '1234' })).toBe(true)
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'yes' }])
+    expect(questions.isOpen(confirmation.id)).toBe(true)
+  })
+
+  it('settles an open Home Agent confirmation with a typed yes that is not an Answer', async () => {
+    const { router, questions, received } = setup()
+    const ch = fakeChannel()
+    const confirmation = questions.ask({
+      adapter: ch.adapter,
+      summaryMarkdown: 'Turn on Slack?',
+      typedReply: true,
+    })
+    await flush()
+    expect(await router.route(ch.adapter, { text: 'yes' })).toBe(true)
+    await expect(confirmation.answer).resolves.toBe(true)
+    expect(received).toEqual([])
+  })
+
+  it('never settles an agent’s download question with a typed yes', async () => {
+    const { router, questions } = setup()
+    const ch = fakeChannel()
+    const download = questions.ask({ adapter: ch.adapter, summaryMarkdown: 'Download Flux?' })
+    await flush()
+    expect(await router.route(ch.adapter, { text: 'yes' })).toBe(false)
+    expect(questions.isOpen(download.id)).toBe(true)
+  })
+})

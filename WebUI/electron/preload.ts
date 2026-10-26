@@ -246,6 +246,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   notifications: {
     setConfig: (config: NotificationConfig) => send('notifications:setConfig', config),
+    lookupMessage: (kind: ChannelKind, ref: string) =>
+      invoke('notifications:lookupMessage', kind, ref),
   },
   chat: {
     submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),

@@ -266,7 +266,9 @@ export const useHomeAgent = defineStore(
       sessions: answerSessions,
       questions: channelQuestions,
       transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
+      downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
+      log: (message, error) => reportSilently(message, error),
       onboarding: {
         seen: () => answerOnboardingSeen.value,
         markSeen: () => {

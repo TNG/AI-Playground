@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "에이전트 실행",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 답장",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "컴퓨터에서 답장하세요",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "답하려면 스레드에서 답장하세요.",
   "AGENT_NOTIFY_HEADER": "🤖 에이전트 · {title}",
   "AGENT_ANSWER_STARTING": "➡️ {title}에 보냄 — 시작하는 중…",
   "AGENT_ANSWER_QUEUED": "➡️ {title}에 보냄 — 대기 중({position}번째)",

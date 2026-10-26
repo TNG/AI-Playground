@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "Ein Agent-Lauf",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 Antworten",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "Antworte an deinem Computer",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "Antworte im Thread, um zu antworten.",
   "AGENT_NOTIFY_HEADER": "🤖 Agent · {title}",
   "AGENT_ANSWER_STARTING": "➡️ An {title} gesendet – startet…",
   "AGENT_ANSWER_QUEUED": "➡️ An {title} gesendet – in der Warteschlange (Position {position})",

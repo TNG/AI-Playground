@@ -3,9 +3,11 @@ import { LOG_SOURCE } from './piAgentLog.ts'
 
 export type AgentTurnOutcome = 'completed' | 'failed' | 'cancelled'
 
-/** `error` is the text the app shows for the failure. */
+/** `error` is the text the app shows for the failure; `reply` is the turn's last assistant text. */
 export type AgentTurnEnd = { sessionId: string; turnId: string } & (
-  { outcome: 'completed' | 'cancelled' } | { outcome: 'failed'; error: string }
+  | { outcome: 'completed'; reply?: string }
+  | { outcome: 'cancelled' }
+  | { outcome: 'failed'; error: string }
 )
 
 type AgentTurnEndListener = (end: AgentTurnEnd) => void

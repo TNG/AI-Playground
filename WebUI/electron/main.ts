@@ -181,6 +181,7 @@ import {
   setNotificationWindowShown,
   startAutoNotifications,
 } from './agent/notifier'
+import { notificationChannelSend } from './agent/notificationChannelSend'
 import {
   buildNotificationsRegistry,
   buildNotificationsSendRegistry,
@@ -1271,18 +1272,11 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
-    setNotificationChannelSend(async (kind, message) => {
-      const result = message.buttons
-        ? await homeAgent.channelSend(kind, 'keyboard', {
-            text: message.text,
-            buttons: message.buttons.map((row) =>
-              row.map((btn) => ({ text: btn.text, callback_data: btn.callbackData })),
-            ),
-          })
-        : await homeAgent.channelSend(kind, 'reply', { text: message.text })
-      if (!result.success) return result
-      return { success: true, ref: result.messageId?.toString() ?? result.ts }
-    })
+    setNotificationChannelSend(
+      notificationChannelSend((kind, action, payload) =>
+        homeAgent.channelSend(kind, action, payload),
+      ),
+    )
   }
   wireArtifactRunner(settings)
   wireConversations(settings)

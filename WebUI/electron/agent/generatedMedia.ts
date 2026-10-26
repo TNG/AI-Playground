@@ -12,6 +12,18 @@ import path from 'node:path'
 
 const savedByWorkspace = new Map<string, Set<string>>()
 
+type GeneratedMediaListener = (workspaceDir: string, relativePaths: string[]) => void
+
+const listeners = new Set<GeneratedMediaListener>()
+
+/** Hears every file a media tool saves into a workspace; returns the unsubscribe. */
+export function onGeneratedMedia(listener: GeneratedMediaListener): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
 /** Files already on disk when the app started cannot be ones invented this run. */
 const PROCESS_START = Date.now()
 
@@ -28,6 +40,7 @@ export function noteGeneratedMedia(workspaceDir: string, relativePaths: string[]
   const known = savedByWorkspace.get(key) ?? new Set<string>()
   for (const relativePath of relativePaths) known.add(normalizeWorkspacePath(relativePath))
   savedByWorkspace.set(key, known)
+  for (const listener of listeners) listener(workspaceDir, relativePaths)
 }
 
 /**

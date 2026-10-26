@@ -1,4 +1,5 @@
 import z from 'zod'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 
 /** The error an agent turn fails with when the user declines its model's download. */
@@ -11,6 +12,21 @@ const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
 export function promptHasImageAttachment(prompt: string): boolean {
   return IMAGE_ATTACHMENT.test(prompt)
 }
+
+const CHANNEL_KINDS = [
+  'telegram',
+  'slack',
+  'discord',
+  'local-web',
+] as const satisfies readonly ChannelKind[]
+
+/** Where an Answer came from: its channel, and the platform ref a reply to it names. */
+export const AgentAnswerOriginSchema = z.object({
+  channel: z.enum(CHANNEL_KINDS),
+  replyTo: z.string().optional(),
+})
+
+export type AgentAnswerOrigin = z.infer<typeof AgentAnswerOriginSchema>
 
 const SamplingParamsSchema = z.record(z.string(), z.unknown())
 
@@ -85,6 +101,8 @@ export const AgentModeTurnConfigSchema = z.object({
    * loads; absent for cloud and for older tests that only exercise the harness.
    */
   readiness: ChatModelConfigSchema.shape.readiness,
+  /** Set when a channel Answer started this turn: its result is replied under the Answer. */
+  answer: AgentAnswerOriginSchema.optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

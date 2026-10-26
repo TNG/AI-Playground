@@ -23,8 +23,9 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
       name: NOTIFY_USER_TOOL,
       label: NOTIFY_USER_TOOL,
       description:
-        "Send a short one-way notification to the user's Home Agent channel (Telegram, Slack " +
-        'or LAN chat), which reaches them away from AI Playground. The user cannot reply to it. ' +
+        "Send a short notification to the user's Home Agent channel (Telegram, Slack or LAN " +
+        'chat), which reaches them away from AI Playground. The user can answer it; an answer ' +
+        'arrives in this session as their next message. ' +
         'Call it whenever the user asks to be notified, pinged, messaged, alerted or told about ' +
         'something ("let me know when it is done", "notify me if it fails"), even without naming ' +
         'a device or channel, and when a Task step says so. Do not call it otherwise.',

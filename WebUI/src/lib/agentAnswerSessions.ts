@@ -1,6 +1,6 @@
 import { watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import type { AnswerSendResult } from '@/assets/js/store/channels/answerRouter'
+import type { AnswerSendResult, SessionPause } from '@/assets/js/store/channels/answerRouter'
 import { registerAnswerSessions } from '@/assets/js/store/channels/answerSessionsPort'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
@@ -44,10 +44,27 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
     return { ok: true, queuePosition: await admitted(sessionId) }
   }
 
+  function pause(sessionId: string): SessionPause | null {
+    const kind = agentMode.sessionTurns[sessionId]?.pauseReason?.kind
+    if (!kind) return null
+    return kind === 'download' ? 'download' : 'desktop'
+  }
+
   registerAnswerSessions({
     lookup: async (kind, ref) =>
       (await window.electronAPI.notifications?.lookupMessage?.(kind, ref)) ?? null,
     label,
+    usesRealShell: (sessionId) => {
+      const record = agentMode.sessions[sessionId]
+      return !!record && agentMode.isUnsandboxed(record.workspaceDir)
+    },
+    record: async (kind, ref, sessionId) => {
+      const result = await window.electronAPI.notifications.recordMessage(kind, ref, sessionId)
+      if (!result.success) throw new Error(result.error)
+    },
     send,
+    pause,
+    held: (sessionId, answer) => agentMode.setHeldAnswer(sessionId, answer),
+    onTurnEnd: (listener) => agentMode.onHeldAnswerSettled(listener),
   })
 }

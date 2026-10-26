@@ -61,6 +61,7 @@ import {
 } from '@/types/agentCapabilities'
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
+import type { ChannelKind } from './channels/types'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
@@ -103,6 +104,9 @@ export type UnseenTurn = 'done' | 'failed'
 /** How a session's turn ended, as the settled-turn hook reports it. */
 export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
+
+/** Stored with a user message; `origin` is the channel an Answer arrived on. */
+export type AgentMessageMetadata = { origin?: ChannelKind }
 
 /** An Answer from a channel waiting for its session's turn to end. */
 export type HeldAnswer = { text: string; channel: string }
@@ -1833,12 +1837,16 @@ export const useAgentMode = defineStore(
       if (options.signal?.aborted) return refuseSend('aborted', 'The send was cancelled.')
       if (options.quietErrors) context.quietErrors = true
       if (options.answer) context.answer = options.answer
-      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt })).catch((error) =>
-        errors.report(error, {
-          category: 'inference',
-          code: 'agent/turn-failed',
-          surface: 'silent',
-        }),
+      const metadata: AgentMessageMetadata | undefined = options.answer
+        ? { origin: options.answer.channel }
+        : undefined
+      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
+        (error) =>
+          errors.report(error, {
+            category: 'inference',
+            code: 'agent/turn-failed',
+            surface: 'silent',
+          }),
       )
       return { ok: true }
     }

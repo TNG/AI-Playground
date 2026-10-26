@@ -32,6 +32,8 @@ export type NotificationTemplates = {
   answerButton: string
   /** Last line of a Notification from a session that cannot be answered remotely. */
   answerOnComputer: string
+  /** Last line of an answerable Notification on a channel answered by replying in its thread. */
+  answerInThread: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0003). */

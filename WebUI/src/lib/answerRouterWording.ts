@@ -1,3 +1,5 @@
+import english from '@/assets/i18n/en-US.json'
+
 /** What the Answer router tells the channel, in the app language. */
 export type AnswerRouterCopy = {
   /** `{title}` (a session label) */
@@ -41,32 +43,38 @@ export type AnswerRouterCopy = {
   help: string
 }
 
-// Only reached before the window has pushed its locale (tests, a reload mid-boot).
-const ENGLISH: AnswerRouterCopy = {
-  starting: '➡️ Sent to {title} — starting…',
-  queued: '➡️ Sent to {title} — queued (position {position})',
-  notSent: '⚠️ Not sent to {title}: {reason}',
-  noSession: '⚠️ That session no longer exists',
-  realShell: '🖥️ {title} uses the real system shell. Answer on your computer.',
-  fixOnDesktop: 'Fix it in AI Playground on your computer, then answer again.',
-  textOnly: '⚠️ Answers to agents can only be text for now',
-  noSpeech: "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
-  answerPrompt: 'Your message to {title}:',
-  answerPlaceholder: 'Message to {title}',
-  held: '⏳ Queued for {title} — it is sent when the current turn ends.',
-  heldDownload: '⏳ Queued for {title} — the session is waiting for the download buttons above.',
-  heldDownloadElsewhere:
-    '⏳ Queued for {title} — the session is waiting for the download buttons in your notifications chat, or on your computer.',
-  heldDesktop: '⏳ Queued for {title} — the session is waiting on your computer.',
-  heldReplaced: 'It replaces your earlier Answer, which will not be sent.',
-  heldReplacedElsewhere: '⚠️ Not sent to {title}: a newer Answer replaced it.',
-  heldDesktopTookOver: '⚠️ Not sent to {title}: the desktop took over.',
-  heldSessionGone: '⚠️ Not sent to {title}: that session no longer exists.',
-  heldAppClosed: '⚠️ Not sent to {title}: AI Playground closed before it could be sent.',
-  onboarding:
-    '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).',
-  help: 'To answer an agent, reply to its message or tap 💬 Answer. Plain messages go to Home Agent.',
+const KEYS: Record<keyof AnswerRouterCopy, string> = {
+  starting: 'AGENT_ANSWER_STARTING',
+  queued: 'AGENT_ANSWER_QUEUED',
+  notSent: 'AGENT_ANSWER_NOT_SENT',
+  noSession: 'AGENT_ANSWER_NO_SESSION',
+  realShell: 'AGENT_ANSWER_REAL_SHELL',
+  fixOnDesktop: 'AGENT_ANSWER_FIX_ON_DESKTOP',
+  textOnly: 'AGENT_ANSWER_TEXT_ONLY',
+  noSpeech: 'AGENT_ANSWER_NO_SPEECH',
+  answerPrompt: 'AGENT_ANSWER_PROMPT',
+  answerPlaceholder: 'AGENT_ANSWER_PLACEHOLDER',
+  held: 'AGENT_ANSWER_HELD',
+  heldDownload: 'AGENT_ANSWER_HELD_DOWNLOAD',
+  heldDownloadElsewhere: 'AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE',
+  heldDesktop: 'AGENT_ANSWER_HELD_DESKTOP',
+  heldReplaced: 'AGENT_ANSWER_HELD_REPLACED',
+  heldReplacedElsewhere: 'AGENT_ANSWER_HELD_REPLACED_ELSEWHERE',
+  heldDesktopTookOver: 'AGENT_ANSWER_HELD_DESKTOP_TOOK_OVER',
+  heldSessionGone: 'AGENT_ANSWER_HELD_SESSION_GONE',
+  heldAppClosed: 'AGENT_ANSWER_HELD_APP_CLOSED',
+  onboarding: 'AGENT_ANSWER_ONBOARDING',
+  help: 'AGENT_ANSWER_HELP',
 }
+
+/** The router's copy in the language `text` holds (the window's i18n state). */
+export function answerRouterCopyFrom(text: Record<string, string | undefined>): AnswerRouterCopy {
+  const entries = Object.entries(KEYS).map(([field, key]) => [field, text[key] ?? ''])
+  return Object.fromEntries(entries) as AnswerRouterCopy
+}
+
+// Only reached before the window has pushed its locale (tests, a reload mid-boot).
+const ENGLISH = answerRouterCopyFrom(english)
 
 let provider: (() => AnswerRouterCopy) | null = null
 

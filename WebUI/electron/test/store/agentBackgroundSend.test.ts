@@ -347,6 +347,60 @@ describe('sending to a session that is not open', () => {
   })
 })
 
+describe('an Answer from a channel', () => {
+  it('is stored with the channel it came from', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'make it faster', { origin: 'telegram' })
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+
+    const messages = lastSaved(id)?.messages as Array<{ role: string; metadata?: unknown }>
+    expect(messages.find((m) => m.role === 'user')?.metadata).toEqual({ origin: 'telegram' })
+  })
+
+  it('leaves a prompt typed on the desktop without an origin', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'tidy up')
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+
+    const messages = lastSaved(id)?.messages as Array<{ role: string; metadata?: unknown }>
+    expect(messages.find((m) => m.role === 'user')?.metadata).toBeUndefined()
+  })
+
+  it('streams live in the session open on the desktop, marked with its channel', async () => {
+    const store = await readyStore()
+    const id = createTaskSession(store)
+    await store.switchSession(id)
+
+    await store.sendToSession(id, 'make it faster', { useStoredSettings: true, origin: 'slack' })
+    const turnId = await turnIdOf(0)
+    pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk: { type: 'start' } })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'text-start', id: 't' },
+    })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'text-delta', id: 't', delta: 'on it' },
+    })
+
+    await vi.waitFor(() => expect(JSON.stringify(store.messages)).toContain('on it'))
+    expect(store.processing).toBe(true)
+    expect(store.messages[0]).toMatchObject({ role: 'user', metadata: { origin: 'slack' } })
+  })
+})
+
 describe('sending to the Open Session', () => {
   it('uses the record when flagged to use its stored settings', async () => {
     const store = await readyStore()

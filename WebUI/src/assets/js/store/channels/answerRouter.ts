@@ -63,6 +63,8 @@ export type AnswerRouterDeps = {
   /** Null until Agent Mode has registered; replies then reach Home Agent as before. */
   sessions: () => AnswerSessions | null
   questions: Pick<ChannelQuestionRegistry, 'handleInbound'>
+  /** Persisted: whether the channel was already told how answering works. */
+  onboarding?: { seen: () => boolean; markSeen: () => void }
   copy?: () => AnswerRouterCopy
   /** Defaults to memory only: a lost Held Answer then goes unreported after a restart. */
   journal?: HeldAnswerJournal
@@ -228,10 +230,17 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   ): Promise<void> {
     const entry: Held = { adapter, sessions, text, title: sessions.label(sessionId), meta }
     // Sending past a Held Answer would put the newer one first; it replaces it instead.
-    if (held.has(sessionId)) return hold(entry, sessionId)
-    const result = await send(sessions, sessionId, text)
-    if (!result.ok && isHold(result.reason)) return hold(entry, sessionId)
-    await confirm(adapter, entry.title, result, meta)
+    if (held.has(sessionId)) {
+      await hold(entry, sessionId)
+    } else {
+      const result = await send(sessions, sessionId, text)
+      if (!result.ok && isHold(result.reason)) await hold(entry, sessionId)
+      else await confirm(adapter, entry.title, result, meta)
+    }
+    if (deps.onboarding && !deps.onboarding.seen()) {
+      deps.onboarding.markSeen()
+      await tell(adapter, copy().onboarding, meta)
+    }
   }
 
   async function route(

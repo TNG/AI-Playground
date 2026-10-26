@@ -43,6 +43,7 @@ import {
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
 import { reportAgentTurnEnd } from './agentTurnOutcome.ts'
+import { noteAnswerTurn } from './notifier.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
 import {
@@ -254,6 +255,25 @@ function endedWithoutReplyOrToolCall(session: AgentSession): boolean {
   })
 }
 
+function finalReplyText(session: AgentSession): string | undefined {
+  for (const message of [...session.messages].reverse()) {
+    const { role, content } = message as { role?: string; content?: unknown }
+    if (role !== 'assistant') continue
+    const text =
+      typeof content === 'string'
+        ? content
+        : Array.isArray(content)
+          ? content
+              .map((entry) => entry as { type?: string; text?: string })
+              .filter((part) => part.type === 'text')
+              .map((part) => part.text ?? '')
+              .join('')
+          : ''
+    if (text.trim()) return text.trim()
+  }
+  return undefined
+}
+
 /**
  * The provider's complaint when the model call itself failed. Pi records a
  * failed call as an assistant message with `stopReason: 'error'` and resolves
@@ -331,6 +351,7 @@ export async function startAgentTurn(
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
+  if (config.answer) noteAnswerTurn(sessionId, turnId, config.workspaceDir, config.answer)
   beginAgentTurnSnapshot(sessionId, turnId)
   emitAgentTurnState(sessionId, turnId, 'queued')
   const verbose = verboseLogging()
@@ -384,6 +405,7 @@ export async function startAgentTurn(
     }
   }
   let failedWith: string | undefined
+  let reply: string | undefined
   try {
     await submitTextRequest(
       {
@@ -458,6 +480,7 @@ export async function startAgentTurn(
       abortController.signal.removeEventListener('abort', onAbort)
     }
     translator.finish(turnSummary(current.session))
+    reply = finalReplyText(current.session)
     savePointer({
       sessionId: current.sessionId,
       workspaceDir: current.workspaceDir,
@@ -486,11 +509,9 @@ export async function startAgentTurn(
     reportAgentTurnEnd(
       failedWith !== undefined
         ? { sessionId, turnId, outcome: 'failed', error: failedWith }
-        : {
-            sessionId,
-            turnId,
-            outcome: abortController.signal.aborted ? 'cancelled' : 'completed',
-          },
+        : abortController.signal.aborted
+          ? { sessionId, turnId, outcome: 'cancelled' }
+          : { sessionId, turnId, outcome: 'completed', reply },
     )
     if (turn.live) await releaseTurnSession(turn.live)
     emitAgentTurnDone(sessionId, turnId)

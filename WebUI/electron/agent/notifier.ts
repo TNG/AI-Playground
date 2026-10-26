@@ -1,9 +1,13 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
+import { onGeneratedMedia } from './generatedMedia.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
@@ -17,8 +21,13 @@ const LOG_SOURCE = 'notifier'
 
 export type NotificationDelivery = { delivered: true } | { delivered: false; reason: string }
 
-/** What the Notifier hands a channel; reply targets and buttons join it later. */
-export type ChannelMessage = { text: string }
+export type ChannelMedia = { kind: 'photo' | 'video'; base64: string; filename: string }
+
+/**
+ * What the Notifier hands a channel. `replyTo` is the platform ref of the message it
+ * answers; with `media`, `text` is the caption.
+ */
+export type ChannelMessage = { text: string; replyTo?: string; media?: ChannelMedia }
 
 /** `ref` is the platform's id of the sent message, when it has one. */
 export type ChannelSendOutcome = { success: true; ref?: string } | { success: false; error: string }
@@ -54,6 +63,25 @@ let config: NotificationConfig = OFF_CONFIG
 let channelSend: ChannelSend | undefined
 let windowShown: () => boolean = () => false
 
+type AnswerTurn = AgentAnswerOrigin & { turnId: string; workspaceDir: string; media: string[] }
+
+/** The turn an Answer started, per session: its messages go under the Answer, past the gates. */
+const answerTurns = new Map<string, AnswerTurn>()
+
+export function noteAnswerTurn(
+  sessionId: string,
+  turnId: string,
+  workspaceDir: string,
+  origin: AgentAnswerOrigin,
+): void {
+  answerTurns.set(sessionId, { ...origin, turnId, workspaceDir, media: [] })
+}
+
+function answerTurnOf(sessionId: string, turnId?: string): AnswerTurn | undefined {
+  const turn = answerTurns.get(sessionId)
+  return turn && (turnId === undefined || turn.turnId === turnId) ? turn : undefined
+}
+
 export function setNotificationConfig(next: NotificationConfig): void {
   config = { ...next }
 }
@@ -71,33 +99,78 @@ export async function sendNotification(
   text: string,
   options: NotificationOptions = {},
 ): Promise<NotificationDelivery> {
-  const delivery = await deliver(text, options.sessionId)
+  const delivery = await deliver({ text }, options.sessionId)
   if (!delivery.delivered) {
     appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
   }
   return delivery
 }
 
-async function deliver(text: string, sessionId: string | undefined): Promise<NotificationDelivery> {
-  const { homeAgentEnabled, notificationChannel } = config
+async function deliver(
+  body: { text: string; media?: ChannelMedia },
+  sessionId: string | undefined,
+): Promise<NotificationDelivery> {
+  const answer = sessionId ? answerTurnOf(sessionId) : undefined
+  const { homeAgentEnabled } = config
+  const channel = answer?.channel ?? config.notificationChannel
   if (!homeAgentEnabled || !channelSend) return { delivered: false, reason: 'Home Agent is off' }
-  if (!notificationChannel) return { delivered: false, reason: 'no Notification Channel set up' }
+  if (!channel) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
     const header = sessionId
       ? fillTemplate(config.templates.header, { title: await sessionLabel(sessionId) })
       : ''
-    const result = await channelSend(notificationChannel, {
-      text: header ? `${header}\n${text}` : text,
+    const result = await channelSend(channel, {
+      text: [header, body.text].filter(Boolean).join('\n'),
+      ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
+      ...(body.media ? { media: body.media } : {}),
     })
     if (!result.success) return { delivered: false, reason: result.error }
     if (sessionId && result.ref) {
-      await recordChannelMessage(notificationChannel, result.ref, sessionId).catch((error) =>
+      await recordChannelMessage(channel, result.ref, sessionId).catch((error) =>
         appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
       )
     }
     return { delivered: true }
   } catch (error) {
     return { delivered: false, reason: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+const MEDIA_KINDS: Record<string, ChannelMedia['kind']> = {
+  '.png': 'photo',
+  '.jpg': 'photo',
+  '.jpeg': 'photo',
+  '.webp': 'photo',
+  '.mp4': 'video',
+  '.webm': 'video',
+}
+
+async function channelMedia(file: string): Promise<ChannelMedia | null> {
+  const kind = MEDIA_KINDS[path.extname(file).toLowerCase()]
+  if (!kind) return null
+  const base64 = (await fs.readFile(file)).toString('base64')
+  return { kind, base64, filename: path.basename(file) }
+}
+
+// Telegram refuses a message over 4096 characters; the header needs room too.
+const REPLY_MAX_CHARS = 3800
+
+/** The result of the turn an Answer started: its last text, then what it generated. */
+async function replyToAnswer(sessionId: string, turn: AnswerTurn, reply: string | undefined) {
+  if (reply) {
+    const text = reply.length > REPLY_MAX_CHARS ? `${reply.slice(0, REPLY_MAX_CHARS)}…` : reply
+    await sendNotification(text, { sessionId })
+  }
+  for (const file of turn.media) {
+    const media = await channelMedia(file).catch((error) => {
+      appLoggerInstance.warn(`generated media not readable: ${error}`, LOG_SOURCE)
+      return null
+    })
+    if (!media) continue
+    const delivery = await deliver({ text: '', media }, sessionId)
+    if (!delivery.delivered) {
+      appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
+    }
   }
 }
 
@@ -119,10 +192,20 @@ async function sessionLabel(sessionId: string): Promise<string> {
   return notificationSessionLabel(config.templates, sessionId, title, tasks)
 }
 
-async function notifyPaused(sessionId: string, reason: PauseReason | undefined): Promise<void> {
+/** The automatic Notification rules, which the turn an Answer started skips. */
+function notifiesAutomatically(sessionId: string, turnId: string): boolean {
+  if (answerTurnOf(sessionId, turnId)) return true
+  return config.autoNotify && offScreen(sessionId)
+}
+
+async function notifyPaused(
+  sessionId: string,
+  turnId: string,
+  reason: PauseReason | undefined,
+): Promise<void> {
   // A download pause is asked as a Channel Question by the window instead (docs/adr/0004).
   if (reason?.kind === 'download') return
-  if (!config.autoNotify || !offScreen(sessionId)) return
+  if (!notifiesAutomatically(sessionId, turnId)) return
   const title = await sessionLabel(sessionId)
   await sendNotification(
     fillTemplate(config.templates.paused, { title, reason: pauseReasonText(reason) }),
@@ -130,8 +213,8 @@ async function notifyPaused(sessionId: string, reason: PauseReason | undefined):
   )
 }
 
-async function notifyFailed(sessionId: string, error: string): Promise<void> {
-  if (!config.autoNotify || !offScreen(sessionId)) return
+async function notifyFailed(sessionId: string, turnId: string, error: string): Promise<void> {
+  if (!notifiesAutomatically(sessionId, turnId)) return
   const title = await sessionLabel(sessionId)
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
@@ -142,11 +225,27 @@ async function notifyFailed(sessionId: string, error: string): Promise<void> {
 
 /** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */
 export function startAutoNotifications(): () => void {
+  const stopMedia = onGeneratedMedia((workspaceDir, relativePaths) => {
+    for (const turn of answerTurns.values()) {
+      if (path.resolve(turn.workspaceDir) !== path.resolve(workspaceDir)) continue
+      turn.media.push(...relativePaths.map((file) => path.resolve(workspaceDir, file)))
+    }
+  })
   const stopFailures = onAgentTurnEnd((end) => {
-    if (end.outcome !== 'failed') return
-    void notifyFailed(end.sessionId, end.error).catch((error) =>
-      appLoggerInstance.warn(`failure notification failed: ${error}`, LOG_SOURCE),
-    )
+    const answer = answerTurnOf(end.sessionId, end.turnId)
+    const sending =
+      end.outcome === 'failed'
+        ? notifyFailed(end.sessionId, end.turnId, end.error)
+        : end.outcome === 'completed' && answer
+          ? replyToAnswer(end.sessionId, answer, end.reply)
+          : Promise.resolve()
+    void sending
+      .catch((error) =>
+        appLoggerInstance.warn(`turn-end notification failed: ${error}`, LOG_SOURCE),
+      )
+      .finally(() => {
+        if (answerTurnOf(end.sessionId, end.turnId)) answerTurns.delete(end.sessionId)
+      })
   })
   const pausedTurns = new Set<string>()
   const stopPauses = onKernelEvent((event) => {
@@ -162,11 +261,12 @@ export function startAutoNotifications(): () => void {
     // A second question while already paused is not a new pause.
     if (pausedTurns.has(event.turnId)) return
     pausedTurns.add(event.turnId)
-    void notifyPaused(event.sessionId, event.pauseReason).catch((error) =>
+    void notifyPaused(event.sessionId, event.turnId, event.pauseReason).catch((error) =>
       appLoggerInstance.warn(`pause notification failed: ${error}`, LOG_SOURCE),
     )
   })
   return () => {
+    stopMedia()
     stopFailures()
     stopPauses()
   }

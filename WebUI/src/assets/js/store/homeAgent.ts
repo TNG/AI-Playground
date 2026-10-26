@@ -2374,7 +2374,11 @@ export const useHomeAgent = defineStore(
           // Answered here, not in the drain loop, which is blocked awaiting this very answer.
           if (
             adapter &&
-            (await answerRouter.route(adapter, { ...msg, replyTo: msg.reply_to }, meta))
+            (await answerRouter.route(
+              adapter,
+              { ...msg, replyTo: msg.reply_to, replyTarget: msg.reply_target },
+              meta,
+            ))
           )
             continue
           if (queue.length >= MAX_QUEUE_SIZE) {

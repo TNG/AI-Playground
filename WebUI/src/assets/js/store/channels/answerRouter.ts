@@ -1,5 +1,6 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/notificationLabel'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelAdapter } from './adapter'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
 import type { ChannelKind, InboundMeta } from './types'
@@ -14,11 +15,15 @@ export type AnswerSessions = {
   lookup: (kind: ChannelKind, ref: string) => Promise<string | null>
   /** The session's Notification label, quoted (`"Asteroids clone"`, or a Task and its step). */
   label: (sessionId: string) => string
-  send: (sessionId: string, text: string) => Promise<AnswerSendResult>
+  /** `origin` is where the Answer came from; the turn's result is replied under it. */
+  send: (sessionId: string, text: string, origin: AgentAnswerOrigin) => Promise<AnswerSendResult>
 }
 
-/** An inbound channel message; `replyTo` is the platform id of the message it replies to. */
-export type InboundChannelMessage = InboundAnswer & { replyTo?: string }
+/**
+ * An inbound channel message: `replyTo` is the platform id of the message it replies
+ * to, `replyTarget` the ref a reply to this message names.
+ */
+export type InboundChannelMessage = InboundAnswer & { replyTo?: string; replyTarget?: string }
 
 export type AnswerRouter = {
   /**
@@ -69,13 +74,18 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: AnswerSessions,
     sessionId: string,
     text: string,
+    replyTarget: string | undefined,
     meta?: InboundMeta,
   ): Promise<void> {
     const title = sessions.label(sessionId)
     const wording = copy()
+    const origin: AgentAnswerOrigin = {
+      channel: adapter.kind,
+      ...(replyTarget ? { replyTo: replyTarget } : {}),
+    }
     let result: AnswerSendResult
     try {
-      result = await sessions.send(sessionId, text)
+      result = await sessions.send(sessionId, text, origin)
     } catch (e) {
       result = { ok: false, reason: 'error', message: e instanceof Error ? e.message : String(e) }
     }
@@ -100,7 +110,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (sessions && msg.replyTo && text) {
       const sessionId = await answeredSession(sessions, adapter.kind, msg.replyTo)
       if (sessionId) {
-        await answer(adapter, sessions, sessionId, text, meta)
+        await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
         return true
       }
     }

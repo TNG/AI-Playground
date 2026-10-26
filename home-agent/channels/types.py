@@ -70,6 +70,8 @@ class QueueItem(TypedDict, total=False):
     ts: str
     # The platform id of the message this one replies to.
     reply_to: str
+    # The platform ref an outbound reply to this message names (Telegram: its id).
+    reply_target: str
 
 
 class SendResult(TypedDict, total=False):

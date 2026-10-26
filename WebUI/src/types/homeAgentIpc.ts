@@ -19,4 +19,6 @@ export type HomeAgentInboundMessage = {
   callback?: string
   /** The platform id of the message this one replies to. */
   reply_to?: string
+  /** The platform ref an outbound reply to this message names (Telegram: its message id). */
+  reply_target?: string
 }

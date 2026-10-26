@@ -531,6 +531,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ChannelKind, string],
     result: null as unknown as string | null,
   },
+  /** Files a channel message the window sent (an Answer Prompt) under its session (kind, ref, session id). */
+  'notifications:recordMessage': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string, string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** The Home Agent state main's Notifier delivers through; pushed on every change. */
   'notifications:setConfig': {
     kind: 'send',

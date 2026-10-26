@@ -10,6 +10,7 @@ import type { ChannelKind } from '../../../src/assets/js/store/channels/types'
 
 function fakeChannel(kind: ChannelKind = 'telegram') {
   const replies: string[] = []
+  const prompts: { text: string; placeholder: string }[] = []
   const adapter = {
     kind,
     formatMarkdown: (md: string) => md,
@@ -20,8 +21,12 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
       replies.push(text)
       return { success: true }
     },
+    answerPrompt: async (text: string, placeholder: string) => {
+      prompts.push({ text, placeholder })
+      return { success: true, ref: { messageId: 900 + prompts.length } }
+    },
   } as unknown as ChannelAdapter
-  return { adapter, replies }
+  return { adapter, replies, prompts }
 }
 
 type FakeSession = { label: string; result?: AnswerSendResult }
@@ -36,6 +41,9 @@ function fakeSessions(
     lookup: async (kind, ref) =>
       sentMessages.find((m) => m.kind === kind && m.ref === ref)?.sessionId ?? null,
     label: (sessionId) => `"${sessions[sessionId]?.label ?? 'An agent run'}"`,
+    record: async (kind, ref, sessionId) => {
+      sentMessages.push({ kind, ref, sessionId })
+    },
     send: async (sessionId, text) => {
       received.push({ sessionId, text })
       return sessions[sessionId]?.result ?? { ok: true, queuePosition: null }
@@ -121,6 +129,37 @@ describe('answer router', () => {
     await router.route(slack.adapter, { text: 'more sources', replyTo: '5' })
     expect(received).toEqual([{ sessionId: 'digest', text: 'more sources' }])
     expect(slack.replies).toEqual(['➡️ Sent to "Daily digest" — starting…'])
+  })
+
+  it('opens an Answer Prompt when the Answer button is tapped, and sends the reply to it', async () => {
+    const { router, received } = setup()
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { callback: 'answer', replyTo: '1234' })).toBe(true)
+    expect(ch.prompts).toEqual([
+      { text: 'Your message to "Asteroids clone":', placeholder: 'Message to "Asteroids clone"' },
+    ])
+    expect(received).toEqual([])
+
+    expect(await router.route(ch.adapter, { text: 'faster ship', replyTo: '901' })).toBe(true)
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'faster ship' }])
+    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+  })
+
+  it('keeps the Answer Prompt placeholder within Telegram’s 64 characters', async () => {
+    const { router } = setup({ asteroids: { label: 'A'.repeat(80) } })
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { callback: 'answer', replyTo: '1234' })
+    expect([...ch.prompts[0].placeholder]).toHaveLength(64)
+    expect(ch.prompts[0].placeholder.endsWith('…')).toBe(true)
+  })
+
+  it('says the session no longer exists when Answer is tapped under a deleted session’s message', async () => {
+    const { router, received } = setup()
+    const ch = fakeChannel()
+    expect(await router.route(ch.adapter, { callback: 'answer', replyTo: '77' })).toBe(true)
+    expect(ch.prompts).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
+    expect(received).toEqual([])
   })
 
   it('hands a button tap to its Channel Question, even on a reply', async () => {

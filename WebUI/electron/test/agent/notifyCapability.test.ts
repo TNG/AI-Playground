@@ -269,9 +269,9 @@ describe('notify_user', () => {
 
   it('records the sent message so a reply to it reaches the session', async () => {
     await runTurn('aipg-agent-notify-answerable')
-    expect(await messageMap.lookupChannelMessage('telegram', '42')).toBe(
-      'aipg-agent-notify-answerable',
-    )
+    expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
+      sessionId: 'aipg-agent-notify-answerable',
+    })
   }, 30000)
 
   it('sends nothing with Home Agent off and returns the reason', async () => {

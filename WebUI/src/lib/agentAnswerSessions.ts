@@ -51,8 +51,7 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
   }
 
   registerAnswerSessions({
-    lookup: async (kind, ref) =>
-      (await window.electronAPI.notifications?.lookupMessage?.(kind, ref)) ?? null,
+    lookup: (kind, ref) => window.electronAPI.notifications.lookupMessage(kind, ref),
     label,
     usesRealShell: (sessionId) => {
       const record = agentMode.sessions[sessionId]

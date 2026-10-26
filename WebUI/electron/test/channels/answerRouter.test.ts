@@ -11,6 +11,7 @@ import {
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
 import type { ChannelKind, RemoteAudio } from '../../../src/assets/js/store/channels/types'
+import type { AgentAnswerOrigin } from '../../../src/types/agentIpc'
 
 function fakeChannel(kind: ChannelKind = 'telegram') {
   const replies: string[] = []
@@ -54,6 +55,7 @@ type SentMessage = { kind: ChannelKind; ref: string; sessionId: string }
 
 function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentMessage[]) {
   const received: { sessionId: string; text: string }[] = []
+  const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
   const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
   const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
   const port: AnswerSessions = {
@@ -67,8 +69,9 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
     record: async (kind, ref, sessionId) => {
       sentMessages.push({ kind, ref, sessionId })
     },
-    send: async (sessionId, text) => {
+    send: async (sessionId, text, origin) => {
       received.push({ sessionId, text })
+      origins.push({ sessionId, origin })
       const session = sessions[sessionId]
       const queued = session?.results
       if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
@@ -88,7 +91,7 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
     for (const listener of [...listeners]) listener(sessionId, how)
     await flush()
   }
-  return { port, received, held, end }
+  return { port, received, origins, held, end }
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -160,6 +163,15 @@ describe('answer router', () => {
     )
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
     expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+  })
+
+  it('tells the session where the Answer came from, so its result is replied under it', async () => {
+    const { router, origins } = setup()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'again', replyTo: '1234', replyTarget: '1300' })
+    expect(origins).toEqual([
+      { sessionId: 'asteroids', origin: { channel: 'telegram', replyTo: '1300' } },
+    ])
   })
 
   it('says the Answer is queued, with its place, when the Turn Queue is busy', async () => {
@@ -516,6 +528,16 @@ describe('a Held Answer', () => {
     ])
     expect(ch.replies.slice(1)).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
     expect(held.asteroids).toBeNull()
+  })
+
+  it('is sent with where it came from, so its turn replies under it', async () => {
+    const { router, origins, end } = busy()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234', replyTarget: '1300' })
+    await end('asteroids', 'completed')
+    expect(origins.slice(-1)).toEqual([
+      { sessionId: 'asteroids', origin: { channel: 'telegram', replyTo: '1300' } },
+    ])
   })
 
   it('is sent anyway when the turn fails', async () => {

@@ -19,7 +19,7 @@ import { getAgentToolSpecs } from '../tools/agentBridge'
 import { useDeveloperSettings } from './developerSettings'
 import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
-import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
 import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
 
@@ -89,6 +89,7 @@ export async function buildTurnConfig(options: {
   cloudMode: CloudForTurn
   /** Tool toggles stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
+  answer?: AgentAnswerOrigin
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
@@ -125,6 +126,7 @@ export async function buildTurnConfig(options: {
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+      ...(options.answer ? { answer: options.answer } : {}),
       ...embeddingConfigOf(textInference),
     }
   }
@@ -158,6 +160,7 @@ export async function buildTurnConfig(options: {
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
+    ...(options.answer ? { answer: options.answer } : {}),
     planningThinkingOnly:
       textInference.modelSupportsThinkingToggle &&
       textInference.thinkingEnabled &&

@@ -22,6 +22,10 @@ export type AnswerRouterCopy = {
   heldSessionGone: string
   /** `{title}`; told on the next start */
   heldAppClosed: string
+  /** Shown once, after the first Answer: how Home Agent and agents share the channel. */
+  onboarding: string
+  /** The `/help` line on answering agents. */
+  help: string
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -37,6 +41,9 @@ const ENGLISH: AnswerRouterCopy = {
   heldDesktopTookOver: '⚠️ Not sent to {title}: the desktop took over.',
   heldSessionGone: '⚠️ Not sent to {title}: that session no longer exists.',
   heldAppClosed: '⚠️ Not sent to {title}: AI Playground closed before it could be sent.',
+  onboarding:
+    '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).',
+  help: 'To answer an agent, reply to its message or tap 💬 Answer. Plain messages go to Home Agent.',
 }
 
 let provider: (() => AnswerRouterCopy) | null = null

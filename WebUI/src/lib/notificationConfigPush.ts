@@ -71,6 +71,8 @@ export function startNotificationConfigPush(): void {
       heldDesktopTookOver: text.AGENT_ANSWER_HELD_DESKTOP_TOOK_OVER ?? '',
       heldSessionGone: text.AGENT_ANSWER_HELD_SESSION_GONE ?? '',
       heldAppClosed: text.AGENT_ANSWER_HELD_APP_CLOSED ?? '',
+      onboarding: text.AGENT_ANSWER_ONBOARDING ?? '',
+      help: text.AGENT_ANSWER_HELP ?? '',
     }
   })
   registerChannelQuestionTemplates(() => {

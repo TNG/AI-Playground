@@ -1,5 +1,4 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
@@ -7,6 +6,7 @@ import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
+import { recordChannelMessage } from '../persist/channelMessageMap.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
 // The one sender of Notifications (docs/adr/0003): owns the delivery decision and
@@ -17,7 +17,21 @@ const LOG_SOURCE = 'notifier'
 
 export type NotificationDelivery = { delivered: true } | { delivered: false; reason: string }
 
-export type ChannelReply = (kind: ChannelKind, text: string) => Promise<IpcMutationResult>
+/** What the Notifier hands a channel; reply targets and buttons join it later. */
+export type ChannelMessage = { text: string }
+
+/** `ref` is the platform's id of the sent message, when it has one. */
+export type ChannelSendOutcome = { success: true; ref?: string } | { success: false; error: string }
+
+export type ChannelSend = (
+  kind: ChannelKind,
+  message: ChannelMessage,
+) => Promise<ChannelSendOutcome>
+
+export type NotificationOptions = {
+  /** The sending session: names it in the header and makes the message answerable. */
+  sessionId?: string
+}
 
 const OFF_CONFIG: NotificationConfig = {
   homeAgentEnabled: false,
@@ -25,6 +39,7 @@ const OFF_CONFIG: NotificationConfig = {
   autoNotify: false,
   sessionInView: null,
   templates: {
+    header: '',
     paused: '',
     pauseReason: '',
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
@@ -36,15 +51,15 @@ const OFF_CONFIG: NotificationConfig = {
 }
 
 let config: NotificationConfig = OFF_CONFIG
-let reply: ChannelReply | undefined
+let channelSend: ChannelSend | undefined
 let windowShown: () => boolean = () => false
 
 export function setNotificationConfig(next: NotificationConfig): void {
   config = { ...next }
 }
 
-export function setNotificationChannelReply(next: ChannelReply | undefined): void {
-  reply = next
+export function setNotificationChannelSend(next: ChannelSend | undefined): void {
+  channelSend = next
 }
 
 /** Whether the window is on screen: neither hidden to the tray nor minimized. Focus does not count. */
@@ -52,21 +67,35 @@ export function setNotificationWindowShown(next: () => boolean): void {
   windowShown = next
 }
 
-export async function sendNotification(text: string): Promise<NotificationDelivery> {
-  const delivery = await deliver(text)
+export async function sendNotification(
+  text: string,
+  options: NotificationOptions = {},
+): Promise<NotificationDelivery> {
+  const delivery = await deliver(text, options.sessionId)
   if (!delivery.delivered) {
     appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
   }
   return delivery
 }
 
-async function deliver(text: string): Promise<NotificationDelivery> {
+async function deliver(text: string, sessionId: string | undefined): Promise<NotificationDelivery> {
   const { homeAgentEnabled, notificationChannel } = config
-  if (!homeAgentEnabled || !reply) return { delivered: false, reason: 'Home Agent is off' }
+  if (!homeAgentEnabled || !channelSend) return { delivered: false, reason: 'Home Agent is off' }
   if (!notificationChannel) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
-    const result = await reply(notificationChannel, text)
-    return result.success ? { delivered: true } : { delivered: false, reason: result.error }
+    const header = sessionId
+      ? fillTemplate(config.templates.header, { title: await sessionLabel(sessionId) })
+      : ''
+    const result = await channelSend(notificationChannel, {
+      text: header ? `${header}\n${text}` : text,
+    })
+    if (!result.success) return { delivered: false, reason: result.error }
+    if (sessionId && result.ref) {
+      await recordChannelMessage(notificationChannel, result.ref, sessionId).catch((error) =>
+        appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
+      )
+    }
+    return { delivered: true }
   } catch (error) {
     return { delivered: false, reason: error instanceof Error ? error.message : String(error) }
   }
@@ -97,6 +126,7 @@ async function notifyPaused(sessionId: string, reason: PauseReason | undefined):
   const title = await sessionLabel(sessionId)
   await sendNotification(
     fillTemplate(config.templates.paused, { title, reason: pauseReasonText(reason) }),
+    { sessionId },
   )
 }
 
@@ -105,7 +135,9 @@ async function notifyFailed(sessionId: string, error: string): Promise<void> {
   const title = await sessionLabel(sessionId)
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
-  await sendNotification(fillTemplate(config.templates.failed, { title, error: reason }))
+  await sendNotification(fillTemplate(config.templates.failed, { title, error: reason }), {
+    sessionId,
+  })
 }
 
 /** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */

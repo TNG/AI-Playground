@@ -6,6 +6,8 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
 import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
+import { registerAnswerRouterCopy } from '@/lib/answerRouterWording'
+import { registerAgentAnswerSessions } from '@/lib/agentAnswerSessions'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
 // Main delivers Notifications while the window is hidden, so it keeps its own copy.
@@ -25,6 +27,7 @@ export function startNotificationConfigPush(): void {
       autoNotify: homeAgent.autoNotify,
       sessionInView: agentMode.sessionInView,
       templates: {
+        header: text.AGENT_NOTIFY_HEADER ?? '',
         paused: text.AGENT_NOTIFY_PAUSED ?? '',
         pauseReason: text.AGENT_NOTIFY_PAUSE_REASON ?? '',
         pauseKinds: {
@@ -45,14 +48,23 @@ export function startNotificationConfigPush(): void {
   })
   // A Channel Question names its session the way main's Notifications do.
   const agentTasks = useAgentTasks()
-  registerSessionLabeler((sessionId) =>
+  const label = (sessionId: string) =>
     notificationSessionLabel(
       config.value.templates,
       sessionId,
       agentMode.sessions[sessionId]?.title ?? '',
       agentTasks.tasks,
-    ),
-  )
+    )
+  registerSessionLabeler(label)
+  registerAgentAnswerSessions(label)
+  registerAnswerRouterCopy(() => {
+    const text = i18n.state
+    return {
+      starting: text.AGENT_ANSWER_STARTING ?? '',
+      queued: text.AGENT_ANSWER_QUEUED ?? '',
+      notSent: text.AGENT_ANSWER_NOT_SENT ?? '',
+    }
+  })
   registerChannelQuestionTemplates(() => {
     const text = i18n.state
     return {

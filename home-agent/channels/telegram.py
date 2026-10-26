@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .base import ChannelBase
 from .commands import HOME_AGENT_COMMANDS
-from .types import SendResult
+from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,15 @@ _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
+
+
+def inbound_text_item(message) -> QueueItem:
+    """The queue item for a typed message; a reply names the message it answers."""
+    item: QueueItem = {"text": message.text or "", "chat_id": str(message.chat_id)}
+    replied = getattr(message, "reply_to_message", None)
+    if replied is not None and replied.message_id is not None:
+        item["reply_to"] = str(replied.message_id)
+    return item
 
 
 class TelegramChannel(ChannelBase):
@@ -430,7 +439,7 @@ class TelegramChannel(ChannelBase):
                 update.message.message_id,
                 len(user_text),
             )
-            self.queue_append({"text": user_text, "chat_id": chat_id})
+            self.queue_append(inbound_text_item(update.message))
 
         def make_command_handler(command_name: str, full_text_builder=None):
             """Factory: build a /command handler that queues a uniform message.

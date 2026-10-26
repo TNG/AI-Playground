@@ -1157,6 +1157,55 @@ describe('locking the Task Session', () => {
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
   })
 
+  it('refuses anyone else sending into the Task Session mid-turn', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    expect(await agentMode.sendToSession(sessionId, 'answer')).toMatchObject({
+      ok: false,
+      reason: 'task-locked',
+    })
+  })
+
+  it('refuses anyone else sending into the Task Session between two Steps', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    let releaseStep: () => void = () => {}
+    vi.mocked(window.electronAPI.existsPath).mockImplementationOnce(
+      () => new Promise((resolve) => (releaseStep = () => resolve(true))),
+    )
+
+    await finishTurn(0)
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toMatchObject({ running: { stepIndex: 2 } }),
+    )
+    await settleMicrotasks()
+    const interloper = await agentMode.sendToSession(sessionId, 'answer', {
+      useStoredSettings: true,
+    })
+    releaseStep()
+
+    expect(interloper).toMatchObject({ ok: false, reason: 'task-locked' })
+    await turnIdOf(1)
+    await settleMicrotasks()
+    expect(sentPrompts()).toEqual(['one', 'two'])
+  })
+
+  it('accepts a send into the session once the run has settled', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+
+    expect(await agentMode.sendToSession(sessionId, 'answer')).toEqual({ ok: true })
+  })
+
   it.each([
     ['failed', () => failTurn(0, 'boom')],
     ['stopped', (tasks: ReturnType<typeof useAgentTasks>) => tasks.stopTask('t1')],

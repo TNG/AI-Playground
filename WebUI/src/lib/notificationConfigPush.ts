@@ -63,6 +63,11 @@ export function startNotificationConfigPush(): void {
       starting: text.AGENT_ANSWER_STARTING ?? '',
       queued: text.AGENT_ANSWER_QUEUED ?? '',
       notSent: text.AGENT_ANSWER_NOT_SENT ?? '',
+      noSession: text.AGENT_ANSWER_NO_SESSION ?? '',
+      realShell: text.AGENT_ANSWER_REAL_SHELL ?? '',
+      fixOnDesktop: text.AGENT_ANSWER_FIX_ON_DESKTOP ?? '',
+      textOnly: text.AGENT_ANSWER_TEXT_ONLY ?? '',
+      noSpeech: text.AGENT_ANSWER_NO_SPEECH ?? '',
     }
   })
   registerChannelQuestionTemplates(() => {

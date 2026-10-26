@@ -339,6 +339,7 @@ export function createSlackAdapter(): ChannelAdapter {
         await window.electronAPI.homeAgent.channel.send('slack', 'post', {
           text,
           channel: meta?.channel,
+          ...(meta?.threadTs ? { thread_ts: meta.threadTs } : {}),
         }),
       )
     },

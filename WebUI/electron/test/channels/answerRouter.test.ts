@@ -10,11 +10,18 @@ import {
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
-import type { ChannelKind, RemoteAudio } from '../../../src/assets/js/store/channels/types'
+import type {
+  ChannelKind,
+  InboundMeta,
+  RemoteAudio,
+} from '../../../src/assets/js/store/channels/types'
 import type { AgentAnswerOrigin } from '../../../src/types/agentIpc'
 
+/** `replies` is everything the channel was told; `drafted` the part sent as a draft-settling reply. */
 function fakeChannel(kind: ChannelKind = 'telegram') {
   const replies: string[] = []
+  const drafted: string[] = []
+  const metas: (InboundMeta | undefined)[] = []
   const prompts: { text: string; placeholder: string }[] = []
   const adapter = {
     kind,
@@ -22,8 +29,15 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
     formatRichSnippet: (html: string) => html,
     keyboard: async () => ({ success: true, ref: { messageId: 900 } }),
     editKeyboardMessage: async () => ({ success: true }),
-    reply: async (text: string) => {
+    reply: async (text: string, meta?: InboundMeta) => {
       replies.push(text)
+      drafted.push(text)
+      metas.push(meta)
+      return { success: true }
+    },
+    post: async (text: string, meta?: InboundMeta) => {
+      replies.push(text)
+      metas.push(meta)
       return { success: true }
     },
     answerPrompt: async (text: string, placeholder: string) => {
@@ -31,7 +45,7 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
       return { success: true, ref: { messageId: 900 + prompts.length } }
     },
   } as unknown as ChannelAdapter
-  return { adapter, replies, prompts }
+  return { adapter, replies, drafted, metas, prompts }
 }
 
 type FakeSession = {
@@ -41,6 +55,8 @@ type FakeSession = {
   result?: AnswerSendResult
   pause?: SessionPause
   realShell?: boolean
+  /** Runs while a send is in flight, before it resolves. */
+  duringSend?: () => void
 }
 
 const BUSY: AnswerSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
@@ -73,6 +89,7 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
       received.push({ sessionId, text })
       origins.push({ sessionId, origin })
       const session = sessions[sessionId]
+      session?.duringSend?.()
       const queued = session?.results
       if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
       return session?.result ?? { ok: true, queuePosition: null }
@@ -143,15 +160,18 @@ function setup(
   const questions = createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} })
   const fake = fakeSessions(sessions, sentMessages)
   const speech = fakeTranscription()
+  // Where an agent's download question is asked: the Notification Channel, if any.
+  const downloads = { askedOn: 'telegram' as ChannelKind | null }
   const router = createAnswerRouter({
     sessions: () => fake.port,
     questions,
     transcribe: speech.transcribe,
+    downloadQuestionChannel: () => downloads.askedOn,
     journal,
     onboarding,
     log: () => {},
   })
-  return { router, questions, ...fake, journal, sessions, speech }
+  return { router, questions, ...fake, journal, sessions, speech, downloads }
 }
 
 describe('answer router', () => {
@@ -171,6 +191,31 @@ describe('answer router', () => {
     await router.route(ch.adapter, { text: 'again', replyTo: '1234', replyTarget: '1300' })
     expect(origins).toEqual([
       { sessionId: 'asteroids', origin: { channel: 'telegram', replyTo: '1300' } },
+    ])
+  })
+
+  it('confirms with a message of its own, never taking over a streaming Home Agent draft', async () => {
+    const { router } = setup(undefined, [
+      { kind: 'local-web', ref: '1234', sessionId: 'asteroids' },
+    ])
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
+    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(ch.drafted).toEqual([])
+  })
+
+  it('confirms a Slack Answer in the thread it was given in', async () => {
+    const { router } = setup(undefined, [
+      { kind: 'slack', ref: '1700000000.0001', sessionId: 'asteroids' },
+    ])
+    const ch = fakeChannel('slack')
+    await router.route(
+      ch.adapter,
+      { text: 'try a smaller level', replyTo: '1700000000.0001', replyTarget: '1700000000.0001' },
+      { channel: 'C1', ts: '1700000000.0005' },
+    )
+    expect(ch.metas).toEqual([
+      { channel: 'C1', ts: '1700000000.0005', threadTs: '1700000000.0001' },
     ])
   })
 
@@ -380,6 +425,10 @@ describe('answer router', () => {
           documents: [{ filename: 'level.txt', mime: 'text/plain', data_base64: 'AAAA' }],
         },
       ],
+      [
+        'file the channel refused to read',
+        { text: 'the level data', refused: 'Unsupported document type.' },
+      ],
     ])('refuses a %s sent as an Answer and sends nothing', async (_kind, attachment) => {
       const { router, received } = setup()
       const ch = fakeChannel()
@@ -496,6 +545,48 @@ describe('a Held Answer', () => {
       '⏳ Queued for "Asteroids clone" — the session is waiting for the download buttons above.',
     ])
     expect(held.asteroids?.text).toBe('use the small one')
+  })
+
+  it('says the download is asked on the other channel when the Answer came elsewhere', async () => {
+    const { router, downloads } = busy({ pause: 'download' })
+    downloads.askedOn = 'slack'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued for "Asteroids clone" — the session is waiting for the download buttons in ' +
+        'your notifications chat, or on your computer.',
+    ])
+  })
+
+  it('says the download waits on the computer when no channel asks it', async () => {
+    const { router, downloads } = busy({ pause: 'download' })
+    downloads.askedOn = null
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued for "Asteroids clone" — the session is waiting on your computer.',
+    ])
+  })
+
+  it('is sent at once when the turn ended while its first send was being refused', async () => {
+    let fired = false
+    const fixture = setup({
+      asteroids: {
+        label: 'Asteroids clone',
+        results: [BUSY, { ok: true, queuePosition: null }],
+        duringSend: () => {
+          if (fired) return
+          fired = true
+          void fixture.end('asteroids', 'completed')
+        },
+      },
+    })
+    const ch = fakeChannel()
+    await fixture.router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await flush()
+    expect(fixture.received).toHaveLength(2)
+    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(fixture.held.asteroids ?? null).toBeNull()
   })
 
   it('says it waits on the computer while the turn is paused on a confirmation', async () => {

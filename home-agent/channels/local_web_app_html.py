@@ -644,6 +644,12 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     async function sendText(text) {
       const t = text.trim()
       if (!t) return
+      if (t.startsWith('/')) {
+        input.value = ''
+        input.style.height = 'auto'
+        await sendCommand(t)
+        return
+      }
       const bubble = appendUser(t, null, null, answering && answering.title)
       input.value = ''
       input.style.height = 'auto'

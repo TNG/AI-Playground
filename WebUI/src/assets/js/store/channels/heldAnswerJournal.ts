@@ -1,24 +1,29 @@
 import { z } from 'zod'
 import { demoAwareStorage } from '../../demoAwareStorage'
 import type { HeldAnswerJournal } from './answerRouter'
+import { ChannelKindSchema } from './types'
 
 const KEY = 'aipg.heldAnswerNotes'
 
 const NotesSchema = z.array(
   z.object({
-    channel: z.enum(['telegram', 'slack', 'discord', 'local-web']),
+    channel: ChannelKindSchema,
     title: z.string(),
     meta: z
       .object({
         channel: z.string().optional(),
         ts: z.string().optional(),
         chatId: z.string().optional(),
+        threadTs: z.string().optional(),
       })
       .optional(),
   }),
 )
 
-/** Held Answers themselves are never kept (ADR 0002); only the note that one was lost. */
+/**
+ * Only the note that a Held Answer was lost: like the Turn Queue, which is not persisted so the
+ * app never starts work by itself at launch (ADR 0002), the Answer itself is never kept.
+ */
 export const heldAnswerJournal: HeldAnswerJournal = {
   load: () => {
     const raw = demoAwareStorage.getItem(KEY)

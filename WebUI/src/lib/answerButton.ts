@@ -6,8 +6,15 @@ export const ANSWER_CALLBACK = 'answer'
 /** Channels whose agent messages carry the button: Telegram opens an Answer Prompt, LAN chat a composer chip. */
 const ANSWER_BUTTON_CHANNELS: readonly ChannelKind[] = ['telegram', 'local-web']
 
+/** Channels where replying in a message's thread is the Answer, so they need no button. */
+const THREAD_ANSWER_CHANNELS: readonly ChannelKind[] = ['slack']
+
 export function hasAnswerButton(kind: ChannelKind): boolean {
   return ANSWER_BUTTON_CHANNELS.includes(kind)
+}
+
+export function answersInThread(kind: ChannelKind): boolean {
+  return THREAD_ANSWER_CHANNELS.includes(kind)
 }
 
 /** Adds the 💬 Answer button to any message an agent sends to `kind` (a Notification, a reply). */

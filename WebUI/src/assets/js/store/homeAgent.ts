@@ -64,6 +64,7 @@ import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
 import { createAnswerRouter } from './channels/answerRouter'
 import { answerSessions } from './channels/answerSessionsPort'
+import { heldAnswerJournal } from './channels/heldAnswerJournal'
 import {
   closeDownloadMessages,
   postDownloadMessage,
@@ -265,6 +266,7 @@ export const useHomeAgent = defineStore(
       sessions: answerSessions,
       questions: channelQuestions,
       transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
+      journal: heldAnswerJournal,
       onboarding: {
         seen: () => answerOnboardingSeen.value,
         markSeen: () => {
@@ -2372,9 +2374,10 @@ export const useHomeAgent = defineStore(
     async function processChannelMessages(kind: ChannelKind) {
       try {
         const msgs = await window.electronAPI.homeAgent.channel.poll(kind)
+        const adapter = adapters[kind]
+        if (adapter) await answerRouter.channelReady(adapter)
         if (!msgs || msgs.length === 0) return
         const queue = messageQueues[kind]
-        const adapter = adapters[kind]
         for (const msg of msgs) {
           // Threaded so adapters can target reactions / threaded sends at the originating message.
           const meta =

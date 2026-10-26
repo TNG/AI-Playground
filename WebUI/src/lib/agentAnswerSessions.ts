@@ -2,7 +2,7 @@ import { watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import type { AnswerSendResult, SessionPause } from '@/assets/js/store/channels/answerRouter'
 import { registerAnswerSessions } from '@/assets/js/store/channels/answerSessionsPort'
-import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
 const ADMISSION_WAIT_MS = 3000
 
@@ -34,11 +34,11 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
   async function send(
     sessionId: string,
     text: string,
-    origin: ChannelKind,
+    answer: AgentAnswerOrigin,
   ): Promise<AnswerSendResult> {
     const result = await agentMode.sendToSession(sessionId, text, {
       useStoredSettings: true,
-      origin,
+      answer,
     })
     if (!result.ok) return { ok: false, reason: result.reason, message: result.message }
     return { ok: true, queuePosition: await admitted(sessionId) }

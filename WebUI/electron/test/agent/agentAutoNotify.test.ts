@@ -111,7 +111,7 @@ const CONFIG: NotificationConfig = {
   realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
-    paused: '⏸ {title} is waiting for you: {reason}. Open AI Playground to continue.',
+    paused: '⏸ Waiting for you: {reason}. Open AI Playground to continue.',
     pauseReason: '{kind} ({summary})',
     pauseKinds: {
       download: 'a model download',
@@ -119,7 +119,7 @@ const CONFIG: NotificationConfig = {
       confirmation: 'a confirmation',
       question: 'a question',
     },
-    failed: '❌ {title} failed: {error}. Open AI Playground for details.',
+    failed: '❌ Failed: {error}. Open AI Playground for details.',
     sessionLabel: '"{title}"',
     taskLabel: '"{task}" (step {step}/{steps})',
     untitled: 'An agent run',
@@ -283,7 +283,7 @@ async function pauseForQuestion(): Promise<void> {
 }
 
 const QUESTION_TEXT =
-  '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
+  '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
 
 describe('a Background Session pausing for the user', () => {
@@ -339,10 +339,10 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser(SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
-      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a confirmation (Continue in Game Agent?). ' +
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
         'Open AI Playground to continue.',
-      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -354,7 +354,7 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser('aipg-agent-fresh', false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "An agent run"\n⏸ "An agent run" is waiting for you: a question (Which colour?). ' +
+      '🤖 Agent · "An agent run"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -420,7 +420,7 @@ describe('a Task run', () => {
       userWait.setAwaitingUser(TASK_SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ "Daily digest" (step 2/3) is waiting for you: a question (Which source?). ' +
+      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -431,7 +431,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 3/3)\n❌ "Daily digest" (step 3/3) failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.',
     ])
   }, 30000)
@@ -442,7 +442,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest"\n❌ "Daily digest" failed: 400: model test-model was retired. Open AI Playground for details.',
+      '🤖 Agent · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.',
     ])
   }, 30000)
 
@@ -452,7 +452,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Fetch the headlines"\n❌ "Fetch the headlines" failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Fetch the headlines"\n❌ Failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.',
     ])
   }, 30000)
@@ -486,7 +486,7 @@ describe('a sent Notification', () => {
 
 describe('a Background Session whose turn fails', () => {
   const FAILED_TEXT =
-    '🤖 Agent · "Morning news"\n❌ "Morning news" failed: 400: model test-model was retired. Open AI Playground for details.'
+    '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.'
 
   async function failingTurn(): Promise<void> {
     modelRetired = true
@@ -619,7 +619,7 @@ describe('the turn an Answer started', () => {
       {
         kind: 'telegram',
         text:
-          '🤖 Agent · "Morning news"\n❌ "Morning news" failed: 400: model test-model was retired. ' +
+          '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
           'Open AI Playground for details.',
         replyTo: 'answer-77',
       },

@@ -13,6 +13,7 @@ const NotesSchema = z.array(
         channel: z.string().optional(),
         ts: z.string().optional(),
         chatId: z.string().optional(),
+        threadTs: z.string().optional(),
       })
       .optional(),
   }),

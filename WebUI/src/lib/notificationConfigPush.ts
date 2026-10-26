@@ -78,6 +78,7 @@ export function startNotificationConfigPush(): void {
       answerPlaceholder: text.AGENT_ANSWER_PLACEHOLDER ?? '',
       held: text.AGENT_ANSWER_HELD ?? '',
       heldDownload: text.AGENT_ANSWER_HELD_DOWNLOAD ?? '',
+      heldDownloadElsewhere: text.AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE ?? '',
       heldDesktop: text.AGENT_ANSWER_HELD_DESKTOP ?? '',
       heldReplaced: text.AGENT_ANSWER_HELD_REPLACED ?? '',
       heldReplacedElsewhere: text.AGENT_ANSWER_HELD_REPLACED_ELSEWHERE ?? '',

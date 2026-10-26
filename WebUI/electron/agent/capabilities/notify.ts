@@ -23,8 +23,16 @@ async function buildNotifyTools(): Promise<ToolDefinition[]> {
       name: NOTIFY_USER_TOOL,
       label: NOTIFY_USER_TOOL,
       description:
-        "Send a short one-way notification to the user's phone. The user cannot reply to it. " +
-        'Use only when the user asked for a notification or a Task step says so.',
+        "Send a short one-way notification to the user's Home Agent channel (Telegram, Slack " +
+        'or LAN chat), which reaches them away from AI Playground. The user cannot reply to it. ' +
+        'Call it whenever the user asks to be notified, pinged, messaged, alerted or told about ' +
+        'something ("let me know when it is done", "notify me if it fails"), even without naming ' +
+        'a device or channel, and when a Task step says so. Do not call it otherwise.',
+      promptSnippet: 'Notify the user on their Home Agent channel (Telegram, Slack, LAN chat)',
+      promptGuidelines: [
+        'When the user asks to be notified, pinged, messaged or told when something happens, ' +
+          'call notify_user once it happens; a reply in this chat does not count as notifying them',
+      ],
       parameters: jsonSchemaParameters(NOTIFY_SCHEMA),
       execute: async (_toolCallId, params) => {
         const { message } = params as { message: string }
@@ -39,8 +47,10 @@ async function buildNotifyTools(): Promise<ToolDefinition[]> {
 // checked at call time and the tool always exists.
 export const notifyCapability: AgentCapability = {
   id: NOTIFY_CAPABILITY_ID,
-  label: 'Phone notifications',
-  summary: 'Can send the user a phone notification.',
+  label: 'Channel notifications',
+  summary:
+    'Sends the user a notification on their Home Agent channel. Activate it whenever the user ' +
+    'asks to be notified, pinged or told when something happens.',
   buildTools: buildNotifyTools,
   lazyEligible: true,
 }

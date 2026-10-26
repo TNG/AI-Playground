@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "Uruchomienie agenta",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 Odpowiedz",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "Odpowiedz na komputerze",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "Odpowiedz w wątku, aby udzielić odpowiedzi.",
   "AGENT_NOTIFY_HEADER": "🤖 Agent · {title}",
   "AGENT_ANSWER_STARTING": "➡️ Wysłano do {title} — uruchamianie…",
   "AGENT_ANSWER_QUEUED": "➡️ Wysłano do {title} — w kolejce (pozycja {position})",

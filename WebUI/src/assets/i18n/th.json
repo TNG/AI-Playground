@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "การทำงานของเอเจนต์",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 ตอบกลับ",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "ตอบกลับบนคอมพิวเตอร์ของคุณ",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "ตอบกลับในเธรดเพื่อตอบ",
   "AGENT_NOTIFY_HEADER": "🤖 เอเจนต์ · {title}",
   "AGENT_ANSWER_STARTING": "➡️ ส่งถึง {title} แล้ว — กำลังเริ่ม…",
   "AGENT_ANSWER_QUEUED": "➡️ ส่งถึง {title} แล้ว — อยู่ในคิว (ลำดับที่ {position})",

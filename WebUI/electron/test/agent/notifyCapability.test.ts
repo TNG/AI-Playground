@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationRoute } from '@/types/notificationsIpc'
+import type { ChannelSendOutcome } from '../../agent/notifier'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.
@@ -17,6 +17,13 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
   ipcMain: { handle: () => {}, on: () => {} },
   net: { fetch: () => Promise.reject(new Error('no network in tests')) },
+}))
+
+vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../persist/userDataPaths')>()),
+  getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
+  getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
+  getChannelMessageMapFile: () => path.join(tempRoot, 'channel-messages.json'),
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -95,7 +102,7 @@ afterAll(() => {
 })
 
 let sent: Array<{ kind: ChannelKind; text: string }> = []
-let channelResult: IpcMutationResult = { success: true }
+let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
 
 function route(next: NotificationRoute): void {
   notifier.setNotificationConfig({
@@ -103,23 +110,26 @@ function route(next: NotificationRoute): void {
     autoNotify: false,
     sessionInView: null,
     templates: {
+      header: '🤖 Agent · {title}',
       paused: '',
       pauseReason: '',
       pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
       failed: '',
-      sessionLabel: '',
+      sessionLabel: '"{title}"',
       taskLabel: '',
-      untitled: '',
+      untitled: 'An agent run',
     },
   })
 }
 
 let manager: typeof import('../../agent/piAgentManager')
 let notifier: typeof import('../../agent/notifier')
+let messageMap: typeof import('../../persist/channelMessageMap')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
   notifier = await import('../../agent/notifier')
+  messageMap = await import('../../persist/channelMessageMap')
   const bus = await import('../../kernel/kernelBus')
   const readiness = await import('../../chat/chatReadiness')
   readiness.setChatReadinessDeps({
@@ -141,8 +151,8 @@ beforeAll(async () => {
   }
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
-  notifier.setNotificationChannelReply(async (kind, text) => {
-    sent.push({ kind, text })
+  notifier.setNotificationChannelSend(async (kind, message) => {
+    sent.push({ kind, text: message.text })
     return channelResult
   })
 })
@@ -156,7 +166,7 @@ let workspace: string
 beforeEach(() => {
   requests = []
   sent = []
-  channelResult = { success: true }
+  channelResult = { success: true, ref: '42' }
   route({ homeAgentEnabled: true, notificationChannel: 'telegram' })
   workspace = fs.mkdtempSync(path.join(tempRoot, 'ws-'))
 })
@@ -189,8 +199,15 @@ async function runTurn(sessionId: string, capabilities = ['notify']): Promise<vo
 describe('notify_user', () => {
   it('sends the message to the Notification Channel and tells the model it was delivered', async () => {
     await runTurn('aipg-agent-notify-ok')
-    expect(sent).toEqual([{ kind: 'telegram', text: SUMMARY }])
+    expect(sent).toEqual([{ kind: 'telegram', text: `🤖 Agent · "An agent run"\n${SUMMARY}` }])
     expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('records the sent message so a reply to it reaches the session', async () => {
+    await runTurn('aipg-agent-notify-answerable')
+    expect(await messageMap.lookupChannelMessage('telegram', '42')).toBe(
+      'aipg-agent-notify-answerable',
+    )
   }, 30000)
 
   it('sends nothing with Home Agent off and returns the reason', async () => {

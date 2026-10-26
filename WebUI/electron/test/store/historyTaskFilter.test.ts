@@ -713,3 +713,23 @@ describe('a Task filter for no existing Task', () => {
     expect(visibleIds(history)).toEqual(['session-open'])
   })
 })
+
+describe('a Held Answer in the session list', () => {
+  it('shows on its session’s entry, and discarding it there drops it as on the desktop', async () => {
+    const { agentMode, history } = await readyStores()
+    const ends: [string, string][] = []
+    agentMode.onHeldAnswerSettled((id, end) => ends.push([id, end]))
+    agentMode.setHeldAnswer('session-open', { text: 'make it faster', channel: 'telegram' })
+
+    const entry = history.entries.find((e) => e.id === 'session-open')!
+    expect(entry).toMatchObject({
+      heldAnswer: { text: 'make it faster', channel: 'telegram' },
+    })
+
+    history.discardHeldAnswer(entry)
+
+    expect(agentMode.heldAnswers['session-open']).toBeUndefined()
+    expect(history.entries.find((e) => e.id === 'session-open')).not.toHaveProperty('heldAnswer')
+    expect(ends).toEqual([['session-open', 'discarded']])
+  })
+})

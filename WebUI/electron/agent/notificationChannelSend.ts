@@ -1,4 +1,5 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
+import { CHANNEL_ANSWERING } from '@/lib/answerButton'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import type { ChannelMessage, ChannelSend } from './notifier.ts'
 
@@ -9,34 +10,22 @@ export type HomeAgentChannelSend = (
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 
-/** How each platform's channel names the message a send replies to. */
-function replyTarget(kind: ChannelKind, ref: string): Record<string, string> {
-  switch (kind) {
-    case 'telegram':
-      return { reply_to_message_id: ref }
-    case 'slack':
-      return { thread_ts: ref }
-    default:
-      return { reply_to: ref }
-  }
-}
-
 function payloadOf(kind: ChannelKind, message: ChannelMessage) {
-  const target = message.replyTo ? replyTarget(kind, message.replyTo) : {}
+  const answering = CHANNEL_ANSWERING[kind]
+  const target = message.replyTo ? { [answering.replyKey]: message.replyTo } : {}
   const { media, buttons, answerTitle } = message
   if (buttons && !media) {
     const rows = buttons.map((row) =>
       row.map((button) => ({ text: button.text, callback_data: button.callbackData })),
     )
-    const title = kind === 'local-web' && answerTitle ? { answer_title: answerTitle } : {}
+    const title = answering.buttonCarriesTitle && answerTitle ? { answer_title: answerTitle } : {}
     return {
       action: 'keyboard' as const,
       payload: { text: message.text, buttons: rows, ...title, ...target },
     }
   }
   if (!media) {
-    // A LAN chat `reply` settles the streaming Home Agent bubble; `post` stands on its own.
-    const action = kind === 'local-web' ? ('post' as const) : ('reply' as const)
+    const action = answering.sendsAsPost ? ('post' as const) : ('reply' as const)
     return { action, payload: { text: message.text, ...target } }
   }
   return {

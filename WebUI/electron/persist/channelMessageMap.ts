@@ -10,8 +10,9 @@ import { getChannelMessageMapDemoFile, getChannelMessageMapFile } from './userDa
  * The kernel's channel message map: (channel kind, platform message reference) →
  * the agent session that sent it. An entry routes to its session as long as that
  * session lives; there is no time-based expiry, so a days-old Notification can still
- * be answered. Deleting a session strips its id from its entries but keeps them, so a
- * later Answer is told the session is gone instead of reaching Home Agent.
+ * be answered. Deleting a session ends that routing but keeps each entry as a tombstone
+ * (no session id): dropping it would hand a later Answer to Home Agent as a plain message,
+ * where the user must instead be told the session no longer exists.
  */
 
 const LOG_SCOPE = 'channel-messages'
@@ -83,12 +84,6 @@ export async function channelMessageOwner(
   const entry = entries.find((e) => e.kind === kind && e.ref === ref)
   if (!entry) return null
   return entry.sessionId ? { sessionId: entry.sessionId } : { deletedSession: true }
-}
-
-/** The live session that sent this message, or null. */
-export async function lookupChannelMessage(kind: ChannelKind, ref: string): Promise<string | null> {
-  const owner = await channelMessageOwner(kind, ref)
-  return owner && 'sessionId' in owner ? owner.sessionId : null
 }
 
 export async function forgetSessionMessages(sessionId: string): Promise<void> {

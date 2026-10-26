@@ -266,7 +266,9 @@ export const useHomeAgent = defineStore(
       sessions: answerSessions,
       questions: channelQuestions,
       transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
+      downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
+      log: (message, error) => reportSilently(message, error),
       onboarding: {
         seen: () => answerOnboardingSeen.value,
         markSeen: () => {
@@ -2394,6 +2396,10 @@ export const useHomeAgent = defineStore(
             ))
           )
             continue
+          if (msg.refused) {
+            if (adapter) await reply(adapter, escapeHtml(msg.refused), meta)
+            continue
+          }
           if (queue.length >= MAX_QUEUE_SIZE) {
             toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
             queue.shift()

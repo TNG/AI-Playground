@@ -6,7 +6,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
 import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
-import { registerAnswerRouterCopy } from '@/lib/answerRouterWording'
+import { answerRouterCopyFrom, registerAnswerRouterCopy } from '@/lib/answerRouterWording'
 import { registerAgentAnswerSessions } from '@/lib/agentAnswerSessions'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
@@ -63,31 +63,7 @@ export function startNotificationConfigPush(): void {
     )
   registerSessionLabeler(label)
   registerAgentAnswerSessions(label)
-  registerAnswerRouterCopy(() => {
-    const text = i18n.state
-    return {
-      starting: text.AGENT_ANSWER_STARTING ?? '',
-      queued: text.AGENT_ANSWER_QUEUED ?? '',
-      notSent: text.AGENT_ANSWER_NOT_SENT ?? '',
-      noSession: text.AGENT_ANSWER_NO_SESSION ?? '',
-      realShell: text.AGENT_ANSWER_REAL_SHELL ?? '',
-      fixOnDesktop: text.AGENT_ANSWER_FIX_ON_DESKTOP ?? '',
-      textOnly: text.AGENT_ANSWER_TEXT_ONLY ?? '',
-      noSpeech: text.AGENT_ANSWER_NO_SPEECH ?? '',
-      answerPrompt: text.AGENT_ANSWER_PROMPT ?? '',
-      answerPlaceholder: text.AGENT_ANSWER_PLACEHOLDER ?? '',
-      held: text.AGENT_ANSWER_HELD ?? '',
-      heldDownload: text.AGENT_ANSWER_HELD_DOWNLOAD ?? '',
-      heldDesktop: text.AGENT_ANSWER_HELD_DESKTOP ?? '',
-      heldReplaced: text.AGENT_ANSWER_HELD_REPLACED ?? '',
-      heldReplacedElsewhere: text.AGENT_ANSWER_HELD_REPLACED_ELSEWHERE ?? '',
-      heldDesktopTookOver: text.AGENT_ANSWER_HELD_DESKTOP_TOOK_OVER ?? '',
-      heldSessionGone: text.AGENT_ANSWER_HELD_SESSION_GONE ?? '',
-      heldAppClosed: text.AGENT_ANSWER_HELD_APP_CLOSED ?? '',
-      onboarding: text.AGENT_ANSWER_ONBOARDING ?? '',
-      help: text.AGENT_ANSWER_HELP ?? '',
-    }
-  })
+  registerAnswerRouterCopy(() => answerRouterCopyFrom(i18n.state))
   registerChannelQuestionTemplates(() => {
     const text = i18n.state
     return {

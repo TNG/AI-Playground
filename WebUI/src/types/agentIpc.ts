@@ -1,5 +1,5 @@
 import z from 'zod'
-import type { ChannelKind } from '@/assets/js/store/channels/types'
+import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 
 /** The error an agent turn fails with when the user declines its model's download. */
@@ -13,16 +13,9 @@ export function promptHasImageAttachment(prompt: string): boolean {
   return IMAGE_ATTACHMENT.test(prompt)
 }
 
-const CHANNEL_KINDS = [
-  'telegram',
-  'slack',
-  'discord',
-  'local-web',
-] as const satisfies readonly ChannelKind[]
-
 /** Where an Answer came from: its channel, and the platform ref a reply to it names. */
 export const AgentAnswerOriginSchema = z.object({
-  channel: z.enum(CHANNEL_KINDS),
+  channel: ChannelKindSchema,
   replyTo: z.string().optional(),
 })
 

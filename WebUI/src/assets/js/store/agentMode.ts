@@ -62,6 +62,7 @@ import {
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { ChannelKind } from './channels/types'
+import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
@@ -107,12 +108,6 @@ export type TurnOutcome =
 
 /** Stored with a user message; `origin` is the channel an Answer arrived on. */
 export type AgentMessageMetadata = { origin?: ChannelKind }
-
-/** An Answer from a channel waiting for its session's turn to end. */
-export type HeldAnswer = { text: string; channel: string }
-
-/** What decides a Held Answer: how the turn ended, or what the desktop did to the session. */
-export type HeldAnswerEnd = 'completed' | 'failed' | 'stopped' | 'deleted' | 'discarded'
 
 /** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
 export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
@@ -1175,13 +1170,13 @@ export const useAgentMode = defineStore(
       }
     }
 
-    const heldAnswers = ref<Record<string, HeldAnswer>>({})
-    type HeldAnswerListener = (sessionId: string, end: HeldAnswerEnd) => void
+    const heldAnswers = ref<Record<string, HeldAnswerView>>({})
+    type HeldAnswerListener = (sessionId: string, end: SessionTurnEnd) => void
     const heldAnswerListeners = new Set<HeldAnswerListener>()
     const deletingSessions = new Set<string>()
 
     /** The Answer router keeps the Held Answer; the store only shows it. */
-    function setHeldAnswer(sessionId: string, answer: HeldAnswer | null): void {
+    function setHeldAnswer(sessionId: string, answer: HeldAnswerView | null): void {
       const { [sessionId]: _previous, ...rest } = heldAnswers.value
       heldAnswers.value = answer ? { ...rest, [sessionId]: answer } : rest
     }
@@ -1197,7 +1192,7 @@ export const useAgentMode = defineStore(
       if (!deletingSessions.has(sessionId)) settleHeldAnswer(sessionId, 'failed')
     }
 
-    function settleHeldAnswer(sessionId: string, end: HeldAnswerEnd): void {
+    function settleHeldAnswer(sessionId: string, end: SessionTurnEnd): void {
       for (const listener of [...heldAnswerListeners]) listener(sessionId, end)
     }
 

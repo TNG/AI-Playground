@@ -135,6 +135,7 @@
             :task-marker="history.taskMarker(entry)"
             @select="onSelect(entry)"
             @filter-by-task="history.setTaskFilter"
+            @discard-held-answer="history.discardHeldAnswer(entry)"
             @delete="history.remove(entry)"
             @rename="(title) => history.rename(entry, title)"
           />

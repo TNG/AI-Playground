@@ -174,6 +174,35 @@ describe('answer router', () => {
     ])
   })
 
+  it('takes a Slack thread reply under a Notification as its Answer, replied in that thread', async () => {
+    const { router, received, origins } = setup(undefined, [
+      { kind: 'slack', ref: '1700000000.0001', sessionId: 'asteroids' },
+    ])
+    const ch = fakeChannel('slack')
+    const threadReply = {
+      text: 'try a smaller level',
+      replyTo: '1700000000.0001',
+      replyTarget: '1700000000.0001',
+    }
+    expect(await router.route(ch.adapter, threadReply)).toBe(true)
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
+    expect(origins).toEqual([
+      { sessionId: 'asteroids', origin: { channel: 'slack', replyTo: '1700000000.0001' } },
+    ])
+  })
+
+  it('leaves a Slack thread reply under a message no agent sent to Home Agent', async () => {
+    const { router, received } = setup(undefined, [])
+    const ch = fakeChannel('slack')
+    const threadReply = {
+      text: 'thanks',
+      replyTo: '1700000000.0009',
+      replyTarget: '1700000000.0009',
+    }
+    expect(await router.route(ch.adapter, threadReply)).toBe(false)
+    expect(received).toEqual([])
+  })
+
   it('says the Answer is queued, with its place, when the Turn Queue is busy', async () => {
     const { router } = setup({
       asteroids: { label: 'Asteroids clone', result: { ok: true, queuePosition: 2 } },

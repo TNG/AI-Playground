@@ -1,9 +1,16 @@
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { test, expect } from './fixtures'
 import type { AppDriver } from './appDriver'
 import type { Page } from '@playwright/test'
 import { MainPage } from './pages/MainPage'
 import { HomeAgentPage } from './pages/HomeAgentPage'
+import { stubDirectoryPicker } from './helpers'
 import {
+  agentMessages,
+  agentRepliesTo,
+  answerAgentMessage,
   openLocalWebChat,
   sendAndAwaitMedia,
   sendAndAwaitReply,
@@ -50,6 +57,12 @@ const MEDIA_PROMPTS = {
   animateToVideo:
     'Lets bring this image to life. Animate this using LTX.2.3 i2v image to video. Have him waving hi and saying Hey Dudes, then jumping back into a cool pose that is consistent with his surfer, goofy character',
 }
+
+// An agent session that pings the LAN chat, then the Answer that continues it.
+const NOTIFY_PROMPT =
+  'Send me a notification with notify_user that says exactly "Ready for your answer", then stop.'
+const NOTIFICATION_TEXT = 'Ready for your answer'
+const ANSWER_TEXT = 'Reply with the single word PINEAPPLE.'
 
 /**
  * Install backends, ensure the Home Agent backend is present (skipping when it isn't
@@ -162,6 +175,38 @@ test.describe('Home Agent — local web chat', () => {
       await expect(marco).toHaveCount(0)
     } finally {
       await page.close()
+    }
+  })
+
+  test('answers an agent Notification from the LAN page', async ({ app, window, electronApp }) => {
+    // Install + Home Agent bring-up + the Agent preset's own model + two agent turns.
+    test.setTimeout(45 * 60_000)
+    await bringUpLanChat(app, window)
+
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-answer-'))
+    await stubDirectoryPicker(electronApp, workspaceDir)
+    const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
+    try {
+      const ready = await app.prepareAgentPreset(workspaceDir)
+      test.skip(!ready, 'Preset "Agent" is not available in this product mode')
+
+      await test.step('An agent session sends a Notification to the LAN page', async () => {
+        await app.runAgentTurn(NOTIFY_PROMPT, MainPage.TEXT_TIMEOUT)
+        await expect(agentMessages(page, NOTIFICATION_TEXT).first()).toBeVisible({
+          timeout: 60_000,
+        })
+      })
+
+      await test.step('Answer it → the agent replies under the Answer', async () => {
+        await answerAgentMessage(page, agentMessages(page, NOTIFICATION_TEXT).first(), ANSWER_TEXT)
+        await expect(userMessages(page, ANSWER_TEXT)).toHaveCount(1)
+        await expect(agentRepliesTo(page, ANSWER_TEXT).first()).toBeVisible({
+          timeout: MainPage.TEXT_TIMEOUT,
+        })
+      })
+    } finally {
+      await page.close()
+      fs.rmSync(workspaceDir, { recursive: true, force: true })
     }
   })
 

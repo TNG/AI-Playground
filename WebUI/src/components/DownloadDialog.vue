@@ -234,7 +234,12 @@ import { EtaEstimator } from '@/lib/etaEstimator'
 import { fetchModelMeta, type ModelDownloadError } from '@/lib/modelDownloader'
 import { parseHumanSize, sumHumanSizes } from '@/lib/humanSize'
 import { createCancellation } from '@/assets/js/errors/appError'
-import { modelDownloads, type ModelDownloadOutcome } from '@/assets/js/models/modelDownloadQueue'
+import {
+  modelDownloads,
+  type ModelDownloadOutcome,
+  type ModelDownloadWaiter,
+} from '@/assets/js/models/modelDownloadQueue'
+import { holdOpenDownloadQuestion } from '@/assets/js/models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
 
 const i18nState = useI18N().state
@@ -255,11 +260,14 @@ const animate = ref(false)
 const readTerms = ref(false)
 const downloadModelRender = ref<DownloadModelRender[]>([])
 
-const waiter = computed(() => {
-  const request = currentDownloadRequest.value
-  return request ? (request.options.waiter ?? `download-dialog:${request.id}`) : ''
+// Progress-mode requests wait in the Model Download queue under their own group.
+let waiter: ModelDownloadWaiter | null = null
+let stopHolding: () => void = () => {}
+const group = computed(() => {
+  const options = currentDownloadRequest.value?.options
+  return options?.mode === 'progress' ? options.group : ''
 })
-const wait = computed(() => (waiter.value ? modelDownloads().snapshot(waiter.value) : null))
+const wait = computed(() => (group.value ? modelDownloads().snapshot(group.value) : null))
 const etaEstimator = new EtaEstimator(100)
 const eta = ref('')
 
@@ -311,7 +319,11 @@ const totalDownloadSize = computed(() => {
 watch(
   () => currentDownloadRequest.value?.id,
   async (id) => {
-    if (id === undefined) return
+    if (id === undefined) {
+      stopHolding()
+      waiter = null
+      return
+    }
     nextTick(() => {
       animate.value = true
     })
@@ -323,18 +335,37 @@ watch(
 
 async function initializeDownloadDialog() {
   const request = currentDownloadRequest.value
-  showConfirm.value = !request?.options.joined
+  stopHolding()
+  waiter = null
+  const options = request?.options
+  const joined = options?.mode === 'progress' && options.joined === true
+  showConfirm.value = !joined
   hashError.value = false
   downloadErrorRetryable.value = false
   etaEstimator.reset()
   eta.value = ''
   downloadModelRender.value = downloadList.value.map((item) => {
-    return { size: '???', ...item }
+    return { size: '???', ...item, ...(joined ? { accessGranted: true } : {}) }
   })
   readTerms.value = false
-  if (request?.options.joined) {
-    void follow(request.id)
-    return
+  if (request && options?.mode === 'progress') {
+    waiter = modelDownloads().waiter(options.group)
+    const uncovered = waiter.attach(downloadList.value)
+    if (joined && uncovered.length === 0) {
+      waiter.release()
+      void settleFromQueue(request.id, waiter)
+      return
+    }
+    const asked = waiter
+    stopHolding = holdOpenDownloadQuestion({
+      waiter: asked,
+      models: downloadList.value,
+      join: () => {
+        showConfirm.value = false
+        asked.release()
+        void settleFromQueue(request.id, asked)
+      },
+    })
   }
 
   sizeRequesting.value = true
@@ -421,9 +452,9 @@ function downloadErrorText(detail: ModelDownloadError | undefined): string {
 }
 
 /** Settles the shown request from its waiter's outcome in the Model Download queue. */
-async function follow(requestId: number) {
-  const outcome: ModelDownloadOutcome = await modelDownloads().settled(waiter.value)
-  if (currentDownloadRequest.value?.id !== requestId) return
+async function settleFromQueue(requestId: number, settling: ModelDownloadWaiter) {
+  const outcome: ModelDownloadOutcome = await settling.settled
+  if (currentDownloadRequest.value?.id !== requestId || waiter !== settling) return
   if (outcome.status === 'done') {
     dialogStore.downloadCompleted()
     return
@@ -444,12 +475,17 @@ async function follow(requestId: number) {
 
 function download(list: DownloadModelParam[]) {
   const request = currentDownloadRequest.value
-  if (!request) return
-  modelDownloads().start(list, [waiter.value], channelQuestionTemplates().forOther)
-  void follow(request.id)
+  if (!request || !group.value) return
+  stopHolding()
+  // A retry after a failure waits anew; the failed waiter has settled.
+  if (!waiter || hashError.value) waiter = modelDownloads().waiter(group.value)
+  waiter.start(list, channelQuestionTemplates().forOther)
+  void settleFromQueue(request.id, waiter)
 }
 
 function cancelConfirm() {
+  stopHolding()
+  waiter?.detach()
   dialogStore.downloadFailed(createCancellation({ technicalMessage: 'Download cancelled by user' }))
   dialogStore.closeDownloadDialog()
 }
@@ -461,24 +497,21 @@ function confirmDownload() {
     return
   }
   showConfirm.value = false
-  hashError.value = false
-  downloadErrorRetryable.value = false
   download(accepted)
-  // After queuing, so the adapter can close the questions this yes now covers.
   dialogStore.downloadConfirmed(accepted)
 }
 
 function retryDownload() {
   etaEstimator.reset()
+  download(accessibleModels())
   hashError.value = false
   downloadErrorRetryable.value = false
   errorText.value = ''
-  download(accessibleModels())
 }
 
-/** Takes only this dialog's waiter out; a Model Download someone else waits on keeps running. */
+/** Ends the Model Downloads this dialog shows, for everyone waiting on them, as the card does. */
 function cancelDownload() {
-  modelDownloads().detach(waiter.value)
+  for (const download of waiter?.downloads() ?? []) modelDownloads().cancel(download.id)
 }
 
 function close() {

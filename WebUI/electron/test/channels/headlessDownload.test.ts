@@ -81,6 +81,8 @@ const progress = (percent: number): ModelDownloadProgress => ({
   speed: '10 MB/s',
 })
 const text = {
+  queued: '⏳ Queued.',
+  starting: '⬇️ Starting…',
   progress: (p: { repoId: string; percent: number }) => `⬇️ ${p.repoId} ${p.percent}%`,
   complete: '✅ Downloaded.',
   failed: (error: string) => `⚠️ Failed: ${error}`,
@@ -97,8 +99,14 @@ describe('a Home Agent chat turn’s download', () => {
     const { downloader, runs } = fakeDownloader()
     const queue = createModelDownloadQueue({ downloader: () => downloader })
     const run = runHeadlessDownload(
-      { adapter: ch.adapter, list: [MODEL], waiter: 'home', label: 'the Home Agent', text },
-      { queue },
+      {
+        adapter: ch.adapter,
+        list: [MODEL],
+        waiter: queue.waiter('home'),
+        label: 'the Home Agent',
+        text,
+      },
+      { queue, log: () => {} },
     )
     await flush()
     vi.setSystemTime(10_000)
@@ -121,8 +129,14 @@ describe('a Home Agent chat turn’s download', () => {
     const { downloader, runs } = fakeDownloader()
     const queue = createModelDownloadQueue({ downloader: () => downloader })
     const run = runHeadlessDownload(
-      { adapter: ch.adapter, list: [MODEL], waiter: 'home', label: 'the Home Agent', text },
-      { queue },
+      {
+        adapter: ch.adapter,
+        list: [MODEL],
+        waiter: queue.waiter('home'),
+        label: 'the Home Agent',
+        text,
+      },
+      { queue, log: () => {} },
     )
     await flush()
     runs[0].fail(new Error('disk full'))
@@ -136,8 +150,14 @@ describe('a Home Agent chat turn’s download', () => {
     const { downloader, runs } = fakeDownloader()
     const queue = createModelDownloadQueue({ downloader: () => downloader })
     const run = runHeadlessDownload(
-      { adapter: ch.adapter, list: [MODEL], waiter: 'home', label: 'the Home Agent', text },
-      { queue },
+      {
+        adapter: ch.adapter,
+        list: [MODEL],
+        waiter: queue.waiter('home'),
+        label: 'the Home Agent',
+        text,
+      },
+      { queue, log: () => {} },
     )
     await flush()
     await ch.adapter.reply('Here is your answer.')
@@ -146,9 +166,45 @@ describe('a Home Agent chat turn’s download', () => {
     await flush()
     expect(ch.messages.map((m) => m.text)).toEqual(['✅ Downloaded.', 'Here is your answer.'])
   })
+
+  it('posts nothing for a turn that only joined a Model Download already running', async () => {
+    const ch = fakeChannel()
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
+    queue.waiter('session').start([MODEL], 'Session')
+    const home = queue.waiter('home')
+    expect(home.attach([MODEL])).toEqual([])
+    const run = runHeadlessDownload(
+      { adapter: ch.adapter, list: [], waiter: home, label: 'the Home Agent', text },
+      { queue, log: () => {} },
+    )
+    runs[0].finish()
+    await run
+    await flush()
+    expect(ch.messages).toEqual([])
+  })
 })
 
 describe('a Channel Question following its Model Download', () => {
+  it('says a confirmed download is queued behind another, then starting, never just "Confirmed"', async () => {
+    const ch = fakeChannel()
+    const registry = createChannelQuestionRegistry({ log: () => {} })
+    const question = registry.ask({ adapter: ch.adapter, summaryMarkdown: 'Download model-b?' })
+    await flush()
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
+    queue.waiter('other').start([MODEL], 'Other')
+    registry.handleInbound(ch.adapter, { callback: ch.messages[0].buttons!.flat()[0].callbackData })
+    const B = { ...MODEL, repo_id: 'org/model-b' } as DownloadModelParam
+    const id = queue.waiter('session').start([B], 'Session')!
+    trackModelDownload({ queue, downloadId: id, message: { edit: question.edit }, text })
+    await flush()
+    expect(ch.messages[0].text).toBe('Download model-b?\n\n⏳ Queued.')
+    runs[0].finish()
+    await flush()
+    expect(ch.messages[0].text).toBe('Download model-b?\n\n⬇️ Starting…')
+  })
+
   async function askedQuestion() {
     const ch = fakeChannel()
     const registry = createChannelQuestionRegistry({ log: () => {} })
@@ -164,7 +220,7 @@ describe('a Channel Question following its Model Download', () => {
     const queue = createModelDownloadQueue({ downloader: () => downloader })
     const tap = ch.messages[0].buttons!.flat()[0].callbackData
     registry.handleInbound(ch.adapter, { callback: tap })
-    const id = queue.start([MODEL], ['session'], 'Session')!
+    const id = queue.waiter('session').start([MODEL], 'Session')!
     trackModelDownload({ queue, downloadId: id, message: { edit: question.edit }, text })
     vi.setSystemTime(10_000)
     runs[0].callbacks.onProgress?.(progress(40))
@@ -181,7 +237,7 @@ describe('a Channel Question following its Model Download', () => {
     const { downloader, runs } = fakeDownloader()
     const queue = createModelDownloadQueue({ downloader: () => downloader })
     registry.retire(question.id, '✔ Answered in AI Playground.')
-    const id = queue.start([MODEL], ['session'], 'Session')!
+    const id = queue.waiter('session').start([MODEL], 'Session')!
     trackModelDownload({
       queue,
       downloadId: id,
@@ -207,7 +263,7 @@ describe('a Channel Question following its Model Download', () => {
     const { ch, question } = await askedQuestion()
     const { downloader } = fakeDownloader()
     const queue = createModelDownloadQueue({ downloader: () => downloader })
-    const id = queue.start([MODEL], ['session'], 'Session')!
+    const id = queue.waiter('session').start([MODEL], 'Session')!
     trackModelDownload({ queue, downloadId: id, message: { edit: question.edit }, text })
     closeDownloadMessages('⏹ Stopped — AI Playground closed.')
     queue.cancel(id)

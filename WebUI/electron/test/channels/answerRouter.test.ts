@@ -7,6 +7,7 @@ import {
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
 import type { ChannelKind } from '../../../src/assets/js/store/channels/types'
+import type { AgentAnswerOrigin } from '../../../src/types/agentIpc'
 
 function fakeChannel(kind: ChannelKind = 'telegram') {
   const replies: string[] = []
@@ -32,16 +33,18 @@ function fakeSessions(
   sentMessages: { kind: ChannelKind; ref: string; sessionId: string }[],
 ) {
   const received: { sessionId: string; text: string }[] = []
+  const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
   const port: AnswerSessions = {
     lookup: async (kind, ref) =>
       sentMessages.find((m) => m.kind === kind && m.ref === ref)?.sessionId ?? null,
     label: (sessionId) => `"${sessions[sessionId]?.label ?? 'An agent run'}"`,
-    send: async (sessionId, text) => {
+    send: async (sessionId, text, origin) => {
       received.push({ sessionId, text })
+      origins.push({ sessionId, origin })
       return sessions[sessionId]?.result ?? { ok: true, queuePosition: null }
     },
   }
-  return { port, received }
+  return { port, received, origins }
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -57,7 +60,7 @@ function setup(
     questions,
     log: () => {},
   })
-  return { router, questions, received: fake.received }
+  return { router, questions, received: fake.received, origins: fake.origins }
 }
 
 describe('answer router', () => {
@@ -69,6 +72,15 @@ describe('answer router', () => {
     )
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
     expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+  })
+
+  it('tells the session where the Answer came from, so its result is replied under it', async () => {
+    const { router, origins } = setup()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'again', replyTo: '1234', replyTarget: '1300' })
+    expect(origins).toEqual([
+      { sessionId: 'asteroids', origin: { channel: 'telegram', replyTo: '1300' } },
+    ])
   })
 
   it('says the Answer is queued, with its place, when the Turn Queue is busy', async () => {

@@ -1,7 +1,8 @@
-"""Telegram inbound messages as the renderer receives them from the poll queue.
+"""Telegram inbound messages as the renderer receives them from the poll queue,
+and the outbound sends the Answer flow relies on.
 
 Stdlib only; python-telegram-bot is not needed, since a message is read through
-its attributes and stood in for by a namespace.
+its attributes and stood in for by a namespace, and the bot is a recording fake.
 """
 
 from __future__ import annotations
@@ -17,7 +18,12 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from channels.telegram import TelegramChannel, inbound_text_item
+from channels.telegram import (
+    TelegramChannel,
+    answer_callback_item,
+    inbound_item,
+    inbound_text_item,
+)
 
 
 def message(text: str, reply_to_id: int | None = None) -> SimpleNamespace:
@@ -44,6 +50,54 @@ class TelegramInboundTest(unittest.TestCase):
         item = inbound_text_item(message("hello"))
         self.assertEqual(
             item, {"text": "hello", "chat_id": "4242", "reply_target": "7"}
+        )
+
+    def test_a_voice_reply_carries_the_id_of_the_message_it_answers(self) -> None:
+        voice = [{"mime": "audio/ogg", "data_base64": "T2dn"}]
+        item = inbound_item(message("", reply_to_id=1234), "", audio=voice)
+        self.assertEqual(
+            item,
+            {
+                "text": "",
+                "chat_id": "4242",
+                "audio": voice,
+                "reply_to": "1234",
+                "reply_target": "7",
+            },
+        )
+
+    def test_a_photo_reply_carries_the_id_of_the_message_it_answers(self) -> None:
+        photo = [{"mime": "image/jpeg", "data_base64": "/9j/"}]
+        item = inbound_item(message("", reply_to_id=1234), "[image]", images=photo)
+        self.assertEqual(
+            item,
+            {
+                "text": "[image]",
+                "chat_id": "4242",
+                "images": photo,
+                "reply_to": "1234",
+                "reply_target": "7",
+            },
+        )
+
+    def test_a_document_without_a_reply_carries_no_reply_target(self) -> None:
+        doc = [{"filename": "level.txt", "mime": "text/plain", "data_base64": "YQ=="}]
+        item = inbound_item(message(""), "levels", documents=doc)
+        self.assertEqual(
+            item,
+            {
+                "text": "levels",
+                "chat_id": "4242",
+                "documents": doc,
+                "reply_target": "7",
+            },
+        )
+
+    def test_an_answer_tap_names_the_message_the_button_is_under(self) -> None:
+        tapped = SimpleNamespace(chat_id=4242, message_id=1234)
+        item = answer_callback_item(SimpleNamespace(data="answer", message=tapped))
+        self.assertEqual(
+            item, {"chat_id": "4242", "callback": "answer", "reply_to": "1234"}
         )
 
 
@@ -76,6 +130,8 @@ class TelegramOutboundTest(unittest.TestCase):
     def setUp(self) -> None:
         fake_telegram = types.ModuleType("telegram")
         fake_telegram.ReplyParameters = ReplyParameters  # type: ignore[attr-defined]
+        fake_telegram.InlineKeyboardButton = SimpleNamespace  # type: ignore[attr-defined]
+        fake_telegram.InlineKeyboardMarkup = lambda rows: rows  # type: ignore[attr-defined]
         self._saved = sys.modules.get("telegram")
         sys.modules["telegram"] = fake_telegram
         self._dir = tempfile.TemporaryDirectory()
@@ -104,6 +160,17 @@ class TelegramOutboundTest(unittest.TestCase):
             {"message_id": 77, "allow_sending_without_reply": True},
         )
 
+    def test_a_reply_with_an_answer_button_names_the_message_it_answers(self) -> None:
+        result = self.channel.send_keyboard(
+            {
+                "text": "done",
+                "buttons": [[{"text": "💬 Answer", "callback_data": "answer"}]],
+                "reply_to_message_id": "77",
+            }
+        )
+        self.assertEqual(result, {"status": "ok", "message_id": 501})
+        self.assertEqual(self.reply_target(0)["message_id"], 77)
+
     def test_a_plain_reply_answers_nothing(self) -> None:
         self.channel.send_reply({"text": "hello"})
         self.assertIsNone(self.reply_target(0))
@@ -118,6 +185,59 @@ class TelegramOutboundTest(unittest.TestCase):
         self.assertEqual(video, {"status": "ok", "message_id": 502})
         self.assertEqual(self.reply_target(0)["message_id"], 77)
         self.assertEqual(self.reply_target(1)["message_id"], 77)
+
+
+class FakeForceReply:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+class TelegramAnswerPromptTest(unittest.TestCase):
+    def setUp(self) -> None:
+        fake_telegram = types.ModuleType("telegram")
+        fake_telegram.ForceReply = FakeForceReply  # type: ignore[attr-defined]
+        self._saved = sys.modules.get("telegram")
+        sys.modules["telegram"] = fake_telegram
+        self.sent: list[dict] = []
+
+        async def send_message(**kwargs):
+            self.sent.append(kwargs)
+            return SimpleNamespace(message_id=901)
+
+        self._dir = tempfile.TemporaryDirectory()
+        self.channel = TelegramChannel(Path(self._dir.name))
+        self.channel._app_instance = SimpleNamespace(
+            bot=SimpleNamespace(send_message=send_message)
+        )
+        self.channel._bot_chat_id = "4242"
+        self.channel._run_coro = lambda coro, timeout=10.0: asyncio.run(coro)  # type: ignore[method-assign]
+
+    def tearDown(self) -> None:
+        if self._saved is None:
+            sys.modules.pop("telegram", None)
+        else:
+            sys.modules["telegram"] = self._saved
+        self._dir.cleanup()
+
+    def test_an_answer_prompt_opens_reply_mode_with_a_placeholder(self) -> None:
+        result = self.channel.send_reply(
+            {
+                "text": "Your message to “Asteroids clone”:",
+                "force_reply": True,
+                "input_field_placeholder": "Message to “Asteroids clone”",
+            }
+        )
+        self.assertEqual(result, {"status": "ok", "message_id": 901})
+        markup = self.sent[0]["reply_markup"]
+        self.assertIsInstance(markup, FakeForceReply)
+        self.assertEqual(
+            markup.kwargs,
+            {"input_field_placeholder": "Message to “Asteroids clone”"},
+        )
+
+    def test_a_plain_reply_has_no_reply_markup(self) -> None:
+        self.channel.send_reply({"text": "hello"})
+        self.assertIsNone(self.sent[0]["reply_markup"])
 
 
 if __name__ == "__main__":

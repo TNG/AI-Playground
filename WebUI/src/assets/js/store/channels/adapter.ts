@@ -89,6 +89,14 @@ export type ChannelAdapter = {
     buttons: KeyboardButton[][],
     meta?: InboundMeta,
   ) => Promise<ChannelSendResult>
+  /** Send an Answer Prompt: a message that opens the keyboard already replying to
+   *  it, with `placeholder` in the input field. Only channels with a reply mode
+   *  that a bot can open (Telegram's ForceReply) implement it. */
+  answerPrompt?: (
+    text: string,
+    placeholder: string,
+    meta?: InboundMeta,
+  ) => Promise<ChannelSendResult>
   /** Send a standalone message that `editKeyboardMessage` can rewrite later (a
    *  download's progress). Unlike `reply` it never settles a streaming draft. */
   post: (text: string, meta?: InboundMeta) => Promise<ChannelSendResult>

@@ -23,6 +23,7 @@ from channels.telegram import (
     answer_callback_item,
     inbound_item,
     inbound_text_item,
+    refused_document_item,
 )
 
 
@@ -92,6 +93,28 @@ class TelegramInboundTest(unittest.TestCase):
                 "reply_target": "7",
             },
         )
+
+    def test_a_refused_document_replying_to_a_message_is_queued_with_its_notice(
+        self,
+    ) -> None:
+        doc_reply = message("", reply_to_id=1234)
+        doc_reply.caption = "here"
+        item = refused_document_item(doc_reply, "Unsupported document type.")
+        self.assertEqual(
+            item,
+            {
+                "text": "here",
+                "chat_id": "4242",
+                "refused": "Unsupported document type.",
+                "reply_to": "1234",
+                "reply_target": "7",
+            },
+        )
+
+    def test_a_refused_document_replying_to_nothing_is_not_queued(self) -> None:
+        doc = message("")
+        doc.caption = None
+        self.assertIsNone(refused_document_item(doc, "Unsupported document type."))
 
     def test_an_answer_tap_names_the_message_the_button_is_under(self) -> None:
         tapped = SimpleNamespace(chat_id=4242, message_id=1234)

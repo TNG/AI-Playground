@@ -69,6 +69,17 @@ def inbound_text_item(message) -> QueueItem:
     return inbound_item(message, message.text or "")
 
 
+def refused_document_item(message, notice: str) -> QueueItem | None:
+    """A refused document that replies to a message, queued so the renderer decides who
+    is told what: an Answer to an agent hears it must be text, Home Agent gets `notice`.
+    None when it replies to nothing; the notice is then sent here."""
+    if getattr(message, "reply_to_message", None) is None:
+        return None
+    return inbound_item(
+        message, getattr(message, "caption", None) or "", refused=notice
+    )
+
+
 def answer_callback_item(callback_query) -> QueueItem:
     """The queue item for a 💬 Answer tap; the message it sits under names the session."""
     tapped = callback_query.message
@@ -752,23 +763,24 @@ class TelegramChannel(ChannelBase):
 
             filename = doc.file_name or "document"
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            notice = None
             if ext not in _SUPPORTED_DOC_EXTENSIONS:
+                notice = (
+                    "Unsupported document type. Send a "
+                    f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} file to add it to the "
+                    "knowledge base."
+                )
+            elif doc.file_size and doc.file_size > _MAX_DOC_BYTES:
+                notice = "That document is too large to add to the knowledge base."
+            if notice:
+                refused = refused_document_item(update.message, notice)
+                if refused is not None:
+                    self.queue_append(refused)
+                    return
                 try:
-                    await update.message.reply_text(
-                        "Unsupported document type. Send a "
-                        f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} file to add it to the "
-                        "knowledge base."
-                    )
+                    await update.message.reply_text(notice)
                 except Exception as exc:
-                    logger.debug("Failed to send unsupported-document notice: %s", exc)
-                return
-            if doc.file_size and doc.file_size > _MAX_DOC_BYTES:
-                try:
-                    await update.message.reply_text(
-                        "That document is too large to add to the knowledge base."
-                    )
-                except Exception as exc:
-                    logger.debug("Failed to send document-too-large notice: %s", exc)
+                    logger.debug("Failed to send refused-document notice: %s", exc)
                 return
             try:
                 tg_file = await context.bot.get_file(doc.file_id)

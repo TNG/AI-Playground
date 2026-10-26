@@ -1,5 +1,6 @@
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useModels } from '@/assets/js/store/models'
+import { useErrors } from '@/assets/js/store/errors'
 import { registerModelDownloader } from '@/assets/js/models/modelDownloadQueue'
 import { aipgFetch } from '@/lib/loopbackAuth'
 import { runModelDownload } from '@/lib/modelDownloader'
@@ -8,6 +9,7 @@ import { runModelDownload } from '@/lib/modelDownloader'
 export function startModelDownloader(): void {
   const globalSetup = useGlobalSetup()
   const models = useModels()
+  const errors = useErrors()
   registerModelDownloader({
     download: (list, options) =>
       runModelDownload(list, {
@@ -16,7 +18,11 @@ export function startModelDownloader(): void {
         ...options,
       }),
     stop: async () => {
-      await aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
+      try {
+        await aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
+      } catch (error) {
+        errors.report(error, { surface: 'silent' })
+      }
     },
     onModelCompleted: () => models.refreshModels(),
   })

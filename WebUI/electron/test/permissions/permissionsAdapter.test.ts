@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import type { DownloadDialogOptions } from '@/assets/js/store/dialogs'
 import type { ModelDownloadCallbacks } from '@/lib/modelDownloader'
 import { createCancellation } from '@/assets/js/errors/appError'
 import {
@@ -23,13 +24,7 @@ const onPromptMock = vi.fn<(callback: (payload: PermissionsPromptPayload) => voi
 /** What the download dialog was asked to show, and how the test answers it. */
 type DialogRequest = {
   list: DownloadModelParam[]
-  options: {
-    mode?: 'ask' | 'progress'
-    alreadyDownloading?: DownloadModelParam[]
-    waiter?: string
-    joined?: boolean
-    onConfirm?: (accepted: DownloadModelParam[]) => void
-  }
+  options: DownloadDialogOptions
   confirm: () => void
   decline: () => void
   dismissed: boolean
@@ -40,7 +35,7 @@ const showDownloadDialog = vi.fn(
     list: DownloadModelParam[],
     success: (accepted?: DownloadModelParam[]) => void,
     fail: (reason?: unknown) => void,
-    options: DialogRequest['options'] = {},
+    options: DownloadDialogOptions,
   ) => {
     const request: DialogRequest = {
       list,
@@ -49,11 +44,12 @@ const showDownloadDialog = vi.fn(
       confirm: () => {
         if (options.mode === 'ask') return success(list)
         // A panel run's dialog queues the download itself, then reports the yes.
-        modelDownloads().start(list, [options.waiter!], 'panel')
-        options.onConfirm?.(list)
-        void modelDownloads()
-          .settled(options.waiter!)
-          .then((outcome) => (outcome.status === 'done' ? success() : fail(outcome)))
+        const waiter = modelDownloads().waiter(options.group)
+        waiter.start(list, 'panel')
+        options.onConfirm?.()
+        void waiter.settled.then((outcome) =>
+          outcome.status === 'done' ? success() : fail(outcome),
+        )
       },
       decline: () => fail(createCancellation({ technicalMessage: 'Download cancelled by user' })),
     }
@@ -410,7 +406,7 @@ describe('sharing one Model Download queue', () => {
     void download('s6', [X, Y], 'chat-2')
     await vi.waitFor(() => expect(dialogs).toHaveLength(2))
     expect(dialogs[1].list).toEqual([Y])
-    expect(dialogs[1].options.alreadyDownloading).toEqual([X])
+    expect(dialogs[1].options).toMatchObject({ alreadyDownloading: [X] })
   })
 
   it('a yes closes the other open question it covers, and both wait on one download', async () => {
@@ -453,6 +449,34 @@ describe('sharing one Model Download queue', () => {
     dialogs[0].decline()
     expect(await first).toMatchObject({ cancelled: true })
     expect(dialogs[1].dismissed).toBe(false)
+  })
+
+  it('ends a question at once when a download it already waits on is cancelled', async () => {
+    const first = download('s15', [X], 'chat-1')
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    dialogs[0].confirm()
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
+    const second = download('s16', [X, Y], 'chat-2')
+    await vi.waitFor(() => expect(dialogs).toHaveLength(2))
+    modelDownloads().cancel(modelDownloads().downloads[0].id)
+    expect(await first).toMatchObject({ cancelled: true })
+    expect(await second).toMatchObject({ cancelled: true })
+    expect(dialogs[1].dismissed).toBe(true)
+    expect(runs).toHaveLength(1)
+  })
+
+  it('keeps two downloads of one session apart: declining one leaves the other waiting', async () => {
+    const readiness = download('s17', [X], SESSION)
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    dialogs[0].confirm()
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
+    const media = download('s18', [X, Y], SESSION)
+    await vi.waitFor(() => expect(dialogs).toHaveLength(2))
+    dialogs[1].decline()
+    expect(await media).toMatchObject({ cancelled: true })
+    expect(runs[0].signal.aborted).toBe(false)
+    runs[0].finish()
+    expect(await readiness).toEqual({ requestId: 's17', result: true })
   })
 
   it('reports a failed Model Download to every turn waiting on it', async () => {

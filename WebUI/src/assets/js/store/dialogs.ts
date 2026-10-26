@@ -32,17 +32,18 @@ export type InstallationProgressData = {
   modelDownloadList?: DownloadModelParam[]
 }
 
-export type DownloadDialogOptions = {
-  onConfirm?: (accepted: DownloadModelParam[]) => void
-  /** `ask` closes on Confirm and hands back what was accepted; `progress` downloads in the dialog. */
-  mode?: 'ask' | 'progress'
-  /** Models another Model Download already covers, named above the list. */
-  alreadyDownloading?: DownloadModelParam[]
-  /** The waiter the progress view follows in the Model Download queue. */
-  waiter?: string
-  /** Opens on the progress view: everything asked for is already downloading. */
-  joined?: boolean
-}
+/** `ask` closes on Confirm and hands back what was accepted; `progress` downloads in the dialog. */
+export type DownloadDialogOptions =
+  | { mode: 'ask'; alreadyDownloading?: DownloadModelParam[] }
+  | {
+      mode: 'progress'
+      /** Who the download card would belong to; a panel run's own. */
+      group: string
+      /** Opens on the progress view: everything asked for is already downloading. */
+      joined?: boolean
+      alreadyDownloading?: DownloadModelParam[]
+      onConfirm?: () => void
+    }
 
 export type DownloadDialogRequest = {
   id: number
@@ -150,12 +151,13 @@ export const useDialogStore = defineStore('dialog', () => {
     downList: DownloadModelParam[],
     success?: (accepted?: DownloadModelParam[]) => void,
     fail?: (reason?: unknown) => void,
-    options: DownloadDialogOptions = {},
+    options?: DownloadDialogOptions,
   ): { dismiss: () => void } {
+    const id = ++nextDownloadRequestId
     const request: DownloadDialogRequest = {
-      id: ++nextDownloadRequestId,
+      id,
       list: downList,
-      options,
+      options: options ?? { mode: 'progress', group: `download-dialog:${id}` },
       success,
       fail,
       settled: false,
@@ -175,8 +177,10 @@ export const useDialogStore = defineStore('dialog', () => {
   function downloadConfirmed(accepted: DownloadModelParam[]) {
     const request = currentDownloadRequest.value
     if (!request || request.settled) return
-    request.options.onConfirm?.(accepted)
-    if (request.options.mode !== 'ask') return
+    if (request.options.mode !== 'ask') {
+      request.options.onConfirm?.()
+      return
+    }
     request.settled = true
     removeDownloadRequest(request)
     request.success?.(accepted)

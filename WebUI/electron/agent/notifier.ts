@@ -242,19 +242,19 @@ async function notifyPaused(
   // A download pause is asked as a Channel Question by the window instead (docs/adr/0004).
   if (reason?.kind === 'download') return
   if (!notifiesAutomatically(sessionId, turnId)) return
-  const title = await sessionLabel(sessionId)
   await sendNotification(
-    fillTemplate(config.templates.paused, { title, reason: pauseReasonText(reason) }),
-    { sessionId },
+    fillTemplate(config.templates.paused, { reason: pauseReasonText(reason) }),
+    {
+      sessionId,
+    },
   )
 }
 
 async function notifyFailed(sessionId: string, turnId: string, error: string): Promise<void> {
   if (!notifiesAutomatically(sessionId, turnId)) return
-  const title = await sessionLabel(sessionId)
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
-  await sendNotification(fillTemplate(config.templates.failed, { title, error: reason }), {
+  await sendNotification(fillTemplate(config.templates.failed, { error: reason }), {
     sessionId,
   })
 }

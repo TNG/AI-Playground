@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import type { ThreadKind } from './conversations'
 import type { GenerationSettings, MediaItem } from './imageGenerationPresets'
 import { sessionListedUnderPreset } from './agentModeSessions'
+import type { HeldAnswerView } from './channels/answerRouter'
 import { extractToolMedia, type ToolMediaItem } from '@/assets/js/tools/toolMedia'
 import type { PauseReason } from '@/types/kernelEvents'
 
@@ -49,6 +50,8 @@ export type AgentEntry = EntryBase & {
   /** The Model Download it waits on, only while `downloading`. */
   download?: SessionDownload
   taskId?: string
+  /** A channel's Answer waiting for this session's turn to end. */
+  heldAnswer?: HeldAnswerView
 }
 
 /** Overall percent of the Model Download a session waits on, or that it is still queued. */

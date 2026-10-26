@@ -63,6 +63,14 @@ export function startNotificationConfigPush(): void {
       starting: text.AGENT_ANSWER_STARTING ?? '',
       queued: text.AGENT_ANSWER_QUEUED ?? '',
       notSent: text.AGENT_ANSWER_NOT_SENT ?? '',
+      held: text.AGENT_ANSWER_HELD ?? '',
+      heldDownload: text.AGENT_ANSWER_HELD_DOWNLOAD ?? '',
+      heldDesktop: text.AGENT_ANSWER_HELD_DESKTOP ?? '',
+      heldReplaced: text.AGENT_ANSWER_HELD_REPLACED ?? '',
+      heldReplacedElsewhere: text.AGENT_ANSWER_HELD_REPLACED_ELSEWHERE ?? '',
+      heldDesktopTookOver: text.AGENT_ANSWER_HELD_DESKTOP_TOOK_OVER ?? '',
+      heldSessionGone: text.AGENT_ANSWER_HELD_SESSION_GONE ?? '',
+      heldAppClosed: text.AGENT_ANSWER_HELD_APP_CLOSED ?? '',
     }
   })
   registerChannelQuestionTemplates(() => {

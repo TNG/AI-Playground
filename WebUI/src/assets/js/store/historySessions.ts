@@ -138,6 +138,9 @@ export const useHistorySessions = defineStore('historySessions', () => {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       ...(session.taskId ? { taskId: session.taskId } : {}),
+      ...(agentMode.heldAnswers[session.id]
+        ? { heldAnswer: agentMode.heldAnswers[session.id] }
+        : {}),
       ...agentSessionStatus({
         turn: agentMode.sessionTurns[session.id],
         unseen: agentMode.unseenTurns[session.id],
@@ -220,6 +223,10 @@ export const useHistorySessions = defineStore('historySessions', () => {
   function taskMarker(entry: HistoryEntry): TaskRef | null {
     if (entry.kind !== 'agent' || !tasksAvailable.value || taskFilter.value) return null
     return liveTask(entry.taskId)
+  }
+
+  function discardHeldAnswer(entry: HistoryEntry): void {
+    if (entry.kind === 'agent') agentMode.discardHeldAnswer(entry.id)
   }
 
   function setTaskFilter(taskId: string): void {
@@ -423,6 +430,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
     tasksAvailable,
     taskPickerEntries,
     taskMarker,
+    discardHeldAnswer,
     setTaskFilter,
     clearTaskFilter,
     showTaskSessions,

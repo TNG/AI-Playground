@@ -524,6 +524,13 @@ export const CHANNELS = {
     owner: 'main',
     payload: null as unknown as PermissionsPromptPayload,
   },
+  /** The agent session that sent a channel message (kind, platform message ref); null for none. */
+  'notifications:lookupMessage': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string],
+    result: null as unknown as string | null,
+  },
   /** The Home Agent state main's Notifier delivers through; pushed on every change. */
   'notifications:setConfig': {
     kind: 'send',

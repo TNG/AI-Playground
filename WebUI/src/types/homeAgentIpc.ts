@@ -17,4 +17,6 @@ export type HomeAgentInboundMessage = {
   audio?: RemoteAudio[]
   documents?: RemoteDocument[]
   callback?: string
+  /** The platform id of the message this one replies to. */
+  reply_to?: string
 }

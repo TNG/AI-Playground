@@ -26,6 +26,9 @@ export function startNotificationConfigPush(): void {
       ...homeAgent.notificationRoute,
       autoNotify: homeAgent.autoNotify,
       sessionInView: agentMode.sessionInView,
+      realShellSessions: Object.values(agentMode.sessions)
+        .filter((session) => agentMode.isUnsandboxed(session.workspaceDir))
+        .map((session) => session.id),
       templates: {
         header: text.AGENT_NOTIFY_HEADER ?? '',
         paused: text.AGENT_NOTIFY_PAUSED ?? '',
@@ -40,6 +43,8 @@ export function startNotificationConfigPush(): void {
         sessionLabel: text.AGENT_NOTIFY_SESSION_LABEL ?? '',
         taskLabel: text.AGENT_NOTIFY_TASK_LABEL ?? '',
         untitled: text.AGENT_NOTIFY_UNTITLED ?? '',
+        answerButton: text.AGENT_NOTIFY_ANSWER_BUTTON ?? '',
+        answerOnComputer: text.AGENT_NOTIFY_ANSWER_ON_COMPUTER ?? '',
       },
     }
   })
@@ -68,6 +73,8 @@ export function startNotificationConfigPush(): void {
       fixOnDesktop: text.AGENT_ANSWER_FIX_ON_DESKTOP ?? '',
       textOnly: text.AGENT_ANSWER_TEXT_ONLY ?? '',
       noSpeech: text.AGENT_ANSWER_NO_SPEECH ?? '',
+      answerPrompt: text.AGENT_ANSWER_PROMPT ?? '',
+      answerPlaceholder: text.AGENT_ANSWER_PLACEHOLDER ?? '',
       onboarding: text.AGENT_ANSWER_ONBOARDING ?? '',
       help: text.AGENT_ANSWER_HELP ?? '',
     }

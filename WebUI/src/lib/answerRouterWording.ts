@@ -13,6 +13,10 @@ export type AnswerRouterCopy = {
   fixOnDesktop: string
   textOnly: string
   noSpeech: string
+  /** The Answer Prompt the 💬 Answer button opens: `{title}` */
+  answerPrompt: string
+  /** The input placeholder while replying to an Answer Prompt: `{title}` */
+  answerPlaceholder: string
   /** Shown once, after the first Answer: how Home Agent and agents share the channel. */
   onboarding: string
   /** The `/help` line on answering agents. */
@@ -29,6 +33,8 @@ const ENGLISH: AnswerRouterCopy = {
   fixOnDesktop: 'Fix it in AI Playground on your computer, then answer again.',
   textOnly: '⚠️ Answers to agents can only be text for now',
   noSpeech: "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
+  answerPrompt: 'Your message to {title}:',
+  answerPlaceholder: 'Message to {title}',
   onboarding:
     '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).',
   help: 'To answer an agent, reply to its message or tap 💬 Answer. Plain messages go to Home Agent.',

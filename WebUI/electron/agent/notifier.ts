@@ -1,7 +1,8 @@
-import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
+import { withAnswerButton } from '@/lib/answerButton'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
@@ -17,8 +18,8 @@ const LOG_SOURCE = 'notifier'
 
 export type NotificationDelivery = { delivered: true } | { delivered: false; reason: string }
 
-/** What the Notifier hands a channel; reply targets and buttons join it later. */
-export type ChannelMessage = { text: string }
+/** What the Notifier hands a channel; `buttons` are rows of inline buttons. */
+export type ChannelMessage = { text: string; buttons?: KeyboardButton[][] }
 
 /** `ref` is the platform's id of the sent message, when it has one. */
 export type ChannelSendOutcome = { success: true; ref?: string } | { success: false; error: string }
@@ -38,6 +39,7 @@ const OFF_CONFIG: NotificationConfig = {
   notificationChannel: null,
   autoNotify: false,
   sessionInView: null,
+  realShellSessions: [],
   templates: {
     header: '',
     paused: '',
@@ -47,6 +49,8 @@ const OFF_CONFIG: NotificationConfig = {
     sessionLabel: '',
     taskLabel: '',
     untitled: '',
+    answerButton: '',
+    answerOnComputer: '',
   },
 }
 
@@ -86,9 +90,11 @@ async function deliver(text: string, sessionId: string | undefined): Promise<Not
     const header = sessionId
       ? fillTemplate(config.templates.header, { title: await sessionLabel(sessionId) })
       : ''
-    const result = await channelSend(notificationChannel, {
-      text: header ? `${header}\n${text}` : text,
-    })
+    const message = { text: header ? `${header}\n${text}` : text }
+    const result = await channelSend(
+      notificationChannel,
+      answerable(notificationChannel, message, sessionId),
+    )
     if (!result.success) return { delivered: false, reason: result.error }
     if (sessionId && result.ref) {
       await recordChannelMessage(notificationChannel, result.ref, sessionId).catch((error) =>
@@ -99,6 +105,20 @@ async function deliver(text: string, sessionId: string | undefined): Promise<Not
   } catch (error) {
     return { delivered: false, reason: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/** An agent's message with its 💬 Answer button, or a pointer to the computer for a real-shell session. */
+export function answerable(
+  kind: ChannelKind,
+  message: ChannelMessage,
+  sessionId: string | undefined,
+): ChannelMessage {
+  if (!sessionId) return message
+  const { answerButton, answerOnComputer } = config.templates
+  if (config.realShellSessions.includes(sessionId)) {
+    return { ...message, text: `${message.text}\n${answerOnComputer}` }
+  }
+  return withAnswerButton(kind, message, answerButton)
 }
 
 function offScreen(sessionId: string): boolean {

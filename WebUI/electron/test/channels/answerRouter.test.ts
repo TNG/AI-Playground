@@ -62,10 +62,19 @@ function fakeTranscription() {
 }
 
 const voice = (data: string) => ({ audio: [{ mime: 'audio/ogg', data_base64: data }] })
+/** The persisted "has seen how answering works" flag, shared across router instances (restarts). */
+function fakeOnboardingFlag(seen = true) {
+  const flag = { seen }
+  return { seen: () => flag.seen, markSeen: () => (flag.seen = true) }
+}
+
+const ONBOARDING =
+  '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).'
 
 function setup(
   sessions: Record<string, FakeSession> = { asteroids: { label: 'Asteroids clone' } },
   sentMessages: SentMessage[] = [{ kind: 'telegram', ref: '1234', sessionId: 'asteroids' }],
+  onboarding = fakeOnboardingFlag(),
 ) {
   const questions = createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} })
   const fake = fakeSessions(sessions, sentMessages)
@@ -74,6 +83,7 @@ function setup(
     sessions: () => fake.port,
     questions,
     transcribe: speech.transcribe,
+    onboarding,
     log: () => {},
   })
   return { router, questions, received: fake.received, speech }
@@ -297,5 +307,28 @@ describe('answer router', () => {
       expect(speech.transcribed).toEqual([])
       expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
     })
+  })
+
+  it('explains how answering works after the very first Answer, and never again', async () => {
+    const flag = fakeOnboardingFlag(false)
+    const first = setup(undefined, undefined, flag)
+    const ch = fakeChannel()
+    await first.router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
+    await first.router.route(ch.adapter, { text: 'and faster', replyTo: '1234' })
+    const afterRestart = setup(undefined, undefined, flag)
+    await afterRestart.router.route(ch.adapter, { text: 'once more', replyTo: '1234' })
+    expect(ch.replies).toEqual([
+      '➡️ Sent to "Asteroids clone" — starting…',
+      ONBOARDING,
+      '➡️ Sent to "Asteroids clone" — starting…',
+      '➡️ Sent to "Asteroids clone" — starting…',
+    ])
+  })
+
+  it('does not explain answering to a plain message for Home Agent', async () => {
+    const { router } = setup(undefined, undefined, fakeOnboardingFlag(false))
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'what is the weather?' })
+    expect(ch.replies).toEqual([])
   })
 })

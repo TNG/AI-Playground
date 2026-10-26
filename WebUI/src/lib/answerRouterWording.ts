@@ -13,6 +13,10 @@ export type AnswerRouterCopy = {
   fixOnDesktop: string
   textOnly: string
   noSpeech: string
+  /** Shown once, after the first Answer: how Home Agent and agents share the channel. */
+  onboarding: string
+  /** The `/help` line on answering agents. */
+  help: string
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -25,6 +29,9 @@ const ENGLISH: AnswerRouterCopy = {
   fixOnDesktop: 'Fix it in AI Playground on your computer, then answer again.',
   textOnly: '⚠️ Answers to agents can only be text for now',
   noSpeech: "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
+  onboarding:
+    '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).',
+  help: 'To answer an agent, reply to its message or tap 💬 Answer. Plain messages go to Home Agent.',
 }
 
 let provider: (() => AnswerRouterCopy) | null = null

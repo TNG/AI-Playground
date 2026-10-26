@@ -68,6 +68,8 @@ export function startNotificationConfigPush(): void {
       fixOnDesktop: text.AGENT_ANSWER_FIX_ON_DESKTOP ?? '',
       textOnly: text.AGENT_ANSWER_TEXT_ONLY ?? '',
       noSpeech: text.AGENT_ANSWER_NO_SPEECH ?? '',
+      onboarding: text.AGENT_ANSWER_ONBOARDING ?? '',
+      help: text.AGENT_ANSWER_HELP ?? '',
     }
   })
   registerChannelQuestionTemplates(() => {

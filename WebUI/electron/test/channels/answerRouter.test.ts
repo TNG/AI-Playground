@@ -54,6 +54,7 @@ type SentMessage = { kind: ChannelKind; ref: string; sessionId: string }
 
 function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentMessage[]) {
   const received: { sessionId: string; text: string }[] = []
+  const origins: ChannelKind[] = []
   const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
   const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
   const port: AnswerSessions = {
@@ -67,8 +68,9 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
     record: async (kind, ref, sessionId) => {
       sentMessages.push({ kind, ref, sessionId })
     },
-    send: async (sessionId, text) => {
+    send: async (sessionId, text, origin) => {
       received.push({ sessionId, text })
+      origins.push(origin)
       const session = sessions[sessionId]
       const queued = session?.results
       if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
@@ -88,7 +90,7 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
     for (const listener of [...listeners]) listener(sessionId, how)
     await flush()
   }
-  return { port, received, held, end }
+  return { port, received, origins, held, end }
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -198,6 +200,12 @@ describe('answer router', () => {
     await router.route(slack.adapter, { text: 'more sources', replyTo: '5' })
     expect(received).toEqual([{ sessionId: 'digest', text: 'more sources' }])
     expect(slack.replies).toEqual(['➡️ Sent to "Daily digest" — starting…'])
+  })
+
+  it('tells the session which channel the Answer came from', async () => {
+    const { router, origins } = setup()
+    await router.route(fakeChannel('slack').adapter, { text: 'more sources', replyTo: '1234' })
+    expect(origins).toEqual(['slack'])
   })
 
   it('opens an Answer Prompt when the Answer button is tapped, and sends the reply to it', async () => {
@@ -516,6 +524,13 @@ describe('a Held Answer', () => {
     ])
     expect(ch.replies.slice(1)).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
     expect(held.asteroids).toBeNull()
+  })
+
+  it('is sent with the channel it came from', async () => {
+    const { router, origins, end } = busy()
+    await router.route(fakeChannel('slack').adapter, { text: 'make it faster', replyTo: '1234' })
+    await end('asteroids', 'completed')
+    expect(origins).toEqual(['slack', 'slack'])
   })
 
   it('is sent anyway when the turn fails', async () => {

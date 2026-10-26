@@ -35,6 +35,8 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
 const BACKEND = 'http://fake-llm.test/v1'
 
 let modelRetired = false
+/** What the model answers once its tool has run. */
+let finalText = 'done'
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -74,7 +76,7 @@ function reply(body: { messages?: Array<{ role: string }> }): Response {
         }),
         completion({}, 'tool_calls'),
       ]
-    : [completion({ role: 'assistant', content: 'done' }), completion({}, 'stop')]
+    : [completion({ role: 'assistant', content: finalText }), completion({}, 'stop')]
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(frame(chunk))
@@ -211,6 +213,7 @@ beforeEach(() => {
   prompts = []
   windowShown = true
   modelRetired = false
+  finalText = 'done'
   fs.rmSync(tasksFile, { force: true })
   fs.rmSync(messageMapFile, { force: true })
   notifier.setNotificationConfig(CONFIG)
@@ -625,6 +628,19 @@ describe('the turn an Answer started', () => {
         replyTo: 'answer-77',
       },
     ])
+  }, 30000)
+
+  it('sends no text when the turn wrote none, not an earlier turn’s reply', async () => {
+    const config = configFor(SESSION)
+    await withWaitingTurn(SESSION, async () => {}, config)
+    await settle()
+    expect(sent).toEqual([])
+    finalText = ''
+    expect(
+      await manager.startAgentTurn(crypto.randomUUID(), 'and now?', { ...config, answer: ANSWER }),
+    ).toEqual({ success: true })
+    await settle()
+    expect(sent).toEqual([])
   }, 30000)
 
   it('records its reply, so replying to that is again an Answer to the session', async () => {

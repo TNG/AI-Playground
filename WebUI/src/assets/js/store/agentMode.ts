@@ -1132,7 +1132,6 @@ export const useAgentMode = defineStore(
      * (mirrors the chat store). Everything here is the ending turn's own session's.
      */
     function settleTurn(sessionId: string): void {
-      // Only an in-flight stored turn keeps the record's settings over the live controls.
       // Only an in-flight stored turn keeps the record's settings over the live controls,
       // and an Answer's reply rule holds for its one turn.
       const ended = turnContexts[sessionId]
@@ -1191,6 +1190,11 @@ export const useAgentMode = defineStore(
       if (!heldAnswers.value[sessionId]) return
       setHeldAnswer(sessionId, null)
       settleHeldAnswer(sessionId, 'discarded')
+    }
+
+    /** A Steps run ended on a Step it could not send, so no turn settles to let the Answer go. */
+    function releaseHeldAnswer(sessionId: string): void {
+      if (!deletingSessions.has(sessionId)) settleHeldAnswer(sessionId, 'failed')
     }
 
     function settleHeldAnswer(sessionId: string, end: HeldAnswerEnd): void {
@@ -1975,6 +1979,7 @@ export const useAgentMode = defineStore(
       heldAnswers,
       setHeldAnswer,
       discardHeldAnswer,
+      releaseHeldAnswer,
       onHeldAnswerSettled,
       stopSession,
       stop,

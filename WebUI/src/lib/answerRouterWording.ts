@@ -21,6 +21,8 @@ export type AnswerRouterCopy = {
   held: string
   /** `{title}`; held while the turn waits for the download buttons in the channel */
   heldDownload: string
+  /** `{title}`; held while the download is asked on another channel and on the computer */
+  heldDownloadElsewhere: string
   /** `{title}`; held while the turn waits on the computer */
   heldDesktop: string
   /** A line under the held confirmation when it replaced an earlier Held Answer */
@@ -53,6 +55,8 @@ const ENGLISH: AnswerRouterCopy = {
   answerPlaceholder: 'Message to {title}',
   held: '⏳ Queued for {title} — it is sent when the current turn ends.',
   heldDownload: '⏳ Queued for {title} — the session is waiting for the download buttons above.',
+  heldDownloadElsewhere:
+    '⏳ Queued for {title} — the session is waiting for the download buttons in your notifications chat, or on your computer.',
   heldDesktop: '⏳ Queued for {title} — the session is waiting on your computer.',
   heldReplaced: 'It replaces your earlier Answer, which will not be sent.',
   heldReplacedElsewhere: '⚠️ Not sent to {title}: a newer Answer replaced it.',

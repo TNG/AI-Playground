@@ -95,6 +95,8 @@ export type InboundMeta = {
   channel?: string
   ts?: string
   chatId?: string
+  /** Slack thread a message about this inbound one is posted in. */
+  threadTs?: string
 }
 
 /** Single image payload exchanged with the python backend in either direction. */

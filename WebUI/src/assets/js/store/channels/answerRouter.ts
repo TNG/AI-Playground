@@ -40,6 +40,8 @@ export type AnswerRouterDeps = {
   /** Null until Agent Mode has registered; replies then reach Home Agent as before. */
   sessions: () => AnswerSessions | null
   questions: Pick<ChannelQuestionRegistry, 'handleInbound'>
+  /** Persisted: whether the channel was already told how answering works. */
+  onboarding?: { seen: () => boolean; markSeen: () => void }
   copy?: () => AnswerRouterCopy
   log?: (message: string, error: unknown) => void
 }
@@ -97,6 +99,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(adapter, fillTemplate(wording.queued, { title, position }), meta)
     } else {
       await tell(adapter, fillTemplate(wording.starting, { title }), meta)
+    }
+    if (deps.onboarding && !deps.onboarding.seen()) {
+      deps.onboarding.markSeen()
+      await tell(adapter, wording.onboarding, meta)
     }
   }
 

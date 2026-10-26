@@ -34,13 +34,18 @@ _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 _MAX_DOC_BYTES = 25 * 1024 * 1024
 
 
-def inbound_text_item(message) -> QueueItem:
-    """The queue item for a typed message; a reply names the message it answers."""
-    item: QueueItem = {"text": message.text or "", "chat_id": str(message.chat_id)}
+def inbound_item(message, text: str, **attachments) -> QueueItem:
+    """The queue item for an inbound message; a reply names the message it answers."""
+    item: QueueItem = {"text": text, "chat_id": str(message.chat_id), **attachments}
     replied = getattr(message, "reply_to_message", None)
     if replied is not None and replied.message_id is not None:
         item["reply_to"] = str(replied.message_id)
     return item
+
+
+def inbound_text_item(message) -> QueueItem:
+    """The queue item for a typed message."""
+    return inbound_item(message, message.text or "")
 
 
 class TelegramChannel(ChannelBase):
@@ -602,11 +607,11 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": text_payload,
-                    "chat_id": chat_id,
-                    "images": [{"mime": "image/jpeg", "data_base64": data_b64}],
-                }
+                inbound_item(
+                    update.message,
+                    text_payload,
+                    images=[{"mime": "image/jpeg", "data_base64": data_b64}],
+                )
             )
 
         async def handle_voice(
@@ -651,11 +656,11 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": caption,
-                    "chat_id": chat_id,
-                    "audio": [{"mime": mime, "data_base64": data_b64}],
-                }
+                inbound_item(
+                    update.message,
+                    caption,
+                    audio=[{"mime": mime, "data_base64": data_b64}],
+                )
             )
 
         async def handle_document(
@@ -717,13 +722,13 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": caption,
-                    "chat_id": chat_id,
-                    "documents": [
+                inbound_item(
+                    update.message,
+                    caption,
+                    documents=[
                         {"filename": filename, "mime": mime, "data_base64": data_b64}
                     ],
-                }
+                )
             )
 
         async def run() -> None:

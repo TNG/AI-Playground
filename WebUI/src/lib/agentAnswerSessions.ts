@@ -40,6 +40,10 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
     lookup: async (kind, ref) =>
       (await window.electronAPI.notifications?.lookupMessage?.(kind, ref)) ?? null,
     label,
+    usesRealShell: (sessionId) => {
+      const record = agentMode.sessions[sessionId]
+      return !!record && agentMode.isUnsandboxed(record.workspaceDir)
+    },
     send,
   })
 }

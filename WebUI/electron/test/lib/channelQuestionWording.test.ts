@@ -35,6 +35,8 @@ describe('channel question wording', () => {
       cancel: 'CHANNEL_QUESTION_CANCEL',
       confirmed: 'CHANNEL_QUESTION_CONFIRMED',
       cancelled: 'CHANNEL_QUESTION_CANCELLED',
+      queued: 'CHANNEL_QUESTION_QUEUED',
+      starting: 'CHANNEL_QUESTION_STARTING',
       progress: 'CHANNEL_QUESTION_PROGRESS',
       complete: 'CHANNEL_QUESTION_COMPLETE',
       failed: 'CHANNEL_QUESTION_FAILED',

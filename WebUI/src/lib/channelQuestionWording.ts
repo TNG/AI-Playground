@@ -12,6 +12,9 @@ export type ChannelQuestionTemplates = {
   cancel: string
   confirmed: string
   cancelled: string
+  /** The download waits behind another one. */
+  queued: string
+  starting: string
   /** `{model}`, `{percent}`, `{completed}`, `{total}` */
   progress: string
   /** `{label}` */
@@ -47,6 +50,8 @@ const ENGLISH: ChannelQuestionTemplates = {
   cancel: '✖ Cancel',
   confirmed: '✅ Confirmed.',
   cancelled: '❌ Cancelled.',
+  queued: '⏳ Queued — the download starts when the one ahead of it finishes.',
+  starting: '⬇️ Starting the download…',
   progress: '⬇️ Downloading `{model}` — {percent}% ({completed}/{total} models)',
   complete: '✅ Download complete. {label} is continuing.',
   failed: '⚠️ The model download for {label} failed: {error}',

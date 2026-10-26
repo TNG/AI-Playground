@@ -7,7 +7,16 @@ import {
   whenSessionTurnEnds,
 } from './sessionPromptPort'
 import { createCancellation, extractMessage, isCancellation } from '../errors/appError'
-import { modelDownloads, modelKey, throwUnlessDone } from '../models/modelDownloadQueue'
+import {
+  modelDownloads,
+  modelKey,
+  throwUnlessDone,
+  type ModelDownloadWaiter,
+} from '../models/modelDownloadQueue'
+import {
+  holdOpenDownloadQuestion,
+  resetOpenDownloadQuestionsForTest,
+} from '../models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
 import type { PermissionsPromptPayload, PermissionsPromptResponse } from '@/types/permissionsIpc'
 
@@ -58,19 +67,6 @@ function desktopQuestion(
   }
 }
 
-/** An unanswered Download Question, so a yes elsewhere that covers it can close it. */
-type OpenDownloadQuestion = { models: DownloadModelParam[]; join: (label: string) => void }
-
-const openQuestions = new Set<OpenDownloadQuestion>()
-
-/** Closes every open Download Question that the Model Downloads now running fully cover. */
-function closeCoveredQuestions(label: string): void {
-  const queue = modelDownloads()
-  for (const question of [...openQuestions]) {
-    if (queue.split(question.models).uncovered.length === 0) question.join(label)
-  }
-}
-
 function untilAborted(signal: AbortSignal): Promise<{ side: 'aborted' }> {
   if (signal.aborted) return Promise.resolve({ side: 'aborted' })
   return new Promise((resolve) =>
@@ -81,15 +77,19 @@ function untilAborted(signal: AbortSignal): Promise<{ side: 'aborted' }> {
 type DownloadAnswer =
   { kind: 'yes'; accepted: DownloadModelParam[]; fromChannel: boolean } | { kind: 'joined' }
 
-/** The first answer, from the modal or the Channel Question, wins (docs/adr/0004). */
+/**
+ * The first answer, from the modal or the Channel Question, wins (docs/adr/0004).
+ * The question ends early when its waiter settles first: the turn stopped, or a
+ * Model Download it already waits on was cancelled or failed.
+ */
 async function askDownloadQuestion(args: {
   models: DownloadModelParam[]
   alreadyDownloading: DownloadModelParam[]
   conversationKey: string
   question: DownloadChannelQuestion | null
-  signal: AbortSignal
+  waiter: ModelDownloadWaiter
 }): Promise<DownloadAnswer> {
-  const { models, question } = args
+  const { models, question, waiter } = args
   const desktop = desktopQuestion(models, args.conversationKey, {
     mode: 'ask',
     alreadyDownloading: args.alreadyDownloading,
@@ -98,8 +98,7 @@ async function askDownloadQuestion(args: {
   const joined = new Promise<{ side: 'joined'; label: string }>((resolve) => {
     join = (label) => resolve({ side: 'joined', label })
   })
-  const open: OpenDownloadQuestion = { models, join: (label) => join(label) }
-  openQuestions.add(open)
+  const stopHolding = holdOpenDownloadQuestion({ waiter, models, join: (label) => join(label) })
   const fromDesktop = desktop.done.then(
     (accepted) => ({ side: 'desktop' as const, accepted }),
     (error: unknown) => ({ side: 'desktop' as const, error }),
@@ -107,17 +106,21 @@ async function askDownloadQuestion(args: {
   const fromChannel = question
     ? question.answer.then((answer) => ({ side: 'channel' as const, answer }))
     : never
+  const ended = waiter.settled.then((outcome) => ({ side: 'ended' as const, outcome }))
   try {
-    const winner = await Promise.race([fromDesktop, fromChannel, joined, untilAborted(args.signal)])
+    const winner = await Promise.race([fromDesktop, fromChannel, joined, ended])
     switch (winner.side) {
       case 'joined':
         desktop.dismiss()
         question?.retire({ alreadyDownloadingFor: winner.label })
         return { kind: 'joined' }
-      case 'aborted':
+      case 'ended':
         desktop.dismiss()
         question?.retire('closed')
-        throw declined('The turn stopped waiting for this download')
+        throwUnlessDone(winner.outcome, () =>
+          declined('The turn stopped waiting for this download'),
+        )
+        return { kind: 'joined' }
       case 'desktop':
         if ('error' in winner) {
           const shownAndDeclined = desktop.wasShown() && isCancellation(winner.error)
@@ -131,7 +134,7 @@ async function askDownloadQuestion(args: {
         return { kind: 'yes', accepted: models, fromChannel: true }
     }
   } finally {
-    openQuestions.delete(open)
+    stopHolding()
   }
 }
 
@@ -166,43 +169,35 @@ async function turnDownload(args: {
   signal: AbortSignal
   answered: () => void
 }): Promise<void> {
-  const { conversationKey: waiter, signal } = args
-  const queue = modelDownloads()
-  const uncovered = queue.attach(waiter, args.models)
-  if (uncovered.length > 0) {
-    const alreadyDownloading = waitedOn(args.models, uncovered)
-    const question = channelQuestionFor(uncovered, waiter, alreadyDownloading)
-    let answer: DownloadAnswer
-    try {
-      answer = await askDownloadQuestion({
-        models: uncovered,
-        alreadyDownloading,
-        conversationKey: waiter,
-        question,
-        signal,
-      })
-    } catch (error) {
-      queue.detach(waiter)
-      throw error
-    }
-    if (answer.kind === 'joined') {
-      queue.attach(waiter, uncovered)
-    } else {
-      const started = queue.start(answer.accepted, [waiter], args.label)
-      if (started) {
-        closeCoveredQuestions(args.label)
-        question?.follow(started, { answeredInApp: !answer.fromChannel })
-      } else if (!answer.fromChannel) {
-        question?.retire('answered-in-app')
-      }
-    }
-  }
-  args.answered()
-  const leave = () => queue.detach(waiter)
+  const { conversationKey, signal } = args
+  const waiter = modelDownloads().waiter(conversationKey)
+  const leave = () => waiter.detach()
   signal.addEventListener('abort', leave, { once: true })
   if (signal.aborted) leave()
   try {
-    throwUnlessDone(await queue.settled(waiter), () => declined('The model download was cancelled'))
+    const uncovered = waiter.attach(args.models)
+    if (uncovered.length > 0) {
+      const alreadyDownloading = waitedOn(args.models, uncovered)
+      const question = channelQuestionFor(uncovered, conversationKey, alreadyDownloading)
+      const answer = await askDownloadQuestion({
+        models: uncovered,
+        alreadyDownloading,
+        conversationKey,
+        question,
+        waiter,
+      })
+      if (answer.kind === 'yes') {
+        const started = waiter.start(answer.accepted, args.label)
+        if (started) question?.follow(started, { answeredInApp: !answer.fromChannel })
+        else if (!answer.fromChannel) question?.retire('answered-in-app')
+      }
+    }
+    waiter.release()
+    args.answered()
+    throwUnlessDone(await waiter.settled, () => declined('The model download was cancelled'))
+  } catch (error) {
+    waiter.detach()
+    throw error
   } finally {
     signal.removeEventListener('abort', leave)
   }
@@ -215,31 +210,24 @@ async function panelDownload(args: {
   signal: AbortSignal
   answered: () => void
 }): Promise<void> {
-  const waiter = `panel:${args.requestId}`
-  const queue = modelDownloads()
-  const uncovered = queue.attach(waiter, args.models)
+  const group = `panel:${args.requestId}`
+  const { uncovered } = modelDownloads().split(args.models)
   const joined = uncovered.length === 0
   const desktop = desktopQuestion(joined ? args.models : uncovered, undefined, {
     mode: 'progress',
-    waiter,
+    group,
     joined,
     alreadyDownloading: joined ? [] : waitedOn(args.models, uncovered),
-    onConfirm: () => {
-      closeCoveredQuestions(channelQuestionTemplates().forOther)
-      args.answered()
-    },
+    onConfirm: args.answered,
   })
   if (joined) args.answered()
   const winner = await Promise.race([
     desktop.done.then(() => ({ side: 'done' as const })),
     untilAborted(args.signal),
-  ]).catch((error: unknown) => {
-    queue.detach(waiter)
-    throw error
-  })
+  ])
   if (winner.side === 'aborted') {
     desktop.dismiss()
-    queue.detach(waiter)
+    modelDownloads().detachGroup(group)
     throw declined('The prompt was dropped')
   }
 }
@@ -248,7 +236,7 @@ function respond(payload: PermissionsPromptResponse): void {
   void window.electronAPI.permissions.respond(payload)
 }
 
-const dropped = new Map<string, AbortController>()
+const requestAborts = new Map<string, AbortController>()
 
 async function handleDownload(
   request: Extract<PermissionsPromptPayload, { kind: 'download' }>,
@@ -259,7 +247,7 @@ async function handleDownload(
   const answered = () => respond({ requestId: request.requestId, answered: true })
   // An Agent Mode session never takes the remote-turn path: the pre-grant must not skip it.
   if (key && isAgentSessionTurn(key)) {
-    void whenSessionTurnEnds(key).then(() => dropped.get(request.requestId)?.abort())
+    void whenSessionTurnEnds(key).then(() => requestAborts.get(request.requestId)?.abort())
     await turnDownload({ models, conversationKey: key, label: sessionLabel(key), signal, answered })
   } else if (remoteTurnPort().isActive()) {
     await remoteTurnPort().downloadModels(models, {
@@ -276,11 +264,11 @@ async function handleDownload(
 
 async function handlePrompt(request: PermissionsPromptPayload): Promise<void> {
   if (request.kind === 'drop') {
-    dropped.get(request.requestId)?.abort()
+    requestAborts.get(request.requestId)?.abort()
     return
   }
   const controller = new AbortController()
-  dropped.set(request.requestId, controller)
+  requestAborts.set(request.requestId, controller)
   const pings = setInterval(() => {
     if (!controller.signal.aborted) respond({ requestId: request.requestId, progress: true })
   }, PING_INTERVAL_MS)
@@ -323,7 +311,7 @@ async function handlePrompt(request: PermissionsPromptPayload): Promise<void> {
     })
   } finally {
     clearInterval(pings)
-    dropped.delete(request.requestId)
+    requestAborts.delete(request.requestId)
   }
 }
 
@@ -339,6 +327,6 @@ export function startPermissionsAdapter(): void {
 
 export function resetPermissionsAdapterForTest(): void {
   started = false
-  openQuestions.clear()
-  dropped.clear()
+  resetOpenDownloadQuestionsForTest()
+  requestAborts.clear()
 }

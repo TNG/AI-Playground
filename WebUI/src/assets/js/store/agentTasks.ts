@@ -693,6 +693,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
   }
 
+  agentMode.setTaskLockLookup((sessionId) => {
+    const taskId = runOfSession(sessionId)
+    if (!taskId) return undefined
+    const taskName = tasks.value.find((task) => task.id === taskId)?.name ?? ''
+    return { taskName, signal: runContexts[taskId]?.abort.signal }
+  })
+
   /** The Agent the Open Session was loaded from or saved as, while it still exists. */
   const openSessionTask = computed(() => {
     const taskId = agentMode.openTaskId

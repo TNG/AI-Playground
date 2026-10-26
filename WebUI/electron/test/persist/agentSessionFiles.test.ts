@@ -214,6 +214,19 @@ describe('migrateLegacyAgentSessions', () => {
 })
 
 describe('saveAgentSession', () => {
+  it('keeps the channel an Answer came from across a reload', async () => {
+    const answer = {
+      id: 'm2',
+      role: 'user',
+      metadata: { origin: 'slack' },
+      parts: [{ type: 'text', text: 'make it faster' }],
+    }
+    await saveAgentSession(record('aipg-agent-1', { messages: [answer] }))
+    const boot = await bootstrapAgentSessions()
+    if (boot.status !== 'ok') throw new Error(boot.status)
+    expect(boot.sessions[0].messages).toEqual([answer])
+  })
+
   it('writes the record atomically and upserts its index entry', async () => {
     await saveAgentSession(record('aipg-agent-1', { updatedAt: 5 }))
     const doc = await readJson(path.join(dirs.real, 'aipg-agent-1.json'))

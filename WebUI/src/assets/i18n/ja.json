@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "エージェントの実行",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 返信",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "コンピューターで返信してください",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "返信するにはスレッドで返信してください。",
   "AGENT_NOTIFY_HEADER": "🤖 エージェント · {title}",
   "AGENT_ANSWER_STARTING": "➡️ {title} に送信しました — 開始しています…",
   "AGENT_ANSWER_QUEUED": "➡️ {title} に送信しました — 待機中（{position} 番目）",

@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "一次代理程式執行",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 回覆",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "請在電腦上回覆",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "在討論串中回覆即可作答。",
   "AGENT_NOTIFY_HEADER": "🤖 代理程式 · {title}",
   "AGENT_ANSWER_STARTING": "➡️ 已傳送至 {title} — 正在開始…",
   "AGENT_ANSWER_QUEUED": "➡️ 已傳送至 {title} — 排隊中（第 {position} 位）",

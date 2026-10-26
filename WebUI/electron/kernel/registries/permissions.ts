@@ -30,10 +30,14 @@ export type PermissionsDeps = {
 
 export function buildPermissionsRegistry(deps: PermissionsDeps) {
   return {
-    'permissions:requestDownload': async (_event, models) => {
+    'permissions:requestDownload': async (_event, models, options) => {
       try {
         if (!Array.isArray(models)) throw new Error('download models must be an array')
-        await deps.requestDownloadConsent(models)
+        const conversationKey = options?.conversationKey
+        await deps.requestDownloadConsent(
+          models,
+          typeof conversationKey === 'string' && conversationKey ? { conversationKey } : {},
+        )
         return { success: true as const }
       } catch (e) {
         return {

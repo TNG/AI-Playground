@@ -1392,7 +1392,9 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function checkModelAvailability(options: { needsVision?: boolean } = {}) {
+    async function checkModelAvailability(
+      options: { needsVision?: boolean; conversationKey?: string } = {},
+    ) {
       // ToDo: the path for embedding downloads must be corrected and BAAI/bge-large-zh-v1.5 was accidentally downloaded to the wrong place
       const requiredModelDownloads = await getDownloadParamsForCurrentModelIfRequired(
         'llm',
@@ -1412,7 +1414,7 @@ export const useTextInference = defineStore(
       if (uniqueDownloads.length === 0) return
       // The permissions layer owns the prompt: the download modal, or the
       // channel when a remote Home Agent turn is active.
-      await requestDownload(uniqueDownloads)
+      await requestDownload(uniqueDownloads, { conversationKey: options.conversationKey })
     }
 
     // Cloud Mode RAG: the chat LLM is remote and cannot embed, so bring up a

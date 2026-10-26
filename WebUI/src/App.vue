@@ -229,7 +229,12 @@
         mode="imageEdit"
       />
       <WorkflowResult v-if="promptStore.getCurrentMode() === 'video'" ref="videoRef" mode="video" />
-      <PromptArea @auto-hide-footer="handleAutoHideFooter" @open-settings="openSpecificSettings" />
+      <ModelDownloadCard v-if="downloadWaiter" :waiter="downloadWaiter" />
+      <PromptArea
+        v-else
+        @auto-hide-footer="handleAutoHideFooter"
+        @open-settings="openSpecificSettings"
+      />
       <div v-if="!footerExpanded" class="fixed bottom-4 right-4 z-5 flex items-center gap-3">
         <button
           @click="footerExpanded = !footerExpanded"
@@ -339,6 +344,7 @@
 import LoadingBar from './components/LoadingBar.vue'
 import SetupWizard from './components/SetupWizard.vue'
 import PromptArea from '@/views/PromptArea.vue'
+import ModelDownloadCard from '@/components/ModelDownloadCard.vue'
 import './assets/css/index.css'
 import { useGlobalSetup } from './assets/js/store/globalSetup'
 import { useProductMode } from './assets/js/store/productMode'
@@ -379,6 +385,8 @@ import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useConversations } from '@/assets/js/store/conversations'
+import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
 import { usesSessionSettings } from '@/lib/agentSessionSettings'
 
 const theme = useTheme()
@@ -394,6 +402,19 @@ const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 const i18n = useI18N()
 const agentMode = useAgentMode()
+const conversations = useConversations()
+
+// A session or conversation waiting on a Model Download shows its card instead of the prompt bar.
+const downloadWaiter = computed(() => {
+  const mode = promptStore.getCurrentMode()
+  const key =
+    mode === 'agent'
+      ? agentMode.openSessionId
+      : mode === 'chat' || mode === 'audio'
+        ? conversations.activeKey
+        : ''
+  return key && modelDownloads().snapshot(key) ? key : ''
+})
 
 // Agent Maker sessions can notify over Home Agent; the games presets cannot.
 const showHomeAgentToggle = computed(() => {

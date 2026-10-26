@@ -565,7 +565,8 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       | 'typing'
       | 'keyboard'
       | 'editMessage'
-      | 'history',
+      | 'history'
+      | 'post',
     payload: ChannelSendPayload,
   ): Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>> {
     if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }

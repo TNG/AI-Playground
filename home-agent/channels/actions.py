@@ -28,6 +28,7 @@ SEND_ACTIONS: tuple[str, ...] = (
     "keyboard",
     "editMessage",
     "history",
+    "post",
 )
 
 

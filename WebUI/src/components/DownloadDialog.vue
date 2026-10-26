@@ -19,6 +19,9 @@
               {{ modelCountLabel }}
               <template v-if="totalDownloadSize"> · {{ totalDownloadSize }}</template>
             </p>
+            <p v-if="alreadyDownloadingLabel" class="text-sm text-muted-foreground">
+              {{ alreadyDownloadingLabel }}
+            </p>
           </div>
           <div class="min-h-0 w-full flex-1 overflow-y-auto">
             <table class="text-left w-full">
@@ -206,6 +209,7 @@
           </div>
         </div>
         <template v-else>
+          <p v-if="wait?.status === 'queued'">{{ i18nState.MODEL_DOWNLOAD_QUEUED }}</p>
           <progress-bar :text="allDownloadTip" :percent="taskPercent" class="w-3/4"></progress-bar>
           <progress-bar :text="curDownloadTip" :percent="percent" class="w-3/4"></progress-bar>
           <button @click="cancelDownload" class="bg-red-500 py-1 px-4">
@@ -224,14 +228,14 @@ import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import ProgressBar from './ProgressBar.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useI18N } from '@/assets/js/store/i18n'
-import * as toast from '@/assets/js/toast'
 import { useModels } from '@/assets/js/store/models'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { EtaEstimator } from '@/lib/etaEstimator'
-import { aipgFetch } from '@/lib/loopbackAuth'
-import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
+import { fetchModelMeta, type ModelDownloadError } from '@/lib/modelDownloader'
 import { parseHumanSize, sumHumanSizes } from '@/lib/humanSize'
 import { createCancellation } from '@/assets/js/errors/appError'
+import { modelDownloads, type ModelDownloadOutcome } from '@/assets/js/models/modelDownloadQueue'
+import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
 
 const i18nState = useI18N().state
 const languages = i18nState
@@ -240,26 +244,55 @@ const modelFolderReadOnly = computed(() => globalSetup.state.modelFolderReadOnly
 const models = useModels()
 const dialogStore = useDialogStore()
 
-const { downloadDialogVisible, downloadList } = storeToRefs(dialogStore)
+const { downloadList, currentDownloadRequest } = storeToRefs(dialogStore)
 
-let downloding = false
-const curDownloadTip = ref('')
-const allDownloadTip = ref('')
-const percent = ref(0)
-const taskPercent = ref(0)
 const showConfirm = ref(false)
 const sizeRequesting = ref(false)
 const hashError = ref(false)
 const errorText = ref('')
 const downloadErrorRetryable = ref(false)
-let abortController: AbortController
 const animate = ref(false)
 const readTerms = ref(false)
 const downloadModelRender = ref<DownloadModelRender[]>([])
 
+const waiter = computed(() => {
+  const request = currentDownloadRequest.value
+  return request ? (request.options.waiter ?? `download-dialog:${request.id}`) : ''
+})
+const wait = computed(() => (waiter.value ? modelDownloads().snapshot(waiter.value) : null))
+const etaEstimator = new EtaEstimator(100)
+const eta = ref('')
+
+const percent = computed(() => wait.value?.progress?.percent ?? 0)
+const taskPercent = computed(() => wait.value?.progress?.taskPercent ?? 0)
+const allDownloadTip = computed(() => {
+  const progress = wait.value?.progress
+  return `${i18nState.DOWNLOADER_DONWLOAD_TASK_PROGRESS} ${progress?.completed ?? 0}/${progress?.total ?? downloadModelRender.value.length}`
+})
+const curDownloadTip = computed(() => {
+  const progress = wait.value?.progress
+  if (!progress?.speed) return ''
+  return `${i18nState.COM_DOWNLOAD_MODEL} ${progress.repoId}\r\n${progress.downloadSize}/${progress.totalSize} ${progress.percent}% ${i18nState.COM_DOWNLOAD_SPEED}: ${progress.speed} ETA: ${eta.value}`
+})
+watch(
+  () => wait.value?.progress,
+  (progress) => {
+    if (progress?.speed !== undefined) eta.value = etaEstimator.updateAndEstimate(progress.percent)
+  },
+)
+
 const modelCountLabel = computed(() =>
   i18nState.DOWNLOADER_MODEL_COUNT.replace('{count}', String(downloadModelRender.value.length)),
 )
+
+const alreadyDownloadingLabel = computed(() => {
+  const already = currentDownloadRequest.value?.options.alreadyDownloading ?? []
+  if (already.length === 0) return ''
+  return i18nState.DOWNLOADER_ALREADY_DOWNLOADING.replace(
+    '{models}',
+    already.map((model) => model.repo_id).join(', '),
+  )
+})
 
 // What the whole batch costs. With one model the per-row size says it already;
 // with thirty it is the only number that matters before confirming.
@@ -274,38 +307,37 @@ const totalDownloadSize = computed(() => {
   if (sizes.some((size) => parseHumanSize(size) === undefined)) return undefined
   return sumHumanSizes(sizes)
 })
-const etaEstimator = new EtaEstimator(100)
 
-watch(downloadDialogVisible, async (isVisible) => {
-  if (isVisible) {
+watch(
+  () => currentDownloadRequest.value?.id,
+  async (id) => {
+    if (id === undefined) return
     nextTick(() => {
       animate.value = true
     })
     await initializeDownloadDialog()
     animate.value = false
-  }
-})
+  },
+  { immediate: true },
+)
 
 async function initializeDownloadDialog() {
-  if (downloding) {
-    toast.error(i18nState.DOWNLOADER_CONFLICT)
-    dialogStore.downloadFailed({ type: 'conflict' })
-    dialogStore.closeDownloadDialog()
-    return
-  }
-
-  sizeRequesting.value = true
-  curDownloadTip.value = i18nState.DOWNLOADER_CONFRIM_TIP
-  showConfirm.value = true
+  const request = currentDownloadRequest.value
+  showConfirm.value = !request?.options.joined
   hashError.value = false
   downloadErrorRetryable.value = false
-  percent.value = 0
-  taskPercent.value = 0
+  etaEstimator.reset()
+  eta.value = ''
   downloadModelRender.value = downloadList.value.map((item) => {
     return { size: '???', ...item }
   })
   readTerms.value = false
+  if (request?.options.joined) {
+    void follow(request.id)
+    return
+  }
 
+  sizeRequesting.value = true
   try {
     const meta = await fetchModelMeta(downloadList.value, {
       apiHost: globalSetup.apiHost,
@@ -320,8 +352,9 @@ async function initializeDownloadDialog() {
     }
     sizeRequesting.value = false
   } catch (ex) {
-    dialogStore.downloadFailed({ type: 'error', error: ex })
     sizeRequesting.value = false
+    dialogStore.downloadFailed({ type: 'error', error: ex })
+    dialogStore.closeDownloadDialog()
   }
 }
 
@@ -363,73 +396,57 @@ function getFunctionTip(type: string): string {
   }
 }
 
-function download() {
-  downloding = true
-  const accessableDownloadList = downloadModelRender.value.filter(
-    (item) => item.accessGranted === true,
-  )
-  allDownloadTip.value = `${i18nState.DOWNLOADER_DONWLOAD_TASK_PROGRESS} 0/${accessableDownloadList.length}`
-  percent.value = 0
-  taskPercent.value = 0
-  abortController = new AbortController()
-  curDownloadTip.value = ''
-  runModelDownload(accessableDownloadList, {
-    apiHost: globalSetup.apiHost,
-    hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
-    signal: abortController.signal,
-    onProgress: (p) => {
-      // Per-file progress events carry a speed; the synthetic 100% event emitted
-      // on completion does not — only refresh the ETA line on real progress.
-      if (p.speed !== undefined) {
-        const etaStr = etaEstimator.updateAndEstimate(p.percent)
-        curDownloadTip.value = `${i18nState.COM_DOWNLOAD_MODEL} ${p.repoId}\r\n${p.downloadSize}/${p.totalSize} ${p.percent}% ${i18nState.COM_DOWNLOAD_SPEED}: ${p.speed} ETA: ${etaStr}`
-      }
-      percent.value = p.percent
-      taskPercent.value = p.taskPercent
-      allDownloadTip.value = `${i18nState.DOWNLOADER_DONWLOAD_TASK_PROGRESS} ${p.completed}/${p.total}`
-    },
-    onModelCompleted: () => {
-      models.refreshModels()
-    },
-    onError: (e) => {
-      hashError.value = true
-      downloding = false
-      downloadErrorRetryable.value = e.retryable
-      switch (e.errType) {
-        case 'not_enough_disk_space':
-          errorText.value = i18nState.ERR_NOT_ENOUGH_DISK_SPACE.replace(
-            '{requires_space}',
-            e.requiresSpace ?? '',
-          ).replace('{free_space}', e.freeSpace ?? '')
-          break
-        case 'repositories_not_found':
-          errorText.value = i18nState.ERROR_REPO_NOT_EXISTS
-          break
-        case 'download_exception':
-          errorText.value = i18nState.ERR_DOWNLOAD_FAILED
-          break
-        case 'runtime_error':
-          errorText.value = i18nState.ERROR_RUNTIME_ERROR
-          break
-        default:
-          errorText.value = i18nState.ERROR_GENERATE_UNKONW_EXCEPTION
-          break
-      }
-      const failure = { type: 'error', error: errorText.value }
-      // A resumable error is only final once the user closes instead of retrying.
-      if (e.retryable) dialogStore.downloadFailedResumable(failure)
-      else dialogStore.downloadFailed(failure)
-    },
-  })
-    .then(() => {
-      downloding = false
-      dialogStore.downloadCompleted()
-    })
-    .catch(() => {
-      // onError already surfaced a structured failure; an abort or other
-      // rejection just needs to stop the spinner.
-      downloding = false
-    })
+function accessibleModels(): DownloadModelParam[] {
+  return downloadModelRender.value
+    .filter((item) => item.accessGranted === true)
+    .map(({ size: _size, gated: _gated, accessGranted: _access, ...model }) => model)
+}
+
+function downloadErrorText(detail: ModelDownloadError | undefined): string {
+  switch (detail?.errType) {
+    case 'not_enough_disk_space':
+      return i18nState.ERR_NOT_ENOUGH_DISK_SPACE.replace(
+        '{requires_space}',
+        detail.requiresSpace ?? '',
+      ).replace('{free_space}', detail.freeSpace ?? '')
+    case 'repositories_not_found':
+      return i18nState.ERROR_REPO_NOT_EXISTS
+    case 'download_exception':
+      return i18nState.ERR_DOWNLOAD_FAILED
+    case 'runtime_error':
+      return i18nState.ERROR_RUNTIME_ERROR
+    default:
+      return i18nState.ERROR_GENERATE_UNKONW_EXCEPTION
+  }
+}
+
+/** Settles the shown request from its waiter's outcome in the Model Download queue. */
+async function follow(requestId: number) {
+  const outcome: ModelDownloadOutcome = await modelDownloads().settled(waiter.value)
+  if (currentDownloadRequest.value?.id !== requestId) return
+  if (outcome.status === 'done') {
+    dialogStore.downloadCompleted()
+    return
+  }
+  if (outcome.status === 'cancelled') {
+    dialogStore.downloadFailed(createCancellation({ technicalMessage: 'Download cancelled' }))
+    dialogStore.closeDownloadDialog()
+    return
+  }
+  hashError.value = true
+  downloadErrorRetryable.value = outcome.detail?.retryable === true
+  errorText.value = downloadErrorText(outcome.detail)
+  const failure = { type: 'error', error: errorText.value }
+  // A resumable error is only final once the user closes instead of retrying.
+  if (downloadErrorRetryable.value) dialogStore.downloadFailedResumable(failure)
+  else dialogStore.downloadFailed(failure)
+}
+
+function download(list: DownloadModelParam[]) {
+  const request = currentDownloadRequest.value
+  if (!request) return
+  modelDownloads().start(list, [waiter.value], channelQuestionTemplates().forOther)
+  void follow(request.id)
 }
 
 function cancelConfirm() {
@@ -438,11 +455,17 @@ function cancelConfirm() {
 }
 
 function confirmDownload() {
-  dialogStore.downloadConfirmed()
+  const accepted = accessibleModels()
+  if (currentDownloadRequest.value?.options.mode === 'ask') {
+    dialogStore.downloadConfirmed(accepted)
+    return
+  }
   showConfirm.value = false
   hashError.value = false
   downloadErrorRetryable.value = false
-  return download()
+  download(accepted)
+  // After queuing, so the adapter can close the questions this yes now covers.
+  dialogStore.downloadConfirmed(accepted)
 }
 
 function retryDownload() {
@@ -450,19 +473,15 @@ function retryDownload() {
   hashError.value = false
   downloadErrorRetryable.value = false
   errorText.value = ''
-  download()
+  download(accessibleModels())
 }
 
+/** Takes only this dialog's waiter out; a Model Download someone else waits on keeps running. */
 function cancelDownload() {
-  abortController?.abort()
-  aipgFetch(`${globalSetup.apiHost}/api/stopDownloadModel`)
-  dialogStore.downloadFailed(createCancellation({ technicalMessage: 'Download cancelled by user' }))
-  downloding = false
-  dialogStore.closeDownloadDialog()
+  modelDownloads().detach(waiter.value)
 }
 
 function close() {
-  downloding = false
   dialogStore.closeDownloadDialog()
 }
 </script>

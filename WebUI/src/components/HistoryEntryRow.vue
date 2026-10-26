@@ -86,6 +86,12 @@
                   marker.short
                 }}</span>
               </template>
+              <template v-else-if="marker.status === 'downloading'">
+                <ArrowDownTrayIcon class="size-3.5 text-primary" aria-hidden="true" />
+                <span v-if="marker.short" class="text-muted-foreground" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
               <template v-else-if="marker.status === 'paused'">
                 <HandRaisedIcon class="size-3.5 text-amber-500" aria-hidden="true" />
                 <span v-if="marker.short" class="text-amber-500" aria-hidden="true">{{
@@ -227,6 +233,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
 import {
+  ArrowDownTrayIcon,
   ClipboardDocumentListIcon,
   ClockIcon,
   HandRaisedIcon,
@@ -345,6 +352,18 @@ const marker = computed(() => {
         : { status, label: i18nState.HISTORY_STATUS_QUEUED }
     case 'paused':
       return { status, ...pausedStatusLabel(props.entry.pauseReason, i18nState) }
+    case 'downloading': {
+      const download = props.entry.download
+      if (!download || download.queued) {
+        return { status, label: i18nState.HISTORY_STATUS_DOWNLOAD_QUEUED }
+      }
+      const short = `${download.percent}%`
+      return {
+        status,
+        label: i18nState.HISTORY_STATUS_DOWNLOADING.replace('{percent}', String(download.percent)),
+        short,
+      }
+    }
     case 'unseen':
       return { status, label: i18nState.HISTORY_STATUS_UNSEEN }
     case 'unseenFailed':

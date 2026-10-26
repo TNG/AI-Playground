@@ -205,9 +205,9 @@ export function runModelDownload(
       signal: opts.signal,
     })
       .then((response) => new SSEProcessor(response.body!.getReader(), onLine, undefined).start())
-      // Stream closed without an explicit allComplete (some servers just end):
-      // treat a clean close as success so we don't hang.
-      .then(() => finish())
+      // A stream that ends before every model completed did not deliver them; a
+      // second request to the ai-backend's single downloader ends the first this way.
+      .then(() => fail(new Error('The download stopped before it completed.')))
       .catch((ex) => fail(ex instanceof Error ? ex : new Error(String(ex))))
   })
 }

@@ -35,7 +35,12 @@ export type ChannelQuestionAsk = {
   labels?: ChannelQuestionLabels
 }
 
-export type ChannelQuestion = { id: string; answer: Promise<boolean> }
+export type ChannelQuestion = {
+  id: string
+  answer: Promise<boolean>
+  /** Rewrites the line under the question, open or not; a download's progress and outcome. */
+  edit: (note: string) => void
+}
 
 export type InboundAnswer = { text?: string; callback?: string }
 
@@ -63,6 +68,7 @@ type OpenQuestion = {
   ref?: ChannelMessageRef
   /** Set once settled, so a send that lands afterwards still loses its buttons. */
   outcome?: string
+  editing?: Promise<void>
 }
 
 function randomId(): string {
@@ -86,14 +92,25 @@ export function createChannelQuestionRegistry(deps?: {
   const open = new Map<string, OpenQuestion>()
 
   function editInPlace(q: OpenQuestion, outcome: string): void {
-    if (!q.ref) return
-    q.adapter
-      .editKeyboardMessage(
-        q.ref,
-        q.adapter.formatMarkdown(`${q.summaryMarkdown}\n\n${outcome}`),
-        q.meta,
-      )
-      .catch((e: unknown) => log('channelQuestions: settle edit failed:', e))
+    const ref = q.ref
+    if (!ref) return
+    const send = () =>
+      q.adapter
+        .editKeyboardMessage(
+          ref,
+          q.adapter.formatMarkdown(`${q.summaryMarkdown}\n\n${outcome}`),
+          q.meta,
+        )
+        .then(
+          () => {},
+          (e: unknown) => log('channelQuestions: settle edit failed:', e),
+        )
+    // In order: a progress edit still in flight must not land after the outcome.
+    const tail = q.editing ? q.editing.then(send) : send()
+    q.editing = tail
+    void tail.then(() => {
+      if (q.editing === tail) q.editing = undefined
+    })
   }
 
   function settle(id: string, answer: boolean, outcomeNote?: string): boolean {
@@ -141,8 +158,9 @@ export function createChannelQuestionRegistry(deps?: {
     const labels = question.labels ?? ENGLISH_LABELS
     let id = newId()
     while (open.has(id)) id = newId()
+    let entry: OpenQuestion | undefined
     const answer = new Promise<boolean>((resolve) => {
-      const entry: OpenQuestion = {
+      entry = {
         adapter,
         meta,
         summaryMarkdown,
@@ -150,10 +168,11 @@ export function createChannelQuestionRegistry(deps?: {
         labels,
         resolve,
       }
+      const asked = entry
       if (question.timeoutMs !== undefined) {
-        entry.timeoutId = setTimeout(() => expire(id), question.timeoutMs)
+        asked.timeoutId = setTimeout(() => expire(id), question.timeoutMs)
       }
-      open.set(id, entry)
+      open.set(id, asked)
       const buttons: KeyboardButton[][] = [
         [
           { text: labels.confirm, callbackData: confirmCallback(id, true) },
@@ -170,15 +189,20 @@ export function createChannelQuestionRegistry(deps?: {
           const res = await adapter.keyboard(adapter.formatMarkdown(summaryMarkdown), buttons, meta)
           // The question may be settled before the send round-trips.
           if (res.ref) {
-            entry.ref = res.ref
-            if (entry.outcome !== undefined) editInPlace(entry, entry.outcome)
+            asked.ref = res.ref
+            if (asked.outcome !== undefined) editInPlace(asked, asked.outcome)
           }
         } catch (e) {
           log('channelQuestions: prompt send failed:', e)
         }
       })()
     })
-    return { id, answer }
+    const edit = (note: string) => {
+      if (!entry) return
+      entry.outcome = note
+      editInPlace(entry, note)
+    }
+    return { id, answer, edit }
   }
 
   function handleInbound(adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta): boolean {

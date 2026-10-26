@@ -364,6 +364,41 @@ class TestOutboundEvents(LocalWebChannelTestCase):
         # settled, and left its buttons live to fire the callback a second time.
         self.assertEqual(events, [{"action": "editMessage", "text": "Cancelled."}])
 
+    def test_a_download_message_is_posted_and_edited_by_its_id(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        posted = self.channel.send_post({"text": "Downloading 10%"})
+        self.channel.send_edit_message(
+            {"text": "Downloaded.", "message_id": posted["message_id"]}
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        # A post, not a reply: a reply would settle the streaming draft bubble and
+        # overwrite a Home Agent answer with download progress.
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "post",
+                    "text": "Downloading 10%",
+                    "id": posted["message_id"],
+                },
+                {
+                    "action": "editMessage",
+                    "text": "Downloaded.",
+                    "id": posted["message_id"],
+                },
+            ],
+        )
+
+    def test_every_keyboard_gets_its_own_message_id(self):
+        first = self.channel.send_keyboard({"text": "A?", "buttons": []})
+        second = self.channel.send_keyboard({"text": "B?", "buttons": []})
+        self.assertGreater(first["message_id"], 0)
+        self.assertNotEqual(first["message_id"], second["message_id"])
+
     def test_sending_without_a_connected_browser_is_not_an_error(self):
         self.assertEqual(
             self.channel.send_reply({"text": "into the void"}), {"status": "ok"}

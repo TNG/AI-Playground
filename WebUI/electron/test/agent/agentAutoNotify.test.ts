@@ -459,10 +459,14 @@ describe('a sent Notification', () => {
     expect(await messageMap.lookupChannelMessage('telegram', 'msg-2')).toBeNull()
   }, 30000)
 
-  it('is forgotten when its session is deleted', async () => {
+  it('is forgotten when its session is deleted, but still known as a deleted session’s', async () => {
     await failingTurn()
     await messageMap.forgetSessionMessages(SESSION)
     expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBeNull()
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      deletedSession: true,
+    })
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-2')).toBeNull()
   }, 30000)
 })
 

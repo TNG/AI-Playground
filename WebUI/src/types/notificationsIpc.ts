@@ -8,6 +8,9 @@ export type NotificationRoute = {
   notificationChannel: ChannelKind | null
 }
 
+/** Who sent a channel message: a live agent session, or one that has since been deleted. */
+export type ChannelMessageOwner = { sessionId: string } | { deletedSession: true }
+
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {
   /** First line of every agent's Notification: `{title}` (a label) */

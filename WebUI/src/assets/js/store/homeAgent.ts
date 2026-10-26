@@ -264,6 +264,7 @@ export const useHomeAgent = defineStore(
     const answerRouter = createAnswerRouter({
       sessions: answerSessions,
       questions: channelQuestions,
+      transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
       onboarding: {
         seen: () => answerOnboardingSeen.value,
         markSeen: () => {

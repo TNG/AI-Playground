@@ -5,14 +5,14 @@ import type {
   SendHandlerMap,
 } from '../ipcRegistries'
 import type { setNotificationConfig } from '../../agent/notifier'
-import type { lookupChannelMessage } from '../../persist/channelMessageMap'
+import type { channelMessageOwner } from '../../persist/channelMessageMap'
 
 export type NotificationsDeps = {
   setNotificationConfig: typeof setNotificationConfig
 }
 
 export type NotificationsInvokeDeps = {
-  lookupChannelMessage: typeof lookupChannelMessage
+  channelMessageOwner: typeof channelMessageOwner
 }
 
 export function buildNotificationsSendRegistry(deps: NotificationsDeps) {
@@ -25,7 +25,7 @@ export function buildNotificationsRegistry(deps: NotificationsInvokeDeps) {
   return {
     'notifications:lookupMessage': async (_event, kind, ref) => {
       if (typeof ref !== 'string' || !ref) return null
-      return deps.lookupChannelMessage(kind, ref).catch(() => null)
+      return deps.channelMessageOwner(kind, ref).catch(() => null)
     },
   } satisfies InvokeHandlerMap<NotificationsInvokeName>
 }

@@ -37,10 +37,31 @@ _MAX_DOC_BYTES = 25 * 1024 * 1024
 def inbound_item(message, text: str, **attachments) -> QueueItem:
     """The queue item for an inbound message; a reply names the message it answers."""
     item: QueueItem = {"text": text, "chat_id": str(message.chat_id), **attachments}
+    if getattr(message, "message_id", None) is not None:
+        item["reply_target"] = str(message.message_id)
     replied = getattr(message, "reply_to_message", None)
     if replied is not None and replied.message_id is not None:
         item["reply_to"] = str(replied.message_id)
     return item
+
+
+def _reply_parameters(payload: dict) -> dict:
+    """The send kwargs naming the message a send replies to, when the payload names one."""
+    raw = payload.get("reply_to_message_id")
+    try:
+        message_id = int(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        message_id = None
+    if message_id is None:
+        return {}
+    from telegram import ReplyParameters
+
+    # The answered message may have been deleted; the reply is still worth sending.
+    return {
+        "reply_parameters": ReplyParameters(
+            message_id=message_id, allow_sending_without_reply=True
+        )
+    }
 
 
 def inbound_text_item(message) -> QueueItem:
@@ -177,6 +198,7 @@ class TelegramChannel(ChannelBase):
                     text=text,
                     parse_mode=parse_mode,
                     reply_markup=reply_markup,
+                    **_reply_parameters(payload),
                 )
             )
             return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
@@ -228,15 +250,16 @@ class TelegramChannel(ChannelBase):
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
             photo_bytes = base64.b64decode(photo_b64)
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_photo(  # type: ignore[union-attr]
                     chat_id=target,
                     photo=photo_bytes,
                     caption=caption or None,
+                    **_reply_parameters(payload),
                 ),
                 timeout=120,
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -248,16 +271,17 @@ class TelegramChannel(ChannelBase):
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
             video_bytes = base64.b64decode(video_b64)
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_video(  # type: ignore[union-attr]
                     chat_id=target,
                     video=video_bytes,
                     caption=caption or None,
                     supports_streaming=True,
+                    **_reply_parameters(payload),
                 ),
                 timeout=180,
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -370,6 +394,7 @@ class TelegramChannel(ChannelBase):
                     text=text,
                     parse_mode=parse_mode,
                     reply_markup=markup,
+                    **_reply_parameters(payload),
                 )
             )
             # Return the message id so the renderer can edit the prompt in place

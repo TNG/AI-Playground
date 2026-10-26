@@ -177,10 +177,12 @@ function shownError(turnId: string): string | undefined {
 }
 
 describe('an agent turn end', () => {
-  it('reports completed when the model answers', async () => {
+  it('reports completed, with the reply, when the model answers', async () => {
     const turnId = crypto.randomUUID()
     await manager.startAgentTurn(turnId, 'hi', configFor('aipg-agent-done'))
-    expect(ends).toEqual([{ sessionId: 'aipg-agent-done', turnId, outcome: 'completed' }])
+    expect(ends).toEqual([
+      { sessionId: 'aipg-agent-done', turnId, outcome: 'completed', reply: 'done' },
+    ])
   }, 30000)
 
   it('reports failed with the error the app shows when the model call fails', async () => {

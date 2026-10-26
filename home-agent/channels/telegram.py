@@ -48,6 +48,16 @@ def inbound_text_item(message) -> QueueItem:
     return inbound_item(message, message.text or "")
 
 
+def answer_callback_item(callback_query) -> QueueItem:
+    """The queue item for a 💬 Answer tap; the message it sits under names the session."""
+    tapped = callback_query.message
+    return {
+        "chat_id": str(tapped.chat_id),
+        "callback": callback_query.data or "",
+        "reply_to": str(tapped.message_id),
+    }
+
+
 class TelegramChannel(ChannelBase):
     """Single Telegram bot lifecycle + outbound primitives."""
 
@@ -154,9 +164,19 @@ class TelegramChannel(ChannelBase):
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
+            reply_markup = None
+            # An Answer Prompt: opens the keyboard already replying to this message.
+            if payload.get("force_reply"):
+                from telegram import ForceReply
+
+                placeholder = payload.get("input_field_placeholder") or None
+                reply_markup = ForceReply(input_field_placeholder=placeholder)
             msg = self._run_coro(
                 self._app_instance.bot.send_message(  # type: ignore[union-attr]
-                    chat_id=target, text=text, parse_mode=parse_mode
+                    chat_id=target,
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup,
                 )
             )
             return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
@@ -541,6 +561,27 @@ class TelegramChannel(ChannelBase):
             logger.info("Telegram confirm callback: chat_id=%s data=%r", chat_id, data)
             self.queue_append({"chat_id": chat_id, "callback": data})
 
+        async def handle_answer_callback(
+            update: Update, context: ContextTypes.DEFAULT_TYPE
+        ) -> None:
+            cq = update.callback_query
+            if cq is None or cq.message is None:
+                return
+            chat_id = str(cq.message.chat_id)
+            allow = self._allowed_chat_id
+            self._record_authorized_chat_id(chat_id)
+            try:
+                await cq.answer()
+            except Exception as exc:
+                logger.warning("Failed to ack answer callback_query: %s", exc)
+            if allow and chat_id != allow:
+                logger.warning(
+                    "Ignoring answer callback from unauthorized chat_id: %s", chat_id
+                )
+                return
+            logger.info("Telegram answer callback: chat_id=%s", chat_id)
+            self.queue_append(answer_callback_item(cq))
+
         async def handle_load_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
         ) -> None:
@@ -771,6 +812,9 @@ class TelegramChannel(ChannelBase):
             )
             application.add_handler(
                 CallbackQueryHandler(handle_confirm_callback, pattern=r"^confirm:")
+            )
+            application.add_handler(
+                CallbackQueryHandler(handle_answer_callback, pattern=r"^answer$")
             )
             await application.initialize()
             await application.start()

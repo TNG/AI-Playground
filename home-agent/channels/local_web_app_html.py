@@ -681,10 +681,14 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         finalizeBot(d.text || '')
         return
       }
+      if (action === 'post') {
+        appendBotNote(formatBotText(d.text || ''), d.id)
+        return
+      }
       if (action === 'editMessage') {
-        // The store settles an interactive prompt in place (confirmed/cancelled/
-        // timed out). SSE has no message edit, so retire the live buttons and post
-        // the outcome — otherwise the prompt stays tappable and fires again.
+        if (d.id && editBubble(d.id, d.text || '')) return
+        // No bubble to edit: still retire the live buttons and post the outcome,
+        // or the settled prompt stays tappable and fires again.
         consumeKeyboards()
         finalizeBot(d.text || '')
         return
@@ -715,6 +719,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         row.setAttribute('aria-label', LABEL_KEYBOARD)
         const bubble = appendBotHtml(formatBotText(d.text || ''), false, [row])
         bubble.setAttribute('aria-label', LABEL_PROMPT)
+        if (d.id) bubble.dataset.mid = String(d.id)
         for (const btn of d.buttons.flat()) {
           const cb = btn.callbackData || btn.callback
           const b = document.createElement('button')
@@ -735,6 +740,46 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         bubble.appendChild(tm)
         scrollBottom()
       }
+    }
+
+    function stampTime(bubble) {
+      const tm = document.createElement('span')
+      tm.className = 'time'
+      tm.textContent = timeNow()
+      bubble.appendChild(tm)
+    }
+
+    /** A message the app edits in place later; it never touches a streaming reply. */
+    function appendBotNote(html, id) {
+      const row = document.createElement('div')
+      row.className = 'row row-bot'
+      const av = document.createElement('div')
+      av.className = 'tg-avatar'
+      av.style.width = '32px'
+      av.style.height = '32px'
+      av.style.fontSize = '11px'
+      av.textContent = 'HA'
+      const bubble = bubbleEl(LABEL_BOT)
+      bubble.innerHTML = html
+      if (id) bubble.dataset.mid = String(id)
+      stampTime(bubble)
+      row.appendChild(av)
+      row.appendChild(bubble)
+      // Above a reply that is still streaming, so the reply stays the newest bubble.
+      const live = draftRow || typingRow
+      if (live && live.parentNode === log) log.insertBefore(row, live)
+      else log.appendChild(row)
+      scrollBottom()
+    }
+
+    /** Rewrites a tagged bubble's text and retires its buttons; false when it is gone. */
+    function editBubble(id, text) {
+      const bubble = log.querySelector('[data-mid="' + String(Number(id)) + '"]')
+      if (!bubble) return false
+      bubble.innerHTML = formatBotText(text)
+      bubble.setAttribute('aria-label', LABEL_BOT)
+      stampTime(bubble)
+      return true
     }
 
     /** Replace a prompt's buttons with the choice that was made. */

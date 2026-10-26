@@ -42,6 +42,8 @@ export const PermissionsPromptBodySchema = z.discriminatedUnion('kind', [
     presetName: z.string(),
     message: z.string(),
   }),
+  // The turn behind an open prompt ended; the window drops it without answering.
+  z.object({ kind: z.literal('drop') }),
 ])
 export type PermissionsPromptBody = z.infer<typeof PermissionsPromptBodySchema>
 
@@ -53,6 +55,9 @@ export type PermissionsPromptPayload = PermissionsPromptBody & {
 
 export type PermissionsPromptResponse =
   | { requestId: string; progress: true }
+  // The Download Question was answered (or joined a running Model Download); the
+  // download itself is still to settle, so the turn stops waiting on the user.
+  | { requestId: string; answered: true }
   | { requestId: string; result: unknown }
   // `cancelled` travels with the message because the caller reacts to a
   // declined download by dropping the turn quietly, and an error string cannot

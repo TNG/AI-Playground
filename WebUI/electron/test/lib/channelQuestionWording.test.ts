@@ -39,9 +39,17 @@ describe('channel question wording', () => {
       complete: 'CHANNEL_QUESTION_COMPLETE',
       failed: 'CHANNEL_QUESTION_FAILED',
       answeredInApp: 'CHANNEL_QUESTION_ANSWERED_IN_APP',
+      declinedInApp: 'CHANNEL_QUESTION_DECLINED_IN_APP',
       closed: 'CHANNEL_QUESTION_CLOSED',
       unavailable: 'CHANNEL_QUESTION_UNAVAILABLE',
       stale: 'CHANNEL_QUESTION_STALE',
+      alreadyDownloading: 'CHANNEL_QUESTION_ALREADY_DOWNLOADING',
+      alreadyDownloadingFor: 'CHANNEL_QUESTION_ALREADY_DOWNLOADING_FOR',
+      cancelledInApp: 'CHANNEL_QUESTION_CANCELLED_IN_APP',
+      appClosed: 'CHANNEL_QUESTION_APP_CLOSED',
+      forChat: 'MODEL_DOWNLOAD_FOR_CHAT',
+      forOther: 'MODEL_DOWNLOAD_FOR_OTHER',
+      forHomeAgent: 'MODEL_DOWNLOAD_FOR_HOME_AGENT',
     }
     for (const [field, key] of Object.entries(keys)) {
       expect(english[field as keyof ChannelQuestionTemplates]).toBe(enUS[key])

@@ -277,6 +277,25 @@ describe('a Background Session pausing for the user', () => {
     expect(sent).toEqual([])
   }, 30000)
 
+  it('sends nothing while the turn waits on its Model Download after the answer', async () => {
+    await withWaitingTurn(SESSION, async () => {
+      const consent = permissions.requestDownloadConsent([{ repo_id: 'org/kokoro-voice.gguf' }])
+      const remote = await nextPrompt('is-remote')
+      promptAdapter.handlePermissionsPromptResponse({ requestId: remote.requestId, result: false })
+      const download = await nextPrompt('download')
+      expect(userWait.isWaitingOnUser(SESSION)).toBe(true)
+      promptAdapter.handlePermissionsPromptResponse({
+        requestId: download.requestId,
+        answered: true,
+      })
+      expect(userWait.isWaitingOnUser(SESSION)).toBe(false)
+      await settle()
+      promptAdapter.handlePermissionsPromptResponse({ requestId: download.requestId, result: true })
+      await consent
+    })
+    expect(sent).toEqual([])
+  }, 30000)
+
   it('notifies every pause kind, once per transition into paused', async () => {
     await withWaitingTurn(SESSION, async () => {
       const vram = permissions.requestVramWarningConsent({ presetName: 'Flux', message: 'Big' })

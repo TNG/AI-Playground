@@ -9,14 +9,9 @@ import { usePromptStore } from './promptArea'
 import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
 import { usePresets } from './presets'
 import { useConfirmations } from './confirmations'
-import { useActivities } from './activities'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
-import {
-  fetchModelMeta,
-  runModelDownload,
-  type ModelDownloadCallbacks,
-} from '@/lib/modelDownloader'
+import { fetchModelMeta } from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationRoute } from '@/types/notificationsIpc'
 import {
@@ -66,8 +61,14 @@ import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
-import { createChannelQuestionRegistry } from './channels/channelQuestions'
-import { runHeadlessDownload, type HeadlessDownloadText } from './channels/headlessDownload'
+import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
+import {
+  closeDownloadMessages,
+  runHeadlessDownload,
+  trackModelDownload,
+  type HeadlessDownloadText,
+} from './channels/headlessDownload'
+import { modelDownloads } from '../models/modelDownloadQueue'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { fillTemplate } from '@/lib/notificationLabel'
 import {
@@ -807,14 +808,15 @@ export const useHomeAgent = defineStore(
      * models during a remote turn (no desktop user to drive the modal). Declines
      * gated models that need browser interaction, asks approval in-channel
      * (mirrored on the desktop) unless the caller passes a pre-grant's
-     * `skipConfirmation`, then runs the download via the shared
-     * `runHeadlessDownload` (channel + desktop activity progress). Resolves on
+     * `skipConfirmation`, then waits on a Model Download in the shared queue with
+     * one edited progress message (`runHeadlessDownload`). Models another Model
+     * Download already covers are joined, not asked about again. Resolves on
      * success; throws (silent/cancelled AppError) on decline or failure so the
      * caller's `reject` unwinds the inference attempt cleanly.
      */
     async function handleRemoteModelDownload(
       list: DownloadModelParam[],
-      options?: { skipConfirmation?: boolean },
+      options?: { skipConfirmation?: boolean; signal?: AbortSignal },
     ): Promise<void> {
       const turn = activeRemoteTurn
       if (!turn) {
@@ -829,60 +831,77 @@ export const useHomeAgent = defineStore(
       const globalSetup = useGlobalSetup()
       const models = useModels()
       const conversationKey = conversations.activeKey
-
-      let metaList
+      const queue = modelDownloads()
+      // Models another Model Download already covers are waited on, never asked again.
+      const toAsk = queue.attach(conversationKey, list)
+      const leave = () => queue.detach(conversationKey)
+      options?.signal?.addEventListener('abort', leave, { once: true })
       try {
-        metaList = await fetchModelMeta(list, {
-          apiHost: globalSetup.apiHost,
-          hfToken: models.hfToken,
-        })
+        if (toAsk.length > 0) await approveRemoteDownload(turn, conversationKey, toAsk, options)
       } catch (e) {
-        await reply(adapter, '⚠️ Could not check the required model download. Try again.', meta)
-        throw createAppError({
-          category: 'inference',
-          code: 'model/download-meta-failed',
-          userMessage: 'Could not check the required model download.',
-          surface: 'silent',
-          cause: e,
-        })
-      }
-
-      const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
-      if (blocked.length > 0) {
-        const names = blocked.map((m) => m.repo_id).join(', ')
-        await reply(adapter, gatedDownloadText(blocked), meta)
-        throw createCancellation({
-          technicalMessage: `gated model(s) not downloadable remotely: ${names}`,
-        })
-      }
-
-      const summaryLines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
-      const summaryMarkdown = `I need to download ${metaList.length === 1 ? 'a model' : `${metaList.length} models`} before I can answer:\n${summaryLines.join('\n')}`
-      const approved =
-        options?.skipConfirmation === true ||
-        (await requestDownloadConfirmation(turn, conversationKey, summaryMarkdown))
-      if (!approved) {
-        throw createCancellation({ technicalMessage: 'remote model download declined' })
+        leave()
+        throw e
+      } finally {
+        options?.signal?.removeEventListener('abort', leave)
       }
 
       await runHeadlessDownload(
-        { adapter, meta, list, scope: { kind: 'chat', conversationKey } },
-        headlessDownloadDeps(),
+        {
+          adapter,
+          meta,
+          list: toAsk,
+          waiter: conversationKey,
+          label: channelQuestionTemplates().forHomeAgent,
+        },
+        { queue },
       )
-    }
 
-    function headlessDownloadDeps() {
-      const globalSetup = useGlobalSetup()
-      const models = useModels()
-      return {
-        download: (toDownload: DownloadModelParam[], callbacks: ModelDownloadCallbacks) =>
-          runModelDownload(toDownload, {
+      async function approveRemoteDownload(
+        remote: { adapter: ChannelAdapter; meta?: InboundMeta },
+        key: string,
+        toDownload: DownloadModelParam[],
+        approval?: { skipConfirmation?: boolean },
+      ): Promise<void> {
+        let metaList
+        try {
+          metaList = await fetchModelMeta(toDownload, {
             apiHost: globalSetup.apiHost,
-            hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
-            ...callbacks,
-          }),
-        activities: useActivities(),
-        refreshModels: () => models.refreshModels(),
+            hfToken: models.hfToken,
+          })
+        } catch (e) {
+          await reply(
+            remote.adapter,
+            '⚠️ Could not check the required model download. Try again.',
+            remote.meta,
+          )
+          throw createAppError({
+            category: 'inference',
+            code: 'model/download-meta-failed',
+            userMessage: 'Could not check the required model download.',
+            surface: 'silent',
+            cause: e,
+          })
+        }
+
+        const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
+        if (blocked.length > 0) {
+          const names = blocked.map((m) => m.repo_id).join(', ')
+          await reply(remote.adapter, gatedDownloadText(blocked), remote.meta)
+          throw createCancellation({
+            technicalMessage: `gated model(s) not downloadable remotely: ${names}`,
+          })
+        }
+
+        const summaryLines = metaList.map(
+          (m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`,
+        )
+        const summaryMarkdown = `I need to download ${metaList.length === 1 ? 'a model' : `${metaList.length} models`} before I can answer:\n${summaryLines.join('\n')}`
+        const approved =
+          approval?.skipConfirmation === true ||
+          (await requestDownloadConfirmation(remote, key, summaryMarkdown))
+        if (!approved) {
+          throw createCancellation({ technicalMessage: 'remote model download declined' })
+        }
       }
     }
 
@@ -893,8 +912,19 @@ export const useHomeAgent = defineStore(
 
     function channelQuestionNote(outcome: ChannelQuestionOutcome): string {
       const text = channelQuestionTemplates()
-      if (outcome === 'answered-in-app') return text.answeredInApp
-      return outcome === 'closed' ? text.closed : text.unavailable
+      if (typeof outcome === 'object') {
+        return fillTemplate(text.alreadyDownloadingFor, { label: outcome.alreadyDownloadingFor })
+      }
+      switch (outcome) {
+        case 'answered-in-app':
+          return text.answeredInApp
+        case 'declined-in-app':
+          return text.declinedInApp
+        case 'closed':
+          return text.closed
+        case 'unavailable':
+          return text.unavailable
+      }
     }
 
     function downloadText(label: string): HeadlessDownloadText {
@@ -908,7 +938,8 @@ export const useHomeAgent = defineStore(
             total: String(p.total),
           }),
         complete: fillTemplate(text.complete, { label }),
-        failed: (error) => fillTemplate(text.failed, { label: escapeHtml(label), error }),
+        failed: (error) => fillTemplate(text.failed, { label, error }),
+        cancelled: text.cancelledInApp,
       }
     }
 
@@ -925,19 +956,24 @@ export const useHomeAgent = defineStore(
       channelQuestions.retireOutside(kind, channelQuestionNote('unavailable')),
     )
 
-    window.addEventListener('beforeunload', () =>
-      channelQuestions.retireOutside(null, channelQuestionNote('closed')),
-    )
+    window.addEventListener('beforeunload', () => {
+      closeDownloadMessages(channelQuestionTemplates().appClosed)
+      channelQuestions.retireOutside(null, channelQuestionNote('closed'))
+    })
 
     /** An Agent Mode download asked in the Paired Chat; buttons only, no timeout (docs/adr/0004). */
     function askDownloadQuestion(
       list: DownloadModelParam[],
-      context: { label: string; conversationKey: string },
+      context: {
+        label: string
+        conversationKey: string
+        alreadyDownloading?: DownloadModelParam[]
+      },
     ): DownloadChannelQuestion {
       const kind = questionChannel.value
       const adapter = kind ? adapters[kind] : null
       let retired: ChannelQuestionOutcome | null = null
-      let questionId: string | null = null
+      let asked: ChannelQuestion | null = null
       const never = new Promise<boolean>(() => {})
 
       const answer = (async (): Promise<boolean> => {
@@ -981,33 +1017,43 @@ export const useHomeAgent = defineStore(
           label: context.label,
           count: String(metaList.length),
         })
-        const question = channelQuestions.ask({
+        const already = context.alreadyDownloading ?? []
+        const alreadyLine = already.length
+          ? `\n${fillTemplate(text.alreadyDownloading, {
+              models: already.map((m) => `\`${m.repo_id}\``).join(', '),
+            })}`
+          : ''
+        asked = channelQuestions.ask({
           adapter,
-          summaryMarkdown: `${heading}\n${lines.join('\n')}`,
+          summaryMarkdown: `${heading}\n${lines.join('\n')}${alreadyLine}`,
           labels: text,
         })
-        questionId = question.id
-        return question.answer
+        return asked.answer
       })()
 
       return {
         answer,
-        download: () => {
-          if (!adapter) return Promise.reject(new Error('No Notification Channel'))
-          return runHeadlessDownload(
-            {
-              adapter,
-              list,
-              scope: { kind: 'chat', conversationKey: context.conversationKey },
-              text: downloadText(context.label),
-            },
-            headlessDownloadDeps(),
-          )
+        follow: (downloadId, options) => {
+          const question = asked
+          if (!question) {
+            // Answered before it reached the channel: it must never be sent now.
+            retired = 'answered-in-app'
+            return
+          }
+          const prefix = options?.answeredInApp ? channelQuestionNote('answered-in-app') : undefined
+          if (prefix) channelQuestions.retire(question.id, prefix)
+          trackModelDownload({
+            queue: modelDownloads(),
+            downloadId,
+            message: { edit: question.edit },
+            text: downloadText(context.label),
+            prefix,
+          })
         },
         retire: (outcome) => {
           if (retired) return
           retired = outcome
-          if (questionId) channelQuestions.retire(questionId, channelQuestionNote(outcome))
+          if (asked) channelQuestions.retire(asked.id, channelQuestionNote(outcome))
         },
       }
     }

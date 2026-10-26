@@ -73,13 +73,47 @@ describe('channel adapters', () => {
     expect(sendMock).toHaveBeenLastCalledWith('local-web', 'typing', { action: 'stop' })
   })
 
-  it('local web settles a keyboard prompt with editMessage, not a plain reply', async () => {
+  it('local web settles a keyboard prompt with editMessage on its bubble, not a plain reply', async () => {
     // The page keys off this action to retire the buttons; sending it as a reply
     // left an answered prompt tappable, re-firing its callback.
+    sendMock.mockResolvedValueOnce({ success: true, messageId: 7 })
+    const res = await localWeb.keyboard('Download?', [[{ text: 'Yes', callbackData: 'y' }]])
+    expect(res.ref).toEqual({ messageId: 7 })
     sendMock.mockClear()
     sendMock.mockResolvedValueOnce({ success: true })
-    await localWeb.editKeyboardMessage({ ts: '1', channel: 'local-web' }, 'Confirmed.')
-    expect(sendMock).toHaveBeenCalledWith('local-web', 'editMessage', { text: 'Confirmed.' })
+    await localWeb.editKeyboardMessage(res.ref!, 'Confirmed.')
+    expect(sendMock).toHaveBeenCalledWith('local-web', 'editMessage', {
+      text: 'Confirmed.',
+      message_id: 7,
+    })
+  })
+
+  it('posts an editable message on every channel without touching a reply draft', async () => {
+    sendMock.mockClear()
+    sendMock.mockResolvedValueOnce({ success: true, messageId: 3 })
+    expect((await localWeb.post('⬇️ 10%')).ref).toEqual({ messageId: 3 })
+    sendMock.mockResolvedValueOnce({ success: true, messageId: 99 })
+    expect((await telegram.post('⬇️ 10%')).ref).toEqual({ messageId: 99 })
+    sendMock.mockResolvedValueOnce({ success: true, ts: '1.2', channel: 'C1' })
+    expect((await slack.post('⬇️ 10%', { channel: 'C1' })).ref).toEqual({
+      ts: '1.2',
+      channel: 'C1',
+    })
+    expect(sendMock.mock.calls.map((call) => (call as unknown[]).slice(0, 2))).toEqual([
+      ['local-web', 'post'],
+      ['telegram', 'post'],
+      ['slack', 'post'],
+    ])
+
+    sendMock.mockClear()
+    await localWeb.editKeyboardMessage({ messageId: 3 }, '✅ Downloaded.')
+    await telegram.editKeyboardMessage({ messageId: 99 }, '✅ Downloaded.')
+    await slack.editKeyboardMessage({ ts: '1.2', channel: 'C1' }, '✅ Downloaded.')
+    expect(sendMock.mock.calls.map((call) => (call as unknown[]).slice(0, 2))).toEqual([
+      ['local-web', 'editMessage'],
+      ['telegram', 'editMessage'],
+      ['slack', 'update'],
+    ])
   })
 
   it('local web renders the image preset + prompt (draft and final)', () => {

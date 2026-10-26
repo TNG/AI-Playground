@@ -140,14 +140,18 @@ class TelegramChannel(ChannelBase):
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_message(  # type: ignore[union-attr]
                     chat_id=target, text=text, parse_mode=parse_mode
                 )
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
+
+    def send_post(self, payload: dict) -> SendResult:
+        """A message the renderer edits later (`editMessage`); never a draft."""
+        return self.send_reply(payload)
 
     def send_update(self, payload: dict) -> SendResult:
         """Telegram uses sendMessageDraft for streaming updates (no chat.update)."""

@@ -9,17 +9,26 @@
  */
 
 /**
- * Why an open Channel Question stops being answerable in the channel: answered on the desktop,
- * the pause ended, or the channel it was asked on is no longer the Notification Channel.
+ * Why an open Channel Question stops being answerable in the channel: answered or
+ * declined on the desktop, the pause ended, the channel it was asked on is no
+ * longer the Notification Channel, or a yes elsewhere already downloads it all.
  */
-export type ChannelQuestionOutcome = 'answered-in-app' | 'closed' | 'unavailable'
+export type ChannelQuestionOutcome =
+  | 'answered-in-app'
+  | 'declined-in-app'
+  | 'closed'
+  | 'unavailable'
+  | { alreadyDownloadingFor: string }
 
-/** An Agent Mode download asked on the Notification Channel (docs/adr/0004). */
+/** An Agent Mode download asked on the Notification Channel (docs/adr/0004, 0005). */
 export type DownloadChannelQuestion = {
   /** Resolves on a tap in the channel; never resolves when the channel cannot answer. */
   answer: Promise<boolean>
-  /** Runs the download in the question's channel after a channel Confirm. */
-  download: () => Promise<void>
+  /**
+   * Edits the question's message into one Model Download's progress and outcome.
+   * `answeredInApp` keeps that note above it, for a yes given on the desktop.
+   */
+  follow: (downloadId: string, options?: { answeredInApp?: boolean }) => void
   /** Takes the buttons away with a note; idempotent, and `answer` stays unresolved. */
   retire: (outcome: ChannelQuestionOutcome) => void
 }
@@ -28,13 +37,18 @@ export type RemoteTurnPort = {
   isActive: () => boolean
   downloadModels: (
     models: DownloadModelParam[],
-    options?: { skipConfirmation?: boolean },
+    options?: { skipConfirmation?: boolean; signal?: AbortSignal },
   ) => Promise<void>
   /** Home Agent on, a Notification Channel set and automatic Notifications on. */
   canAskChannelQuestion: () => boolean
   askDownloadQuestion: (
     models: DownloadModelParam[],
-    context: { label: string; conversationKey: string },
+    context: {
+      label: string
+      conversationKey: string
+      /** Named in the question as already downloading; it asks only about `models`. */
+      alreadyDownloading?: DownloadModelParam[]
+    },
   ) => DownloadChannelQuestion
 }
 
@@ -46,9 +60,7 @@ const idlePort: RemoteTurnPort = {
   canAskChannelQuestion: () => false,
   askDownloadQuestion: () => ({
     answer: new Promise<boolean>(() => {}),
-    download: async () => {
-      throw new Error('No Notification Channel to download through')
-    },
+    follow: () => {},
     retire: () => {},
   }),
 }

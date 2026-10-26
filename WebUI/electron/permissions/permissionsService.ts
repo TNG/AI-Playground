@@ -12,7 +12,7 @@ import {
   revokePermissionGrant,
 } from '../persist/grantsStore'
 import { requestPermissionsPrompt } from './promptAdapter'
-import { awaitUser, userWaitOwner } from '../kernel/userWait'
+import { awaitUser, pauseForUser, userWaitOwner } from '../kernel/userWait'
 import { downloadPauseReason } from './pauseReason'
 
 /**
@@ -33,12 +33,16 @@ export type RequestDownloadOptions = {
    * it is for no turn at all (a panel run), so it is never attributed to one.
    */
   conversationKey?: string | null
+  /** The turn ended: drop the question, or stop waiting on its Model Download. */
+  signal?: AbortSignal
 }
 
 /**
  * A prompt names the turn it holds up so that turn gives up its Turn Queue place
  * while the user decides, and so the window can keep it out of sight until that
- * turn's session is open.
+ * turn's session is open. The pause ends with the answer: a turn then waiting on
+ * its Model Download is not waiting on the user (docs/adr/0005), though its place
+ * stays given up until it reclaims it for its next model call.
  */
 export async function requestDownloadConsent(
   models: unknown[],
@@ -46,14 +50,22 @@ export async function requestDownloadConsent(
 ): Promise<void> {
   const owner =
     options.conversationKey === null ? undefined : (options.conversationKey ?? userWaitOwner())
-  const remote = await isRemoteTurnActive()
+  const remote = await isRemoteTurnActive(owner)
   const skipConfirmation = remote && (await hasPermissionGrant(REMOTE_DOWNLOAD_GRANT))
-  const prompt = () =>
-    requestPermissionsPrompt<void>(
+  const answered = skipConfirmation ? () => {} : pauseForUser(owner, downloadPauseReason(models))
+  try {
+    await requestPermissionsPrompt<void>(
       { kind: 'download', models, skipConfirmation },
-      { onProgress: options.onProgress, conversationKey: owner },
+      {
+        onProgress: options.onProgress,
+        onAnswered: answered,
+        conversationKey: owner,
+        signal: options.signal,
+      },
     )
-  await (skipConfirmation ? prompt() : awaitUser(owner, prompt, downloadPauseReason(models)))
+  } finally {
+    answered()
+  }
 }
 
 export async function requestVramWarningConsent(req: {
@@ -78,9 +90,12 @@ export async function requestVramWarningConsent(req: {
   return answer.confirmed === true
 }
 
-async function isRemoteTurnActive(): Promise<boolean> {
+/** Whether a Home Agent remote turn would take this prompt; never one for an Agent Mode turn. */
+async function isRemoteTurnActive(conversationKey: string | undefined): Promise<boolean> {
   try {
-    return (await requestPermissionsPrompt<boolean>({ kind: 'is-remote' })) === true
+    return (
+      (await requestPermissionsPrompt<boolean>({ kind: 'is-remote' }, { conversationKey })) === true
+    )
   } catch {
     return false
   }

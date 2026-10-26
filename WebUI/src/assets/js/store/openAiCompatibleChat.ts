@@ -992,6 +992,7 @@ export const useOpenAiCompatibleChat = defineStore(
         try {
           await textInference.checkModelAvailability({
             needsVision: turnCarriesImage(targetKey, options),
+            conversationKey: targetKey,
           })
         } catch (error) {
           // The user cancelling a required model download is not a failure — abort
@@ -1114,7 +1115,10 @@ export const useOpenAiCompatibleChat = defineStore(
       }
 
       try {
-        await textInference.checkModelAvailability({ needsVision: turnCarriesImage(targetKey) })
+        await textInference.checkModelAvailability({
+          needsVision: turnCarriesImage(targetKey),
+          conversationKey: targetKey,
+        })
       } catch (error) {
         // Cancelling a required model download aborts the regenerate quietly.
         if (isCancellation(error)) return

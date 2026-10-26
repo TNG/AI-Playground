@@ -333,6 +333,17 @@ export function createSlackAdapter(): ChannelAdapter {
         ref: r.success && r.ts && r.channel ? { ts: r.ts, channel: r.channel } : undefined,
       }
     },
+    post: async (text, meta) => {
+      const r = await window.electronAPI.homeAgent.channel.send('slack', 'post', {
+        text,
+        channel: meta?.channel,
+      })
+      return {
+        success: r.success,
+        error: r.success ? undefined : r.error,
+        ref: r.success && r.ts && r.channel ? { ts: r.ts, channel: r.channel } : undefined,
+      }
+    },
     editKeyboardMessage: async (ref, text) => {
       if (!ref.ts || !ref.channel) return { success: false, error: 'no message ref' }
       // chat.update with a single section block replaces the original message

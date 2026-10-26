@@ -63,7 +63,7 @@ describe('permissions facade', () => {
   it('forwards download consent to main policy', async () => {
     const models = [{ repo_id: 'test/model' }] as DownloadModelParam[]
     await requestDownload(models)
-    expect(requestDownloadIpc).toHaveBeenCalledWith(models)
+    expect(requestDownloadIpc).toHaveBeenCalledWith(models, undefined)
   })
 
   it('rejects when main reports a declined download', async () => {

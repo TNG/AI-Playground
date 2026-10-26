@@ -54,10 +54,7 @@ export async function downloadedMissingReadinessModels(
   const missing = await untilAborted(missingReadinessModels(config, prompt), signal)
   if (missing.length === 0) return false
   try {
-    await untilAborted(
-      requestDownloadConsent(missing, { conversationKey: config.sessionId }),
-      signal,
-    )
+    await requestDownloadConsent(missing, { conversationKey: config.sessionId, signal })
   } catch (error) {
     if (!signal.aborted && (error as CancellableError).cancelled) {
       throw new Error(MODEL_DOWNLOAD_DECLINED)

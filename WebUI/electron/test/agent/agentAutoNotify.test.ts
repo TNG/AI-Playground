@@ -125,6 +125,7 @@ const CONFIG: NotificationConfig = {
     untitled: 'An agent run',
     answerButton: '💬 Answer',
     answerOnComputer: 'Answer on your computer',
+    answerInThread: 'Reply in thread to answer.',
   },
 }
 
@@ -596,6 +597,7 @@ describe('the turn an Answer started', () => {
         replyTo: '1700000000.0001',
       },
     ])
+    expect(await messageMap.lookupChannelMessage('slack', 'msg-1')).toBe(SESSION)
   }, 30000)
 
   it('notifies a pause under the Answer although the session is in view', async () => {

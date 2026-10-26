@@ -5,7 +5,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
-import { withAnswerButton } from '@/lib/answerButton'
+import { answersInThread, withAnswerButton } from '@/lib/answerButton'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { onGeneratedMedia } from './generatedMedia.ts'
@@ -67,6 +67,7 @@ const OFF_CONFIG: NotificationConfig = {
     untitled: '',
     answerButton: '',
     answerOnComputer: '',
+    answerInThread: '',
   },
 }
 
@@ -197,9 +198,13 @@ export function answerable(
   title: string,
 ): ChannelMessage {
   if (!sessionId) return message
-  const { answerButton, answerOnComputer } = config.templates
+  const { answerButton, answerOnComputer, answerInThread } = config.templates
   if (config.realShellSessions.includes(sessionId)) {
     return { ...message, text: `${message.text}\n${answerOnComputer}` }
+  }
+  if (answersInThread(kind)) {
+    // A message already in the thread needs no pointer to it.
+    return message.replyTo ? message : { ...message, text: `${message.text}\n${answerInThread}` }
   }
   const withButton = withAnswerButton(kind, message, answerButton)
   return withButton === message ? message : { ...withButton, answerTitle: title }

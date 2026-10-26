@@ -1,6 +1,6 @@
 import { watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import type { AnswerSendResult } from '@/assets/js/store/channels/answerRouter'
+import type { AnswerSendResult, SessionPause } from '@/assets/js/store/channels/answerRouter'
 import { registerAnswerSessions } from '@/assets/js/store/channels/answerSessionsPort'
 
 const ADMISSION_WAIT_MS = 3000
@@ -36,6 +36,12 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
     return { ok: true, queuePosition: await admitted(sessionId) }
   }
 
+  function pause(sessionId: string): SessionPause | null {
+    const kind = agentMode.sessionTurns[sessionId]?.pauseReason?.kind
+    if (!kind) return null
+    return kind === 'download' ? 'download' : 'desktop'
+  }
+
   registerAnswerSessions({
     lookup: async (kind, ref) =>
       (await window.electronAPI.notifications?.lookupMessage?.(kind, ref)) ?? null,
@@ -49,5 +55,8 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
       if (!result.success) throw new Error(result.error)
     },
     send,
+    pause,
+    held: (sessionId, answer) => agentMode.setHeldAnswer(sessionId, answer),
+    onTurnEnd: (listener) => agentMode.onHeldAnswerSettled(listener),
   })
 }

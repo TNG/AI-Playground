@@ -6,6 +6,13 @@ export type AnswerRouterCopy = {
   queued: string
   /** `{title}`, `{reason}` */
   notSent: string
+  noSession: string
+  /** `{title}` */
+  realShell: string
+  /** Follows `notSent` when the reason can only be fixed on the computer. */
+  fixOnDesktop: string
+  textOnly: string
+  noSpeech: string
   /** Shown once, after the first Answer: how Home Agent and agents share the channel. */
   onboarding: string
   /** The `/help` line on answering agents. */
@@ -17,6 +24,11 @@ const ENGLISH: AnswerRouterCopy = {
   starting: '➡️ Sent to {title} — starting…',
   queued: '➡️ Sent to {title} — queued (position {position})',
   notSent: '⚠️ Not sent to {title}: {reason}',
+  noSession: '⚠️ That session no longer exists',
+  realShell: '🖥️ {title} uses the real system shell. Answer on your computer.',
+  fixOnDesktop: 'Fix it in AI Playground on your computer, then answer again.',
+  textOnly: '⚠️ Answers to agents can only be text for now',
+  noSpeech: "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
   onboarding:
     '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).',
   help: 'To answer an agent, reply to its message or tap 💬 Answer. Plain messages go to Home Agent.',

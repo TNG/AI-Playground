@@ -1858,6 +1858,7 @@ export const useAgentMode = defineStore(
       migrateAgentDefaults,
       unsandboxedWorkspaces,
       unsandboxed,
+      isUnsandboxed,
       setUnsandboxed,
       attachments,
       attachFiles,

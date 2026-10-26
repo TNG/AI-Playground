@@ -186,8 +186,8 @@ import {
   buildNotificationsSendRegistry,
 } from './kernel/registries/notifications'
 import {
+  channelMessageOwner,
   forgetSessionMessages,
-  lookupChannelMessage,
   setChannelMessageMapDeps,
   wipeDemoChannelMessageMap,
 } from './persist/channelMessageMap'
@@ -1736,7 +1736,7 @@ function initEventHandle() {
 
   registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
   registerSendHandlers(buildNotificationsSendRegistry({ setNotificationConfig }))
-  registerInvokeHandlers(buildNotificationsRegistry({ lookupChannelMessage }))
+  registerInvokeHandlers(buildNotificationsRegistry({ channelMessageOwner }))
   setNotificationWindowShown(
     () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
   )

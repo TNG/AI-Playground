@@ -188,6 +188,7 @@ import {
 import {
   channelMessageOwner,
   forgetSessionMessages,
+  recordChannelMessage,
   setChannelMessageMapDeps,
   wipeDemoChannelMessageMap,
 } from './persist/channelMessageMap'
@@ -1271,7 +1272,14 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
     setNotificationChannelSend(async (kind, message) => {
-      const result = await homeAgent.channelSend(kind, 'reply', { text: message.text })
+      const result = message.buttons
+        ? await homeAgent.channelSend(kind, 'keyboard', {
+            text: message.text,
+            buttons: message.buttons.map((row) =>
+              row.map((btn) => ({ text: btn.text, callback_data: btn.callbackData })),
+            ),
+          })
+        : await homeAgent.channelSend(kind, 'reply', { text: message.text })
       if (!result.success) return result
       return { success: true, ref: result.messageId?.toString() ?? result.ts }
     })
@@ -1736,7 +1744,7 @@ function initEventHandle() {
 
   registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
   registerSendHandlers(buildNotificationsSendRegistry({ setNotificationConfig }))
-  registerInvokeHandlers(buildNotificationsRegistry({ channelMessageOwner }))
+  registerInvokeHandlers(buildNotificationsRegistry({ channelMessageOwner, recordChannelMessage }))
   setNotificationWindowShown(
     () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
   )

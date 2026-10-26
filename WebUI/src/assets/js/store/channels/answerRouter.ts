@@ -1,6 +1,7 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/notificationLabel'
 import type { ChannelMessageOwner } from '@/types/notificationsIpc'
+import { ANSWER_CALLBACK } from '@/lib/answerButton'
 import type { ChannelAdapter } from './adapter'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
@@ -17,6 +18,8 @@ export type AnswerSessions = {
   label: (sessionId: string) => string
   /** The session's folder runs the real system shell, which is never driven from a channel. */
   usesRealShell: (sessionId: string) => boolean
+  /** Remembers that a message sent on `kind` belongs to the session, so a reply to it is an Answer. */
+  record: (kind: ChannelKind, ref: string, sessionId: string) => Promise<void>
   send: (sessionId: string, text: string) => Promise<AnswerSendResult>
 }
 
@@ -30,8 +33,8 @@ export type InboundChannelMessage = InboundAnswer & {
 
 export type AnswerRouter = {
   /**
-   * Routes one inbound message ahead of Home Agent: a button tap to its Channel
-   * Question, a reply to an agent's message to that session, a typed yes/no to an
+   * Routes one inbound message ahead of Home Agent: the 💬 Answer button to an
+   * Answer Prompt, a button tap to its Channel Question, a reply to an agent's message to that session, a typed yes/no to an
    * open Home Agent confirmation. False means it is Home Agent's.
    */
   route: (
@@ -59,6 +62,13 @@ export type AnswerRouterDeps = {
 
 // Refusals the user can only clear on the computer, so the reply says where to go.
 const FIXED_ON_DESKTOP = new Set(['missing-folder', 'settings-problems'])
+// Telegram's input_field_placeholder limit.
+const PLACEHOLDER_MAX = 64
+
+function clip(text: string, max: number): string {
+  const chars = [...text]
+  return chars.length <= max ? text : `${chars.slice(0, max - 1).join('')}…`
+}
 
 export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
@@ -142,11 +152,49 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (text) await answer(adapter, sessions, sessionId, text, meta)
   }
 
+  async function openAnswerPrompt(
+    adapter: ChannelAdapter,
+    tappedRef: string | undefined,
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const sessions = deps.sessions()
+    const wording = copy()
+    const owner =
+      sessions && tappedRef ? await answeredSession(sessions, adapter.kind, tappedRef) : null
+    if (!sessions || !owner || 'deletedSession' in owner || !adapter.answerPrompt) {
+      await tell(adapter, wording.noSession, meta)
+      return
+    }
+    const { sessionId } = owner
+    const title = sessions.label(sessionId)
+    if (sessions.usesRealShell(sessionId)) {
+      await tell(adapter, fillTemplate(wording.realShell, { title }), meta)
+      return
+    }
+    const placeholder = clip(fillTemplate(wording.answerPlaceholder, { title }), PLACEHOLDER_MAX)
+    try {
+      const sent = await adapter.answerPrompt(
+        adapter.formatMarkdown(fillTemplate(wording.answerPrompt, { title })),
+        placeholder,
+        meta,
+      )
+      const ref = sent.ref?.messageId?.toString() ?? sent.ref?.ts
+      if (!sent.success || !ref) throw new Error(sent.error ?? 'no message reference')
+      await sessions.record(adapter.kind, ref, sessionId)
+    } catch (e) {
+      log('answerRouter: Answer Prompt failed:', e)
+    }
+  }
+
   async function route(
     adapter: ChannelAdapter,
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ): Promise<boolean> {
+    if (msg.callback === ANSWER_CALLBACK) {
+      await openAnswerPrompt(adapter, msg.replyTo, meta)
+      return true
+    }
     if (msg.callback) return deps.questions.handleInbound(adapter, msg, meta)
     const sessions = deps.sessions()
     if (sessions && msg.replyTo) {

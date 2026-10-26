@@ -13,8 +13,14 @@ dependencies = [
   # urllib3 2.8.0: clears GHSA-vxq7-64xx-v4gw, GHSA-8988-9cw3-xx77 and
   # GHSA-gh4c-6fx4-qh6g. Transitive via Requests (urllib3<3).
   "urllib3>=2.8.0",
-  "setuptools>=83.0.0",
+  # certifi 2026.10.18: clears GHSA-6q48-6c7w-9gw2. Transitive via Requests.
+  "certifi>=2026.10.18",
+  # setuptools 84.1.0: clears GHSA-xmj3-9gf7-h52w.
+  "setuptools>=84.1.0",
   "huggingface_hub",
+  # filelock 4.2.1: clears CVE-2026-112940, CVE-2026-112907 and CVE-2026-112913.
+  # Transitive via huggingface_hub.
+  "filelock>=4.2.1",
 ]
 [tool.uv]
 python-preference = "only-managed"

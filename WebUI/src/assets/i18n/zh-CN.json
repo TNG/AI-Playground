@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "一次智能体运行",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 回复",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "请在电脑上回复",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "在消息列中回复即可作答。",
   "AGENT_NOTIFY_HEADER": "🤖 智能体 · {title}",
   "AGENT_ANSWER_STARTING": "➡️ 已发送至 {title} — 正在开始…",
   "AGENT_ANSWER_QUEUED": "➡️ 已发送至 {title} — 排队中（第 {position} 位）",

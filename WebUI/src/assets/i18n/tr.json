@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "Bir ajan çalıştırması",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 Yanıtla",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "Bilgisayarınızdan yanıtlayın",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "Yanıtlamak için ileti dizisinde yanıt verin.",
   "AGENT_NOTIFY_HEADER": "🤖 Ajan · {title}",
   "AGENT_ANSWER_STARTING": "➡️ {title} için gönderildi — başlatılıyor…",
   "AGENT_ANSWER_QUEUED": "➡️ {title} için gönderildi — sırada ({position}. sıra)",

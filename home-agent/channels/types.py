@@ -68,6 +68,8 @@ class QueueItem(TypedDict, total=False):
     chat_id: str
     channel: str
     ts: str
+    # The platform id of the message this one replies to.
+    reply_to: str
 
 
 class SendResult(TypedDict, total=False):

@@ -165,3 +165,10 @@ export const getPermissionGrantsFile = () => path.join(aipgUserDataRoot(), 'perm
 /** Demo-mode permission grants, wiped on exit like demo conversations (§6.1). */
 export const getPermissionGrantsDemoFile = () =>
   getPermissionGrantsFile().replace(/\.json$/, '-demo.json')
+
+/** Which agent session sent each channel message, so a reply to it reaches that session. */
+export const getChannelMessageMapFile = () => path.join(aipgUserDataRoot(), 'channel-messages.json')
+
+/** Demo-mode channel message map, wiped on exit like demo conversations (§6.1). */
+export const getChannelMessageMapDemoFile = () =>
+  getChannelMessageMapFile().replace(/\.json$/, '-demo.json')

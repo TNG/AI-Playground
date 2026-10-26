@@ -71,6 +71,8 @@ export function startNotificationConfigPush(): void {
       answerPrompt: text.AGENT_ANSWER_PROMPT ?? '',
       answerPlaceholder: text.AGENT_ANSWER_PLACEHOLDER ?? '',
       sessionGone: text.AGENT_ANSWER_SESSION_GONE ?? '',
+      onboarding: text.AGENT_ANSWER_ONBOARDING ?? '',
+      help: text.AGENT_ANSWER_HELP ?? '',
     }
   })
   registerChannelQuestionTemplates(() => {

@@ -12,6 +12,10 @@ export type AnswerRouterCopy = {
   answerPlaceholder: string
   /** The Answer button was tapped under a message of a deleted session. */
   sessionGone: string
+  /** Shown once, after the first Answer: how Home Agent and agents share the channel. */
+  onboarding: string
+  /** The `/help` line on answering agents. */
+  help: string
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -22,6 +26,9 @@ const ENGLISH: AnswerRouterCopy = {
   answerPrompt: 'Your message to {title}:',
   answerPlaceholder: 'Message to {title}',
   sessionGone: '⚠️ That session no longer exists',
+  onboarding:
+    '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).',
+  help: 'To answer an agent, reply to its message or tap 💬 Answer. Plain messages go to Home Agent.',
 }
 
 let provider: (() => AnswerRouterCopy) | null = null

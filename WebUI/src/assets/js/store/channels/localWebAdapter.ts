@@ -69,7 +69,8 @@ function send(
     | 'typing'
     | 'keyboard'
     | 'editMessage'
-    | 'history',
+    | 'history'
+    | 'post',
   payload: Record<string, unknown>,
 ) {
   return window.electronAPI.homeAgent.channel.send('local-web', action, payload)
@@ -162,6 +163,11 @@ function createLocalWebDraftStream(): DraftStream {
   }
 }
 
+function sentWithId(r: { success: boolean; error?: string; messageId?: number }) {
+  if (!r.success) return { success: false, error: r.error }
+  return successRef(typeof r.messageId === 'number' ? { messageId: r.messageId } : undefined)
+}
+
 export function createLocalWebAdapter(): ChannelAdapter {
   return {
     kind: 'local-web',
@@ -185,14 +191,12 @@ export function createLocalWebAdapter(): ChannelAdapter {
       await send('document', { base64: documentBase64, filename, caption })
       return successRef()
     },
-    keyboard: async (text, buttons, _meta) => {
-      await send('keyboard', { text, buttons })
-      return successRef({ ts: String(Date.now()), channel: 'local-web' })
-    },
-    editKeyboardMessage: async (_ref, text, _meta) => {
-      // Its own action, not a plain reply: the page uses it to retire the prompt's
-      // buttons, so an already-settled prompt can't be tapped again.
-      await send('editMessage', { text })
+    keyboard: async (text, buttons, _meta) => sentWithId(await send('keyboard', { text, buttons })),
+    post: async (text, _meta) => sentWithId(await send('post', { text })),
+    editKeyboardMessage: async (ref, text, _meta) => {
+      // Its own action, not a plain reply: the page edits the bubble it tagged and
+      // retires its buttons, so an already-settled prompt can't be tapped again.
+      await send('editMessage', { text, message_id: ref.messageId })
       return successRef()
     },
     startTypingHeartbeat: (_action, _meta) => {

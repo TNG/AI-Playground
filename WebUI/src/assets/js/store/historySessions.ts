@@ -12,6 +12,8 @@ import { usePromptStore } from './promptArea'
 import { usePresetSwitching } from './presetSwitching'
 import { AGENT_PRESET, sessionDisplayTitle } from './agentModeSessions'
 import { presetToMode } from '@/lib/presetModes'
+import { downloadPercent } from '@/lib/downloadPercent'
+import { modelDownloads } from '../models/modelDownloadQueue'
 import {
   collectToolMediaUrls,
   conversationMode,
@@ -34,6 +36,7 @@ import {
   type HistoryEntry,
   type HistoryFilter,
   type MediaEntry,
+  type SessionDownload,
 } from './historyEntries'
 
 export type TaskRef = Pick<AgentTask, 'id' | 'name'>
@@ -113,6 +116,12 @@ export const useHistorySessions = defineStore('historySessions', () => {
     }),
   )
 
+  function sessionDownload(sessionId: string): SessionDownload | null {
+    const wait = modelDownloads().snapshot(sessionId)
+    if (!wait) return null
+    return { percent: Math.floor(downloadPercent(wait.progress)), queued: wait.status === 'queued' }
+  }
+
   const agentEntries = computed<AgentEntry[]>(() =>
     Object.values(agentMode.sessions).map((session) => ({
       kind: 'agent',
@@ -132,6 +141,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
       ...agentSessionStatus({
         turn: agentMode.sessionTurns[session.id],
         unseen: agentMode.unseenTurns[session.id],
+        download: sessionDownload(session.id),
       }),
     })),
   )

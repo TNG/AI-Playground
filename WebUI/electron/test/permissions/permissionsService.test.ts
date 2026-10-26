@@ -6,7 +6,9 @@ import { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey } from '@/types/permissionsI
 
 const files = vi.hoisted(() => ({ real: '', demo: '' }))
 const prompt = vi.hoisted(() => ({
-  requestPermissionsPrompt: vi.fn(async (_payload: unknown) => undefined as unknown),
+  requestPermissionsPrompt: vi.fn(
+    async (_payload: unknown, _options?: Record<string, unknown>) => undefined as unknown,
+  ),
 }))
 let tmpRoot = ''
 
@@ -27,6 +29,7 @@ const { grantPermission, resetPermissionGrantsForTest, setPermissionGrantsDeps }
   await import('../../persist/grantsStore')
 const { requestDownloadConsent, requestVramWarningConsent } =
   await import('../../permissions/permissionsService')
+const { isWaitingOnUser, resetUserWaitForTest } = await import('../../kernel/userWait')
 
 beforeEach(async () => {
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-perm-svc-'))
@@ -91,6 +94,72 @@ describe('permissions policy (main)', () => {
       throw new Error('No renderer window available for the permission prompt')
     })
     await expect(requestDownloadConsent([{ repo_id: 'x' }])).rejects.toThrow('No renderer window')
+  })
+
+  it('ends the pause when the Download Question is answered, not when the download ends', async () => {
+    resetUserWaitForTest()
+    let answered: () => void = () => {}
+    let downloaded: () => void = () => {}
+    prompt.requestPermissionsPrompt.mockImplementation(async (payload, options) => {
+      if ((payload as { kind: string }).kind === 'is-remote') return false
+      answered = options?.onAnswered as () => void
+      return new Promise<void>((resolve) => (downloaded = resolve))
+    })
+    const consent = requestDownloadConsent([{ repo_id: 'x' }], { conversationKey: 'aipg-agent-1' })
+    await vi.waitFor(() => expect(isWaitingOnUser('aipg-agent-1')).toBe(true))
+    answered()
+    expect(isWaitingOnUser('aipg-agent-1')).toBe(false)
+    downloaded()
+    await consent
+    expect(isWaitingOnUser('aipg-agent-1')).toBe(false)
+  })
+
+  it('asks whether a remote turn takes the prompt as the turn it is for', async () => {
+    prompt.requestPermissionsPrompt.mockImplementation(async () => false)
+    await requestDownloadConsent([{ repo_id: 'x' }], { conversationKey: 'aipg-agent-1' })
+    expect(prompt.requestPermissionsPrompt).toHaveBeenCalledWith(
+      { kind: 'is-remote' },
+      { conversationKey: 'aipg-agent-1' },
+    )
+  })
+
+  it('records an Agent Mode turn’s pause even with the remote-download pre-grant', async () => {
+    resetUserWaitForTest()
+    await grantPermission(REMOTE_DOWNLOAD_GRANT, 'pre-grant')
+    let downloaded: () => void = () => {}
+    // The window answers is-remote false for an Agent Mode session, whatever the Home Agent does.
+    prompt.requestPermissionsPrompt.mockImplementation(async (payload) => {
+      if ((payload as { kind: string }).kind === 'is-remote') return false
+      return new Promise<void>((resolve) => (downloaded = resolve))
+    })
+    const consent = requestDownloadConsent([{ repo_id: 'x' }], { conversationKey: 'aipg-agent-1' })
+    await vi.waitFor(() => expect(isWaitingOnUser('aipg-agent-1')).toBe(true))
+    downloaded()
+    await consent
+    const downloadCall = prompt.requestPermissionsPrompt.mock.calls.find(
+      ([payload]) => (payload as { kind: string }).kind === 'download',
+    )
+    expect(downloadCall?.[0]).toMatchObject({ skipConfirmation: false })
+  })
+
+  it('hands the turn’s abort signal to the prompt and clears the pause when it fires', async () => {
+    resetUserWaitForTest()
+    prompt.requestPermissionsPrompt.mockImplementation(async (payload, options) => {
+      if ((payload as { kind: string }).kind === 'is-remote') return false
+      const signal = options?.signal as AbortSignal
+      return new Promise<void>((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(new Error('dropped'))),
+      )
+    })
+    const turn = new AbortController()
+    const consent = requestDownloadConsent([{ repo_id: 'x' }], {
+      conversationKey: 'aipg-agent-1',
+      signal: turn.signal,
+    })
+    await vi.waitFor(() => expect(isWaitingOnUser('aipg-agent-1')).toBe(true))
+    turn.abort()
+    await expect(consent).rejects.toThrow('dropped')
+    expect(isWaitingOnUser('aipg-agent-1')).toBe(false)
   })
 
   it('resolves a VRAM warning without prompting when it was remembered', async () => {

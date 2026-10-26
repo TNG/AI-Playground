@@ -17,15 +17,22 @@ type PendingRequest = {
   resolve: (result: unknown) => void
   reject: (error: Error) => void
   onProgress?: () => void
+  onAnswered?: () => void
 }
 
 const pending = new Map<string, PendingRequest>()
 
 export type PromptAdapterOptions = {
   onProgress?: () => void
+  /** The user answered; the window is still working on it (a download running). */
+  onAnswered?: () => void
   /** The turn the prompt holds up, so the window can show it in that session. */
   conversationKey?: string
+  /** Aborting drops the prompt at once, here and in the window. */
+  signal?: AbortSignal
 }
+
+export const PROMPT_DROPPED = 'The turn that asked has ended.'
 
 export function requestPermissionsPrompt<T>(
   payload: PermissionsPromptBody,
@@ -35,14 +42,30 @@ export function requestPermissionsPrompt<T>(
   if (!win || win.isDestroyed()) {
     return Promise.reject(new Error('No renderer window available for the permission prompt'))
   }
+  const { signal } = options
+  if (signal?.aborted) return Promise.reject(new Error(PROMPT_DROPPED))
   const requestId = randomUUID()
   return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      if (!pending.delete(requestId)) return
+      if (!win.isDestroyed())
+        typedSend(win.webContents, 'permissions:prompt', { kind: 'drop', requestId })
+      reject(new Error(PROMPT_DROPPED))
+    }
+    const settle =
+      <A extends unknown[]>(fn: (...args: A) => void) =>
+      (...args: A) => {
+        signal?.removeEventListener('abort', onAbort)
+        fn(...args)
+      }
     pending.set(requestId, {
       requestId,
-      resolve: resolve as (result: unknown) => void,
-      reject,
+      resolve: settle(resolve as (result: unknown) => void),
+      reject: settle(reject),
       onProgress: options.onProgress,
+      onAnswered: options.onAnswered,
     })
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
       typedSend(win.webContents, 'permissions:prompt', {
         ...payload,
@@ -51,6 +74,7 @@ export function requestPermissionsPrompt<T>(
       })
     } catch (error) {
       pending.delete(requestId)
+      signal?.removeEventListener('abort', onAbort)
       reject(error instanceof Error ? error : new Error(String(error)))
     }
   })
@@ -71,6 +95,10 @@ export function handlePermissionsPromptResponse(payload: PermissionsPromptRespon
   if (!entry) return
   if ('progress' in payload) {
     entry.onProgress?.()
+    return
+  }
+  if ('answered' in payload) {
+    entry.onAnswered?.()
     return
   }
   pending.delete(payload.requestId)

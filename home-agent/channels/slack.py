@@ -128,6 +128,10 @@ class SlackChannel(ChannelBase):
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
+    def send_post(self, payload: dict) -> SendResult:
+        """A message the renderer edits later (`update`); never a draft."""
+        return self.send_reply(payload)
+
     def send_reply(self, payload: dict) -> SendResult:
         text = payload.get("text", "")
         blocks = payload.get("blocks")

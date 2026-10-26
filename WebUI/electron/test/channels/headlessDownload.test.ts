@@ -1,159 +1,219 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runHeadlessDownload } from '../../../src/assets/js/store/channels/headlessDownload'
+import {
+  closeDownloadMessages,
+  runHeadlessDownload,
+  trackModelDownload,
+} from '../../../src/assets/js/store/channels/headlessDownload'
+import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
+import { createModelDownloadQueue } from '../../../src/assets/js/models/modelDownloadQueue'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
-import type { ModelDownloadCallbacks } from '../../../src/lib/modelDownloader'
-import type { CreateActivityInput } from '../../../src/assets/js/activities/activity'
+import type { KeyboardButton } from '../../../src/assets/js/store/channels/types'
+import type {
+  ModelDownloadCallbacks,
+  ModelDownloadProgress,
+} from '../../../src/lib/modelDownloader'
 
+type Message = { id: number; text: string; buttons?: KeyboardButton[][] }
+
+/** A channel that keeps what the user would see: one entry per message, edited in place. */
 function fakeChannel() {
-  const drafts: string[] = []
-  const finals: string[] = []
-  const replies: string[] = []
-  let cancelled = 0
+  const messages: Message[] = []
+  let drafts = 0
   const adapter = {
     kind: 'local-web',
+    formatMarkdown: (md: string) => md,
     formatRichSnippet: (html: string) => html,
+    post: async (text: string) => {
+      messages.push({ id: messages.length + 1, text })
+      return { success: true, ref: { messageId: messages.length } }
+    },
+    keyboard: async (text: string, buttons: KeyboardButton[][]) => {
+      messages.push({ id: messages.length + 1, text, buttons })
+      return { success: true, ref: { messageId: messages.length } }
+    },
+    editKeyboardMessage: async (ref: { messageId?: number }, text: string) => {
+      const message = messages.find((m) => m.id === ref.messageId)!
+      message.text = text
+      delete message.buttons
+      return { success: true }
+    },
     reply: async (text: string) => {
-      replies.push(text)
-      return { ok: true }
+      messages.push({ id: messages.length + 1, text })
+      return { success: true }
     },
-    createDraftStream: () => ({
-      update: (text: string) => drafts.push(text),
-      finalize: async (text: string) => {
-        finals.push(text)
-      },
-      cancel: () => {
-        cancelled++
-      },
-    }),
+    createDraftStream: () => {
+      drafts++
+      return { update: () => {}, finalize: async () => {}, cancel: () => {} }
+    },
   } as unknown as ChannelAdapter
-  return { adapter, drafts, finals, replies, cancelled: () => cancelled }
+  return { adapter, messages, drafts: () => drafts }
 }
 
-function fakeActivities() {
-  const labels: string[] = []
-  const ended: string[] = []
-  const scopes: unknown[] = []
-  return {
-    labels,
-    ended,
-    scopes,
-    sink: {
-      begin: (input: CreateActivityInput) => {
-        scopes.push(input.scope)
-        return 'act-1'
-      },
-      update: (_id: string, patch: { label?: string }) => {
-        if (patch.label) labels.push(patch.label)
-      },
-      end: (id: string) => {
-        ended.push(id)
-      },
-    },
+/** The ai-backend's downloader, driven by the test. */
+function fakeDownloader() {
+  const runs: {
+    list: DownloadModelParam[]
+    callbacks: ModelDownloadCallbacks & { signal: AbortSignal }
+    finish: () => void
+    fail: (error: Error) => void
+  }[] = []
+  const downloader = {
+    download: (
+      list: DownloadModelParam[],
+      callbacks: ModelDownloadCallbacks & { signal: AbortSignal },
+    ) =>
+      new Promise<void>((resolve, reject) => {
+        runs.push({ list, callbacks, finish: resolve, fail: reject })
+        callbacks.signal.addEventListener('abort', () => reject(new Error('aborted')))
+      }),
+    stop: vi.fn(async () => {}),
   }
+  return { downloader, runs }
 }
 
-const list = [{ repo_id: 'org/model-a', type: 'llm' }] as DownloadModelParam[]
-const progress = (percent: number, speed?: string) => ({
+const MODEL = { repo_id: 'org/model-a', type: 'llm', backend: 'llama_cpp' } as DownloadModelParam
+const progress = (percent: number): ModelDownloadProgress => ({
   repoId: 'org/model-a',
   percent,
-  taskPercent: percent,
+  taskPercent: 0,
   completed: 0,
   total: 1,
-  speed,
+  speed: '10 MB/s',
 })
-const at = (ms: number) => vi.setSystemTime(ms)
+const text = {
+  progress: (p: { repoId: string; percent: number }) => `⬇️ ${p.repoId} ${p.percent}%`,
+  complete: '✅ Downloaded.',
+  failed: (error: string) => `⚠️ Failed: ${error}`,
+  cancelled: '⏹ Cancelled in AI Playground.',
+}
+const flush = () => new Promise((r) => setTimeout(r, 0))
 
 afterEach(() => vi.useRealTimers())
 
-describe('headless model download', () => {
-  it('drafts throttled progress, refreshes models per completed model and reports completion', async () => {
+describe('a Home Agent chat turn’s download', () => {
+  it('posts one message and edits it into throttled progress and the outcome, never a draft', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
     const ch = fakeChannel()
-    const acts = fakeActivities()
-    let refreshed = 0
-    vi.useFakeTimers()
-    await runHeadlessDownload(
-      { adapter: ch.adapter, list, scope: { kind: 'chat', conversationKey: 'c1' } },
-      {
-        download: async (_list, cb: ModelDownloadCallbacks) => {
-          at(10_000)
-          cb.onProgress?.(progress(10, '10 MB/s'))
-          at(11_000)
-          cb.onProgress?.(progress(20, '10 MB/s'))
-          at(15_000)
-          cb.onProgress?.(progress(50))
-          at(20_000)
-          cb.onProgress?.(progress(90, '10 MB/s'))
-          cb.onModelCompleted?.('org/model-a')
-        },
-        activities: acts.sink,
-        refreshModels: () => refreshed++,
-      },
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
+    const run = runHeadlessDownload(
+      { adapter: ch.adapter, list: [MODEL], waiter: 'home', label: 'the Home Agent', text },
+      { queue },
     )
-    expect(ch.drafts).toEqual([
-      '⬇️ Downloading `org/model-a` — 10% (0/1 models)',
-      '⬇️ Downloading `org/model-a` — 90% (0/1 models)',
-    ])
-    expect(acts.scopes).toEqual([{ kind: 'chat', conversationKey: 'c1' }])
-    expect(acts.labels).toEqual(Array(4).fill('Downloading org/model-a… (0/1)'))
-    expect(refreshed).toBe(1)
-    expect(ch.finals).toEqual(['✅ Download complete.'])
-    expect(acts.ended).toEqual(['act-1'])
+    await flush()
+    vi.setSystemTime(10_000)
+    runs[0].callbacks.onProgress?.(progress(10))
+    vi.setSystemTime(11_000)
+    runs[0].callbacks.onProgress?.(progress(20))
+    vi.setSystemTime(14_000)
+    runs[0].callbacks.onProgress?.(progress(60))
+    await flush()
+    expect(ch.messages.map((m) => m.text)).toEqual(['⬇️ org/model-a 60%'])
+    runs[0].finish()
+    await run
+    await flush()
+    expect(ch.messages.map((m) => m.text)).toEqual(['✅ Downloaded.'])
+    expect(ch.drafts()).toBe(0)
   })
 
-  it('reports the failure reason in the channel and throws a silent download error', async () => {
+  it('reports a failure in the same message and throws a silent download error', async () => {
     const ch = fakeChannel()
-    const acts = fakeActivities()
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
     const run = runHeadlessDownload(
-      { adapter: ch.adapter, list, scope: { kind: 'global' } },
-      {
-        download: async () => {
-          throw new Error('disk <full>')
-        },
-        activities: acts.sink,
-        refreshModels: () => {},
-      },
+      { adapter: ch.adapter, list: [MODEL], waiter: 'home', label: 'the Home Agent', text },
+      { queue },
     )
+    await flush()
+    runs[0].fail(new Error('disk full'))
     await expect(run).rejects.toMatchObject({ code: 'model/download-failed', surface: 'silent' })
-    expect(ch.replies).toEqual(['⚠️ The model download failed: disk &lt;full&gt;'])
-    expect(ch.cancelled()).toBe(1)
-    expect(ch.finals).toEqual([])
-    expect(acts.ended).toEqual(['act-1'])
+    await flush()
+    expect(ch.messages.map((m) => m.text)).toEqual(['⚠️ Failed: disk full'])
   })
 
-  it('writes progress, completion and failure in the wording it is given', async () => {
-    const text = {
-      progress: (p: { repoId: string; percent: number }) => `⬇️ Lade ${p.repoId} — ${p.percent}%`,
-      complete: '✅ Fertig. "Spiel" läuft weiter.',
-      failed: (error: string) => `⚠️ Fehlgeschlagen: ${error}`,
-    }
-    const ok = fakeChannel()
-    vi.useFakeTimers()
-    await runHeadlessDownload(
-      { adapter: ok.adapter, list, scope: { kind: 'global' }, text },
-      {
-        download: async (_list, cb: ModelDownloadCallbacks) => {
-          at(10_000)
-          cb.onProgress?.(progress(40, '10 MB/s'))
-        },
-        activities: fakeActivities().sink,
-        refreshModels: () => {},
-      },
-    )
-    expect(ok.drafts).toEqual(['⬇️ Lade org/model-a — 40%'])
-    expect(ok.finals).toEqual(['✅ Fertig. "Spiel" läuft weiter.'])
-
-    const failing = fakeChannel()
+  it('leaves Home Agent replies sent meanwhile alone', async () => {
+    const ch = fakeChannel()
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
     const run = runHeadlessDownload(
-      { adapter: failing.adapter, list, scope: { kind: 'global' }, text },
-      {
-        download: async () => {
-          throw new Error('disk <full>')
-        },
-        activities: fakeActivities().sink,
-        refreshModels: () => {},
-      },
+      { adapter: ch.adapter, list: [MODEL], waiter: 'home', label: 'the Home Agent', text },
+      { queue },
     )
-    await expect(run).rejects.toMatchObject({ code: 'model/download-failed' })
-    expect(failing.replies).toEqual(['⚠️ Fehlgeschlagen: disk &lt;full&gt;'])
+    await flush()
+    await ch.adapter.reply('Here is your answer.')
+    runs[0].finish()
+    await run
+    await flush()
+    expect(ch.messages.map((m) => m.text)).toEqual(['✅ Downloaded.', 'Here is your answer.'])
+  })
+})
+
+describe('a Channel Question following its Model Download', () => {
+  async function askedQuestion() {
+    const ch = fakeChannel()
+    const registry = createChannelQuestionRegistry({ log: () => {} })
+    const question = registry.ask({ adapter: ch.adapter, summaryMarkdown: 'Download model-a?' })
+    await flush()
+    return { ch, registry, question }
+  }
+
+  it('turns the question into progress and then the outcome, in one message', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const { ch, registry, question } = await askedQuestion()
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
+    const tap = ch.messages[0].buttons!.flat()[0].callbackData
+    registry.handleInbound(ch.adapter, { callback: tap })
+    const id = queue.start([MODEL], ['session'], 'Session')!
+    trackModelDownload({ queue, downloadId: id, message: { edit: question.edit }, text })
+    vi.setSystemTime(10_000)
+    runs[0].callbacks.onProgress?.(progress(40))
+    await flush()
+    expect(ch.messages).toEqual([{ id: 1, text: 'Download model-a?\n\n⬇️ org/model-a 40%' }])
+    runs[0].finish()
+    await flush()
+    expect(ch.messages).toEqual([{ id: 1, text: 'Download model-a?\n\n✅ Downloaded.' }])
+  })
+
+  it('keeps "answered in AI Playground" above the progress of a desktop yes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const { ch, registry, question } = await askedQuestion()
+    const { downloader, runs } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
+    registry.retire(question.id, '✔ Answered in AI Playground.')
+    const id = queue.start([MODEL], ['session'], 'Session')!
+    trackModelDownload({
+      queue,
+      downloadId: id,
+      message: { edit: question.edit },
+      text,
+      prefix: '✔ Answered in AI Playground.',
+    })
+    vi.setSystemTime(10_000)
+    runs[0].callbacks.onProgress?.(progress(5))
+    await flush()
+    expect(ch.messages[0].text).toBe(
+      'Download model-a?\n\n✔ Answered in AI Playground.\n⬇️ org/model-a 5%',
+    )
+    queue.cancel(id)
+    await flush()
+    expect(ch.messages[0].text).toBe(
+      'Download model-a?\n\n✔ Answered in AI Playground.\n⏹ Cancelled in AI Playground.',
+    )
+    expect(ch.messages).toHaveLength(1)
+  })
+
+  it('says AI Playground closed when the app quits mid-download, and nothing after', async () => {
+    const { ch, question } = await askedQuestion()
+    const { downloader } = fakeDownloader()
+    const queue = createModelDownloadQueue({ downloader: () => downloader })
+    const id = queue.start([MODEL], ['session'], 'Session')!
+    trackModelDownload({ queue, downloadId: id, message: { edit: question.edit }, text })
+    closeDownloadMessages('⏹ Stopped — AI Playground closed.')
+    queue.cancel(id)
+    await flush()
+    expect(ch.messages).toEqual([
+      { id: 1, text: 'Download model-a?\n\n⏹ Stopped — AI Playground closed.' },
+    ])
   })
 })

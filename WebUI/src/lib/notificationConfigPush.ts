@@ -68,9 +68,17 @@ export function startNotificationConfigPush(): void {
       complete: text.CHANNEL_QUESTION_COMPLETE ?? '',
       failed: text.CHANNEL_QUESTION_FAILED ?? '',
       answeredInApp: text.CHANNEL_QUESTION_ANSWERED_IN_APP ?? '',
+      declinedInApp: text.CHANNEL_QUESTION_DECLINED_IN_APP ?? '',
       closed: text.CHANNEL_QUESTION_CLOSED ?? '',
       unavailable: text.CHANNEL_QUESTION_UNAVAILABLE ?? '',
       stale: text.CHANNEL_QUESTION_STALE ?? '',
+      alreadyDownloading: text.CHANNEL_QUESTION_ALREADY_DOWNLOADING ?? '',
+      alreadyDownloadingFor: text.CHANNEL_QUESTION_ALREADY_DOWNLOADING_FOR ?? '',
+      cancelledInApp: text.CHANNEL_QUESTION_CANCELLED_IN_APP ?? '',
+      appClosed: text.CHANNEL_QUESTION_APP_CLOSED ?? '',
+      forChat: text.MODEL_DOWNLOAD_FOR_CHAT ?? '',
+      forOther: text.MODEL_DOWNLOAD_FOR_OTHER ?? '',
+      forHomeAgent: text.MODEL_DOWNLOAD_FOR_HOME_AGENT ?? '',
     }
   })
 }

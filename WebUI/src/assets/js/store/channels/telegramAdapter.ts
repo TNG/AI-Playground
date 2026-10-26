@@ -289,6 +289,17 @@ export function createTelegramAdapter(): ChannelAdapter {
         ref: r.success && typeof r.messageId === 'number' ? { messageId: r.messageId } : undefined,
       }
     },
+    post: async (text) => {
+      const r = await window.electronAPI.homeAgent.channel.send('telegram', 'post', {
+        text,
+        parse_mode: PARSE_MODE,
+      })
+      return {
+        success: r.success,
+        error: r.success ? undefined : r.error,
+        ref: r.success && typeof r.messageId === 'number' ? { messageId: r.messageId } : undefined,
+      }
+    },
     editKeyboardMessage: async (ref, text) => {
       if (typeof ref.messageId !== 'number') return { success: false, error: 'no message id' }
       const r = await window.electronAPI.homeAgent.channel.send('telegram', 'editMessage', {

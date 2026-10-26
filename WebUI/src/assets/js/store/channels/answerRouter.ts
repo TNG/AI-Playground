@@ -38,7 +38,8 @@ export type AnswerSessions = {
   usesRealShell: (sessionId: string) => boolean
   /** Remembers that a message sent on `kind` belongs to the session, so a reply to it is an Answer. */
   record: (kind: ChannelKind, ref: string, sessionId: string) => Promise<void>
-  send: (sessionId: string, text: string) => Promise<AnswerSendResult>
+  /** `origin` is the channel the Answer came on, shown with it on the desktop. */
+  send: (sessionId: string, text: string, origin: ChannelKind) => Promise<AnswerSendResult>
   /** What the session's paused turn waits on, or null when it is not paused. */
   pause: (sessionId: string) => SessionPause | null
   /** The session's Held Answer changed; null when it is gone. */
@@ -194,7 +195,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   /** Sends a Held Answer; still busy (a Task run between two Steps) keeps it held. */
   async function deliverHeld(entry: Held, sessionId: string): Promise<void> {
-    const result = await send(entry.sessions, sessionId, entry.text)
+    const result = await send(entry.sessions, sessionId, entry.text, entry.adapter.kind)
     if (!result.ok && isHold(result.reason)) return
     if (held.get(sessionId) === entry) setHeld(sessionId, null)
     await confirm(entry.adapter, entry.title, result, entry.meta)
@@ -204,9 +205,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: AnswerSessions,
     sessionId: string,
     text: string,
+    origin: ChannelKind,
   ): Promise<AnswerSendResult> {
     try {
-      return await sessions.send(sessionId, text)
+      return await sessions.send(sessionId, text, origin)
     } catch (e) {
       return { ok: false, reason: 'error', message: e instanceof Error ? e.message : String(e) }
     }
@@ -264,7 +266,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (held.has(sessionId)) {
       await hold(entry, sessionId)
     } else {
-      const result = await send(sessions, sessionId, text)
+      const result = await send(sessions, sessionId, text, adapter.kind)
       if (!result.ok && isHold(result.reason)) await hold(entry, sessionId)
       else await confirm(adapter, entry.title, result, meta)
     }

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
-import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { NotificationRoute } from '@/types/notificationsIpc'
 import type { ChannelSendOutcome } from '../../agent/notifier'
 
@@ -101,14 +101,15 @@ afterAll(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true })
 })
 
-let sent: Array<{ kind: ChannelKind; text: string }> = []
+let sent: Array<{ kind: ChannelKind; text: string; buttons?: KeyboardButton[][] }> = []
 let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
 
-function route(next: NotificationRoute): void {
+function route(next: NotificationRoute, realShellSessions: string[] = []): void {
   notifier.setNotificationConfig({
     ...next,
     autoNotify: false,
     sessionInView: null,
+    realShellSessions,
     templates: {
       header: '🤖 Agent · {title}',
       paused: '',
@@ -118,6 +119,8 @@ function route(next: NotificationRoute): void {
       sessionLabel: '"{title}"',
       taskLabel: '',
       untitled: 'An agent run',
+      answerButton: '💬 Answer',
+      answerOnComputer: 'Answer on your computer',
     },
   })
 }
@@ -152,7 +155,7 @@ beforeAll(async () => {
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannelSend(async (kind, message) => {
-    sent.push({ kind, text: message.text })
+    sent.push({ kind, ...message })
     return channelResult
   })
 })
@@ -199,8 +202,25 @@ async function runTurn(sessionId: string, capabilities = ['notify']): Promise<vo
 describe('notify_user', () => {
   it('sends the message to the Notification Channel and tells the model it was delivered', async () => {
     await runTurn('aipg-agent-notify-ok')
-    expect(sent).toEqual([{ kind: 'telegram', text: `🤖 Agent · "An agent run"\n${SUMMARY}` }])
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      },
+    ])
     expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('gives a session that uses the real system shell no Answer button, only a pointer to the computer', async () => {
+    route({ homeAgentEnabled: true, notificationChannel: 'telegram' }, ['aipg-agent-notify-shell'])
+    await runTurn('aipg-agent-notify-shell')
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
+      },
+    ])
   }, 30000)
 
   it('records the sent message so a reply to it reaches the session', async () => {

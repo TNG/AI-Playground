@@ -193,6 +193,10 @@
       <Label for="home-agent-auto-notify">{{ i18n.HOME_AGENT_AUTO_NOTIFY }}</Label>
     </div>
 
+    <p class="pt-2 text-sm text-muted-foreground">
+      {{ i18n.HOME_AGENT_NOTIFICATION_ANSWERABLE }}
+    </p>
+
     <SetupWizardFooter
       :show-back="!isEditMode"
       :primary-label="isEditMode ? 'Done' : 'Continue'"

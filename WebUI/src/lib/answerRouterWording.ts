@@ -6,6 +6,12 @@ export type AnswerRouterCopy = {
   queued: string
   /** `{title}`, `{reason}` */
   notSent: string
+  /** The Answer Prompt the 💬 Answer button opens: `{title}` */
+  answerPrompt: string
+  /** The input placeholder while replying to an Answer Prompt: `{title}` */
+  answerPlaceholder: string
+  /** The Answer button was tapped under a message of a deleted session. */
+  sessionGone: string
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -13,6 +19,9 @@ const ENGLISH: AnswerRouterCopy = {
   starting: '➡️ Sent to {title} — starting…',
   queued: '➡️ Sent to {title} — queued (position {position})',
   notSent: '⚠️ Not sent to {title}: {reason}',
+  answerPrompt: 'Your message to {title}:',
+  answerPlaceholder: 'Message to {title}',
+  sessionGone: '⚠️ That session no longer exists',
 }
 
 let provider: (() => AnswerRouterCopy) | null = null

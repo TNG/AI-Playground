@@ -108,6 +108,7 @@ const CONFIG: NotificationConfig = {
   notificationChannel: 'telegram',
   autoNotify: true,
   sessionInView: null,
+  realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
     paused: '⏸ {title} is waiting for you: {reason}. Open AI Playground to continue.',
@@ -122,6 +123,8 @@ const CONFIG: NotificationConfig = {
     sessionLabel: '"{title}"',
     taskLabel: '"{task}" (step {step}/{steps})',
     untitled: 'An agent run',
+    answerButton: '💬 Answer',
+    answerOnComputer: 'Answer on your computer',
   },
 }
 

@@ -101,7 +101,12 @@ afterAll(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true })
 })
 
-let sent: Array<{ kind: ChannelKind; text: string; buttons?: KeyboardButton[][] }> = []
+let sent: Array<{
+  kind: ChannelKind
+  text: string
+  buttons?: KeyboardButton[][]
+  answerTitle?: string
+}> = []
 let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
 
 function route(next: NotificationRoute, realShellSessions: string[] = []): void {
@@ -208,9 +213,23 @@ describe('notify_user', () => {
         kind: 'telegram',
         text: `🤖 Agent · "An agent run"\n${SUMMARY}`,
         buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+        answerTitle: '"An agent run"',
       },
     ])
     expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('gives a LAN chat Notification the Answer button too, naming the session it answers', async () => {
+    route({ homeAgentEnabled: true, notificationChannel: 'local-web' })
+    await runTurn('aipg-agent-notify-lan')
+    expect(sent).toEqual([
+      {
+        kind: 'local-web',
+        text: `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+        answerTitle: '"An agent run"',
+      },
+    ])
   }, 30000)
 
   it('gives a session that uses the real system shell no Answer button, only a pointer to the computer', async () => {

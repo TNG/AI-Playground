@@ -26,13 +26,15 @@ export type ChannelMedia = { kind: 'photo' | 'video'; base64: string; filename: 
 
 /**
  * What the Notifier hands a channel. `replyTo` is the platform ref of the message it
- * answers; with `media`, `text` is the caption; `buttons` are rows of inline buttons.
+ * answers; with `media`, `text` is the caption; `buttons` are rows of inline buttons;
+ * `answerTitle` is the session label an Answer button answers.
  */
 export type ChannelMessage = {
   text: string
   replyTo?: string
   media?: ChannelMedia
   buttons?: KeyboardButton[][]
+  answerTitle?: string
 }
 
 /** `ref` is the platform's id of the sent message, when it has one. */
@@ -125,16 +127,17 @@ async function deliver(
   if (!homeAgentEnabled || !channelSend) return { delivered: false, reason: 'Home Agent is off' }
   if (!channel) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
-    const header = sessionId
-      ? fillTemplate(config.templates.header, { title: await sessionLabel(sessionId) })
-      : ''
+    const title = sessionId ? await sessionLabel(sessionId) : ''
+    const header = sessionId ? fillTemplate(config.templates.header, { title }) : ''
     const message: ChannelMessage = {
       text: [header, body.text].filter(Boolean).join('\n'),
       ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
     }
     const result = await channelSend(
       channel,
-      body.media ? { ...message, media: body.media } : answerable(channel, message, sessionId),
+      body.media
+        ? { ...message, media: body.media }
+        : answerable(channel, message, sessionId, title),
     )
     if (!result.success) return { delivered: false, reason: result.error }
     if (sessionId && result.ref) {
@@ -191,13 +194,15 @@ export function answerable(
   kind: ChannelKind,
   message: ChannelMessage,
   sessionId: string | undefined,
+  title: string,
 ): ChannelMessage {
   if (!sessionId) return message
   const { answerButton, answerOnComputer } = config.templates
   if (config.realShellSessions.includes(sessionId)) {
     return { ...message, text: `${message.text}\n${answerOnComputer}` }
   }
-  return withAnswerButton(kind, message, answerButton)
+  const withButton = withAnswerButton(kind, message, answerButton)
+  return withButton === message ? message : { ...withButton, answerTitle: title }
 }
 
 function offScreen(sessionId: string): boolean {

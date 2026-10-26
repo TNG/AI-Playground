@@ -104,11 +104,15 @@ export type UnseenTurn = 'done' | 'failed'
 export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
+/** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
+export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
+
 export type SendToSessionResult =
   | { ok: true }
   | {
       ok: false
-      reason: 'no-session' | 'busy' | 'missing-folder' | 'settings-problems' | 'aborted'
+      reason:
+        'no-session' | 'busy' | 'task-locked' | 'missing-folder' | 'settings-problems' | 'aborted'
       message: string
       problems?: SessionSettingsProblem[]
     }
@@ -1674,6 +1678,28 @@ export const useAgentMode = defineStore(
       return { ok: false, reason, message, ...(problems ? { problems } : {}) }
     }
 
+    let taskLockOf: (sessionId: string) => SessionTaskLock | undefined = () => undefined
+
+    /** The Tasks store names the run holding a session; it cannot be imported here (cycle). */
+    function setTaskLockLookup(lookup: (sessionId: string) => SessionTaskLock | undefined): void {
+      taskLockOf = lookup
+    }
+
+    function taskLockRefusal(
+      sessionId: string,
+      signal: AbortSignal | undefined,
+    ): SendToSessionResult | undefined {
+      const lock = taskLockOf(sessionId)
+      if (!lock || (lock.signal && lock.signal === signal)) return undefined
+      return refuseSend(
+        'task-locked',
+        (
+          i18n.state.AGENT_TASK_SESSION_LOCKED ??
+          'Agent “{name}” is running. Stop it to type in this session.'
+        ).replace('{name}', lock.taskName),
+      )
+    }
+
     /**
      * Send to any session; one not open (or `useStoredSettings`) runs on its record, not the
      * live controls. Resolves once handed off or refused; the end comes via `onTurnSettled`.
@@ -1695,6 +1721,8 @@ export const useAgentMode = defineStore(
       const live =
         sessionId === openSessionId.value && !options.useStoredSettings && !options.settings
       if (!record && !live) return refuseSend('no-session', `No agent session ${sessionId}.`)
+      const locked = taskLockRefusal(sessionId, options.signal)
+      if (locked) return locked
       if (turns.runtimeOf(sessionId)?.hasTurn()) {
         return refuseSend('busy', 'This session already has a turn in flight.')
       }
@@ -1728,6 +1756,8 @@ export const useAgentMode = defineStore(
           ).replace('{path}', context.workspaceDir),
         )
       }
+      const lockedSince = taskLockRefusal(sessionId, options.signal)
+      if (lockedSince) return lockedSince
       if (turns.runtimeOf(sessionId)?.hasTurn()) {
         return refuseSend('busy', 'This session already has a turn in flight.')
       }
@@ -1860,6 +1890,7 @@ export const useAgentMode = defineStore(
       generate,
       createSession,
       sendToSession,
+      setTaskLockLookup,
       quietSessionErrors,
       onTurnSettled,
       stopSession,

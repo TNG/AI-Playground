@@ -49,6 +49,7 @@
         </Button>
       </div>
       <p class="text-2xl font-bold">Let's Generate</p>
+      <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
       <div class="w-full max-w-3xl flex flex-col">
         <PromptStatusBar />
         <!-- RAG Documents Display (only when RAG is enabled and has documents) -->
@@ -126,6 +127,8 @@
           <div
             v-else
             class="flex h-48 w-full flex-col items-center justify-center gap-4 rounded-md border border-border bg-background/50 px-4 pb-16 pt-3"
+            :class="{ 'pointer-events-none opacity-50': downloadGroup }"
+            :aria-disabled="!!downloadGroup"
           >
             <p v-if="!sttAvailable" class="text-sm text-amber-500">
               <template v-if="productModeStore.isNvidiaModeSelected">
@@ -363,6 +366,7 @@
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
               v-if="promptStore.getCurrentMode() === 'chat'"
+              :disabled="!!downloadGroup"
               @click="handleCameraClick"
               title="Capture image from camera"
             >
@@ -377,7 +381,8 @@
               :disabled="
                 (!sttAvailable && !audioRecorder.isRecording) ||
                 audioRecorder.isTranscribing ||
-                preparingStt
+                preparingStt ||
+                !!downloadGroup
               "
               :title="
                 preparingStt ? 'Starting speech service…' : sttAvailable ? '' : sttUnavailableHint
@@ -417,7 +422,7 @@
             </Button>
             <!-- Send / stop / loading cluster — hidden for the STT preset, which
                  submits via its own record/upload controls. -->
-            <template v-if="!isSttPreset">
+            <template v-if="!isSttPreset && !downloadGroup">
               <TooltipProvider v-if="readyForNewSubmit" :delay-duration="200">
                 <Tooltip v-if="canRunSteps">
                   <TooltipTrigger as-child>
@@ -546,6 +551,8 @@ import { PlayIcon } from '@heroicons/vue/24/solid'
 import AcerCameraIcon from '@/components/AcerCameraIcon.vue'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
+import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
+import ModelDownloadCard from '@/components/ModelDownloadCard.vue'
 import * as toast from '@/assets/js/toast'
 import Button from '@/components/ui/button/Button.vue'
 import PromptStatusBar from '@/components/PromptStatusBar.vue'
@@ -830,7 +837,21 @@ const canAttachAudio = computed(
 )
 
 // Should show image upload button (conditional for ComfyUI presets)
+// The session or conversation on screen waiting on a Model Download: its card shows
+// above the prompt, which takes no input until then; presets and modes still switch.
+const downloadGroup = computed(() => {
+  const mode = promptStore.getCurrentMode()
+  const key =
+    mode === 'agent'
+      ? agentMode.openSessionId
+      : mode === 'chat' || mode === 'audio'
+        ? conversations.activeKey
+        : ''
+  return key && modelDownloads().snapshot(key) ? key : ''
+})
+
 const shouldShowImageUploadButton = computed(() => {
+  if (downloadGroup.value) return false
   const mode = promptStore.getCurrentMode()
   const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
 
@@ -1004,7 +1025,7 @@ const isPromptModifiable = computed(() => {
 })
 
 const isTextAreaDisabled = computed(() => {
-  return !readyForNewSubmit.value || !isPromptModifiable.value
+  return !readyForNewSubmit.value || !isPromptModifiable.value || !!downloadGroup.value
 })
 
 const contextError = computed(() => openAiCompatibleChat.error)
@@ -1099,7 +1120,7 @@ function describeSettingsProblem(problem: SessionSettingsProblem): string {
 }
 
 function handleSubmitPromptClick() {
-  if (agentSettingsProblems.value.length > 0) return
+  if (agentSettingsProblems.value.length > 0 || downloadGroup.value) return
   const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
@@ -1502,7 +1523,7 @@ async function addDocumentsToRagList(files: File[]) {
 
 // Handle drag and drop
 async function onDrop(files: File[] | null) {
-  if (!files || files.length === 0) return
+  if (!files || files.length === 0 || downloadGroup.value) return
 
   if (promptStore.getCurrentMode() === 'agent') {
     await agentMode.attachFiles(files)

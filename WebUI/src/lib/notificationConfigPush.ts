@@ -64,6 +64,8 @@ export function startNotificationConfigPush(): void {
       cancel: text.CHANNEL_QUESTION_CANCEL ?? '',
       confirmed: text.CHANNEL_QUESTION_CONFIRMED ?? '',
       cancelled: text.CHANNEL_QUESTION_CANCELLED ?? '',
+      queued: text.CHANNEL_QUESTION_QUEUED ?? '',
+      starting: text.CHANNEL_QUESTION_STARTING ?? '',
       progress: text.CHANNEL_QUESTION_PROGRESS ?? '',
       complete: text.CHANNEL_QUESTION_COMPLETE ?? '',
       failed: text.CHANNEL_QUESTION_FAILED ?? '',

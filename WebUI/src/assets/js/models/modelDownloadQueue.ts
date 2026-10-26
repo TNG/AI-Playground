@@ -7,9 +7,9 @@ import type {
 
 /**
  * The Model Download queue (docs/adr/0005): every download the app starts runs
- * through it, one at a time, and any number of turns ("waiters") can wait on the
- * same Model Download. The ai-backend has a single downloader, so a second
- * request would stop the first — this queue is what guarantees it never gets one.
+ * through it, one at a time, and any number of waiters can wait on the same Model
+ * Download. The ai-backend has a single downloader, so a second request would stop
+ * the first — this queue is what guarantees it never gets one.
  */
 
 export type ModelDownloadOutcome =
@@ -27,17 +27,17 @@ export type ModelDownload = {
   progress: ModelDownloadProgress | null
 }
 
+/** What a session or conversation is waiting on, for its download card. */
 export type ModelDownloadWait = {
   status: 'queued' | 'downloading'
-  /** Every model the waiter waits on, across its Model Downloads. */
   models: DownloadModelParam[]
-  /** The running download's progress; null until it reports or while queued. */
   progress: ModelDownloadProgress | null
-  /** The Model Downloads it waits on, oldest first. */
   downloadIds: string[]
 }
 
 export type ModelDownloadListener = {
+  /** It left the queue and the ai-backend is downloading it now. */
+  onStart?: () => void
   onProgress?: (progress: ModelDownloadProgress) => void
   onSettled?: (outcome: ModelDownloadOutcome) => void
 }
@@ -50,6 +50,27 @@ export type ModelDownloader = {
   /** Stops the ai-backend's current download; only ever called for the queue's own. */
   stop: () => Promise<void>
   onModelCompleted?: () => void
+}
+
+/**
+ * One request's wait. It is held while its Download Question is open, so it cannot
+ * settle "done" before the answer, and it settles exactly once: a download it waits
+ * on failing or being cancelled settles it at once, even mid-question.
+ */
+export type ModelDownloadWaiter = {
+  id: string
+  /** The session or conversation it waits for, which shows the download card. */
+  group: string
+  /** Waits on the Model Downloads already covering `models`; returns the rest. */
+  attach: (models: DownloadModelParam[]) => DownloadModelParam[]
+  /** After a yes: queues what nothing covers yet, waits on all of it, stops holding. */
+  start: (models: DownloadModelParam[], label: string) => string | null
+  /** Stops holding: settles "done" once nothing it waits on is left. */
+  release: () => void
+  /** Stops waiting; a Model Download nobody waits on any more is cancelled. */
+  detach: () => void
+  settled: Promise<ModelDownloadOutcome>
+  downloads: () => ModelDownload[]
 }
 
 export type ModelDownloadQueue = ReturnType<typeof createModelDownloadQueue>
@@ -68,20 +89,23 @@ function uniqueModels(models: DownloadModelParam[]): DownloadModelParam[] {
   })
 }
 
-type Waiter = {
+type WaiterRecord = {
+  id: string
+  group: string
   downloads: Set<string>
-  promise: Promise<ModelDownloadOutcome>
+  held: boolean
+  outcome: ModelDownloadOutcome | null
   resolve: (outcome: ModelDownloadOutcome) => void
 }
 
 export function createModelDownloadQueue(deps: {
   downloader: () => ModelDownloader | null
-  newId?: () => string
+  /** A Model Download was queued for `waiterId`; other questions it covers can close. */
+  onStart?: (label: string, waiterId: string) => void
 }) {
   let counter = 0
-  const newId = deps.newId ?? (() => `md-${++counter}`)
   const downloads = reactive<ModelDownload[]>([])
-  const waiters = new Map<string, Waiter>()
+  const records = new Map<string, WaiterRecord>()
   const controllers = new Map<string, AbortController>()
   const listeners = new Map<string, Set<ModelDownloadListener>>()
   let stopping: Promise<void> | null = null
@@ -107,75 +131,82 @@ export function createModelDownloadQueue(deps: {
     return { coveredBy, uncovered }
   }
 
-  function waiterRecord(waiter: string): Waiter {
-    const existing = waiters.get(waiter)
-    if (existing) return existing
-    let resolve: (outcome: ModelDownloadOutcome) => void = () => {}
-    const promise = new Promise<ModelDownloadOutcome>((r) => {
-      resolve = r
-    })
-    const record = { downloads: new Set<string>(), promise, resolve }
-    waiters.set(waiter, record)
-    return record
+  function attachTo(download: ModelDownload, record: WaiterRecord): void {
+    if (!download.waiters.includes(record.id)) download.waiters.push(record.id)
+    record.downloads.add(download.id)
   }
 
-  function attachTo(download: ModelDownload, waiter: string): void {
-    if (!download.waiters.includes(waiter)) download.waiters.push(waiter)
-    waiterRecord(waiter).downloads.add(download.id)
-  }
-
-  function resolveWaiter(waiter: string, outcome: ModelDownloadOutcome): void {
-    const record = waiters.get(waiter)
-    if (!record) return
-    waiters.delete(waiter)
+  function finish(record: WaiterRecord, outcome: ModelDownloadOutcome): void {
+    if (record.outcome) return
+    record.outcome = outcome
+    records.delete(record.id)
     for (const id of record.downloads) {
       const download = find(id)
       if (!download) continue
-      download.waiters = download.waiters.filter((w) => w !== waiter)
+      download.waiters = download.waiters.filter((w) => w !== record.id)
       if (download.waiters.length === 0) settle(download, { status: 'cancelled' })
     }
+    record.downloads.clear()
     record.resolve(outcome)
   }
 
-  /** Attaches `waiter` to the Model Downloads already covering `models`; returns the rest. */
-  function attach(waiter: string, models: DownloadModelParam[]): DownloadModelParam[] {
-    const { coveredBy, uncovered } = split(models)
-    for (const download of coveredBy) attachTo(download, waiter)
-    return uncovered
+  function finishIfDone(record: WaiterRecord): void {
+    if (!record.held && record.downloads.size === 0) finish(record, { status: 'done' })
   }
 
-  /** After a yes: queues what no Model Download covers yet and attaches every waiter. */
-  function start(models: DownloadModelParam[], waiterIds: string[], label: string): string | null {
-    const { coveredBy, uncovered } = split(models)
-    let created: ModelDownload | null = null
-    if (uncovered.length > 0) {
-      created = {
-        id: newId(),
-        models: uncovered,
-        label,
-        waiters: [],
-        status: 'queued',
-        progress: null,
-      }
-      downloads.push(created)
-      // Read back through the reactive array so later mutations are tracked.
-      created = find(created.id)!
+  function waiter(group: string): ModelDownloadWaiter {
+    let resolve: (outcome: ModelDownloadOutcome) => void = () => {}
+    const settled = new Promise<ModelDownloadOutcome>((r) => (resolve = r))
+    const record: WaiterRecord = {
+      id: `w-${++counter}`,
+      group,
+      downloads: new Set(),
+      held: true,
+      outcome: null,
+      resolve,
     }
-    for (const waiter of waiterIds) {
-      for (const download of coveredBy) attachTo(download, waiter)
-      if (created) attachTo(created, waiter)
+    records.set(record.id, record)
+    return {
+      id: record.id,
+      group,
+      attach: (models) => {
+        const { coveredBy, uncovered } = split(models)
+        if (record.outcome) return uncovered
+        for (const download of coveredBy) attachTo(download, record)
+        return uncovered
+      },
+      start: (models, label) => {
+        if (record.outcome) return null
+        const { coveredBy, uncovered } = split(models)
+        for (const download of coveredBy) attachTo(download, record)
+        let created: ModelDownload | undefined
+        if (uncovered.length > 0) {
+          const id = `md-${++counter}`
+          downloads.push({
+            id,
+            models: uncovered,
+            label,
+            waiters: [],
+            status: 'queued',
+            progress: null,
+          })
+          created = find(id)!
+          attachTo(created, record)
+        }
+        record.held = false
+        if (created) deps.onStart?.(label, record.id)
+        pump()
+        finishIfDone(record)
+        return created?.id ?? null
+      },
+      release: () => {
+        record.held = false
+        finishIfDone(record)
+      },
+      detach: () => finish(record, { status: 'cancelled' }),
+      settled,
+      downloads: () => downloads.filter((download) => record.downloads.has(download.id)),
     }
-    pump()
-    return created?.id ?? null
-  }
-
-  function settled(waiter: string): Promise<ModelDownloadOutcome> {
-    return waiters.get(waiter)?.promise ?? Promise.resolve({ status: 'done' })
-  }
-
-  /** A turn stopped waiting; a Model Download nobody waits on any more is cancelled. */
-  function detach(waiter: string): void {
-    resolveWaiter(waiter, { status: 'cancelled' })
   }
 
   /** Ends a Model Download for every waiter; each is told it was declined. */
@@ -184,14 +215,20 @@ export function createModelDownloadQueue(deps: {
     if (download) settle(download, { status: 'cancelled' })
   }
 
+  /** A session or conversation went away: every request of it stops waiting. */
+  function detachGroup(group: string): void {
+    for (const record of [...records.values()]) {
+      if (record.group === group) finish(record, { status: 'cancelled' })
+    }
+  }
+
   function settle(download: ModelDownload, outcome: ModelDownloadOutcome): void {
     const index = downloads.indexOf(download)
     if (index === -1) return
     downloads.splice(index, 1)
     const wasRunning = download.status === 'downloading'
-    const controller = controllers.get(download.id)
+    controllers.get(download.id)?.abort()
     controllers.delete(download.id)
-    controller?.abort()
     if (wasRunning && outcome.status === 'cancelled') {
       const stop = deps.downloader()?.stop() ?? Promise.resolve()
       stopping = stop
@@ -203,15 +240,12 @@ export function createModelDownloadQueue(deps: {
     }
     for (const listener of listeners.get(download.id) ?? []) listener.onSettled?.(outcome)
     listeners.delete(download.id)
-    for (const waiter of [...download.waiters]) {
-      const record = waiters.get(waiter)
+    for (const id of download.waiters) {
+      const record = records.get(id)
       if (!record) continue
       record.downloads.delete(download.id)
-      if (outcome.status !== 'done') resolveWaiter(waiter, outcome)
-      else if (record.downloads.size === 0) {
-        waiters.delete(waiter)
-        record.resolve(outcome)
-      }
+      if (outcome.status !== 'done') finish(record, outcome)
+      else finishIfDone(record)
     }
     pump()
   }
@@ -226,13 +260,11 @@ export function createModelDownloadQueue(deps: {
   function run(download: ModelDownload): void {
     const downloader = deps.downloader()
     if (!downloader) {
-      settle(download, {
-        status: 'failed',
-        error: new Error('No model downloader is available'),
-      })
+      settle(download, { status: 'failed', error: new Error('No model downloader is available') })
       return
     }
     download.status = 'downloading'
+    for (const listener of listeners.get(download.id) ?? []) listener.onStart?.()
     const controller = new AbortController()
     controllers.set(download.id, controller)
     let detail: ModelDownloadError | undefined
@@ -270,9 +302,13 @@ export function createModelDownloadQueue(deps: {
     return () => set.delete(listener)
   }
 
-  /** What `waiter` is waiting on, reactively; null once it waits on nothing. */
-  function snapshot(waiter: string): ModelDownloadWait | null {
-    const mine = downloads.filter((download) => download.waiters.includes(waiter))
+  function groupWaits(download: ModelDownload, group: string): boolean {
+    return download.waiters.some((id) => records.get(id)?.group === group)
+  }
+
+  /** What `group` is waiting on, reactively; null once it waits on nothing. */
+  function snapshot(group: string): ModelDownloadWait | null {
+    const mine = downloads.filter((download) => groupWaits(download, group))
     if (mine.length === 0) return null
     const running = mine.find((download) => download.status === 'downloading')
     return {
@@ -283,39 +319,39 @@ export function createModelDownloadQueue(deps: {
     }
   }
 
-  function downloadsOf(waiter: string): ModelDownload[] {
-    return downloads.filter((download) => download.waiters.includes(waiter))
-  }
-
-  return {
-    downloads,
-    split,
-    attach,
-    start,
-    settled,
-    detach,
-    cancel,
-    watchDownload,
-    snapshot,
-    downloadsOf,
-  }
+  return { downloads, split, waiter, cancel, detachGroup, watchDownload, snapshot }
 }
 
 let downloader: ModelDownloader | null = null
+const startListeners = new Set<(label: string, waiterId: string) => void>()
 
 export function registerModelDownloader(next: ModelDownloader | null): void {
   downloader = next
 }
 
-let shared = createModelDownloadQueue({ downloader: () => downloader })
+/** Hears every Model Download being queued, and the waiter whose yes queued it. */
+export function onModelDownloadStart(listener: (label: string, waiterId: string) => void) {
+  startListeners.add(listener)
+  return () => startListeners.delete(listener)
+}
 
-/** The app's one Model Download queue. */
+function createShared() {
+  return createModelDownloadQueue({
+    downloader: () => downloader,
+    onStart: (label, waiterId) => {
+      for (const listener of startListeners) listener(label, waiterId)
+    },
+  })
+}
+
+let shared = createShared()
+
 export function modelDownloads(): ModelDownloadQueue {
   return shared
 }
 
 export function resetModelDownloadsForTest(): void {
-  shared = createModelDownloadQueue({ downloader: () => downloader })
+  shared = createShared()
 }
 
 /** A waiter's outcome as the caller of a download sees it: resolves on done, throws otherwise. */

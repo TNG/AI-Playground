@@ -459,8 +459,7 @@ export const CHANNELS = {
 
   // ── Permissions (step 13): policy in main, dialogs in the renderer ──
 
-  /** Desktop download modal / Home Agent in-channel consent for model downloads. */
-  /** Download consent; a Chat turn names its conversation, which shows the download card. */
+  /** Model-download consent; a Chat turn names its conversation, which shows the download card. */
   'permissions:requestDownload': {
     kind: 'invoke',
     owner: 'main',

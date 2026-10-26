@@ -23,6 +23,15 @@ function sendTelegramReply(text: string) {
   })
 }
 
+/** A send's result with the message id the edit action needs. */
+function withMessageRef(r: { success: boolean; error?: string; messageId?: number }) {
+  return {
+    success: r.success,
+    error: r.success ? undefined : r.error,
+    ref: r.success && typeof r.messageId === 'number' ? { messageId: r.messageId } : undefined,
+  }
+}
+
 function sendTelegramChatAction(action: string) {
   return window.electronAPI.homeAgent.channel.send('telegram', 'typing', { action })
 }
@@ -283,22 +292,15 @@ export function createTelegramAdapter(): ChannelAdapter {
           row.map((btn) => ({ text: btn.text, callback_data: btn.callbackData })),
         ),
       })
-      return {
-        success: r.success,
-        error: r.success ? undefined : r.error,
-        ref: r.success && typeof r.messageId === 'number' ? { messageId: r.messageId } : undefined,
-      }
+      return withMessageRef(r)
     },
     post: async (text) => {
-      const r = await window.electronAPI.homeAgent.channel.send('telegram', 'post', {
-        text,
-        parse_mode: PARSE_MODE,
-      })
-      return {
-        success: r.success,
-        error: r.success ? undefined : r.error,
-        ref: r.success && typeof r.messageId === 'number' ? { messageId: r.messageId } : undefined,
-      }
+      return withMessageRef(
+        await window.electronAPI.homeAgent.channel.send('telegram', 'post', {
+          text,
+          parse_mode: PARSE_MODE,
+        }),
+      )
     },
     editKeyboardMessage: async (ref, text) => {
       if (typeof ref.messageId !== 'number') return { success: false, error: 'no message id' }

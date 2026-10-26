@@ -109,6 +109,8 @@ class LocalWebChannel(ChannelBase):
         # Set of live SSE client queues; broadcast() fans events out to each.
         self._sse_clients: set[queue.Queue] = set()
         self._sse_lock = threading.Lock()
+        self._message_id_lock = threading.Lock()
+        self._last_message_id = 0
         # Session ids that have authenticated with the password, each mapped to
         # the monotonic deadline at which it stops being valid.
         self._sessions: dict[str, float] = {}
@@ -278,24 +280,41 @@ class LocalWebChannel(ChannelBase):
             "typing", {"state": "stop" if raw == "stop" else "start"}
         )
 
+    def _message_id(self) -> int:
+        with self._message_id_lock:
+            self._last_message_id += 1
+            return self._last_message_id
+
+    def _send_with_id(self, action: str, payload: dict) -> SendResult:
+        message_id = self._message_id()
+        result = self._broadcast(action, {**payload, "id": message_id})
+        # Match the other channels' contract: a handle the renderer edits the
+        # message by. The page tags the bubble with it.
+        if "error" not in result:
+            result["message_id"] = message_id
+        return result
+
     def send_keyboard(self, payload: dict) -> SendResult:
-        result = self._broadcast(
+        return self._send_with_id(
             "keyboard",
             {"text": payload.get("text", ""), "buttons": payload.get("buttons", [])},
         )
-        # Match the other channels' contract: return a handle the renderer can
-        # use to settle the prompt in place. The browser edits by re-rendering,
-        # so any stable ref works.
-        if "error" not in result:
-            result["message_id"] = 0
-        return result
+
+    def send_post(self, payload: dict) -> SendResult:
+        # Its own action rather than a reply: a reply settles the streaming draft
+        # bubble, and this message must never take over a Home Agent answer.
+        return self._send_with_id("post", {"text": payload.get("text", "")})
 
     def send_edit_message(self, payload: dict) -> SendResult:
-        # SSE has no in-place edit, but this call still means "that interactive
-        # prompt is settled" — so it travels as its own action and the page retires
-        # the live buttons before posting the outcome. Sending it as a plain reply
-        # would leave a tappable, already-answered prompt behind.
-        return self._broadcast("editMessage", {"text": payload.get("text", "")})
+        # SSE has no in-place edit, so the page edits the bubble it tagged with
+        # this id and retires its buttons. Without an id it still means "that
+        # interactive prompt is settled": the page retires every live prompt and
+        # posts the outcome, rather than leave a tappable, answered prompt behind.
+        event: dict = {"text": payload.get("text", "")}
+        raw_id = payload.get("message_id", payload.get("messageId"))
+        if isinstance(raw_id, int) and not isinstance(raw_id, bool) and raw_id > 0:
+            event["id"] = raw_id
+        return self._broadcast("editMessage", event)
 
     def send_history(self, payload: dict) -> SendResult:
         # Repaint the browser log with a conversation's full transcript. Unlike

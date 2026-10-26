@@ -26,17 +26,21 @@ export { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey }
 /**
  * Ask consent for downloading the given models and run the download.
  * Resolves when the download completed; rejects when it was declined or
- * failed. On a remote Home Agent turn the request is answered in-channel
+ * failed. A Chat turn passes its conversation, which then shows the download
+ * card instead of a progress dialog. On a remote Home Agent turn the request is answered in-channel
  * (mirrored on the desktop); the `download:remote-turns` pre-grant skips the
  * in-channel question — gated models are still declined, progress still
  * streams to the channel.
  */
-export async function requestDownload(models: DownloadModelParam[]): Promise<void> {
+export async function requestDownload(
+  models: DownloadModelParam[],
+  options?: { conversationKey?: string },
+): Promise<void> {
   const api = window.electronAPI?.permissions
   if (!api?.requestDownload) {
     throw new Error('Permissions policy is unavailable (no electron bridge)')
   }
-  const result = await api.requestDownload(cloneForIpc(models))
+  const result = await api.requestDownload(cloneForIpc(models), options)
   if (result.success) return
   // A decline is a cancellation on the way out and has to still be one here, or
   // the caller reports "Could not start generation" for a turn the user stopped.

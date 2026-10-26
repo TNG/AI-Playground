@@ -229,8 +229,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onPush('artifact:request', callback),
   },
   permissions: {
-    requestDownload: (models: unknown[]) =>
-      invoke('permissions:requestDownload', cloneForIpc(models)),
+    requestDownload: (models: unknown[], options?: { conversationKey?: string }) =>
+      invoke('permissions:requestDownload', cloneForIpc(models), options),
     requestVramWarning: (req: { presetName: string; message: string }) =>
       invoke('permissions:requestVramWarning', req),
     list: () => invoke('permissions:list'),
@@ -453,7 +453,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
           | 'typing'
           | 'keyboard'
           | 'editMessage'
-          | 'history',
+          | 'history'
+          | 'post',
         payload: Record<string, unknown>,
       ) => invoke('channel:send', kind, action, payload),
     },

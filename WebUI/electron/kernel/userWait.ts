@@ -86,13 +86,21 @@ export function userWaitOwner(): string | undefined {
   return asking.length === 1 ? asking[0] : undefined
 }
 
+/** Starts a pause of `conversationKey`'s turn; returns the idempotent call that ends it. */
+export function pauseForUser(
+  conversationKey: string | undefined,
+  reason?: PauseReason,
+): () => void {
+  return conversationKey ? beginUserWait(conversationKey, reason) : () => {}
+}
+
 /** Runs `wait` — something only the user can answer — as a pause of `conversationKey`'s turn. */
 export async function awaitUser<T>(
   conversationKey: string | undefined,
   wait: () => Promise<T>,
   reason?: PauseReason,
 ): Promise<T> {
-  const answered = conversationKey ? beginUserWait(conversationKey, reason) : () => {}
+  const answered = pauseForUser(conversationKey, reason)
   try {
     return await wait()
   } finally {

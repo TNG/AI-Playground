@@ -460,10 +460,11 @@ export const CHANNELS = {
   // ── Permissions (step 13): policy in main, dialogs in the renderer ──
 
   /** Desktop download modal / Home Agent in-channel consent for model downloads. */
+  /** Download consent; a Chat turn names its conversation, which shows the download card. */
   'permissions:requestDownload': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [unknown[]],
+    args: [] as unknown as readonly [unknown[], { conversationKey?: string }?],
     result: null as unknown as
       { success: true } | { success: false; error: string; cancelled?: boolean },
   },
@@ -1781,6 +1782,7 @@ export const CHANNELS = {
         | 'keyboard'
         | 'editMessage'
         | 'history'
+        | 'post'
       ),
       Record<string, unknown>,
     ],

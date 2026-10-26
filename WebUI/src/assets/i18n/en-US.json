@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "An agent run",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 Answer",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "Answer on your computer",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "Reply in thread to answer.",
   "AGENT_NOTIFY_HEADER": "🤖 Agent · {title}",
   "AGENT_ANSWER_STARTING": "➡️ Sent to {title} — starting…",
   "AGENT_ANSWER_QUEUED": "➡️ Sent to {title} — queued (position {position})",

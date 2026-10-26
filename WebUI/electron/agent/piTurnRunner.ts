@@ -255,9 +255,11 @@ function endedWithoutReplyOrToolCall(session: AgentSession): boolean {
   })
 }
 
+/** The last assistant text since the latest prompt, so a turn that wrote none never repeats an older one. */
 function finalReplyText(session: AgentSession): string | undefined {
   for (const message of [...session.messages].reverse()) {
     const { role, content } = message as { role?: string; content?: unknown }
+    if (role === 'user') return undefined
     if (role !== 'assistant') continue
     const text =
       typeof content === 'string'

@@ -79,6 +79,7 @@ import {
 import { holdOpenDownloadQuestion } from '../models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { fillTemplate } from '@/lib/notificationLabel'
+import { answerRouterCopy } from '@/lib/answerRouterWording'
 import {
   registerRemoteTurnPort,
   type ChannelQuestionOutcome,
@@ -259,9 +260,16 @@ export const useHomeAgent = defineStore(
       staleReply: () => channelQuestionTemplates().stale,
     })
 
+    const answerOnboardingSeen = ref(false)
     const answerRouter = createAnswerRouter({
       sessions: answerSessions,
       questions: channelQuestions,
+      onboarding: {
+        seen: () => answerOnboardingSeen.value,
+        markSeen: () => {
+          answerOnboardingSeen.value = true
+        },
+      },
     })
 
     /** Visibility flag for the dedicated Home Agent inference settings panel. */
@@ -404,7 +412,7 @@ export const useHomeAgent = defineStore(
     const LOAD_BARE_REGEX = /^\/load\s*$/i
     const RESET_REGEX = /^\/reset(?:Config)?\s*$/i
 
-    const HELP_MESSAGE =
+    const helpMessage = () =>
       '🤖 <b>Available commands</b>\n\n' +
       '/imgGen\n' +
       'Open the image-generation picker. Tap a preset, then send your prompt as the next message.\n' +
@@ -426,6 +434,7 @@ export const useHomeAgent = defineStore(
       '/help\n' +
       'Show this help message.\n\n' +
       'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.\n\n' +
+      `💬 ${escapeHtml(answerRouterCopy().help)}\n\n` +
       '📷 <b>Photos</b>\n' +
       'Send a photo (with or without a caption) and the AI will answer based on what it sees. ' +
       'Requires a <b>vision-capable model</b> selected in Chat settings.\n\n' +
@@ -2259,7 +2268,7 @@ export const useHomeAgent = defineStore(
           try {
             if (HELP_REGEX.test(text)) {
               focusRemoteChatDiscussion()
-              await reply(adapter, HELP_MESSAGE, meta)
+              await reply(adapter, helpMessage(), meta)
             } else if (RESET_REGEX.test(text)) {
               resetHomeAgentConfig()
               await reply(adapter, '♻️ Home Agent settings restored to defaults.', meta)
@@ -2617,6 +2626,7 @@ export const useHomeAgent = defineStore(
       isRemoteTurnActive,
       handleRemoteModelDownload,
       resetHomeAgentConfig,
+      answerOnboardingSeen,
     }
   },
   {
@@ -2635,6 +2645,7 @@ export const useHomeAgent = defineStore(
         'autoNotify',
         'activeRemoteConversationKey',
         'summaryCache',
+        'answerOnboardingSeen',
       ],
     },
   },

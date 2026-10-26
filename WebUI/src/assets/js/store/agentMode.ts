@@ -59,7 +59,7 @@ import {
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
-import type { GameLibraryEntry } from '@/types/agentIpc'
+import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import {
   AGENT_PRESET,
@@ -835,6 +835,8 @@ export const useAgentMode = defineStore(
       settings?: AgentSessionSettings
       stored: boolean
       quietErrors?: boolean
+      /** Set for the one turn a channel Answer started. */
+      answer?: AgentAnswerOrigin
     }
     const turnContexts: Record<string, TurnContext> = {}
 
@@ -881,6 +883,7 @@ export const useAgentMode = defineStore(
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
+        answer: turnContexts[sessionId]?.answer,
       })
     }
 
@@ -904,6 +907,7 @@ export const useAgentMode = defineStore(
         textInference: stored.inference,
         cloudMode: stored.cloud,
         tools: stored.tools,
+        answer: context.answer,
       })
     }
 
@@ -1125,7 +1129,13 @@ export const useAgentMode = defineStore(
      */
     function settleTurn(sessionId: string): void {
       // Only an in-flight stored turn keeps the record's settings over the live controls.
-      if (turnContexts[sessionId]) turnContexts[sessionId].stored = false
+      // Only an in-flight stored turn keeps the record's settings over the live controls,
+      // and an Answer's reply rule holds for its one turn.
+      const ended = turnContexts[sessionId]
+      if (ended) {
+        ended.stored = false
+        delete ended.answer
+      }
       const stopped = stoppedByUser.delete(sessionId)
       const chat = turns.runtimeOf(sessionId)?.chat
       const failed = chat?.status === 'error'
@@ -1772,6 +1782,8 @@ export const useAgentMode = defineStore(
         settings?: AgentSessionSettings
         signal?: AbortSignal
         quietErrors?: boolean
+        /** A channel Answer: the turn's result is replied under it. */
+        answer?: AgentAnswerOrigin
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -1820,6 +1832,7 @@ export const useAgentMode = defineStore(
       }
       if (options.signal?.aborted) return refuseSend('aborted', 'The send was cancelled.')
       if (options.quietErrors) context.quietErrors = true
+      if (options.answer) context.answer = options.answer
       runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt })).catch((error) =>
         errors.report(error, {
           category: 'inference',

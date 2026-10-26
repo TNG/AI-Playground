@@ -128,7 +128,8 @@ const CONFIG: NotificationConfig = {
   },
 }
 
-let sent: Array<{ kind: ChannelKind; text: string }> = []
+type Sent = { kind: ChannelKind; text: string; replyTo?: string; media?: string }
+let sent: Sent[] = []
 let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
 let windowShown = true
@@ -179,7 +180,12 @@ beforeAll(async () => {
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannelSend(async (kind, message) => {
-    sent.push({ kind, text: message.text })
+    sent.push({
+      kind,
+      text: message.text,
+      replyTo: message.replyTo,
+      media: message.media && `${message.media.kind}:${message.media.filename}`,
+    })
     return { success: true, ref: `msg-${sent.length}` }
   })
   notifier.setNotificationWindowShown(() => windowShown)
@@ -231,8 +237,12 @@ function configFor(sessionId: string): AgentModeTurnConfig {
 }
 
 /** Runs a turn of `sessionId` up to its tool call, hands it to `whileWaiting`, then lets it end. */
-async function withWaitingTurn(sessionId: string, whileWaiting: () => Promise<void>) {
-  const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', configFor(sessionId))
+async function withWaitingTurn(
+  sessionId: string,
+  whileWaiting: () => Promise<void>,
+  config: AgentModeTurnConfig = configFor(sessionId),
+) {
+  const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', config)
   await vi.waitFor(() => expect(asks).toHaveLength(1))
   await whileWaiting()
   chatAsk.handleChatAnswer({
@@ -551,5 +561,114 @@ describe('a Background Session whose turn fails', () => {
     await run
     await settle()
     expect(sent).toEqual([])
+  }, 30000)
+})
+
+describe('the turn an Answer started', () => {
+  const ANSWER = { channel: 'telegram' as const, replyTo: 'answer-77' }
+  const answerTurn = (): AgentModeTurnConfig => ({ ...configFor(SESSION), answer: ANSWER })
+
+  it('replies under the Answer with the agent header and its final text', async () => {
+    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+    await settle()
+    expect(sent).toEqual([
+      { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
+    ])
+  }, 30000)
+
+  it('replies even with automatic Notifications off and the session in view', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, autoNotify: false, sessionInView: SESSION })
+    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+    await settle()
+    expect(sent.map((s) => s.replyTo)).toEqual(['answer-77'])
+  }, 30000)
+
+  it('replies on the channel the Answer came from', async () => {
+    await withWaitingTurn(SESSION, async () => {}, {
+      ...configFor(SESSION),
+      answer: { channel: 'slack', replyTo: '1700000000.0001' },
+    })
+    await settle()
+    expect(sent).toEqual([
+      {
+        kind: 'slack',
+        text: '🤖 Agent · "Morning news"\ndone',
+        replyTo: '1700000000.0001',
+      },
+    ])
+  }, 30000)
+
+  it('notifies a pause under the Answer although the session is in view', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
+    await settle()
+    expect(sent).toEqual([
+      { kind: 'telegram', text: QUESTION_TEXT, replyTo: 'answer-77' },
+      { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
+    ])
+  }, 30000)
+
+  it('notifies its failure under the Answer although the session is in view', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', answerTurn())
+    await settle()
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text:
+          '🤖 Agent · "Morning news"\n❌ "Morning news" failed: 400: model test-model was retired. ' +
+          'Open AI Playground for details.',
+        replyTo: 'answer-77',
+      },
+    ])
+  }, 30000)
+
+  it('records its reply, so replying to that is again an Answer to the session', async () => {
+    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+    await settle()
+    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBe(SESSION)
+  }, 30000)
+
+  it('leaves the next turn of the session to the normal Notification rules', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+    await settle()
+    sent = []
+    asks = []
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    await settle()
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(SESSION))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends the media the turn generated under the Answer too', async () => {
+    const config = answerTurn()
+    const generated = path.join(config.workspaceDir, 'generated')
+    fs.mkdirSync(generated, { recursive: true })
+    for (const file of ['cover.png', 'intro.mp4', 'ship.glb']) {
+      fs.writeFileSync(path.join(generated, file), 'bytes')
+    }
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      SESSION,
+      async () => {
+        media.noteGeneratedMedia(config.workspaceDir, [
+          'generated/cover.png',
+          'generated/intro.mp4',
+          'generated/ship.glb',
+        ])
+      },
+      config,
+    )
+    await settle()
+    const header = '🤖 Agent · "Morning news"'
+    expect(sent).toEqual([
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
+    ])
   }, 30000)
 })

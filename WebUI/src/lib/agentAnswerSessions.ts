@@ -40,6 +40,10 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
     lookup: async (kind, ref) =>
       (await window.electronAPI.notifications?.lookupMessage?.(kind, ref)) ?? null,
     label,
+    record: async (kind, ref, sessionId) => {
+      const result = await window.electronAPI.notifications.recordMessage(kind, ref, sessionId)
+      if (!result.success) throw new Error(result.error)
+    },
     send,
   })
 }

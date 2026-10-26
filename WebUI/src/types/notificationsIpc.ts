@@ -25,6 +25,10 @@ export type NotificationTemplates = {
   taskLabel: string
   /** The title of a session with no title. */
   untitled: string
+  /** Label of the 💬 Answer button under an answerable Notification. */
+  answerButton: string
+  /** Last line of a Notification from a session that cannot be answered remotely. */
+  answerOnComputer: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0003). */
@@ -33,5 +37,7 @@ export type NotificationConfig = NotificationRoute & {
   autoNotify: boolean
   /** The Agent Mode session open on screen; null while Agent Mode is not shown. */
   sessionInView: string | null
+  /** Sessions whose folder uses the real system shell; Answers to them are refused. */
+  realShellSessions: string[]
   templates: NotificationTemplates
 }

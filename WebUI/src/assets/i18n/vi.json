@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "Một lượt chạy tác tử",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 Trả lời",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "Hãy trả lời trên máy tính của bạn",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "Trả lời trong chuỗi để phản hồi.",
   "AGENT_NOTIFY_HEADER": "🤖 Tác tử · {title}",
   "AGENT_ANSWER_STARTING": "➡️ Đã gửi tới {title} — đang bắt đầu…",
   "AGENT_ANSWER_QUEUED": "➡️ Đã gửi tới {title} — đang chờ (vị trí {position})",

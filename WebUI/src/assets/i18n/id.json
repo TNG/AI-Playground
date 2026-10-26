@@ -662,6 +662,7 @@
   "AGENT_NOTIFY_UNTITLED": "Sebuah eksekusi agen",
   "AGENT_NOTIFY_ANSWER_BUTTON": "💬 Jawab",
   "AGENT_NOTIFY_ANSWER_ON_COMPUTER": "Jawab di komputer Anda",
+  "AGENT_NOTIFY_ANSWER_IN_THREAD": "Balas di utas untuk menjawab.",
   "AGENT_NOTIFY_HEADER": "🤖 Agen · {title}",
   "AGENT_ANSWER_STARTING": "➡️ Terkirim ke {title} — memulai…",
   "AGENT_ANSWER_QUEUED": "➡️ Terkirim ke {title} — dalam antrean (posisi {position})",

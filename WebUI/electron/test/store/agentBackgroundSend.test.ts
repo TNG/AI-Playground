@@ -334,6 +334,23 @@ describe('sending to a session that is not open', () => {
     expect(sent).toContain('step two')
   })
 
+  it('marks only the turn an Answer started with where the Answer came from', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+    const answer = { channel: 'telegram' as const, replyTo: '1300' }
+    await store.sendToSession(id, 'try again', { useStoredSettings: true, answer })
+    await turnIdOf(0)
+    expect(sentConfig(0).answer).toEqual(answer)
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+
+    await store.sendToSession(id, 'next step')
+    await turnIdOf(1)
+
+    expect(sentConfig(1).answer).toBeUndefined()
+  })
+
   it('refuses a session that already has a turn in flight', async () => {
     const store = await readyStore()
     const id = createTaskSession(store)

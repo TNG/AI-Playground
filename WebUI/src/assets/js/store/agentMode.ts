@@ -59,7 +59,7 @@ import {
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
-import type { GameLibraryEntry } from '@/types/agentIpc'
+import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { ChannelKind } from './channels/types'
 import {
@@ -839,6 +839,8 @@ export const useAgentMode = defineStore(
       settings?: AgentSessionSettings
       stored: boolean
       quietErrors?: boolean
+      /** Set for the one turn a channel Answer started. */
+      answer?: AgentAnswerOrigin
     }
     const turnContexts: Record<string, TurnContext> = {}
 
@@ -885,6 +887,7 @@ export const useAgentMode = defineStore(
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
+        answer: turnContexts[sessionId]?.answer,
       })
     }
 
@@ -908,6 +911,7 @@ export const useAgentMode = defineStore(
         textInference: stored.inference,
         cloudMode: stored.cloud,
         tools: stored.tools,
+        answer: context.answer,
       })
     }
 
@@ -1129,7 +1133,13 @@ export const useAgentMode = defineStore(
      */
     function settleTurn(sessionId: string): void {
       // Only an in-flight stored turn keeps the record's settings over the live controls.
-      if (turnContexts[sessionId]) turnContexts[sessionId].stored = false
+      // Only an in-flight stored turn keeps the record's settings over the live controls,
+      // and an Answer's reply rule holds for its one turn.
+      const ended = turnContexts[sessionId]
+      if (ended) {
+        ended.stored = false
+        delete ended.answer
+      }
       const stopped = stoppedByUser.delete(sessionId)
       const chat = turns.runtimeOf(sessionId)?.chat
       const failed = chat?.status === 'error'
@@ -1767,7 +1777,6 @@ export const useAgentMode = defineStore(
      * `settings` replaces the record's, which the panel rewrites while the session is open.
      * `signal` aborted before the hand-off refuses the send; once handed off, stop the session.
      * `quietErrors` is for a caller that records a failed turn itself instead of a toast.
-     * `origin` marks the prompt as an Answer from that channel.
      */
     async function sendToSession(
       sessionId: string,
@@ -1777,7 +1786,8 @@ export const useAgentMode = defineStore(
         settings?: AgentSessionSettings
         signal?: AbortSignal
         quietErrors?: boolean
-        origin?: ChannelKind
+        /** A channel Answer: the turn's result is replied under it. */
+        answer?: AgentAnswerOrigin
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -1826,8 +1836,9 @@ export const useAgentMode = defineStore(
       }
       if (options.signal?.aborted) return refuseSend('aborted', 'The send was cancelled.')
       if (options.quietErrors) context.quietErrors = true
-      const metadata: AgentMessageMetadata | undefined = options.origin
-        ? { origin: options.origin }
+      if (options.answer) context.answer = options.answer
+      const metadata: AgentMessageMetadata | undefined = options.answer
+        ? { origin: options.answer.channel }
         : undefined
       runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
         (error) =>

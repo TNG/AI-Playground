@@ -197,6 +197,15 @@ test.describe('Home Agent — local web chat', () => {
         })
       })
 
+      await test.step('A command typed while answering still goes to Home Agent', async () => {
+        const target = page.getByRole('status', { name: 'Answer target' })
+        const notification = agentMessages(page, NOTIFICATION_TEXT).first()
+        await notification.getByRole('button', { name: 'Answer' }).click()
+        await expect(target).toContainText('Replying to')
+        await sendAndAwaitText(page, '/help', 'To answer an agent', 60_000)
+        await expect(target).toBeVisible()
+      })
+
       await test.step('Answer it → the agent replies under the Answer', async () => {
         await answerAgentMessage(page, agentMessages(page, NOTIFICATION_TEXT).first(), ANSWER_TEXT)
         await expect(userMessages(page, ANSWER_TEXT)).toHaveCount(1)

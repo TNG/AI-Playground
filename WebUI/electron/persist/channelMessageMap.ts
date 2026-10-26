@@ -1,19 +1,27 @@
 import fs from 'node:fs/promises'
 import { z } from 'zod'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { ChannelMessageOwner } from '@/types/notificationsIpc'
 import { appLoggerInstance } from '../observability/logger'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 import { getChannelMessageMapDemoFile, getChannelMessageMapFile } from './userDataPaths.ts'
 
 /**
  * The kernel's channel message map: (channel kind, platform message reference) →
- * the agent session that sent it. An entry lives as long as its session; there is
- * no time-based expiry, so a days-old Notification can still be answered.
+ * the agent session that sent it. An entry routes to its session as long as that
+ * session lives; there is no time-based expiry, so a days-old Notification can still
+ * be answered. Deleting a session strips its id from its entries but keeps them, so a
+ * later Answer is told the session is gone instead of reaching Home Agent.
  */
 
 const LOG_SCOPE = 'channel-messages'
 
-const EntrySchema = z.object({ kind: z.string(), ref: z.string(), sessionId: z.string() })
+// A null session id marks a message of a session since deleted.
+const EntrySchema = z.object({
+  kind: z.string(),
+  ref: z.string(),
+  sessionId: z.string().nullable(),
+})
 const FileSchema = z.object({ schemaVersion: z.literal(1), entries: z.array(EntrySchema) })
 
 type Entry = z.infer<typeof EntrySchema>
@@ -66,17 +74,30 @@ export async function recordChannelMessage(
   })
 }
 
-/** The session that sent this message, or null when it was not an agent's. */
-export async function lookupChannelMessage(kind: ChannelKind, ref: string): Promise<string | null> {
+/** Who sent this message: a live session, a deleted one, or null when no agent did. */
+export async function channelMessageOwner(
+  kind: ChannelKind,
+  ref: string,
+): Promise<ChannelMessageOwner | null> {
   const entries = await readEntries()
-  return entries.find((e) => e.kind === kind && e.ref === ref)?.sessionId ?? null
+  const entry = entries.find((e) => e.kind === kind && e.ref === ref)
+  if (!entry) return null
+  return entry.sessionId ? { sessionId: entry.sessionId } : { deletedSession: true }
+}
+
+/** The live session that sent this message, or null. */
+export async function lookupChannelMessage(kind: ChannelKind, ref: string): Promise<string | null> {
+  const owner = await channelMessageOwner(kind, ref)
+  return owner && 'sessionId' in owner ? owner.sessionId : null
 }
 
 export async function forgetSessionMessages(sessionId: string): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
     const entries = await readEntries()
-    const remaining = entries.filter((e) => e.sessionId !== sessionId)
-    if (remaining.length !== entries.length) await writeEntries(remaining)
+    if (!entries.some((e) => e.sessionId === sessionId)) return
+    await writeEntries(
+      entries.map((e) => (e.sessionId === sessionId ? { ...e, sessionId: null } : e)),
+    )
   })
 }
 

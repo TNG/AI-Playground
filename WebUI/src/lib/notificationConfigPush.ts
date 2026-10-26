@@ -26,6 +26,9 @@ export function startNotificationConfigPush(): void {
       ...homeAgent.notificationRoute,
       autoNotify: homeAgent.autoNotify,
       sessionInView: agentMode.sessionInView,
+      realShellSessions: Object.values(agentMode.sessions)
+        .filter((session) => agentMode.isUnsandboxed(session.workspaceDir))
+        .map((session) => session.id),
       templates: {
         header: text.AGENT_NOTIFY_HEADER ?? '',
         paused: text.AGENT_NOTIFY_PAUSED ?? '',
@@ -40,6 +43,8 @@ export function startNotificationConfigPush(): void {
         sessionLabel: text.AGENT_NOTIFY_SESSION_LABEL ?? '',
         taskLabel: text.AGENT_NOTIFY_TASK_LABEL ?? '',
         untitled: text.AGENT_NOTIFY_UNTITLED ?? '',
+        answerButton: text.AGENT_NOTIFY_ANSWER_BUTTON ?? '',
+        answerOnComputer: text.AGENT_NOTIFY_ANSWER_ON_COMPUTER ?? '',
       },
     }
   })
@@ -63,6 +68,23 @@ export function startNotificationConfigPush(): void {
       starting: text.AGENT_ANSWER_STARTING ?? '',
       queued: text.AGENT_ANSWER_QUEUED ?? '',
       notSent: text.AGENT_ANSWER_NOT_SENT ?? '',
+      noSession: text.AGENT_ANSWER_NO_SESSION ?? '',
+      realShell: text.AGENT_ANSWER_REAL_SHELL ?? '',
+      fixOnDesktop: text.AGENT_ANSWER_FIX_ON_DESKTOP ?? '',
+      textOnly: text.AGENT_ANSWER_TEXT_ONLY ?? '',
+      noSpeech: text.AGENT_ANSWER_NO_SPEECH ?? '',
+      answerPrompt: text.AGENT_ANSWER_PROMPT ?? '',
+      answerPlaceholder: text.AGENT_ANSWER_PLACEHOLDER ?? '',
+      held: text.AGENT_ANSWER_HELD ?? '',
+      heldDownload: text.AGENT_ANSWER_HELD_DOWNLOAD ?? '',
+      heldDesktop: text.AGENT_ANSWER_HELD_DESKTOP ?? '',
+      heldReplaced: text.AGENT_ANSWER_HELD_REPLACED ?? '',
+      heldReplacedElsewhere: text.AGENT_ANSWER_HELD_REPLACED_ELSEWHERE ?? '',
+      heldDesktopTookOver: text.AGENT_ANSWER_HELD_DESKTOP_TOOK_OVER ?? '',
+      heldSessionGone: text.AGENT_ANSWER_HELD_SESSION_GONE ?? '',
+      heldAppClosed: text.AGENT_ANSWER_HELD_APP_CLOSED ?? '',
+      onboarding: text.AGENT_ANSWER_ONBOARDING ?? '',
+      help: text.AGENT_ANSWER_HELP ?? '',
     }
   })
   registerChannelQuestionTemplates(() => {

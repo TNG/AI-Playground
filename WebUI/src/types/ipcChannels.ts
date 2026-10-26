@@ -35,7 +35,7 @@ import type {
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type { SpeechSynthesisRequest } from './speechIpc'
-import type { NotificationConfig } from './notificationsIpc'
+import type { ChannelMessageOwner, NotificationConfig } from './notificationsIpc'
 import type {
   McpServerConfig,
   McpServerInfo,
@@ -529,7 +529,14 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [ChannelKind, string],
-    result: null as unknown as string | null,
+    result: null as unknown as ChannelMessageOwner | null,
+  },
+  /** Files a channel message the window sent (an Answer Prompt) under its session (kind, ref, session id). */
+  'notifications:recordMessage': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string, string],
+    result: null as unknown as IpcMutationResult,
   },
   /** The Home Agent state main's Notifier delivers through; pushed on every change. */
   'notifications:setConfig': {

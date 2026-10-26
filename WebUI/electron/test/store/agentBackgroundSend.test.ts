@@ -532,3 +532,51 @@ describe('how a turn settled', () => {
     expect(seen).toEqual([])
   })
 })
+
+describe('what decides a Held Answer', () => {
+  function recordHeldEnds(store: Awaited<ReturnType<typeof readyStore>>) {
+    const ends: Array<{ sessionId: string; end: string }> = []
+    store.onHeldAnswerSettled((sessionId, end) => ends.push({ sessionId, end }))
+    return ends
+  }
+
+  it('is the turn completing', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'go')
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'completed' }]))
+  })
+
+  it('is a stop on the desktop', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'go')
+    await turnIdOf(0)
+    await store.stopSession(id)
+    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'stopped' }]))
+  })
+
+  it('is the session being deleted, even though deleting stops its turn first', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'go')
+    await turnIdOf(0)
+    await store.deleteSession(id)
+    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'deleted' }]))
+  })
+
+  it('is a discard on the desktop, which clears the Held Answer shown', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    store.setHeldAnswer(id, { text: 'make it faster', channel: 'telegram' })
+    expect(store.heldAnswers[id]).toEqual({ text: 'make it faster', channel: 'telegram' })
+    store.discardHeldAnswer(id)
+    expect(ends).toEqual([{ sessionId: id, end: 'discarded' }])
+    expect(store.heldAnswers[id]).toBeUndefined()
+  })
+})

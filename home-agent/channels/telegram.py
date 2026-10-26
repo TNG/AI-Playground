@@ -34,10 +34,10 @@ _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 _MAX_DOC_BYTES = 25 * 1024 * 1024
 
 
-def inbound_text_item(message) -> QueueItem:
-    """The queue item for a typed message; a reply names the message it answers."""
-    item: QueueItem = {"text": message.text or "", "chat_id": str(message.chat_id)}
-    if message.message_id is not None:
+def inbound_item(message, text: str, **attachments) -> QueueItem:
+    """The queue item for an inbound message; a reply names the message it answers."""
+    item: QueueItem = {"text": text, "chat_id": str(message.chat_id), **attachments}
+    if getattr(message, "message_id", None) is not None:
         item["reply_target"] = str(message.message_id)
     replied = getattr(message, "reply_to_message", None)
     if replied is not None and replied.message_id is not None:
@@ -61,6 +61,21 @@ def _reply_parameters(payload: dict) -> dict:
         "reply_parameters": ReplyParameters(
             message_id=message_id, allow_sending_without_reply=True
         )
+    }
+
+
+def inbound_text_item(message) -> QueueItem:
+    """The queue item for a typed message."""
+    return inbound_item(message, message.text or "")
+
+
+def answer_callback_item(callback_query) -> QueueItem:
+    """The queue item for a 💬 Answer tap; the message it sits under names the session."""
+    tapped = callback_query.message
+    return {
+        "chat_id": str(tapped.chat_id),
+        "callback": callback_query.data or "",
+        "reply_to": str(tapped.message_id),
     }
 
 
@@ -170,11 +185,19 @@ class TelegramChannel(ChannelBase):
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
+            reply_markup = None
+            # An Answer Prompt: opens the keyboard already replying to this message.
+            if payload.get("force_reply"):
+                from telegram import ForceReply
+
+                placeholder = payload.get("input_field_placeholder") or None
+                reply_markup = ForceReply(input_field_placeholder=placeholder)
             msg = self._run_coro(
                 self._app_instance.bot.send_message(  # type: ignore[union-attr]
                     chat_id=target,
                     text=text,
                     parse_mode=parse_mode,
+                    reply_markup=reply_markup,
                     **_reply_parameters(payload),
                 )
             )
@@ -371,6 +394,7 @@ class TelegramChannel(ChannelBase):
                     text=text,
                     parse_mode=parse_mode,
                     reply_markup=markup,
+                    **_reply_parameters(payload),
                 )
             )
             # Return the message id so the renderer can edit the prompt in place
@@ -562,6 +586,27 @@ class TelegramChannel(ChannelBase):
             logger.info("Telegram confirm callback: chat_id=%s data=%r", chat_id, data)
             self.queue_append({"chat_id": chat_id, "callback": data})
 
+        async def handle_answer_callback(
+            update: Update, context: ContextTypes.DEFAULT_TYPE
+        ) -> None:
+            cq = update.callback_query
+            if cq is None or cq.message is None:
+                return
+            chat_id = str(cq.message.chat_id)
+            allow = self._allowed_chat_id
+            self._record_authorized_chat_id(chat_id)
+            try:
+                await cq.answer()
+            except Exception as exc:
+                logger.warning("Failed to ack answer callback_query: %s", exc)
+            if allow and chat_id != allow:
+                logger.warning(
+                    "Ignoring answer callback from unauthorized chat_id: %s", chat_id
+                )
+                return
+            logger.info("Telegram answer callback: chat_id=%s", chat_id)
+            self.queue_append(answer_callback_item(cq))
+
         async def handle_load_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
         ) -> None:
@@ -628,11 +673,11 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": text_payload,
-                    "chat_id": chat_id,
-                    "images": [{"mime": "image/jpeg", "data_base64": data_b64}],
-                }
+                inbound_item(
+                    update.message,
+                    text_payload,
+                    images=[{"mime": "image/jpeg", "data_base64": data_b64}],
+                )
             )
 
         async def handle_voice(
@@ -677,11 +722,11 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": caption,
-                    "chat_id": chat_id,
-                    "audio": [{"mime": mime, "data_base64": data_b64}],
-                }
+                inbound_item(
+                    update.message,
+                    caption,
+                    audio=[{"mime": mime, "data_base64": data_b64}],
+                )
             )
 
         async def handle_document(
@@ -743,13 +788,13 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": caption,
-                    "chat_id": chat_id,
-                    "documents": [
+                inbound_item(
+                    update.message,
+                    caption,
+                    documents=[
                         {"filename": filename, "mime": mime, "data_base64": data_b64}
                     ],
-                }
+                )
             )
 
         async def run() -> None:
@@ -792,6 +837,9 @@ class TelegramChannel(ChannelBase):
             )
             application.add_handler(
                 CallbackQueryHandler(handle_confirm_callback, pattern=r"^confirm:")
+            )
+            application.add_handler(
+                CallbackQueryHandler(handle_answer_callback, pattern=r"^answer$")
             )
             await application.initialize()
             await application.start()

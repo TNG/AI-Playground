@@ -86,12 +86,15 @@ export type AnswerRouterDeps = {
     audio: RemoteAudio[],
     meta?: InboundMeta,
   ) => Promise<string | null>
+  /** The channel an agent's download question is asked on, or null when only the computer asks. */
+  downloadQuestionChannel?: () => ChannelKind | null
   /** Persisted: whether the channel was already told how answering works. */
   onboarding?: { seen: () => boolean; markSeen: () => void }
   copy?: () => AnswerRouterCopy
   /** Defaults to memory only: a lost Held Answer then goes unreported after a restart. */
   journal?: HeldAnswerJournal
-  log?: (message: string, error: unknown) => void
+  /** Where failures that reach no channel go: the window's error sink. */
+  log: (message: string, error: unknown) => void
 }
 
 // Refusals the user can only clear on the computer, so the reply says where to go.
@@ -106,8 +109,9 @@ function clip(text: string, max: number): string {
 
 export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
-  const log = deps.log ?? ((message, error) => console.error(message, error))
+  const log = deps.log
   const journal = deps.journal ?? memoryJournal()
+  const downloadQuestionChannel = deps.downloadQuestionChannel ?? (() => null)
 
   type Held = {
     adapter: ChannelAdapter
@@ -119,6 +123,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   }
   // One per session: a newer Answer replaces the one waiting.
   const held = new Map<string, Held>()
+  // First sends still awaiting their result, flagged when the session's turn ends meanwhile.
+  const sending = new Map<string, { turnEnded: boolean }>()
   // Notes from the previous run, reported once their channel is up again.
   let lost = readJournal()
   let unsubscribe: (() => void) | null = null
@@ -172,7 +178,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const pause = entry.sessions.pause(sessionId)
     const template =
       pause === 'download'
-        ? wording.heldDownload
+        ? downloadHoldTemplate(entry.adapter.kind, wording)
         : pause === 'desktop'
           ? wording.heldDesktop
           : wording.held
@@ -186,7 +192,15 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     await tell(entry.adapter, confirmation, entry.meta)
   }
 
+  function downloadHoldTemplate(kind: ChannelKind, wording: AnswerRouterCopy): string {
+    const askedOn = downloadQuestionChannel()
+    if (askedOn === kind) return wording.heldDownload
+    return askedOn ? wording.heldDownloadElsewhere : wording.heldDesktop
+  }
+
   async function settle(sessionId: string, end: SessionTurnEnd): Promise<void> {
+    const attempt = sending.get(sessionId)
+    if (attempt) attempt.turnEnded = true
     const entry = held.get(sessionId)
     if (!entry) return
     if (end === 'completed' || end === 'failed') {
@@ -241,6 +255,28 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
+  /** A refusal answered after the turn already ended is retried, since no later end would free it. */
+  async function firstSend(
+    sessions: AnswerSessions,
+    sessionId: string,
+    text: string,
+    origin: AgentAnswerOrigin,
+  ): Promise<AnswerSendResult> {
+    listen(sessions)
+    const attempt = { turnEnded: false }
+    sending.set(sessionId, attempt)
+    try {
+      let result: AnswerSendResult
+      do {
+        attempt.turnEnded = false
+        result = await send(sessions, sessionId, text, origin)
+      } while (!result.ok && isHold(result.reason) && attempt.turnEnded)
+      return result
+    } finally {
+      if (sending.get(sessionId) === attempt) sending.delete(sessionId)
+    }
+  }
+
   async function answeredSession(
     sessions: AnswerSessions,
     kind: ChannelKind,
@@ -254,9 +290,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
+  // A post, not a reply: a reply would settle a Home Agent answer still streaming.
   async function tell(adapter: ChannelAdapter, text: string, meta?: InboundMeta): Promise<void> {
     await adapter
-      .reply(adapter.formatMarkdown(text), meta)
+      .post(adapter.formatMarkdown(text), meta)
       .catch((e: unknown) => log('answerRouter: confirmation failed:', e))
   }
 
@@ -277,7 +314,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (held.has(sessionId)) {
       await hold(entry, sessionId)
     } else {
-      const result = await send(sessions, sessionId, text, origin)
+      const result = await firstSend(sessions, sessionId, text, origin)
       if (!result.ok && isHold(result.reason)) await hold(entry, sessionId)
       else await confirm(adapter, entry.title, result, meta)
     }
@@ -361,7 +398,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (sessions && msg.replyTo) {
       const owner = await answeredSession(sessions, adapter.kind, msg.replyTo)
       if (owner) {
-        await deliver(adapter, sessions, owner, msg, meta)
+        const answerMeta = msg.replyTarget ? { ...meta, threadTs: msg.replyTarget } : meta
+        await deliver(adapter, sessions, owner, msg, answerMeta)
         return true
       }
     }

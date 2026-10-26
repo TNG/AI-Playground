@@ -104,6 +104,12 @@ export type UnseenTurn = 'done' | 'failed'
 export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
+/** An Answer from a channel waiting for its session's turn to end. */
+export type HeldAnswer = { text: string; channel: string }
+
+/** What decides a Held Answer: how the turn ended, or what the desktop did to the session. */
+export type HeldAnswerEnd = 'completed' | 'failed' | 'stopped' | 'deleted' | 'discarded'
+
 /** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
 export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
 
@@ -1143,6 +1149,44 @@ export const useAgentMode = defineStore(
           ? { kind: 'error', message: extractMessage(chat?.error) }
           : { kind: 'completed' }
       for (const listener of [...turnSettledListeners]) listener(sessionId, outcome)
+      // After the Tasks store has heard it, so a finished run no longer holds the session.
+      if (!deletingSessions.has(sessionId)) {
+        settleHeldAnswer(
+          sessionId,
+          outcome.kind === 'completed'
+            ? 'completed'
+            : outcome.kind === 'error'
+              ? 'failed'
+              : 'stopped',
+        )
+      }
+    }
+
+    const heldAnswers = ref<Record<string, HeldAnswer>>({})
+    type HeldAnswerListener = (sessionId: string, end: HeldAnswerEnd) => void
+    const heldAnswerListeners = new Set<HeldAnswerListener>()
+    const deletingSessions = new Set<string>()
+
+    /** The Answer router keeps the Held Answer; the store only shows it. */
+    function setHeldAnswer(sessionId: string, answer: HeldAnswer | null): void {
+      const { [sessionId]: _previous, ...rest } = heldAnswers.value
+      heldAnswers.value = answer ? { ...rest, [sessionId]: answer } : rest
+    }
+
+    function discardHeldAnswer(sessionId: string): void {
+      if (!heldAnswers.value[sessionId]) return
+      setHeldAnswer(sessionId, null)
+      settleHeldAnswer(sessionId, 'discarded')
+    }
+
+    function settleHeldAnswer(sessionId: string, end: HeldAnswerEnd): void {
+      for (const listener of [...heldAnswerListeners]) listener(sessionId, end)
+    }
+
+    /** Hear what decides each session's Held Answer; returns the unsubscribe. */
+    function onHeldAnswerSettled(listener: HeldAnswerListener): () => void {
+      heldAnswerListeners.add(listener)
+      return () => heldAnswerListeners.delete(listener)
     }
 
     type TurnSettledListener = (sessionId: string, outcome: TurnOutcome) => void
@@ -1432,12 +1476,24 @@ export const useAgentMode = defineStore(
     }
 
     async function deleteSession(id: string): Promise<void> {
+      // The stop below is the delete's, not the desktop taking over a Held Answer.
+      deletingSessions.add(id)
+      try {
+        await removeSession(id)
+      } finally {
+        deletingSessions.delete(id)
+      }
+    }
+
+    async function removeSession(id: string): Promise<void> {
       // Stop first so Pi teardown in the same IPC is not racing a live turn,
       // then wait for the kernel: dropping the row before that would make a
       // failed delete vanish from the panel and come back on the next boot.
-      if (id === openSessionId.value || turns.runtimeOf(id)?.hasTurn()) await stopSession(id)
+      const stopping = id === openSessionId.value || turns.runtimeOf(id)?.hasTurn()
+      if (stopping) await stopSession(id)
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
+        if (stopping) settleHeldAnswer(id, 'stopped')
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
           category: 'unknown',
           code: 'agent/delete-session-failed',
@@ -1460,6 +1516,7 @@ export const useAgentMode = defineStore(
       } else {
         turns.release(id)
       }
+      settleHeldAnswer(id, 'deleted')
     }
 
     async function adoptWorkspace(dir: string): Promise<void> {
@@ -1894,6 +1951,10 @@ export const useAgentMode = defineStore(
       setTaskLockLookup,
       quietSessionErrors,
       onTurnSettled,
+      heldAnswers,
+      setHeldAnswer,
+      discardHeldAnswer,
+      onHeldAnswerSettled,
       stopSession,
       stop,
       newSession,

@@ -153,6 +153,36 @@
         >
       </div>
 
+      <div
+        v-if="entry.kind === 'agent' && entry.heldAnswer"
+        class="flex items-center gap-1 min-w-0 text-xs text-muted-foreground"
+      >
+        <span role="status" class="inline-flex items-center gap-1 min-w-0">
+          <ChatBubbleLeftEllipsisIcon class="size-3.5 flex-none" aria-hidden="true" />
+          <span class="truncate">{{
+            withChannel(languages.AGENT_HELD_ANSWER_WAITING, entry.heldAnswer.channel)
+          }}</span>
+        </span>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-5 w-5 flex-none"
+              :aria-label="
+                withChannel(languages.AGENT_HELD_ANSWER_DISCARD_HINT, entry.heldAnswer.channel)
+              "
+              @click.stop="emit('discardHeldAnswer')"
+            >
+              <XMarkIcon class="size-3.5" aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent class="max-w-xs">{{
+            withChannel(languages.AGENT_HELD_ANSWER_DISCARD_HINT, entry.heldAnswer.channel)
+          }}</TooltipContent>
+        </Tooltip>
+      </div>
+
       <ThumbnailPreviewStrip v-if="entry.kind !== 'media'" :items="thumbnails" />
     </div>
 
@@ -234,10 +264,12 @@
 import { computed, ref, watchEffect } from 'vue'
 import {
   ArrowDownTrayIcon,
+  ChatBubbleLeftEllipsisIcon,
   ClipboardDocumentListIcon,
   ClockIcon,
   HandRaisedIcon,
   PuzzlePieceIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -286,6 +318,9 @@ import type { TaskRef } from '@/assets/js/store/historySessions'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
 import { useI18N } from '@/assets/js/store/i18n'
+import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
+import { fillTemplate } from '@/lib/notificationLabel'
 import { checkIfNsfwBlocked, mapModeToLabel } from '@/lib/utils'
 
 const props = defineProps<{
@@ -300,7 +335,12 @@ const emit = defineEmits<{
   delete: []
   rename: [title: string]
   filterByTask: [taskId: string]
+  discardHeldAnswer: []
 }>()
+
+function withChannel(template: string, channel: ChannelKind): string {
+  return fillTemplate(template, { channel: getDescriptor(channel)?.displayName ?? channel })
+}
 
 const presetsStore = usePresets()
 const oemBranding = useOemBranding()

@@ -4,9 +4,10 @@ import type {
   NotificationsSendName,
   SendHandlerMap,
 } from '../ipcRegistries'
-import { ipcFail } from '../typedIpc'
+import { ipcErrorText, ipcFail } from '../typedIpc'
 import type { setNotificationConfig } from '../../agent/notifier'
 import type { channelMessageOwner, recordChannelMessage } from '../../persist/channelMessageMap'
+import type { appLoggerInstance } from '../../observability/logger'
 
 export type NotificationsDeps = {
   setNotificationConfig: typeof setNotificationConfig
@@ -15,6 +16,7 @@ export type NotificationsDeps = {
 export type NotificationsInvokeDeps = {
   channelMessageOwner: typeof channelMessageOwner
   recordChannelMessage: typeof recordChannelMessage
+  appLogger: typeof appLoggerInstance
 }
 
 export function buildNotificationsSendRegistry(deps: NotificationsDeps) {
@@ -27,7 +29,10 @@ export function buildNotificationsRegistry(deps: NotificationsInvokeDeps) {
   return {
     'notifications:lookupMessage': async (_event, kind, ref) => {
       if (typeof ref !== 'string' || !ref) return null
-      return deps.channelMessageOwner(kind, ref).catch(() => null)
+      return deps.channelMessageOwner(kind, ref).catch((e) => {
+        deps.appLogger.warn(`channel message lookup failed: ${ipcErrorText(e)}`, 'notifications')
+        return null
+      })
     },
     'notifications:recordMessage': async (_event, kind, ref, sessionId) => {
       try {

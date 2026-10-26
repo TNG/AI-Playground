@@ -3,7 +3,11 @@
 // means extending `ChannelKind` and adding the matching `ChannelConfig` variant
 // here, then implementing the renderer adapter + python channel module.
 
-export type ChannelKind = 'telegram' | 'slack' | 'discord' | 'local-web'
+import z from 'zod'
+
+export const ChannelKindSchema = z.enum(['telegram', 'slack', 'discord', 'local-web'])
+
+export type ChannelKind = z.infer<typeof ChannelKindSchema>
 
 /** Persistent per-channel config. Each variant is keyed by `kind` so the
  *  generic IPC dispatcher can route to the right `safeStorage` blob without

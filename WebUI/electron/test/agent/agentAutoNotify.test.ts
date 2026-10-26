@@ -468,15 +468,16 @@ describe('a sent Notification', () => {
   it('is recorded under its channel and message, so a reply to it finds the session', async () => {
     await failingTurn()
     expect(sent).toHaveLength(1)
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBe(SESSION)
-    expect(await messageMap.lookupChannelMessage('slack', 'msg-1')).toBeNull()
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-2')).toBeNull()
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      sessionId: SESSION,
+    })
+    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toBeNull()
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-2')).toBeNull()
   }, 30000)
 
   it('is forgotten when its session is deleted, but still known as a deleted session’s', async () => {
     await failingTurn()
     await messageMap.forgetSessionMessages(SESSION)
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBeNull()
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
       deletedSession: true,
     })
@@ -597,7 +598,7 @@ describe('the turn an Answer started', () => {
         replyTo: '1700000000.0001',
       },
     ])
-    expect(await messageMap.lookupChannelMessage('slack', 'msg-1')).toBe(SESSION)
+    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toEqual({ sessionId: SESSION })
   }, 30000)
 
   it('notifies a pause under the Answer although the session is in view', async () => {
@@ -629,7 +630,9 @@ describe('the turn an Answer started', () => {
   it('records its reply, so replying to that is again an Answer to the session', async () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBe(SESSION)
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      sessionId: SESSION,
+    })
   }, 30000)
 
   it('leaves the next turn of the session to the normal Notification rules', async () => {

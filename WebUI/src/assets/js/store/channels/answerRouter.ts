@@ -59,6 +59,8 @@ export type InboundChannelMessage = InboundAnswer & {
   images?: RemoteImage[]
   audio?: RemoteAudio[]
   documents?: RemoteDocument[]
+  /** The channel's notice for a file it refused to read; still an attachment, so not an Answer. */
+  refused?: string
 }
 
 export type AnswerRouter = {
@@ -332,7 +334,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     meta?: InboundMeta,
   ): Promise<void> {
     if ('deletedSession' in owner) return tell(adapter, copy().noSession, meta)
-    if (msg.images?.length || msg.documents?.length) {
+    if (msg.images?.length || msg.documents?.length || msg.refused) {
       return tell(adapter, copy().textOnly, meta)
     }
     const { sessionId } = owner

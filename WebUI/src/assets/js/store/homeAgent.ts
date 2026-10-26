@@ -2396,6 +2396,10 @@ export const useHomeAgent = defineStore(
             ))
           )
             continue
+          if (msg.refused) {
+            if (adapter) await reply(adapter, escapeHtml(msg.refused), meta)
+            continue
+          }
           if (queue.length >= MAX_QUEUE_SIZE) {
             toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
             queue.shift()

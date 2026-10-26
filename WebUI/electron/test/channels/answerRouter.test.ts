@@ -425,6 +425,10 @@ describe('answer router', () => {
           documents: [{ filename: 'level.txt', mime: 'text/plain', data_base64: 'AAAA' }],
         },
       ],
+      [
+        'file the channel refused to read',
+        { text: 'the level data', refused: 'Unsupported document type.' },
+      ],
     ])('refuses a %s sent as an Answer and sends nothing', async (_kind, attachment) => {
       const { router, received } = setup()
       const ch = fakeChannel()

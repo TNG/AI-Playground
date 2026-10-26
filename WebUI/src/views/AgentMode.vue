@@ -243,8 +243,8 @@ function originOf(message: UIMessage): ChannelKind | undefined {
   return (message.metadata as AgentMessageMetadata | undefined)?.origin
 }
 
-function withChannel(template: string, channel: string): string {
-  const name = getDescriptor(channel as ChannelKind)?.displayName ?? channel
+function withChannel(template: string, channel: ChannelKind): string {
+  const name = getDescriptor(channel)?.displayName ?? channel
   return fillTemplate(template, { channel: name })
 }
 

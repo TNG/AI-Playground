@@ -35,6 +35,8 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
 const BACKEND = 'http://fake-llm.test/v1'
 
 let modelRetired = false
+/** What the model answers once its tool has run. */
+let finalText = 'done'
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -74,7 +76,7 @@ function reply(body: { messages?: Array<{ role: string }> }): Response {
         }),
         completion({}, 'tool_calls'),
       ]
-    : [completion({ role: 'assistant', content: 'done' }), completion({}, 'stop')]
+    : [completion({ role: 'assistant', content: finalText }), completion({}, 'stop')]
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(frame(chunk))
@@ -111,7 +113,7 @@ const CONFIG: NotificationConfig = {
   realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
-    paused: '⏸ {title} is waiting for you: {reason}. Open AI Playground to continue.',
+    paused: '⏸ Waiting for you: {reason}. Open AI Playground to continue.',
     pauseReason: '{kind} ({summary})',
     pauseKinds: {
       download: 'a model download',
@@ -119,7 +121,7 @@ const CONFIG: NotificationConfig = {
       confirmation: 'a confirmation',
       question: 'a question',
     },
-    failed: '❌ {title} failed: {error}. Open AI Playground for details.',
+    failed: '❌ Failed: {error}. Open AI Playground for details.',
     sessionLabel: '"{title}"',
     taskLabel: '"{task}" (step {step}/{steps})',
     untitled: 'An agent run',
@@ -211,6 +213,7 @@ beforeEach(() => {
   prompts = []
   windowShown = true
   modelRetired = false
+  finalText = 'done'
   fs.rmSync(tasksFile, { force: true })
   fs.rmSync(messageMapFile, { force: true })
   notifier.setNotificationConfig(CONFIG)
@@ -283,7 +286,7 @@ async function pauseForQuestion(): Promise<void> {
 }
 
 const QUESTION_TEXT =
-  '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
+  '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
 
 describe('a Background Session pausing for the user', () => {
@@ -339,10 +342,10 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser(SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
-      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a confirmation (Continue in Game Agent?). ' +
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
         'Open AI Playground to continue.',
-      '🤖 Agent · "Morning news"\n⏸ "Morning news" is waiting for you: a question (Which colour?). ' +
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -354,7 +357,7 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser('aipg-agent-fresh', false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "An agent run"\n⏸ "An agent run" is waiting for you: a question (Which colour?). ' +
+      '🤖 Agent · "An agent run"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -420,7 +423,7 @@ describe('a Task run', () => {
       userWait.setAwaitingUser(TASK_SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ "Daily digest" (step 2/3) is waiting for you: a question (Which source?). ' +
+      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
         'Open AI Playground to continue.',
     ])
   }, 30000)
@@ -431,7 +434,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 3/3)\n❌ "Daily digest" (step 3/3) failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.',
     ])
   }, 30000)
@@ -442,7 +445,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest"\n❌ "Daily digest" failed: 400: model test-model was retired. Open AI Playground for details.',
+      '🤖 Agent · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.',
     ])
   }, 30000)
 
@@ -452,7 +455,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Fetch the headlines"\n❌ "Fetch the headlines" failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Fetch the headlines"\n❌ Failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.',
     ])
   }, 30000)
@@ -468,15 +471,16 @@ describe('a sent Notification', () => {
   it('is recorded under its channel and message, so a reply to it finds the session', async () => {
     await failingTurn()
     expect(sent).toHaveLength(1)
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBe(SESSION)
-    expect(await messageMap.lookupChannelMessage('slack', 'msg-1')).toBeNull()
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-2')).toBeNull()
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      sessionId: SESSION,
+    })
+    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toBeNull()
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-2')).toBeNull()
   }, 30000)
 
   it('is forgotten when its session is deleted, but still known as a deleted session’s', async () => {
     await failingTurn()
     await messageMap.forgetSessionMessages(SESSION)
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBeNull()
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
       deletedSession: true,
     })
@@ -486,7 +490,7 @@ describe('a sent Notification', () => {
 
 describe('a Background Session whose turn fails', () => {
   const FAILED_TEXT =
-    '🤖 Agent · "Morning news"\n❌ "Morning news" failed: 400: model test-model was retired. Open AI Playground for details.'
+    '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.'
 
   async function failingTurn(): Promise<void> {
     modelRetired = true
@@ -597,7 +601,7 @@ describe('the turn an Answer started', () => {
         replyTo: '1700000000.0001',
       },
     ])
-    expect(await messageMap.lookupChannelMessage('slack', 'msg-1')).toBe(SESSION)
+    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toEqual({ sessionId: SESSION })
   }, 30000)
 
   it('notifies a pause under the Answer although the session is in view', async () => {
@@ -619,17 +623,32 @@ describe('the turn an Answer started', () => {
       {
         kind: 'telegram',
         text:
-          '🤖 Agent · "Morning news"\n❌ "Morning news" failed: 400: model test-model was retired. ' +
+          '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
           'Open AI Playground for details.',
         replyTo: 'answer-77',
       },
     ])
   }, 30000)
 
+  it('sends no text when the turn wrote none, not an earlier turn’s reply', async () => {
+    const config = configFor(SESSION)
+    await withWaitingTurn(SESSION, async () => {}, config)
+    await settle()
+    expect(sent).toEqual([])
+    finalText = ''
+    expect(
+      await manager.startAgentTurn(crypto.randomUUID(), 'and now?', { ...config, answer: ANSWER }),
+    ).toEqual({ success: true })
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
   it('records its reply, so replying to that is again an Answer to the session', async () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
-    expect(await messageMap.lookupChannelMessage('telegram', 'msg-1')).toBe(SESSION)
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      sessionId: SESSION,
+    })
   }, 30000)
 
   it('leaves the next turn of the session to the normal Notification rules', async () => {

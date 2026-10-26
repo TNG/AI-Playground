@@ -1283,6 +1283,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
   wireAgentTasks(settings)
+  wireChannelMessageMap(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
@@ -1341,6 +1342,10 @@ function wireAgentWorkspace(settings: LocalSettings): void {
 function wireAgentTasks(settings: LocalSettings): void {
   setAgentTaskFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentTasks()
+}
+
+/** Same demo discipline for the map of channel messages agents sent. */
+function wireChannelMessageMap(settings: LocalSettings): void {
   setChannelMessageMapDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoChannelMessageMap()
 }
@@ -1738,7 +1743,13 @@ function initEventHandle() {
 
   registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
   registerSendHandlers(buildNotificationsSendRegistry({ setNotificationConfig }))
-  registerInvokeHandlers(buildNotificationsRegistry({ channelMessageOwner, recordChannelMessage }))
+  registerInvokeHandlers(
+    buildNotificationsRegistry({
+      channelMessageOwner,
+      recordChannelMessage,
+      appLogger: appLoggerInstance,
+    }),
+  )
   setNotificationWindowShown(
     () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
   )
@@ -1807,6 +1818,7 @@ function initEventHandle() {
       saveAgentTask,
       deleteAgentTask,
       forgetSessionMessages,
+      appLogger: appLoggerInstance,
     }),
   )
 

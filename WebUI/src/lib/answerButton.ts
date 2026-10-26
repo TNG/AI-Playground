@@ -3,8 +3,8 @@ import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/typ
 /** The callback of the 💬 Answer button; the tapped message itself names the session. */
 export const ANSWER_CALLBACK = 'answer'
 
-/** Channels that can show the button and open an Answer Prompt when it is tapped. */
-const ANSWER_BUTTON_CHANNELS: readonly ChannelKind[] = ['telegram']
+/** Channels whose agent messages carry the button: Telegram opens an Answer Prompt, LAN chat a composer chip. */
+const ANSWER_BUTTON_CHANNELS: readonly ChannelKind[] = ['telegram', 'local-web']
 
 /** Channels where replying in a message's thread is the Answer, so they need no button. */
 const THREAD_ANSWER_CHANNELS: readonly ChannelKind[] = ['slack']

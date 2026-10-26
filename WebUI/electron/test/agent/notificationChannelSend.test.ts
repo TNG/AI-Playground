@@ -35,6 +35,44 @@ describe('a Notification handed to the Home Agent channel', () => {
     expect(calls[0].payload).toEqual({ text: 'done', ...target })
   })
 
+  it('posts to LAN chat rather than replying, so it never takes over a streaming Home Agent answer', async () => {
+    const { send, calls } = recorder()
+    expect(await send('local-web', { text: 'done' })).toEqual({ success: true, ref: '41' })
+    expect(calls).toEqual([{ kind: 'local-web', action: 'post', payload: { text: 'done' } }])
+  })
+
+  it('names the session an Answer button answers for LAN chat, whose page shows it in the composer', async () => {
+    const { send, calls } = recorder()
+    const message = {
+      text: 'done',
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      answerTitle: '"Asteroids clone"',
+    }
+    await send('local-web', message)
+    await send('telegram', message)
+    expect(calls.map((call) => call.payload.answer_title)).toEqual(['"Asteroids clone"', undefined])
+  })
+
+  it('sends a message with buttons as a keyboard, still under the message it answers', async () => {
+    const { send, calls } = recorder()
+    await send('telegram', {
+      text: 'done',
+      replyTo: '77',
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+    })
+    expect(calls).toEqual([
+      {
+        kind: 'telegram',
+        action: 'keyboard',
+        payload: {
+          text: 'done',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          reply_to_message_id: '77',
+        },
+      },
+    ])
+  })
+
   it('sends media as a photo or video captioned with the text', async () => {
     const { send, calls } = recorder()
     await send('telegram', {

@@ -3,7 +3,7 @@ import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 import { sendNotification } from '../notifier.ts'
 import { jsonSchemaParameters, textResult } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
-import type { AgentCapability } from './types.ts'
+import type { AgentCapability, CapabilityHost } from './types.ts'
 
 export const NOTIFY_USER_TOOL = 'notify_user'
 
@@ -16,7 +16,7 @@ const NOTIFY_SCHEMA: Record<string, unknown> = {
   required: ['message'],
 }
 
-async function buildNotifyTools(): Promise<ToolDefinition[]> {
+async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]> {
   const pi = await loadPi()
   return [
     pi.defineTool({
@@ -36,7 +36,7 @@ async function buildNotifyTools(): Promise<ToolDefinition[]> {
       parameters: jsonSchemaParameters(NOTIFY_SCHEMA),
       execute: async (_toolCallId, params) => {
         const { message } = params as { message: string }
-        const delivery = await sendNotification(message)
+        const delivery = await sendNotification(message, { sessionId: host.sessionId })
         return textResult(delivery.delivered ? 'delivered' : `not delivered: ${delivery.reason}`)
       },
     }) as ToolDefinition,

@@ -25,6 +25,7 @@ import type {
   writeAgentWorkspaceState,
 } from '../../persist/workspaceStateFiles'
 import type { deleteAgentTask, readAgentTasks, saveAgentTask } from '../../persist/agentTaskFiles'
+import type { forgetSessionMessages } from '../../persist/channelMessageMap'
 
 /** The Pi manager, session-record, workspace-state and Tasks seams the agentMode handlers close over. */
 export type AgentModeDeps = {
@@ -47,6 +48,7 @@ export type AgentModeDeps = {
   readAgentTasks: typeof readAgentTasks
   saveAgentTask: typeof saveAgentTask
   deleteAgentTask: typeof deleteAgentTask
+  forgetSessionMessages: typeof forgetSessionMessages
 }
 
 export function buildAgentModeRegistry(deps: AgentModeDeps) {
@@ -160,6 +162,7 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         if (typeof sessionId !== 'string') throw new Error('session id must be a string')
         const record = await deps.deleteAgentSessionRecord(sessionId)
         const live = await deps.deleteAgentSession(sessionId)
+        await deps.forgetSessionMessages(sessionId).catch(() => {})
         if (!record.success) return record
         return live
       } catch (e) {

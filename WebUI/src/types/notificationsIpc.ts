@@ -10,6 +10,8 @@ export type NotificationRoute = {
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {
+  /** First line of every agent's Notification: `{title}` (a label) */
+  header: string
   /** `{title}` (a label), `{reason}` */
   paused: string
   /** `{kind}`, `{summary}` */

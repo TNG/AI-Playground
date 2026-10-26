@@ -62,6 +62,8 @@ import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
+import { createAnswerRouter } from './channels/answerRouter'
+import { answerSessions } from './channels/answerSessionsPort'
 import {
   closeDownloadMessages,
   postDownloadMessage,
@@ -255,6 +257,11 @@ export const useHomeAgent = defineStore(
 
     const channelQuestions = createChannelQuestionRegistry({
       staleReply: () => channelQuestionTemplates().stale,
+    })
+
+    const answerRouter = createAnswerRouter({
+      sessions: answerSessions,
+      questions: channelQuestions,
     })
 
     /** Visibility flag for the dedicated Home Agent inference settings panel. */
@@ -2365,7 +2372,11 @@ export const useHomeAgent = defineStore(
               ? { channel: msg.channel, ts: msg.ts, chatId: msg.chat_id }
               : undefined
           // Answered here, not in the drain loop, which is blocked awaiting this very answer.
-          if (adapter && channelQuestions.handleInbound(adapter, msg, meta)) continue
+          if (
+            adapter &&
+            (await answerRouter.route(adapter, { ...msg, replyTo: msg.reply_to }, meta))
+          )
+            continue
           if (queue.length >= MAX_QUEUE_SIZE) {
             toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
             queue.shift()

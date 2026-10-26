@@ -1,5 +1,6 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/notificationLabel'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelMessageOwner } from '@/types/notificationsIpc'
 import { ANSWER_CALLBACK } from '@/lib/answerButton'
 import type { ChannelAdapter } from './adapter'
@@ -38,8 +39,8 @@ export type AnswerSessions = {
   usesRealShell: (sessionId: string) => boolean
   /** Remembers that a message sent on `kind` belongs to the session, so a reply to it is an Answer. */
   record: (kind: ChannelKind, ref: string, sessionId: string) => Promise<void>
-  /** `origin` is the channel the Answer came on, shown with it on the desktop. */
-  send: (sessionId: string, text: string, origin: ChannelKind) => Promise<AnswerSendResult>
+  /** `origin` is where the Answer came from; the turn's result is replied under it. */
+  send: (sessionId: string, text: string, origin: AgentAnswerOrigin) => Promise<AnswerSendResult>
   /** What the session's paused turn waits on, or null when it is not paused. */
   pause: (sessionId: string) => SessionPause | null
   /** The session's Held Answer changed; null when it is gone. */
@@ -48,9 +49,13 @@ export type AnswerSessions = {
   onTurnEnd: (listener: (sessionId: string, end: SessionTurnEnd) => void) => () => void
 }
 
-/** An inbound channel message; `replyTo` is the platform id of the message it replies to. */
+/**
+ * An inbound channel message: `replyTo` is the platform id of the message it replies
+ * to, `replyTarget` the ref a reply to this message names.
+ */
 export type InboundChannelMessage = InboundAnswer & {
   replyTo?: string
+  replyTarget?: string
   images?: RemoteImage[]
   audio?: RemoteAudio[]
   documents?: RemoteDocument[]
@@ -108,6 +113,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     adapter: ChannelAdapter
     sessions: AnswerSessions
     text: string
+    origin: AgentAnswerOrigin
     title: string
     meta?: InboundMeta
   }
@@ -195,7 +201,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   /** Sends a Held Answer; still busy (a Task run between two Steps) keeps it held. */
   async function deliverHeld(entry: Held, sessionId: string): Promise<void> {
-    const result = await send(entry.sessions, sessionId, entry.text, entry.adapter.kind)
+    const result = await send(entry.sessions, sessionId, entry.text, entry.origin)
     if (!result.ok && isHold(result.reason)) return
     if (held.get(sessionId) === entry) setHeld(sessionId, null)
     await confirm(entry.adapter, entry.title, result, entry.meta)
@@ -205,7 +211,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: AnswerSessions,
     sessionId: string,
     text: string,
-    origin: ChannelKind,
+    origin: AgentAnswerOrigin,
   ): Promise<AnswerSendResult> {
     try {
       return await sessions.send(sessionId, text, origin)
@@ -259,14 +265,19 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: AnswerSessions,
     sessionId: string,
     text: string,
+    replyTarget: string | undefined,
     meta?: InboundMeta,
   ): Promise<void> {
-    const entry: Held = { adapter, sessions, text, title: sessions.label(sessionId), meta }
+    const origin: AgentAnswerOrigin = {
+      channel: adapter.kind,
+      ...(replyTarget ? { replyTo: replyTarget } : {}),
+    }
+    const entry: Held = { adapter, sessions, text, origin, title: sessions.label(sessionId), meta }
     // Sending past a Held Answer would put the newer one first; it replaces it instead.
     if (held.has(sessionId)) {
       await hold(entry, sessionId)
     } else {
-      const result = await send(sessions, sessionId, text, adapter.kind)
+      const result = await send(sessions, sessionId, text, origin)
       if (!result.ok && isHold(result.reason)) await hold(entry, sessionId)
       else await confirm(adapter, entry.title, result, meta)
     }
@@ -299,7 +310,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       text = [text, transcript.trim()].filter(Boolean).join(' ')
       if (!text) return tell(adapter, copy().noSpeech, meta)
     }
-    if (text) await answer(adapter, sessions, sessionId, text, meta)
+    if (text) await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
   }
 
   async function openAnswerPrompt(

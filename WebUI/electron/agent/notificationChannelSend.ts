@@ -5,7 +5,7 @@ import type { ChannelMessage, ChannelSend } from './notifier.ts'
 /** The Home Agent backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
   kind: ChannelKind,
-  action: 'reply' | 'photo' | 'video',
+  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video',
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 
@@ -23,8 +23,22 @@ function replyTarget(kind: ChannelKind, ref: string): Record<string, string> {
 
 function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   const target = message.replyTo ? replyTarget(kind, message.replyTo) : {}
-  const { media } = message
-  if (!media) return { action: 'reply' as const, payload: { text: message.text, ...target } }
+  const { media, buttons, answerTitle } = message
+  if (buttons && !media) {
+    const rows = buttons.map((row) =>
+      row.map((button) => ({ text: button.text, callback_data: button.callbackData })),
+    )
+    const title = kind === 'local-web' && answerTitle ? { answer_title: answerTitle } : {}
+    return {
+      action: 'keyboard' as const,
+      payload: { text: message.text, buttons: rows, ...title, ...target },
+    }
+  }
+  if (!media) {
+    // A LAN chat `reply` settles the streaming Home Agent bubble; `post` stands on its own.
+    const action = kind === 'local-web' ? ('post' as const) : ('reply' as const)
+    return { action, payload: { text: message.text, ...target } }
+  }
   return {
     action: media.kind,
     payload: {

@@ -240,8 +240,10 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   therefore cannot detect completion of those commands — the repaint drops the bubbles you
   counted; wait for the reply's text (`sendAndAwaitText`) instead. Its bubbles are named by
   role: `Your message`, `Home Agent response` (settled), `Home Agent draft` (streaming),
-  `Home Agent prompt` (awaiting a tap), plus `role="status"` while typing — so "wait for the
-  reply" never settles on a draft or a question.
+  `Home Agent prompt` (awaiting a tap), `Agent message` (an agent session's Notification or
+  reply, with its Answer button outside the `Choose an option` group so the auto-confirm
+  handler never taps it), plus `role="status"` while typing — so "wait for the reply" never
+  settles on a draft or a question.
 - **`addLocatorHandler` requires the trigger to disappear.** Playwright re-checks that the
   element which triggered a handler is gone before continuing, so a handler for something
   that stays on screen fails the action that triggered it. The LAN page retires a prompt's

@@ -121,6 +121,7 @@ function route(next: NotificationRoute, realShellSessions: string[] = []): void 
       untitled: 'An agent run',
       answerButton: '💬 Answer',
       answerOnComputer: 'Answer on your computer',
+      answerInThread: 'Reply in thread to answer.',
     },
   })
 }
@@ -218,6 +219,30 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'telegram',
+        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
+      },
+    ])
+  }, 30000)
+
+  it('tells a Slack user to reply in the thread instead of showing a button', async () => {
+    route({ homeAgentEnabled: true, notificationChannel: 'slack' })
+    await runTurn('aipg-agent-notify-slack')
+    expect(sent).toEqual([
+      {
+        kind: 'slack',
+        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nReply in thread to answer.`,
+      },
+    ])
+  }, 30000)
+
+  it('points a Slack user at the computer for a session that uses the real system shell', async () => {
+    route({ homeAgentEnabled: true, notificationChannel: 'slack' }, [
+      'aipg-agent-notify-slack-shell',
+    ])
+    await runTurn('aipg-agent-notify-slack-shell')
+    expect(sent).toEqual([
+      {
+        kind: 'slack',
         text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
       },
     ])

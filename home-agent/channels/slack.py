@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .base import ChannelBase
 from .commands import HOME_AGENT_COMMANDS
-from .types import SendResult
+from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,25 @@ _SLACK_TOKEN_RE = re.compile(
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
+
+
+def inbound_item(event: dict, text: str, **attachments) -> QueueItem:
+    """The queue item for an inbound DM; a thread reply names its thread's root."""
+    ts = event.get("ts") or ""
+    thread_ts = event.get("thread_ts") or ""
+    item: QueueItem = {
+        "text": text,
+        "chat_id": event.get("user") or "",
+        "channel": event.get("channel") or "",
+        "ts": ts,
+        **attachments,
+    }
+    if thread_ts and thread_ts != ts:
+        item["reply_to"] = thread_ts
+    # Replies thread under the root, so an Answer's reply lands in the Notification's thread.
+    if thread_ts or ts:
+        item["reply_target"] = thread_ts or ts
+    return item
 
 
 class SlackChannel(ChannelBase):
@@ -512,15 +531,13 @@ class SlackChannel(ChannelBase):
                     len(documents),
                 )
                 self.queue_append(
-                    {
-                        "text": text_payload,
-                        "chat_id": user_id,
-                        "channel": channel,
-                        "ts": ts,
+                    inbound_item(
+                        event,
+                        text_payload,
                         **({"images": images} if images else {}),
                         **({"audio": audio} if audio else {}),
                         **({"documents": documents} if documents else {}),
-                    }
+                    )
                 )
 
             async def _handle_slash(ack, command, full_text: str) -> None:

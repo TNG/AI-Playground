@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compactionOutputOf,
   generatedMediaOf,
+  isGeneratedMediaTool,
   groupTranscriptParts,
   mediaToolNameOf,
   toolPartNameOf,
@@ -247,5 +248,44 @@ describe('generatedMediaOf', () => {
     }
     expect(generatedMediaOf(mediaPart('generateImage', textOnly))).toBeUndefined()
     expect(generatedMediaOf(mediaPart('generateImage', piResult(undefined)))).toBeUndefined()
+  })
+})
+
+describe('generatedMediaOf (speech)', () => {
+  const clip = {
+    savedFilePath: '/home/u/AI-Playground/audio/game_speech.wav',
+    workspacePath: 'generated/speech.wav',
+    message: 'Synthesized speech with Kokoro (Ryan).',
+  }
+
+  function speechPart(output: unknown, state = 'output-available') {
+    return { ...tool('synthesizeTextToSpeech', state), output }
+  }
+
+  it('returns the app-folder clip a speech call put in its details', () => {
+    const part = speechPart({
+      content: [{ type: 'text', text: '{"ok":true}' }],
+      details: { audio: clip },
+    })
+    expect(generatedMediaOf(part)).toEqual({ items: [], audio: clip })
+  })
+
+  it('counts text-to-speech as a media tool, so its card is never folded away', () => {
+    expect(isGeneratedMediaTool(speechPart(undefined, 'input-available'))).toBe(true)
+    expect(isGeneratedMediaTool(tool('generateImage'))).toBe(true)
+    expect(isGeneratedMediaTool(tool('transcribeAudio'))).toBe(false)
+  })
+
+  it('shows nothing for a text-only speech result saved before details existed', () => {
+    const textOnly = {
+      content: [{ type: 'text', text: '{"ok":true,"savedFilePath":"generated/speech.wav"}' }],
+    }
+    expect(generatedMediaOf(speechPart(textOnly))).toBeUndefined()
+  })
+
+  it('shows nothing for a failed speech call or a clip without its app-folder copy', () => {
+    expect(generatedMediaOf({ ...tool('synthesizeTextToSpeech', 'output-error') })).toBeUndefined()
+    const noCopy = { details: { audio: { workspacePath: 'generated/speech.wav' } } }
+    expect(generatedMediaOf(speechPart(noCopy))).toBeUndefined()
   })
 })

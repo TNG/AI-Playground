@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import { BrowserWindow, net } from 'electron'
 import { Type, type TSchema } from 'typebox'
 import type { AgentToolResult } from '@earendil-works/pi-coding-agent'
+import type { AgentMediaDetails } from '@/types/agentMediaDetails'
+import type { MediaItem } from '@/types/mediaItem'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
@@ -35,6 +37,23 @@ export function textResult(text: string): AgentToolResult<undefined> {
 
 export function jsonResult(value: unknown): AgentToolResult<undefined> {
   return textResult(typeof value === 'string' ? value : JSON.stringify(value ?? null))
+}
+
+/**
+ * A media tool's result: the same JSON text the model always got, plus the
+ * generated items from its `images` as `details` for the transcript.
+ */
+export function mediaToolResult(value: unknown): AgentToolResult<AgentMediaDetails | undefined> {
+  const items = generatedItemsOf(value)
+  return { ...jsonResult(value), details: items.length > 0 ? { items } : undefined }
+}
+
+function generatedItemsOf(value: unknown): MediaItem[] {
+  const images = (value as { images?: unknown } | null)?.images
+  if (!Array.isArray(images)) return []
+  return images
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map((item) => ({ ...item, state: 'done' }) as MediaItem)
 }
 
 /**

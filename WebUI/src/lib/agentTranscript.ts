@@ -12,6 +12,7 @@
 // Pi's dynamic tools are not in the app's tool union, so parts are inspected
 // structurally instead of being cast to a typed part.
 
+import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { MediaItem } from '@/types/mediaItem'
 import { reasoningElapsedMsFromParts } from './reasoningTimings'
 
@@ -70,13 +71,15 @@ export type GeneratedMedia = {
 
 export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
   if (!mediaToolNameOf(part) || shapeOf(part).state !== 'output-available') return undefined
-  const output = shapeOf(part).output as { images?: unknown; steps?: unknown } | undefined
-  const images = Array.isArray(output?.images) ? output.images : []
-  const items = images
+  const output = shapeOf(part).output as { details?: unknown } | undefined
+  const details = (
+    typeof output?.details === 'object' && output.details !== null ? output.details : {}
+  ) as { [K in keyof AgentMediaDetails]?: unknown }
+  const items = (Array.isArray(details.items) ? details.items : [])
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
     .map((item) => ({ mode: 'imageGen', settings: {}, ...item, state: 'done' }) as MediaItem)
     .filter(hasMediaUrl)
-  const steps = Array.isArray(output?.steps) ? (output.steps as string[]) : undefined
+  const steps = Array.isArray(details.steps) ? (details.steps as string[]) : undefined
   if (items.length === 0 && !steps) return undefined
   return { items, steps }
 }

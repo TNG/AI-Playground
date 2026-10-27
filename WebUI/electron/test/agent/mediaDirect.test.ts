@@ -262,6 +262,67 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(lastPayload.items).toBeUndefined()
   })
 
+  it('hands the model its JSON text and the transcript the generated items', async () => {
+    const tool = await buildTool(GENERATE_SPEC)
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a castle' },
+      new AbortController().signal,
+    )) as { content: Array<{ type: string; text: string }>; details: unknown }
+
+    expect(output.content).toEqual([
+      {
+        type: 'text',
+        text: JSON.stringify({
+          images: [
+            {
+              id: 'item-0',
+              type: 'image',
+              imageUrl: 'test://item-0.png',
+              mode: 'imageGen',
+              settings: { seed: 0 },
+            },
+          ],
+        }),
+      },
+    ])
+    expect(output.details).toEqual({
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'test://item-0.png',
+          mode: 'imageGen',
+          settings: { seed: 0 },
+          state: 'done',
+        },
+      ],
+    })
+  })
+
+  it('gives an edit the same structured result', async () => {
+    fs.writeFileSync(path.join(workspaceDir, 'source.png'), Buffer.from('89504e470d0a1a0a', 'hex'))
+    const tool = await buildTool(EDIT_SPEC)
+    const output = (await tool.execute(
+      'call-1',
+      { workflow: 'Edit By Prompt', prompt: 'make it blue', sourceImagePath: 'source.png' },
+      new AbortController().signal,
+    )) as { details: { items: Array<{ type: string; imageUrl: string }> } }
+
+    expect(output.details.items).toMatchObject([{ type: 'image', imageUrl: 'test://item-0.png' }])
+  })
+
+  it('carries no media for a failed run', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({ state: 'failed', items: [], error: 'boom' })
+    const tool = await buildTool(GENERATE_SPEC)
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'x' },
+      new AbortController().signal,
+    )) as { details: unknown }
+    expect(output.details).toBeUndefined()
+  })
+
   it('reports an unavailable workflow without submitting', async () => {
     const tool = await buildTool(GENERATE_SPEC)
     const output = parseOutput(

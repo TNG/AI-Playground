@@ -39,25 +39,22 @@ export function jsonResult(value: unknown): AgentToolResult<undefined> {
   return textResult(typeof value === 'string' ? value : JSON.stringify(value ?? null))
 }
 
-/**
- * A media tool's result: the same JSON text the model always got, plus the
- * generated items from its `images` (and any step lines) as `details` for the transcript.
- */
 export function mediaToolResult(
   value: unknown,
-  extras: Pick<AgentMediaDetails, 'steps'> = {},
+  steps?: string[],
 ): AgentToolResult<AgentMediaDetails | undefined> {
   const items = generatedItemsOf(value)
-  const details = items.length > 0 || extras.steps ? { items, ...extras } : undefined
+  const details = items.length > 0 || steps ? { items, ...(steps ? { steps } : {}) } : undefined
   return { ...jsonResult(value), details }
 }
 
+// A failed or cancelled run still lists its items, but none of them finished.
 function generatedItemsOf(value: unknown): MediaItem[] {
-  const images = (value as { images?: unknown } | null)?.images
-  if (!Array.isArray(images)) return []
-  return images
+  const record = value as { images?: unknown; success?: unknown } | null
+  if (record?.success === false || !Array.isArray(record?.images)) return []
+  return record.images
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => ({ ...item, state: 'done' }) as MediaItem)
+    .map((item) => ({ mode: 'imageGen', settings: {}, ...item, state: 'done' }) as MediaItem)
 }
 
 /**

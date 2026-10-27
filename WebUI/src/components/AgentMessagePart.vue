@@ -67,7 +67,7 @@ import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
-import { compactionOutputOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -127,24 +127,17 @@ const compactionDelta = computed<string>(() => {
   return `${before} → ${output.tokensAfter.toLocaleString()} tokens`
 })
 
-type MediaToolOutput = { images?: unknown; steps?: unknown }
-
-const mediaOutput = computed<MediaToolOutput | undefined>(
-  () => (props.part as { output?: MediaToolOutput }).output,
-)
+const generatedMedia = computed(() => generatedMediaOf(props.part))
 
 /** Step lines from a finished result, for runs no longer in the store. */
-const mediaToolSteps = computed<string[] | undefined>(() => {
-  const steps = mediaOutput.value?.steps
-  return Array.isArray(steps) ? (steps as string[]) : undefined
-})
+const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 
 const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
 
 /** Finished media from the tool output, or what the owned runs have so far. */
 const mediaToolImages = computed<MediaItem[]>(() => {
-  if (mediaToolItems.value.length) return mediaToolItems.value
-  return mediaLive.value.items
+  const items = generatedMedia.value?.items ?? []
+  return items.length ? items : mediaLive.value.items
 })
 
 const mediaToolPhase = computed(() => {
@@ -152,34 +145,6 @@ const mediaToolPhase = computed(() => {
   return state === 'output-available' || state === 'output-error'
     ? undefined
     : mediaLive.value.phase
-})
-
-/**
- * Completed tool parts whose output carries a comfy-shaped `images` array,
- * synthesized into full MediaItems so ChatWorkflowResult renders images,
- * videos and 3D models alike.
- */
-const mediaToolItems = computed<MediaItem[]>(() => {
-  if (!mediaToolNameOf(props.part) || toolPart.value.state !== 'output-available') return []
-  const images = mediaOutput.value?.images
-  if (!Array.isArray(images)) return []
-  return images
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map(
-      (item) =>
-        ({
-          mode: 'imageGen',
-          settings: {},
-          ...item,
-          state: 'done',
-        }) as MediaItem,
-    )
-    .filter((item) => {
-      if (item.type === 'image') return !!item.imageUrl
-      if (item.type === 'video') return !!item.videoUrl
-      if (item.type === 'model3d') return !!item.model3dUrl
-      return false
-    })
 })
 
 watch(

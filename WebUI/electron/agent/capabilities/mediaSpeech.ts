@@ -4,14 +4,17 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { jsonResult, jsonSchemaParameters, resolveWorkspaceFile } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
+import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
+import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
+import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
 import type { AgentToolSpec, CapabilityHost } from './types.ts'
 
 // ── speech tools for an agent turn ───────────────────────────────────────────
 //
 // `synthesizeTextToSpeech` / `transcribeAudio`, shaped for a workspace instead
-// of a conversation: the clip lands in `<workspace>/generated/` rather than the
-// app's audio folder, and the file to transcribe is named by workspace path
+// of a conversation: the clip lands in `<workspace>/generated/` for the agent and
+// in the app's audio folder for the transcript, and the file to transcribe is named by workspace path
 // because an agent turn has no message history to find an attachment in. The
 // engine call itself is the window's either way, over the same `chat:ask` seam
 // the chat bodies use (chat/chatSpeechTools.ts).
@@ -78,14 +81,16 @@ function failure(error: unknown): { ok: false; message: string } {
   return { ok: false, message: error instanceof Error ? error.message : String(error) }
 }
 
+type SynthesizeResult = { output: unknown; details?: AgentMediaDetails }
+
 async function synthesize(
   host: CapabilityHost,
   params: unknown,
   signal?: AbortSignal,
-): Promise<unknown> {
+): Promise<SynthesizeResult> {
   const args = (params ?? {}) as SynthesizeArgs
   const text = typeof args.text === 'string' ? args.text : ''
-  if (!text.trim()) return { ok: false, message: 'No text to speak.' }
+  if (!text.trim()) return { output: { ok: false, message: 'No text to speak.' } }
   try {
     const clip = await askRenderer<SpeechClipPayload>(
       {
@@ -102,21 +107,34 @@ async function synthesize(
       },
       { abortSignal: signal, conversationKey: host.sessionId },
     )
+    const stem = fileStem(args.outputFileName)
     const { fullPath, relativePath } = generatedAudioPath(
       host.workspaceDir,
-      fileStem(args.outputFileName),
+      stem,
       CLIP_EXT_BY_MIME[clip.mediaType] ?? '.wav',
     )
     await fs.promises.writeFile(fullPath, Buffer.from(clip.audioBase64, 'base64'))
+    const appCopy = await saveGeneratedAudioFile(
+      clip.audioBase64,
+      buildTtsAudioFileName({
+        conversationKey: host.sessionId,
+        conversationLabel: path.basename(host.workspaceDir),
+        userSlug: stem,
+      }),
+    )
+    const message = `${describeClip(clip)} Saved into the workspace at ${relativePath}.`
     return {
-      ok: true,
-      message: `${describeClip(clip)} Saved into the workspace at ${relativePath}.`,
-      savedFilePath: relativePath,
-      speaker: clip.voice,
-      ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),
+      output: {
+        ok: true,
+        message,
+        savedFilePath: relativePath,
+        speaker: clip.voice,
+        ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),
+      },
+      details: { audio: { savedFilePath: appCopy, workspacePath: relativePath, message } },
     }
   } catch (error) {
-    return failure(error)
+    return { output: failure(error) }
   }
 }
 
@@ -165,12 +183,13 @@ export async function buildSpeechTools(
         label: spec.name,
         description: spec.description,
         parameters: jsonSchemaParameters(spec.inputSchema),
-        execute: async (_toolCallId, params, signal) =>
-          jsonResult(
-            spec.name === 'synthesizeTextToSpeech'
-              ? await synthesize(host, params, signal ?? undefined)
-              : await transcribeWorkspaceAudio(host, params, signal ?? undefined),
-          ),
+        execute: async (_toolCallId, params, signal) => {
+          if (spec.name !== 'synthesizeTextToSpeech') {
+            return jsonResult(await transcribeWorkspaceAudio(host, params, signal ?? undefined))
+          }
+          const { output, details } = await synthesize(host, params, signal ?? undefined)
+          return { ...jsonResult(output), details }
+        },
       }) as ToolDefinition,
   )
 }

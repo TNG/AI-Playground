@@ -175,13 +175,29 @@ function setup(
 }
 
 describe('answer router', () => {
-  it('sends a reply to an agent’s Notification into its session and says it is starting', async () => {
+  it('sends a reply to an agent’s Notification into its session', async () => {
     const { router, received } = setup()
     const ch = fakeChannel()
     expect(await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })).toBe(
       true,
     )
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
+  })
+
+  it.each(['telegram', 'local-web'] as const)(
+    'posts no starting confirmation on %s, whose typing shows the Answer arrived',
+    async (kind) => {
+      const { router } = setup(undefined, [{ kind, ref: '1234', sessionId: 'asteroids' }])
+      const ch = fakeChannel(kind)
+      await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
+      expect(ch.replies).toEqual([])
+    },
+  )
+
+  it('says a Slack Answer is starting, since Slack shows no typing for it', async () => {
+    const { router } = setup(undefined, [{ kind: 'slack', ref: '1234', sessionId: 'asteroids' }])
+    const ch = fakeChannel('slack')
+    await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
     expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
   })
 
@@ -195,12 +211,13 @@ describe('answer router', () => {
   })
 
   it('confirms with a message of its own, never taking over a streaming Home Agent draft', async () => {
-    const { router } = setup(undefined, [
-      { kind: 'local-web', ref: '1234', sessionId: 'asteroids' },
-    ])
+    const { router } = setup(
+      { asteroids: { label: 'Asteroids clone', result: { ok: true, queuePosition: 2 } } },
+      [{ kind: 'local-web', ref: '1234', sessionId: 'asteroids' }],
+    )
     const ch = fakeChannel('local-web')
     await router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
-    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — queued (position 2)'])
     expect(ch.drafted).toEqual([])
   })
 
@@ -248,14 +265,18 @@ describe('answer router', () => {
     expect(received).toEqual([])
   })
 
-  it('says the Answer is queued, with its place, when the Turn Queue is busy', async () => {
-    const { router } = setup({
-      asteroids: { label: 'Asteroids clone', result: { ok: true, queuePosition: 2 } },
-    })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
-    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — queued (position 2)'])
-  })
+  it.each(['telegram', 'slack', 'local-web'] as const)(
+    'says the Answer is queued on %s, with its place, when the Turn Queue is busy',
+    async (kind) => {
+      const { router } = setup(
+        { asteroids: { label: 'Asteroids clone', result: { ok: true, queuePosition: 2 } } },
+        [{ kind, ref: '1234', sessionId: 'asteroids' }],
+      )
+      const ch = fakeChannel(kind)
+      await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
+      expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — queued (position 2)'])
+    },
+  )
 
   it('leaves a plain message to Home Agent', async () => {
     const { router, received } = setup()
@@ -297,7 +318,7 @@ describe('answer router', () => {
 
     expect(await router.route(ch.adapter, { text: 'faster ship', replyTo: '901' })).toBe(true)
     expect(received).toEqual([{ sessionId: 'asteroids', text: 'faster ship' }])
-    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(ch.replies).toEqual([])
   })
 
   it('keeps the Answer Prompt placeholder within Telegram’s 64 characters', async () => {
@@ -453,7 +474,7 @@ describe('answer router', () => {
       const ch = fakeChannel()
       expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
       expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
-      expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+      expect(ch.replies).toEqual([])
     })
 
     it('sends nothing when transcription failed, leaving the explanation to it', async () => {
@@ -500,12 +521,7 @@ describe('answer router', () => {
     await first.router.route(ch.adapter, { text: 'and faster', replyTo: '1234' })
     const afterRestart = setup(undefined, undefined, flag)
     await afterRestart.router.route(ch.adapter, { text: 'once more', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '➡️ Sent to "Asteroids clone" — starting…',
-      ONBOARDING,
-      '➡️ Sent to "Asteroids clone" — starting…',
-      '➡️ Sent to "Asteroids clone" — starting…',
-    ])
+    expect(ch.replies).toEqual([ONBOARDING])
   })
 
   it('does not explain answering to a plain message for Home Agent', async () => {
@@ -585,7 +601,7 @@ describe('a Held Answer', () => {
     await fixture.router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
     await flush()
     expect(fixture.received).toHaveLength(2)
-    expect(ch.replies).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(ch.replies).toEqual([])
     expect(fixture.held.asteroids ?? null).toBeNull()
   })
 
@@ -646,8 +662,19 @@ describe('a Held Answer', () => {
       { sessionId: 'asteroids', text: 'make it faster' },
       { sessionId: 'asteroids', text: 'make it faster' },
     ])
-    expect(ch.replies.slice(1)).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(ch.replies.slice(1)).toEqual([])
     expect(held.asteroids).toBeNull()
+  })
+
+  it('is said to be starting on Slack when the turn completes and it is sent', async () => {
+    const { router, end } = busy()
+    const ch = fakeChannel('slack')
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await end('asteroids', 'completed')
+    expect(ch.replies).toEqual([
+      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
+      '➡️ Sent to "Asteroids clone" — starting…',
+    ])
   })
 
   it('is sent with where it came from, so its turn replies under it', async () => {
@@ -666,7 +693,7 @@ describe('a Held Answer', () => {
     await router.route(ch.adapter, { text: 'what went wrong?', replyTo: '1234' })
     await end('asteroids', 'failed')
     expect(received.slice(-1)).toEqual([{ sessionId: 'asteroids', text: 'what went wrong?' }])
-    expect(ch.replies.slice(1)).toEqual(['➡️ Sent to "Asteroids clone" — starting…'])
+    expect(ch.replies.slice(1)).toEqual([])
   })
 
   it('is dropped when the turn is stopped on the desktop, and the channel is told', async () => {
@@ -735,7 +762,7 @@ describe('a Held Answer for a Task run', () => {
     expect(ch.replies).toHaveLength(1)
     await end('digest', 'completed')
     expect(received).toHaveLength(4)
-    expect(ch.replies.slice(1)).toEqual(['➡️ Sent to "Digest — step 1 of 3" — starting…'])
+    expect(ch.replies.slice(1)).toEqual([])
   })
 
   it('continues a failed run’s session as an ordinary message', async () => {

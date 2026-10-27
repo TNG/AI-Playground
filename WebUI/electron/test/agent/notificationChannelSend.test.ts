@@ -108,3 +108,22 @@ describe('a Notification handed to the Home Agent channel', () => {
     expect(await send('telegram', { text: 'hi' })).toEqual({ success: false, error: 'offline' })
   })
 })
+
+describe('typing handed to the Home Agent channel', () => {
+  it('is the chat action the channel takes from its own heartbeat', async () => {
+    const { send, calls } = recorder()
+    expect(await send('telegram', { typing: 'start' })).toEqual({ success: true })
+    await send('local-web', { typing: 'start' })
+    expect(calls).toEqual([
+      { kind: 'telegram', action: 'typing', payload: { action: 'typing' } },
+      { kind: 'local-web', action: 'typing', payload: { action: 'typing' } },
+    ])
+  })
+
+  it('stops explicitly on LAN chat, and lets Telegram’s lapse on its own', async () => {
+    const { send, calls } = recorder()
+    expect(await send('telegram', { typing: 'stop' })).toEqual({ success: true })
+    await send('local-web', { typing: 'stop' })
+    expect(calls).toEqual([{ kind: 'local-web', action: 'typing', payload: { action: 'stop' } }])
+  })
+})

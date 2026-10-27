@@ -2,7 +2,7 @@ import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWordi
 import { fillTemplate } from '@/lib/notificationLabel'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelMessageOwner } from '@/types/notificationsIpc'
-import { ANSWER_CALLBACK } from '@/lib/answerButton'
+import { ANSWER_CALLBACK, hasAnswerTyping } from '@/lib/answerButton'
 import type { ChannelAdapter } from './adapter'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
@@ -252,7 +252,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     } else if (result.queuePosition !== null) {
       const position = String(result.queuePosition)
       await tell(adapter, fillTemplate(wording.queued, { title, position }), meta)
-    } else {
+    } else if (!hasAnswerTyping(adapter.kind)) {
       await tell(adapter, fillTemplate(wording.starting, { title }), meta)
     }
   }

@@ -18,8 +18,8 @@ export function stepPrompts(steps: readonly AgentTaskStep[]): string[] {
 }
 
 /**
- * The turn that starts a run of Steps: the request (when there is one), how it will be carried
- * out, and Step 1.
+ * The turn that starts a run of Steps: how it will be carried out, the user's prompt for this run
+ * (when there is one) as an adjustment that wins over the Steps, and Step 1.
  * Model-facing, so not translated.
  */
 export function firstStepTurn(prompt: string, steps: readonly string[]): string {
@@ -29,7 +29,14 @@ export function firstStepTurn(prompt: string, steps: readonly string[]): string 
       : `Carry this out in ${steps.length} steps. I will send them one at a time; do only the ` +
         'current one, then stop.'
   const request = prompt.trim()
-  return [...(request ? [request, ''] : []), plan, '', stepTurn(1, steps)].join('\n')
+  const adjustment = request
+    ? [
+        `For this run the user added: "${request}"`,
+        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
+        '',
+      ]
+    : []
+  return [plan, '', ...adjustment, stepTurn(1, steps)].join('\n')
 }
 
 /** The turn for Step `index` (1-based) of a prompt's Steps. */

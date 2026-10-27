@@ -12,10 +12,12 @@ import type { ArtifactRunResult } from '../../artifact/runner'
 // GPU occupancy and queueing. The runner and the GPU swap are mocked at their
 // module seams; the catalog provider is set per test with a realistic preset.
 
+const netFetchMock = vi.hoisted(() => vi.fn<(url: string) => Promise<Response>>())
+
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: vi.fn(() => os.tmpdir()) },
   BrowserWindow: class {},
-  net: {},
+  net: { fetch: netFetchMock },
 }))
 
 vi.mock('../../observability/logger.ts', () => ({
@@ -298,6 +300,33 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
         },
       ],
     })
+  })
+
+  it('tells the transcript where each item landed in the workspace', async () => {
+    netFetchMock.mockImplementation(async () => new Response(Buffer.from('png-bytes')))
+    submitArtifactRunMock.mockImplementationOnce(async () => ({
+      state: 'completed',
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'aipg-media://media/castle%20gate.png',
+          mode: 'imageGen',
+          state: 'done',
+          settings: {},
+        },
+      ] as ArtifactRunResult['items'],
+    }))
+    const tool = await buildTool(GENERATE_SPEC)
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a castle' },
+      new AbortController().signal,
+    )) as { content: Array<{ text: string }>; details: { items: unknown[] } }
+
+    expect(output.details.items).toMatchObject([{ workspacePath: 'generated/castle gate.png' }])
+    expect(fs.existsSync(path.join(workspaceDir, 'generated', 'castle gate.png'))).toBe(true)
+    expect(output.content[0].text).not.toContain('workspacePath')
   })
 
   it('gives an edit the same structured result', async () => {

@@ -150,6 +150,30 @@ describe('mediaDelegation (in-process media tool)', () => {
     })
   })
 
+  it('tells the transcript where the saved items landed in the workspace', async () => {
+    const video = { id: 'v', type: 'video', videoUrl: 'aipg-media://media/clip.mp4' }
+    const model = { id: 'm', type: 'model3d', model3dUrl: 'aipg-media://media/shape.glb' }
+    runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult([video, model]))
+    saveMediaMock.mockImplementationOnce(async (result) => ({
+      ...(result as object),
+      savedFiles: ['generated/clip.mp4'],
+    }))
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a clip and a model' },
+      new AbortController().signal,
+    )) as { details: { items: { workspacePath?: string }[] } }
+
+    expect(result.details.items.map((item) => item.workspacePath)).toEqual([
+      'generated/clip.mp4',
+      undefined,
+    ])
+  })
+
   it('keeps the step lines of a run that produced nothing', async () => {
     runMediaAgentInMainMock.mockResolvedValueOnce({
       text: '',

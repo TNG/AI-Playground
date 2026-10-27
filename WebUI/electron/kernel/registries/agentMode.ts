@@ -11,6 +11,7 @@ import type {
   submitAgentToolResult,
 } from '../../agent/piAgentManager'
 import type { importAttachment } from '../../agent/workspaceAttachments'
+import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
 import type {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -34,6 +35,7 @@ export type AgentModeDeps = {
   submitAgentToolResult: typeof submitAgentToolResult
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
+  mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
   migrateLegacyAgentSessions: typeof migrateLegacyAgentSessions
   saveAgentSession: typeof saveAgentSession
@@ -172,6 +174,16 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       } catch (error) {
         return ipcFail(error)
       }
+    },
+    // File actions on a transcript's generated media (see agent/workspaceMediaFile.ts).
+    'agentMode:mediaFileAction': (event, ref, action) => {
+      const valid =
+        typeof ref?.sessionId === 'string' &&
+        typeof ref.appCopy === 'string' &&
+        (ref.workspacePath === undefined || typeof ref.workspacePath === 'string') &&
+        ['open', 'reveal', 'drag', 'saveAs'].includes(action)
+      if (!valid) return { success: false, error: 'invalid media file request' }
+      return deps.mediaFileAction(event.sender, ref, action)
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

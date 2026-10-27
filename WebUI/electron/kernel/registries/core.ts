@@ -8,7 +8,6 @@ import {
   BrowserWindow,
   dialog,
   IpcMainInvokeEvent,
-  nativeImage,
   net,
   screen,
   shell,
@@ -19,6 +18,7 @@ import { LocalSettingsSchema } from '../localSettings'
 import { agentTasksKeepAppAlive } from '../../persist/agentTaskFiles'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
+import { revealFileInFolder, startFileDrag } from '../../adapters/osFileActions.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -1590,25 +1590,7 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
     ondragstart: async (event, filePath) => {
       const imagePath = getAssetPathFromUrl(filePath, deps)
       if (!imagePath) return
-      let thumbnail: Electron.NativeImage
-      try {
-        thumbnail = await nativeImage.createThumbnailFromPath(imagePath, {
-          height: 128,
-          width: 128,
-        })
-      } catch (_e: unknown) {
-        thumbnail = await nativeImage.createThumbnailFromPath(
-          path.join(deps.externalRes, 'cam.png'),
-          {
-            height: 128,
-            width: 128,
-          },
-        )
-      }
-      event.sender.startDrag({
-        file: imagePath,
-        icon: thumbnail,
-      })
+      await startFileDrag(event.sender, imagePath, path.join(deps.externalRes, 'cam.png'))
     },
 
     // Detach the main window's DevTools window.
@@ -1729,15 +1711,7 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
     openImageInFolder: (_event, url) => {
       const imagePath = getAssetPathFromUrl(url, deps)
       if (!imagePath) return
-
-      if (process.platform === 'win32') {
-        // `execFile`, not `exec`: the path is passed as an argument rather than
-        // spliced into a shell command line, so a media path containing a
-        // quote or an `&` opens the folder instead of running as a command.
-        execFile('explorer.exe', ['/select,', imagePath])
-      } else {
-        shell.showItemInFolder(imagePath)
-      }
+      revealFileInFolder(imagePath)
     },
 
     // Enter or leave full screen on the main window.

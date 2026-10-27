@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "コンピューターの AI Playground で修正してから、もう一度返信してください。",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ エージェントへの返信は現在テキストのみです",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ そのボイスメッセージから音声を認識できなかったため、何も送信されませんでした。",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ そのセッションはもう存在しません",
   "AGENT_ANSWER_HELD": "⏳ {title} に保留中 — 現在のターンが終わると送信されます。",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ {title} に保留中 — セッションは上のダウンロードボタンを待っています。",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ {title} に保留中 — セッションは通知先のチャットまたはお使いのコンピューターでのダウンロードボタンを待っています。",

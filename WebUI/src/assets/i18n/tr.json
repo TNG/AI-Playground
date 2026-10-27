@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Bunu bilgisayarınızdaki AI Playground'da düzeltin, ardından yeniden yanıtlayın.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Ajanlara verilen yanıtlar şimdilik yalnızca metin olabilir",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ Bu sesli mesajda konuşma algılanamadı, bu yüzden hiçbir şey gönderilmedi.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ Bu oturum artık mevcut değil",
   "AGENT_ANSWER_HELD": "⏳ {title} için bekletiliyor — mevcut tur bitince gönderilecek.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ {title} için bekletiliyor — oturum yukarıdaki indirme düğmelerini bekliyor.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ {title} için bekletiliyor — oturum, bildirim sohbetinizdeki veya bilgisayarınızdaki indirme düğmelerini bekliyor.",

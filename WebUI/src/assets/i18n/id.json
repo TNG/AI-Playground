@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Perbaiki di AI Playground pada komputer Anda, lalu jawab lagi.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Untuk saat ini, jawaban ke agen hanya bisa berupa teks",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ Tidak ada ucapan yang terdengar dalam pesan suara itu, jadi tidak ada yang dikirim.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ Sesi itu sudah tidak ada",
   "AGENT_ANSWER_HELD": "⏳ Diantrekan untuk {title} — dikirim saat giliran saat ini selesai.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ Diantrekan untuk {title} — sesi menunggu tombol unduhan di atas.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ Diantrekan untuk {title} — sesi menunggu tombol unduhan di chat notifikasi Anda, atau di komputer Anda.",

@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Hãy khắc phục trong AI Playground trên máy tính của bạn, rồi trả lời lại.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Hiện tại câu trả lời gửi tới agent chỉ có thể là văn bản",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ Không nhận ra lời nói nào trong tin nhắn thoại đó nên không có gì được gửi.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ Phiên đó không còn tồn tại",
   "AGENT_ANSWER_HELD": "⏳ Đang chờ cho {title} — sẽ gửi khi lượt hiện tại kết thúc.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ Đang chờ cho {title} — phiên đang chờ các nút tải xuống ở trên.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ Đang chờ cho {title} — phiên đang chờ các nút tải xuống trong cuộc trò chuyện nhận thông báo của bạn, hoặc trên máy tính của bạn.",

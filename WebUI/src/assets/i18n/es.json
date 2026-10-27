@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Corrígelo en AI Playground en tu ordenador y vuelve a responder.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Por ahora, las respuestas a los agentes solo pueden ser texto",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ No se pudo entender ninguna voz en ese mensaje de voz, así que no se envió nada.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ Esa sesión ya no existe",
   "AGENT_ANSWER_HELD": "⏳ En espera para {title}: se enviará cuando termine el turno actual.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ En espera para {title}: la sesión espera los botones de descarga de arriba.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ En espera para {title}: la sesión espera los botones de descarga en tu chat de notificaciones o en tu ordenador.",

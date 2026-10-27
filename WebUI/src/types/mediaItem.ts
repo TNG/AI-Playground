@@ -101,3 +101,11 @@ export const hasDisplayableMedia = (item: MediaItem): boolean => {
   const url = item.imageUrl
   return !!url && url.trim() !== '' && url !== PLACEHOLDER_IMAGE_URL
 }
+
+/** Overrides where a media card's file actions point, and what it says the file is. */
+export type MediaFileHandlers = {
+  open: (item: MediaItem) => void
+  reveal: (item: MediaItem) => void
+  drag: (item: MediaItem) => void
+  caption: (item: MediaItem) => string | undefined
+}

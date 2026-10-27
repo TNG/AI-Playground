@@ -12,7 +12,7 @@
 // Pi's dynamic tools are not in the app's tool union, so parts are inspected
 // structurally instead of being cast to a typed part.
 
-import type { AgentMediaDetails } from '@/types/agentMediaDetails'
+import type { AgentMediaDetails, AgentSpeechClip } from '@/types/agentMediaDetails'
 import type { MediaItem } from '@/types/mediaItem'
 import { reasoningElapsedMsFromParts } from './reasoningTimings'
 
@@ -64,17 +64,30 @@ export function mediaToolNameOf(part: unknown): string | undefined {
 }
 
 /** What a finished media tool call produced, as Chat's media card renders it. */
+const SPEECH_TOOL_NAME = 'synthesizeTextToSpeech'
+
+/** A tool whose card shows what it generated, so the transcript never folds it away. */
+export function isGeneratedMediaTool(part: unknown): boolean {
+  return !!mediaToolNameOf(part) || toolPartNameOf(part) === SPEECH_TOOL_NAME
+}
+
 export type GeneratedMedia = {
   items: MediaItem[]
   steps?: string[]
+  audio?: AgentSpeechClip
 }
 
 export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
-  if (!mediaToolNameOf(part) || shapeOf(part).state !== 'output-available') return undefined
+  if (!isGeneratedMediaTool(part) || shapeOf(part).state !== 'output-available') return undefined
   const output = shapeOf(part).output as { details?: unknown } | undefined
   const details = (
     typeof output?.details === 'object' && output.details !== null ? output.details : {}
   ) as { [K in keyof AgentMediaDetails]?: unknown }
+  if (toolPartNameOf(part) === SPEECH_TOOL_NAME) {
+    const audio = details.audio as Partial<AgentSpeechClip> | undefined
+    if (typeof audio?.savedFilePath !== 'string' || !audio.savedFilePath) return undefined
+    return { items: [], audio: audio as AgentSpeechClip }
+  }
   const items = (Array.isArray(details.items) ? details.items : [])
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
     .map((item) => ({ mode: 'imageGen', settings: {}, ...item, state: 'done' }) as MediaItem)

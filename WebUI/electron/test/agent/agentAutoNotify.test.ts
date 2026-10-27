@@ -190,19 +190,21 @@ beforeAll(async () => {
   }
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
-  notifier.setNotificationChannelSend(async (kind, message) => {
-    if ('typing' in message) {
-      typing.push({ kind, typing: message.typing })
+  notifier.setNotificationChannel({
+    typing: async (kind, state) => {
+      typing.push({ kind, typing: state })
       return { success: true }
-    }
-    sent.push({
-      kind,
-      text: message.text,
-      replyTo: message.replyTo,
-      media: message.media && `${message.media.kind}:${message.media.filename}`,
-      buttons: message.buttons,
-    })
-    return { success: true, ref: `msg-${sent.length}` }
+    },
+    send: async (kind, message) => {
+      sent.push({
+        kind,
+        text: message.text,
+        replyTo: message.replyTo,
+        media: message.media && `${message.media.kind}:${message.media.filename}`,
+        buttons: message.buttons,
+      })
+      return { success: true, ref: `msg-${sent.length}` }
+    },
   })
   notifier.setNotificationWindowShown(() => windowShown)
   notifier.startAutoNotifications()

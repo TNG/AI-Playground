@@ -288,7 +288,7 @@ describe('answer router', () => {
     expect(slack.replies).toEqual(['➡️ Sent to "Daily digest" — starting…'])
   })
 
-  it('leaves a tap on an Answer button to Home Agent, opening no Answer Prompt', async () => {
+  it('leaves a tap on an Answer button to Home Agent, without answering any agent', async () => {
     const { router, received } = setup()
     const ch = fakeChannel()
     expect(await router.route(ch.adapter, { callback: 'answer', replyTo: '1234' })).toBe(false)

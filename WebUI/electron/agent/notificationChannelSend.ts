@@ -1,7 +1,7 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_ANSWERING } from '@/lib/answerButton'
 import type { IpcOkWith } from '@/types/ipcChannels'
-import type { ChannelMessage, ChannelSend, ChannelTyping } from './notifier.ts'
+import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
 
 /** The Home Agent backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
@@ -39,24 +39,20 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   }
 }
 
-// The payload the renderer adapters send: a platform chat action, or LAN chat's literal stop.
-async function sendTyping(
-  send: HomeAgentChannelSend,
-  kind: ChannelKind,
-  { typing }: ChannelTyping,
-): ReturnType<ChannelSend> {
-  if (typing === 'stop' && !CHANNEL_ANSWERING[kind].typingStops) return { success: true }
-  const result = await send(kind, 'typing', { action: typing === 'stop' ? 'stop' : 'typing' })
-  return result.success ? { success: true } : result
-}
-
 /** Sends Notifications through the Home Agent channel; the ref is Telegram's id or Slack's ts. */
-export function notificationChannelSend(send: HomeAgentChannelSend): ChannelSend {
-  return async (kind, message) => {
-    if ('typing' in message) return sendTyping(send, kind, message)
-    const { action, payload } = payloadOf(kind, message)
-    const result = await send(kind, action, payload)
-    if (!result.success) return result
-    return { success: true, ref: result.messageId?.toString() ?? result.ts }
+export function homeAgentNotificationChannel(send: HomeAgentChannelSend): NotificationChannel {
+  return {
+    send: async (kind, message) => {
+      const { action, payload } = payloadOf(kind, message)
+      const result = await send(kind, action, payload)
+      if (!result.success) return result
+      return { success: true, ref: result.messageId?.toString() ?? result.ts }
+    },
+    // The payload the renderer adapters send: a platform chat action, or LAN chat's literal stop.
+    typing: async (kind: ChannelKind, state: ChannelTypingState) => {
+      if (state === 'stop' && CHANNEL_ANSWERING[kind].typing !== 'stops') return { success: true }
+      const result = await send(kind, 'typing', { action: state === 'stop' ? 'stop' : 'typing' })
+      return result.success ? { success: true } : result
+    },
   }
 }

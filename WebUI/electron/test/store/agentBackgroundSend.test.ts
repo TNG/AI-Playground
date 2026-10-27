@@ -370,7 +370,7 @@ describe('an Answer from a channel', () => {
     const outcomes = recordOutcomes(store)
     const id = createTaskSession(store)
 
-    await store.sendToSession(id, 'make it faster', { origin: 'telegram' })
+    await store.sendToSession(id, 'make it faster', { answer: { channel: 'telegram' } })
     await finishTurn(id, 0)
     await vi.waitFor(() => expect(outcomes).toHaveLength(1))
 
@@ -396,7 +396,10 @@ describe('an Answer from a channel', () => {
     const id = createTaskSession(store)
     await store.switchSession(id)
 
-    await store.sendToSession(id, 'make it faster', { useStoredSettings: true, origin: 'slack' })
+    await store.sendToSession(id, 'make it faster', {
+      useStoredSettings: true,
+      answer: { channel: 'slack' },
+    })
     const turnId = await turnIdOf(0)
     pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk: { type: 'start' } })
     pushEvent({

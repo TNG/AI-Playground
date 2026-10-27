@@ -147,7 +147,7 @@ import {
   compactionOutputOf,
   groupTranscriptParts,
   isReasoningPart,
-  mediaToolNameOf,
+  isGeneratedMediaTool,
   toolPartNameOf,
   type TranscriptSegment,
 } from '@/lib/agentTranscript'
@@ -232,7 +232,7 @@ function isFoldable(part: unknown): boolean {
   // Compaction is its own notice, media tools render what they generated, and a
   // browser screenshot is only ever visible here — none of it is noise.
   if (compactionOutputOf(part)) return false
-  if (mediaToolNameOf(part)) return false
+  if (isGeneratedMediaTool(part)) return false
   const toolCallId = (part as { toolCallId?: string }).toolCallId
   return !(toolCallId && agentMode.toolImages[toolCallId]?.length)
 }

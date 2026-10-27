@@ -10,4 +10,12 @@ export type AgentMediaDetails = {
   items?: MediaItem[]
   /** The media specialist's step lines. */
   steps?: string[]
+  /** Synthesized speech: the app audio folder copy the player reads, and the agent's workspace copy. */
+  audio?: AgentSpeechClip
+}
+
+export type AgentSpeechClip = {
+  savedFilePath: string
+  workspacePath: string
+  message?: string
 }

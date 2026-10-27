@@ -5,7 +5,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
-import { answersInThread, withAnswerButton } from '@/lib/answerButton'
+import { answerGesture, withAnswerButton } from '@/lib/answerButton'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { onGeneratedMedia } from './generatedMedia.ts'
@@ -68,6 +68,7 @@ const OFF_CONFIG: NotificationConfig = {
     answerButton: '',
     answerOnComputer: '',
     answerInThread: '',
+    answerByReply: '',
   },
 }
 
@@ -190,7 +191,7 @@ async function replyToAnswer(sessionId: string, turn: AnswerTurn, reply: string 
   }
 }
 
-/** An agent's message with its 💬 Answer button, or a pointer to the computer for a real-shell session. */
+/** An agent's message with how to answer it on `kind`, or a pointer to the computer for a real-shell session. */
 export function answerable(
   kind: ChannelKind,
   message: ChannelMessage,
@@ -198,13 +199,16 @@ export function answerable(
   title: string,
 ): ChannelMessage {
   if (!sessionId) return message
-  const { answerButton, answerOnComputer, answerInThread } = config.templates
+  const { answerButton, answerOnComputer, answerInThread, answerByReply } = config.templates
   if (config.realShellSessions.includes(sessionId)) {
     return { ...message, text: `${message.text}\n${answerOnComputer}` }
   }
-  if (answersInThread(kind)) {
-    // A message already in the thread needs no pointer to it.
-    return message.replyTo ? message : { ...message, text: `${message.text}\n${answerInThread}` }
+  const gesture = answerGesture(kind)
+  if (gesture === 'thread' || gesture === 'reply') {
+    // A reply to an Answer is already part of the conversation and needs no pointer to it.
+    if (message.replyTo) return message
+    const hint = gesture === 'thread' ? answerInThread : answerByReply
+    return { ...message, text: `${message.text}\n${hint}` }
   }
   const withButton = withAnswerButton(kind, message, answerButton)
   return withButton === message ? message : { ...withButton, answerTitle: title }

@@ -57,10 +57,6 @@ export function registerAgentAnswerSessions(label: (sessionId: string) => string
       const record = agentMode.sessions[sessionId]
       return !!record && agentMode.isUnsandboxed(record.workspaceDir)
     },
-    record: async (kind, ref, sessionId) => {
-      const result = await window.electronAPI.notifications.recordMessage(kind, ref, sessionId)
-      if (!result.success) throw new Error(result.error)
-    },
     send,
     pause,
     held: (sessionId, answer) => agentMode.setHeldAnswer(sessionId, answer),

@@ -127,6 +127,7 @@ function route(next: NotificationRoute, realShellSessions: string[] = []): void 
       answerButton: '💬 Answer',
       answerOnComputer: 'Answer on your computer',
       answerInThread: 'Reply in thread to answer.',
+      answerByReply: '↩️ Reply to this message to answer.',
     },
   })
 }
@@ -211,15 +212,13 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'telegram',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}`,
-        buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
-        answerTitle: '"An agent run"',
+        text: `🤖 Agent · "An agent run"\n${SUMMARY}\n↩️ Reply to this message to answer.`,
       },
     ])
     expect(toolResultText()).toBe('delivered')
   }, 30000)
 
-  it('gives a LAN chat Notification the Answer button too, naming the session it answers', async () => {
+  it('gives a LAN chat Notification the Answer button, naming the session it answers', async () => {
     route({ homeAgentEnabled: true, notificationChannel: 'local-web' })
     await runTurn('aipg-agent-notify-lan')
     expect(sent).toEqual([

@@ -189,7 +189,6 @@ import {
 import {
   channelMessageOwner,
   forgetSessionMessages,
-  recordChannelMessage,
   setChannelMessageMapDeps,
   wipeDemoChannelMessageMap,
 } from './persist/channelMessageMap'
@@ -1746,7 +1745,6 @@ function initEventHandle() {
   registerInvokeHandlers(
     buildNotificationsRegistry({
       channelMessageOwner,
-      recordChannelMessage,
       appLogger: appLoggerInstance,
     }),
   )

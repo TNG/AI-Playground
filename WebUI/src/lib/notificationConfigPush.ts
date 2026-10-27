@@ -46,6 +46,7 @@ export function startNotificationConfigPush(): void {
         answerButton: text.AGENT_NOTIFY_ANSWER_BUTTON ?? '',
         answerOnComputer: text.AGENT_NOTIFY_ANSWER_ON_COMPUTER ?? '',
         answerInThread: text.AGENT_NOTIFY_ANSWER_IN_THREAD ?? '',
+        answerByReply: text.AGENT_NOTIFY_ANSWER_BY_REPLY ?? '',
       },
     }
   })

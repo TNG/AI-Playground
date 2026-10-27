@@ -68,7 +68,6 @@ describe('looking up a channel message', () => {
       channelMessageOwner: async () => {
         throw new Error('corrupt map')
       },
-      recordChannelMessage: async () => {},
       appLogger,
     } as unknown as Parameters<typeof buildNotificationsRegistry>[0])
     const lookup = registry['notifications:lookupMessage'] as (

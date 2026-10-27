@@ -34,6 +34,8 @@ export type NotificationTemplates = {
   answerOnComputer: string
   /** Last line of an answerable Notification on a channel answered by replying in its thread. */
   answerInThread: string
+  /** Last line of an answerable Notification on a channel answered by replying to the message. */
+  answerByReply: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0003). */

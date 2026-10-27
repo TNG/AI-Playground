@@ -55,19 +55,19 @@ describe('a Notification handed to the Home Agent channel', () => {
 
   it('sends a message with buttons as a keyboard, still under the message it answers', async () => {
     const { send, calls } = recorder()
-    await send('telegram', {
+    await send('local-web', {
       text: 'done',
       replyTo: '77',
       buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
     })
     expect(calls).toEqual([
       {
-        kind: 'telegram',
+        kind: 'local-web',
         action: 'keyboard',
         payload: {
           text: 'done',
           buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
-          reply_to_message_id: '77',
+          reply_to: '77',
         },
       },
     ])

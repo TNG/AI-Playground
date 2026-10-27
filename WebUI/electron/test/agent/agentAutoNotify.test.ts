@@ -128,10 +128,17 @@ const CONFIG: NotificationConfig = {
     answerButton: '💬 Answer',
     answerOnComputer: 'Answer on your computer',
     answerInThread: 'Reply in thread to answer.',
+    answerByReply: '↩️ Reply to this message to answer.',
   },
 }
 
-type Sent = { kind: ChannelKind; text: string; replyTo?: string; media?: string }
+type Sent = {
+  kind: ChannelKind
+  text: string
+  replyTo?: string
+  media?: string
+  buttons?: unknown
+}
 let sent: Sent[] = []
 let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
@@ -188,6 +195,7 @@ beforeAll(async () => {
       text: message.text,
       replyTo: message.replyTo,
       media: message.media && `${message.media.kind}:${message.media.filename}`,
+      buttons: message.buttons,
     })
     return { success: true, ref: `msg-${sent.length}` }
   })
@@ -285,6 +293,9 @@ async function pauseForQuestion(): Promise<void> {
   userWait.setAwaitingUser(SESSION, false)
 }
 
+/** The last line of a Telegram Notification that is not itself a reply to an Answer. */
+const REPLY_HINT = '\n↩️ Reply to this message to answer.'
+
 const QUESTION_TEXT =
   '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
@@ -292,7 +303,7 @@ const QUESTION_TEXT =
 describe('a Background Session pausing for the user', () => {
   it('sends one Notification naming the session and the question', async () => {
     await withWaitingTurn(SESSION, pauseForQuestion)
-    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
   }, 30000)
 
   it('sends no Notification for a download pause, which the window asks as a Channel Question', async () => {
@@ -342,11 +353,14 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser(SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.',
+      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.' +
+        REPLY_HINT,
       '🤖 Agent · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
-        'Open AI Playground to continue.',
+        'Open AI Playground to continue.' +
+        REPLY_HINT,
       '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
-        'Open AI Playground to continue.',
+        'Open AI Playground to continue.' +
+        REPLY_HINT,
     ])
   }, 30000)
 
@@ -358,7 +372,8 @@ describe('a Background Session pausing for the user', () => {
     })
     expect(sent.map((s) => s.text)).toEqual([
       '🤖 Agent · "An agent run"\n⏸ Waiting for you: a question (Which colour?). ' +
-        'Open AI Playground to continue.',
+        'Open AI Playground to continue.' +
+        REPLY_HINT,
     ])
   }, 30000)
 
@@ -372,7 +387,7 @@ describe('a Background Session pausing for the user', () => {
     notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
     windowShown = false
     await withWaitingTurn(SESSION, pauseForQuestion)
-    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
   }, 30000)
 
   it.each([
@@ -424,7 +439,8 @@ describe('a Task run', () => {
     })
     expect(sent.map((s) => s.text)).toEqual([
       '🤖 Agent · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
-        'Open AI Playground to continue.',
+        'Open AI Playground to continue.' +
+        REPLY_HINT,
     ])
   }, 30000)
 
@@ -435,7 +451,8 @@ describe('a Task run', () => {
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
       '🤖 Agent · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
-        'Open AI Playground for details.',
+        'Open AI Playground for details.' +
+        REPLY_HINT,
     ])
   }, 30000)
 
@@ -445,7 +462,8 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.',
+      '🤖 Agent · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.' +
+        REPLY_HINT,
     ])
   }, 30000)
 
@@ -456,7 +474,8 @@ describe('a Task run', () => {
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
       '🤖 Agent · "Fetch the headlines"\n❌ Failed: 400: model test-model was retired. ' +
-        'Open AI Playground for details.',
+        'Open AI Playground for details.' +
+        REPLY_HINT,
     ])
   }, 30000)
 })
@@ -500,7 +519,7 @@ describe('a Background Session whose turn fails', () => {
 
   it('sends one Notification with the error the app shows', async () => {
     await failingTurn()
-    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT + REPLY_HINT }])
   }, 30000)
 
   it('stays quiet for the session open on screen', async () => {
@@ -513,7 +532,7 @@ describe('a Background Session whose turn fails', () => {
     notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
     windowShown = false
     await failingTurn()
-    expect(sent.map((m) => m.text)).toEqual([FAILED_TEXT])
+    expect(sent.map((m) => m.text)).toEqual([FAILED_TEXT + REPLY_HINT])
   }, 30000)
 
   it.each([

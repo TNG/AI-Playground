@@ -41,11 +41,15 @@ export function jsonResult(value: unknown): AgentToolResult<undefined> {
 
 /**
  * A media tool's result: the same JSON text the model always got, plus the
- * generated items from its `images` as `details` for the transcript.
+ * generated items from its `images` (and any step lines) as `details` for the transcript.
  */
-export function mediaToolResult(value: unknown): AgentToolResult<AgentMediaDetails | undefined> {
+export function mediaToolResult(
+  value: unknown,
+  extras: Pick<AgentMediaDetails, 'steps'> = {},
+): AgentToolResult<AgentMediaDetails | undefined> {
   const items = generatedItemsOf(value)
-  return { ...jsonResult(value), details: items.length > 0 ? { items } : undefined }
+  const details = items.length > 0 || extras.steps ? { items, ...extras } : undefined
+  return { ...jsonResult(value), details }
 }
 
 function generatedItemsOf(value: unknown): MediaItem[] {

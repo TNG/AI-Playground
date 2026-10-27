@@ -210,6 +210,31 @@ describe('generatedMediaOf', () => {
     expect(media?.steps).toEqual(['Picked Flux'])
   })
 
+  it('shows the video and 3D model a media specialist run produced, with its steps', () => {
+    const model = {
+      id: 'c',
+      type: 'model3d',
+      model3dUrl: 'aipg-media://c.glb',
+      mode: 'imageGen',
+      settings: {},
+      state: 'done',
+    }
+    const steps = [
+      'comfyUI (Dummy Video): produced 1 video',
+      'comfyUI (Dummy 3D): produced 1 model3d',
+    ]
+    const media = generatedMediaOf(mediaPart('media', piResult({ items: [video, model], steps })))
+    expect(media).toEqual({ items: [video, model], steps })
+  })
+
+  it('keeps the steps of a specialist run that produced nothing', () => {
+    const steps = ['comfyUI (W1): failed — oom']
+    expect(generatedMediaOf(mediaPart('media', piResult({ items: [], steps })))).toEqual({
+      items: [],
+      steps,
+    })
+  })
+
   it('drops items without a URL or of an unknown type', () => {
     const media = generatedMediaOf(
       mediaPart(

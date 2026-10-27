@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -140,6 +140,7 @@ type Sent = {
   buttons?: unknown
 }
 let sent: Sent[] = []
+let typing: Array<{ kind: ChannelKind; typing: 'start' | 'stop' }> = []
 let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
 let windowShown = true
@@ -190,6 +191,10 @@ beforeAll(async () => {
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannelSend(async (kind, message) => {
+    if ('typing' in message) {
+      typing.push({ kind, typing: message.typing })
+      return { success: true }
+    }
     sent.push({
       kind,
       text: message.text,
@@ -217,6 +222,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   sent = []
+  typing = []
   asks = []
   prompts = []
   windowShown = true
@@ -711,4 +717,147 @@ describe('the turn an Answer started', () => {
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
     ])
   }, 30000)
+
+  describe('shows typing', () => {
+    const TELEGRAM_START = { kind: 'telegram', typing: 'start' }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('once its turn runs, repeated every 4 s, and not after it ends', async () => {
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          expect(typing).toEqual([TELEGRAM_START])
+          vi.advanceTimersByTime(4000)
+          vi.advanceTimersByTime(4000)
+          expect(typing).toEqual([TELEGRAM_START, TELEGRAM_START, TELEGRAM_START])
+        },
+        answerTurn(),
+      )
+      await settle()
+      typing = []
+      vi.advanceTimersByTime(12000)
+      expect(typing).toEqual([])
+    }, 30000)
+
+    it('not while its turn waits in the queue behind another', async () => {
+      const other = manager.startAgentTurn(
+        crypto.randomUUID(),
+        'say hi',
+        configFor('aipg-agent-other'),
+      )
+      await vi.waitFor(() => expect(asks).toHaveLength(1))
+      const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', answerTurn())
+      await settle()
+      vi.advanceTimersByTime(8000)
+      expect(typing).toEqual([])
+
+      chatAsk.handleChatAnswer({
+        requestId: asks[0].requestId,
+        result: { audioBase64: '', mediaType: 'audio/wav', voice: 'test', engine: 'kokoro' },
+      })
+      expect(await other).toEqual({ success: true })
+      await vi.waitFor(() => expect(asks).toHaveLength(2))
+      expect(typing).toEqual([TELEGRAM_START])
+      chatAsk.handleChatAnswer({
+        requestId: asks[1].requestId,
+        result: { audioBase64: '', mediaType: 'audio/wav', voice: 'test', engine: 'kokoro' },
+      })
+      expect(await run).toEqual({ success: true })
+    }, 30000)
+
+    it('stops while the turn is paused on the user and resumes after', async () => {
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          pauseFor(SESSION, 'question', 'Which colour?')
+          await settle()
+          typing = []
+          vi.advanceTimersByTime(12000)
+          expect(typing).toEqual([])
+          userWait.setAwaitingUser(SESSION, false)
+          expect(typing).toEqual([TELEGRAM_START])
+          vi.advanceTimersByTime(4000)
+          expect(typing).toEqual([TELEGRAM_START, TELEGRAM_START])
+        },
+        answerTurn(),
+      )
+    }, 30000)
+
+    it('with an explicit stop on LAN chat, at a pause and at the end', async () => {
+      const lan = { kind: 'local-web' }
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          pauseFor(SESSION, 'question', 'Which colour?')
+          await settle()
+          userWait.setAwaitingUser(SESSION, false)
+        },
+        { ...configFor(SESSION), answer: { channel: 'local-web', replyTo: '5' } },
+      )
+      await settle()
+      expect(typing).toEqual([
+        { ...lan, typing: 'start' },
+        { ...lan, typing: 'stop' },
+        { ...lan, typing: 'start' },
+        { ...lan, typing: 'stop' },
+      ])
+    }, 30000)
+
+    it('until a failed turn ends', async () => {
+      modelRetired = true
+      await manager.startAgentTurn(crypto.randomUUID(), 'hi', {
+        ...configFor(SESSION),
+        answer: { channel: 'local-web', replyTo: '5' },
+      })
+      await settle()
+      expect(typing.at(-1)).toEqual({ kind: 'local-web', typing: 'stop' })
+      typing = []
+      vi.advanceTimersByTime(12000)
+      expect(typing).toEqual([])
+    }, 30000)
+
+    it('until the user stops the turn', async () => {
+      const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', {
+        ...configFor(SESSION),
+        answer: { channel: 'local-web', replyTo: '5' },
+      })
+      await vi.waitFor(() => expect(asks).toHaveLength(1))
+      manager.cancelAgentTurn(SESSION)
+      await run
+      await settle()
+      expect(typing.at(-1)).toEqual({ kind: 'local-web', typing: 'stop' })
+      typing = []
+      vi.advanceTimersByTime(12000)
+      expect(typing).toEqual([])
+    }, 30000)
+
+    it('for one Answer turn at a time, leaking none across turns', async () => {
+      await withWaitingTurn(SESSION, async () => {}, answerTurn())
+      asks = []
+      await withWaitingTurn(SESSION, async () => {}, answerTurn())
+      await settle()
+      typing = []
+      vi.advanceTimersByTime(12000)
+      expect(typing).toEqual([])
+    }, 30000)
+
+    it('never on Slack', async () => {
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          vi.advanceTimersByTime(8000)
+        },
+        { ...configFor(SESSION), answer: { channel: 'slack', replyTo: '1700000000.0001' } },
+      )
+      await settle()
+      expect(typing).toEqual([])
+    }, 30000)
+  })
 })

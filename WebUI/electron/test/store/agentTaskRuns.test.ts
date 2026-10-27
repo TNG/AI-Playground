@@ -1319,10 +1319,11 @@ describe('running Steps from the prompt bar', () => {
 
     expect(sentPrompts()[0]).toBe(
       [
-        'Get news focused on Intel Corporation',
-        '',
         'Carry this out in 3 steps. I will send them one at a time; do only the current one, ' +
           'then stop.',
+        '',
+        'For this run the user added: "Get news focused on Intel Corporation"',
+        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
         '',
         'Step 1 of 3: Search for today’s news',
       ].join('\n'),
@@ -1377,7 +1378,14 @@ describe('running Steps from the prompt bar', () => {
     await turnIdOf(0)
 
     expect(sentPrompts()[0]).toBe(
-      ['Intel news', '', 'Carry this out in one step:', '', 'Search for today’s news'].join('\n'),
+      [
+        'Carry this out in one step:',
+        '',
+        'For this run the user added: "Intel news"',
+        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
+        '',
+        'Search for today’s news',
+      ].join('\n'),
     )
     await finishTurn(0)
     await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())

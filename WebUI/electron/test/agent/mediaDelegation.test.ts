@@ -143,8 +143,8 @@ describe('mediaDelegation (in-process media tool)', () => {
     })
     expect(result.details).toEqual({
       items: [
-        { ...video, state: 'done' },
-        { ...model, state: 'done' },
+        { ...video, mode: 'imageGen', settings: {}, state: 'done' },
+        { ...model, mode: 'imageGen', settings: {}, state: 'done' },
       ],
       steps: ['comfyUI (W1): produced 2 video, model3d'],
     })

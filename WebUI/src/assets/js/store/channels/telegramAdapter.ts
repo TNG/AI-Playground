@@ -294,16 +294,6 @@ export function createTelegramAdapter(): ChannelAdapter {
       })
       return withMessageRef(r)
     },
-    answerPrompt: async (text, placeholder) => {
-      return withMessageRef(
-        await window.electronAPI.homeAgent.channel.send('telegram', 'reply', {
-          text,
-          parse_mode: PARSE_MODE,
-          force_reply: true,
-          input_field_placeholder: placeholder,
-        }),
-      )
-    },
     post: async (text) => {
       return withMessageRef(
         await window.electronAPI.homeAgent.channel.send('telegram', 'post', {

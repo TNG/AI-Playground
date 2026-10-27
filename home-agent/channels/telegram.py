@@ -196,19 +196,11 @@ class TelegramChannel(ChannelBase):
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
-            reply_markup = None
-            # An Answer Prompt: opens the keyboard already replying to this message.
-            if payload.get("force_reply"):
-                from telegram import ForceReply
-
-                placeholder = payload.get("input_field_placeholder") or None
-                reply_markup = ForceReply(input_field_placeholder=placeholder)
             msg = self._run_coro(
                 self._app_instance.bot.send_message(  # type: ignore[union-attr]
                     chat_id=target,
                     text=text,
                     parse_mode=parse_mode,
-                    reply_markup=reply_markup,
                     **_reply_parameters(payload),
                 )
             )

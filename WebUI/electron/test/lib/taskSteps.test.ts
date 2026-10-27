@@ -39,18 +39,25 @@ describe('the turns a prompt is carried out in', () => {
     expect(stepPrompts(steps(' search ', '  ', 'summarise'))).toEqual(['search', 'summarise'])
   })
 
-  it('opens with the request, the plan and Step 1', () => {
-    expect(firstStepTurn(' Intel news ', ['search', 'summarise'])).toBe(
-      'Intel news\n\nCarry this out in 2 steps. I will send them one at a time; do only the ' +
-        'current one, then stop.\n\nStep 1 of 2: search',
+  const adjustment = (request: string) =>
+    `For this run the user added: "${request}"\n` +
+    'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.\n\n'
+
+  it('opens with the plan, then the prompt as a run adjustment, then Step 1', () => {
+    expect(firstStepTurn(' only news from Germany ', ['search', 'summarise'])).toBe(
+      'Carry this out in 2 steps. I will send them one at a time; do only the ' +
+        'current one, then stop.\n\n' +
+        adjustment('only news from Germany') +
+        'Step 1 of 2: search',
     )
   })
 
-  it('starts with the plan when there is no request', () => {
-    expect(firstStepTurn(' ', ['search', 'summarise'])).toBe(
+  it('leaves out the prompt block when the prompt is empty', () => {
+    const plain =
       'Carry this out in 2 steps. I will send them one at a time; do only the ' +
-        'current one, then stop.\n\nStep 1 of 2: search',
-    )
+      'current one, then stop.\n\nStep 1 of 2: search'
+    expect(firstStepTurn('', ['search', 'summarise'])).toBe(plain)
+    expect(firstStepTurn(' \n\t ', ['search', 'summarise'])).toBe(plain)
   })
 
   it('numbers each later Step', () => {
@@ -58,9 +65,10 @@ describe('the turns a prompt is carried out in', () => {
   })
 
   it('does not number a single Step', () => {
-    expect(firstStepTurn('Intel news', ['search'])).toBe(
-      'Intel news\n\nCarry this out in one step:\n\nsearch',
+    expect(firstStepTurn('only news from Germany', ['search'])).toBe(
+      'Carry this out in one step:\n\n' + adjustment('only news from Germany') + 'search',
     )
+    expect(firstStepTurn(' ', ['search'])).toBe('Carry this out in one step:\n\nsearch')
     expect(stepTurn(1, ['search'])).toBe('search')
   })
 })

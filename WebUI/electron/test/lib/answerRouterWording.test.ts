@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { answerHelpLine, answerableNotice } from '../../../src/lib/answerRouterWording'
-import enUS from '../../../src/assets/i18n/en-US.json'
 
 describe('answering wording per channel', () => {
   it('tells /help on each channel the gesture that answers there', () => {
@@ -20,15 +19,15 @@ describe('answering wording per channel', () => {
   })
 
   it('describes the gesture of the channel being set up', () => {
-    expect(answerableNotice('telegram', enUS)).toBe(
+    expect(answerableNotice('telegram')).toBe(
       'Agents can message you on this channel. To answer one, reply to its message. Plain messages go to Home Agent.',
     )
-    expect(answerableNotice('slack', enUS)).toBe(
+    expect(answerableNotice('slack')).toBe(
       'Agents can message you on this channel. To answer one, reply in its thread. Plain messages go to Home Agent.',
     )
-    expect(answerableNotice('local-web', enUS)).toBe(
+    expect(answerableNotice('local-web')).toBe(
       'Agents can message you on this channel. To answer one, tap 💬 Answer. Plain messages go to Home Agent.',
     )
-    expect(answerableNotice('discord', enUS)).toBeNull()
+    expect(answerableNotice('discord')).toBeNull()
   })
 })

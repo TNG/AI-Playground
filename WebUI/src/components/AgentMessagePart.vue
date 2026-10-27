@@ -32,6 +32,10 @@
       :progress="mediaLive.progress"
     />
   </div>
+  <div v-else-if="speechClip" class="flex flex-col gap-2">
+    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatTtsToolResult :output="speechClip" />
+  </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
     <!-- Live output while the tool is still running (Pi streams partial results,
@@ -66,6 +70,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
@@ -128,6 +133,12 @@ const compactionDelta = computed<string>(() => {
 })
 
 const generatedMedia = computed(() => generatedMediaOf(props.part))
+
+/** Chat's audio player reads the app-folder copy, never the workspace. */
+const speechClip = computed(() => {
+  const audio = generatedMedia.value?.audio
+  return audio && { ok: true, message: audio.message, savedFilePath: audio.savedFilePath }
+})
 
 /** Step lines from a finished result, for runs no longer in the store. */
 const mediaToolSteps = computed(() => generatedMedia.value?.steps)

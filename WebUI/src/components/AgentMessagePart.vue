@@ -30,12 +30,18 @@
       :images="mediaToolImages"
       :phase="mediaToolPhase"
       :progress="mediaLive.progress"
+      hide-mode-switch
+      :file-handlers="workspaceFileHandlers"
     />
   </div>
   <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
   <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
-    <ChatTtsToolResult :output="generatedMedia.audio" />
+    <ChatTtsToolResult
+      :output="generatedMedia.audio"
+      :caption="workspaceCaption(generatedMedia.audio.workspacePath)"
+      :download="() => fileAction(generatedMedia!.audio!, 'saveAs')"
+    />
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
@@ -65,6 +71,8 @@ import type { DynamicToolUIPart, ToolUIPart } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
+import { useErrors } from '@/assets/js/store/errors'
+import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -76,9 +84,16 @@ import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import {
   compactionOutputOf,
   generatedMediaOf,
+  mediaFileRefOf,
   mediaToolNameOf,
   transcriptMediaItems,
 } from '@/lib/agentTranscript'
+import type {
+  AgentMediaFileAction,
+  AgentMediaItem,
+  AgentSpeechClip,
+} from '@/types/agentMediaDetails'
+import type { MediaFileHandlers } from '@/types/mediaItem'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -91,6 +106,8 @@ const props = defineProps<{ part: UIMessagePart<UIDataTypes, UITools> }>()
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
+const errors = useErrors()
+const i18nState = useI18N().state
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.
@@ -155,6 +172,30 @@ const mediaToolPhase = computed(() => {
     ? undefined
     : mediaLive.value.phase
 })
+
+// The card shows the app copy; what the user opens or takes away is the agent's working file.
+async function fileAction(target: AgentMediaItem | AgentSpeechClip, action: AgentMediaFileAction) {
+  try {
+    const ref = mediaFileRefOf(agentMode.openSessionId, target)
+    const result = await window.electronAPI.agentMode.mediaFileAction(ref, action)
+    if (!result.success) throw new Error(result.error)
+  } catch (error) {
+    errors.report(error)
+  }
+}
+
+function workspaceCaption(workspacePath: string | undefined): string | undefined {
+  return workspacePath
+    ? i18nState.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', workspacePath)
+    : undefined
+}
+
+const workspaceFileHandlers: MediaFileHandlers = {
+  open: (item) => fileAction(item, 'open'),
+  reveal: (item) => fileAction(item, 'reveal'),
+  drag: (item) => fileAction(item, 'drag'),
+  caption: (item) => workspaceCaption((item as AgentMediaItem).workspacePath),
+}
 
 watch(
   () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,

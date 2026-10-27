@@ -323,6 +323,24 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output.details).toBeUndefined()
   })
 
+  it.each(['failed', 'cancelled'] as const)(
+    'shows no media for a %s run even when it returned items',
+    async (state) => {
+      submitArtifactRunMock.mockImplementationOnce(async (payload) => ({
+        ...completedResult(payload as Record<string, unknown>),
+        state,
+        error: 'boom',
+      }))
+      const tool = await buildTool(GENERATE_SPEC)
+      const output = (await tool.execute(
+        'call-1',
+        { prompt: 'x' },
+        new AbortController().signal,
+      )) as { details: unknown }
+      expect(output.details).toBeUndefined()
+    },
+  )
+
   it('reports an unavailable workflow without submitting', async () => {
     const tool = await buildTool(GENERATE_SPEC)
     const output = parseOutput(

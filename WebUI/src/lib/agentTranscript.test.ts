@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   compactionOutputOf,
   generatedMediaOf,
-  isGeneratedMediaTool,
+  showsGeneratedMedia,
+  transcriptMediaItems,
   groupTranscriptParts,
   mediaToolNameOf,
   toolPartNameOf,
@@ -248,6 +249,14 @@ describe('generatedMediaOf', () => {
     expect(media?.items.map((item) => item.id)).toEqual(['a'])
   })
 
+  it('drops items that did not finish', () => {
+    const pending = { ...image, id: 'p', state: 'generating' }
+    const media = generatedMediaOf(
+      mediaPart('generateImage', piResult({ items: [image, pending] })),
+    )
+    expect(media?.items.map((item) => item.id)).toEqual(['a'])
+  })
+
   it('ignores an images field outside details', () => {
     expect(generatedMediaOf(mediaPart('generateImage', { images: [image] }))).toBeUndefined()
   })
@@ -295,10 +304,18 @@ describe('generatedMediaOf (speech)', () => {
     expect(generatedMediaOf(part)).toEqual({ items: [], audio: clip })
   })
 
-  it('counts text-to-speech as a media tool, so its card is never folded away', () => {
-    expect(isGeneratedMediaTool(speechPart(undefined, 'input-available'))).toBe(true)
-    expect(isGeneratedMediaTool(tool('generateImage'))).toBe(true)
-    expect(isGeneratedMediaTool(tool('transcribeAudio'))).toBe(false)
+  it('keeps a speech card out of the fold only when it has a clip to play', () => {
+    const played = speechPart({ content: [], details: { audio: clip } })
+    expect(showsGeneratedMedia(played)).toBe(true)
+    expect(showsGeneratedMedia(speechPart(undefined, 'input-available'))).toBe(false)
+    expect(showsGeneratedMedia(speechPart({ content: [] }))).toBe(false)
+    expect(showsGeneratedMedia({ ...tool('synthesizeTextToSpeech', 'output-error') })).toBe(false)
+    expect(showsGeneratedMedia(tool('transcribeAudio'))).toBe(false)
+  })
+
+  it('always keeps an image or media tool out of the fold, as before', () => {
+    expect(showsGeneratedMedia(tool('generateImage', 'input-available'))).toBe(true)
+    expect(showsGeneratedMedia({ ...tool('media', 'output-error') })).toBe(true)
   })
 
   it('shows nothing for a text-only speech result saved before details existed', () => {
@@ -312,5 +329,36 @@ describe('generatedMediaOf (speech)', () => {
     expect(generatedMediaOf({ ...tool('synthesizeTextToSpeech', 'output-error') })).toBeUndefined()
     const noCopy = { details: { audio: { workspacePath: 'generated/speech.wav' } } }
     expect(generatedMediaOf(speechPart(noCopy))).toBeUndefined()
+  })
+})
+
+describe('transcriptMediaItems', () => {
+  const finished = {
+    id: 'a',
+    type: 'image',
+    imageUrl: 'aipg-media://a.png',
+    mode: 'imageGen',
+    settings: {},
+    state: 'done',
+  }
+  const live = [{ ...finished, id: 'live', state: 'generating' }] as never[]
+
+  function part(state: string, output?: unknown) {
+    return { ...tool('generateImage', state), output }
+  }
+
+  it('shows the finished items from the result', () => {
+    const done = part('output-available', { content: [], details: { items: [finished] } })
+    expect(transcriptMediaItems(done, live).map((item) => item.id)).toEqual(['a'])
+  })
+
+  it('shows what the run has so far while the tool is running', () => {
+    expect(transcriptMediaItems(part('input-available'), live)).toBe(live)
+    expect(transcriptMediaItems(part('input-streaming'), live)).toBe(live)
+  })
+
+  it('shows no media for a failed call or a finished one without items', () => {
+    expect(transcriptMediaItems({ ...part('output-error'), errorText: 'boom' }, live)).toEqual([])
+    expect(transcriptMediaItems(part('output-available', { content: [] }), live)).toEqual([])
   })
 })

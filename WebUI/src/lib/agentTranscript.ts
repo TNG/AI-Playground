@@ -64,13 +64,6 @@ export function mediaToolNameOf(part: unknown): string | undefined {
 }
 
 /** What a finished media tool call produced, as Chat's media card renders it. */
-const SPEECH_TOOL_NAME = 'synthesizeTextToSpeech'
-
-/** A tool whose card shows what it generated, so the transcript never folds it away. */
-export function isGeneratedMediaTool(part: unknown): boolean {
-  return !!mediaToolNameOf(part) || toolPartNameOf(part) === SPEECH_TOOL_NAME
-}
-
 export type GeneratedMedia = {
   items: MediaItem[]
   steps?: string[]
@@ -78,23 +71,38 @@ export type GeneratedMedia = {
 }
 
 export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
-  if (!isGeneratedMediaTool(part) || shapeOf(part).state !== 'output-available') return undefined
+  if (shapeOf(part).state !== 'output-available') return undefined
   const output = shapeOf(part).output as { details?: unknown } | undefined
   const details = (
     typeof output?.details === 'object' && output.details !== null ? output.details : {}
   ) as { [K in keyof AgentMediaDetails]?: unknown }
-  if (toolPartNameOf(part) === SPEECH_TOOL_NAME) {
-    const audio = details.audio as Partial<AgentSpeechClip> | undefined
-    if (typeof audio?.savedFilePath !== 'string' || !audio.savedFilePath) return undefined
+  const audio = details.audio as Partial<AgentSpeechClip> | undefined
+  if (typeof audio?.savedFilePath === 'string' && audio.savedFilePath) {
     return { items: [], audio: audio as AgentSpeechClip }
   }
-  const items = (Array.isArray(details.items) ? details.items : [])
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => ({ mode: 'imageGen', settings: {}, ...item, state: 'done' }) as MediaItem)
-    .filter(hasMediaUrl)
+  if (!mediaToolNameOf(part)) return undefined
+  const items = (Array.isArray(details.items) ? details.items : []).filter(isFinishedMedia)
   const steps = Array.isArray(details.steps) ? (details.steps as string[]) : undefined
   if (items.length === 0 && !steps) return undefined
   return { items, steps }
+}
+
+/** A media tool's card renders even while it runs; any other part only once it has media. */
+export function showsGeneratedMedia(part: unknown): boolean {
+  return !!mediaToolNameOf(part) || !!generatedMediaOf(part)
+}
+
+/** The result's media, or — only while the call runs — what its live run has so far. */
+export function transcriptMediaItems(part: unknown, live: MediaItem[]): MediaItem[] {
+  const state = shapeOf(part).state
+  if (state === 'input-streaming' || state === 'input-available') return live
+  return generatedMediaOf(part)?.items ?? []
+}
+
+function isFinishedMedia(item: unknown): item is MediaItem {
+  if (typeof item !== 'object' || item === null) return false
+  const media = item as MediaItem
+  return media.state === 'done' && hasMediaUrl(media)
 }
 
 function hasMediaUrl(item: MediaItem): boolean {

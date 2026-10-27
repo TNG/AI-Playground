@@ -32,9 +32,10 @@
       :progress="mediaLive.progress"
     />
   </div>
-  <div v-else-if="speechClip" class="flex flex-col gap-2">
+  <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
+  <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
-    <ChatTtsToolResult :output="speechClip" />
+    <ChatTtsToolResult :output="generatedMedia.audio" />
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
@@ -72,7 +73,12 @@ import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
-import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import {
+  compactionOutputOf,
+  generatedMediaOf,
+  mediaToolNameOf,
+  transcriptMediaItems,
+} from '@/lib/agentTranscript'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -134,22 +140,14 @@ const compactionDelta = computed<string>(() => {
 
 const generatedMedia = computed(() => generatedMediaOf(props.part))
 
-/** Chat's audio player reads the app-folder copy, never the workspace. */
-const speechClip = computed(() => {
-  const audio = generatedMedia.value?.audio
-  return audio && { ok: true, message: audio.message, savedFilePath: audio.savedFilePath }
-})
-
 /** Step lines from a finished result, for runs no longer in the store. */
 const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 
 const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
 
-/** Finished media from the tool output, or what the owned runs have so far. */
-const mediaToolImages = computed<MediaItem[]>(() => {
-  const items = generatedMedia.value?.items ?? []
-  return items.length ? items : mediaLive.value.items
-})
+const mediaToolImages = computed<MediaItem[]>(() =>
+  transcriptMediaItems(props.part, mediaLive.value.items),
+)
 
 const mediaToolPhase = computed(() => {
   const state = toolPart.value.state

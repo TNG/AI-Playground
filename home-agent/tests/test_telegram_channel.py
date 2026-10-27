@@ -210,58 +210,5 @@ class TelegramOutboundTest(unittest.TestCase):
         self.assertEqual(self.reply_target(1)["message_id"], 77)
 
 
-class FakeForceReply:
-    def __init__(self, **kwargs) -> None:
-        self.kwargs = kwargs
-
-
-class TelegramAnswerPromptTest(unittest.TestCase):
-    def setUp(self) -> None:
-        fake_telegram = types.ModuleType("telegram")
-        fake_telegram.ForceReply = FakeForceReply  # type: ignore[attr-defined]
-        self._saved = sys.modules.get("telegram")
-        sys.modules["telegram"] = fake_telegram
-        self.sent: list[dict] = []
-
-        async def send_message(**kwargs):
-            self.sent.append(kwargs)
-            return SimpleNamespace(message_id=901)
-
-        self._dir = tempfile.TemporaryDirectory()
-        self.channel = TelegramChannel(Path(self._dir.name))
-        self.channel._app_instance = SimpleNamespace(
-            bot=SimpleNamespace(send_message=send_message)
-        )
-        self.channel._bot_chat_id = "4242"
-        self.channel._run_coro = lambda coro, timeout=10.0: asyncio.run(coro)  # type: ignore[method-assign]
-
-    def tearDown(self) -> None:
-        if self._saved is None:
-            sys.modules.pop("telegram", None)
-        else:
-            sys.modules["telegram"] = self._saved
-        self._dir.cleanup()
-
-    def test_an_answer_prompt_opens_reply_mode_with_a_placeholder(self) -> None:
-        result = self.channel.send_reply(
-            {
-                "text": "Your message to “Asteroids clone”:",
-                "force_reply": True,
-                "input_field_placeholder": "Message to “Asteroids clone”",
-            }
-        )
-        self.assertEqual(result, {"status": "ok", "message_id": 901})
-        markup = self.sent[0]["reply_markup"]
-        self.assertIsInstance(markup, FakeForceReply)
-        self.assertEqual(
-            markup.kwargs,
-            {"input_field_placeholder": "Message to “Asteroids clone”"},
-        )
-
-    def test_a_plain_reply_has_no_reply_markup(self) -> None:
-        self.channel.send_reply({"text": "hello"})
-        self.assertIsNone(self.sent[0]["reply_markup"])
-
-
 if __name__ == "__main__":
     unittest.main()

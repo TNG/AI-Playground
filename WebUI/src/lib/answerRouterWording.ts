@@ -15,10 +15,6 @@ export type AnswerRouterCopy = {
   fixOnDesktop: string
   textOnly: string
   noSpeech: string
-  /** The Answer Prompt the 💬 Answer button opens: `{title}` */
-  answerPrompt: string
-  /** The input placeholder while replying to an Answer Prompt: `{title}` */
-  answerPlaceholder: string
   /** `{title}`; an Answer held until the session's turn ends */
   held: string
   /** `{title}`; held while the turn waits for the download buttons in the channel */
@@ -52,8 +48,6 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   fixOnDesktop: 'AGENT_ANSWER_FIX_ON_DESKTOP',
   textOnly: 'AGENT_ANSWER_TEXT_ONLY',
   noSpeech: 'AGENT_ANSWER_NO_SPEECH',
-  answerPrompt: 'AGENT_ANSWER_PROMPT',
-  answerPlaceholder: 'AGENT_ANSWER_PLACEHOLDER',
   held: 'AGENT_ANSWER_HELD',
   heldDownload: 'AGENT_ANSWER_HELD_DOWNLOAD',
   heldDownloadElsewhere: 'AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE',

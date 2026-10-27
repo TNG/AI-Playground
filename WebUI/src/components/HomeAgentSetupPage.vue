@@ -193,8 +193,8 @@
       <Label for="home-agent-auto-notify">{{ i18n.HOME_AGENT_AUTO_NOTIFY }}</Label>
     </div>
 
-    <p class="pt-2 text-sm text-muted-foreground">
-      {{ i18n.HOME_AGENT_NOTIFICATION_ANSWERABLE }}
+    <p v-if="answerable" class="pt-2 text-sm text-muted-foreground">
+      {{ answerable }}
     </p>
 
     <SetupWizardFooter
@@ -217,6 +217,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
+import { answerableNotice } from '@/lib/answerRouterWording'
 
 const emit = defineEmits<{
   back: []
@@ -232,6 +233,10 @@ const notificationChannel = computed({
   get: () => homeAgent.notificationRoute.notificationChannel,
   set: (kind: ChannelKind | null) => (homeAgent.chosenNotificationChannel = kind),
 })
+
+const answerable = computed(() =>
+  notificationChannel.value ? answerableNotice(notificationChannel.value, i18n) : null,
+)
 
 function channelName(kind: ChannelKind): string {
   return getDescriptor(kind)?.displayName ?? kind

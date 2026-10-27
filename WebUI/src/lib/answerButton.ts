@@ -14,6 +14,10 @@ type ChannelAnswering = {
   buttonCarriesTitle: boolean
   /** A LAN chat `reply` settles the streaming Home Agent bubble; `post` stands on its own. */
   sendsAsPost: boolean
+  /** Main can show "typing…" while the turn an Answer started runs. */
+  answerTyping: boolean
+  /** Typing is ended by an explicit stop rather than by lapsing. */
+  typingStops: boolean
 }
 
 export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
@@ -22,24 +26,42 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     replyKey: 'reply_to_message_id',
     buttonCarriesTitle: false,
     sendsAsPost: false,
+    answerTyping: true,
+    typingStops: false,
   },
   slack: {
     gesture: 'thread',
     replyKey: 'thread_ts',
     buttonCarriesTitle: false,
     sendsAsPost: false,
+    answerTyping: false,
+    typingStops: false,
   },
   'local-web': {
     gesture: 'button',
     replyKey: 'reply_to',
     buttonCarriesTitle: true,
     sendsAsPost: true,
+    answerTyping: true,
+    typingStops: true,
   },
-  discord: { gesture: null, replyKey: 'reply_to', buttonCarriesTitle: false, sendsAsPost: false },
+  discord: {
+    gesture: null,
+    replyKey: 'reply_to',
+    buttonCarriesTitle: false,
+    sendsAsPost: false,
+    answerTyping: false,
+    typingStops: false,
+  },
 }
 
 export function answerGesture(kind: ChannelKind): AnswerGesture | null {
   return CHANNEL_ANSWERING[kind].gesture
+}
+
+/** Whether the turn an Answer started shows "typing…", which then acknowledges the Answer. */
+export function hasAnswerTyping(kind: ChannelKind): boolean {
+  return CHANNEL_ANSWERING[kind].answerTyping
 }
 
 /** Adds the 💬 Answer button to any message an agent sends to `kind` (a Notification, a reply). */

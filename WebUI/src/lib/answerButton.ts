@@ -3,7 +3,7 @@ import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/typ
 /** The callback of the 💬 Answer button; the tapped message itself names the session. */
 export const ANSWER_CALLBACK = 'answer'
 
-type AnswerGesture = 'button' | 'thread' | 'reply'
+export type AnswerGesture = 'button' | 'thread' | 'reply'
 
 /** How a channel answers an agent's message, and how a send there names the message it replies to. */
 type ChannelAnswering = {

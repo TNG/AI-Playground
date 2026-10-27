@@ -88,8 +88,6 @@ export type AnswerRouterDeps = {
   ) => Promise<string | null>
   /** The channel an agent's download question is asked on, or null when only the computer asks. */
   downloadQuestionChannel?: () => ChannelKind | null
-  /** Persisted: whether the channel was already told how answering works. */
-  onboarding?: { seen: () => boolean; markSeen: () => void }
   copy?: () => AnswerRouterCopy
   /** Defaults to memory only: a lost Held Answer then goes unreported after a restart. */
   journal?: HeldAnswerJournal
@@ -310,10 +308,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const result = await firstSend(sessions, sessionId, text, origin)
       if (!result.ok && isHold(result.reason)) await hold(entry, sessionId)
       else await confirm(adapter, entry.title, result, meta)
-    }
-    if (deps.onboarding && !deps.onboarding.seen()) {
-      deps.onboarding.markSeen()
-      await tell(adapter, copy().onboarding, meta)
     }
   }
 

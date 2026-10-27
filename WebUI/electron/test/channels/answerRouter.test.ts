@@ -131,22 +131,12 @@ function memoryJournal() {
   return journal
 }
 
-/** The persisted "has seen how answering works" flag, shared across router instances (restarts). */
-function fakeOnboardingFlag(seen = true) {
-  const flag = { seen }
-  return { seen: () => flag.seen, markSeen: () => (flag.seen = true) }
-}
-
-const ONBOARDING =
-  '💡 Plain messages go to Home Agent. To talk to an agent, reply to its message (or tap 💬 Answer).'
-
 function setup(
   sessions: Record<string, FakeSession> = { asteroids: { label: 'Asteroids clone' } },
   sentMessages: SentMessage[] = [
     { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
     { kind: 'slack', ref: '1234', sessionId: 'asteroids' },
   ],
-  onboarding = fakeOnboardingFlag(),
   journal: HeldAnswerJournal = memoryJournal(),
 ) {
   const questions = createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} })
@@ -160,7 +150,6 @@ function setup(
     transcribe: speech.transcribe,
     downloadQuestionChannel: () => downloads.askedOn,
     journal,
-    onboarding,
     log: () => {},
   })
   return { router, questions, ...fake, journal, sessions, speech, downloads }
@@ -481,24 +470,6 @@ describe('answer router', () => {
       expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
     })
   })
-
-  it('explains how answering works after the very first Answer, and never again', async () => {
-    const flag = fakeOnboardingFlag(false)
-    const first = setup(undefined, undefined, flag)
-    const ch = fakeChannel()
-    await first.router.route(ch.adapter, { text: 'try a smaller level', replyTo: '1234' })
-    await first.router.route(ch.adapter, { text: 'and faster', replyTo: '1234' })
-    const afterRestart = setup(undefined, undefined, flag)
-    await afterRestart.router.route(ch.adapter, { text: 'once more', replyTo: '1234' })
-    expect(ch.replies).toEqual([ONBOARDING])
-  })
-
-  it('does not explain answering to a plain message for Home Agent', async () => {
-    const { router } = setup(undefined, undefined, fakeOnboardingFlag(false))
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'what is the weather?' })
-    expect(ch.replies).toEqual([])
-  })
 })
 
 describe('a Held Answer', () => {
@@ -756,12 +727,11 @@ describe('a Held Answer lost to an app close', () => {
     const first = setup(
       { asteroids: { label: 'Asteroids clone', results: [BUSY] } },
       undefined,
-      undefined,
       journal,
     )
     await first.router.route(fakeChannel().adapter, { text: 'make it faster', replyTo: '1234' })
 
-    const next = setup({ asteroids: { label: 'Asteroids clone' } }, undefined, undefined, journal)
+    const next = setup({ asteroids: { label: 'Asteroids clone' } }, undefined, journal)
     const slack = fakeChannel('slack')
     await next.router.channelReady(slack.adapter)
     expect(slack.replies).toEqual([])
@@ -774,7 +744,7 @@ describe('a Held Answer lost to an app close', () => {
     await next.end('asteroids', 'completed')
     expect(next.received).toEqual([])
 
-    const third = setup(undefined, undefined, undefined, journal)
+    const third = setup(undefined, undefined, journal)
     const again = fakeChannel('telegram')
     await third.router.channelReady(again.adapter)
     expect(again.replies).toEqual([])
@@ -787,13 +757,12 @@ describe('a Held Answer lost to an app close', () => {
         asteroids: { label: 'Asteroids clone', results: [BUSY, { ok: true, queuePosition: null }] },
       },
       undefined,
-      undefined,
       journal,
     )
     await first.router.route(fakeChannel().adapter, { text: 'make it faster', replyTo: '1234' })
     await first.end('asteroids', 'completed')
 
-    const next = setup(undefined, undefined, undefined, journal)
+    const next = setup(undefined, undefined, journal)
     const telegram = fakeChannel('telegram')
     await next.router.channelReady(telegram.adapter)
     expect(telegram.replies).toEqual([])

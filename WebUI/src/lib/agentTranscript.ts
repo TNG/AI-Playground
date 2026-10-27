@@ -12,6 +12,7 @@
 // Pi's dynamic tools are not in the app's tool union, so parts are inspected
 // structurally instead of being cast to a typed part.
 
+import type { MediaItem } from '@/types/mediaItem'
 import { reasoningElapsedMsFromParts } from './reasoningTimings'
 
 type PartShape = {
@@ -59,6 +60,32 @@ const MEDIA_BRIDGE_TOOL_NAMES = new Set(['media', 'generateImage', 'editImage'])
 export function mediaToolNameOf(part: unknown): string | undefined {
   const name = toolPartNameOf(part)
   return name && MEDIA_BRIDGE_TOOL_NAMES.has(name) ? name : undefined
+}
+
+/** What a finished media tool call produced, as Chat's media card renders it. */
+export type GeneratedMedia = {
+  items: MediaItem[]
+  steps?: string[]
+}
+
+export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
+  if (!mediaToolNameOf(part) || shapeOf(part).state !== 'output-available') return undefined
+  const output = shapeOf(part).output as { images?: unknown; steps?: unknown } | undefined
+  const images = Array.isArray(output?.images) ? output.images : []
+  const items = images
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map((item) => ({ mode: 'imageGen', settings: {}, ...item, state: 'done' }) as MediaItem)
+    .filter(hasMediaUrl)
+  const steps = Array.isArray(output?.steps) ? (output.steps as string[]) : undefined
+  if (items.length === 0 && !steps) return undefined
+  return { items, steps }
+}
+
+function hasMediaUrl(item: MediaItem): boolean {
+  if (item.type === 'image') return !!item.imageUrl
+  if (item.type === 'video') return !!item.videoUrl
+  if (item.type === 'model3d') return !!item.model3dUrl
+  return false
 }
 
 export type TranscriptSegment =

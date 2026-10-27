@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   compactionOutputOf,
+  generatedMediaOf,
   groupTranscriptParts,
   mediaToolNameOf,
   toolPartNameOf,
@@ -162,5 +163,56 @@ describe('busyLabelOf', () => {
         (id) => (id === 'm1' ? 'Generating image…' : undefined),
       ),
     ).toBe('Generating image…')
+  })
+})
+
+describe('generatedMediaOf', () => {
+  function mediaPart(name: string, output: unknown, state = 'output-available') {
+    return { ...tool(name, state), output }
+  }
+
+  const image = { id: 'a', type: 'image', imageUrl: 'aipg-media://a.png' }
+  const video = { id: 'b', type: 'video', videoUrl: 'aipg-media://b.mp4' }
+
+  it('returns the finished items of a media tool as done media items', () => {
+    const media = generatedMediaOf(mediaPart('generateImage', { images: [image, video] }))
+    expect(media?.items).toEqual([
+      { mode: 'imageGen', settings: {}, ...image, state: 'done' },
+      { mode: 'imageGen', settings: {}, ...video, state: 'done' },
+    ])
+  })
+
+  it('carries the media specialist step lines', () => {
+    const media = generatedMediaOf(mediaPart('media', { images: [image], steps: ['Picked Flux'] }))
+    expect(media?.steps).toEqual(['Picked Flux'])
+  })
+
+  it('drops items without a URL or of an unknown type', () => {
+    const media = generatedMediaOf(
+      mediaPart('editImage', {
+        images: [image, { id: 'c', type: 'image' }, { id: 'd', type: 'audio', url: 'x' }, null],
+      }),
+    )
+    expect(media?.items.map((item) => item.id)).toEqual(['a'])
+  })
+
+  it('shows nothing for a non-media tool', () => {
+    expect(generatedMediaOf(mediaPart('bash', { images: [image] }))).toBeUndefined()
+  })
+
+  it('shows nothing while the tool is still running', () => {
+    expect(
+      generatedMediaOf(mediaPart('generateImage', undefined, 'input-available')),
+    ).toBeUndefined()
+  })
+
+  it('shows nothing for a failed call', () => {
+    const failed = { ...tool('generateImage', 'output-error'), errorText: 'boom' }
+    expect(generatedMediaOf(failed)).toBeUndefined()
+  })
+
+  it('shows nothing for a text-only result', () => {
+    const textOnly = { content: [{ type: 'text', text: 'Saved generated/a.png' }] }
+    expect(generatedMediaOf(mediaPart('generateImage', textOnly))).toBeUndefined()
   })
 })

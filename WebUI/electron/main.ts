@@ -121,6 +121,14 @@ import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecy
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
+import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import {
+  openFileWithSystem,
+  revealFileInFolder,
+  saveFileCopy,
+  startFileDrag,
+} from './adapters/osFileActions.ts'
 import {
   dedicatedEmbeddingServerUrl,
   EMBEDDING_SERVICE_BY_BACKEND,
@@ -1742,6 +1750,16 @@ function initEventHandle() {
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,
+      mediaFileAction: workspaceMediaFileActions({
+        sessionWorkspaceDir,
+        mediaUrlPath: getLocalPathFromAipgMediaUrl,
+        audioDir: getAudioDir,
+        open: openFileWithSystem,
+        reveal: revealFileInFolder,
+        drag: (sender, filePath) =>
+          startFileDrag(sender, filePath, path.join(externalRes, 'cam.png')),
+        saveCopy: saveFileCopy,
+      }),
       bootstrapAgentSessions,
       migrateLegacyAgentSessions,
       saveAgentSession,

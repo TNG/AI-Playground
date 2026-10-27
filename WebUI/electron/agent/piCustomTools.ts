@@ -3,8 +3,7 @@ import fs from 'node:fs'
 import { BrowserWindow, net } from 'electron'
 import { Type, type TSchema } from 'typebox'
 import type { AgentToolResult } from '@earendil-works/pi-coding-agent'
-import type { AgentMediaDetails } from '@/types/agentMediaDetails'
-import type { MediaItem } from '@/types/mediaItem'
+import type { AgentMediaDetails, AgentMediaItem } from '@/types/agentMediaDetails'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
@@ -49,12 +48,33 @@ export function mediaToolResult(
 }
 
 // A failed or cancelled run still lists its items, but none of them finished.
-function generatedItemsOf(value: unknown): MediaItem[] {
-  const record = value as { images?: unknown; success?: unknown } | null
+function generatedItemsOf(value: unknown): AgentMediaItem[] {
+  const record = value as { images?: unknown; success?: unknown; savedFiles?: unknown } | null
   if (record?.success === false || !Array.isArray(record?.images)) return []
+  const savedFiles = Array.isArray(record.savedFiles) ? record.savedFiles : []
   return record.images
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => ({ mode: 'imageGen', settings: {}, ...item, state: 'done' }) as MediaItem)
+    .map((item) => {
+      const saved = workspacePathForMediaUrl(mediaUrlOf(item))
+      return {
+        mode: 'imageGen',
+        settings: {},
+        ...item,
+        state: 'done',
+        ...(saved && savedFiles.includes(saved) ? { workspacePath: saved } : {}),
+      } as AgentMediaItem
+    })
+}
+
+function mediaUrlOf(item: Record<string, unknown>): unknown {
+  return item.imageUrl ?? item.videoUrl ?? item.model3dUrl
+}
+
+/** Where `saveGeneratedMediaToWorkspace` puts an app-folder media URL's copy. */
+function workspacePathForMediaUrl(url: unknown): string | undefined {
+  if (typeof url !== 'string' || !url.startsWith('aipg-media://')) return undefined
+  const filename = path.basename(decodeURIComponent(new URL(url).pathname))
+  return filename ? path.posix.join('generated', filename) : undefined
 }
 
 /**
@@ -277,8 +297,7 @@ export async function saveGeneratedMediaToWorkspace(
   const savedFiles: string[] = []
   for (const item of record.images) {
     if (typeof item !== 'object' || item === null) continue
-    const media = item as Record<string, unknown>
-    const url = media.imageUrl ?? media.videoUrl ?? media.model3dUrl
+    const url = mediaUrlOf(item as Record<string, unknown>)
     if (typeof url !== 'string' || !url.startsWith('aipg-media://')) continue
     try {
       // net.fetch resolves the custom aipg-media protocol registered in
@@ -286,12 +305,11 @@ export async function saveGeneratedMediaToWorkspace(
       const response = await net.fetch(url)
       if (!response.ok) throw new Error(`fetch failed with status ${response.status}`)
       const bytes = Buffer.from(await response.arrayBuffer())
-      const generatedDir = path.join(workspaceDir, 'generated')
-      fs.mkdirSync(generatedDir, { recursive: true })
-      const filename =
-        path.basename(decodeURIComponent(new URL(url).pathname)) || `media-${Date.now()}`
-      fs.writeFileSync(path.join(generatedDir, filename), bytes)
-      savedFiles.push(path.posix.join('generated', filename))
+      const relativePath =
+        workspacePathForMediaUrl(url) ?? path.posix.join('generated', `media-${Date.now()}`)
+      fs.mkdirSync(path.join(workspaceDir, 'generated'), { recursive: true })
+      fs.writeFileSync(path.join(workspaceDir, relativePath), bytes)
+      savedFiles.push(relativePath)
     } catch (error) {
       logger.warn(`failed to save generated media to workspace: ${error}`, LOG_SOURCE)
     }

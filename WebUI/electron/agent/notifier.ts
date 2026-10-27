@@ -5,7 +5,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
-import { answerGesture, withAnswerButton } from '@/lib/answerButton'
+import { answerGesture, hasAnswerTyping, withAnswerButton } from '@/lib/answerButton'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { onGeneratedMedia } from './generatedMedia.ts'
@@ -40,9 +40,12 @@ export type ChannelMessage = {
 /** `ref` is the platform's id of the sent message, when it has one. */
 export type ChannelSendOutcome = { success: true; ref?: string } | { success: false; error: string }
 
+/** The channel's "typing…" indicator, which `start` keeps alive only for a few seconds. */
+export type ChannelTyping = { typing: 'start' | 'stop' }
+
 export type ChannelSend = (
   kind: ChannelKind,
-  message: ChannelMessage,
+  message: ChannelMessage | ChannelTyping,
 ) => Promise<ChannelSendOutcome>
 
 export type NotificationOptions = {
@@ -81,12 +84,40 @@ type AnswerTurn = AgentAnswerOrigin & { turnId: string; workspaceDir: string; me
 /** The turn an Answer started, per session: its messages go under the Answer, past the gates. */
 const answerTurns = new Map<string, AnswerTurn>()
 
+// Telegram's indicator lapses after about 5 s.
+const TYPING_REPEAT_MS = 4000
+
+/** The running heartbeat of each session's Answer turn. */
+const typingHeartbeats = new Map<string, { channel: ChannelKind; timer: NodeJS.Timeout }>()
+
+function sendTyping(channel: ChannelKind, typing: ChannelTyping['typing']): void {
+  void channelSend?.(channel, { typing }).catch((error) =>
+    appLoggerInstance.warn(`typing not sent: ${error}`, LOG_SOURCE),
+  )
+}
+
+function startTyping(sessionId: string, channel: ChannelKind): void {
+  if (!hasAnswerTyping(channel) || typingHeartbeats.has(sessionId)) return
+  sendTyping(channel, 'start')
+  const timer = setInterval(() => sendTyping(channel, 'start'), TYPING_REPEAT_MS)
+  typingHeartbeats.set(sessionId, { channel, timer })
+}
+
+function stopTyping(sessionId: string): void {
+  const heartbeat = typingHeartbeats.get(sessionId)
+  if (!heartbeat) return
+  clearInterval(heartbeat.timer)
+  typingHeartbeats.delete(sessionId)
+  sendTyping(heartbeat.channel, 'stop')
+}
+
 export function noteAnswerTurn(
   sessionId: string,
   turnId: string,
   workspaceDir: string,
   origin: AgentAnswerOrigin,
 ): void {
+  stopTyping(sessionId)
   answerTurns.set(sessionId, { ...origin, turnId, workspaceDir, media: [] })
 }
 
@@ -273,6 +304,7 @@ export function startAutoNotifications(): () => void {
   })
   const stopFailures = onAgentTurnEnd((end) => {
     const answer = answerTurnOf(end.sessionId, end.turnId)
+    if (answer) stopTyping(end.sessionId)
     const sending =
       end.outcome === 'failed'
         ? notifyFailed(end.sessionId, end.turnId, end.error)
@@ -294,6 +326,9 @@ export function startAutoNotifications(): () => void {
       return
     }
     if (event.type !== 'agent-turn-state') return
+    const answer = answerTurnOf(event.sessionId, event.turnId)
+    if (answer && event.state === 'running') startTyping(event.sessionId, answer.channel)
+    else if (answer) stopTyping(event.sessionId)
     if (event.state !== 'paused') {
       pausedTurns.delete(event.turnId)
       return
@@ -309,5 +344,6 @@ export function startAutoNotifications(): () => void {
     stopMedia()
     stopFailures()
     stopPauses()
+    for (const sessionId of [...typingHeartbeats.keys()]) stopTyping(sessionId)
   }
 }

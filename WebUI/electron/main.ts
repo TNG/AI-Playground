@@ -176,12 +176,12 @@ import {
 } from './permissions/promptAdapter'
 import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
-  setNotificationChannelSend,
+  setNotificationChannel,
   setNotificationConfig,
   setNotificationWindowShown,
   startAutoNotifications,
 } from './agent/notifier'
-import { notificationChannelSend } from './agent/notificationChannelSend'
+import { homeAgentNotificationChannel } from './agent/notificationChannelSend'
 import {
   buildNotificationsRegistry,
   buildNotificationsSendRegistry,
@@ -1271,8 +1271,8 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
-    setNotificationChannelSend(
-      notificationChannelSend((kind, action, payload) =>
+    setNotificationChannel(
+      homeAgentNotificationChannel((kind, action, payload) =>
         homeAgent.channelSend(kind, action, payload),
       ),
     )
@@ -1751,7 +1751,8 @@ function initEventHandle() {
   setNotificationWindowShown(
     () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
   )
-  startAutoNotifications()
+  const stopAutoNotifications = startAutoNotifications()
+  appShutdown.register({ name: 'auto notifications', run: () => stopAutoNotifications() })
 
   registerInvokeHandlers(
     buildPermissionsRegistry({

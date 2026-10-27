@@ -1,9 +1,27 @@
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
+import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
+import type { NotificationTemplates } from '@/types/notificationsIpc'
 
 /** The callback of the 💬 Answer button; the tapped message itself names the session. */
 export const ANSWER_CALLBACK = 'answer'
 
 export type AnswerGesture = 'button' | 'thread' | 'reply'
+
+type GestureWording = {
+  /** The `/help` line. */
+  help: keyof AnswerRouterCopy
+  /** The setup screen's note. */
+  notice: keyof AnswerRouterCopy
+  /** The last line of an answerable agent message; null where a button answers it instead. */
+  hint: keyof Pick<NotificationTemplates, 'answerByReply' | 'answerInThread'> | null
+}
+
+/** How each gesture is worded wherever answering is explained. */
+export const GESTURE_WORDING: Record<AnswerGesture, GestureWording> = {
+  reply: { help: 'helpReply', notice: 'noticeReply', hint: 'answerByReply' },
+  thread: { help: 'helpThread', notice: 'noticeThread', hint: 'answerInThread' },
+  button: { help: 'helpButton', notice: 'noticeButton', hint: null },
+}
 
 /** How a channel answers an agent's message, and how a send there names the message it replies to. */
 type ChannelAnswering = {
@@ -14,10 +32,8 @@ type ChannelAnswering = {
   buttonCarriesTitle: boolean
   /** A LAN chat `reply` settles the streaming Home Agent bubble; `post` stands on its own. */
   sendsAsPost: boolean
-  /** Main can show "typing…" while the turn an Answer started runs. */
-  answerTyping: boolean
-  /** Typing is ended by an explicit stop rather than by lapsing. */
-  typingStops: boolean
+  /** "typing…" while the turn an Answer started runs, and how it ends; null: main cannot show it. */
+  typing: null | 'lapses' | 'stops'
 }
 
 export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
@@ -26,32 +42,28 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     replyKey: 'reply_to_message_id',
     buttonCarriesTitle: false,
     sendsAsPost: false,
-    answerTyping: true,
-    typingStops: false,
+    typing: 'lapses',
   },
   slack: {
     gesture: 'thread',
     replyKey: 'thread_ts',
     buttonCarriesTitle: false,
     sendsAsPost: false,
-    answerTyping: false,
-    typingStops: false,
+    typing: null,
   },
   'local-web': {
     gesture: 'button',
     replyKey: 'reply_to',
     buttonCarriesTitle: true,
     sendsAsPost: true,
-    answerTyping: true,
-    typingStops: true,
+    typing: 'stops',
   },
   discord: {
     gesture: null,
     replyKey: 'reply_to',
     buttonCarriesTitle: false,
     sendsAsPost: false,
-    answerTyping: false,
-    typingStops: false,
+    typing: null,
   },
 }
 
@@ -61,7 +73,7 @@ export function answerGesture(kind: ChannelKind): AnswerGesture | null {
 
 /** Whether the turn an Answer started shows "typing…", which then acknowledges the Answer. */
 export function hasAnswerTyping(kind: ChannelKind): boolean {
-  return CHANNEL_ANSWERING[kind].answerTyping
+  return CHANNEL_ANSWERING[kind].typing !== null
 }
 
 /** Adds the 💬 Answer button to any message an agent sends to `kind` (a Notification, a reply). */

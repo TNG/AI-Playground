@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { notificationChannelSend } from '../../agent/notificationChannelSend'
+import { homeAgentNotificationChannel } from '../../agent/notificationChannelSend'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 
 // What the Home Agent channel is asked to send for a Notification, per platform.
 
 function recorder(result: { messageId?: number; ts?: string } = { messageId: 41 }) {
   const calls: Array<{ kind: ChannelKind; action: string; payload: Record<string, unknown> }> = []
-  const send = notificationChannelSend(async (kind, action, payload) => {
+  const channel = homeAgentNotificationChannel(async (kind, action, payload) => {
     calls.push({ kind, action, payload })
     return { success: true, ...result }
   })
-  return { send, calls }
+  return { send: channel.send, typing: channel.typing, calls }
 }
 
 describe('a Notification handed to the Home Agent channel', () => {
@@ -104,16 +104,19 @@ describe('a Notification handed to the Home Agent channel', () => {
   })
 
   it('passes a failed send on', async () => {
-    const send = notificationChannelSend(async () => ({ success: false, error: 'offline' }))
+    const { send } = homeAgentNotificationChannel(async () => ({
+      success: false,
+      error: 'offline',
+    }))
     expect(await send('telegram', { text: 'hi' })).toEqual({ success: false, error: 'offline' })
   })
 })
 
 describe('typing handed to the Home Agent channel', () => {
   it('is the chat action the channel takes from its own heartbeat', async () => {
-    const { send, calls } = recorder()
-    expect(await send('telegram', { typing: 'start' })).toEqual({ success: true })
-    await send('local-web', { typing: 'start' })
+    const { typing, calls } = recorder()
+    expect(await typing('telegram', 'start')).toEqual({ success: true })
+    await typing('local-web', 'start')
     expect(calls).toEqual([
       { kind: 'telegram', action: 'typing', payload: { action: 'typing' } },
       { kind: 'local-web', action: 'typing', payload: { action: 'typing' } },
@@ -121,9 +124,9 @@ describe('typing handed to the Home Agent channel', () => {
   })
 
   it('stops explicitly on LAN chat, and lets Telegram’s lapse on its own', async () => {
-    const { send, calls } = recorder()
-    expect(await send('telegram', { typing: 'stop' })).toEqual({ success: true })
-    await send('local-web', { typing: 'stop' })
+    const { typing, calls } = recorder()
+    expect(await typing('telegram', 'stop')).toEqual({ success: true })
+    await typing('local-web', 'stop')
     expect(calls).toEqual([{ kind: 'local-web', action: 'typing', payload: { action: 'stop' } }])
   })
 })

@@ -5,7 +5,12 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
-import { answerGesture, hasAnswerTyping, withAnswerButton } from '@/lib/answerButton'
+import {
+  answerGesture,
+  GESTURE_WORDING,
+  hasAnswerTyping,
+  withAnswerButton,
+} from '@/lib/answerButton'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { onGeneratedMedia } from './generatedMedia.ts'
@@ -40,13 +45,21 @@ export type ChannelMessage = {
 /** `ref` is the platform's id of the sent message, when it has one. */
 export type ChannelSendOutcome = { success: true; ref?: string } | { success: false; error: string }
 
-/** The channel's "typing…" indicator, which `start` keeps alive only for a few seconds. */
-export type ChannelTyping = { typing: 'start' | 'stop' }
-
 export type ChannelSend = (
   kind: ChannelKind,
-  message: ChannelMessage | ChannelTyping,
+  message: ChannelMessage,
 ) => Promise<ChannelSendOutcome>
+
+/** The channel's "typing…" indicator, which `start` keeps alive only for a few seconds. */
+export type ChannelTypingState = 'start' | 'stop'
+
+export type ChannelTyping = (
+  kind: ChannelKind,
+  state: ChannelTypingState,
+) => Promise<{ success: true } | { success: false; error: string }>
+
+/** How the Notifier reaches the Home Agent channel. */
+export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping }
 
 export type NotificationOptions = {
   /** The sending session: names it in the header and makes the message answerable. */
@@ -76,7 +89,7 @@ const OFF_CONFIG: NotificationConfig = {
 }
 
 let config: NotificationConfig = OFF_CONFIG
-let channelSend: ChannelSend | undefined
+let channel: NotificationChannel | undefined
 let windowShown: () => boolean = () => false
 
 type AnswerTurn = AgentAnswerOrigin & { turnId: string; workspaceDir: string; media: string[] }
@@ -90,17 +103,17 @@ const TYPING_REPEAT_MS = 4000
 /** The running heartbeat of each session's Answer turn. */
 const typingHeartbeats = new Map<string, { channel: ChannelKind; timer: NodeJS.Timeout }>()
 
-function sendTyping(channel: ChannelKind, typing: ChannelTyping['typing']): void {
-  void channelSend?.(channel, { typing }).catch((error) =>
-    appLoggerInstance.warn(`typing not sent: ${error}`, LOG_SOURCE),
-  )
+function pulseTyping(kind: ChannelKind, state: ChannelTypingState): void {
+  void channel
+    ?.typing(kind, state)
+    .catch((error) => appLoggerInstance.warn(`typing not sent: ${error}`, LOG_SOURCE))
 }
 
-function startTyping(sessionId: string, channel: ChannelKind): void {
-  if (!hasAnswerTyping(channel) || typingHeartbeats.has(sessionId)) return
-  sendTyping(channel, 'start')
-  const timer = setInterval(() => sendTyping(channel, 'start'), TYPING_REPEAT_MS)
-  typingHeartbeats.set(sessionId, { channel, timer })
+function startTyping(sessionId: string, kind: ChannelKind): void {
+  if (!hasAnswerTyping(kind) || typingHeartbeats.has(sessionId)) return
+  pulseTyping(kind, 'start')
+  const timer = setInterval(() => pulseTyping(kind, 'start'), TYPING_REPEAT_MS)
+  typingHeartbeats.set(sessionId, { channel: kind, timer })
 }
 
 function stopTyping(sessionId: string): void {
@@ -108,7 +121,7 @@ function stopTyping(sessionId: string): void {
   if (!heartbeat) return
   clearInterval(heartbeat.timer)
   typingHeartbeats.delete(sessionId)
-  sendTyping(heartbeat.channel, 'stop')
+  pulseTyping(heartbeat.channel, 'stop')
 }
 
 export function noteAnswerTurn(
@@ -130,8 +143,8 @@ export function setNotificationConfig(next: NotificationConfig): void {
   config = { ...next }
 }
 
-export function setNotificationChannelSend(next: ChannelSend | undefined): void {
-  channelSend = next
+export function setNotificationChannel(next: NotificationChannel | undefined): void {
+  channel = next
 }
 
 /** Whether the window is on screen: neither hidden to the tray nor minimized. Focus does not count. */
@@ -156,9 +169,9 @@ async function deliver(
 ): Promise<NotificationDelivery> {
   const answer = sessionId ? answerTurnOf(sessionId) : undefined
   const { homeAgentEnabled } = config
-  const channel = answer?.channel ?? config.notificationChannel
-  if (!homeAgentEnabled || !channelSend) return { delivered: false, reason: 'Home Agent is off' }
-  if (!channel) return { delivered: false, reason: 'no Notification Channel set up' }
+  const kind = answer?.channel ?? config.notificationChannel
+  if (!homeAgentEnabled || !channel) return { delivered: false, reason: 'Home Agent is off' }
+  if (!kind) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
     const title = sessionId ? await sessionLabel(sessionId) : ''
     const header = sessionId ? fillTemplate(config.templates.header, { title }) : ''
@@ -166,15 +179,13 @@ async function deliver(
       text: [header, body.text].filter(Boolean).join('\n'),
       ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
     }
-    const result = await channelSend(
-      channel,
-      body.media
-        ? { ...message, media: body.media }
-        : answerable(channel, message, sessionId, title),
+    const result = await channel.send(
+      kind,
+      body.media ? { ...message, media: body.media } : answerable(kind, message, sessionId, title),
     )
     if (!result.success) return { delivered: false, reason: result.error }
     if (sessionId && result.ref) {
-      await recordChannelMessage(channel, result.ref, sessionId).catch((error) =>
+      await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
         appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
       )
     }
@@ -230,18 +241,18 @@ export function answerable(
   title: string,
 ): ChannelMessage {
   if (!sessionId) return message
-  const { answerButton, answerOnComputer, answerInThread, answerByReply } = config.templates
+  const { templates } = config
   if (config.realShellSessions.includes(sessionId)) {
-    return { ...message, text: `${message.text}\n${answerOnComputer}` }
+    return { ...message, text: `${message.text}\n${templates.answerOnComputer}` }
   }
   const gesture = answerGesture(kind)
-  if (gesture === 'thread' || gesture === 'reply') {
+  const hint = gesture && GESTURE_WORDING[gesture].hint
+  if (hint) {
     // A reply to an Answer is already part of the conversation and needs no pointer to it.
     if (message.replyTo) return message
-    const hint = gesture === 'thread' ? answerInThread : answerByReply
-    return { ...message, text: `${message.text}\n${hint}` }
+    return { ...message, text: `${message.text}\n${templates[hint]}` }
   }
-  const withButton = withAnswerButton(kind, message, answerButton)
+  const withButton = withAnswerButton(kind, message, templates.answerButton)
   return withButton === message ? message : { ...withButton, answerTitle: title }
 }
 

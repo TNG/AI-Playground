@@ -1,8 +1,8 @@
 import english from '@/assets/i18n/en-US.json'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import { answerGesture, type AnswerGesture } from '@/lib/answerButton'
+import { answerGesture, GESTURE_WORDING } from '@/lib/answerButton'
 
-/** What the Answer router tells the channel, in the app language. */
+/** What the Answer router tells the channel, and how answering is explained, in the app language. */
 export type AnswerRouterCopy = {
   /** `{title}` (a session label) */
   starting: string
@@ -39,6 +39,10 @@ export type AnswerRouterCopy = {
   helpReply: string
   helpThread: string
   helpButton: string
+  /** The setup screen's note on answering agents, per channel gesture. */
+  noticeReply: string
+  noticeThread: string
+  noticeButton: string
 }
 
 const KEYS: Record<keyof AnswerRouterCopy, string> = {
@@ -62,6 +66,9 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   helpReply: 'AGENT_ANSWER_HELP_REPLY',
   helpThread: 'AGENT_ANSWER_HELP_THREAD',
   helpButton: 'AGENT_ANSWER_HELP_BUTTON',
+  noticeReply: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_REPLY',
+  noticeThread: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_THREAD',
+  noticeButton: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_BUTTON',
 }
 
 /** The router's copy in the language `text` holds (the window's i18n state). */
@@ -89,31 +96,14 @@ export function answerRouterCopy(): AnswerRouterCopy {
   return filled
 }
 
-const HELP_FIELD: Record<AnswerGesture, 'helpReply' | 'helpThread' | 'helpButton'> = {
-  reply: 'helpReply',
-  thread: 'helpThread',
-  button: 'helpButton',
-}
-
 /** The `/help` line for `kind`, or null where agents cannot be answered. */
 export function answerHelpLine(kind: ChannelKind): string | null {
   const gesture = answerGesture(kind)
-  return gesture ? answerRouterCopy()[HELP_FIELD[gesture]] : null
+  return gesture ? answerRouterCopy()[GESTURE_WORDING[gesture].help] : null
 }
 
-const NOTICE_KEY: Record<AnswerGesture, string> = {
-  reply: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_REPLY',
-  thread: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_THREAD',
-  button: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_BUTTON',
-}
-
-/** The setup screen's note on answering agents over `kind`, in the language `text` holds. */
-export function answerableNotice(
-  kind: ChannelKind,
-  text: Record<string, string | undefined>,
-): string | null {
+/** The setup screen's note on answering agents over `kind`, or null where they cannot be. */
+export function answerableNotice(kind: ChannelKind): string | null {
   const gesture = answerGesture(kind)
-  if (!gesture) return null
-  const key = NOTICE_KEY[gesture]
-  return text[key] || (english as Record<string, string>)[key]
+  return gesture ? answerRouterCopy()[GESTURE_WORDING[gesture].notice] : null
 }

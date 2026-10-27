@@ -193,8 +193,8 @@
       <Label for="home-agent-auto-notify">{{ i18n.HOME_AGENT_AUTO_NOTIFY }}</Label>
     </div>
 
-    <p v-if="answerable" class="pt-2 text-sm text-muted-foreground">
-      {{ answerable }}
+    <p v-if="answerableNoticeText" class="pt-2 text-sm text-muted-foreground">
+      {{ answerableNoticeText }}
     </p>
 
     <SetupWizardFooter
@@ -234,8 +234,8 @@ const notificationChannel = computed({
   set: (kind: ChannelKind | null) => (homeAgent.chosenNotificationChannel = kind),
 })
 
-const answerable = computed(() =>
-  notificationChannel.value ? answerableNotice(notificationChannel.value, i18n) : null,
+const answerableNoticeText = computed(() =>
+  notificationChannel.value ? answerableNotice(notificationChannel.value) : null,
 )
 
 function channelName(kind: ChannelKind): string {

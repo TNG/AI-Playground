@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Fix it in AI Playground on your computer, then answer again.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Answers to agents can only be text for now",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ That session no longer exists",
   "AGENT_ANSWER_HELD": "⏳ Queued for {title} — it is sent when the current turn ends.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ Queued for {title} — the session is waiting for the download buttons above.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ Queued for {title} — the session is waiting for the download buttons in your notifications chat, or on your computer.",

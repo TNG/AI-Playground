@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Behebe das in AI Playground an deinem Computer und antworte dann erneut.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Antworten an Agenten können vorerst nur Text sein",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ In dieser Sprachnachricht war keine Sprache zu erkennen, daher wurde nichts gesendet.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ Diese Sitzung existiert nicht mehr",
   "AGENT_ANSWER_HELD": "⏳ Für {title} vorgemerkt – wird gesendet, sobald der aktuelle Durchgang endet.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ Für {title} vorgemerkt – die Sitzung wartet auf die Download-Schaltflächen oben.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ Für {title} vorgemerkt – die Sitzung wartet auf die Download-Schaltflächen im Chat für Benachrichtigungen oder auf Ihrem Computer.",

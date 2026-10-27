@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "請在電腦上的 AI Playground 中修正後再回覆。",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ 目前只能以文字回覆代理程式",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ 無法辨識該語音訊息中的任何語音，因此未傳送任何內容。",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ 該工作階段已不存在",
   "AGENT_ANSWER_HELD": "⏳ 已為 {title} 保留 — 目前輪次結束後傳送。",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ 已為 {title} 保留 — 工作階段正在等待上方的下載按鈕。",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ 已為 {title} 保留 — 工作階段正在等待通知聊天中或你電腦上的下載按鈕。",

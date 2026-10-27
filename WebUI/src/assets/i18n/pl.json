@@ -675,7 +675,6 @@
   "AGENT_ANSWER_FIX_ON_DESKTOP": "Napraw to w AI Playground na komputerze, a potem odpowiedz ponownie.",
   "AGENT_ANSWER_TEXT_ONLY": "⚠️ Odpowiedzi do agentów mogą na razie być tylko tekstem",
   "AGENT_ANSWER_NO_SPEECH": "🎙️ Nie udało się rozpoznać mowy w tej wiadomości głosowej, więc nic nie wysłano.",
-  "AGENT_ANSWER_SESSION_GONE": "⚠️ Ta sesja już nie istnieje",
   "AGENT_ANSWER_HELD": "⏳ Oczekuje dla {title} — zostanie wysłana po zakończeniu bieżącej tury.",
   "AGENT_ANSWER_HELD_DOWNLOAD": "⏳ Oczekuje dla {title} — sesja czeka na przyciski pobierania powyżej.",
   "AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE": "⏳ Oczekuje dla {title} — sesja czeka na przyciski pobierania w czacie z powiadomieniami lub na Twoim komputerze.",

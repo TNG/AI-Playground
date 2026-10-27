@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compactionOutputOf,
   generatedMediaOf,
+  mediaFileRefOf,
   showsGeneratedMedia,
   transcriptMediaItems,
   groupTranscriptParts,
@@ -249,6 +250,12 @@ describe('generatedMediaOf', () => {
     expect(media?.items.map((item) => item.id)).toEqual(['a'])
   })
 
+  it('keeps where each item landed in the workspace', () => {
+    const saved = { ...image, workspacePath: 'generated/a.png' }
+    const media = generatedMediaOf(mediaPart('generateImage', piResult({ items: [saved, video] })))
+    expect(media?.items.map((item) => item.workspacePath)).toEqual(['generated/a.png', undefined])
+  })
+
   it('drops items that did not finish', () => {
     const pending = { ...image, id: 'p', state: 'generating' }
     const media = generatedMediaOf(
@@ -360,5 +367,51 @@ describe('transcriptMediaItems', () => {
   it('shows no media for a failed call or a finished one without items', () => {
     expect(transcriptMediaItems({ ...part('output-error'), errorText: 'boom' }, live)).toEqual([])
     expect(transcriptMediaItems(part('output-available', { content: [] }), live)).toEqual([])
+  })
+})
+
+describe('mediaFileRefOf', () => {
+  const image = {
+    id: 'a',
+    type: 'image' as const,
+    imageUrl: 'aipg-media://media/castle.png',
+    mode: 'imageGen' as const,
+    settings: {},
+    state: 'done' as const,
+  }
+
+  it('targets the workspace copy of an item, with its app copy as the fallback', () => {
+    expect(
+      mediaFileRefOf('session-1', { ...image, workspacePath: 'generated/castle.png' }),
+    ).toEqual({
+      sessionId: 'session-1',
+      workspacePath: 'generated/castle.png',
+      appCopy: 'aipg-media://media/castle.png',
+    })
+  })
+
+  it('falls back to the app copy alone when the tool saved no workspace copy', () => {
+    const model = {
+      ...image,
+      type: 'model3d' as const,
+      imageUrl: undefined,
+      model3dUrl: 'aipg-media://media/shape.glb',
+    }
+    expect(mediaFileRefOf('session-1', model)).toEqual({
+      sessionId: 'session-1',
+      appCopy: 'aipg-media://media/shape.glb',
+    })
+  })
+
+  it('targets the workspace copy of a speech clip', () => {
+    const clip = {
+      savedFilePath: '/home/u/AI-Playground/audio/game_speech.wav',
+      workspacePath: 'generated/speech.wav',
+    }
+    expect(mediaFileRefOf('session-1', clip)).toEqual({
+      sessionId: 'session-1',
+      workspacePath: 'generated/speech.wav',
+      appCopy: '/home/u/AI-Playground/audio/game_speech.wav',
+    })
   })
 })

@@ -7,6 +7,7 @@ import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
+import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
 import type { AgentTask } from '@/types/agentTaskIpc'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
@@ -357,6 +358,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       mcpServerIds?: string[]
       embeddingModel?: string
     }) => invoke('agentMode:listCapabilities', options),
+    mediaFileAction: (ref: AgentMediaFileRef, action: AgentMediaFileAction) =>
+      invoke('agentMode:mediaFileAction', cloneForIpc(ref), action),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>

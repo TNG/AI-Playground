@@ -6,6 +6,7 @@ import type {
   ArcadeCatalogEntry,
   GameLibraryEntry,
 } from './agentIpc'
+import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
 import type { AgentTask } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
@@ -342,6 +343,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
+  },
+  /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */
+  'agentMode:mediaFileAction': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentMediaFileRef, AgentMediaFileAction],
+    result: null as unknown as IpcMutationResult,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {

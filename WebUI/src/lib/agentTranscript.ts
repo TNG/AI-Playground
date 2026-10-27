@@ -12,7 +12,12 @@
 // Pi's dynamic tools are not in the app's tool union, so parts are inspected
 // structurally instead of being cast to a typed part.
 
-import type { AgentMediaDetails, AgentSpeechClip } from '@/types/agentMediaDetails'
+import type {
+  AgentMediaDetails,
+  AgentMediaFileRef,
+  AgentMediaItem,
+  AgentSpeechClip,
+} from '@/types/agentMediaDetails'
 import type { MediaItem } from '@/types/mediaItem'
 import { reasoningElapsedMsFromParts } from './reasoningTimings'
 
@@ -65,7 +70,7 @@ export function mediaToolNameOf(part: unknown): string | undefined {
 
 /** What a finished media tool call produced, as Chat's media card renders it. */
 export type GeneratedMedia = {
-  items: MediaItem[]
+  items: AgentMediaItem[]
   steps?: string[]
   audio?: AgentSpeechClip
 }
@@ -106,10 +111,24 @@ function isFinishedMedia(item: unknown): item is MediaItem {
 }
 
 function hasMediaUrl(item: MediaItem): boolean {
-  if (item.type === 'image') return !!item.imageUrl
-  if (item.type === 'video') return !!item.videoUrl
-  if (item.type === 'model3d') return !!item.model3dUrl
-  return false
+  return !!mediaUrlOf(item)
+}
+
+function mediaUrlOf(item: MediaItem): string | undefined {
+  if (item.type === 'image') return item.imageUrl
+  if (item.type === 'video') return item.videoUrl
+  if (item.type === 'model3d') return item.model3dUrl
+  return undefined
+}
+
+/** What a file action on generated media targets: the workspace copy, else the app copy. */
+export function mediaFileRefOf(
+  sessionId: string,
+  target: AgentMediaItem | AgentSpeechClip,
+): AgentMediaFileRef {
+  const appCopy = 'savedFilePath' in target ? target.savedFilePath : (mediaUrlOf(target) ?? '')
+  const workspacePath = typeof target.workspacePath === 'string' ? target.workspacePath : ''
+  return { sessionId, ...(workspacePath ? { workspacePath } : {}), appCopy }
 }
 
 export type TranscriptSegment =

@@ -256,6 +256,13 @@ export async function migrateLegacyAgentSessions(
 }
 
 /** Upsert one session record (messages sanitized here) plus its index entry. */
+/** The workspace a saved session record points at; null for an unknown or placeholder id. */
+export async function readAgentSessionWorkspaceDir(id: string): Promise<string | null> {
+  if (!isSafeFileId(id)) return null
+  const record = recordFromDocOrNull(await readJson(sessionFile(id), LOG_SCOPE))
+  return record?.workspaceDir || null
+}
+
 export async function saveAgentSession(record: AgentSessionRecordWire): Promise<void> {
   assertSafeFileId(record.id, 'agent session')
   return serialize(record.id, async () => {

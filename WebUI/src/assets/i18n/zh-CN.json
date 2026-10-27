@@ -571,6 +571,7 @@
   "ARCADE_MANAGE_DONE": "完成",
   "ARCADE_MANAGE_FAILED": "无法更新 {arcade}。",
   "HOME_AGENT_LAN_INSECURE_STORAGE": "没有可用的操作系统密钥环。LAN chat 密码将**在磁盘上混淆**，而不会加密。\n\n请安装并运行密钥环守护进程（GNOME Keyring 或 KWallet）以进行加密存储。\n\n仅在您接受此密码不受保护的情况下继续。",
+  "AGENT_MEDIA_IN_WORKSPACE": "工作区中：{path}",
   "AGENT_SAVE_AS_DEFAULT": "保存为默认",
   "AGENT_RESET_TO_DEFAULT": "重置为默认",
   "AGENT_SAVED_AS_DEFAULT": "已保存为新 Agent Maker 会话的默认设置",

@@ -1,16 +1,9 @@
 import type { MediaItem } from './mediaItem'
 
-/**
- * What an Agent Mode media tool hands the transcript next to the model's text, as
- * the Pi tool result's `details`. It is saved with the session record, so the
- * transcript can show the media after the live run is gone.
- */
+/** A media tool's Pi `details`: saved with the session record, so it outlives the live run. */
 export type AgentMediaDetails = {
-  /** Generated images, videos and 3D models, as Chat's media card renders them. */
   items?: MediaItem[]
-  /** The media specialist's step lines. */
   steps?: string[]
-  /** Synthesized speech: the app audio folder copy the player reads, and the agent's workspace copy. */
   audio?: AgentSpeechClip
 }
 

@@ -161,6 +161,7 @@ beforeAll(async () => {
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannelSend(async (kind, message) => {
+    if ('typing' in message) return { success: true }
     sent.push({ kind, ...message })
     return channelResult
   })

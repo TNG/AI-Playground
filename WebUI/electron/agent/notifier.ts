@@ -178,8 +178,8 @@ async function deliver(
   if (!kind) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
     const attached = body.attachments
-      ? await attachedMedia(body.attachments, kind)
-      : { media: undefined }
+      ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
+      : { media: [] }
     if ('error' in attached) return { delivered: false, reason: attached.error }
     const title = sessionId ? await sessionLabel(sessionId) : ''
     const header = sessionId ? fillTemplate(config.templates.header, { title }) : ''
@@ -187,17 +187,17 @@ async function deliver(
       text: [header, body.text].filter(Boolean).join('\n'),
       ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
     }
-    const result = await channel.send(
-      kind,
-      body.media
-        ? { ...message, media: body.media }
-        : withMedia(answerable(kind, message, sessionId, title), attached.media),
-    )
-    if (!result.success) return { delivered: false, reason: result.error }
-    if (sessionId && result.ref) {
-      await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
-        appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
-      )
+    const messages = body.media
+      ? [{ ...message, media: body.media }]
+      : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
+    for (const next of messages) {
+      const result = await channel.send(kind, next)
+      if (!result.success) return { delivered: false, reason: result.error }
+      if (sessionId && result.ref) {
+        await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
+          appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
+        )
+      }
     }
     return { delivered: true }
   } catch (error) {
@@ -205,17 +205,26 @@ async function deliver(
   }
 }
 
-async function attachedMedia(
-  attachments: NonNullable<NotificationOptions['attachments']>,
-  kind: ChannelKind,
-): Promise<{ media: ChannelMedia | undefined } | { error: string }> {
-  if (attachments.paths.length > 1) return { error: 'attach one file per notification' }
-  const read = await readAttachments(attachments.workspaceDir, attachments.paths, kind)
-  return 'error' in read ? read : { media: read.media[0] }
+/** The longest caption each channel shows under an attachment. */
+const CAPTION_MAX_CHARS: Record<ChannelKind, number> = {
+  telegram: 1024,
+  slack: Infinity,
+  'local-web': Infinity,
+  discord: 2000,
 }
 
-function withMedia(message: ChannelMessage, media: ChannelMedia | undefined): ChannelMessage {
-  return media ? { ...message, media } : message
+/** The text captions the first attachment, or goes alone first when it is too long for a caption. */
+function laidOut(
+  kind: ChannelKind,
+  message: ChannelMessage,
+  media: ChannelMedia[],
+): ChannelMessage[] {
+  if (media.length === 0) return [message]
+  const target = message.replyTo ? { replyTo: message.replyTo } : {}
+  const uncaptioned = (item: ChannelMedia): ChannelMessage => ({ text: '', media: item, ...target })
+  if (message.text.length > CAPTION_MAX_CHARS[kind]) return [message, ...media.map(uncaptioned)]
+  const [first, ...rest] = media
+  return [{ ...message, media: first }, ...rest.map(uncaptioned)]
 }
 
 async function channelMedia(file: string): Promise<ChannelMedia | null> {

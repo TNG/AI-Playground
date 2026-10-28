@@ -289,3 +289,48 @@ export function busyLabelOf(
   }
   return 'Thinking…'
 }
+
+type MessageShape = { parts?: readonly unknown[] }
+type StreamingPartShape = {
+  state?: unknown
+  providerMetadata?: { aipg?: Record<string, unknown> } & Record<string, unknown>
+}
+
+/**
+ * Mark text and reasoning parts still `streaming` as done. A stopped turn drops the closing
+ * chunks main sends after the abort, so without this a reasoning timer counts on forever.
+ * `finishedAt` stamps reasoning that has a start; without it no duration is invented.
+ */
+export function settleStreamingParts<M extends MessageShape>(
+  messages: readonly M[],
+  finishedAt?: number,
+): M[] {
+  return messages.map((message) => {
+    if (!message.parts?.some((part) => shapeOf(part).state === 'streaming')) return message
+    return { ...message, parts: message.parts.map((part) => settledPart(part, finishedAt)) }
+  })
+}
+
+function settledPart(part: unknown, finishedAt: number | undefined): unknown {
+  const shape = shapeOf(part)
+  if (shape.state !== 'streaming') return part
+  const { providerMetadata } = part as StreamingPartShape
+  const aipg = providerMetadata?.aipg
+  const stamp =
+    shape.type === 'reasoning' &&
+    finishedAt !== undefined &&
+    typeof aipg?.reasoningStarted === 'number' &&
+    aipg.reasoningFinished === undefined
+  return {
+    ...(part as object),
+    state: 'done',
+    ...(stamp
+      ? {
+          providerMetadata: {
+            ...providerMetadata,
+            aipg: { ...aipg, reasoningFinished: finishedAt },
+          },
+        }
+      : {}),
+  }
+}

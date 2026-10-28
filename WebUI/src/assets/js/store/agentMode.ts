@@ -14,6 +14,7 @@ import { useMcp } from './mcp'
 import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
+import { settleStreamingParts } from '@/lib/agentTranscript'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
   makeFileBackedPreference,
@@ -1177,7 +1178,9 @@ export const useAgentMode = defineStore(
     function restoreOpenSession(): void {
       const record = sessions.value[openSessionId.value]
       const runtime = openRuntime.value
-      if (!runtime.hasTurn()) runtime.chat.messages = (record?.messages ?? []) as UIMessage[]
+      if (!runtime.hasTurn()) {
+        runtime.chat.messages = settleStreamingParts((record?.messages ?? []) as UIMessage[])
+      }
       applyOpenSessionAgent(record)
       applyOpenSessionSettings(settingsOfRecord(record))
     }
@@ -1732,6 +1735,7 @@ export const useAgentMode = defineStore(
       await runtime.cancel()
       turns.abortRunningTools(sessionId)
       await runtime.chat.stop()
+      runtime.chat.messages = settleStreamingParts(runtime.chat.messages, Date.now())
       runtime.processing.value = false
       snapshotSessionById(sessionId)
     }

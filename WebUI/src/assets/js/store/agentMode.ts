@@ -54,6 +54,7 @@ import {
   DEFAULT_CAPABILITY_IDS,
   WEB_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
+  PLANNING_PHASE_CAPABILITY_IDS,
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
@@ -489,6 +490,10 @@ export const useAgentMode = defineStore(
     function isCapabilityEnabled(id: string): boolean {
       return capabilities.value.includes(id)
     }
+
+    const planningPhaseSupported = computed(() =>
+      capabilities.value.some((id) => PLANNING_PHASE_CAPABILITY_IDS.includes(id)),
+    )
 
     /** Change the Open Session's own settings and keep its record (if any) in step. */
     function updateOpenSettings(change: AgentSessionSettings): void {
@@ -1755,6 +1760,7 @@ export const useAgentMode = defineStore(
       defaultCapabilities,
       capabilities,
       isCapabilityEnabled,
+      planningPhaseSupported,
       setCapabilityEnabled,
       setCapabilities,
       resetPresetSettings,

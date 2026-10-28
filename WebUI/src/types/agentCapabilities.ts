@@ -7,6 +7,12 @@ export const MCP_CAPABILITY_PREFIX = 'mcp:'
 export const GAME_STUDIO_ID = 'game-studio'
 export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
 
+/** Capabilities that declare a `planningEnd`, i.e. where "reasoning only during planning" can bite. */
+export const PLANNING_PHASE_CAPABILITY_IDS: readonly string[] = [
+  GAME_STUDIO_ID,
+  GAME_STUDIO_QUICK_ID,
+]
+
 /**
  * Renderer-side name of the tool Quick Coder offers the switch to Game Agent
  * with. The offer is a card in the transcript and the switch is Pinia state, so

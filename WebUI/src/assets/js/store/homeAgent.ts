@@ -25,11 +25,12 @@ import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
-  missingTranscriptionModels,
   NO_TRANSCRIPTION_ENDPOINT,
+  missingTranscriptionModels,
   readyTranscriptionUnattended,
   synthesizeClip,
   transcribe,
+  transcriptionAvailable,
 } from '../speech/speechIO'
 import { base64ToBlob } from '@/lib/transcribe'
 import {
@@ -62,7 +63,6 @@ import {
   createAppError,
   createCancellation,
 } from '../errors/appError'
-import { requestDownload } from '../permissions/permissions'
 import { answerDownloadKey } from '@/types/permissionsIpc'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
@@ -94,6 +94,7 @@ import {
   type ChannelQuestionOutcome,
   type DownloadChannelQuestion,
 } from '@/assets/js/permissions/remoteTurnPort'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -269,6 +270,20 @@ export const useHomeAgent = defineStore(
       staleReply: () => channelQuestionTemplates().stale,
     })
 
+    /** False when declined; `conversationKey` names whose download question asks. */
+    async function consentToDownload(
+      models: DownloadModelParam[],
+      conversationKey?: string,
+    ): Promise<boolean> {
+      try {
+        await requestDownload(models, conversationKey ? { conversationKey } : undefined)
+        return true
+      } catch (e) {
+        if (isCancellation(e)) return false
+        throw e
+      }
+    }
+
     const remoteSpeech = createRemoteSpeech({
       transcription: {
         ready: readyTranscriptionUnattended,
@@ -280,12 +295,13 @@ export const useHomeAgent = defineStore(
         allowed: () => useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
         synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
       },
-      answerTranscription: {
+      transcriptionModel: {
+        installed: transcriptionAvailable,
         missing: missingTranscriptionModels,
-        download: (models, sessionId) =>
-          requestDownload(models, { conversationKey: answerDownloadKey(sessionId) }),
-        isDeclined: isCancellation,
+        download: (models) => consentToDownload(models),
       },
+      answerDownload: (models, sessionId) =>
+        consentToDownload(models, answerDownloadKey(sessionId)),
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -2204,7 +2220,14 @@ export const useHomeAgent = defineStore(
           // as the message text so slash-commands spoken aloud and plain
           // prompts both flow through the normal handling below.
           if (item.audio?.length) {
-            const transcript = await remoteSpeech.transcribe(adapter, item.audio, meta)
+            // A remote turn, so a missing speech model is asked about in this channel.
+            activeRemoteTurn = { adapter, meta }
+            let transcript: string | null
+            try {
+              transcript = await remoteSpeech.transcribe(adapter, item.audio, meta)
+            } finally {
+              activeRemoteTurn = null
+            }
             if (transcript === null) continue // STT unavailable / failed — already replied
             text = [text, transcript].filter(Boolean).join(' ').trim()
             if (!text) {

@@ -32,6 +32,12 @@ function fakeChannel() {
 }
 
 const NO_ENDPOINT = new Error('no endpoint')
+const STT_MODEL: DownloadModelParam = {
+  repo_id: 'OpenVINO/whisper-base-fp16-ov',
+  type: 'STT',
+  backend: 'openvino',
+  model_path: 'models/STT',
+}
 
 function fakeDeps(overrides: {
   sttReady?: boolean
@@ -40,13 +46,21 @@ function fakeDeps(overrides: {
   speakAllowed?: boolean
   ttsReady?: boolean
   synthesizeError?: Error
+  sttInstalled?: boolean
+  sttModelMissing?: boolean
+  downloadAnswer?: 'approve' | 'decline'
+  preGranted?: boolean
 }) {
   const logged: string[] = []
   const spoken: string[] = []
+  const events: string[] = []
+  let modelOnDisk = !overrides.sttModelMissing
   const deps: RemoteSpeechDeps = {
     transcription: {
       ready: async () => {},
       transcribe: async (audio: RemoteAudio) => {
+        events.push('transcribe')
+        if (!modelOnDisk) throw NO_ENDPOINT
         if (overrides.transcribeError) throw overrides.transcribeError
         if (overrides.sttReady === false) throw NO_ENDPOINT
         return overrides.transcripts?.[audio.data_base64] ?? ''
@@ -62,10 +76,26 @@ function fakeDeps(overrides: {
         return { audioBase64: `wav:${text}`, mediaType: 'audio/wav' }
       },
     },
+    transcriptionModel: {
+      installed: () => overrides.sttInstalled ?? true,
+      missing: async () => (modelOnDisk ? [] : [STT_MODEL]),
+      download: async (models) => {
+        if (!overrides.preGranted) {
+          events.push(`question:${models.map((m) => m.repo_id).join(',')}`)
+          if (overrides.downloadAnswer === 'decline') return false
+        }
+        events.push('download')
+        modelOnDisk = true
+        return true
+      },
+    },
     log: (message) => logged.push(message),
   }
-  return { deps, logged, spoken }
+  return { deps, logged, spoken, events }
 }
+
+const NO_BACKEND =
+  '⚠️ Voice not transcribed: a speech-to-text backend must be installed in AI Playground on the desktop.'
 
 const clip = (id: string): RemoteAudio => ({ mime: 'audio/ogg', data_base64: id })
 
@@ -80,16 +110,74 @@ describe('remote speech: transcribing a channel voice message', () => {
     expect(sent).toEqual([])
   })
 
-  it('warns with the setup steps and drops the message when no speech-to-text exists', async () => {
+  it('asks no question when the speech model is already on disk', async () => {
+    const { adapter } = fakeChannel()
+    const { deps, events } = fakeDeps({ transcripts: { a: 'hi' } })
+
+    await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
+
+    expect(events).toEqual(['transcribe'])
+  })
+
+  it('asks to download a missing speech model, then transcribes the voice message', async () => {
+    const { adapter, sent } = fakeChannel()
+    const { deps, events } = fakeDeps({
+      sttModelMissing: true,
+      downloadAnswer: 'approve',
+      transcripts: { a: 'hello' },
+    })
+
+    const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
+
+    expect(text).toBe('hello')
+    expect(events).toEqual(['question:OpenVINO/whisper-base-fp16-ov', 'download', 'transcribe'])
+    expect(sent).toEqual([])
+  })
+
+  it('downloads without asking under a pre-grant, then transcribes', async () => {
+    const { adapter } = fakeChannel()
+    const { deps, events } = fakeDeps({
+      sttModelMissing: true,
+      preGranted: true,
+      transcripts: { a: 'hello' },
+    })
+
+    const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
+
+    expect(text).toBe('hello')
+    expect(events).toEqual(['download', 'transcribe'])
+  })
+
+  it('drops the voice message and suggests text when the download is declined', async () => {
+    const { adapter, sent } = fakeChannel()
+    const { deps, events } = fakeDeps({ sttModelMissing: true, downloadAnswer: 'decline' })
+
+    const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
+
+    expect(text).toBeNull()
+    expect(events).toEqual(['question:OpenVINO/whisper-base-fp16-ov'])
+    expect(sent).toEqual(['Voice not transcribed: speech model not downloaded. Send text instead.'])
+  })
+
+  it('says a speech-to-text backend must be installed on the desktop when none is', async () => {
+    const { adapter, sent } = fakeChannel()
+    const { deps, events } = fakeDeps({ sttInstalled: false })
+
+    const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
+
+    expect(text).toBeNull()
+    expect(events).toEqual([])
+    expect(sent).toEqual([NO_BACKEND])
+  })
+
+  it('gives the same install message when no endpoint answers', async () => {
     const { adapter, sent } = fakeChannel()
     const { deps } = fakeDeps({ sttReady: false })
 
     const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
 
     expect(text).toBeNull()
-    expect(sent).toEqual([
-      '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
-    ])
+    expect(sent).toEqual([NO_BACKEND])
   })
 
   it('tells the sender why transcription failed and drops the message', async () => {
@@ -156,27 +244,18 @@ describe('remote speech: speaking a reply', () => {
   })
 })
 
-const WHISPER = {
-  repo_id: 'OpenVINO/whisper-base',
-  type: 'STT',
-  backend: 'openvino',
-} as DownloadModelParam
-const DECLINED = new Error('declined')
-
 function answerDeps(overrides: {
-  missing?: DownloadModelParam[] | 'no-backend'
+  sttInstalled?: boolean
+  sttModelMissing?: boolean
   download?: 'declined' | Error
 }) {
-  const { deps } = fakeDeps({})
+  const { deps } = fakeDeps(overrides)
   const asked: { models: DownloadModelParam[]; sessionId: string }[] = []
-  deps.answerTranscription = {
-    missing: async () => overrides.missing ?? [],
-    download: async (models, sessionId) => {
-      asked.push({ models, sessionId })
-      if (overrides.download === 'declined') throw DECLINED
-      if (overrides.download) throw overrides.download
-    },
-    isDeclined: (e) => e === DECLINED,
+  deps.answerDownload = async (models, sessionId) => {
+    asked.push({ models, sessionId })
+    if (overrides.download === 'declined') return false
+    if (overrides.download) throw overrides.download
+    return true
   }
   return { deps, asked }
 }
@@ -191,18 +270,18 @@ describe('remote speech: readying a voice Answer to an agent', () => {
     expect(posted).toEqual([])
   })
 
-  it('asks the session’s download question for a missing model, then goes on', async () => {
+  it('asks the answered session’s download question for a missing model, then goes on', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps, asked } = answerDeps({ missing: [WHISPER] })
+    const { deps, asked } = answerDeps({ sttModelMissing: true })
 
     expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
-    expect(asked).toEqual([{ models: [WHISPER], sessionId: 'asteroids' }])
+    expect(asked).toEqual([{ models: [STT_MODEL], sessionId: 'asteroids' }])
     expect(posted).toEqual([])
   })
 
   it('says the voice was not transcribed when the download was declined', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps } = answerDeps({ missing: [WHISPER], download: 'declined' })
+    const { deps } = answerDeps({ sttModelMissing: true, download: 'declined' })
 
     expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
     expect(posted).toEqual([
@@ -210,22 +289,20 @@ describe('remote speech: readying a voice Answer to an agent', () => {
     ])
   })
 
-  it('says the download failed when it did', async () => {
+  it('says why when the download failed', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps } = answerDeps({ missing: [WHISPER], download: new Error('disk full') })
+    const { deps } = answerDeps({ sttModelMissing: true, download: new Error('disk full') })
 
     expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
-    expect(posted).toEqual(['⚠️ Could not download the speech model: disk full'])
+    expect(posted).toEqual(['⚠️ Could not transcribe the audio: disk full'])
   })
 
   it('says a backend must be installed on the desktop when there is none', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps, asked } = answerDeps({ missing: 'no-backend' })
+    const { deps, asked } = answerDeps({ sttInstalled: false })
 
     expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
     expect(asked).toEqual([])
-    expect(posted).toEqual([
-      '⚠️ Voice not transcribed: install a speech-to-text backend in AI Playground on the desktop.',
-    ])
+    expect(posted).toEqual([NO_BACKEND])
   })
 })

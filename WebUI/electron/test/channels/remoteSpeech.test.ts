@@ -8,10 +8,12 @@ import type { InboundMeta, RemoteAudio } from '../../../src/assets/js/store/chan
 
 function fakeChannel() {
   const sent: string[] = []
+  const posted: string[] = []
   const voices: { base64: string; mime: string; meta?: InboundMeta }[] = []
   const adapter = {
     kind: 'telegram',
     formatRichSnippet: (html: string) => html,
+    formatMarkdown: (md: string) => md,
     reply: async (text: string) => {
       sent.push(text)
       return { success: true }
@@ -20,9 +22,13 @@ function fakeChannel() {
       voices.push({ base64, mime, meta })
       return { success: true }
     },
+    post: async (text: string) => {
+      posted.push(text)
+      return { success: true }
+    },
     startTypingHeartbeat: () => () => {},
   } as unknown as ChannelAdapter
-  return { adapter, sent, voices }
+  return { adapter, sent, posted, voices }
 }
 
 const NO_ENDPOINT = new Error('no endpoint')
@@ -147,5 +153,79 @@ describe('remote speech: speaking a reply', () => {
     expect(voices).toEqual([])
     expect(sent).toEqual([])
     expect(logged).toHaveLength(1)
+  })
+})
+
+const WHISPER = {
+  repo_id: 'OpenVINO/whisper-base',
+  type: 'STT',
+  backend: 'openvino',
+} as DownloadModelParam
+const DECLINED = new Error('declined')
+
+function answerDeps(overrides: {
+  missing?: DownloadModelParam[] | 'no-backend'
+  download?: 'declined' | Error
+}) {
+  const { deps } = fakeDeps({})
+  const asked: { models: DownloadModelParam[]; sessionId: string }[] = []
+  deps.answerTranscription = {
+    missing: async () => overrides.missing ?? [],
+    download: async (models, sessionId) => {
+      asked.push({ models, sessionId })
+      if (overrides.download === 'declined') throw DECLINED
+      if (overrides.download) throw overrides.download
+    },
+    isDeclined: (e) => e === DECLINED,
+  }
+  return { deps, asked }
+}
+
+describe('remote speech: readying a voice Answer to an agent', () => {
+  it('asks nothing when the speech model is already there', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps, asked } = answerDeps({})
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
+    expect(asked).toEqual([])
+    expect(posted).toEqual([])
+  })
+
+  it('asks the session’s download question for a missing model, then goes on', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps, asked } = answerDeps({ missing: [WHISPER] })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
+    expect(asked).toEqual([{ models: [WHISPER], sessionId: 'asteroids' }])
+    expect(posted).toEqual([])
+  })
+
+  it('says the voice was not transcribed when the download was declined', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps } = answerDeps({ missing: [WHISPER], download: 'declined' })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(posted).toEqual([
+      'Voice not transcribed: speech model not downloaded. Send text instead.',
+    ])
+  })
+
+  it('says the download failed when it did', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps } = answerDeps({ missing: [WHISPER], download: new Error('disk full') })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(posted).toEqual(['⚠️ Could not download the speech model: disk full'])
+  })
+
+  it('says a backend must be installed on the desktop when there is none', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps, asked } = answerDeps({ missing: 'no-backend' })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(asked).toEqual([])
+    expect(posted).toEqual([
+      '⚠️ Voice not transcribed: install a speech-to-text backend in AI Playground on the desktop.',
+    ])
   })
 })

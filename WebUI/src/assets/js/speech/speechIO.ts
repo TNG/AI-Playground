@@ -116,6 +116,11 @@ export async function readyTranscriptionUnattended(): Promise<void> {
   return speechToText.ensureTranscriptionServerRunning()
 }
 
+/** What a remote sender's speech-to-text still needs downloaded, or 'no-backend'; never asks. */
+export function missingTranscriptionModels(): Promise<DownloadModelParam[] | 'no-backend'> {
+  return useSpeechToText().missingTranscriptionModels()
+}
+
 export type SpeechModelRef = { repo_id: string; type: 'TTS' | 'STT'; backend: 'openvino' }
 
 /**

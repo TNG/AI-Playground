@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "Belum ada agen yang disimpan",
   "AGENT_AGENTS_STOP": "Hentikan",
   "AGENT_AGENTS_OPEN_RUN": "Buka sesi yang berjalan",
-  "AGENT_AGENTS_RUN_NOW": "Jalankan sekarang",
+  "AGENT_AGENTS_RUN_NOW": "Jalankan sekarang di sesi baru",
   "AGENT_AGENTS_SHOW_SESSIONS": "Tampilkan sesi",
   "AGENT_AGENTS_DELETE": "Hapus",
   "AGENT_AGENTS_NAME": "Nama agen",

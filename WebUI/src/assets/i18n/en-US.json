@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "No saved agents yet",
   "AGENT_AGENTS_STOP": "Stop",
   "AGENT_AGENTS_OPEN_RUN": "Open running session",
-  "AGENT_AGENTS_RUN_NOW": "Run now",
+  "AGENT_AGENTS_RUN_NOW": "Run now in a new session",
   "AGENT_AGENTS_SHOW_SESSIONS": "Show sessions",
   "AGENT_AGENTS_DELETE": "Delete",
   "AGENT_AGENTS_NAME": "Agent name",

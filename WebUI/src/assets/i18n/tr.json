@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "Henüz kayıtlı ajan yok",
   "AGENT_AGENTS_STOP": "Durdur",
   "AGENT_AGENTS_OPEN_RUN": "Çalışan oturumu aç",
-  "AGENT_AGENTS_RUN_NOW": "Şimdi çalıştır",
+  "AGENT_AGENTS_RUN_NOW": "Şimdi yeni bir oturumda çalıştır",
   "AGENT_AGENTS_SHOW_SESSIONS": "Oturumları göster",
   "AGENT_AGENTS_DELETE": "Sil",
   "AGENT_AGENTS_NAME": "Ajan adı",

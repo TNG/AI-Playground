@@ -366,6 +366,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }) => invoke('agentMode:listCapabilities', options),
     mediaFileAction: (ref: AgentMediaFileRef, action: AgentMediaFileAction) =>
       invoke('agentMode:mediaFileAction', cloneForIpc(ref), action),
+    openWorkspaceFolder: (dir: string) => invoke('agentMode:openWorkspaceFolder', dir),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>

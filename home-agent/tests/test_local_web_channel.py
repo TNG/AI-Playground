@@ -379,12 +379,42 @@ class TestAnswers(LocalWebChannelTestCase):
             ],
         )
 
+    def test_a_voice_clip_reaches_the_page_with_its_caption_under_the_answer(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        sent = self.channel.send_voice(
+            {
+                "audio": "T2dn",
+                "mime": "audio/ogg",
+                "caption": "summary",
+                "reply_to": "1234567",
+            }
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "voice",
+                    "base64": "T2dn",
+                    "mime": "audio/ogg",
+                    "caption": "summary",
+                    "replyTo": 1234567,
+                    "id": sent["message_id"],
+                }
+            ],
+        )
+
     def test_every_message_the_page_shows_has_an_id(self):
         for send in (
             lambda: self.channel.send_reply({"text": "hi"}),
             lambda: self.channel.send_post({"text": "hi"}),
             lambda: self.channel.send_photo({"photo": "AAAA", "caption": "c"}),
             lambda: self.channel.send_video({"video": "AAAA", "filename": "v.mp4"}),
+            lambda: self.channel.send_voice({"audio": "T2dn", "mime": "audio/ogg"}),
         ):
             self.assertGreater(send()["message_id"], 0)
 

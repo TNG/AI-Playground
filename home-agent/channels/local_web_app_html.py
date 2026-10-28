@@ -816,7 +816,9 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         return
       }
       if (action === 'voice' && d.base64) {
-        appendBotHtml('', true, [inlineAudio(d.base64, d.mime)])
+        const media = [inlineAudio(d.base64, d.mime)]
+        if (d.replyTo) appendAgentHtml(caption, media, d.replyTo)
+        else appendBotHtml(caption, true, media)
         return
       }
       if (action === 'document' && (d.base64 || d.filename)) {

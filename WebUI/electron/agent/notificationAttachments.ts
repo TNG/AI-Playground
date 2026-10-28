@@ -3,11 +3,11 @@ import path from 'node:path'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_MEDIA_EXTENSIONS, channelMediaKind } from '@/lib/channelMediaKind'
 
-export type AttachmentKind = 'photo' | 'video'
+export type AttachmentKind = 'photo' | 'video' | 'voice'
 
 export type ChannelMedia = { kind: AttachmentKind; base64: string; filename: string }
 
-export const ATTACHMENT_KINDS: readonly AttachmentKind[] = ['photo', 'video']
+export const ATTACHMENT_KINDS: readonly AttachmentKind[] = ['photo', 'video', 'voice']
 
 const MB = 1024 * 1024
 
@@ -38,7 +38,7 @@ type Checked = { file: string; kind: AttachmentKind } | { problem: string }
 
 async function check(workspaceDir: string, ref: string, channel: ChannelKind): Promise<Checked> {
   const kind = channelMediaKind(ref)
-  if (kind !== 'photo' && kind !== 'video') return { problem: 'unsupported file type' }
+  if (!kind) return { problem: 'unsupported file type' }
   const root = (await realPath(workspaceDir)) ?? path.resolve(workspaceDir)
   const file = path.resolve(root, ref)
   if (!isInside(root, file)) return { problem: 'outside the workspace' }

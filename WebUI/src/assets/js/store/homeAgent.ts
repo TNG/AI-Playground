@@ -26,7 +26,9 @@ import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
+  installSynthesisModel,
   readyTranscriptionUnattended,
+  synthesisModelMissing,
   synthesizeClip,
   transcribe,
 } from '../speech/speechIO'
@@ -270,6 +272,10 @@ export const useHomeAgent = defineStore(
       synthesis: {
         allowed: () => useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
         synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
+      },
+      synthesisModel: {
+        missing: synthesisModelMissing,
+        install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
       },
       log: (message, error) => reportSilently(message, error),
     })
@@ -818,6 +824,20 @@ export const useHomeAgent = defineStore(
      *  path instead of getting stuck waiting for a desktop click. */
     function isRemoteTurnActive(): boolean {
       return activeRemoteTurn !== null
+    }
+
+    /** Runs `work` as part of a remote turn, so its download questions go to that channel. */
+    async function withRemoteTurn<T>(
+      turn: { adapter: ChannelAdapter; meta?: InboundMeta },
+      work: () => Promise<T>,
+    ): Promise<T> {
+      const previous = activeRemoteTurn
+      activeRemoteTurn = previous ?? turn
+      try {
+        return await work()
+      } finally {
+        activeRemoteTurn = previous
+      }
     }
 
     /**

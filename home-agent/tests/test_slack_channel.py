@@ -132,7 +132,11 @@ class SlackOutboundTest(unittest.TestCase):
         for action, key in (("photo", "photo"), ("video", "video"), ("voice", "audio")):
             with self.subTest(action=action):
                 result = getattr(self.channel, f"send_{action}")(
-                    {key: base64.b64encode(b"ID3").decode(), "mime": "audio/mpeg", "channel": IM}
+                    {
+                        key: base64.b64encode(b"ID3").decode(),
+                        "mime": "audio/mpeg",
+                        "channel": IM,
+                    }
                 )
                 self.assertEqual(result["ts"], "1700.0099")
                 self.assertEqual(result["channel"], IM)

@@ -96,7 +96,13 @@ let config: NotificationConfig = OFF_CONFIG
 let channel: NotificationChannel | undefined
 let windowShown: () => boolean = () => false
 
-type AnswerTurn = AgentAnswerOrigin & { turnId: string; workspaceDir: string; media: string[] }
+type AnswerTurn = AgentAnswerOrigin & {
+  turnId: string
+  workspaceDir: string
+  media: string[]
+  /** Files `notify_user` already sent during the turn, which its reply leaves out. */
+  attached: Set<string>
+}
 
 /** The turn an Answer started, per session: its messages go under the Answer, past the gates. */
 const answerTurns = new Map<string, AnswerTurn>()
@@ -135,7 +141,7 @@ export function noteAnswerTurn(
   origin: AgentAnswerOrigin,
 ): void {
   stopTyping(sessionId)
-  answerTurns.set(sessionId, { ...origin, turnId, workspaceDir, media: [] })
+  answerTurns.set(sessionId, { ...origin, turnId, workspaceDir, media: [], attached: new Set() })
 }
 
 function answerTurnOf(sessionId: string, turnId?: string): AnswerTurn | undefined {
@@ -163,6 +169,10 @@ export async function sendNotification(
   const delivery = await deliver({ text, attachments: options.attachments }, options.sessionId)
   if (!delivery.delivered) {
     appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
+  } else if (options.sessionId && options.attachments) {
+    const { workspaceDir, paths } = options.attachments
+    const answer = answerTurnOf(options.sessionId)
+    for (const file of paths) answer?.attached.add(path.resolve(workspaceDir, file))
   }
   return delivery
 }
@@ -235,6 +245,7 @@ async function replyToAnswer(sessionId: string, turn: AnswerTurn, reply: string 
     await sendNotification(text, { sessionId })
   }
   for (const file of turn.media) {
+    if (turn.attached.has(file)) continue
     const media = await channelMedia(file).catch((error) => {
       appLoggerInstance.warn(`generated media not readable: ${error}`, LOG_SOURCE)
       return null

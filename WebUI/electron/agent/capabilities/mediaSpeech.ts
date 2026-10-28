@@ -5,6 +5,7 @@ import { jsonResult, jsonSchemaParameters, resolveWorkspaceFile } from '../piCus
 import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
 import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
+import { noteGeneratedMedia } from '../generatedMedia.ts'
 import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
 import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
@@ -109,6 +110,8 @@ async function synthesize(
       },
       { abortSignal: signal, conversationKey: host.sessionId },
     )
+    if (!clip.audioBase64)
+      return { output: { ok: false, message: 'The speech engine returned no audio.' } }
     const stem = fileStem(args.outputFileName)
     const { fullPath, relativePath } = generatedAudioPath(
       host.workspaceDir,
@@ -116,6 +119,7 @@ async function synthesize(
       CLIP_EXT_BY_MIME[clip.mediaType] ?? '.wav',
     )
     await fs.promises.writeFile(fullPath, Buffer.from(clip.audioBase64, 'base64'))
+    noteGeneratedMedia(host.workspaceDir, [relativePath])
     const appCopyPath = await saveGeneratedAudioFile(
       clip.audioBase64,
       buildTtsAudioFileName({

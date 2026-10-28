@@ -18,11 +18,8 @@ import {
   resetOpenDownloadQuestionsForTest,
 } from '../models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
-import {
-  answerDownloadSession,
-  type PermissionsPromptPayload,
-  type PermissionsPromptResponse,
-} from '@/types/permissionsIpc'
+import type { PermissionsPromptPayload, PermissionsPromptResponse } from '@/types/permissionsIpc'
+import { answerDownloadSession } from './answerDownloadKey'
 
 /**
  * Renderer half of the Permissions prompt adapter (step 13). Main owns grant

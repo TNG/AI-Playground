@@ -20,6 +20,14 @@ export function revealFileInFolder(filePath: string): void {
   }
 }
 
+/** Open a directory in the OS file manager; refuses anything else, since `openPath` runs files. */
+export async function openDirectory(dirPath: string): Promise<void> {
+  const stat = await fs.promises.stat(dirPath)
+  if (!stat.isDirectory()) throw new Error(`Not a folder: ${dirPath}`)
+  const error = await shell.openPath(dirPath)
+  if (error) throw new Error(error)
+}
+
 /** Start an OS drag of a file, with its thumbnail or `fallbackIcon` as the drag image. */
 export async function startFileDrag(
   sender: WebContents,

@@ -41,6 +41,7 @@
       :output="generatedMedia.audio"
       :caption="workspaceCaption(generatedMedia.audio.workspacePath)"
       :download="() => fileAction(generatedMedia!.audio!, 'saveAs')"
+      :reveal="() => fileAction(generatedMedia!.audio!, 'reveal')"
     />
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">

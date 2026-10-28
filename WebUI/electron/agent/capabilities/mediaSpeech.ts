@@ -8,6 +8,7 @@ import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
 import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
 import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
+import { NOTIFY_USER_TOOL } from './notify.ts'
 import type { AgentToolSpec, CapabilityHost } from './types.ts'
 
 // ── speech tools for an agent turn ───────────────────────────────────────────
@@ -124,10 +125,13 @@ async function synthesize(
       }),
     )
     const message = `${describeClip(clip)} Saved into the workspace at ${relativePath}.`
+    const toAgent =
+      `${message} To send it to the user, call ${NOTIFY_USER_TOOL} with ` +
+      `"attachments": ["${relativePath}"]; do not mention its path, which they cannot open.`
     return {
       output: {
         ok: true,
-        message,
+        message: toAgent,
         savedFilePath: relativePath,
         speaker: clip.voice,
         ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),

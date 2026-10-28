@@ -126,6 +126,48 @@ describe('a Notification handed to the Home Agent channel', () => {
     ])
   })
 
+  it('sends a speech clip as a voice message captioned with the text, under the message it answers', async () => {
+    const { send, calls } = recorder()
+    expect(
+      await send('telegram', {
+        text: 'header',
+        replyTo: '77',
+        media: { kind: 'voice', base64: 'CCC', filename: 'summary.wav' },
+      }),
+    ).toEqual({ success: true, ref: '41' })
+    await send('slack', {
+      text: 'header',
+      media: { kind: 'voice', base64: 'DDD', filename: 'summary.mp3' },
+    })
+    await send('local-web', {
+      text: 'header',
+      media: { kind: 'voice', base64: 'EEE', filename: 'summary.ogg' },
+    })
+    expect(calls).toEqual([
+      {
+        kind: 'telegram',
+        action: 'voice',
+        payload: {
+          audio: 'CCC',
+          mime: 'audio/wav',
+          caption: 'header',
+          filename: 'summary.wav',
+          reply_to_message_id: '77',
+        },
+      },
+      {
+        kind: 'slack',
+        action: 'voice',
+        payload: { audio: 'DDD', mime: 'audio/mpeg', caption: 'header', filename: 'summary.mp3' },
+      },
+      {
+        kind: 'local-web',
+        action: 'voice',
+        payload: { audio: 'EEE', mime: 'audio/ogg', caption: 'header', filename: 'summary.ogg' },
+      },
+    ])
+  })
+
   it('passes a failed send on', async () => {
     const { send } = homeAgentNotificationChannel(async () => ({
       success: false,

@@ -284,9 +284,14 @@ class LocalWebChannel(ChannelBase):
     def send_voice(self, payload: dict) -> SendResult:
         # Rendered as a native <audio> player in the browser.
         base64_data = payload.get("base64") or payload.get("audio") or ""
-        return self._broadcast(
+        return self._send_with_id(
             "voice",
-            {"base64": base64_data, "mime": payload.get("mime", "audio/ogg")},
+            {
+                "base64": base64_data,
+                "mime": payload.get("mime", "audio/ogg"),
+                "caption": payload.get("caption", ""),
+            },
+            payload,
         )
 
     def send_document(self, payload: dict) -> SendResult:

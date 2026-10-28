@@ -37,9 +37,10 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
         'Call it whenever the user asks to be notified, pinged, messaged, alerted or told about ' +
         'something ("let me know when it is done", "notify me if it fails"), even without naming ' +
         'a device or channel, and when a Task step says so. Do not call it otherwise. ' +
-        'To show the user a file (an image or video you generated), pass it in `attachments` ' +
-        `(${allowedAttachmentExtensions()}); generated files are not sent unless attached, and ` +
-        'the user cannot open a workspace path, so attach the file instead of naming its location.',
+        'To show the user a file (an image, video or speech clip you generated), pass it in ' +
+        `\`attachments\` (${allowedAttachmentExtensions()}); generated files are not sent ` +
+        'unless attached, and the user cannot open a workspace path, so attach the file instead ' +
+        'of naming its location.',
       promptSnippet: 'Notify the user on their Home Agent channel (Telegram, Slack, LAN chat)',
       promptGuidelines: [
         'When the user asks to be notified, pinged, messaged or told when something happens, ' +

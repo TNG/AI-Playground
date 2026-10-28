@@ -280,6 +280,18 @@ export const useSpeechToText = defineStore(
       }
     }
 
+    /** What the effective engine still needs downloaded, or 'no-backend' when none can serve; never asks. */
+    async function missingTranscriptionModels(): Promise<DownloadModelParam[] | 'no-backend'> {
+      const engine = effectiveSttEngine.value
+      if (engine === 'external') return hasFallback() ? [] : 'no-backend'
+      const serviceName = engine === 'standalone' ? 'whisper-backend' : 'openvino-backend'
+      const service = backendServices.info.find((s) => s.serviceName === serviceName)
+      if (!service?.isSetUp) return hasFallback() ? [] : 'no-backend'
+      const model =
+        engine === 'standalone' ? selectedStandaloneModel.value : selectedOvmsModel.value
+      return models.getMissingTranscriptionModel(model)
+    }
+
     /** OpenAI-compatible endpoint for the standalone Whisper sidecar, or null when
      *  its backend isn't running yet. The loopback token is passed as the apiKey so
      *  the shared transcribe helper's `Authorization: Bearer` satisfies the sidecar. */
@@ -596,6 +608,7 @@ export const useSpeechToText = defineStore(
       resolveTranscription,
       ensureStandaloneReady,
       ensureStandaloneServerRunning,
+      missingTranscriptionModels,
       toggle,
       resetToDefaults,
       initialize,

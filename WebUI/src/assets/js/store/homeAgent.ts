@@ -25,6 +25,7 @@ import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
+  missingTranscriptionModels,
   NO_TRANSCRIPTION_ENDPOINT,
   readyTranscriptionUnattended,
   synthesizeClip,
@@ -54,7 +55,15 @@ import {
 } from './channels/types'
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
-import { isAppError, extractMessage, createAppError, createCancellation } from '../errors/appError'
+import {
+  isAppError,
+  isCancellation,
+  extractMessage,
+  createAppError,
+  createCancellation,
+} from '../errors/appError'
+import { requestDownload } from '../permissions/permissions'
+import { answerDownloadKey } from '@/types/permissionsIpc'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
@@ -271,6 +280,12 @@ export const useHomeAgent = defineStore(
         allowed: () => useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
         synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
       },
+      answerTranscription: {
+        missing: missingTranscriptionModels,
+        download: (models, sessionId) =>
+          requestDownload(models, { conversationKey: answerDownloadKey(sessionId) }),
+        isDeclined: isCancellation,
+      },
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -278,6 +293,7 @@ export const useHomeAgent = defineStore(
       sessions: answerSessions,
       questions: channelQuestions,
       transcribe: remoteSpeech.transcribe,
+      prepareVoiceAnswer: remoteSpeech.prepareAnswer,
       downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
       log: (message, error) => reportSilently(message, error),

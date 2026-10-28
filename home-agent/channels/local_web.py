@@ -91,6 +91,19 @@ def _message_ref(raw: object) -> int | None:
     return None
 
 
+def _answer_keyboard(payload: dict) -> dict:
+    """A message's buttons (an agent's Answer button) and the session it answers."""
+    event: dict = {}
+    buttons = payload.get("buttons")
+    if buttons:
+        event["buttons"] = buttons
+    # The session an Answer button answers, shown in the page's composer chip.
+    title = payload.get("answer_title")
+    if isinstance(title, str) and title:
+        event["answerTitle"] = title
+    return event
+
+
 class _BodyError(Exception):
     """A request body we refuse to read (too large, or not length-delimited).
 
@@ -246,7 +259,11 @@ class LocalWebChannel(ChannelBase):
         )
         return self._send_with_id(
             "photo",
-            {"base64": base64_data, "caption": payload.get("caption", "")},
+            {
+                "base64": base64_data,
+                "caption": payload.get("caption", ""),
+                **_answer_keyboard(payload),
+            },
             payload,
         )
 
@@ -259,6 +276,7 @@ class LocalWebChannel(ChannelBase):
                 "base64": base64_data,
                 "caption": payload.get("caption", ""),
                 "filename": payload.get("filename", ""),
+                **_answer_keyboard(payload),
             },
             payload,
         )
@@ -317,11 +335,8 @@ class LocalWebChannel(ChannelBase):
         event: dict = {
             "text": payload.get("text", ""),
             "buttons": payload.get("buttons", []),
+            **_answer_keyboard(payload),
         }
-        # The session an Answer button answers, shown in the page's composer chip.
-        title = payload.get("answer_title")
-        if isinstance(title, str) and title:
-            event["answerTitle"] = title
         return self._send_with_id("keyboard", event, payload)
 
     def send_post(self, payload: dict) -> SendResult:

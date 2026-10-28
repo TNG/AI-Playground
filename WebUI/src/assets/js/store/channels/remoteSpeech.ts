@@ -3,7 +3,9 @@ import type { ChannelAdapter } from './adapter'
 import type { InboundMeta, RemoteAudio } from './types'
 
 const NO_SPEECH_TO_TEXT =
-  '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.'
+  '⚠️ Voice not transcribed: a speech-to-text backend must be installed in AI Playground on the desktop.'
+const SPEECH_MODEL_DECLINED =
+  'Voice not transcribed: speech model not downloaded. Send text instead.'
 
 export type RemoteSpeechDeps = {
   transcription: {
@@ -18,6 +20,14 @@ export type RemoteSpeechDeps = {
     allowed: () => boolean
     /** Null when the engine or its model is missing; never asks. */
     synthesize: (text: string) => Promise<{ audioBase64: string; mediaType: string } | null>
+  }
+  transcriptionModel: {
+    /** A transcription backend is installed, or a fallback endpoint is configured. */
+    installed: () => boolean
+    /** The selected engine's model files not yet on disk. */
+    missing: () => Promise<DownloadModelParam[]>
+    /** Asks the remote sender (unless pre-granted) and downloads; false when declined. */
+    download: (models: DownloadModelParam[]) => Promise<boolean>
   }
   log: (message: string, error: unknown) => void
 }
@@ -34,12 +44,31 @@ export type RemoteSpeech = {
   speak: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
 }
 
+const failureText = (e: unknown) =>
+  `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`
+
 export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
   async function transcribe(
     adapter: ChannelAdapter,
     audio: RemoteAudio[],
     meta?: InboundMeta,
   ): Promise<string | null> {
+    const say = (message: string) => adapter.reply(adapter.formatRichSnippet(message), meta)
+    if (!deps.transcriptionModel.installed()) {
+      await say(NO_SPEECH_TO_TEXT)
+      return null
+    }
+    try {
+      const missing = await deps.transcriptionModel.missing()
+      if (missing.length > 0 && !(await deps.transcriptionModel.download(missing))) {
+        await say(SPEECH_MODEL_DECLINED)
+        return null
+      }
+    } catch (e) {
+      deps.log('homeAgent: speech model download failed', e)
+      await say(failureText(e))
+      return null
+    }
     await deps.transcription.ready()
     const stopTyping = adapter.startTypingHeartbeat('typing', meta)
     try {
@@ -51,10 +80,8 @@ export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
       return parts.filter(Boolean).join(' ').trim()
     } catch (e) {
       deps.log('homeAgent: audio transcription failed', e)
-      const message = deps.transcription.isNoEndpoint(e)
-        ? NO_SPEECH_TO_TEXT
-        : `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`
-      await adapter.reply(adapter.formatRichSnippet(message), meta)
+      const message = deps.transcription.isNoEndpoint(e) ? NO_SPEECH_TO_TEXT : failureText(e)
+      await say(message)
       return null
     } finally {
       stopTyping()

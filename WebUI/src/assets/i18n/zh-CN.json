@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "尚无已保存的智能体",
   "AGENT_AGENTS_STOP": "停止",
   "AGENT_AGENTS_OPEN_RUN": "打开正在运行的会话",
-  "AGENT_AGENTS_RUN_NOW": "立即运行",
+  "AGENT_AGENTS_RUN_NOW": "立即在新会话中运行",
   "AGENT_AGENTS_SHOW_SESSIONS": "显示会话",
   "AGENT_AGENTS_DELETE": "删除",
   "AGENT_AGENTS_NAME": "智能体名称",

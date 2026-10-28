@@ -632,6 +632,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       presetName: presetOfAgent(id)?.name ?? AGENT_PRESET,
       title: plan.name,
       taskId: plan.id,
+      steps: plan.steps,
     })
     runContexts[id] = { plan, abort: new AbortController(), scheduled }
     runs.value = { ...runs.value, [id]: { sessionId, stepIndex: 1, stepCount: plan.steps.length } }
@@ -645,7 +646,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const { plan, abort } = context
     runs.value = { ...runs.value, [taskId]: { ...run, stepIndex } }
     markRunInFlight(taskId, { sessionId: run.sessionId, stepIndex, stepCount: run.stepCount })
-    const result = await agentMode.sendToSession(run.sessionId, plan.steps[stepIndex - 1].prompt, {
+    const steps = stepPrompts(plan.steps)
+    const turn = stepIndex === 1 ? firstStepTurn('', steps) : stepTurn(stepIndex, steps)
+    const result = await agentMode.sendToSession(run.sessionId, turn, {
       settings: cloneForIpc(plan.settingsTemplate),
       signal: abort.signal,
       quietErrors: true,

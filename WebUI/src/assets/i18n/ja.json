@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "保存済みのエージェントはまだありません",
   "AGENT_AGENTS_STOP": "停止",
   "AGENT_AGENTS_OPEN_RUN": "実行中のセッションを開く",
-  "AGENT_AGENTS_RUN_NOW": "今すぐ実行",
+  "AGENT_AGENTS_RUN_NOW": "新しいセッションで今すぐ実行",
   "AGENT_AGENTS_SHOW_SESSIONS": "セッションを表示",
   "AGENT_AGENTS_DELETE": "削除",
   "AGENT_AGENTS_NAME": "エージェント名",

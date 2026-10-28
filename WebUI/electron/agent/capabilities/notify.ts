@@ -17,8 +17,8 @@ const NOTIFY_SCHEMA: Record<string, unknown> = {
       type: 'array',
       items: { type: 'string' },
       description:
-        'Workspace-relative path of one file to send with the message, which becomes its ' +
-        `caption. Allowed: ${allowedAttachmentExtensions()}.`,
+        'Workspace-relative paths of files to send with the message, in order; the message ' +
+        `captions the first. Allowed: ${allowedAttachmentExtensions()}.`,
     },
   },
   required: ['message'],

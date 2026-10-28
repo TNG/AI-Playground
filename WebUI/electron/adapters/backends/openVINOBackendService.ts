@@ -18,6 +18,7 @@ import {
   uvPipInstallToTarget,
 } from '../install/uvBasedBackends/uv.ts'
 import { binary, extract, restoreTreeWritePermissions } from '../install/tools.ts'
+import { removeVenvTree } from '../install/uvBasedBackends/venvState.ts'
 import { getBundledBackendVersionSync, resolveModels } from '../remoteUpdates.ts'
 import {
   terminateProcessTree as killProcessTree,
@@ -2853,6 +2854,9 @@ export class OpenVINOBackendService implements ApiService {
     this.appLogger.info(`removing OpenVINO Model Server directory`, this.name)
     await this.removeDirWithRetry(this.ovmsDir)
     this.appLogger.info(`removed OpenVINO Model Server directory`, this.name)
+    this.appLogger.info(`removing python env of ${this.name} service`, this.name)
+    await removeVenvTree(this.pythonEnvDir)
+    this.appLogger.info(`removed python env of ${this.name} service`, this.name)
     this.setStatus('notInstalled')
     this.isSetUp = false
     // Clear startup errors when uninstalling

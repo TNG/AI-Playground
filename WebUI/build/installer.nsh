@@ -409,6 +409,110 @@
   !insertmacro appendPhisonAdaCleanupDir
 !macroend
 
+; ${OUT} = HKLM sharedResourcesDir when it is a drive-letter path, else "". Never
+; a UNC or relative path: callers delete under it, some of them elevated.
+!macro aipgReadSharedResourcesDir OUT
+  Push $0
+  SetRegView 64
+  ClearErrors
+  ReadRegStr ${OUT} HKLM "Software\AI Playground" "sharedResourcesDir"
+  SetRegView lastused
+  StrCpy $0 ${OUT} 1 1
+  ${if} $0 != ":"
+    StrCpy ${OUT} ""
+  ${endif}
+  StrCpy $0 ${OUT} 1 2
+  ${if} $0 != "\"
+  ${andif} $0 != "/"
+    StrCpy ${OUT} ""
+  ${endif}
+  Pop $0
+!macroend
+
+; Remove every backend .venv the app created. RMDir /r gives up on paths past
+; MAX_PATH (ComfyUI site-packages) and never reaches the per-user or shared
+; roots, so this runs before it. An update only clears $INSTDIR: the other roots
+; keep their environments for the new version. Nothing is left silently: a
+; blocked removal is retried elevated if the user agrees, then reported.
+;   $R6 roots file  $R5 report file  $R4 first exit code  $R3 elevated  $R2 report text
+!macro aipgRemoveBackendVenvs
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\remove-backend-venvs.ps1" "${BUILD_RESOURCES_DIR}\remove-backend-venvs.ps1"
+  StrCpy $R6 "$PLUGINSDIR\aipg-venv-roots.txt"
+  StrCpy $R5 "$PLUGINSDIR\aipg-venv-leftovers.txt"
+  ClearErrors
+  FileOpen $R9 $R6 w
+  ${if} ${Errors}
+    DetailPrint "Could not prepare Python environment removal; backend .venv folders may remain."
+  ${else}
+    FileWriteWord $R9 0xFEFF
+    FileWriteUTF16LE $R9 "$INSTDIR\resources$\r$\n"
+    ${ifNot} ${isUpdated}
+      ReadEnvStr $R8 "LOCALAPPDATA"
+      ${if} $R8 != ""
+        FileWriteUTF16LE $R9 "$R8\ai-playground\resources$\r$\n"
+      ${endif}
+      !insertmacro aipgReadSharedResourcesDir $R3
+      ${if} $R3 != ""
+        FileWriteUTF16LE $R9 "$R3\resources$\r$\n"
+      ${endif}
+    ${endif}
+    FileClose $R9
+
+    DetailPrint "Removing backend Python environments..."
+    StrCpy $R7 '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-backend-venvs.ps1" -RootsFile "$R6" -ReportFile "$R5"'
+    nsExec::ExecToLog 'powershell.exe $R7'
+    Pop $R4
+
+    StrCpy $R3 "0"
+    ${if} $R4 == 1
+    ${andIfNot} ${Silent}
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION "Some AI Playground Python environments could not be removed, usually because another account's program is still using them.$\r$\n$\r$\nTry again with administrator rights?" IDNO +2
+      StrCpy $R3 "1"
+    ${endif}
+    ${if} $R3 == "1"
+      DetailPrint "Retrying Python environment removal with administrator rights"
+      ; The elevated run rewrites the report, which is what decides below.
+      ClearErrors
+      ExecShellWait "runas" "powershell.exe" $R7 SW_HIDE
+      ${if} ${Errors}
+        DetailPrint "Administrator rights were not granted."
+      ${endif}
+    ${endif}
+
+    ${if} $R4 != 0
+      ClearErrors
+      FileOpen $R9 $R5 r
+      ${if} ${Errors}
+        DetailPrint "Python environment removal failed (exit $R4); backend .venv folders may remain."
+        IfSilent +2
+        MessageBox MB_OK|MB_ICONEXCLAMATION "AI Playground could not remove its Python environments (exit $R4). Backend .venv folders may remain under $INSTDIR\resources and %LOCALAPPDATA%\ai-playground\resources."
+      ${else}
+        StrCpy $R2 ""
+        ${do}
+          ClearErrors
+          FileReadUTF16LE $R9 $R1
+          ${if} ${Errors}
+            ${break}
+          ${endif}
+          StrCpy $R2 "$R2$R1"
+        ${loop}
+        FileClose $R9
+        ${if} $R3 == "1"
+        ${andif} $R2 != ""
+          DetailPrint "Still not removed after the administrator retry: $R2"
+        ${endif}
+        ${if} $R2 != ""
+        ${andIfNot} ${Silent}
+          MessageBox MB_OK|MB_ICONEXCLAMATION "These AI Playground Python environments could not be removed:$\r$\n$\r$\n$R2$\r$\nClose any program using them and delete the folders manually."
+        ${endif}
+      ${endif}
+    ${endif}
+    Delete "$R5"
+    Delete "$R6"
+  ${endif}
+!macroend
+
 !macro customUnInstall
   ; ada.exe is a Windows service. The uninstaller is asInvoker, so RMDir cannot
   ; stop it and the locked file is left behind. One elevated cmd stops the
@@ -430,26 +534,11 @@
     ${if} $R5 == ""
       StrCpy $R5 "C:\Users\Public"
     ${endif}
-    ; Only a drive-letter path from HKLM. Never a path read from %PUBLIC%:
-    ; that file is user-writable, and the cleanup script calls wService_delete.bat
-    ; elevated.
-    SetRegView 64
-    ClearErrors
-    ReadRegStr $R3 HKLM "Software\AI Playground" "sharedResourcesDir"
-    SetRegView lastused
+    ; Never a path read from %PUBLIC%: that file is user-writable, and the
+    ; cleanup script calls wService_delete.bat elevated.
+    !insertmacro aipgReadSharedResourcesDir $R3
     ${if} $R3 != ""
-      StrCpy $R8 $R3 2
-      ${if} $R8 != "\\"
-      ${andif} $R8 != "//"
-        StrCpy $R8 $R3 1 1
-        ${if} $R8 == ":"
-          StrCpy $R8 $R3 1 2
-          ${if} $R8 == "\"
-          ${orif} $R8 == "/"
-            !insertmacro appendPhisonAdaCleanup "$R3\resources\LlamaCPP"
-          ${endif}
-        ${endif}
-      ${endif}
+      !insertmacro appendPhisonAdaCleanup "$R3\resources\LlamaCPP"
     ${endif}
     StrCpy $R8 "$R5\AI Playground"
     !insertmacro appendPhisonAdaCleanup "$R8\resources\LlamaCPP"
@@ -465,12 +554,15 @@
     Delete "$R6"
   ${endif}
 
+  ; Reads sharedResourcesDir, so it must run before the HKLM key is deleted.
+  !insertmacro aipgRemoveBackendVenvs
+
   ; Remove only the machine-wide install markers (mode + shared-folder path) so a
-  ; future reinstall re-prompts for the choices. The shared resources tree and
-  ; each user's per-user working tree (%LOCALAPPDATA%\ai-playground) are
-  ; intentionally preserved — they may hold many GB of admin-provisioned models
-  ; and cannot be safely enumerated for every user profile from a machine-wide
-  ; uninstaller.
+  ; future reinstall re-prompts for the choices. Apart from their .venv folders,
+  ; the shared resources tree and each user's per-user working tree
+  ; (%LOCALAPPDATA%\ai-playground) are intentionally preserved — they may hold
+  ; many GB of admin-provisioned models and cannot be safely enumerated for
+  ; every user profile from a machine-wide uninstaller.
   ReadEnvStr $R0 "PUBLIC"
   ${if} $R0 == ""
     StrCpy $R0 "C:\Users\Public"

@@ -19,6 +19,12 @@ export type RemoteSpeechDeps = {
     /** Null when the engine or its model is missing; never asks. */
     synthesize: (text: string) => Promise<{ audioBase64: string; mediaType: string } | null>
   }
+  synthesisModel: {
+    /** The selected engine is installed but its model is not on disk. */
+    missing: () => Promise<boolean>
+    /** Asks the sender in-channel (desktop mirror, pre-grant honored) and downloads; false when declined. */
+    install: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<boolean>
+  }
   log: (message: string, error: unknown) => void
 }
 
@@ -65,12 +71,19 @@ export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
     const spoken = markdownToSpeechText(text ?? '').trim()
     if (!spoken || !deps.synthesis.allowed()) return
     try {
-      const clip = await deps.synthesis.synthesize(spoken)
+      let clip = await deps.synthesis.synthesize(spoken)
+      if (!clip && (await installMissingModel(adapter, meta))) {
+        clip = await deps.synthesis.synthesize(spoken)
+      }
       if (!clip) return
       await adapter.voice(clip.audioBase64, clip.mediaType, meta)
     } catch (e) {
       deps.log('homeAgent: voice reply failed', e)
     }
+  }
+
+  async function installMissingModel(adapter: ChannelAdapter, meta?: InboundMeta) {
+    return (await deps.synthesisModel.missing()) && deps.synthesisModel.install(adapter, meta)
   }
 
   return { transcribe, speak }

@@ -111,6 +111,12 @@ describe('a Notification handed to the Home Agent channel', () => {
       buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
       answerTitle: '"Asteroids clone"',
     })
+    await send('local-web', {
+      text: 'done',
+      media: { kind: 'voice', base64: 'CCC', filename: 'summary.wav' },
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      answerTitle: '"Asteroids clone"',
+    })
     expect(calls).toEqual([
       {
         kind: 'local-web',
@@ -119,6 +125,18 @@ describe('a Notification handed to the Home Agent channel', () => {
           photo: 'AAA',
           caption: 'done',
           filename: 'cover.png',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          answer_title: '"Asteroids clone"',
+        },
+      },
+      {
+        kind: 'local-web',
+        action: 'voice',
+        payload: {
+          audio: 'CCC',
+          mime: 'audio/wav',
+          caption: 'done',
+          filename: 'summary.wav',
           buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
           answer_title: '"Asteroids clone"',
         },

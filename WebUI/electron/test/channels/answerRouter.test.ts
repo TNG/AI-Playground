@@ -117,6 +117,24 @@ function fakeTranscription() {
   return { said, transcribed, transcribe }
 }
 
+/** Readying speech-to-text for a voice Answer: each one waits until the test lets it through. */
+function fakeVoicePreparation() {
+  const waiting: { sessionId: string; finish: (ready: boolean) => void }[] = []
+  let gated = false
+  const prepare = (_adapter: ChannelAdapter, sessionId: string) =>
+    gated
+      ? new Promise<boolean>((finish) => waiting.push({ sessionId, finish }))
+      : Promise.resolve(true)
+  return {
+    waiting,
+    prepare,
+    /** Every following voice Answer waits, as for a speech model download. */
+    needDownload: () => {
+      gated = true
+    },
+  }
+}
+
 const voice = (data: string) => ({ audio: [{ mime: 'audio/ogg', data_base64: data }] })
 
 /** What survives an app close; the router itself does not. */
@@ -142,17 +160,19 @@ function setup(
   const questions = createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} })
   const fake = fakeSessions(sessions, sentMessages)
   const speech = fakeTranscription()
+  const voicePreparation = fakeVoicePreparation()
   // Where an agent's download question is asked: the Notification Channel, if any.
   const downloads = { askedOn: 'telegram' as ChannelKind | null }
   const router = createAnswerRouter({
     sessions: () => fake.port,
     questions,
     transcribe: speech.transcribe,
+    prepareVoiceAnswer: voicePreparation.prepare,
     downloadQuestionChannel: () => downloads.askedOn,
     journal,
     log: () => {},
   })
-  return { router, questions, ...fake, journal, sessions, speech, downloads }
+  return { router, questions, ...fake, journal, sessions, speech, voicePreparation, downloads }
 }
 
 describe('answer router', () => {
@@ -433,6 +453,61 @@ describe('answer router', () => {
       expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
       expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
       expect(ch.replies).toEqual([])
+    })
+
+    it('does not hold up the next channel message while its speech model downloads', async () => {
+      const { router, received, speech, voicePreparation } = setup(
+        { asteroids: { label: 'Asteroids clone' }, digest: { label: 'Digest' } },
+        [
+          { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
+          { kind: 'telegram', ref: '5678', sessionId: 'digest' },
+        ],
+      )
+      speech.said['ogg-1'] = 'try a smaller level'
+      voicePreparation.needDownload()
+      const ch = fakeChannel()
+      expect(await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })).toBe(true)
+      expect(await router.route(ch.adapter, { text: 'skip sports', replyTo: '5678' })).toBe(true)
+      expect(received).toEqual([{ sessionId: 'digest', text: 'skip sports' }])
+      expect(voicePreparation.waiting.map((w) => w.sessionId)).toEqual(['asteroids'])
+    })
+
+    it('is delivered to its session once the download finished', async () => {
+      const { router, received, speech, voicePreparation } = setup()
+      speech.said['ogg-1'] = 'try a smaller level'
+      voicePreparation.needDownload()
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+      expect(speech.transcribed).toEqual([])
+      voicePreparation.waiting[0].finish(true)
+      await flush()
+      expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
+    })
+
+    it('is held after the download when the session is busy by then', async () => {
+      const { router, received, held, speech, voicePreparation } = setup({
+        asteroids: { label: 'Asteroids clone', results: [BUSY] },
+      })
+      speech.said['ogg-1'] = 'try a smaller level'
+      voicePreparation.needDownload()
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+      voicePreparation.waiting[0].finish(true)
+      await flush()
+      expect(received).toHaveLength(1)
+      expect(held.asteroids).toEqual({ text: 'try a smaller level', channel: 'telegram' })
+    })
+
+    it('is dropped unheard when its speech model was not readied', async () => {
+      const { router, received, speech, voicePreparation } = setup()
+      speech.said['ogg-1'] = 'try a smaller level'
+      voicePreparation.needDownload()
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+      voicePreparation.waiting[0].finish(false)
+      await flush()
+      expect(speech.transcribed).toEqual([])
+      expect(received).toEqual([])
     })
 
     it('sends nothing when transcription failed, leaving the explanation to it', async () => {

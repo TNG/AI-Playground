@@ -120,10 +120,35 @@ describe('extractToolMedia', () => {
     ).toEqual([{ kind: 'image', url: 'data:image/png;base64,CCC' }])
   })
 
+  it('extracts the saved clip from synthesizeTextToSpeech as audio', () => {
+    expect(
+      extractToolMedia({
+        type: 'tool-synthesizeTextToSpeech',
+        state: 'output-available',
+        output: {
+          ok: true,
+          message: 'Synthesized speech.',
+          savedFilePath: '/home/u/AI-Playground/audio/poem.wav',
+        },
+      }),
+    ).toEqual([{ kind: 'audio', url: '/home/u/AI-Playground/audio/poem.wav' }])
+  })
+
+  it('does not ship a failed synthesizeTextToSpeech', () => {
+    expect(
+      extractToolMedia({
+        type: 'tool-synthesizeTextToSpeech',
+        state: 'output-available',
+        output: { ok: false, message: 'No text to speak.' },
+      }),
+    ).toEqual([])
+  })
+
   it('exposes the set of media-producing tool types', () => {
     expect(MEDIA_TOOL_TYPES.has('tool-visualizeObjectDetections')).toBe(true)
     expect(MEDIA_TOOL_TYPES.has('tool-screenshotWebPage')).toBe(true)
     expect(MEDIA_TOOL_TYPES.has('tool-comfyUI')).toBe(true)
+    expect(MEDIA_TOOL_TYPES.has('tool-synthesizeTextToSpeech')).toBe(true)
     expect(MEDIA_TOOL_TYPES.has('tool-browseWeb')).toBe(false)
   })
 })

@@ -66,6 +66,7 @@ import {
   createAppError,
   createCancellation,
 } from '../errors/appError'
+import { answerDownloadKey } from '@/types/permissionsIpc'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
@@ -272,6 +273,20 @@ export const useHomeAgent = defineStore(
       staleReply: () => channelQuestionTemplates().stale,
     })
 
+    /** False when declined; `conversationKey` names whose download question asks. */
+    async function consentToDownload(
+      models: DownloadModelParam[],
+      conversationKey?: string,
+    ): Promise<boolean> {
+      try {
+        await requestDownload(models, conversationKey ? { conversationKey } : undefined)
+        return true
+      } catch (e) {
+        if (isCancellation(e)) return false
+        throw e
+      }
+    }
+
     const remoteSpeech = createRemoteSpeech({
       transcription: {
         ready: readyTranscriptionUnattended,
@@ -286,20 +301,14 @@ export const useHomeAgent = defineStore(
       transcriptionModel: {
         installed: transcriptionAvailable,
         missing: missingTranscriptionModels,
-        download: async (models) => {
-          try {
-            await requestDownload(models)
-            return true
-          } catch (e) {
-            if (isCancellation(e)) return false
-            throw e
-          }
-        },
+        download: (models) => consentToDownload(models),
       },
       synthesisModel: {
         missing: synthesisModelMissing,
         install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
       },
+      answerDownload: (models, sessionId) =>
+        consentToDownload(models, answerDownloadKey(sessionId)),
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -307,6 +316,7 @@ export const useHomeAgent = defineStore(
       sessions: answerSessions,
       questions: channelQuestions,
       transcribe: remoteSpeech.transcribe,
+      prepareVoiceAnswer: remoteSpeech.prepareAnswer,
       downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
       log: (message, error) => reportSilently(message, error),
@@ -1665,6 +1675,7 @@ export const useHomeAgent = defineStore(
               const kind = channelMediaKind(item.url)
               if (kind === 'photo') await sendImageToChannel(adapter, item.url, '', meta)
               else if (kind === 'video') await sendVideoToChannel(adapter, item.url, '', meta)
+              else if (kind === 'voice') await sendVoiceToChannel(adapter, item.url, meta)
             }
           })
         }
@@ -1822,6 +1833,29 @@ export const useHomeAgent = defineStore(
         await reply(
           adapter,
           `⚠️ Video was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
+          meta,
+        )
+      }
+    }
+
+    async function sendVoiceToChannel(
+      adapter: ChannelAdapter,
+      audioPath: string,
+      meta?: InboundMeta,
+    ): Promise<void> {
+      try {
+        const read = await window.electronAPI.readLocalAudioAsDataUri(audioPath)
+        if (!read.success) throw new Error(read.error)
+        const match = /^data:([^;,]+)[^,]*;base64,(.*)$/s.exec(read.dataUri)
+        if (!match) throw new Error('Malformed audio data URI')
+        const result = await adapter.voice(match[2], match[1], meta)
+        if (!result.success) {
+          throw new Error(result.error ?? 'voice returned failure')
+        }
+      } catch (e) {
+        await reply(
+          adapter,
+          `⚠️ Speech was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
           meta,
         )
       }

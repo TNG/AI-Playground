@@ -2851,18 +2851,22 @@ export class OpenVINOBackendService implements ApiService {
 
   async uninstall(): Promise<void> {
     await this.stop()
-    this.appLogger.info(`removing OpenVINO Model Server directory`, this.name)
-    await this.removeDirWithRetry(this.ovmsDir)
-    this.appLogger.info(`removed OpenVINO Model Server directory`, this.name)
-    this.appLogger.info(`removing python env of ${this.name} service`, this.name)
-    await removeVenvTree(this.pythonEnvDir)
-    this.appLogger.info(`removed python env of ${this.name} service`, this.name)
-    this.setStatus('notInstalled')
-    this.isSetUp = false
-    // Clear startup errors when uninstalling
-    this.clearLastStartupError()
-    // Invalidate cached lib paths so they are re-resolved after reinstall
-    this.cachedOvmsExtraLibPaths = null
-    this.ovmsEmbeddedPythonHome = null
+    try {
+      this.appLogger.info(`removing OpenVINO Model Server directory`, this.name)
+      await this.removeDirWithRetry(this.ovmsDir)
+      this.appLogger.info(`removed OpenVINO Model Server directory`, this.name)
+      this.appLogger.info(`removing python env of ${this.name} service`, this.name)
+      await removeVenvTree(this.pythonEnvDir)
+      this.appLogger.info(`removed python env of ${this.name} service`, this.name)
+    } finally {
+      // A partial removal is no longer a usable install either.
+      this.setStatus('notInstalled')
+      this.isSetUp = false
+      // Clear startup errors when uninstalling
+      this.clearLastStartupError()
+      // Invalidate cached lib paths so they are re-resolved after reinstall
+      this.cachedOvmsExtraLibPaths = null
+      this.ovmsEmbeddedPythonHome = null
+    }
   }
 }

@@ -57,8 +57,16 @@ function run(roots: string[]): { exitCode: number; leftovers: string[] } {
   return { exitCode, leftovers: report.split(/\r?\n/).filter(Boolean) }
 }
 
-afterEach(() => {
-  while (children.length) children.pop()?.kill()
+afterEach(async () => {
+  // Their handles must be released before the temp dirs can be removed.
+  await Promise.all(
+    children.splice(0).map((child) => {
+      if (child.exitCode !== null) return
+      const exited = new Promise((resolve) => child.once('exit', resolve))
+      child.kill()
+      return exited
+    }),
+  )
   while (tempDirs.length) {
     const dir = tempDirs.pop()
     if (dir) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
@@ -131,21 +139,32 @@ describe.skipIf(process.platform !== 'win32')('remove-backend-venvs.ps1 (uninsta
     expect(fs.existsSync(path.join(root, 'service', '.venv'))).toBe(false)
   })
 
-  it('reports a venv it cannot remove, with the reason', () => {
+  it('reports a venv it cannot remove, with the reason', async () => {
     const root = path.join(tempDir(), 'resources')
     const venv = path.join(root, 'ComfyUI', '.venv')
     const locked = path.join(venv, 'Lib', 'held-open.dll')
     writeFile(locked)
-    // A handle opened without FILE_SHARE_DELETE, like a DLL loaded by another account's process.
-    const fd = fs.openSync(locked, 'r')
-    try {
-      const result = run([root])
-      expect(result.exitCode).toBe(1)
-      expect(result.leftovers).toHaveLength(1)
-      expect(result.leftovers[0].startsWith(`${venv}: `)).toBe(true)
-      expect(result.leftovers[0].length).toBeGreaterThan(venv.length + 2)
-    } finally {
-      fs.closeSync(fd)
-    }
+    // Node opens files with FILE_SHARE_DELETE, so the lock comes from another process holding
+    // the file with FileShare.None, like a backend another account left running.
+    const holder = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `$f = [IO.File]::Open('${locked}', 'Open', 'Read', 'None'); 'locked'; Start-Sleep 60`,
+      ],
+      { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    children.push(holder)
+    await new Promise((resolve) => holder.stdout?.once('data', resolve))
+
+    const result = run([root])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.leftovers).toHaveLength(1)
+    // The reason is the localized Windows message, which names the locked file.
+    expect(result.leftovers[0].startsWith(`${venv}: `)).toBe(true)
+    expect(result.leftovers[0]).toContain('held-open.dll')
   })
 })

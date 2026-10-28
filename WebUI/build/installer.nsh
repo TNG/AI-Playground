@@ -433,8 +433,9 @@
 ; MAX_PATH (ComfyUI site-packages) and never reaches the per-user or shared
 ; roots, so this runs before it. An update only clears $INSTDIR: the other roots
 ; keep their environments for the new version. Nothing is left silently: a
-; blocked removal is retried elevated if the user agrees, then reported.
-;   $R6 roots file  $R5 report file  $R4 first exit code  $R3 elevated  $R2 report text
+; blocked removal is reported. It is not retried elevated, because the script and
+; its roots file sit in the user-writable $PLUGINSDIR.
+;   $R6 roots file  $R5 report file  $R4 exit code  $R2 report text
 !macro aipgRemoveBackendVenvs
   InitPluginsDir
   File "/oname=$PLUGINSDIR\remove-backend-venvs.ps1" "${BUILD_RESOURCES_DIR}\remove-backend-venvs.ps1"
@@ -460,25 +461,8 @@
     FileClose $R9
 
     DetailPrint "Removing backend Python environments..."
-    StrCpy $R7 '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-backend-venvs.ps1" -RootsFile "$R6" -ReportFile "$R5"'
-    nsExec::ExecToLog 'powershell.exe $R7'
+    nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-backend-venvs.ps1" -RootsFile "$R6" -ReportFile "$R5"'
     Pop $R4
-
-    StrCpy $R3 "0"
-    ${if} $R4 == 1
-    ${andIfNot} ${Silent}
-      MessageBox MB_YESNO|MB_ICONEXCLAMATION "Some AI Playground Python environments could not be removed, usually because another account's program is still using them.$\r$\n$\r$\nTry again with administrator rights?" IDNO +2
-      StrCpy $R3 "1"
-    ${endif}
-    ${if} $R3 == "1"
-      DetailPrint "Retrying Python environment removal with administrator rights"
-      ; The elevated run rewrites the report, which is what decides below.
-      ClearErrors
-      ExecShellWait "runas" "powershell.exe" $R7 SW_HIDE
-      ${if} ${Errors}
-        DetailPrint "Administrator rights were not granted."
-      ${endif}
-    ${endif}
 
     ${if} $R4 != 0
       ClearErrors
@@ -498,10 +482,6 @@
           StrCpy $R2 "$R2$R1"
         ${loop}
         FileClose $R9
-        ${if} $R3 == "1"
-        ${andif} $R2 != ""
-          DetailPrint "Still not removed after the administrator retry: $R2"
-        ${endif}
         ${if} $R2 != ""
         ${andIfNot} ${Silent}
           MessageBox MB_OK|MB_ICONEXCLAMATION "These AI Playground Python environments could not be removed:$\r$\n$\r$\n$R2$\r$\nClose any program using them and delete the folders manually."

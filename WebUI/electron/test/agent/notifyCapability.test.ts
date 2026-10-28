@@ -110,6 +110,8 @@ let sent: Array<{
   answerTitle?: string
 }> = []
 let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
+/** Refs handed out one per send before falling back to `channelResult`. */
+let refs: string[] = []
 
 function route(next: NotificationRoute, realShellSessions: string[] = []): void {
   notifier.setNotificationConfig({
@@ -167,7 +169,8 @@ beforeAll(async () => {
     typing: async () => ({ success: true }),
     send: async (kind, message) => {
       sent.push({ kind, ...message })
-      return channelResult
+      const ref = refs.shift()
+      return ref ? { success: true, ref } : channelResult
     },
   })
 })
@@ -183,6 +186,7 @@ beforeEach(() => {
   notifyArgs = { message: SUMMARY }
   sent = []
   channelResult = { success: true, ref: '42' }
+  refs = []
   route({ homeAgentEnabled: true, notificationChannel: 'telegram' })
   workspace = fs.mkdtempSync(path.join(tempRoot, 'ws-'))
 })
@@ -428,5 +432,72 @@ describe('notify_user attachments', () => {
     expect(description).toContain('mp4, webm')
     expect(description).toContain('wav, mp3, ogg')
     expect(description).toMatch(/not sent unless/i)
+  }, 30000)
+
+  it('captions the first of several attachments and sends the rest after it, in order', async () => {
+    attach('generated/cover.png', 'png bytes')
+    attach('generated/clip.mp4', 'mp4 bytes')
+    attach('generated/back.jpg', 'jpg bytes')
+    notifyArgs = {
+      message: SUMMARY,
+      attachments: ['generated/cover.png', 'generated/clip.mp4', 'generated/back.jpg'],
+    }
+    await runTurn('aipg-agent-notify-several')
+    expect(sent.map(({ text, media }) => [text, media?.kind, media?.filename])).toEqual([
+      [caption, 'photo', 'cover.png'],
+      ['', 'video', 'clip.mp4'],
+      ['', 'photo', 'back.jpg'],
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('sends text too long for a Telegram caption first, then every attachment uncaptioned', async () => {
+    attach('generated/cover.png', 'png bytes')
+    attach('generated/clip.mp4', 'mp4 bytes')
+    const long = 'x'.repeat(1100)
+    notifyArgs = { message: long, attachments: ['generated/cover.png', 'generated/clip.mp4'] }
+    await runTurn('aipg-agent-notify-long')
+    expect(sent.map(({ text, media }) => [text, media?.filename])).toEqual([
+      [`🤖 Agent · "An agent run"\n${long}\n↩️ Reply to this message to answer.`, undefined],
+      ['', 'cover.png'],
+      ['', 'clip.mp4'],
+    ])
+  }, 30000)
+
+  it('records every message of the Notification so a reply to any of them reaches the session', async () => {
+    attach('a.png')
+    attach('b.webm')
+    notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.webm'] }
+    refs = ['81', '82']
+    await runTurn('aipg-agent-notify-several-answerable')
+    for (const ref of ['81', '82']) {
+      expect(await messageMap.channelMessageOwner('telegram', ref)).toEqual({
+        sessionId: 'aipg-agent-notify-several-answerable',
+      })
+    }
+  }, 30000)
+
+  it('sends none of several attachments when one of them cannot be sent', async () => {
+    attach('generated/cover.png')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/cover.png', 'generated/gone.mp4'] }
+    await runTurn('aipg-agent-notify-several-missing')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain('generated/gone.mp4: file not found')
+  }, 30000)
+
+  it('keeps the Answer button on the captioned attachment on LAN chat', async () => {
+    route({ homeAgentEnabled: true, notificationChannel: 'local-web' })
+    attach('a.png')
+    attach('b.png')
+    notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.png'] }
+    await runTurn('aipg-agent-notify-lan-media')
+    expect(sent.map(({ text, media, buttons }) => [text, media?.filename, buttons])).toEqual([
+      [
+        `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        'a.png',
+        [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      ],
+      ['', 'b.png', undefined],
+    ])
   }, 30000)
 })

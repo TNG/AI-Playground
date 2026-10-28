@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Keluar",
   "AGENT_STEPS_HINT": "Jalankan langkah mengerjakannya satu giliran per langkah. Kirim melewatinya.",
   "AGENT_STEPS_RUN": "Jalankan langkah",
+  "AGENT_STEPS_RUN_TIP": "Jalankan semua langkah, opsional dengan pesan Anda sebagai instruksi tambahan",
+  "AGENT_STEPS_SEND_TIP": "Kirim pesan saja (langkah tidak dijalankan)",
   "AGENT_STEPS_INSERT_AFTER": "Sisipkan langkah setelah langkah {number}",
   "AGENT_STEPS_RUNNING": "Menjalankan langkah {step} dari {count}",
   "AGENT_STEPS_STOP": "Hentikan langkah",

@@ -418,8 +418,8 @@
             <!-- Send / stop / loading cluster — hidden for the STT preset, which
                  submits via its own record/upload controls. -->
             <template v-if="!isSttPreset">
-              <TooltipProvider v-if="readyForNewSubmit && canRunSteps" :delay-duration="200">
-                <Tooltip>
+              <TooltipProvider v-if="readyForNewSubmit" :delay-duration="200">
+                <Tooltip v-if="canRunSteps">
                   <TooltipTrigger as-child>
                     <Button
                       @click="handleRunStepsClick"
@@ -430,19 +430,23 @@
                       <PlayIcon class="size-4" aria-hidden="true" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN }}</TooltipContent>
+                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN_TIP }}</TooltipContent>
+                </Tooltip>
+                <Tooltip :disabled="!canRunSteps">
+                  <TooltipTrigger as-child>
+                    <Button
+                      @click="handleSubmitPromptClick"
+                      id="send-button"
+                      aria-label="Send"
+                      :disabled="agentSettingsProblems.length > 0"
+                      class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
+                    >
+                      →
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_SEND_TIP }}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              <Button
-                v-if="readyForNewSubmit"
-                @click="handleSubmitPromptClick"
-                id="send-button"
-                aria-label="Send"
-                :disabled="agentSettingsProblems.length > 0"
-                class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-              >
-                →
-              </Button>
               <Button
                 v-else-if="!isStopping"
                 @click="handleCancelClick"

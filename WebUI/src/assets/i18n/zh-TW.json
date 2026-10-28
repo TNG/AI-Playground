@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "結束",
   "AGENT_STEPS_HINT": "「執行步驟」會逐一執行這些步驟，每步一輪。「傳送」會略過它們。",
   "AGENT_STEPS_RUN": "執行步驟",
+  "AGENT_STEPS_RUN_TIP": "執行所有步驟，可選擇將你的訊息作為額外指示",
+  "AGENT_STEPS_SEND_TIP": "僅傳送訊息（不執行步驟）",
   "AGENT_STEPS_INSERT_AFTER": "在第 {number} 步之後插入步驟",
   "AGENT_STEPS_RUNNING": "正在執行第 {step} 步，共 {count} 步",
   "AGENT_STEPS_STOP": "停止步驟",

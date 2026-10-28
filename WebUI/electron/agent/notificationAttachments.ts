@@ -54,7 +54,7 @@ async function check(workspaceDir: string, ref: string, channel: ChannelKind): P
   return { file: real, kind }
 }
 
-/** Every attachment read for `channel`, or why one cannot be sent; nothing is read until all pass. */
+/** Nothing is read until every attachment passes its checks. */
 export async function readAttachments(
   workspaceDir: string,
   refs: string[],

@@ -3,6 +3,7 @@ import { useSpeechToText, type SttReadyResult } from '../store/speechToText'
 import { SPEECHT5_MODEL_NAME, useTextToSpeech } from '../store/textToSpeech'
 import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
 import { useErrors } from '../store/errors'
+import { useModels } from '../store/models'
 import { createAppError } from '../errors/appError'
 import { transcribeAudioBlob, transcribeAudioBuffer } from '@/lib/transcribe'
 import {
@@ -114,6 +115,19 @@ export async function readyTranscriptionUnattended(): Promise<void> {
     return speechToText.ensureStandaloneServerRunning()
   }
   return speechToText.ensureTranscriptionServerRunning()
+}
+
+/** The selected local STT engine's model files not yet on disk; none for an external endpoint. */
+export async function missingTranscriptionModels(): Promise<DownloadModelParam[]> {
+  const speechToText = useSpeechToText()
+  const engine = speechToText.effectiveSttEngine
+  const model =
+    engine === 'whisper' && speechToText.isWhisperAvailable
+      ? speechToText.selectedOvmsModel
+      : engine === 'standalone' && speechToText.isStandaloneAvailable
+        ? speechToText.selectedStandaloneModel
+        : undefined
+  return model ? useModels().getMissingTranscriptionModel(model) : []
 }
 
 export type SpeechModelRef = { repo_id: string; type: 'TTS' | 'STT'; backend: 'openvino' }

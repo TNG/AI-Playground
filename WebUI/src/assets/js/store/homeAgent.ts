@@ -27,9 +27,11 @@ import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
+  missingTranscriptionModels,
   readyTranscriptionUnattended,
   synthesizeClip,
   transcribe,
+  transcriptionAvailable,
 } from '../speech/speechIO'
 import { base64ToBlob } from '@/lib/transcribe'
 import {
@@ -55,7 +57,13 @@ import {
 } from './channels/types'
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
-import { isAppError, extractMessage, createAppError, createCancellation } from '../errors/appError'
+import {
+  isAppError,
+  isCancellation,
+  extractMessage,
+  createAppError,
+  createCancellation,
+} from '../errors/appError'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
@@ -86,6 +94,7 @@ import {
   type ChannelQuestionOutcome,
   type DownloadChannelQuestion,
 } from '@/assets/js/permissions/remoteTurnPort'
+import { requestDownload } from '@/assets/js/permissions/permissions'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -271,6 +280,19 @@ export const useHomeAgent = defineStore(
       synthesis: {
         allowed: () => useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
         synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
+      },
+      transcriptionModel: {
+        installed: transcriptionAvailable,
+        missing: missingTranscriptionModels,
+        download: async (models) => {
+          try {
+            await requestDownload(models)
+            return true
+          } catch (e) {
+            if (isCancellation(e)) return false
+            throw e
+          }
+        },
       },
       log: (message, error) => reportSilently(message, error),
     })
@@ -2189,7 +2211,14 @@ export const useHomeAgent = defineStore(
           // as the message text so slash-commands spoken aloud and plain
           // prompts both flow through the normal handling below.
           if (item.audio?.length) {
-            const transcript = await remoteSpeech.transcribe(adapter, item.audio, meta)
+            // A remote turn, so a missing speech model is asked about in this channel.
+            activeRemoteTurn = { adapter, meta }
+            let transcript: string | null
+            try {
+              transcript = await remoteSpeech.transcribe(adapter, item.audio, meta)
+            } finally {
+              activeRemoteTurn = null
+            }
             if (transcript === null) continue // STT unavailable / failed — already replied
             text = [text, transcript].filter(Boolean).join(' ').trim()
             if (!text) {

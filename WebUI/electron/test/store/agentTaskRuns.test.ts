@@ -1192,7 +1192,7 @@ describe('locking the Task Session', () => {
     expect(interloper).toMatchObject({ ok: false, reason: 'task-locked' })
     await turnIdOf(1)
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentSteps()).toEqual(['one', 'two'])
   })
 
   it('accepts a send into the session once the run has settled', async () => {

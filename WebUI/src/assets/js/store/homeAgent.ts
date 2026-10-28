@@ -20,6 +20,7 @@ import {
   usableNotificationChannels,
 } from '@/lib/notificationChannel'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
+import { channelMediaKind } from '@/lib/channelMediaKind'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
 import { useTextInference } from './textInference'
@@ -1657,13 +1658,13 @@ export const useHomeAgent = defineStore(
           sentMediaForPart.add(part as object)
           enqueueMedia(async () => {
             for (const item of items) {
-              if (item.kind === 'image') {
-                await sendImageToChannel(adapter, item.url, '', meta)
-              } else if (item.kind === 'video') {
-                await sendVideoToChannel(adapter, item.url, '', meta)
-              } else {
+              if (item.kind === 'model3d') {
                 await send3DModelToChannel(adapter, item.url, '', meta)
+                continue
               }
+              const kind = channelMediaKind(item.url)
+              if (kind === 'photo') await sendImageToChannel(adapter, item.url, '', meta)
+              else if (kind === 'video') await sendVideoToChannel(adapter, item.url, '', meta)
             }
           })
         }

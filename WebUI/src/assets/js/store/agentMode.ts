@@ -1601,6 +1601,7 @@ export const useAgentMode = defineStore(
       presetName?: string
       title: string
       taskId?: string
+      steps?: AgentTaskStep[]
     }): string {
       const id = mintSessionId()
       const now = Date.now()
@@ -1617,6 +1618,7 @@ export const useAgentMode = defineStore(
         presetName: input.presetName ?? AGENT_PRESET,
         settings,
         ...(input.taskId ? { taskId: input.taskId } : {}),
+        ...(input.steps ? { steps: cloneForIpc(input.steps) } : {}),
       })
       return id
     }

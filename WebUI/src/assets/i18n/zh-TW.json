@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "尚無已儲存的代理程式",
   "AGENT_AGENTS_STOP": "停止",
   "AGENT_AGENTS_OPEN_RUN": "開啟執行中的工作階段",
-  "AGENT_AGENTS_RUN_NOW": "立即執行",
+  "AGENT_AGENTS_RUN_NOW": "立即在新工作階段中執行",
   "AGENT_AGENTS_SHOW_SESSIONS": "顯示工作階段",
   "AGENT_AGENTS_DELETE": "刪除",
   "AGENT_AGENTS_NAME": "代理程式名稱",

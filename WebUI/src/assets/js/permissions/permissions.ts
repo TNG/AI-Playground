@@ -1,7 +1,7 @@
 import { useDialogStore } from '../store/dialogs'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey } from '@/types/permissionsIpc'
-import { createCancellation } from '../errors/appError'
+import { createCancellation, isCancellation } from '../errors/appError'
 
 /**
  * Permissions — the consent layer (§4.7 of docs/architecture-target.md, step 13).
@@ -46,6 +46,20 @@ export async function requestDownload(
   // the caller reports "Could not start generation" for a turn the user stopped.
   if (result.cancelled) throw createCancellation({ technicalMessage: result.error })
   throw new Error(result.error)
+}
+
+/** `requestDownload` with a decline as `false`; a failed download still rejects. */
+export async function requestDownloadConsent(
+  models: DownloadModelParam[],
+  options?: { conversationKey?: string },
+): Promise<boolean> {
+  try {
+    await requestDownload(models, options)
+    return true
+  } catch (e) {
+    if (isCancellation(e)) return false
+    throw e
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
+import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
   GESTURE_WORDING,
@@ -195,18 +196,9 @@ async function deliver(
   }
 }
 
-const MEDIA_KINDS: Record<string, ChannelMedia['kind']> = {
-  '.png': 'photo',
-  '.jpg': 'photo',
-  '.jpeg': 'photo',
-  '.webp': 'photo',
-  '.mp4': 'video',
-  '.webm': 'video',
-}
-
 async function channelMedia(file: string): Promise<ChannelMedia | null> {
-  const kind = MEDIA_KINDS[path.extname(file).toLowerCase()]
-  if (!kind) return null
+  const kind = channelMediaKind(file)
+  if (kind !== 'photo' && kind !== 'video') return null
   const base64 = (await fs.readFile(file)).toString('base64')
   return { kind, base64, filename: path.basename(file) }
 }

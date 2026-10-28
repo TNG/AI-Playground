@@ -34,6 +34,15 @@ _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 _MAX_DOC_BYTES = 25 * 1024 * 1024
 
 
+def _shared_message(file: dict) -> dict:
+    for scope in ("private", "public"):
+        for channel, shares in ((file.get("shares") or {}).get(scope) or {}).items():
+            for share in shares or []:
+                if share.get("ts"):
+                    return {"ts": share["ts"], "channel": channel}
+    return {}
+
+
 def inbound_item(event: dict, text: str, **attachments) -> QueueItem:
     """The queue item for an inbound DM; a thread reply names its thread's root."""
     ts = event.get("ts") or ""
@@ -147,6 +156,22 @@ class SlackChannel(ChannelBase):
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
+    def _upload(self, kwargs: dict) -> dict:
+        """Uploads a file; returns the message it was shared as, so an Answer can reply to it."""
+        client = self._app_instance.client  # type: ignore[union-attr]
+        resp = self._run_coro(client.files_upload_v2(**kwargs))
+        files = resp.get("files") or []
+        file = files[0] if files else {}
+        posted = _shared_message(file)
+        # Slack shares an upload asynchronously, so the upload's answer can omit it.
+        if not posted and file.get("id"):
+            try:
+                info = self._run_coro(client.files_info(file=file["id"]))
+                posted = _shared_message(info.get("file") or {})
+            except Exception as exc:
+                logger.warning("Slack upload's message not found: %s", exc)
+        return posted
+
     def send_post(self, payload: dict) -> SendResult:
         """A message the renderer edits later (`update`); never a draft."""
         return self.send_reply(payload)
@@ -210,8 +235,7 @@ class SlackChannel(ChannelBase):
                 kwargs["initial_comment"] = caption
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
-            self._run_coro(self._app_instance.client.files_upload_v2(**kwargs))  # type: ignore[union-attr]
-            return {"status": "ok"}
+            return {"status": "ok", **self._upload(kwargs)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -234,8 +258,7 @@ class SlackChannel(ChannelBase):
                 kwargs["initial_comment"] = caption
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
-            self._run_coro(self._app_instance.client.files_upload_v2(**kwargs))  # type: ignore[union-attr]
-            return {"status": "ok"}
+            return {"status": "ok", **self._upload(kwargs)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -277,8 +300,7 @@ class SlackChannel(ChannelBase):
                 kwargs["initial_comment"] = caption
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
-            self._run_coro(self._app_instance.client.files_upload_v2(**kwargs))  # type: ignore[union-attr]
-            return {"status": "ok"}
+            return {"status": "ok", **self._upload(kwargs)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 

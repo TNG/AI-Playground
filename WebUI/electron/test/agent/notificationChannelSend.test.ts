@@ -25,6 +25,15 @@ describe('a Notification handed to the Home Agent channel', () => {
     expect(await send('slack', { text: 'hi' })).toEqual({ success: true, ref: '1700000000.0002' })
   })
 
+  it('takes the ts of a Slack attachment as its ref, so it can be answered', async () => {
+    const { send } = recorder({ ts: '1700000000.0003' })
+    const media = { kind: 'photo', base64: 'AAA', filename: 'cover.png' } as const
+    expect(await send('slack', { text: 'done', media })).toEqual({
+      success: true,
+      ref: '1700000000.0003',
+    })
+  })
+
   it.each([
     ['telegram', { reply_to_message_id: '77' }],
     ['slack', { thread_ts: '77' }],

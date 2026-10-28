@@ -1,3 +1,5 @@
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
+
 /**
  * The thin remote-turn port (architecture-target §8.2 leftover, step 13).
  *
@@ -48,6 +50,8 @@ export type RemoteTurnPort = {
       conversationKey: string
       /** Named in the question as already downloading; it asks only about `models`. */
       alreadyDownloading?: DownloadModelParam[]
+      /** The channel Answer whose turn needs the download; the question goes where it was asked. */
+      answer?: AgentAnswerOrigin
     },
   ) => DownloadChannelQuestion
 }

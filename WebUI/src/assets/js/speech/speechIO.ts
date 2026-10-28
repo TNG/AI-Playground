@@ -4,8 +4,8 @@ import { SPEECHT5_MODEL_NAME, useTextToSpeech } from '../store/textToSpeech'
 import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
 import { useErrors } from '../store/errors'
 import { useModels } from '../store/models'
-import { createAppError, isCancellation } from '../errors/appError'
-import { requestDownload } from '@/assets/js/permissions/permissions'
+import { createAppError } from '../errors/appError'
+import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 import { transcribeAudioBlob, transcribeAudioBuffer } from '@/lib/transcribe'
 import {
   base64ToBytes,
@@ -178,12 +178,7 @@ export async function synthesisModelMissing(): Promise<boolean> {
 export async function installSynthesisModel(): Promise<boolean> {
   const missing = await missingSynthesisModels()
   if (missing.length === 0) return true
-  try {
-    await requestDownload(missing)
-  } catch (e) {
-    if (isCancellation(e)) return false
-    throw e
-  }
+  if (!(await requestDownloadConsent(missing))) return false
   if (useTextToSpeech().selectedEngine === 'qwen3') {
     await useQwen3TextToSpeech().restartForDownloadedModel()
   }

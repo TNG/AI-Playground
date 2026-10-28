@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -8,10 +8,28 @@ const script = path.resolve(__dirname, '../../../build/remove-backend-venvs.ps1'
 const tempDirs: string[] = []
 const children: ChildProcess[] = []
 
+// Every test and the cleanup start or stop PowerShell, which is several seconds cold on a CI runner.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 })
+
+// Long form: a CI runner's os.tmpdir() is an 8.3 path (RUNNER~1), and the script reports long ones.
 function tempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-venvs-'))
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-venvs-')))
   tempDirs.push(dir)
   return dir
+}
+
+// The 8.3 alias of a file, or the path itself where the volume does not generate them.
+function shortPath(target: string): string {
+  return execFileSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `(New-Object -ComObject Scripting.FileSystemObject).GetFile('${target}').ShortPath`,
+    ],
+    { windowsHide: true, encoding: 'utf8' },
+  ).trim()
 }
 
 function writeFile(file: string, content = ''): void {
@@ -131,7 +149,11 @@ describe.skipIf(process.platform !== 'win32')('remove-backend-venvs.ps1 (uninsta
     const exe = path.join(root, 'service', '.venv', 'Scripts', 'python.exe')
     fs.mkdirSync(path.dirname(exe), { recursive: true })
     fs.copyFileSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'ping.exe'), exe)
-    const child = spawn(exe, ['-n', '60', '127.0.0.1'], { windowsHide: true, stdio: 'ignore' })
+    // Started through its 8.3 alias, a process reports that path rather than the long one.
+    const child = spawn(shortPath(exe), ['-n', '60', '127.0.0.1'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    })
     children.push(child)
     await new Promise((resolve) => child.once('spawn', resolve))
 

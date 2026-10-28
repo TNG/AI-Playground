@@ -39,6 +39,14 @@ function Stop-VenvProcesses([string[]]$venvs) {
   } catch {
     return
   }
+  # A process started through an 8.3 path (C:\Users\RUNNER~1\...) reports it as is, while the
+  # venv paths are long, so compare long forms.
+  foreach ($process in $running) {
+    if ($process.ExecutablePath.Contains('~')) {
+      $long = (Get-Item -LiteralPath $process.ExecutablePath -Force -ErrorAction SilentlyContinue).FullName
+      if ($long) { $process | Add-Member -NotePropertyName ExecutablePath -NotePropertyValue $long -Force }
+    }
+  }
   $stopped = $false
   foreach ($venv in $venvs) {
     $prefix = $venv.TrimEnd('\') + '\'

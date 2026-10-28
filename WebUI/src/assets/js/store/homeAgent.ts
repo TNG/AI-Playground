@@ -31,7 +31,6 @@ import {
   transcribe,
 } from '../speech/speechIO'
 import { base64ToBlob } from '@/lib/transcribe'
-import { markdownToSpeechText } from '@/lib/markdownToSpeech'
 import {
   useConversations,
   HOME_AGENT_CONVERSATION_KEY,
@@ -49,7 +48,6 @@ import {
   type ChannelRuntimeState,
   type InboundMeta,
   type RemoteImage,
-  type RemoteAudio,
   type RemoteDocument,
   type KeyboardButton,
   type ChannelQueueItem,
@@ -63,6 +61,7 @@ import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
 import { createAnswerRouter } from './channels/answerRouter'
+import { createRemoteSpeech } from './channels/remoteSpeech'
 import { answerSessions } from './channels/answerSessionsPort'
 import { heldAnswerJournal } from './channels/heldAnswerJournal'
 import {
@@ -261,10 +260,24 @@ export const useHomeAgent = defineStore(
       staleReply: () => channelQuestionTemplates().stale,
     })
 
+    const remoteSpeech = createRemoteSpeech({
+      transcription: {
+        ready: readyTranscriptionUnattended,
+        transcribe: async (audio) =>
+          (await transcribe({ audio: base64ToBlob(audio.data_base64, audio.mime) })).text,
+        isNoEndpoint: (e) => e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT,
+      },
+      synthesis: {
+        allowed: () => useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
+        synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
+      },
+      log: (message, error) => reportSilently(message, error),
+    })
+
     const answerRouter = createAnswerRouter({
       sessions: answerSessions,
       questions: channelQuestions,
-      transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
+      transcribe: remoteSpeech.transcribe,
       downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
       log: (message, error) => reportSilently(message, error),
@@ -1153,40 +1166,14 @@ export const useHomeAgent = defineStore(
       textInference.resetActivePresetSettings()
     }
 
-    /**
-     * Send a synthesized voice reply when the inbound message was itself a voice
-     * message and "Speak replies" is on for the Home Agent preset. That toggle sits
-     * on the Text To Speech tool row in Settings → Built-in tools, so the tool must
-     * be enabled too; it is read from the preset's stored settings because the live
-     * refs may already hold the desktop user's preset again. Best-effort: failures
-     * are logged and never break the (already-delivered) text reply.
-     *
-     * Synthesis goes through whichever engine the user selected, Qwen3 included.
-     * Nothing here may prompt: a remote sender cannot answer a download popup on
-     * the host, so a missing model simply means no voice reply.
-     */
+    /** A voice message gets a spoken reply too, when "Speak replies" is on for the Home Agent preset. */
     async function maybeSendVoiceReply(
       adapter: ChannelAdapter,
       text: string,
       fromVoice: boolean,
       meta?: InboundMeta,
     ): Promise<void> {
-      if (!fromVoice) return
-      const trimmed = markdownToSpeechText(text ?? '').trim()
-      if (!trimmed) return
-      if (!useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME)) return
-
-      try {
-        // Synthesis goes through whichever engine the user selected, Qwen3
-        // included, via the one engine seam — unattended, so a missing model
-        // simply means no voice reply instead of a popup nobody at the channel
-        // can answer.
-        const clip = await synthesizeClip({ text: trimmed, unattended: true, format: 'wav' })
-        if (!clip) return
-        await adapter.voice(clip.audioBase64, clip.mediaType, meta)
-      } catch (e) {
-        console.error('homeAgent: voice reply failed:', e)
-      }
+      if (fromVoice) await remoteSpeech.speak(adapter, text, meta)
     }
 
     async function keyboard(
@@ -1435,54 +1422,6 @@ export const useHomeAgent = defineStore(
         meta,
       )
       return false
-    }
-
-    /**
-     * Transcribe inbound voice/audio payloads into text using the shared STT
-     * resolver (OVMS Whisper first, configured fallback endpoint otherwise).
-     * Shows a typing indicator while transcribing. Returns the combined
-     * transcript (possibly empty) or `null` when no STT endpoint is available
-     * or transcription failed — in which case the user has already been
-     * notified via `reply()`.
-     */
-    async function transcribeRemoteAudio(
-      adapter: ChannelAdapter,
-      audio: RemoteAudio[],
-      meta?: InboundMeta,
-    ): Promise<string | null> {
-      // Start the selected engine's server on demand. Both are dialog-free (a
-      // remote sender can't answer a download popup) and no-op when the backend or
-      // model isn't installed — a configured fallback still serves.
-      await readyTranscriptionUnattended()
-
-      const stopTyping = typing(adapter, 'typing', meta)
-      try {
-        const parts: string[] = []
-        for (const a of audio) {
-          const blob = base64ToBlob(a.data_base64, a.mime)
-          const { text } = await transcribe({ audio: blob })
-          if (text) parts.push(text.trim())
-        }
-        return parts.filter(Boolean).join(' ').trim()
-      } catch (e) {
-        console.error('homeAgent: audio transcription failed:', e)
-        if (e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT) {
-          await reply(
-            adapter,
-            '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
-            meta,
-          )
-        } else {
-          await reply(
-            adapter,
-            `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`,
-            meta,
-          )
-        }
-        return null
-      } finally {
-        stopTyping()
-      }
     }
 
     const SUPPORTED_DOC_EXTENSIONS: ValidFileExtension[] = ['txt', 'doc', 'docx', 'md', 'pdf']
@@ -2249,7 +2188,7 @@ export const useHomeAgent = defineStore(
           // as the message text so slash-commands spoken aloud and plain
           // prompts both flow through the normal handling below.
           if (item.audio?.length) {
-            const transcript = await transcribeRemoteAudio(adapter, item.audio, meta)
+            const transcript = await remoteSpeech.transcribe(adapter, item.audio, meta)
             if (transcript === null) continue // STT unavailable / failed — already replied
             text = [text, transcript].filter(Boolean).join(' ').trim()
             if (!text) {

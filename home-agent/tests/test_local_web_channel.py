@@ -507,6 +507,49 @@ class TestOutboundEvents(LocalWebChannelTestCase):
             ],
         )
 
+    def test_agent_media_keeps_its_answer_button(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        answer = [[{"text": "Answer", "callback_data": "answer"}]]
+        photo = self.channel.send_photo(
+            {
+                "photo": "AAA",
+                "caption": "done",
+                "buttons": answer,
+                "answer_title": "Game",
+            }
+        )
+        video = self.channel.send_video(
+            {"video": "BBB", "caption": "", "filename": "c.mp4", "buttons": answer}
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        # The page answers an agent only through this button, so media without it
+        # would be a Notification nobody can answer.
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "photo",
+                    "base64": "AAA",
+                    "caption": "done",
+                    "buttons": answer,
+                    "answerTitle": "Game",
+                    "id": photo["message_id"],
+                },
+                {
+                    "action": "video",
+                    "base64": "BBB",
+                    "caption": "",
+                    "filename": "c.mp4",
+                    "buttons": answer,
+                    "id": video["message_id"],
+                },
+            ],
+        )
+
     def test_every_keyboard_gets_its_own_message_id(self):
         first = self.channel.send_keyboard({"text": "A?", "buttons": []})
         second = self.channel.send_keyboard({"text": "B?", "buttons": []})

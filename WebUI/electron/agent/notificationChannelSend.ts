@@ -20,14 +20,19 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   const answering = CHANNEL_ANSWERING[kind]
   const target = message.replyTo ? { [answering.replyKey]: message.replyTo } : {}
   const { media, buttons, answerTitle } = message
+  const title = answering.buttonCarriesTitle && answerTitle ? { answer_title: answerTitle } : {}
+  const keyboard = buttons
+    ? {
+        buttons: buttons.map((row) =>
+          row.map((button) => ({ text: button.text, callback_data: button.callbackData })),
+        ),
+        ...title,
+      }
+    : {}
   if (buttons && !media) {
-    const rows = buttons.map((row) =>
-      row.map((button) => ({ text: button.text, callback_data: button.callbackData })),
-    )
-    const title = answering.buttonCarriesTitle && answerTitle ? { answer_title: answerTitle } : {}
     return {
       action: 'keyboard' as const,
-      payload: { text: message.text, buttons: rows, ...title, ...target },
+      payload: { text: message.text, ...keyboard, ...target },
     }
   }
   if (!media) {
@@ -53,6 +58,7 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
       [media.kind]: media.base64,
       caption: message.text,
       filename: media.filename,
+      ...keyboard,
       ...target,
     },
   }

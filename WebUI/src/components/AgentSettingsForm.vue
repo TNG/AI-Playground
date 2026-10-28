@@ -99,7 +99,7 @@
             </span>
           </span>
         </label>
-        <label class="flex items-start gap-2 text-sm">
+        <label v-if="binding.planningPhaseSupported" class="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
             class="mt-0.5"

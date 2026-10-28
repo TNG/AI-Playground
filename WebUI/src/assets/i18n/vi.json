@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Thoát",
   "AGENT_STEPS_HINT": "\"Chạy các bước\" thực hiện lần lượt từng bước, mỗi bước một lượt. \"Gửi\" sẽ bỏ qua chúng.",
   "AGENT_STEPS_RUN": "Chạy các bước",
+  "AGENT_STEPS_RUN_TIP": "Chạy tất cả các bước, có thể kèm tin nhắn của bạn làm hướng dẫn bổ sung",
+  "AGENT_STEPS_SEND_TIP": "Chỉ gửi tin nhắn (không chạy các bước)",
   "AGENT_STEPS_INSERT_AFTER": "Chèn một bước sau bước {number}",
   "AGENT_STEPS_RUNNING": "Đang thực hiện bước {step}/{count}",
   "AGENT_STEPS_STOP": "Dừng các bước",

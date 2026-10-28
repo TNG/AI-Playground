@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "終了",
   "AGENT_STEPS_HINT": "「ステップを実行」は1ステップずつ順に実行します。「送信」ではステップは実行されません。",
   "AGENT_STEPS_RUN": "ステップを実行",
+  "AGENT_STEPS_RUN_TIP": "すべてのステップを実行します（メッセージを追加の指示として含めることもできます）",
+  "AGENT_STEPS_SEND_TIP": "メッセージのみを送信（ステップは実行されません）",
   "AGENT_STEPS_INSERT_AFTER": "ステップ {number} の後にステップを挿入",
   "AGENT_STEPS_RUNNING": "ステップ {step}/{count} を実行中",
   "AGENT_STEPS_STOP": "ステップを停止",

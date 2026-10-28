@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Zakończ",
   "AGENT_STEPS_HINT": "„Wykonaj kroki” realizuje je po kolei, jedna tura na krok. „Wyślij” je pomija.",
   "AGENT_STEPS_RUN": "Wykonaj kroki",
+  "AGENT_STEPS_RUN_TIP": "Uruchom wszystkie kroki, opcjonalnie z Twoją wiadomością jako dodatkowymi instrukcjami",
+  "AGENT_STEPS_SEND_TIP": "Wyślij tylko wiadomość (kroki nie są uruchamiane)",
   "AGENT_STEPS_INSERT_AFTER": "Wstaw krok po kroku {number}",
   "AGENT_STEPS_RUNNING": "Wykonywanie kroku {step} z {count}",
   "AGENT_STEPS_STOP": "Zatrzymaj kroki",

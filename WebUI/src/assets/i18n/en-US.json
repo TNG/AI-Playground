@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Quit",
   "AGENT_STEPS_HINT": "Run Steps works through these one turn at a time. Send skips them.",
   "AGENT_STEPS_RUN": "Run steps",
+  "AGENT_STEPS_RUN_TIP": "Run all steps, optionally with your message as extra instructions",
+  "AGENT_STEPS_SEND_TIP": "Send message only (steps are not run)",
   "AGENT_STEPS_INSERT_AFTER": "Insert a step after step {number}",
   "AGENT_STEPS_RUNNING": "Carrying out step {step} of {count}",
   "AGENT_STEPS_STOP": "Stop steps",

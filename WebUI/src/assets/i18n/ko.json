@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "종료",
   "AGENT_STEPS_HINT": "'단계 실행'은 한 번에 한 단계씩 진행합니다. '보내기'는 단계를 건너뜁니다.",
   "AGENT_STEPS_RUN": "단계 실행",
+  "AGENT_STEPS_RUN_TIP": "모든 단계를 실행합니다(선택적으로 메시지를 추가 지침으로 사용)",
+  "AGENT_STEPS_SEND_TIP": "메시지만 보내기(단계는 실행되지 않음)",
   "AGENT_STEPS_INSERT_AFTER": "{number}단계 뒤에 단계 삽입",
   "AGENT_STEPS_RUNNING": "{count}단계 중 {step}단계 수행 중",
   "AGENT_STEPS_STOP": "단계 중지",

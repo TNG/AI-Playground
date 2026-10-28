@@ -1,88 +1,104 @@
+import { answerRouterCopy } from '@/lib/answerRouterWording'
 import { markdownToSpeechText } from '@/lib/markdownToSpeech'
+import { fillTemplate } from '@/lib/notificationLabel'
 import type { ChannelAdapter } from './adapter'
+import type { VoiceAnswerPreparation } from './answerRouter'
 import type { InboundMeta, RemoteAudio } from './types'
-
-const NO_SPEECH_TO_TEXT =
-  '⚠️ Voice not transcribed: a speech-to-text backend must be installed in AI Playground on the desktop.'
-const SPEECH_MODEL_DECLINED =
-  'Voice not transcribed: speech model not downloaded. Send text instead.'
 
 export type RemoteSpeechDeps = {
   transcription: {
-    /** Starts the selected engine when it is installed and its model is on disk; never asks. */
+    /** Never asks: starts the engine only when it and its model are already there. */
     ready: () => Promise<void>
     transcribe: (audio: RemoteAudio) => Promise<string>
-    /** The failure means no speech-to-text endpoint exists at all. */
     isNoEndpoint: (error: unknown) => boolean
   }
   synthesis: {
-    /** Spoken replies are on for the Home Agent preset. */
     allowed: () => boolean
     /** Null when the engine or its model is missing; never asks. */
     synthesize: (text: string) => Promise<{ audioBase64: string; mediaType: string } | null>
   }
   transcriptionModel: {
-    /** A transcription backend is installed, or a fallback endpoint is configured. */
+    /** True for a configured fallback endpoint too. */
     installed: () => boolean
-    /** The selected engine's model files not yet on disk. */
     missing: () => Promise<DownloadModelParam[]>
-    /** Asks the remote sender (unless pre-granted) and downloads; false when declined. */
+    /** False when declined. */
     download: (models: DownloadModelParam[]) => Promise<boolean>
   }
   synthesisModel: {
-    /** The selected engine is installed but its model is not on disk. */
     missing: () => Promise<boolean>
-    /** Asks the sender in-channel (desktop mirror, pre-grant honored) and downloads; false when declined. */
+    /** False when declined. */
     install: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<boolean>
   }
-  /** A voice Answer's download, asked as the answered agent session's; false when declined. */
-  answerDownload?: (models: DownloadModelParam[], sessionId: string) => Promise<boolean>
+  /** Asked as the answered agent session's download; false when declined. */
+  answerDownload: (models: DownloadModelParam[], sessionId: string) => Promise<boolean>
   log: (message: string, error: unknown) => void
 }
 
-/** Speech for a channel sender: their voice messages in, spoken replies out. */
 export type RemoteSpeech = {
-  /** The joined transcript, or null when it failed and the channel was already told why. */
+  /** Null once the channel was told why it failed. */
   transcribe: (
     adapter: ChannelAdapter,
     audio: RemoteAudio[],
     meta?: InboundMeta,
   ) => Promise<string | null>
-  /** Sends `text` as a voice message too; best-effort, the text reply already went out. */
+  /** Best-effort: the text reply already went out. */
   speak: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
-  /** Downloads a missing speech model for a voice Answer to `sessionId`; false once the channel was told why not. */
   prepareAnswer: (
     adapter: ChannelAdapter,
     sessionId: string,
     meta?: InboundMeta,
-  ) => Promise<boolean>
+  ) => Promise<VoiceAnswerPreparation>
 }
 
+type Say = (message: string) => Promise<unknown>
+
 const failureText = (e: unknown) =>
-  `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`
+  fillTemplate(answerRouterCopy().voiceFailed, {
+    error: e instanceof Error ? e.message : String(e),
+  })
 
 export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
+  async function failed(say: Say, e: unknown): Promise<false> {
+    deps.log('homeAgent: speech model download failed', e)
+    await say(failureText(e))
+    return false
+  }
+
+  /** The transcription model, downloaded through `download` when missing; the channel hears any refusal. */
+  async function prepareModel(
+    say: Say,
+    download: (models: DownloadModelParam[]) => Promise<boolean>,
+  ): Promise<VoiceAnswerPreparation> {
+    if (!deps.transcriptionModel.installed()) {
+      await say(answerRouterCopy().voiceNoBackend)
+      return { ready: false }
+    }
+    const fetch = async (models: DownloadModelParam[]) => {
+      try {
+        if (await download(models)) return true
+        await say(answerRouterCopy().voiceModelDeclined)
+        return false
+      } catch (e) {
+        return failed(say, e)
+      }
+    }
+    try {
+      const missing = await deps.transcriptionModel.missing()
+      return missing.length === 0 ? { ready: true } : { downloading: fetch(missing) }
+    } catch (e) {
+      return { ready: await failed(say, e) }
+    }
+  }
+
   async function transcribe(
     adapter: ChannelAdapter,
     audio: RemoteAudio[],
     meta?: InboundMeta,
   ): Promise<string | null> {
     const say = (message: string) => adapter.reply(adapter.formatRichSnippet(message), meta)
-    if (!deps.transcriptionModel.installed()) {
-      await say(NO_SPEECH_TO_TEXT)
-      return null
-    }
-    try {
-      const missing = await deps.transcriptionModel.missing()
-      if (missing.length > 0 && !(await deps.transcriptionModel.download(missing))) {
-        await say(SPEECH_MODEL_DECLINED)
-        return null
-      }
-    } catch (e) {
-      deps.log('homeAgent: speech model download failed', e)
-      await say(failureText(e))
-      return null
-    }
+    const preparation = await prepareModel(say, deps.transcriptionModel.download)
+    const ready = 'downloading' in preparation ? await preparation.downloading : preparation.ready
+    if (!ready) return null
     await deps.transcription.ready()
     const stopTyping = adapter.startTypingHeartbeat('typing', meta)
     try {
@@ -94,8 +110,8 @@ export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
       return parts.filter(Boolean).join(' ').trim()
     } catch (e) {
       deps.log('homeAgent: audio transcription failed', e)
-      const message = deps.transcription.isNoEndpoint(e) ? NO_SPEECH_TO_TEXT : failureText(e)
-      await say(message)
+      const noEndpoint = deps.transcription.isNoEndpoint(e)
+      await say(noEndpoint ? answerRouterCopy().voiceNoBackend : failureText(e))
       return null
     } finally {
       stopTyping()
@@ -121,31 +137,14 @@ export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
     return (await deps.synthesisModel.missing()) && deps.synthesisModel.install(adapter, meta)
   }
 
-  async function prepareAnswer(
+  function prepareAnswer(
     adapter: ChannelAdapter,
     sessionId: string,
     meta?: InboundMeta,
-  ): Promise<boolean> {
-    const download = deps.answerDownload
-    if (!download) return true
+  ): Promise<VoiceAnswerPreparation> {
     // A post, not a reply: a reply would settle a Home Agent answer still streaming.
     const say = (message: string) => adapter.post(adapter.formatMarkdown(message), meta)
-    if (!deps.transcriptionModel.installed()) {
-      await say(NO_SPEECH_TO_TEXT)
-      return false
-    }
-    try {
-      const missing = await deps.transcriptionModel.missing()
-      if (missing.length > 0 && !(await download(missing, sessionId))) {
-        await say(SPEECH_MODEL_DECLINED)
-        return false
-      }
-      return true
-    } catch (e) {
-      deps.log('homeAgent: speech model download failed', e)
-      await say(failureText(e))
-      return false
-    }
+    return prepareModel(say, (models) => deps.answerDownload(models, sessionId))
   }
 
   return { transcribe, speak, prepareAnswer }

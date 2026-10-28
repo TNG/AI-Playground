@@ -7,6 +7,7 @@ import {
   type HeldAnswerNote,
   type SessionPause,
   type SessionTurnEnd,
+  type VoiceAnswerPreparation,
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
@@ -117,14 +118,17 @@ function fakeTranscription() {
   return { said, transcribed, transcribe }
 }
 
-/** Readying speech-to-text for a voice Answer: each one waits until the test lets it through. */
+/** Readying speech-to-text for a voice Answer: a download waits until the test lets it through. */
 function fakeVoicePreparation() {
   const waiting: { sessionId: string; finish: (ready: boolean) => void }[] = []
   let gated = false
-  const prepare = (_adapter: ChannelAdapter, sessionId: string) =>
+  const prepare = async (
+    _adapter: ChannelAdapter,
+    sessionId: string,
+  ): Promise<VoiceAnswerPreparation> =>
     gated
-      ? new Promise<boolean>((finish) => waiting.push({ sessionId, finish }))
-      : Promise.resolve(true)
+      ? { downloading: new Promise<boolean>((finish) => waiting.push({ sessionId, finish })) }
+      : { ready: true }
   return {
     waiting,
     prepare,
@@ -508,6 +512,40 @@ describe('answer router', () => {
       await flush()
       expect(speech.transcribed).toEqual([])
       expect(received).toEqual([])
+    })
+
+    it('is sent before the next channel message is read when no download is needed', async () => {
+      const { router, received, speech } = setup()
+      speech.said['ogg-1'] = 'try a smaller level'
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+      await router.route(ch.adapter, { text: 'and add a boss', replyTo: '1234' })
+      expect(received).toEqual([
+        { sessionId: 'asteroids', text: 'try a smaller level' },
+        { sessionId: 'asteroids', text: 'and add a boss' },
+      ])
+    })
+
+    it('keeps later Answers to its session behind it while its speech model downloads', async () => {
+      const { router, received, speech, voicePreparation } = setup()
+      speech.said['ogg-1'] = 'try a smaller level'
+      speech.said['ogg-2'] = 'with more lives'
+      voicePreparation.needDownload()
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+      await router.route(ch.adapter, { text: 'and add a boss', replyTo: '1234' })
+      await router.route(ch.adapter, { ...voice('ogg-2'), replyTo: '1234' })
+      await flush()
+      expect(received).toEqual([])
+      voicePreparation.waiting[0].finish(true)
+      await flush()
+      voicePreparation.waiting[1].finish(true)
+      await flush()
+      expect(received.map((r) => r.text)).toEqual([
+        'try a smaller level',
+        'and add a boss',
+        'with more lives',
+      ])
     })
 
     it('sends nothing when transcription failed, leaving the explanation to it', async () => {

@@ -81,12 +81,22 @@ class SlackInboundTest(unittest.TestCase):
 
 
 class FakeClient:
-    def __init__(self) -> None:
+    """Slack shares an uploaded file as a message; its `ts` sits under the file's shares."""
+
+    def __init__(self, shared_at_upload: bool = True) -> None:
         self.uploads: list[dict] = []
+        self.shared_at_upload = shared_at_upload
+
+    def _file(self, shared: bool) -> dict:
+        shares = {"private": {IM: [{"ts": "1700.0099"}]}} if shared else {}
+        return {"id": "F1", "shares": shares}
 
     async def files_upload_v2(self, **kwargs):
         self.uploads.append(kwargs)
-        return {"ok": True}
+        return {"ok": True, "files": [self._file(self.shared_at_upload)]}
+
+    async def files_info(self, **kwargs):
+        return {"ok": True, "file": self._file(True)}
 
 
 class SlackOutboundTest(unittest.TestCase):
@@ -117,6 +127,26 @@ class SlackOutboundTest(unittest.TestCase):
         self.assertEqual(upload["initial_comment"], "summary")
         self.assertEqual(upload["thread_ts"], "1700.0001")
         self.assertTrue(upload["filename"].endswith(".mp3"))
+
+    def test_each_attachment_answers_with_the_message_it_posted(self) -> None:
+        for action, key in (("photo", "photo"), ("video", "video"), ("voice", "audio")):
+            with self.subTest(action=action):
+                result = getattr(self.channel, f"send_{action}")(
+                    {
+                        key: base64.b64encode(b"ID3").decode(),
+                        "mime": "audio/mpeg",
+                        "channel": IM,
+                    }
+                )
+                self.assertEqual(result["ts"], "1700.0099")
+                self.assertEqual(result["channel"], IM)
+
+    def test_an_upload_shared_later_is_looked_up_for_its_message(self) -> None:
+        self.client.shared_at_upload = False
+        result = self.channel.send_photo(
+            {"photo": base64.b64encode(b"png").decode(), "channel": IM}
+        )
+        self.assertEqual(result["ts"], "1700.0099")
 
 
 if __name__ == "__main__":

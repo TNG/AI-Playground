@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { answerDownloadKey, type PermissionsPromptPayload } from '@/types/permissionsIpc'
+import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import type { DownloadDialogOptions } from '@/assets/js/store/dialogs'
 import type { ModelDownloadCallbacks } from '@/lib/modelDownloader'
 import { createCancellation } from '@/assets/js/errors/appError'

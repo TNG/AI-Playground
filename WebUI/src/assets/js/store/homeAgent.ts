@@ -20,7 +20,6 @@ import {
   usableNotificationChannels,
 } from '@/lib/notificationChannel'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
-import { channelMediaKind } from '@/lib/channelMediaKind'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
 import { useTextInference } from './textInference'
@@ -59,14 +58,8 @@ import {
 } from './channels/types'
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
-import {
-  isAppError,
-  isCancellation,
-  extractMessage,
-  createAppError,
-  createCancellation,
-} from '../errors/appError'
-import { answerDownloadKey } from '@/types/permissionsIpc'
+import { isAppError, extractMessage, createAppError, createCancellation } from '../errors/appError'
+import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
@@ -97,7 +90,7 @@ import {
   type ChannelQuestionOutcome,
   type DownloadChannelQuestion,
 } from '@/assets/js/permissions/remoteTurnPort'
-import { requestDownload } from '@/assets/js/permissions/permissions'
+import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -170,6 +163,7 @@ export const useHomeAgent = defineStore(
   () => {
     const backendServices = useBackendServices()
     const chatStore = useOpenAiCompatibleChat()
+    const textInference = useTextInference()
     const imageGenStore = useImageGenerationPresets()
     const promptStore = usePromptStore()
     const conversations = useConversations()
@@ -273,20 +267,6 @@ export const useHomeAgent = defineStore(
       staleReply: () => channelQuestionTemplates().stale,
     })
 
-    /** False when declined; `conversationKey` names whose download question asks. */
-    async function consentToDownload(
-      models: DownloadModelParam[],
-      conversationKey?: string,
-    ): Promise<boolean> {
-      try {
-        await requestDownload(models, conversationKey ? { conversationKey } : undefined)
-        return true
-      } catch (e) {
-        if (isCancellation(e)) return false
-        throw e
-      }
-    }
-
     const remoteSpeech = createRemoteSpeech({
       transcription: {
         ready: readyTranscriptionUnattended,
@@ -295,20 +275,20 @@ export const useHomeAgent = defineStore(
         isNoEndpoint: (e) => e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT,
       },
       synthesis: {
-        allowed: () => useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
+        allowed: () => textInference.speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
         synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
       },
       transcriptionModel: {
         installed: transcriptionAvailable,
         missing: missingTranscriptionModels,
-        download: (models) => consentToDownload(models),
+        download: (models) => requestDownloadConsent(models),
       },
       synthesisModel: {
         missing: synthesisModelMissing,
         install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
       },
       answerDownload: (models, sessionId) =>
-        consentToDownload(models, answerDownloadKey(sessionId)),
+        requestDownloadConsent(models, { conversationKey: answerDownloadKey(sessionId) }),
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -1668,14 +1648,15 @@ export const useHomeAgent = defineStore(
           sentMediaForPart.add(part as object)
           enqueueMedia(async () => {
             for (const item of items) {
-              if (item.kind === 'model3d') {
+              if (item.kind === 'image') {
+                await sendImageToChannel(adapter, item.url, '', meta)
+              } else if (item.kind === 'video') {
+                await sendVideoToChannel(adapter, item.url, '', meta)
+              } else if (item.kind === 'audio') {
+                await sendVoiceToChannel(adapter, item.url, meta)
+              } else {
                 await send3DModelToChannel(adapter, item.url, '', meta)
-                continue
               }
-              const kind = channelMediaKind(item.url)
-              if (kind === 'photo') await sendImageToChannel(adapter, item.url, '', meta)
-              else if (kind === 'video') await sendVideoToChannel(adapter, item.url, '', meta)
-              else if (kind === 'voice') await sendVoiceToChannel(adapter, item.url, meta)
             }
           })
         }
@@ -1853,6 +1834,7 @@ export const useHomeAgent = defineStore(
           throw new Error(result.error ?? 'voice returned failure')
         }
       } catch (e) {
+        reportSilently('homeAgent: sending speech to the channel failed', e)
         await reply(
           adapter,
           `⚠️ Speech was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,

@@ -352,6 +352,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [AgentMediaFileRef, AgentMediaFileAction],
     result: null as unknown as IpcMutationResult,
   },
+  /** Open a workspace folder in the OS file manager. */
+  'agentMode:openWorkspaceFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {
     kind: 'invoke',

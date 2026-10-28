@@ -8,10 +8,12 @@ import type { InboundMeta, RemoteAudio } from '../../../src/assets/js/store/chan
 
 function fakeChannel() {
   const sent: string[] = []
+  const posted: string[] = []
   const voices: { base64: string; mime: string; meta?: InboundMeta }[] = []
   const adapter = {
     kind: 'telegram',
     formatRichSnippet: (html: string) => html,
+    formatMarkdown: (md: string) => md,
     reply: async (text: string) => {
       sent.push(text)
       return { success: true }
@@ -20,9 +22,13 @@ function fakeChannel() {
       voices.push({ base64, mime, meta })
       return { success: true }
     },
+    post: async (text: string) => {
+      posted.push(text)
+      return { success: true }
+    },
     startTypingHeartbeat: () => () => {},
   } as unknown as ChannelAdapter
-  return { adapter, sent, voices }
+  return { adapter, sent, posted, voices }
 }
 
 const NO_ENDPOINT = new Error('no endpoint')
@@ -298,5 +304,68 @@ describe('remote speech: speaking a reply with the text-to-speech model missing'
 
     expect(events).toEqual([])
     expect(voices).toEqual([])
+  })
+})
+
+function answerDeps(overrides: {
+  sttInstalled?: boolean
+  sttModelMissing?: boolean
+  download?: 'declined' | Error
+}) {
+  const { deps } = fakeDeps(overrides)
+  const asked: { models: DownloadModelParam[]; sessionId: string }[] = []
+  deps.answerDownload = async (models, sessionId) => {
+    asked.push({ models, sessionId })
+    if (overrides.download === 'declined') return false
+    if (overrides.download) throw overrides.download
+    return true
+  }
+  return { deps, asked }
+}
+
+describe('remote speech: readying a voice Answer to an agent', () => {
+  it('asks nothing when the speech model is already there', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps, asked } = answerDeps({})
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
+    expect(asked).toEqual([])
+    expect(posted).toEqual([])
+  })
+
+  it('asks the answered session’s download question for a missing model, then goes on', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps, asked } = answerDeps({ sttModelMissing: true })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
+    expect(asked).toEqual([{ models: [STT_MODEL], sessionId: 'asteroids' }])
+    expect(posted).toEqual([])
+  })
+
+  it('says the voice was not transcribed when the download was declined', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps } = answerDeps({ sttModelMissing: true, download: 'declined' })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(posted).toEqual([
+      'Voice not transcribed: speech model not downloaded. Send text instead.',
+    ])
+  })
+
+  it('says why when the download failed', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps } = answerDeps({ sttModelMissing: true, download: new Error('disk full') })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(posted).toEqual(['⚠️ Could not transcribe the audio: disk full'])
+  })
+
+  it('says a backend must be installed on the desktop when there is none', async () => {
+    const { adapter, posted } = fakeChannel()
+    const { deps, asked } = answerDeps({ sttInstalled: false })
+
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(asked).toEqual([])
+    expect(posted).toEqual([NO_BACKEND])
   })
 })

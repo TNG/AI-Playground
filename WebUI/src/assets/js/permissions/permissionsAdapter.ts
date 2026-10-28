@@ -2,6 +2,7 @@ import { useDialogStore, type DownloadDialogOptions } from '../store/dialogs'
 import { remoteTurnPort, type DownloadChannelQuestion } from './remoteTurnPort'
 import {
   isAgentSessionTurn,
+  sessionAnswerOrigin,
   sessionLabel,
   whenSessionInView,
   whenSessionTurnEnds,
@@ -149,10 +150,12 @@ function channelQuestionFor(
   if (!forAnswer && !isAgentSessionTurn(conversationKey)) return null
   const port = remoteTurnPort()
   if (!port.canAskChannelQuestion()) return null
+  const answer = sessionAnswerOrigin(conversationKey)
   return port.askDownloadQuestion(models, {
     label,
     conversationKey,
     ...(alreadyDownloading.length ? { alreadyDownloading } : {}),
+    ...(answer ? { answer } : {}),
   })
 }
 

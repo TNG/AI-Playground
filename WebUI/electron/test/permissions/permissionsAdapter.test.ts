@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import type { DownloadDialogOptions } from '@/assets/js/store/dialogs'
 import type { ModelDownloadCallbacks } from '@/lib/modelDownloader'
@@ -19,6 +20,7 @@ const showWarningDialog = vi.fn()
 const isAgentSessionTurn = vi.fn((_key: string | undefined) => false)
 const whenSessionInView = vi.fn(async (_key: string | undefined) => {})
 const whenSessionTurnEnds = vi.fn((_key: string) => new Promise<void>(() => {}))
+const sessionAnswerOrigin = vi.fn((_key: string): AgentAnswerOrigin | undefined => undefined)
 const respondMock = vi.fn(async (_payload: unknown) => {})
 const onPromptMock = vi.fn<(callback: (payload: PermissionsPromptPayload) => void) => () => void>()
 
@@ -71,6 +73,7 @@ vi.mock('@/assets/js/permissions/sessionPromptPort', () => ({
   whenSessionInView,
   whenSessionTurnEnds,
   isAgentSessionTurn,
+  sessionAnswerOrigin,
   sessionLabel: (key: string) => `"${key} title"`,
 }))
 
@@ -276,6 +279,17 @@ describe('an Agent Mode download asked as a Channel Question', () => {
     })
     expect(whenSessionInView).toHaveBeenCalledWith(SESSION)
     expect(dialogs[0].options.mode).toBe('ask')
+  })
+
+  it('asks a turn a channel Answer started where that Answer was given', async () => {
+    sessionAnswerOrigin.mockReturnValueOnce({ channel: 'slack', replyTo: '1700.0001' })
+    void download('q1a', [X], SESSION)
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    expect(askDownloadQuestion).toHaveBeenCalledWith([X], {
+      label: `"${SESSION} title"`,
+      conversationKey: SESSION,
+      answer: { channel: 'slack', replyTo: '1700.0001' },
+    })
   })
 
   it('a channel Confirm closes the dialog and edits the question into the download', async () => {

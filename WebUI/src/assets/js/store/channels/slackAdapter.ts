@@ -272,6 +272,7 @@ export function createSlackAdapter(): ChannelAdapter {
       const r = await window.electronAPI.homeAgent.channel.send('slack', 'reply', {
         text,
         channel: meta?.channel,
+        ...(meta?.threadTs ? { thread_ts: meta.threadTs } : {}),
       })
       return withMessageRef(r)
     },
@@ -331,6 +332,7 @@ export function createSlackAdapter(): ChannelAdapter {
         text,
         blocks,
         channel: meta?.channel,
+        ...(meta?.threadTs ? { thread_ts: meta.threadTs } : {}),
       })
       return withMessageRef(r)
     },

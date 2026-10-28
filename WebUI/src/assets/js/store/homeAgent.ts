@@ -12,6 +12,7 @@ import { useConfirmations } from './confirmations'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
 import { fetchModelMeta } from '@/lib/modelDownloader'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationRoute } from '@/types/notificationsIpc'
 import {
@@ -1080,10 +1081,14 @@ export const useHomeAgent = defineStore(
         label: string
         conversationKey: string
         alreadyDownloading?: DownloadModelParam[]
+        answer?: AgentAnswerOrigin
       },
     ): DownloadChannelQuestion {
       const kind = questionChannel.value
       const adapter = kind ? adapters[kind] : null
+      const { answer: origin } = context
+      const meta: InboundMeta | undefined =
+        origin?.channel === kind && origin.replyTo ? { threadTs: origin.replyTo } : undefined
       let retired: ChannelQuestionOutcome | null = null
       let asked: ChannelQuestion | null = null
       // A desktop yes that came before the question reached the channel.
@@ -1108,6 +1113,7 @@ export const useHomeAgent = defineStore(
               fillTemplate(channelQuestionTemplates().lookupFailed, {
                 label: escapeHtml(context.label),
               }),
+              meta,
             ).catch((err: unknown) => errors.report(err, { surface: 'silent' }))
           }
           return never
@@ -1120,7 +1126,7 @@ export const useHomeAgent = defineStore(
             label: escapeHtml(context.label),
             models: escapeHtml(blocked.map((m) => m.repo_id).join(', ')),
           })
-          await reply(adapter, gated).catch((err: unknown) =>
+          await reply(adapter, gated, meta).catch((err: unknown) =>
             errors.report(err, { surface: 'silent' }),
           )
           return never
@@ -1144,7 +1150,7 @@ export const useHomeAgent = defineStore(
           const posted = postDownloadMessage(
             adapter,
             `${summaryMarkdown}\n\n${prefix}`,
-            undefined,
+            meta,
             reportSilently,
           )
           followDownload(
@@ -1154,7 +1160,7 @@ export const useHomeAgent = defineStore(
           )
           return never
         }
-        asked = channelQuestions.ask({ adapter, summaryMarkdown, labels: text })
+        asked = channelQuestions.ask({ adapter, meta, summaryMarkdown, labels: text })
         return asked.answer
       })()
 

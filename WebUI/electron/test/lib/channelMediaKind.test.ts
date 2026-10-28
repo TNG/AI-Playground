@@ -37,6 +37,11 @@ describe('channelMediaKind', () => {
     expect(channelMediaKind('aipg-media://outputs/model.glb')).toBeNull()
   })
 
+  it('classifies a one-folder relative path by its file name, not as a mime type', () => {
+    expect(channelMediaKind('generated/cover.png')).toBe('photo')
+    expect(channelMediaKind('generated/clip.webm')).toBe('video')
+  })
+
   it.each([
     ['audio/wav', 'voice'],
     ['audio/x-wav', 'voice'],

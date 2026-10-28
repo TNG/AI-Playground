@@ -32,7 +32,7 @@ const MIME_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/
 export function channelMediaKind(ref: string): ChannelMediaKind | null {
   const value = ref.trim().toLowerCase()
   if (value.startsWith('data:')) return MIME_KINDS[value.slice(5).split(/[;,]/)[0]] ?? null
-  if (MIME_TYPE.test(value)) return MIME_KINDS[value] ?? null
+  if (MIME_TYPE.test(value) && !value.includes('.')) return MIME_KINDS[value] ?? null
   const name = value.split(/[?#]/)[0].split(/[/\\]/).pop() ?? ''
   const dot = name.lastIndexOf('.')
   return dot > 0 ? (EXTENSION_KINDS.get(name.slice(dot + 1)) ?? null) : null

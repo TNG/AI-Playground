@@ -38,6 +38,7 @@ export type AgentModeDeps = {
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
   mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
+  openWorkspaceFolder: (dir: string) => Promise<void>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
   migrateLegacyAgentSessions: typeof migrateLegacyAgentSessions
   saveAgentSession: typeof saveAgentSession
@@ -198,6 +199,15 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         ['open', 'reveal', 'drag', 'saveAs'].includes(action)
       if (!valid) return { success: false, error: 'invalid media file request' }
       return deps.mediaFileAction(event.sender, ref, action)
+    },
+    'agentMode:openWorkspaceFolder': async (_event, dir) => {
+      if (typeof dir !== 'string' || !dir) return { success: false, error: 'invalid folder' }
+      try {
+        await deps.openWorkspaceFolder(dir)
+        return { success: true }
+      } catch (error) {
+        return ipcFail(error)
+      }
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

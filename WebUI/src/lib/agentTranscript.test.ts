@@ -9,6 +9,7 @@ import {
   mediaToolNameOf,
   toolPartNameOf,
   busyLabelOf,
+  settleStreamingParts,
   type TranscriptSegment,
 } from './agentTranscript'
 
@@ -413,5 +414,56 @@ describe('mediaFileRefOf', () => {
       workspacePath: 'generated/speech.wav',
       appCopy: '/home/u/AI-Playground/audio/game_speech.wav',
     })
+  })
+})
+
+describe('settleStreamingParts', () => {
+  const live = (parts: unknown[]) => [{ id: 'a1', role: 'assistant', parts }]
+
+  it('ends a stopped reasoning block at the stop', () => {
+    const reasoning = {
+      type: 'reasoning',
+      text: 'hm',
+      state: 'streaming',
+      providerMetadata: { aipg: { reasoningStarted: 1_000 } },
+    }
+
+    const [message] = settleStreamingParts(live([reasoning]), 4_000)
+
+    expect(message.parts[0]).toEqual({
+      ...reasoning,
+      state: 'done',
+      providerMetadata: { aipg: { reasoningStarted: 1_000, reasoningFinished: 4_000 } },
+    })
+  })
+
+  it('invents no duration without a stop time, and keeps one already measured', () => {
+    const open = {
+      type: 'reasoning',
+      state: 'streaming',
+      providerMetadata: { aipg: { reasoningStarted: 1_000 } },
+    }
+    const measured = {
+      type: 'reasoning',
+      state: 'streaming',
+      providerMetadata: { aipg: { reasoningStarted: 1_000, reasoningFinished: 2_000 } },
+    }
+
+    expect(settleStreamingParts(live([open]))[0].parts[0]).toEqual({ ...open, state: 'done' })
+    expect(settleStreamingParts(live([measured]), 9_000)[0].parts[0]).toEqual({
+      ...measured,
+      state: 'done',
+    })
+  })
+
+  it('settles streaming text and leaves other parts and messages untouched', () => {
+    const tool = { type: 'tool-bash', state: 'output-available' }
+    const settledMessage = { id: 'u1', role: 'user', parts: [{ type: 'text', state: 'done' }] }
+    const messages = [settledMessage, ...live([{ type: 'text', state: 'streaming' }, tool])]
+
+    const [user, assistant] = settleStreamingParts(messages, 4_000)
+
+    expect(user).toBe(settledMessage)
+    expect(assistant.parts).toEqual([{ type: 'text', state: 'done' }, tool])
   })
 })

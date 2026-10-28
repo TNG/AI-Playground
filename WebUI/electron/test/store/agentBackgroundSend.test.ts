@@ -446,6 +446,41 @@ describe('how a turn settled', () => {
     )
   })
 
+  it('ends reasoning the user stopped, though main closes it after the stream is gone', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(5_000)
+    const store = await readyStore()
+    const id = createTaskSession(store)
+    await store.switchSession(id)
+    await store.sendToSession(id, 'go')
+    const turnId = await turnIdOf(0)
+    for (const chunk of [
+      { type: 'start' },
+      { type: 'reasoning-start', id: 'r', providerMetadata: { aipg: { reasoningStarted: 1_000 } } },
+      { type: 'reasoning-delta', id: 'r', delta: 'thinking' },
+    ]) {
+      pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk })
+    }
+    const reasoningOf = (messages: unknown) =>
+      (messages as Array<{ parts: Array<{ type: string }> }> | undefined)
+        ?.at(-1)
+        ?.parts.find((part) => part.type === 'reasoning')
+    await vi.waitFor(() =>
+      expect(reasoningOf(store.messages)).toMatchObject({ state: 'streaming' }),
+    )
+
+    await store.stopSession(id)
+    const closing = { reasoningStarted: 1_000, reasoningFinished: 9_000 }
+    const late = { type: 'reasoning-end', id: 'r', providerMetadata: { aipg: closing } }
+    pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk: late })
+
+    const settled = {
+      state: 'done',
+      providerMetadata: { aipg: { reasoningStarted: 1_000, reasoningFinished: 5_000 } },
+    }
+    expect(reasoningOf(store.messages)).toMatchObject(settled)
+    expect(reasoningOf(lastSaved(id)?.messages)).toMatchObject(settled)
+  })
+
   it('reports a start main refused as an error instead of waiting forever', async () => {
     startTurn.mockImplementation(async () => ({
       success: false,

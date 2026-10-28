@@ -18,6 +18,7 @@ import { onGeneratedMedia } from './generatedMedia.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
+import { readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
 // The one sender of Notifications (docs/adr/0003): owns the delivery decision and
@@ -28,7 +29,7 @@ const LOG_SOURCE = 'notifier'
 
 export type NotificationDelivery = { delivered: true } | { delivered: false; reason: string }
 
-export type ChannelMedia = { kind: 'photo' | 'video'; base64: string; filename: string }
+export type { ChannelMedia }
 
 /**
  * What the Notifier hands a channel. `replyTo` is the platform ref of the message it
@@ -65,6 +66,8 @@ export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping }
 export type NotificationOptions = {
   /** The sending session: names it in the header and makes the message answerable. */
   sessionId?: string
+  /** Workspace-relative files to send with the text, validated against the session's workspace. */
+  attachments?: { workspaceDir: string; paths: string[] }
 }
 
 const OFF_CONFIG: NotificationConfig = {
@@ -157,7 +160,7 @@ export async function sendNotification(
   text: string,
   options: NotificationOptions = {},
 ): Promise<NotificationDelivery> {
-  const delivery = await deliver({ text }, options.sessionId)
+  const delivery = await deliver({ text, attachments: options.attachments }, options.sessionId)
   if (!delivery.delivered) {
     appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
   }
@@ -165,7 +168,7 @@ export async function sendNotification(
 }
 
 async function deliver(
-  body: { text: string; media?: ChannelMedia },
+  body: { text: string; media?: ChannelMedia; attachments?: NotificationOptions['attachments'] },
   sessionId: string | undefined,
 ): Promise<NotificationDelivery> {
   const answer = sessionId ? answerTurnOf(sessionId) : undefined
@@ -174,6 +177,10 @@ async function deliver(
   if (!homeAgentEnabled || !channel) return { delivered: false, reason: 'Home Agent is off' }
   if (!kind) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
+    const attached = body.attachments
+      ? await attachedMedia(body.attachments, kind)
+      : { media: undefined }
+    if ('error' in attached) return { delivered: false, reason: attached.error }
     const title = sessionId ? await sessionLabel(sessionId) : ''
     const header = sessionId ? fillTemplate(config.templates.header, { title }) : ''
     const message: ChannelMessage = {
@@ -182,7 +189,9 @@ async function deliver(
     }
     const result = await channel.send(
       kind,
-      body.media ? { ...message, media: body.media } : answerable(kind, message, sessionId, title),
+      body.media
+        ? { ...message, media: body.media }
+        : withMedia(answerable(kind, message, sessionId, title), attached.media),
     )
     if (!result.success) return { delivered: false, reason: result.error }
     if (sessionId && result.ref) {
@@ -194,6 +203,19 @@ async function deliver(
   } catch (error) {
     return { delivered: false, reason: error instanceof Error ? error.message : String(error) }
   }
+}
+
+async function attachedMedia(
+  attachments: NonNullable<NotificationOptions['attachments']>,
+  kind: ChannelKind,
+): Promise<{ media: ChannelMedia | undefined } | { error: string }> {
+  if (attachments.paths.length > 1) return { error: 'attach one file per notification' }
+  const read = await readAttachments(attachments.workspaceDir, attachments.paths, kind)
+  return 'error' in read ? read : { media: read.media[0] }
+}
+
+function withMedia(message: ChannelMessage, media: ChannelMedia | undefined): ChannelMessage {
+  return media ? { ...message, media } : message
 }
 
 async function channelMedia(file: string): Promise<ChannelMedia | null> {

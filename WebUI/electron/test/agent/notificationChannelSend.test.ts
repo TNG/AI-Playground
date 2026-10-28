@@ -103,6 +103,47 @@ describe('a Notification handed to the Home Agent channel', () => {
     ])
   })
 
+  it('keeps the Answer button on LAN chat media, naming the session it answers', async () => {
+    const { send, calls } = recorder()
+    await send('local-web', {
+      text: 'done',
+      media: { kind: 'photo', base64: 'AAA', filename: 'cover.png' },
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      answerTitle: '"Asteroids clone"',
+    })
+    await send('local-web', {
+      text: 'done',
+      media: { kind: 'voice', base64: 'CCC', filename: 'summary.wav' },
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      answerTitle: '"Asteroids clone"',
+    })
+    expect(calls).toEqual([
+      {
+        kind: 'local-web',
+        action: 'photo',
+        payload: {
+          photo: 'AAA',
+          caption: 'done',
+          filename: 'cover.png',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          answer_title: '"Asteroids clone"',
+        },
+      },
+      {
+        kind: 'local-web',
+        action: 'voice',
+        payload: {
+          audio: 'CCC',
+          mime: 'audio/wav',
+          caption: 'done',
+          filename: 'summary.wav',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          answer_title: '"Asteroids clone"',
+        },
+      },
+    ])
+  })
+
   it('sends a speech clip as a voice message captioned with the text, under the message it answers', async () => {
     const { send, calls } = recorder()
     expect(

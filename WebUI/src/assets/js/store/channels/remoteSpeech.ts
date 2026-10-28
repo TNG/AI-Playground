@@ -5,6 +5,10 @@ import type { InboundMeta, RemoteAudio } from './types'
 const NO_SPEECH_TO_TEXT =
   '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.'
 
+const VOICE_DECLINED = 'Voice not transcribed: speech model not downloaded. Send text instead.'
+const NO_STT_BACKEND =
+  '⚠️ Voice not transcribed: install a speech-to-text backend in AI Playground on the desktop.'
+
 export type RemoteSpeechDeps = {
   transcription: {
     /** Starts the selected engine when it is installed and its model is on disk; never asks. */
@@ -19,6 +23,14 @@ export type RemoteSpeechDeps = {
     /** Null when the engine or its model is missing; never asks. */
     synthesize: (text: string) => Promise<{ audioBase64: string; mediaType: string } | null>
   }
+  /** Speech-to-text for a voice Answer, whose download is asked by the answered agent session. */
+  answerTranscription?: {
+    /** What the selected engine still needs; 'no-backend' when none is installed or configured. */
+    missing: () => Promise<DownloadModelParam[] | 'no-backend'>
+    /** The session's download question, mirrored on the desktop; rejects when declined or failed. */
+    download: (models: DownloadModelParam[], sessionId: string) => Promise<void>
+    isDeclined: (error: unknown) => boolean
+  }
   log: (message: string, error: unknown) => void
 }
 
@@ -32,6 +44,12 @@ export type RemoteSpeech = {
   ) => Promise<string | null>
   /** Sends `text` as a voice message too; best-effort, the text reply already went out. */
   speak: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
+  /** Downloads a missing speech model for a voice Answer to `sessionId`; false once the channel was told why not. */
+  prepareAnswer: (
+    adapter: ChannelAdapter,
+    sessionId: string,
+    meta?: InboundMeta,
+  ) => Promise<boolean>
 }
 
 export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
@@ -73,5 +91,32 @@ export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
     }
   }
 
-  return { transcribe, speak }
+  async function prepareAnswer(
+    adapter: ChannelAdapter,
+    sessionId: string,
+    meta?: InboundMeta,
+  ): Promise<boolean> {
+    const answerTranscription = deps.answerTranscription
+    if (!answerTranscription) return true
+    const missing = await answerTranscription.missing()
+    if (missing === 'no-backend') {
+      await adapter.post(adapter.formatMarkdown(NO_STT_BACKEND), meta)
+      return false
+    }
+    if (missing.length === 0) return true
+    try {
+      await answerTranscription.download(missing, sessionId)
+      return true
+    } catch (e) {
+      const declined = answerTranscription.isDeclined(e)
+      if (!declined) deps.log('homeAgent: speech model download failed', e)
+      const message = declined
+        ? VOICE_DECLINED
+        : `⚠️ Could not download the speech model: ${e instanceof Error ? e.message : String(e)}`
+      await adapter.post(adapter.formatMarkdown(message), meta)
+      return false
+    }
+  }
+
+  return { transcribe, speak, prepareAnswer }
 }

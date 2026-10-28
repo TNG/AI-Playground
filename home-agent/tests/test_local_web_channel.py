@@ -523,6 +523,9 @@ class TestOutboundEvents(LocalWebChannelTestCase):
         video = self.channel.send_video(
             {"video": "BBB", "caption": "", "filename": "c.mp4", "buttons": answer}
         )
+        voice = self.channel.send_voice(
+            {"audio": "CCC", "mime": "audio/wav", "caption": "", "buttons": answer}
+        )
         time.sleep(0.3)
         events = self.sse_events(sock.recv(65536).decode())
         sock.close()
@@ -546,6 +549,14 @@ class TestOutboundEvents(LocalWebChannelTestCase):
                     "filename": "c.mp4",
                     "buttons": answer,
                     "id": video["message_id"],
+                },
+                {
+                    "action": "voice",
+                    "base64": "CCC",
+                    "mime": "audio/wav",
+                    "caption": "",
+                    "buttons": answer,
+                    "id": voice["message_id"],
                 },
             ],
         )

@@ -802,8 +802,12 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         return
       }
       const caption = d.caption ? formatBotText(d.caption) : ''
-      if ((action === 'photo' || action === 'video') && d.base64) {
-        const media = [action === 'photo' ? inlineImg(d.base64) : inlineVideo(d.base64, d.filename)]
+      if ((action === 'photo' || action === 'video' || action === 'voice') && d.base64) {
+        const media = [
+          action === 'photo' ? inlineImg(d.base64)
+            : action === 'video' ? inlineVideo(d.base64, d.filename)
+              : inlineAudio(d.base64, d.mime),
+        ]
         const answerButton = (Array.isArray(d.buttons) ? d.buttons.flat() : [])
           .find((btn) => callbackOf(btn) === ANSWER_CALLBACK)
         // Only an agent's message names the message it replies to or carries an Answer button.
@@ -812,12 +816,6 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
           const bubble = appendAgentHtml(caption, media, d.replyTo)
           if (d.id) bubble.dataset.mid = String(d.id)
         } else if (d.replyTo) appendAgentHtml(caption, media, d.replyTo)
-        else appendBotHtml(caption, true, media)
-        return
-      }
-      if (action === 'voice' && d.base64) {
-        const media = [inlineAudio(d.base64, d.mime)]
-        if (d.replyTo) appendAgentHtml(caption, media, d.replyTo)
         else appendBotHtml(caption, true, media)
         return
       }

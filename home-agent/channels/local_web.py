@@ -290,6 +290,7 @@ class LocalWebChannel(ChannelBase):
                 "base64": base64_data,
                 "mime": payload.get("mime", "audio/ogg"),
                 "caption": payload.get("caption", ""),
+                **_answer_keyboard(payload),
             },
             payload,
         )

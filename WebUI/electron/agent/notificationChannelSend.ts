@@ -48,6 +48,7 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
         mime: VOICE_MIME[extension] ?? 'audio/wav',
         caption: message.text,
         filename: media.filename,
+        ...keyboard,
         ...target,
       },
     }

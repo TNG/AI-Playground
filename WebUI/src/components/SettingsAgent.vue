@@ -297,6 +297,7 @@ const binding: AgentSettingsBinding = reactive({
   setThinkingEnabled: (enabled: boolean) => {
     textInference.thinkingEnabled = enabled
   },
+  planningPhaseSupported: computed(() => agentMode.planningPhaseSupported),
   planningThinkingOnly: computed(() => agentMode.effectivePlanningThinkingOnly),
   setPlanningThinkingOnly: agentMode.setPlanningThinkingOnly,
   capabilities: computed(() => agentMode.capabilities),

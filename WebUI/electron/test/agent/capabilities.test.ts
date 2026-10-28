@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PLANNING_PHASE_CAPABILITY_IDS } from '@/types/agentCapabilities'
 
 // Capability resolution: which capabilities a session gets, what they contribute,
 // and when their tools start dormant. The capability modules reach Electron, the
@@ -154,6 +155,13 @@ describe('the capability catalog', () => {
     const listed = listCapabilities(hostWith()).map(({ id }) => id)
     expect(listed).not.toContain('game-studio')
     expect(listed).not.toContain('game-studio-quick')
+  })
+
+  it('names exactly the capabilities that end a planning phase', () => {
+    const withPlanningEnd = capabilityCatalog()
+      .filter((capability) => capability.planningEnd)
+      .map(({ id }) => id)
+    expect([...PLANNING_PHASE_CAPABILITY_IDS].sort()).toEqual(withPlanningEnd.sort())
   })
 
   it('offers document search only when an embedding model is available', async () => {

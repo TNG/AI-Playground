@@ -16,6 +16,8 @@ export type AgentSettingsBinding = {
   thinkingToggleSupported: boolean
   thinkingEnabled: boolean
   setThinkingEnabled: (enabled: boolean) => void
+  /** Only a session with a capability that ends a planning phase can drop thinking after it. */
+  planningPhaseSupported: boolean
   planningThinkingOnly: boolean
   setPlanningThinkingOnly: (enabled: boolean) => void
   capabilities: string[]

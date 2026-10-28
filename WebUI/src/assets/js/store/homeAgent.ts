@@ -1675,6 +1675,7 @@ export const useHomeAgent = defineStore(
               const kind = channelMediaKind(item.url)
               if (kind === 'photo') await sendImageToChannel(adapter, item.url, '', meta)
               else if (kind === 'video') await sendVideoToChannel(adapter, item.url, '', meta)
+              else if (kind === 'voice') await sendVoiceToChannel(adapter, item.url, meta)
             }
           })
         }
@@ -1832,6 +1833,29 @@ export const useHomeAgent = defineStore(
         await reply(
           adapter,
           `⚠️ Video was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
+          meta,
+        )
+      }
+    }
+
+    async function sendVoiceToChannel(
+      adapter: ChannelAdapter,
+      audioPath: string,
+      meta?: InboundMeta,
+    ): Promise<void> {
+      try {
+        const read = await window.electronAPI.readLocalAudioAsDataUri(audioPath)
+        if (!read.success) throw new Error(read.error)
+        const match = /^data:([^;,]+)[^,]*;base64,(.*)$/s.exec(read.dataUri)
+        if (!match) throw new Error('Malformed audio data URI')
+        const result = await adapter.voice(match[2], match[1], meta)
+        if (!result.success) {
+          throw new Error(result.error ?? 'voice returned failure')
+        }
+      } catch (e) {
+        await reply(
+          adapter,
+          `⚠️ Speech was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
           meta,
         )
       }

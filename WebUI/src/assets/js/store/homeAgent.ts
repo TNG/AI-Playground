@@ -27,8 +27,10 @@ import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
+  installSynthesisModel,
   missingTranscriptionModels,
   readyTranscriptionUnattended,
+  synthesisModelMissing,
   synthesizeClip,
   transcribe,
   transcriptionAvailable,
@@ -293,6 +295,10 @@ export const useHomeAgent = defineStore(
             throw e
           }
         },
+      },
+      synthesisModel: {
+        missing: synthesisModelMissing,
+        install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
       },
       log: (message, error) => reportSilently(message, error),
     })
@@ -841,6 +847,20 @@ export const useHomeAgent = defineStore(
      *  path instead of getting stuck waiting for a desktop click. */
     function isRemoteTurnActive(): boolean {
       return activeRemoteTurn !== null
+    }
+
+    /** Runs `work` as part of a remote turn, so its download questions go to that channel. */
+    async function withRemoteTurn<T>(
+      turn: { adapter: ChannelAdapter; meta?: InboundMeta },
+      work: () => Promise<T>,
+    ): Promise<T> {
+      const previous = activeRemoteTurn
+      activeRemoteTurn = previous ?? turn
+      try {
+        return await work()
+      } finally {
+        activeRemoteTurn = previous
+      }
     }
 
     /**
@@ -2212,13 +2232,10 @@ export const useHomeAgent = defineStore(
           // prompts both flow through the normal handling below.
           if (item.audio?.length) {
             // A remote turn, so a missing speech model is asked about in this channel.
-            activeRemoteTurn = { adapter, meta }
-            let transcript: string | null
-            try {
-              transcript = await remoteSpeech.transcribe(adapter, item.audio, meta)
-            } finally {
-              activeRemoteTurn = null
-            }
+            const audio = item.audio
+            const transcript = await withRemoteTurn({ adapter, meta }, () =>
+              remoteSpeech.transcribe(adapter, audio, meta),
+            )
             if (transcript === null) continue // STT unavailable / failed — already replied
             text = [text, transcript].filter(Boolean).join(' ').trim()
             if (!text) {

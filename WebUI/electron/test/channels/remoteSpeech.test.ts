@@ -44,17 +44,20 @@ function fakeDeps(overrides: {
   sttModelMissing?: boolean
   downloadAnswer?: 'approve' | 'decline'
   preGranted?: boolean
+  ttsModelMissing?: boolean
+  ttsDownloadAnswer?: 'yes' | 'no' | Error
 }) {
   const logged: string[] = []
   const spoken: string[] = []
   const events: string[] = []
-  let modelOnDisk = !overrides.sttModelMissing
+  let sttModelOnDisk = !overrides.sttModelMissing
+  let ttsModelOnDisk = !overrides.ttsModelMissing
   const deps: RemoteSpeechDeps = {
     transcription: {
       ready: async () => {},
       transcribe: async (audio: RemoteAudio) => {
         events.push('transcribe')
-        if (!modelOnDisk) throw NO_ENDPOINT
+        if (!sttModelOnDisk) throw NO_ENDPOINT
         if (overrides.transcribeError) throw overrides.transcribeError
         if (overrides.sttReady === false) throw NO_ENDPOINT
         return overrides.transcripts?.[audio.data_base64] ?? ''
@@ -65,21 +68,32 @@ function fakeDeps(overrides: {
       allowed: () => overrides.speakAllowed ?? true,
       synthesize: async (text) => {
         if (overrides.synthesizeError) throw overrides.synthesizeError
-        if (overrides.ttsReady === false) return null
+        if (overrides.ttsReady === false || !ttsModelOnDisk) return null
         spoken.push(text)
         return { audioBase64: `wav:${text}`, mediaType: 'audio/wav' }
       },
     },
     transcriptionModel: {
       installed: () => overrides.sttInstalled ?? true,
-      missing: async () => (modelOnDisk ? [] : [STT_MODEL]),
+      missing: async () => (sttModelOnDisk ? [] : [STT_MODEL]),
       download: async (models) => {
         if (!overrides.preGranted) {
           events.push(`question:${models.map((m) => m.repo_id).join(',')}`)
           if (overrides.downloadAnswer === 'decline') return false
         }
         events.push('download')
-        modelOnDisk = true
+        sttModelOnDisk = true
+        return true
+      },
+    },
+    synthesisModel: {
+      missing: async () => !ttsModelOnDisk,
+      install: async (_adapter, meta) => {
+        events.push(`asked:${JSON.stringify(meta ?? null)}`)
+        const answer = overrides.ttsDownloadAnswer ?? 'yes'
+        if (answer instanceof Error) throw answer
+        if (answer === 'no') return false
+        ttsModelOnDisk = true
         return true
       },
     },
@@ -196,7 +210,7 @@ describe('remote speech: speaking a reply', () => {
     expect(voices).toEqual([{ base64: 'wav:Done. See you', mime: 'audio/wav', meta }])
   })
 
-  it('silently sends no voice message when the text-to-speech model is missing', async () => {
+  it('silently sends no voice message when no text-to-speech engine can serve', async () => {
     const { adapter, sent, voices } = fakeChannel()
     const { deps } = fakeDeps({ ttsReady: false })
 
@@ -235,5 +249,54 @@ describe('remote speech: speaking a reply', () => {
     expect(voices).toEqual([])
     expect(sent).toEqual([])
     expect(logged).toHaveLength(1)
+  })
+})
+
+describe('remote speech: speaking a reply with the text-to-speech model missing', () => {
+  it('asks the sender to download the model, then sends the voice message', async () => {
+    const { adapter, voices } = fakeChannel()
+    const { deps, events } = fakeDeps({ ttsModelMissing: true })
+    const meta = { chatId: 7 } as unknown as InboundMeta
+
+    await createRemoteSpeech(deps).speak(adapter, 'Done.', meta)
+
+    expect(events).toEqual(['asked:{"chatId":7}'])
+    expect(voices).toEqual([{ base64: 'wav:Done.', mime: 'audio/wav', meta }])
+  })
+
+  it('sends nothing more when the sender declines the download', async () => {
+    const { adapter, sent, voices } = fakeChannel()
+    const { deps, logged, spoken } = fakeDeps({ ttsModelMissing: true, ttsDownloadAnswer: 'no' })
+
+    await createRemoteSpeech(deps).speak(adapter, 'Done.')
+
+    expect(spoken).toEqual([])
+    expect(voices).toEqual([])
+    expect(sent).toEqual([])
+    expect(logged).toEqual([])
+  })
+
+  it('keeps a failed download out of the channel', async () => {
+    const { adapter, sent, voices } = fakeChannel()
+    const { deps, logged } = fakeDeps({
+      ttsModelMissing: true,
+      ttsDownloadAnswer: new Error('network down'),
+    })
+
+    await createRemoteSpeech(deps).speak(adapter, 'Done.')
+
+    expect(voices).toEqual([])
+    expect(sent).toEqual([])
+    expect(logged).toHaveLength(1)
+  })
+
+  it('does not ask about a download when spoken replies are off', async () => {
+    const { adapter, voices } = fakeChannel()
+    const { deps, events } = fakeDeps({ ttsModelMissing: true, speakAllowed: false })
+
+    await createRemoteSpeech(deps).speak(adapter, 'Done.')
+
+    expect(events).toEqual([])
+    expect(voices).toEqual([])
   })
 })

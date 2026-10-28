@@ -1,5 +1,6 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_ANSWERING } from '@/lib/answerButton'
+import { channelMediaType } from '@/lib/channelMediaKind'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
 
@@ -9,12 +10,6 @@ export type HomeAgentChannelSend = (
   action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'typing',
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
-
-const VOICE_MIME: Record<string, string> = {
-  wav: 'audio/wav',
-  mp3: 'audio/mpeg',
-  ogg: 'audio/ogg',
-}
 
 function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   const answering = CHANNEL_ANSWERING[kind]
@@ -40,12 +35,11 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
     return { action, payload: { text: message.text, ...target } }
   }
   if (media.kind === 'voice') {
-    const extension = media.filename.split('.').pop()?.toLowerCase() ?? ''
     return {
       action: 'voice' as const,
       payload: {
         audio: media.base64,
-        mime: VOICE_MIME[extension] ?? 'audio/wav',
+        mime: channelMediaType(media.filename) ?? 'audio/wav',
         caption: message.text,
         filename: media.filename,
         ...keyboard,

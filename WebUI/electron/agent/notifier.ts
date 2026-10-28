@@ -100,7 +100,7 @@ type AnswerTurn = AgentAnswerOrigin & {
   turnId: string
   workspaceDir: string
   media: string[]
-  /** Files `notify_user` already sent during the turn, which its reply leaves out. */
+  /** Already sent by `notify_user`, so the turn's reply leaves them out. */
   attached: Set<string>
 }
 

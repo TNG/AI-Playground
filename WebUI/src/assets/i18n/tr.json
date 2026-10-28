@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Çık",
   "AGENT_STEPS_HINT": "\"Adımları çalıştır\" bunları her adım için bir tur olmak üzere sırayla yürütür. \"Gönder\" bunları atlar.",
   "AGENT_STEPS_RUN": "Adımları çalıştır",
+  "AGENT_STEPS_RUN_TIP": "Tüm adımları çalıştır; isteğe bağlı olarak mesajını ek talimat olarak kullan",
+  "AGENT_STEPS_SEND_TIP": "Yalnızca mesajı gönder (adımlar çalıştırılmaz)",
   "AGENT_STEPS_INSERT_AFTER": "{number}. adımdan sonra adım ekle",
   "AGENT_STEPS_RUNNING": "{step}/{count}. adım yürütülüyor",
   "AGENT_STEPS_STOP": "Adımları durdur",

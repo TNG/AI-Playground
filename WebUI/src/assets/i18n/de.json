@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Beenden",
   "AGENT_STEPS_HINT": "„Schritte ausführen“ arbeitet sie nacheinander ab, ein Durchgang pro Schritt. „Senden“ überspringt sie.",
   "AGENT_STEPS_RUN": "Schritte ausführen",
+  "AGENT_STEPS_RUN_TIP": "Alle Schritte ausführen, optional mit deiner Nachricht als zusätzliche Anweisung",
+  "AGENT_STEPS_SEND_TIP": "Nur die Nachricht senden (Schritte werden nicht ausgeführt)",
   "AGENT_STEPS_INSERT_AFTER": "Schritt nach Schritt {number} einfügen",
   "AGENT_STEPS_RUNNING": "Schritt {step} von {count} wird ausgeführt",
   "AGENT_STEPS_STOP": "Schritte stoppen",

@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "Salir",
   "AGENT_STEPS_HINT": "«Ejecutar pasos» los realiza de uno en uno, un turno por paso. «Enviar» los omite.",
   "AGENT_STEPS_RUN": "Ejecutar pasos",
+  "AGENT_STEPS_RUN_TIP": "Ejecutar todos los pasos, opcionalmente con tu mensaje como instrucciones adicionales",
+  "AGENT_STEPS_SEND_TIP": "Enviar solo el mensaje (no se ejecutan los pasos)",
   "AGENT_STEPS_INSERT_AFTER": "Insertar un paso después del paso {number}",
   "AGENT_STEPS_RUNNING": "Realizando el paso {step} de {count}",
   "AGENT_STEPS_STOP": "Detener los pasos",

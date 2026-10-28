@@ -220,7 +220,7 @@ function withMedia(message: ChannelMessage, media: ChannelMedia | undefined): Ch
 
 async function channelMedia(file: string): Promise<ChannelMedia | null> {
   const kind = channelMediaKind(file)
-  if (kind !== 'photo' && kind !== 'video') return null
+  if (!kind) return null
   const base64 = (await fs.readFile(file)).toString('base64')
   return { kind, base64, filename: path.basename(file) }
 }

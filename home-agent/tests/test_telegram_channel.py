@@ -143,6 +143,9 @@ class FakeBot:
     async def send_video(self, **kwargs):
         return self._sent("send_video", kwargs)
 
+    async def send_voice(self, **kwargs):
+        return self._sent("send_voice", kwargs)
+
 
 class ReplyParameters:
     def __init__(self, **kwargs) -> None:
@@ -208,6 +211,23 @@ class TelegramOutboundTest(unittest.TestCase):
         self.assertEqual(video, {"status": "ok", "message_id": 502})
         self.assertEqual(self.reply_target(0)["message_id"], 77)
         self.assertEqual(self.reply_target(1)["message_id"], 77)
+
+    def test_a_voice_memo_is_captioned_replies_and_returns_its_message_id(self) -> None:
+        ogg = base64.b64encode(b"OggS").decode()
+        voice = self.channel.send_voice(
+            {
+                "audio": ogg,
+                "mime": "audio/ogg",
+                "caption": "summary",
+                "reply_to_message_id": "77",
+            }
+        )
+        self.assertEqual(voice, {"status": "ok", "message_id": 501})
+        method, kwargs = self.bot.calls[0]
+        self.assertEqual(method, "send_voice")
+        self.assertEqual(kwargs["caption"], "summary")
+        self.assertEqual(kwargs["voice"], b"OggS")
+        self.assertEqual(self.reply_target(0)["message_id"], 77)
 
 
 if __name__ == "__main__":

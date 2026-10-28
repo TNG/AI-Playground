@@ -6,9 +6,15 @@ import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './
 /** The Home Agent backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
   kind: ChannelKind,
-  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'typing',
+  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'typing',
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
+
+const VOICE_MIME: Record<string, string> = {
+  wav: 'audio/wav',
+  mp3: 'audio/mpeg',
+  ogg: 'audio/ogg',
+}
 
 function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   const answering = CHANNEL_ANSWERING[kind]
@@ -27,6 +33,19 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   if (!media) {
     const action = answering.sendsAsPost ? ('post' as const) : ('reply' as const)
     return { action, payload: { text: message.text, ...target } }
+  }
+  if (media.kind === 'voice') {
+    const extension = media.filename.split('.').pop()?.toLowerCase() ?? ''
+    return {
+      action: 'voice' as const,
+      payload: {
+        audio: media.base64,
+        mime: VOICE_MIME[extension] ?? 'audio/wav',
+        caption: message.text,
+        filename: media.filename,
+        ...target,
+      },
+    }
   }
   return {
     action: media.kind,

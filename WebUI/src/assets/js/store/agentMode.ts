@@ -1062,6 +1062,7 @@ export const useAgentMode = defineStore(
         if (!turns.runtimeOf(sessionId)?.hasTurn()) return Promise.resolve()
         return new Promise<void>((resolve) => (turnEndWaiters[sessionId] ??= []).push(resolve))
       },
+      answerOrigin: (sessionId) => turnContexts[sessionId]?.answer,
     })
 
     function settleHeldPrompts(sessionId: string, how: 'show' | 'drop'): void {

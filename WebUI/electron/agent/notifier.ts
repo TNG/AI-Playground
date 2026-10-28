@@ -207,6 +207,11 @@ async function deliver(
         await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
           appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
         )
+      } else if (sessionId) {
+        appLoggerInstance.warn(
+          `${kind} returned no message ref; an Answer to it reaches Home Agent`,
+          LOG_SOURCE,
+        )
       }
     }
     return { delivered: true }

@@ -5,13 +5,17 @@ Stdlib only; slack-bolt is not needed, since an inbound DM is a plain event dict
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from channels.slack import inbound_item
+from channels.slack import SlackChannel, inbound_item
 
 USER = "U123"
 IM = "D456"
@@ -74,6 +78,45 @@ class SlackInboundTest(unittest.TestCase):
         )
         self.assertEqual(item["reply_to"], "1700.0001")
         self.assertEqual(item["audio"], voice)
+
+
+class FakeClient:
+    def __init__(self) -> None:
+        self.uploads: list[dict] = []
+
+    async def files_upload_v2(self, **kwargs):
+        self.uploads.append(kwargs)
+        return {"ok": True}
+
+
+class SlackOutboundTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.channel = SlackChannel(Path(self._dir.name))
+        self.client = FakeClient()
+        self.channel._app_instance = SimpleNamespace(client=self.client)
+        self.channel._run_coro = lambda coro, timeout=10.0: asyncio.run(coro)  # type: ignore[method-assign]
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def test_a_voice_clip_is_uploaded_with_its_caption_in_the_thread(self) -> None:
+        mp3 = base64.b64encode(b"ID3").decode()
+        result = self.channel.send_voice(
+            {
+                "audio": mp3,
+                "mime": "audio/mpeg",
+                "caption": "summary",
+                "thread_ts": "1700.0001",
+                "channel": IM,
+            }
+        )
+        self.assertEqual(result["status"], "ok")
+        upload = self.client.uploads[0]
+        self.assertEqual(upload["file"], b"ID3")
+        self.assertEqual(upload["initial_comment"], "summary")
+        self.assertEqual(upload["thread_ts"], "1700.0001")
+        self.assertTrue(upload["filename"].endswith(".mp3"))
 
 
 if __name__ == "__main__":

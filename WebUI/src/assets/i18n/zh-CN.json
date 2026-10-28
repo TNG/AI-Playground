@@ -714,6 +714,8 @@
   "AGENT_TASKS_QUIT": "退出",
   "AGENT_STEPS_HINT": "“运行步骤”会逐个执行这些步骤，每步一轮。“发送”会跳过它们。",
   "AGENT_STEPS_RUN": "运行步骤",
+  "AGENT_STEPS_RUN_TIP": "运行所有步骤，可选择将你的消息作为附加指令",
+  "AGENT_STEPS_SEND_TIP": "仅发送消息（不运行步骤）",
   "AGENT_STEPS_INSERT_AFTER": "在第 {number} 步之后插入步骤",
   "AGENT_STEPS_RUNNING": "正在执行第 {step} 步，共 {count} 步",
   "AGENT_STEPS_STOP": "停止步骤",

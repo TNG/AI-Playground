@@ -18,7 +18,11 @@ import {
   resetOpenDownloadQuestionsForTest,
 } from '../models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
-import type { PermissionsPromptPayload, PermissionsPromptResponse } from '@/types/permissionsIpc'
+import {
+  answerDownloadSession,
+  type PermissionsPromptPayload,
+  type PermissionsPromptResponse,
+} from '@/types/permissionsIpc'
 
 /**
  * Renderer half of the Permissions prompt adapter (step 13). Main owns grant
@@ -141,13 +145,15 @@ async function askDownloadQuestion(args: {
 function channelQuestionFor(
   models: DownloadModelParam[],
   conversationKey: string,
+  label: string,
   alreadyDownloading: DownloadModelParam[],
 ): DownloadChannelQuestion | null {
-  if (!isAgentSessionTurn(conversationKey)) return null
+  const forAnswer = answerDownloadSession(conversationKey) !== null
+  if (!forAnswer && !isAgentSessionTurn(conversationKey)) return null
   const port = remoteTurnPort()
   if (!port.canAskChannelQuestion()) return null
   return port.askDownloadQuestion(models, {
-    label: sessionLabel(conversationKey),
+    label,
     conversationKey,
     ...(alreadyDownloading.length ? { alreadyDownloading } : {}),
   })
@@ -168,6 +174,7 @@ async function turnDownload(args: {
   label: string
   signal: AbortSignal
   answered: () => void
+  skipConfirmation?: boolean
 }): Promise<void> {
   const { conversationKey, signal } = args
   const waiter = modelDownloads().waiter(conversationKey)
@@ -176,9 +183,16 @@ async function turnDownload(args: {
   if (signal.aborted) leave()
   try {
     const uncovered = waiter.attach(args.models)
-    if (uncovered.length > 0) {
+    if (uncovered.length > 0 && args.skipConfirmation) {
+      waiter.start(uncovered, args.label)
+    } else if (uncovered.length > 0) {
       const alreadyDownloading = waitedOn(args.models, uncovered)
-      const question = channelQuestionFor(uncovered, conversationKey, alreadyDownloading)
+      const question = channelQuestionFor(
+        uncovered,
+        conversationKey,
+        args.label,
+        alreadyDownloading,
+      )
       const answer = await askDownloadQuestion({
         models: uncovered,
         alreadyDownloading,
@@ -245,8 +259,13 @@ async function handleDownload(
   const models = request.models as DownloadModelParam[]
   const key = request.conversationKey
   const answered = () => respond({ requestId: request.requestId, answered: true })
+  const answeredSession = answerDownloadSession(key)
   // An Agent Mode session never takes the remote-turn path: the pre-grant must not skip it.
-  if (key && isAgentSessionTurn(key)) {
+  if (key && answeredSession !== null) {
+    const label = sessionLabel(answeredSession)
+    const skipConfirmation = request.skipConfirmation
+    await turnDownload({ models, conversationKey: key, label, signal, answered, skipConfirmation })
+  } else if (key && isAgentSessionTurn(key)) {
     void whenSessionTurnEnds(key).then(() => requestAborts.get(request.requestId)?.abort())
     await turnDownload({ models, conversationKey: key, label: sessionLabel(key), signal, answered })
   } else if (remoteTurnPort().isActive()) {
@@ -276,7 +295,10 @@ async function handlePrompt(request: PermissionsPromptPayload): Promise<void> {
     switch (request.kind) {
       case 'is-remote': {
         // An Agent Mode turn is never a remote turn's, whatever the Home Agent is doing.
-        const remote = remoteTurnPort().isActive() && !isAgentSessionTurn(request.conversationKey)
+        const key = request.conversationKey
+        const remote =
+          answerDownloadSession(key) !== null ||
+          (remoteTurnPort().isActive() && !isAgentSessionTurn(key))
         respond({ requestId: request.requestId, result: remote })
         break
       }

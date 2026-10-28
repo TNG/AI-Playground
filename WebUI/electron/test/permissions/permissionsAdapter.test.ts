@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import { answerDownloadKey, type PermissionsPromptPayload } from '@/types/permissionsIpc'
 import type { DownloadDialogOptions } from '@/assets/js/store/dialogs'
 import type { ModelDownloadCallbacks } from '@/lib/modelDownloader'
 import { createCancellation } from '@/assets/js/errors/appError'
@@ -361,6 +361,45 @@ describe('an Agent Mode download asked as a Channel Question', () => {
     void download('q12', [Y])
     await vi.waitFor(() => expect(dialogs).toHaveLength(2))
     expect(askDownloadQuestion).not.toHaveBeenCalled()
+  })
+})
+
+describe('a voice Answer’s speech model download', () => {
+  let question: FakeQuestion
+  const IDLE = 'aipg-agent-idle'
+
+  beforeEach(() => {
+    canAskChannelQuestion.mockReturnValue(true)
+    question = fakeQuestion()
+    askDownloadQuestion.mockReturnValue(question)
+  })
+
+  it('is asked as the answered session’s Channel Question, though no turn of it runs', async () => {
+    const done = download('a1', [X], answerDownloadKey(IDLE))
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    expect(askDownloadQuestion).toHaveBeenCalledWith([X], {
+      label: `"${IDLE} title"`,
+      conversationKey: answerDownloadKey(IDLE),
+    })
+    question.tap(true)
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
+    runs[0].finish()
+    expect(await done).toEqual({ requestId: 'a1', result: true })
+  })
+
+  it('counts as a remote turn, so the remote-turn pre-grant covers it', async () => {
+    handler?.({ requestId: 'a2', kind: 'is-remote', conversationKey: answerDownloadKey(SESSION) })
+    await vi.waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+    expect(respondMock).toHaveBeenCalledWith({ requestId: 'a2', result: true })
+  })
+
+  it('downloads without asking when pre-granted', async () => {
+    const done = download('a3', [X], answerDownloadKey(IDLE), { skipConfirmation: true })
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
+    expect(askDownloadQuestion).not.toHaveBeenCalled()
+    expect(dialogs).toHaveLength(0)
+    runs[0].finish()
+    expect(await done).toEqual({ requestId: 'a3', result: true })
   })
 })
 

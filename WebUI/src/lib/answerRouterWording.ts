@@ -17,6 +17,10 @@ export type AnswerRouterCopy = {
   fixOnDesktop: string
   textOnly: string
   noSpeech: string
+  /** A channel voice message dropped: no speech-to-text, its model declined, or `{error}` */
+  voiceNoBackend: string
+  voiceModelDeclined: string
+  voiceFailed: string
   /** `{title}`; an Answer held until the session's turn ends */
   held: string
   /** `{title}`; held while the turn waits for the download buttons in the channel */
@@ -54,6 +58,9 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   fixOnDesktop: 'AGENT_ANSWER_FIX_ON_DESKTOP',
   textOnly: 'AGENT_ANSWER_TEXT_ONLY',
   noSpeech: 'AGENT_ANSWER_NO_SPEECH',
+  voiceNoBackend: 'CHANNEL_VOICE_NO_BACKEND',
+  voiceModelDeclined: 'CHANNEL_VOICE_MODEL_DECLINED',
+  voiceFailed: 'CHANNEL_VOICE_FAILED',
   held: 'AGENT_ANSWER_HELD',
   heldDownload: 'AGENT_ANSWER_HELD_DOWNLOAD',
   heldDownloadElsewhere: 'AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE',

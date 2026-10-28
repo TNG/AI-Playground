@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   createRemoteSpeech,
   type RemoteSpeechDeps,
 } from '../../../src/assets/js/store/channels/remoteSpeech'
+import type { VoiceAnswerPreparation } from '../../../src/assets/js/store/channels/answerRouter'
+import {
+  answerRouterCopyFrom,
+  registerAnswerRouterCopy,
+} from '../../../src/lib/answerRouterWording'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
 import type { InboundMeta, RemoteAudio } from '../../../src/assets/js/store/channels/types'
 
@@ -324,12 +329,18 @@ function answerDeps(overrides: {
   return { deps, asked }
 }
 
+async function settled(preparation: VoiceAnswerPreparation) {
+  return 'downloading' in preparation ? { downloaded: await preparation.downloading } : preparation
+}
+
 describe('remote speech: readying a voice Answer to an agent', () => {
-  it('asks nothing when the speech model is already there', async () => {
+  it('is ready at once when the speech model is already there', async () => {
     const { adapter, posted } = fakeChannel()
     const { deps, asked } = answerDeps({})
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toEqual({
+      ready: true,
+    })
     expect(asked).toEqual([])
     expect(posted).toEqual([])
   })
@@ -338,7 +349,9 @@ describe('remote speech: readying a voice Answer to an agent', () => {
     const { adapter, posted } = fakeChannel()
     const { deps, asked } = answerDeps({ sttModelMissing: true })
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(true)
+    const preparation = await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')
+
+    expect(await settled(preparation)).toEqual({ downloaded: true })
     expect(asked).toEqual([{ models: [STT_MODEL], sessionId: 'asteroids' }])
     expect(posted).toEqual([])
   })
@@ -347,7 +360,9 @@ describe('remote speech: readying a voice Answer to an agent', () => {
     const { adapter, posted } = fakeChannel()
     const { deps } = answerDeps({ sttModelMissing: true, download: 'declined' })
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    const preparation = await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')
+
+    expect(await settled(preparation)).toEqual({ downloaded: false })
     expect(posted).toEqual([
       'Voice not transcribed: speech model not downloaded. Send text instead.',
     ])
@@ -357,7 +372,9 @@ describe('remote speech: readying a voice Answer to an agent', () => {
     const { adapter, posted } = fakeChannel()
     const { deps } = answerDeps({ sttModelMissing: true, download: new Error('disk full') })
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    const preparation = await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')
+
+    expect(await settled(preparation)).toEqual({ downloaded: false })
     expect(posted).toEqual(['⚠️ Could not transcribe the audio: disk full'])
   })
 
@@ -365,8 +382,35 @@ describe('remote speech: readying a voice Answer to an agent', () => {
     const { adapter, posted } = fakeChannel()
     const { deps, asked } = answerDeps({ sttInstalled: false })
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toBe(false)
+    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toEqual({
+      ready: false,
+    })
     expect(asked).toEqual([])
     expect(posted).toEqual([NO_BACKEND])
+  })
+})
+
+describe('remote speech in the app language', () => {
+  afterEach(() => registerAnswerRouterCopy(null))
+
+  it('tells the channel why a voice message was dropped in the language the app shows', async () => {
+    registerAnswerRouterCopy(() =>
+      answerRouterCopyFrom({
+        CHANNEL_VOICE_NO_BACKEND: 'kein Backend',
+        CHANNEL_VOICE_MODEL_DECLINED: 'abgelehnt',
+        CHANNEL_VOICE_FAILED: 'Fehler: {error}',
+      }),
+    )
+    const speech = (overrides: Parameters<typeof fakeDeps>[0]) =>
+      createRemoteSpeech(fakeDeps(overrides).deps)
+    const { adapter, sent } = fakeChannel()
+
+    await speech({ sttInstalled: false }).transcribe(adapter, [clip('a')])
+    await speech({ sttModelMissing: true, downloadAnswer: 'decline' }).transcribe(adapter, [
+      clip('a'),
+    ])
+    await speech({ transcribeError: new Error('500') }).transcribe(adapter, [clip('a')])
+
+    expect(sent).toEqual(['kein Backend', 'abgelehnt', 'Fehler: 500'])
   })
 })

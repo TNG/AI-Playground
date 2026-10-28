@@ -298,6 +298,9 @@ async function runClockTo(at: number): Promise<void> {
 }
 
 const sentPrompts = () => startTurn.mock.calls.map(([, prompt]) => prompt)
+/** A Step's turn carries the run's framing; its last line, minus `Step i of n: `, is the Step. */
+const sentSteps = () =>
+  sentPrompts().map((prompt) => (prompt.split('\n').at(-1) ?? '').replace(/^Step \d+ of \d+: /, ''))
 const sentConfig = (call: number) => startTurn.mock.calls[call][2]
 
 async function turnIdOf(call: number): Promise<string> {
@@ -338,7 +341,7 @@ describe('a Schedule reaching its Next Run', () => {
     await runClockTo(NOW + 10 * MINUTE)
 
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['t1 one'])
+    expect(sentSteps()).toEqual(['t1 one'])
     const sessionId = sentConfig(0).sessionId
     expect(agentMode.sessions[sessionId]).toMatchObject({
       taskId: 't1',
@@ -375,7 +378,7 @@ describe('a Schedule reaching its Next Run', () => {
 
     await finishTurn(0)
     await turnIdOf(1)
-    expect(sentPrompts()).toEqual(['t1 one', 't1 two'])
+    expect(sentSteps()).toEqual(['t1 one', 't1 two'])
     await finishTurn(1)
 
     await vi.waitFor(() =>
@@ -407,7 +410,7 @@ describe('a Schedule reaching its Next Run', () => {
     await runClockTo(NOW + 20 * MINUTE)
 
     await turnIdOf(1)
-    expect(sentPrompts()).toEqual(['only', 'only'])
+    expect(sentSteps()).toEqual(['only', 'only'])
     expect(sentConfig(1).sessionId).not.toBe(sentConfig(0).sessionId)
   })
 
@@ -418,7 +421,7 @@ describe('a Schedule reaching its Next Run', () => {
     await vi.advanceTimersByTimeAsync(TICK)
 
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['t1 one'])
+    expect(sentSteps()).toEqual(['t1 one'])
   })
 
   it('starts each due Task in its own session', async () => {
@@ -427,7 +430,7 @@ describe('a Schedule reaching its Next Run', () => {
     await runClockTo(NOW + 10 * MINUTE)
 
     await turnIdOf(1)
-    expect(sentPrompts().sort()).toEqual(['t1 one', 't2 one'])
+    expect(sentSteps().sort()).toEqual(['t1 one', 't2 one'])
     expect(sentConfig(0).sessionId).not.toBe(sentConfig(1).sessionId)
   })
 })
@@ -495,7 +498,7 @@ describe('a slot that finds a Task Run in flight', () => {
     await runClockTo(NOW + 20 * MINUTE)
 
     await turnIdOf(2)
-    expect(sentPrompts()).toEqual(['x', 'my own follow-up', 'x'])
+    expect(sentSteps()).toEqual(['x', 'my own follow-up', 'x'])
     expect(sentConfig(2).sessionId).not.toBe(earlier)
   })
 })
@@ -743,7 +746,7 @@ describe('a Scheduled Run that cannot start', () => {
     await runClockTo(NOW + 20 * MINUTE)
 
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['t1 one'])
+    expect(sentSteps()).toEqual(['t1 one'])
     expect(tasks.taskSchedule('t1')).toEqual({
       schedule: every10Minutes(),
       nextRunAt: NOW + 30 * MINUTE,
@@ -867,7 +870,7 @@ describe('a Schedule that must not fire', () => {
     await runClockTo(NOW + 40 * MINUTE)
 
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['x'])
+    expect(sentSteps()).toEqual(['x'])
   })
 
   it('never fires once removed', async () => {

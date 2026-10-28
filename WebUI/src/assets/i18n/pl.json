@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "Brak zapisanych agentów",
   "AGENT_AGENTS_STOP": "Zatrzymaj",
   "AGENT_AGENTS_OPEN_RUN": "Otwórz trwającą sesję",
-  "AGENT_AGENTS_RUN_NOW": "Uruchom teraz",
+  "AGENT_AGENTS_RUN_NOW": "Uruchom teraz w nowej sesji",
   "AGENT_AGENTS_SHOW_SESSIONS": "Pokaż sesje",
   "AGENT_AGENTS_DELETE": "Usuń",
   "AGENT_AGENTS_NAME": "Nazwa agenta",

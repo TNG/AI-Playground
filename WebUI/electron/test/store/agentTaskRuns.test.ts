@@ -5,6 +5,7 @@ import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTask } from '@/types/agentTaskIpc'
 import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
+import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 
 // Running a Task: the Tasks store creates a Task Session in the background and
 // sends its Steps one after another, each once the previous Step's turn settled.
@@ -292,6 +293,9 @@ async function readyStores(...saved: AgentTask[]) {
 }
 
 const sentPrompts = () => startTurn.mock.calls.map(([, prompt]) => prompt)
+/** A Step's turn carries the run's framing; its last line, minus `Step i of n: `, is the Step. */
+const sentSteps = () =>
+  sentPrompts().map((prompt) => (prompt.split('\n').at(-1) ?? '').replace(/^Step \d+ of \d+: /, ''))
 const sentConfig = (call: number) => startTurn.mock.calls[call][2]
 
 async function turnIdOf(call: number): Promise<string> {
@@ -346,6 +350,18 @@ describe('running a Task', () => {
     expect(JSON.stringify(agentMode.messages)).not.toContain('"one"')
   })
 
+  it('keeps the Steps on the Task Session, so opening it offers Run again', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    await agentMode.switchSession(sessionId)
+
+    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['one', 'two'])
+    expect(agentMode.openTaskId).toBe('t1')
+  })
+
   it('files the Task Session under the Chat preset the Agent was saved as', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks()
@@ -358,23 +374,35 @@ describe('running a Task', () => {
     expect(sentConfig(0)).toMatchObject({ presetName: 'Morning news' })
   })
 
+  it('frames the Steps as the prompt bar Run does', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    await finishTurn(0)
+    await turnIdOf(1)
+    await settleMicrotasks()
+
+    expect(sentPrompts()).toEqual([firstStepTurn('', ['one', 'two']), stepTurn(2, ['one', 'two'])])
+  })
+
   it('sends each Step only after the previous one settled, then records completed', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
 
     await tasks.runTask('t1')
     await turnIdOf(0)
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
 
     await finishTurn(0)
     await turnIdOf(1)
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentSteps()).toEqual(['one', 'two'])
 
     await finishTurn(1)
     await turnIdOf(2)
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one', 'two', 'three'])
+    expect(sentSteps()).toEqual(['one', 'two', 'three'])
     const sessionId = sentConfig(0).sessionId
     expect(startTurn.mock.calls.every(([, , config]) => config.sessionId === sessionId)).toBe(true)
 
@@ -459,7 +487,7 @@ describe('one run per Task', () => {
     await tasks.runTask('t2')
     await turnIdOf(1)
 
-    expect(sentPrompts()).toEqual(['a1', 'b1'])
+    expect(sentSteps()).toEqual(['a1', 'b1'])
     expect(sentConfig(0).sessionId).not.toBe(sentConfig(1).sessionId)
     expect(tasks.taskState('t1')).toHaveProperty('running')
     expect(tasks.taskState('t2')).toHaveProperty('running')
@@ -472,7 +500,7 @@ describe('one run per Task', () => {
     )
     expect(tasks.taskState('t1')).toHaveProperty('running')
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['a1', 'b1'])
+    expect(sentSteps()).toEqual(['a1', 'b1'])
   })
 
   it('refuses to delete a running Task', async () => {
@@ -506,7 +534,7 @@ describe('a run in the background', () => {
     await finishTurn(0)
 
     await turnIdOf(1)
-    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentSteps()).toEqual(['one', 'two'])
   })
 
   it('keeps going when the active preset changes', async () => {
@@ -581,7 +609,7 @@ describe('a run that fails', () => {
     expect(await settledOutcome(tasks, 't1')).toMatchObject(outcome)
     expect(lastSavedTask('t1')?.lastOutcome).toMatchObject(outcome)
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentSteps()).toEqual(['one', 'two'])
   })
 
   it('settles failed without any turn when the folder is missing', async () => {
@@ -610,7 +638,7 @@ describe('a run that fails', () => {
       message: 'refused by main',
     })
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 
   it('records the failure in the error sink silently, without toasting it', async () => {
@@ -708,7 +736,7 @@ describe('a Task whose Settings Template has a problem', () => {
       stepIndex: 2,
       message: 'model “Template-27B” is no longer available.',
     })
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 
   it('runs once the problem is fixed', async () => {
@@ -720,7 +748,7 @@ describe('a Task whose Settings Template has a problem', () => {
 
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 })
 
@@ -751,7 +779,7 @@ describe('running a Task whose chat model is not downloaded', () => {
 
     expect(await running).toEqual({ ok: true })
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 
   it.each([
@@ -863,7 +891,7 @@ describe('stopping a run', () => {
 
     expect(cancel()).toHaveBeenCalledWith(sessionId, turnId)
     await expectStopped(tasks, 2)
-    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentSteps()).toEqual(['one', 'two'])
   })
 
   it.each(['queued', 'paused'] as const)('cancels a %s Step', async (state) => {
@@ -877,7 +905,7 @@ describe('stopping a run', () => {
 
     expect(cancel()).toHaveBeenCalledWith(sessionId, turnId)
     await expectStopped(tasks, 1)
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 
   it('settles stopped when the Task Session’s turn is stopped directly', async () => {
@@ -890,7 +918,7 @@ describe('stopping a run', () => {
     await agentMode.stop()
 
     await expectStopped(tasks, 1)
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 
   it('does not send a Step that was being handed off when stopped', async () => {
@@ -999,7 +1027,7 @@ describe('the app closing during a run', () => {
 
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
   })
 
   it('reattaches a run whose turn main still holds, and sends the next step when it ends', async () => {
@@ -1071,7 +1099,7 @@ describe('the app closing during a run', () => {
     pushEvent({ type: 'agent-turn-done', sessionId, turnId })
 
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual(['two'])
+    expect(sentSteps()).toEqual(['two'])
     expect(lastSavedTask('t1')?.activeRun).toMatchObject({
       sessionId,
       stepIndex: 2,
@@ -1230,7 +1258,7 @@ describe('locking the Task Session', () => {
     void agentMode.generate('my own follow-up')
 
     await turnIdOf(1)
-    expect(sentPrompts()).toEqual(['one', 'my own follow-up'])
+    expect(sentSteps()).toEqual(['one', 'my own follow-up'])
     expect(sentConfig(1).sessionId).toBe(sessionId)
   })
 })
@@ -1261,7 +1289,7 @@ describe('updating an Agent while it runs', () => {
 
     await finishTurn(0)
     await turnIdOf(1)
-    expect(sentPrompts()).toEqual(['one', 'two'])
+    expect(sentSteps()).toEqual(['one', 'two'])
     expect(sentConfig(1)).toMatchObject({
       sessionId,
       workspaceDir: '/work/task',
@@ -1277,7 +1305,7 @@ describe('updating an Agent while it runs', () => {
 
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(2)
-    expect(sentPrompts().at(-1)).toBe('first')
+    expect(sentSteps().at(-1)).toBe('first')
     expect(sentConfig(2)).toMatchObject({
       workspaceDir: '/work/edited',
       modelConfig: { model: 'Edited-9B' },
@@ -1520,7 +1548,7 @@ describe('running Steps from the prompt bar', () => {
     await tasks.runSteps('Intel news')
 
     await settleMicrotasks()
-    expect(sentPrompts()).toEqual(['one'])
+    expect(sentSteps()).toEqual(['one'])
     expect(tasks.promptRunOf(sessionId)).toBeUndefined()
   })
 })

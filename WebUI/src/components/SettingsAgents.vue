@@ -379,7 +379,12 @@ function openSchedule(id: string): void {
 
 async function runNow(id: string): Promise<void> {
   const result = await agentTasks.runTask(id)
-  if (result.ok || result.reason !== 'settings-problems') return
+  if (result.ok) {
+    const state = agentTasks.taskState(id)
+    if ('running' in state) await agentMode.openSession(state.running.sessionId)
+    return
+  }
+  if (result.reason !== 'settings-problems') return
   errors.report(
     createAppError({
       category: 'validation',

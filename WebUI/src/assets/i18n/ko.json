@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "저장된 에이전트가 아직 없습니다",
   "AGENT_AGENTS_STOP": "중지",
   "AGENT_AGENTS_OPEN_RUN": "실행 중인 세션 열기",
-  "AGENT_AGENTS_RUN_NOW": "지금 실행",
+  "AGENT_AGENTS_RUN_NOW": "새 세션에서 지금 실행",
   "AGENT_AGENTS_SHOW_SESSIONS": "세션 보기",
   "AGENT_AGENTS_DELETE": "삭제",
   "AGENT_AGENTS_NAME": "에이전트 이름",

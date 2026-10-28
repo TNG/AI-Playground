@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "Noch keine gespeicherten Agents",
   "AGENT_AGENTS_STOP": "Stoppen",
   "AGENT_AGENTS_OPEN_RUN": "Laufende Sitzung öffnen",
-  "AGENT_AGENTS_RUN_NOW": "Jetzt ausführen",
+  "AGENT_AGENTS_RUN_NOW": "Jetzt in einer neuen Sitzung ausführen",
   "AGENT_AGENTS_SHOW_SESSIONS": "Sitzungen anzeigen",
   "AGENT_AGENTS_DELETE": "Löschen",
   "AGENT_AGENTS_NAME": "Agent-Name",

@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "Chưa có tác tử nào được lưu",
   "AGENT_AGENTS_STOP": "Dừng",
   "AGENT_AGENTS_OPEN_RUN": "Mở phiên đang chạy",
-  "AGENT_AGENTS_RUN_NOW": "Chạy ngay",
+  "AGENT_AGENTS_RUN_NOW": "Chạy ngay trong phiên mới",
   "AGENT_AGENTS_SHOW_SESSIONS": "Hiển thị phiên",
   "AGENT_AGENTS_DELETE": "Xóa",
   "AGENT_AGENTS_NAME": "Tên tác tử",

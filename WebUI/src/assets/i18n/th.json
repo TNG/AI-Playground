@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "ยังไม่มีเอเจนต์ที่บันทึกไว้",
   "AGENT_AGENTS_STOP": "หยุด",
   "AGENT_AGENTS_OPEN_RUN": "เปิดเซสชันที่กำลังทำงาน",
-  "AGENT_AGENTS_RUN_NOW": "เรียกใช้ตอนนี้",
+  "AGENT_AGENTS_RUN_NOW": "เรียกใช้ตอนนี้ในเซสชันใหม่",
   "AGENT_AGENTS_SHOW_SESSIONS": "แสดงเซสชัน",
   "AGENT_AGENTS_DELETE": "ลบ",
   "AGENT_AGENTS_NAME": "ชื่อเอเจนต์",

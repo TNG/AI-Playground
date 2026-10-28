@@ -723,7 +723,7 @@
   "AGENT_AGENTS_EMPTY": "Aún no hay agentes guardados",
   "AGENT_AGENTS_STOP": "Detener",
   "AGENT_AGENTS_OPEN_RUN": "Abrir la sesión en curso",
-  "AGENT_AGENTS_RUN_NOW": "Ejecutar ahora",
+  "AGENT_AGENTS_RUN_NOW": "Ejecutar ahora en una sesión nueva",
   "AGENT_AGENTS_SHOW_SESSIONS": "Mostrar sesiones",
   "AGENT_AGENTS_DELETE": "Eliminar",
   "AGENT_AGENTS_NAME": "Nombre del agente",

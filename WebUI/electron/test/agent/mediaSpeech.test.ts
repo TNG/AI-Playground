@@ -110,6 +110,22 @@ describe('mediaSpeech (agent speech tools)', () => {
     expect(fs.readFileSync(path.join(workspaceDir, 'generated', 'speech.wav'), 'utf8')).toBe('riff')
   })
 
+  it('tells the agent to attach the clip to a Notification rather than mention its path', async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    const output = await run(tool, { text: 'hello' })
+
+    expect(output.message).toContain('notify_user')
+    expect(output.message).toContain('"attachments": ["generated/speech.wav"]')
+    expect(output.message).toMatch(/not .*path/i)
+  })
+
   it('also keeps an app-folder copy for the transcript, which outlives the workspace', async () => {
     askRendererMock.mockResolvedValue({
       audioBase64: Buffer.from('riff').toString('base64'),
@@ -123,8 +139,9 @@ describe('mediaSpeech (agent speech tools)', () => {
 
     expect(parseOutput(output)).toEqual({
       ok: true,
-      message:
+      message: expect.stringContaining(
         'Synthesized speech with Kokoro (Ryan). Saved into the workspace at generated/speech.wav.',
+      ),
       savedFilePath: 'generated/speech.wav',
       speaker: 'Ryan',
     })

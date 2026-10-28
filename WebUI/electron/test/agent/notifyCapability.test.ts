@@ -356,6 +356,24 @@ describe('notify_user attachments', () => {
     ])
   }, 30000)
 
+  it('sends an attached speech clip as a voice message captioned with the Notification text', async () => {
+    attach('generated/summary.wav', 'wav bytes')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/summary.wav'] }
+    await runTurn('aipg-agent-notify-voice')
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: caption,
+        media: {
+          kind: 'voice',
+          base64: Buffer.from('wav bytes').toString('base64'),
+          filename: 'summary.wav',
+        },
+      },
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
   it('records the sent attachment so a reply to it reaches the session', async () => {
     attach('shot.jpg')
     notifyArgs = { message: SUMMARY, attachments: ['shot.jpg'] }
@@ -412,6 +430,7 @@ describe('notify_user attachments', () => {
     const description = JSON.stringify(tool)
     expect(description).toContain('png, jpg, jpeg, webp')
     expect(description).toContain('mp4, webm')
+    expect(description).toContain('wav, mp3, ogg')
     expect(description).toMatch(/not sent unless/i)
   }, 30000)
 

@@ -66,6 +66,7 @@ import {
   createAppError,
   createCancellation,
 } from '../errors/appError'
+import { answerDownloadKey } from '@/types/permissionsIpc'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
@@ -300,6 +301,15 @@ export const useHomeAgent = defineStore(
         missing: synthesisModelMissing,
         install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
       },
+      answerDownload: async (models, sessionId) => {
+        try {
+          await requestDownload(models, { conversationKey: answerDownloadKey(sessionId) })
+          return true
+        } catch (e) {
+          if (isCancellation(e)) return false
+          throw e
+        }
+      },
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -307,6 +317,7 @@ export const useHomeAgent = defineStore(
       sessions: answerSessions,
       questions: channelQuestions,
       transcribe: remoteSpeech.transcribe,
+      prepareVoiceAnswer: remoteSpeech.prepareAnswer,
       downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
       log: (message, error) => reportSilently(message, error),

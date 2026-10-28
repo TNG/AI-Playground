@@ -35,6 +35,8 @@ export type RemoteSpeechDeps = {
     /** Asks the sender in-channel (desktop mirror, pre-grant honored) and downloads; false when declined. */
     install: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<boolean>
   }
+  /** Asked as the answered agent session's download; false when declined. */
+  answerDownload: (models: DownloadModelParam[], sessionId: string) => Promise<boolean>
   log: (message: string, error: unknown) => void
 }
 
@@ -48,6 +50,12 @@ export type RemoteSpeech = {
   ) => Promise<string | null>
   /** Sends `text` as a voice message too; best-effort, the text reply already went out. */
   speak: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
+  /** Downloads a missing speech model for a voice Answer to `sessionId`; false once the channel was told why not. */
+  prepareAnswer: (
+    adapter: ChannelAdapter,
+    sessionId: string,
+    meta?: InboundMeta,
+  ) => Promise<boolean>
 }
 
 const failureText = (e: unknown) =>
@@ -113,5 +121,27 @@ export function createRemoteSpeech(deps: RemoteSpeechDeps): RemoteSpeech {
     return (await deps.synthesisModel.missing()) && deps.synthesisModel.install(adapter, meta)
   }
 
-  return { transcribe, speak }
+  async function prepareAnswer(
+    adapter: ChannelAdapter,
+    sessionId: string,
+    meta?: InboundMeta,
+  ): Promise<boolean> {
+    const say = (message: string) => adapter.post(adapter.formatMarkdown(message), meta)
+    if (!deps.transcriptionModel.installed()) {
+      await say(NO_SPEECH_TO_TEXT)
+      return false
+    }
+    const missing = await deps.transcriptionModel.missing()
+    if (missing.length === 0) return true
+    try {
+      if (await deps.answerDownload(missing, sessionId)) return true
+      await say(SPEECH_MODEL_DECLINED)
+    } catch (e) {
+      deps.log('homeAgent: speech model download failed', e)
+      await say(failureText(e))
+    }
+    return false
+  }
+
+  return { transcribe, speak, prepareAnswer }
 }

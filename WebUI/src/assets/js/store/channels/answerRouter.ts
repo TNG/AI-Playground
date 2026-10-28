@@ -86,6 +86,15 @@ export type AnswerRouterDeps = {
     audio: RemoteAudio[],
     meta?: InboundMeta,
   ) => Promise<string | null>
+  /**
+   * Readies speech-to-text for a voice Answer to `sessionId`, asking that session's download
+   * question when its model is missing; false means the channel was already told why not.
+   */
+  prepareVoiceAnswer?: (
+    adapter: ChannelAdapter,
+    sessionId: string,
+    meta?: InboundMeta,
+  ) => Promise<boolean>
   /** The channel an agent's download question is asked on, or null when only the computer asks. */
   downloadQuestionChannel?: () => ChannelKind | null
   copy?: () => AnswerRouterCopy
@@ -327,14 +336,32 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const title = sessions.label(sessionId)
       return tell(adapter, fillTemplate(copy().realShell, { title }), meta)
     }
-    let text = msg.text?.trim() ?? ''
-    if (msg.audio?.length && deps.transcribe) {
-      const transcript = await deps.transcribe(adapter, msg.audio, meta)
-      if (transcript === null) return
-      text = [text, transcript.trim()].filter(Boolean).join(' ')
-      if (!text) return tell(adapter, copy().noSpeech, meta)
+    const text = msg.text?.trim() ?? ''
+    const audio = msg.audio
+    if (audio?.length && deps.transcribe) {
+      // A speech model download can take minutes; the channel's other messages go on meanwhile.
+      void answerByVoice(adapter, sessions, sessionId, { ...msg, audio }, meta).catch(
+        (e: unknown) => log('answerRouter: voice Answer failed:', e),
+      )
+      return
     }
     if (text) await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
+  }
+
+  async function answerByVoice(
+    adapter: ChannelAdapter,
+    sessions: AnswerSessions,
+    sessionId: string,
+    msg: InboundChannelMessage & { audio: RemoteAudio[] },
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const prepared = deps.prepareVoiceAnswer
+    if (prepared && !(await prepared(adapter, sessionId, meta))) return
+    const transcript = await deps.transcribe?.(adapter, msg.audio, meta)
+    if (transcript == null) return
+    const text = [msg.text?.trim(), transcript.trim()].filter(Boolean).join(' ')
+    if (!text) return tell(adapter, copy().noSpeech, meta)
+    await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
   }
 
   async function route(

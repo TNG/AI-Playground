@@ -9,6 +9,7 @@ import * as toast from '@/assets/js/toast'
 import { useSetupWizard } from './setupWizard'
 import { useProductMode } from './productMode'
 import { synthesizeSpeech, bytesToBase64 } from '@/lib/synthesizeSpeech'
+import { prepareKokoroText } from '@/lib/kokoroSpeechText'
 
 export const SPEECHT5_MODEL_NAME = 'OpenVINO/Kokoro-82M-int8-ov'
 
@@ -49,6 +50,7 @@ export type SpeechEndpoint = {
   model: string
   voice: string
   apiKey: string
+  prepareText?: (text: string) => string
 }
 
 /**
@@ -156,6 +158,7 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
           model: SPEECHT5_MODEL_NAME.split('/').join('---'),
           voice: selectedKokoroVoice.value,
           apiKey: '',
+          prepareText: prepareKokoroText,
         }
       }
     } catch (error) {

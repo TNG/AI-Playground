@@ -68,7 +68,7 @@ import { extractMessage } from '@/assets/js/errors/appError'
 
 const appLogger = appLoggerInstance
 
-const GENERATION_IDLE_TIMEOUT_MS = 5 * 60_000
+const GENERATION_IDLE_TIMEOUT_MS = 60_000 // TODO revert: local repro, was 5 * 60_000
 const WEBSOCKET_CLOSED_BY_POLICY = 1000
 
 /** The renderer's queued-slot placeholder, kept byte-identical. */
@@ -639,6 +639,11 @@ function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
       break
     case 'executing': {
       const executingNode = parsed.data.node
+      // TODO revert: local repro logging
+      appLogger.info(
+        `[comfy-repro] executing node ${executingNode} (${String(run.payload.preset.comfyUiApiWorkflow?.[executingNode ?? '']?.class_type ?? '-')}) at ${new Date().toISOString()}`,
+        'electron-backend',
+      )
       if (executingNode && run.loaderNodes.includes(executingNode)) {
         setPhase(run, 'loading-model')
       } else if (executingNode !== null) {

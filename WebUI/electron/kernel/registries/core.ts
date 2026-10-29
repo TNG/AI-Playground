@@ -1355,10 +1355,12 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           body.voice = options.voice
         }
         const url = `${options.baseURL.replace(/\/$/, '')}/audio/speech`
+        const requestBody = JSON.stringify(body)
+        deps.appLogger.info(`Speech request to ${url}: ${requestBody}`, 'electron-backend')
         const res = await net.fetch(url, {
           method: 'POST',
           headers,
-          body: JSON.stringify(body),
+          body: requestBody,
         })
         if (!res.ok) {
           const detail = await res.text().catch(() => '')

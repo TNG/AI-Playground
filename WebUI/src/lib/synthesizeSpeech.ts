@@ -16,6 +16,7 @@ export async function synthesizeSpeech(
   opts?: { format?: SpeechFormat },
 ): Promise<{ bytes: Uint8Array; mediaType: string }> {
   const format = opts?.format ?? 'wav'
+  const input = cfg.prepareText ? cfg.prepareText(text) : text
 
   const electronAPI = (globalThis as { electronAPI?: Window['electronAPI'] }).electronAPI
   if (electronAPI?.synthesizeSpeech) {
@@ -23,7 +24,7 @@ export async function synthesizeSpeech(
       electronAPI.synthesizeSpeech({
         baseURL: cfg.baseURL,
         model: cfg.model,
-        input: text,
+        input,
         voice: cfg.voice || undefined,
         apiKey: cfg.apiKey || undefined,
         format: f,
@@ -47,7 +48,7 @@ export async function synthesizeSpeech(
 
   const body: Record<string, unknown> = {
     model: cfg.model,
-    input: text,
+    input,
     response_format: format,
   }
   if (cfg.voice) {

@@ -270,10 +270,12 @@ export class OpenVINOBackendService implements ApiService {
     if (process.platform === 'win32') {
       // Windows ships a fully self-contained CPython under ovms/python, so we
       // point PYTHONHOME at it and expose its Scripts dir on PATH.
+      const espeakDataDir = path.join(this.ovmsDir, 'espeak-ng-data')
       return {
         ...cleanEnv,
         OVMS_DIR: this.ovmsDir,
         PYTHONHOME: pythonDir,
+        ...(filesystem.existsSync(espeakDataDir) && { ESPEAK_DATA_PATH: espeakDataDir }),
         PATH: [this.ovmsDir, pythonDir, scriptsDir, sanitizedInheritedPath]
           .filter(Boolean)
           .join(path.delimiter),

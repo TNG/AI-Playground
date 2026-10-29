@@ -270,10 +270,12 @@ export class OpenVINOBackendService implements ApiService {
     if (process.platform === 'win32') {
       // Windows ships a fully self-contained CPython under ovms/python, so we
       // point PYTHONHOME at it and expose its Scripts dir on PATH.
+      const espeakDataDir = path.join(this.ovmsDir, 'espeak-ng-data')
       return {
         ...cleanEnv,
         OVMS_DIR: this.ovmsDir,
         PYTHONHOME: pythonDir,
+        ...(filesystem.existsSync(espeakDataDir) && { ESPEAK_DATA_PATH: espeakDataDir }),
         PATH: [this.ovmsDir, pythonDir, scriptsDir, sanitizedInheritedPath]
           .filter(Boolean)
           .join(path.delimiter),
@@ -295,6 +297,8 @@ export class OpenVINOBackendService implements ApiService {
       path.join(this.ovmsDir, 'lib', 'python'),
       path.join(pythonDir, 'lib', 'python'),
     ].filter((p) => filesystem.existsSync(p))
+    // The Linux package has no setupvars.sh; its espeak-ng appends `/espeak-ng-data` to this path.
+    const espeakDataParent = path.join(this.ovmsDir, 'share')
 
     return {
       ...cleanEnv,
@@ -309,6 +313,9 @@ export class OpenVINOBackendService implements ApiService {
       ...(this.ovmsEmbeddedPythonHome && { PYTHONHOME: this.ovmsEmbeddedPythonHome }),
       ...(ovmsPythonModuleDirs.length > 0 && {
         PYTHONPATH: ovmsPythonModuleDirs.join(path.delimiter),
+      }),
+      ...(filesystem.existsSync(path.join(espeakDataParent, 'espeak-ng-data')) && {
+        ESPEAK_DATA_PATH: espeakDataParent,
       }),
       // Ensure a UTF-8 locale so the interpreter can load the filesystem-encoding
       // codec on minimal setups where LANG/LC_ALL may be unset.

@@ -124,6 +124,7 @@ import { importAttachment } from './agent/workspaceAttachments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
 import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
 import {
+  openDirectory,
   openFileWithSystem,
   revealFileInFolder,
   saveFileCopy,
@@ -1805,6 +1806,7 @@ function initEventHandle() {
           startFileDrag(sender, filePath, path.join(externalRes, 'cam.png')),
         saveCopy: saveFileCopy,
       }),
+      openWorkspaceFolder: openDirectory,
       bootstrapAgentSessions,
       migrateLegacyAgentSessions,
       saveAgentSession,

@@ -1,12 +1,13 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_ANSWERING } from '@/lib/answerButton'
+import { channelMediaType } from '@/lib/channelMediaKind'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
 
 /** The Home Agent backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
   kind: ChannelKind,
-  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'typing',
+  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'typing',
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 
@@ -14,19 +15,37 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   const answering = CHANNEL_ANSWERING[kind]
   const target = message.replyTo ? { [answering.replyKey]: message.replyTo } : {}
   const { media, buttons, answerTitle } = message
+  const title = answering.buttonCarriesTitle && answerTitle ? { answer_title: answerTitle } : {}
+  const keyboard = buttons
+    ? {
+        buttons: buttons.map((row) =>
+          row.map((button) => ({ text: button.text, callback_data: button.callbackData })),
+        ),
+        ...title,
+      }
+    : {}
   if (buttons && !media) {
-    const rows = buttons.map((row) =>
-      row.map((button) => ({ text: button.text, callback_data: button.callbackData })),
-    )
-    const title = answering.buttonCarriesTitle && answerTitle ? { answer_title: answerTitle } : {}
     return {
       action: 'keyboard' as const,
-      payload: { text: message.text, buttons: rows, ...title, ...target },
+      payload: { text: message.text, ...keyboard, ...target },
     }
   }
   if (!media) {
     const action = answering.sendsAsPost ? ('post' as const) : ('reply' as const)
     return { action, payload: { text: message.text, ...target } }
+  }
+  if (media.kind === 'voice') {
+    return {
+      action: 'voice' as const,
+      payload: {
+        audio: media.base64,
+        mime: channelMediaType(media.filename) ?? 'audio/wav',
+        caption: message.text,
+        filename: media.filename,
+        ...keyboard,
+        ...target,
+      },
+    }
   }
   return {
     action: media.kind,
@@ -34,6 +53,7 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
       [media.kind]: media.base64,
       caption: message.text,
       filename: media.filename,
+      ...keyboard,
       ...target,
     },
   }

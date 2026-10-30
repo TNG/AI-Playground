@@ -1,3 +1,5 @@
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
+
 /**
  * Where a prompt for a turn may be shown. A paused Agent Session's download or
  * VRAM prompt waits until that session is on screen rather than popping up over
@@ -11,6 +13,8 @@ export type SessionPromptPort = {
   isAgentTurn: (conversationKey: string) => boolean
   /** Resolves once that session's turn has ended (stopped, finished, failed or deleted). */
   whenTurnEnds: (conversationKey: string) => Promise<void>
+  /** The channel Answer that started that session's turn in flight, if one did. */
+  answerOrigin: (conversationKey: string) => AgentAnswerOrigin | undefined
 }
 
 let registered: SessionPromptPort | null = null
@@ -32,6 +36,10 @@ export function whenSessionTurnEnds(conversationKey: string): Promise<void> {
 
 export function isAgentSessionTurn(conversationKey: string | undefined): boolean {
   return !!conversationKey && !!registered?.isAgentTurn(conversationKey)
+}
+
+export function sessionAnswerOrigin(conversationKey: string): AgentAnswerOrigin | undefined {
+  return registered?.answerOrigin(conversationKey)
 }
 
 /** Names a session or Task run the way Notifications do. */

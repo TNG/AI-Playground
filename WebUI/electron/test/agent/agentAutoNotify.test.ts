@@ -30,6 +30,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => sessionsDir,
   getAgentTasksFile: () => tasksFile,
   getChannelMessageMapFile: () => messageMapFile,
+  getAudioDir: () => path.join(tempRoot, 'audio'),
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -37,6 +38,10 @@ const BACKEND = 'http://fake-llm.test/v1'
 let modelRetired = false
 /** What the model answers once its tool has run. */
 let finalText = 'done'
+/** When set, the step after the speech result sends this file with `notify_user`. */
+let notifyAttachment: string | null = null
+/** The clip the window hands back for the speech request. */
+let clipBase64 = ''
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -53,6 +58,23 @@ function completion(delta: Record<string, unknown>, finish: string | null = null
 }
 
 /** The first step calls the speech tool; the step after its result just answers. */
+function toolCall(name: string, args: unknown) {
+  return [
+    completion({
+      role: 'assistant',
+      tool_calls: [
+        {
+          index: 0,
+          id: `call-${name}`,
+          type: 'function',
+          function: { name, arguments: JSON.stringify(args) },
+        },
+      ],
+    }),
+    completion({}, 'tool_calls'),
+  ]
+}
+
 function reply(body: { messages?: Array<{ role: string }> }): Response {
   if (modelRetired) {
     return new Response(JSON.stringify({ error: { message: 'model test-model was retired' } }), {
@@ -60,23 +82,13 @@ function reply(body: { messages?: Array<{ role: string }> }): Response {
       headers: { 'Content-Type': 'application/json' },
     })
   }
-  const callsTool = !body.messages?.some((message) => message.role === 'tool')
-  const chunks = callsTool
-    ? [
-        completion({
-          role: 'assistant',
-          tool_calls: [
-            {
-              index: 0,
-              id: 'call-1',
-              type: 'function',
-              function: { name: 'synthesizeTextToSpeech', arguments: '{"text":"hi"}' },
-            },
-          ],
-        }),
-        completion({}, 'tool_calls'),
-      ]
-    : [completion({ role: 'assistant', content: finalText }), completion({}, 'stop')]
+  const toolResults = body.messages?.filter((message) => message.role === 'tool').length ?? 0
+  const chunks =
+    toolResults === 0
+      ? toolCall('synthesizeTextToSpeech', { text: 'hi' })
+      : toolResults === 1 && notifyAttachment
+        ? toolCall('notify_user', { message: 'listen', attachments: [notifyAttachment] })
+        : [completion({ role: 'assistant', content: finalText }), completion({}, 'stop')]
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(frame(chunk))
@@ -230,6 +242,8 @@ beforeEach(() => {
   windowShown = true
   modelRetired = false
   finalText = 'done'
+  notifyAttachment = null
+  clipBase64 = ''
   fs.rmSync(tasksFile, { force: true })
   fs.rmSync(messageMapFile, { force: true })
   notifier.setNotificationConfig(CONFIG)
@@ -267,7 +281,7 @@ async function withWaitingTurn(
   await whileWaiting()
   chatAsk.handleChatAnswer({
     requestId: asks[0].requestId,
-    result: { audioBase64: '', mediaType: 'audio/wav', voice: 'test', engine: 'kokoro' },
+    result: { audioBase64: clipBase64, mediaType: 'audio/wav', voice: 'test', engine: 'kokoro' },
   })
   expect(await run).toEqual({ success: true })
 }
@@ -717,6 +731,37 @@ describe('the turn an Answer started', () => {
       { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
+    ])
+  }, 30000)
+
+  it('sends the speech the turn generated as a voice message under the Answer', async () => {
+    clipBase64 = Buffer.from('RIFF-wav').toString('base64')
+    await withWaitingTurn(SESSION, async () => {}, answerTurn())
+    await settle()
+    const header = '🤖 Agent · "Morning news"'
+    expect(sent).toEqual([
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+    ])
+  }, 30000)
+
+  it('does not send again at turn end what notify_user already sent during the turn', async () => {
+    clipBase64 = Buffer.from('RIFF-wav').toString('base64')
+    notifyAttachment = 'generated/speech.wav'
+    await withWaitingTurn(SESSION, async () => {}, {
+      ...answerTurn(),
+      capabilities: ['media', 'notify'],
+    })
+    await settle()
+    const header = '🤖 Agent · "Morning news"'
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: `${header}\nlisten`,
+        replyTo: 'answer-77',
+        media: 'voice:speech.wav',
+      },
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
   }, 30000)
 

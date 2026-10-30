@@ -12,6 +12,7 @@ import { useConfirmations } from './confirmations'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
 import { fetchModelMeta } from '@/lib/modelDownloader'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import type { NotificationRoute } from '@/types/notificationsIpc'
 import {
@@ -26,12 +27,15 @@ import { useTextInference } from './textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
+  installSynthesisModel,
+  missingTranscriptionModels,
   readyTranscriptionUnattended,
+  synthesisModelMissing,
   synthesizeClip,
   transcribe,
+  transcriptionAvailable,
 } from '../speech/speechIO'
 import { base64ToBlob } from '@/lib/transcribe'
-import { markdownToSpeechText } from '@/lib/markdownToSpeech'
 import {
   useConversations,
   HOME_AGENT_CONVERSATION_KEY,
@@ -49,7 +53,6 @@ import {
   type ChannelRuntimeState,
   type InboundMeta,
   type RemoteImage,
-  type RemoteAudio,
   type RemoteDocument,
   type KeyboardButton,
   type ChannelQueueItem,
@@ -57,12 +60,14 @@ import {
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
 import { isAppError, extractMessage, createAppError, createCancellation } from '../errors/appError'
+import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
 import { createAnswerRouter } from './channels/answerRouter'
+import { createRemoteSpeech } from './channels/remoteSpeech'
 import { answerSessions } from './channels/answerSessionsPort'
 import { heldAnswerJournal } from './channels/heldAnswerJournal'
 import {
@@ -86,6 +91,7 @@ import {
   type ChannelQuestionOutcome,
   type DownloadChannelQuestion,
 } from '@/assets/js/permissions/remoteTurnPort'
+import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -158,6 +164,7 @@ export const useHomeAgent = defineStore(
   () => {
     const backendServices = useBackendServices()
     const chatStore = useOpenAiCompatibleChat()
+    const textInference = useTextInference()
     const imageGenStore = useImageGenerationPresets()
     const promptStore = usePromptStore()
     const conversations = useConversations()
@@ -261,10 +268,36 @@ export const useHomeAgent = defineStore(
       staleReply: () => channelQuestionTemplates().stale,
     })
 
+    const remoteSpeech = createRemoteSpeech({
+      transcription: {
+        ready: readyTranscriptionUnattended,
+        transcribe: async (audio) =>
+          (await transcribe({ audio: base64ToBlob(audio.data_base64, audio.mime) })).text,
+        isNoEndpoint: (e) => e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT,
+      },
+      synthesis: {
+        allowed: () => textInference.speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
+        synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
+      },
+      transcriptionModel: {
+        installed: transcriptionAvailable,
+        missing: missingTranscriptionModels,
+        download: (models) => requestDownloadConsent(models),
+      },
+      synthesisModel: {
+        missing: synthesisModelMissing,
+        install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
+      },
+      answerDownload: (models, sessionId) =>
+        requestDownloadConsent(models, { conversationKey: answerDownloadKey(sessionId) }),
+      log: (message, error) => reportSilently(message, error),
+    })
+
     const answerRouter = createAnswerRouter({
       sessions: answerSessions,
       questions: channelQuestions,
-      transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
+      transcribe: remoteSpeech.transcribe,
+      prepareVoiceAnswer: remoteSpeech.prepareAnswer,
       downloadQuestionChannel: () => questionChannel.value,
       journal: heldAnswerJournal,
       log: (message, error) => reportSilently(message, error),
@@ -807,6 +840,20 @@ export const useHomeAgent = defineStore(
       return activeRemoteTurn !== null
     }
 
+    /** Runs `work` as part of a remote turn, so its download questions go to that channel. */
+    async function withRemoteTurn<T>(
+      turn: { adapter: ChannelAdapter; meta?: InboundMeta },
+      work: () => Promise<T>,
+    ): Promise<T> {
+      const previous = activeRemoteTurn
+      activeRemoteTurn = previous ?? turn
+      try {
+        return await work()
+      } finally {
+        activeRemoteTurn = previous
+      }
+    }
+
     /**
      * Ask the remote user (mirrored on the desktop) to approve a download. `closedBy`
      * answers it for them with a note, once a yes elsewhere downloads it all.
@@ -1034,10 +1081,14 @@ export const useHomeAgent = defineStore(
         label: string
         conversationKey: string
         alreadyDownloading?: DownloadModelParam[]
+        answer?: AgentAnswerOrigin
       },
     ): DownloadChannelQuestion {
       const kind = questionChannel.value
       const adapter = kind ? adapters[kind] : null
+      const { answer: origin } = context
+      const meta: InboundMeta | undefined =
+        origin?.channel === kind && origin.replyTo ? { threadTs: origin.replyTo } : undefined
       let retired: ChannelQuestionOutcome | null = null
       let asked: ChannelQuestion | null = null
       // A desktop yes that came before the question reached the channel.
@@ -1062,6 +1113,7 @@ export const useHomeAgent = defineStore(
               fillTemplate(channelQuestionTemplates().lookupFailed, {
                 label: escapeHtml(context.label),
               }),
+              meta,
             ).catch((err: unknown) => errors.report(err, { surface: 'silent' }))
           }
           return never
@@ -1074,7 +1126,7 @@ export const useHomeAgent = defineStore(
             label: escapeHtml(context.label),
             models: escapeHtml(blocked.map((m) => m.repo_id).join(', ')),
           })
-          await reply(adapter, gated).catch((err: unknown) =>
+          await reply(adapter, gated, meta).catch((err: unknown) =>
             errors.report(err, { surface: 'silent' }),
           )
           return never
@@ -1098,7 +1150,7 @@ export const useHomeAgent = defineStore(
           const posted = postDownloadMessage(
             adapter,
             `${summaryMarkdown}\n\n${prefix}`,
-            undefined,
+            meta,
             reportSilently,
           )
           followDownload(
@@ -1108,7 +1160,7 @@ export const useHomeAgent = defineStore(
           )
           return never
         }
-        asked = channelQuestions.ask({ adapter, summaryMarkdown, labels: text })
+        asked = channelQuestions.ask({ adapter, meta, summaryMarkdown, labels: text })
         return asked.answer
       })()
 
@@ -1153,40 +1205,14 @@ export const useHomeAgent = defineStore(
       textInference.resetActivePresetSettings()
     }
 
-    /**
-     * Send a synthesized voice reply when the inbound message was itself a voice
-     * message and "Speak replies" is on for the Home Agent preset. That toggle sits
-     * on the Text To Speech tool row in Settings → Built-in tools, so the tool must
-     * be enabled too; it is read from the preset's stored settings because the live
-     * refs may already hold the desktop user's preset again. Best-effort: failures
-     * are logged and never break the (already-delivered) text reply.
-     *
-     * Synthesis goes through whichever engine the user selected, Qwen3 included.
-     * Nothing here may prompt: a remote sender cannot answer a download popup on
-     * the host, so a missing model simply means no voice reply.
-     */
+    /** A voice message gets a spoken reply too, when "Speak replies" is on for the Home Agent preset. */
     async function maybeSendVoiceReply(
       adapter: ChannelAdapter,
       text: string,
       fromVoice: boolean,
       meta?: InboundMeta,
     ): Promise<void> {
-      if (!fromVoice) return
-      const trimmed = markdownToSpeechText(text ?? '').trim()
-      if (!trimmed) return
-      if (!useTextInference().speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME)) return
-
-      try {
-        // Synthesis goes through whichever engine the user selected, Qwen3
-        // included, via the one engine seam — unattended, so a missing model
-        // simply means no voice reply instead of a popup nobody at the channel
-        // can answer.
-        const clip = await synthesizeClip({ text: trimmed, unattended: true, format: 'wav' })
-        if (!clip) return
-        await adapter.voice(clip.audioBase64, clip.mediaType, meta)
-      } catch (e) {
-        console.error('homeAgent: voice reply failed:', e)
-      }
+      if (fromVoice) await remoteSpeech.speak(adapter, text, meta)
     }
 
     async function keyboard(
@@ -1437,54 +1463,6 @@ export const useHomeAgent = defineStore(
       return false
     }
 
-    /**
-     * Transcribe inbound voice/audio payloads into text using the shared STT
-     * resolver (OVMS Whisper first, configured fallback endpoint otherwise).
-     * Shows a typing indicator while transcribing. Returns the combined
-     * transcript (possibly empty) or `null` when no STT endpoint is available
-     * or transcription failed — in which case the user has already been
-     * notified via `reply()`.
-     */
-    async function transcribeRemoteAudio(
-      adapter: ChannelAdapter,
-      audio: RemoteAudio[],
-      meta?: InboundMeta,
-    ): Promise<string | null> {
-      // Start the selected engine's server on demand. Both are dialog-free (a
-      // remote sender can't answer a download popup) and no-op when the backend or
-      // model isn't installed — a configured fallback still serves.
-      await readyTranscriptionUnattended()
-
-      const stopTyping = typing(adapter, 'typing', meta)
-      try {
-        const parts: string[] = []
-        for (const a of audio) {
-          const blob = base64ToBlob(a.data_base64, a.mime)
-          const { text } = await transcribe({ audio: blob })
-          if (text) parts.push(text.trim())
-        }
-        return parts.filter(Boolean).join(' ').trim()
-      } catch (e) {
-        console.error('homeAgent: audio transcription failed:', e)
-        if (e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT) {
-          await reply(
-            adapter,
-            '⚠️ No speech-to-text is available. Install the OpenVINO backend or the standalone Whisper backend, or configure a fallback transcription endpoint in the Speech to Text preset settings.',
-            meta,
-          )
-        } else {
-          await reply(
-            adapter,
-            `⚠️ Could not transcribe the audio: ${e instanceof Error ? e.message : String(e)}`,
-            meta,
-          )
-        }
-        return null
-      } finally {
-        stopTyping()
-      }
-    }
-
     const SUPPORTED_DOC_EXTENSIONS: ValidFileExtension[] = ['txt', 'doc', 'docx', 'md', 'pdf']
 
     /**
@@ -1680,6 +1658,8 @@ export const useHomeAgent = defineStore(
                 await sendImageToChannel(adapter, item.url, '', meta)
               } else if (item.kind === 'video') {
                 await sendVideoToChannel(adapter, item.url, '', meta)
+              } else if (item.kind === 'audio') {
+                await sendVoiceToChannel(adapter, item.url, meta)
               } else {
                 await send3DModelToChannel(adapter, item.url, '', meta)
               }
@@ -1840,6 +1820,30 @@ export const useHomeAgent = defineStore(
         await reply(
           adapter,
           `⚠️ Video was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
+          meta,
+        )
+      }
+    }
+
+    async function sendVoiceToChannel(
+      adapter: ChannelAdapter,
+      audioPath: string,
+      meta?: InboundMeta,
+    ): Promise<void> {
+      try {
+        const read = await window.electronAPI.readLocalAudioAsDataUri(audioPath)
+        if (!read.success) throw new Error(read.error)
+        const match = /^data:([^;,]+)[^,]*;base64,(.*)$/s.exec(read.dataUri)
+        if (!match) throw new Error('Malformed audio data URI')
+        const result = await adapter.voice(match[2], match[1], meta)
+        if (!result.success) {
+          throw new Error(result.error ?? 'voice returned failure')
+        }
+      } catch (e) {
+        reportSilently('homeAgent: sending speech to the channel failed', e)
+        await reply(
+          adapter,
+          `⚠️ Speech was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
           meta,
         )
       }
@@ -2249,7 +2253,11 @@ export const useHomeAgent = defineStore(
           // as the message text so slash-commands spoken aloud and plain
           // prompts both flow through the normal handling below.
           if (item.audio?.length) {
-            const transcript = await transcribeRemoteAudio(adapter, item.audio, meta)
+            // A remote turn, so a missing speech model is asked about in this channel.
+            const audio = item.audio
+            const transcript = await withRemoteTurn({ adapter, meta }, () =>
+              remoteSpeech.transcribe(adapter, audio, meta),
+            )
             if (transcript === null) continue // STT unavailable / failed — already replied
             text = [text, transcript].filter(Boolean).join(' ').trim()
             if (!text) {

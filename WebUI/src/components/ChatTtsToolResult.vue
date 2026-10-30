@@ -14,6 +14,12 @@
         :tooltip="i18nState.COM_DOWNLOAD"
         @click="download()"
       />
+      <IconButton
+        v-if="reveal"
+        icon="i-folder"
+        :tooltip="i18nState.COM_OPEN_LOCATION"
+        @click="reveal()"
+      />
     </div>
     <p v-else-if="loadError" class="text-xs text-destructive">{{ loadError }}</p>
     <p v-else class="text-xs text-muted-foreground">Loading audio…</p>
@@ -43,6 +49,8 @@ const props = defineProps<{
   caption?: string
   /** Replaces the player's own download. */
   download?: () => void
+  /** Shows the file in the OS file manager. */
+  reveal?: () => void
 }>()
 
 const i18nState = useI18N().state

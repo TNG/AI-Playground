@@ -76,6 +76,9 @@ export type AnswerRouter = {
   channelReady: (adapter: ChannelAdapter) => Promise<void>
 }
 
+/** Speech-to-text for a voice Answer: usable now, refused (the channel was told why), or downloading. */
+export type VoiceAnswerPreparation = { ready: boolean } | { downloading: Promise<boolean> }
+
 export type AnswerRouterDeps = {
   /** Null until Agent Mode has registered; replies then reach Home Agent as before. */
   sessions: () => AnswerSessions | null
@@ -86,6 +89,11 @@ export type AnswerRouterDeps = {
     audio: RemoteAudio[],
     meta?: InboundMeta,
   ) => Promise<string | null>
+  prepareVoiceAnswer: (
+    adapter: ChannelAdapter,
+    sessionId: string,
+    meta?: InboundMeta,
+  ) => Promise<VoiceAnswerPreparation>
   /** The channel an agent's download question is asked on, or null when only the computer asks. */
   downloadQuestionChannel?: () => ChannelKind | null
   copy?: () => AnswerRouterCopy
@@ -116,6 +124,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const held = new Map<string, Held>()
   // First sends still awaiting their result, flagged when the session's turn ends meanwhile.
   const sending = new Map<string, { turnEnded: boolean }>()
+  // Per session: Answers queued behind a voice Answer's speech model download, kept in order.
+  const waitingBehindDownload = new Map<string, Promise<void>>()
   // Notes from the previous run, reported once their channel is up again.
   let lost = readJournal()
   let unsubscribe: (() => void) | null = null
@@ -327,14 +337,65 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const title = sessions.label(sessionId)
       return tell(adapter, fillTemplate(copy().realShell, { title }), meta)
     }
-    let text = msg.text?.trim() ?? ''
-    if (msg.audio?.length && deps.transcribe) {
-      const transcript = await deps.transcribe(adapter, msg.audio, meta)
-      if (transcript === null) return
-      text = [text, transcript.trim()].filter(Boolean).join(' ')
-      if (!text) return tell(adapter, copy().noSpeech, meta)
+    if (waitingBehindDownload.has(sessionId)) {
+      afterDownload(sessionId, () => answerMessage(adapter, sessions, sessionId, msg, meta, true))
+      return
     }
-    if (text) await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
+    await answerMessage(adapter, sessions, sessionId, msg, meta, false)
+  }
+
+  /** Runs `work` once the session's earlier Answers are through, off the channel's poll loop. */
+  function afterDownload(sessionId: string, work: () => Promise<void>): void {
+    const next = (waitingBehindDownload.get(sessionId) ?? Promise.resolve())
+      .then(work)
+      .catch((e: unknown) => log('answerRouter: voice Answer failed:', e))
+    waitingBehindDownload.set(sessionId, next)
+    void next.then(() => {
+      if (waitingBehindDownload.get(sessionId) === next) waitingBehindDownload.delete(sessionId)
+    })
+  }
+
+  async function answerMessage(
+    adapter: ChannelAdapter,
+    sessions: AnswerSessions,
+    sessionId: string,
+    msg: InboundChannelMessage,
+    meta: InboundMeta | undefined,
+    queued: boolean,
+  ): Promise<void> {
+    const audio = msg.audio
+    if (!audio?.length || !deps.transcribe) {
+      const text = msg.text?.trim() ?? ''
+      if (text) await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
+      return
+    }
+    const voiceMsg = { ...msg, audio }
+    const preparation = await deps.prepareVoiceAnswer(adapter, sessionId, meta)
+    if (!('downloading' in preparation)) {
+      if (preparation.ready) await answerByVoice(adapter, sessions, sessionId, voiceMsg, meta)
+      return
+    }
+    const { downloading } = preparation
+    const finish = async () => {
+      if (await downloading) await answerByVoice(adapter, sessions, sessionId, voiceMsg, meta)
+    }
+    // A download can take minutes: the channel's other messages go on meanwhile.
+    if (queued) await finish()
+    else afterDownload(sessionId, finish)
+  }
+
+  async function answerByVoice(
+    adapter: ChannelAdapter,
+    sessions: AnswerSessions,
+    sessionId: string,
+    msg: InboundChannelMessage & { audio: RemoteAudio[] },
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const transcript = await deps.transcribe?.(adapter, msg.audio, meta)
+    if (transcript == null) return
+    const text = [msg.text?.trim(), transcript.trim()].filter(Boolean).join(' ')
+    if (!text) return tell(adapter, copy().noSpeech, meta)
+    await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
   }
 
   async function route(

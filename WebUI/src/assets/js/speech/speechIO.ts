@@ -3,7 +3,9 @@ import { useSpeechToText, type SttReadyResult } from '../store/speechToText'
 import { SPEECHT5_MODEL_NAME, useTextToSpeech } from '../store/textToSpeech'
 import { useQwen3TextToSpeech } from '../store/qwen3TextToSpeech'
 import { useErrors } from '../store/errors'
+import { useModels } from '../store/models'
 import { createAppError } from '../errors/appError'
+import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 import { transcribeAudioBlob, transcribeAudioBuffer } from '@/lib/transcribe'
 import {
   base64ToBytes,
@@ -116,6 +118,19 @@ export async function readyTranscriptionUnattended(): Promise<void> {
   return speechToText.ensureTranscriptionServerRunning()
 }
 
+/** The selected local STT engine's model files not yet on disk; none for an external endpoint. */
+export async function missingTranscriptionModels(): Promise<DownloadModelParam[]> {
+  const speechToText = useSpeechToText()
+  const engine = speechToText.effectiveSttEngine
+  const model =
+    engine === 'whisper' && speechToText.isWhisperAvailable
+      ? speechToText.selectedOvmsModel
+      : engine === 'standalone' && speechToText.isStandaloneAvailable
+        ? speechToText.selectedStandaloneModel
+        : undefined
+  return model ? useModels().getMissingTranscriptionModel(model) : []
+}
+
 export type SpeechModelRef = { repo_id: string; type: 'TTS' | 'STT'; backend: 'openvino' }
 
 /**
@@ -149,6 +164,39 @@ export function speechToolModels(): {
       ? { transcribeAudio: { repo_id: sttModel, type: 'STT', backend: 'openvino' } }
       : {}),
   }
+}
+
+/** The selected TTS engine is installed but its model is not on disk; never asks. */
+export async function synthesisModelMissing(): Promise<boolean> {
+  return (await missingSynthesisModels()).length > 0
+}
+
+/**
+ * Downloads the selected TTS engine's missing model through the permissions layer (which
+ * asks in-channel during a remote turn). False when the download was declined.
+ */
+export async function installSynthesisModel(): Promise<boolean> {
+  const missing = await missingSynthesisModels()
+  if (missing.length === 0) return true
+  if (!(await requestDownloadConsent(missing))) return false
+  if (useTextToSpeech().selectedEngine === 'qwen3') {
+    await useQwen3TextToSpeech().restartForDownloadedModel()
+  }
+  return true
+}
+
+async function missingSynthesisModels() {
+  const tts = useTextToSpeech()
+  const models = useModels()
+  if (tts.selectedEngine === 'qwen3') {
+    const qwen3 = useQwen3TextToSpeech()
+    if (!qwen3.isBackendSetUp()) return []
+    return models.getMissingQwenTtsModels([qwen3.modelRepoForMode(qwen3.defaultMode)])
+  }
+  if (tts.selectedEngine === 'kokoro' && tts.isKokoroAvailable) {
+    return models.getMissingSpeechModel(SPEECHT5_MODEL_NAME)
+  }
+  return []
 }
 
 /** Whether any STT engine is usable (OpenVINO Whisper, the standalone sidecar

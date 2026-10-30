@@ -167,6 +167,22 @@
          store — see AgentTokenUsage / store/agentMode.ts. -->
     <div v-if="isAgentMode">·</div>
     <AgentTokenUsage v-if="isAgentMode" />
+    <TooltipProvider v-if="workspaceFolder" :delay-duration="200">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <button
+            type="button"
+            class="ml-auto flex min-w-0 items-center gap-1 p-1 text-muted-foreground hover:text-foreground transition-colors"
+            :aria-label="`Open workspace folder ${workspaceFolder.name}`"
+            @click="openWorkspaceFolder"
+          >
+            <FolderOpenIcon class="size-4 flex-none" aria-hidden="true" />
+            <span class="truncate">{{ workspaceFolder.name }}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">{{ workspaceFolder.dir }}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
     <!-- Font zoom controls (chat only) -->
     <div v-if="isChatMode" class="ml-auto flex flex-none gap-1">
       <button
@@ -191,13 +207,19 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from '@heroicons/vue/24/outline'
+import {
+  FolderOpenIcon,
+  MagnifyingGlassPlusIcon,
+  MagnifyingGlassMinusIcon,
+} from '@heroicons/vue/24/outline'
 import { CloudIcon } from '@heroicons/vue/24/solid'
 import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
 import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'
 import openVinoLogoDark from '@/assets/image/openvino-dark.svg'
 import openVinoLogoLight from '@/assets/image/openvino-light.svg'
 import { usePromptStore } from '@/assets/js/store/promptArea'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useErrors } from '@/assets/js/store/errors'
 import {
   useTextInference,
   textInferenceBackendDisplayName,
@@ -234,6 +256,8 @@ const theme = useTheme()
 const oemBranding = useOemBranding()
 const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
+const agentMode = useAgentMode()
+const errors = useErrors()
 
 // The backend badge logos ship as light/dark variants; only the `light` theme
 // needs the dark-fill icon, all other themes are dark-background.
@@ -241,6 +265,23 @@ const isLightTheme = computed(() => theme.active === 'light')
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
+
+// Games presets open their folder from the GameBar instead.
+const workspaceFolder = computed(() => {
+  const dir = agentMode.workspaceDir
+  if (!isAgentMode.value || agentMode.agentWorkspaceKind !== 'pick' || !dir) return undefined
+  return { dir, name: dir.split(/[\\/]/).filter(Boolean).at(-1) ?? dir }
+})
+
+async function openWorkspaceFolder(): Promise<void> {
+  if (!workspaceFolder.value) return
+  try {
+    const result = await window.electronAPI.agentMode.openWorkspaceFolder(workspaceFolder.value.dir)
+    if (!result.success) throw new Error(result.error)
+  } catch (error) {
+    errors.report(error)
+  }
+}
 
 // Chat, Agent and Audio all run on chat-type presets (Agent Mode is entered by
 // picking an agent preset from the chat list; Audio holds the speech presets), so

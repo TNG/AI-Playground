@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { NotificationRoute } from '@/types/notificationsIpc'
-import type { ChannelSendOutcome } from '../../agent/notifier'
+import type { ChannelMedia, ChannelSendOutcome } from '../../agent/notifier'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.
@@ -35,6 +35,7 @@ type RequestBody = {
 }
 
 let requests: RequestBody[] = []
+let notifyArgs: Record<string, unknown> = { message: SUMMARY }
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -66,7 +67,7 @@ function reply(body: RequestBody): Response {
               index: 0,
               id: 'call-1',
               type: 'function',
-              function: { name: 'notify_user', arguments: JSON.stringify({ message: SUMMARY }) },
+              function: { name: 'notify_user', arguments: JSON.stringify(notifyArgs) },
             },
           ],
         }),
@@ -104,10 +105,13 @@ afterAll(() => {
 let sent: Array<{
   kind: ChannelKind
   text: string
+  media?: ChannelMedia
   buttons?: KeyboardButton[][]
   answerTitle?: string
 }> = []
 let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
+/** Refs handed out one per send before falling back to `channelResult`. */
+let refs: string[] = []
 
 function route(next: NotificationRoute, realShellSessions: string[] = []): void {
   notifier.setNotificationConfig({
@@ -165,7 +169,8 @@ beforeAll(async () => {
     typing: async () => ({ success: true }),
     send: async (kind, message) => {
       sent.push({ kind, ...message })
-      return channelResult
+      const ref = refs.shift()
+      return ref ? { success: true, ref } : channelResult
     },
   })
 })
@@ -178,8 +183,10 @@ let workspace: string
 
 beforeEach(() => {
   requests = []
+  notifyArgs = { message: SUMMARY }
   sent = []
   channelResult = { success: true, ref: '42' }
+  refs = []
   route({ homeAgentEnabled: true, notificationChannel: 'telegram' })
   workspace = fs.mkdtempSync(path.join(tempRoot, 'ws-'))
 })
@@ -302,5 +309,195 @@ describe('notify_user', () => {
     expect(requests.length).toBeGreaterThan(0)
     expect(requests.every((body) => !toolNames(body).includes('notify_user'))).toBe(true)
     expect(sent).toEqual([])
+  }, 30000)
+})
+
+describe('notify_user attachments', () => {
+  const caption = `🤖 Agent · "An agent run"\n${SUMMARY}\n↩️ Reply to this message to answer.`
+
+  function attach(relativePath: string, bytes: Buffer | string = 'media bytes'): void {
+    const file = path.join(workspace, relativePath)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, bytes)
+  }
+
+  it('sends an attached image as a photo captioned with the Notification text', async () => {
+    attach('generated/cover.png', 'png bytes')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/cover.png'] }
+    await runTurn('aipg-agent-notify-photo')
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: caption,
+        media: {
+          kind: 'photo',
+          base64: Buffer.from('png bytes').toString('base64'),
+          filename: 'cover.png',
+        },
+      },
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('sends an attached clip as a video captioned with the Notification text', async () => {
+    attach('generated/clip.webm', 'webm bytes')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/clip.webm'] }
+    await runTurn('aipg-agent-notify-video')
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: caption,
+        media: {
+          kind: 'video',
+          base64: Buffer.from('webm bytes').toString('base64'),
+          filename: 'clip.webm',
+        },
+      },
+    ])
+  }, 30000)
+
+  it('sends an attached speech clip as a voice message captioned with the Notification text', async () => {
+    attach('generated/summary.wav', 'wav bytes')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/summary.wav'] }
+    await runTurn('aipg-agent-notify-voice')
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: caption,
+        media: {
+          kind: 'voice',
+          base64: Buffer.from('wav bytes').toString('base64'),
+          filename: 'summary.wav',
+        },
+      },
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('records the sent attachment so a reply to it reaches the session', async () => {
+    attach('shot.jpg')
+    notifyArgs = { message: SUMMARY, attachments: ['shot.jpg'] }
+    channelResult = { success: true, ref: '77' }
+    await runTurn('aipg-agent-notify-photo-answerable')
+    expect(await messageMap.channelMessageOwner('telegram', '77')).toEqual({
+      sessionId: 'aipg-agent-notify-photo-answerable',
+    })
+  }, 30000)
+
+  it('sends nothing for an unsupported file and names it, why, and what is allowed', async () => {
+    attach('generated/model.glb')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/model.glb'] }
+    await runTurn('aipg-agent-notify-glb')
+    expect(sent).toEqual([])
+    const result = toolResultText()
+    expect(result).toContain('generated/model.glb')
+    expect(result).toContain('unsupported file type')
+    expect(result).toContain('png, jpg, jpeg, webp')
+    expect(result).toContain('mp4, webm')
+  }, 30000)
+
+  it('sends nothing for a missing file and names it', async () => {
+    notifyArgs = { message: SUMMARY, attachments: ['generated/nowhere.png'] }
+    await runTurn('aipg-agent-notify-missing')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain('generated/nowhere.png: file not found')
+  }, 30000)
+
+  it('sends nothing for a file outside the session workspace', async () => {
+    fs.writeFileSync(path.join(tempRoot, 'outside.png'), 'secret')
+    const outside = path.relative(workspace, path.join(tempRoot, 'outside.png'))
+    notifyArgs = { message: SUMMARY, attachments: [outside] }
+    await runTurn('aipg-agent-notify-outside')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain(`${outside}: outside the workspace`)
+  }, 30000)
+
+  it('sends nothing for a file over the channel size limit', async () => {
+    const file = path.join(workspace, 'huge.mp4')
+    fs.writeFileSync(file, '')
+    fs.truncateSync(file, 50 * 1024 * 1024 + 1)
+    notifyArgs = { message: SUMMARY, attachments: ['huge.mp4'] }
+    await runTurn('aipg-agent-notify-huge')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain('huge.mp4: larger than the 50 MB telegram allows')
+  }, 30000)
+
+  it('tells the model which extensions it can attach and that generated files need attaching', async () => {
+    await runTurn('aipg-agent-notify-describe')
+    const tool = (
+      requests[0].tools as Array<{ function?: { name?: string; description?: string } }>
+    ).find((entry) => entry.function?.name === 'notify_user')
+    const description = JSON.stringify(tool)
+    expect(description).toContain('png, jpg, jpeg, webp')
+    expect(description).toContain('mp4, webm')
+    expect(description).toContain('wav, mp3, ogg')
+    expect(description).toMatch(/not sent unless/i)
+  }, 30000)
+
+  it('captions the first of several attachments and sends the rest after it, in order', async () => {
+    attach('generated/cover.png', 'png bytes')
+    attach('generated/clip.mp4', 'mp4 bytes')
+    attach('generated/back.jpg', 'jpg bytes')
+    notifyArgs = {
+      message: SUMMARY,
+      attachments: ['generated/cover.png', 'generated/clip.mp4', 'generated/back.jpg'],
+    }
+    await runTurn('aipg-agent-notify-several')
+    expect(sent.map(({ text, media }) => [text, media?.kind, media?.filename])).toEqual([
+      [caption, 'photo', 'cover.png'],
+      ['', 'video', 'clip.mp4'],
+      ['', 'photo', 'back.jpg'],
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('sends text too long for a Telegram caption first, then every attachment uncaptioned', async () => {
+    attach('generated/cover.png', 'png bytes')
+    attach('generated/clip.mp4', 'mp4 bytes')
+    const long = 'x'.repeat(1100)
+    notifyArgs = { message: long, attachments: ['generated/cover.png', 'generated/clip.mp4'] }
+    await runTurn('aipg-agent-notify-long')
+    expect(sent.map(({ text, media }) => [text, media?.filename])).toEqual([
+      [`🤖 Agent · "An agent run"\n${long}\n↩️ Reply to this message to answer.`, undefined],
+      ['', 'cover.png'],
+      ['', 'clip.mp4'],
+    ])
+  }, 30000)
+
+  it('records every message of the Notification so a reply to any of them reaches the session', async () => {
+    attach('a.png')
+    attach('b.webm')
+    notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.webm'] }
+    refs = ['81', '82']
+    await runTurn('aipg-agent-notify-several-answerable')
+    for (const ref of ['81', '82']) {
+      expect(await messageMap.channelMessageOwner('telegram', ref)).toEqual({
+        sessionId: 'aipg-agent-notify-several-answerable',
+      })
+    }
+  }, 30000)
+
+  it('sends none of several attachments when one of them cannot be sent', async () => {
+    attach('generated/cover.png')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/cover.png', 'generated/gone.mp4'] }
+    await runTurn('aipg-agent-notify-several-missing')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain('generated/gone.mp4: file not found')
+  }, 30000)
+
+  it('keeps the Answer button on the captioned attachment on LAN chat', async () => {
+    route({ homeAgentEnabled: true, notificationChannel: 'local-web' })
+    attach('a.png')
+    attach('b.png')
+    notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.png'] }
+    await runTurn('aipg-agent-notify-lan-media')
+    expect(sent.map(({ text, media, buttons }) => [text, media?.filename, buttons])).toEqual([
+      [
+        `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        'a.png',
+        [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      ],
+      ['', 'b.png', undefined],
+    ])
   }, 30000)
 })

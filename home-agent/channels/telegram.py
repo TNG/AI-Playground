@@ -291,6 +291,7 @@ class TelegramChannel(ChannelBase):
     def send_voice(self, payload: dict) -> SendResult:
         audio_b64 = payload.get("audio", "") or payload.get("audioBase64", "")
         mime = (payload.get("mime") or "").lower()
+        caption = payload.get("caption", "")
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
@@ -309,23 +310,21 @@ class TelegramChannel(ChannelBase):
                     logger.warning(
                         "Opus transcode failed, sending as audio file: %s", exc
                     )
+            bot = self._app_instance.bot  # type: ignore[union-attr]
+            common = {
+                "chat_id": target,
+                "caption": caption or None,
+                **_reply_parameters(payload),
+            }
             if voice_bytes is not None:
-                self._run_coro(
-                    self._app_instance.bot.send_voice(  # type: ignore[union-attr]
-                        chat_id=target,
-                        voice=voice_bytes,
-                    ),
-                    timeout=180,
+                msg = self._run_coro(
+                    bot.send_voice(voice=voice_bytes, **common), timeout=180
                 )
             else:
-                self._run_coro(
-                    self._app_instance.bot.send_audio(  # type: ignore[union-attr]
-                        chat_id=target,
-                        audio=audio_bytes,
-                    ),
-                    timeout=180,
+                msg = self._run_coro(
+                    bot.send_audio(audio=audio_bytes, **common), timeout=180
                 )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 

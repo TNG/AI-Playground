@@ -379,12 +379,42 @@ class TestAnswers(LocalWebChannelTestCase):
             ],
         )
 
+    def test_a_voice_clip_reaches_the_page_with_its_caption_under_the_answer(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        sent = self.channel.send_voice(
+            {
+                "audio": "T2dn",
+                "mime": "audio/ogg",
+                "caption": "summary",
+                "reply_to": "1234567",
+            }
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "voice",
+                    "base64": "T2dn",
+                    "mime": "audio/ogg",
+                    "caption": "summary",
+                    "replyTo": 1234567,
+                    "id": sent["message_id"],
+                }
+            ],
+        )
+
     def test_every_message_the_page_shows_has_an_id(self):
         for send in (
             lambda: self.channel.send_reply({"text": "hi"}),
             lambda: self.channel.send_post({"text": "hi"}),
             lambda: self.channel.send_photo({"photo": "AAAA", "caption": "c"}),
             lambda: self.channel.send_video({"video": "AAAA", "filename": "v.mp4"}),
+            lambda: self.channel.send_voice({"audio": "T2dn", "mime": "audio/ogg"}),
         ):
             self.assertGreater(send()["message_id"], 0)
 
@@ -473,6 +503,60 @@ class TestOutboundEvents(LocalWebChannelTestCase):
                     "action": "editMessage",
                     "text": "Downloaded.",
                     "id": posted["message_id"],
+                },
+            ],
+        )
+
+    def test_agent_media_keeps_its_answer_button(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        answer = [[{"text": "Answer", "callback_data": "answer"}]]
+        photo = self.channel.send_photo(
+            {
+                "photo": "AAA",
+                "caption": "done",
+                "buttons": answer,
+                "answer_title": "Game",
+            }
+        )
+        video = self.channel.send_video(
+            {"video": "BBB", "caption": "", "filename": "c.mp4", "buttons": answer}
+        )
+        voice = self.channel.send_voice(
+            {"audio": "CCC", "mime": "audio/wav", "caption": "", "buttons": answer}
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        # The page answers an agent only through this button, so media without it
+        # would be a Notification nobody can answer.
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "photo",
+                    "base64": "AAA",
+                    "caption": "done",
+                    "buttons": answer,
+                    "answerTitle": "Game",
+                    "id": photo["message_id"],
+                },
+                {
+                    "action": "video",
+                    "base64": "BBB",
+                    "caption": "",
+                    "filename": "c.mp4",
+                    "buttons": answer,
+                    "id": video["message_id"],
+                },
+                {
+                    "action": "voice",
+                    "base64": "CCC",
+                    "mime": "audio/wav",
+                    "caption": "",
+                    "buttons": answer,
+                    "id": voice["message_id"],
                 },
             ],
         )

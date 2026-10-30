@@ -5,6 +5,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
+import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
   GESTURE_WORDING,
@@ -17,6 +18,7 @@ import { onGeneratedMedia } from './generatedMedia.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
+import { readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
 // The one sender of Notifications (docs/adr/0003): owns the delivery decision and
@@ -27,7 +29,7 @@ const LOG_SOURCE = 'notifier'
 
 export type NotificationDelivery = { delivered: true } | { delivered: false; reason: string }
 
-export type ChannelMedia = { kind: 'photo' | 'video'; base64: string; filename: string }
+export type { ChannelMedia }
 
 /**
  * What the Notifier hands a channel. `replyTo` is the platform ref of the message it
@@ -64,6 +66,8 @@ export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping }
 export type NotificationOptions = {
   /** The sending session: names it in the header and makes the message answerable. */
   sessionId?: string
+  /** Workspace-relative files to send with the text, validated against the session's workspace. */
+  attachments?: { workspaceDir: string; paths: string[] }
 }
 
 const OFF_CONFIG: NotificationConfig = {
@@ -92,7 +96,13 @@ let config: NotificationConfig = OFF_CONFIG
 let channel: NotificationChannel | undefined
 let windowShown: () => boolean = () => false
 
-type AnswerTurn = AgentAnswerOrigin & { turnId: string; workspaceDir: string; media: string[] }
+type AnswerTurn = AgentAnswerOrigin & {
+  turnId: string
+  workspaceDir: string
+  media: string[]
+  /** Already sent by `notify_user`, so the turn's reply leaves them out. */
+  attached: Set<string>
+}
 
 /** The turn an Answer started, per session: its messages go under the Answer, past the gates. */
 const answerTurns = new Map<string, AnswerTurn>()
@@ -131,7 +141,7 @@ export function noteAnswerTurn(
   origin: AgentAnswerOrigin,
 ): void {
   stopTyping(sessionId)
-  answerTurns.set(sessionId, { ...origin, turnId, workspaceDir, media: [] })
+  answerTurns.set(sessionId, { ...origin, turnId, workspaceDir, media: [], attached: new Set() })
 }
 
 function answerTurnOf(sessionId: string, turnId?: string): AnswerTurn | undefined {
@@ -156,15 +166,19 @@ export async function sendNotification(
   text: string,
   options: NotificationOptions = {},
 ): Promise<NotificationDelivery> {
-  const delivery = await deliver({ text }, options.sessionId)
+  const delivery = await deliver({ text, attachments: options.attachments }, options.sessionId)
   if (!delivery.delivered) {
     appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
+  } else if (options.sessionId && options.attachments) {
+    const { workspaceDir, paths } = options.attachments
+    const answer = answerTurnOf(options.sessionId)
+    for (const file of paths) answer?.attached.add(path.resolve(workspaceDir, file))
   }
   return delivery
 }
 
 async function deliver(
-  body: { text: string; media?: ChannelMedia },
+  body: { text: string; media?: ChannelMedia; attachments?: NotificationOptions['attachments'] },
   sessionId: string | undefined,
 ): Promise<NotificationDelivery> {
   const answer = sessionId ? answerTurnOf(sessionId) : undefined
@@ -173,21 +187,32 @@ async function deliver(
   if (!homeAgentEnabled || !channel) return { delivered: false, reason: 'Home Agent is off' }
   if (!kind) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
+    const attached = body.attachments
+      ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
+      : { media: [] }
+    if ('error' in attached) return { delivered: false, reason: attached.error }
     const title = sessionId ? await sessionLabel(sessionId) : ''
     const header = sessionId ? fillTemplate(config.templates.header, { title }) : ''
     const message: ChannelMessage = {
       text: [header, body.text].filter(Boolean).join('\n'),
       ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
     }
-    const result = await channel.send(
-      kind,
-      body.media ? { ...message, media: body.media } : answerable(kind, message, sessionId, title),
-    )
-    if (!result.success) return { delivered: false, reason: result.error }
-    if (sessionId && result.ref) {
-      await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
-        appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
-      )
+    const messages = body.media
+      ? [{ ...message, media: body.media }]
+      : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
+    for (const next of messages) {
+      const result = await channel.send(kind, next)
+      if (!result.success) return { delivered: false, reason: result.error }
+      if (sessionId && result.ref) {
+        await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
+          appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
+        )
+      } else if (sessionId) {
+        appLoggerInstance.warn(
+          `${kind} returned no message ref; an Answer to it reaches Home Agent`,
+          LOG_SOURCE,
+        )
+      }
     }
     return { delivered: true }
   } catch (error) {
@@ -195,17 +220,30 @@ async function deliver(
   }
 }
 
-const MEDIA_KINDS: Record<string, ChannelMedia['kind']> = {
-  '.png': 'photo',
-  '.jpg': 'photo',
-  '.jpeg': 'photo',
-  '.webp': 'photo',
-  '.mp4': 'video',
-  '.webm': 'video',
+/** The longest caption each channel shows under an attachment. */
+const CAPTION_MAX_CHARS: Record<ChannelKind, number> = {
+  telegram: 1024,
+  slack: Infinity,
+  'local-web': Infinity,
+  discord: 2000,
+}
+
+/** The text captions the first attachment, or goes alone first when it is too long for a caption. */
+function laidOut(
+  kind: ChannelKind,
+  message: ChannelMessage,
+  media: ChannelMedia[],
+): ChannelMessage[] {
+  if (media.length === 0) return [message]
+  const target = message.replyTo ? { replyTo: message.replyTo } : {}
+  const uncaptioned = (item: ChannelMedia): ChannelMessage => ({ text: '', media: item, ...target })
+  if (message.text.length > CAPTION_MAX_CHARS[kind]) return [message, ...media.map(uncaptioned)]
+  const [first, ...rest] = media
+  return [{ ...message, media: first }, ...rest.map(uncaptioned)]
 }
 
 async function channelMedia(file: string): Promise<ChannelMedia | null> {
-  const kind = MEDIA_KINDS[path.extname(file).toLowerCase()]
+  const kind = channelMediaKind(file)
   if (!kind) return null
   const base64 = (await fs.readFile(file)).toString('base64')
   return { kind, base64, filename: path.basename(file) }
@@ -221,6 +259,7 @@ async function replyToAnswer(sessionId: string, turn: AnswerTurn, reply: string 
     await sendNotification(text, { sessionId })
   }
   for (const file of turn.media) {
+    if (turn.attached.has(file)) continue
     const media = await channelMedia(file).catch((error) => {
       appLoggerInstance.warn(`generated media not readable: ${error}`, LOG_SOURCE)
       return null

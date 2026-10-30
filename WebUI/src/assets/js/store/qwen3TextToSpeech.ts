@@ -91,9 +91,14 @@ export const useQwen3TextToSpeech = defineStore('qwen3TextToSpeech', () => {
         ? reason
         : new Error('Text To Speech model download was cancelled')
     }
-    // If the service was already running (e.g. started from the device picker
-    // before the model existed), restart it so it picks up the freshly
-    // downloaded weights via QWEN3_TTS_MODEL on the next spawn.
+    await restartForDownloadedModel()
+  }
+
+  /**
+   * A service already running (e.g. started from the device picker before the model existed)
+   * only picks up freshly downloaded weights via QWEN3_TTS_MODEL on its next spawn.
+   */
+  async function restartForDownloadedModel(): Promise<void> {
     const info = backendServices.info.find((s) => s.serviceName === 'qwen3-tts-backend')
     if (info?.status === 'running') {
       await backendServices.stopService('qwen3-tts-backend')
@@ -443,6 +448,7 @@ export const useQwen3TextToSpeech = defineStore('qwen3TextToSpeech', () => {
     saveWavToDisk,
     ensureBackendRunning,
     ensureModelInstalled,
+    restartForDownloadedModel,
     ensureModelLoaded,
     isModelLoaded,
     isModelInstalled,

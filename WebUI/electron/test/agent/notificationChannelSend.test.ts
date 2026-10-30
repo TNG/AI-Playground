@@ -25,6 +25,15 @@ describe('a Notification handed to the Home Agent channel', () => {
     expect(await send('slack', { text: 'hi' })).toEqual({ success: true, ref: '1700000000.0002' })
   })
 
+  it('takes the ts of a Slack attachment as its ref, so it can be answered', async () => {
+    const { send } = recorder({ ts: '1700000000.0003' })
+    const media = { kind: 'photo', base64: 'AAA', filename: 'cover.png' } as const
+    expect(await send('slack', { text: 'done', media })).toEqual({
+      success: true,
+      ref: '1700000000.0003',
+    })
+  })
+
   it.each([
     ['telegram', { reply_to_message_id: '77' }],
     ['slack', { thread_ts: '77' }],
@@ -99,6 +108,89 @@ describe('a Notification handed to the Home Agent channel', () => {
         kind: 'telegram',
         action: 'video',
         payload: { video: 'BBB', caption: 'header', filename: 'intro.mp4' },
+      },
+    ])
+  })
+
+  it('keeps the Answer button on LAN chat media, naming the session it answers', async () => {
+    const { send, calls } = recorder()
+    await send('local-web', {
+      text: 'done',
+      media: { kind: 'photo', base64: 'AAA', filename: 'cover.png' },
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      answerTitle: '"Asteroids clone"',
+    })
+    await send('local-web', {
+      text: 'done',
+      media: { kind: 'voice', base64: 'CCC', filename: 'summary.wav' },
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      answerTitle: '"Asteroids clone"',
+    })
+    expect(calls).toEqual([
+      {
+        kind: 'local-web',
+        action: 'photo',
+        payload: {
+          photo: 'AAA',
+          caption: 'done',
+          filename: 'cover.png',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          answer_title: '"Asteroids clone"',
+        },
+      },
+      {
+        kind: 'local-web',
+        action: 'voice',
+        payload: {
+          audio: 'CCC',
+          mime: 'audio/wav',
+          caption: 'done',
+          filename: 'summary.wav',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          answer_title: '"Asteroids clone"',
+        },
+      },
+    ])
+  })
+
+  it('sends a speech clip as a voice message captioned with the text, under the message it answers', async () => {
+    const { send, calls } = recorder()
+    expect(
+      await send('telegram', {
+        text: 'header',
+        replyTo: '77',
+        media: { kind: 'voice', base64: 'CCC', filename: 'summary.wav' },
+      }),
+    ).toEqual({ success: true, ref: '41' })
+    await send('slack', {
+      text: 'header',
+      media: { kind: 'voice', base64: 'DDD', filename: 'summary.mp3' },
+    })
+    await send('local-web', {
+      text: 'header',
+      media: { kind: 'voice', base64: 'EEE', filename: 'summary.ogg' },
+    })
+    expect(calls).toEqual([
+      {
+        kind: 'telegram',
+        action: 'voice',
+        payload: {
+          audio: 'CCC',
+          mime: 'audio/wav',
+          caption: 'header',
+          filename: 'summary.wav',
+          reply_to_message_id: '77',
+        },
+      },
+      {
+        kind: 'slack',
+        action: 'voice',
+        payload: { audio: 'DDD', mime: 'audio/mpeg', caption: 'header', filename: 'summary.mp3' },
+      },
+      {
+        kind: 'local-web',
+        action: 'voice',
+        payload: { audio: 'EEE', mime: 'audio/ogg', caption: 'header', filename: 'summary.ogg' },
       },
     ])
   })

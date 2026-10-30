@@ -32,6 +32,17 @@ _SLACK_TOKEN_RE = re.compile(
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
+# Waits before each look for the message an upload was shared as, about 5 s in all.
+_SHARE_LOOKUP_DELAYS = (0.0, 0.25, 0.5, 1.0, 1.25, 2.0)
+
+
+def _shared_message(file: dict) -> dict:
+    for scope in ("private", "public"):
+        for channel, shares in ((file.get("shares") or {}).get(scope) or {}).items():
+            for share in shares or []:
+                if share.get("ts"):
+                    return {"ts": share["ts"], "channel": channel}
+    return {}
 
 
 def inbound_item(event: dict, text: str, **attachments) -> QueueItem:
@@ -141,11 +152,56 @@ class SlackChannel(ChannelBase):
                 return str(cand).strip()
         return None
 
+    def _upload_target(self, hint: str | None = None) -> str | None:
+        """A conversation id: uploads refuse the user id a message may be sent to."""
+        target = self._outbound_target(hint)
+        if not target or target[0] in "CGDZ" or not self.is_running():
+            return target
+        try:
+            resp = self._run_coro(
+                self._app_instance.client.conversations_open(users=target)  # type: ignore[union-attr]
+            )
+        except Exception as exc:
+            logger.warning("Slack DM with %s not opened: %s", target, exc)
+            return target
+        channel = (resp.get("channel") or {}).get("id") or ""
+        if not channel:
+            return target
+        self._im_channel = channel
+        return channel
+
     def _run_coro(self, coro, timeout: float = 30.0):
         if self._loop is None or self._app_instance in (None, "starting"):
             raise RuntimeError("Slack bot not running")
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
+
+    def _upload(self, kwargs: dict) -> dict:
+        """Uploads a file; returns the message it was shared as, so an Answer can reply to it."""
+        client = self._app_instance.client  # type: ignore[union-attr]
+        resp = self._run_coro(client.files_upload_v2(**kwargs))
+        files = resp.get("files") or []
+        file = files[0] if files else {}
+        posted = _shared_message(file)
+        # Slack shares an upload asynchronously, so the upload's answer can omit it.
+        if posted or not file.get("id"):
+            return posted
+        for delay in _SHARE_LOOKUP_DELAYS:
+            time.sleep(delay)
+            try:
+                info = self._run_coro(client.files_info(file=file["id"]))
+            except Exception as exc:
+                logger.warning("Slack upload's message not found: %s", exc)
+                return {}
+            posted = _shared_message(info.get("file") or {})
+            if posted:
+                return posted
+        logger.warning(
+            "Slack upload %s not shared within %.1fs; a reply to it reaches Home Agent",
+            file["id"],
+            sum(_SHARE_LOOKUP_DELAYS),
+        )
+        return {}
 
     def send_post(self, payload: dict) -> SendResult:
         """A message the renderer edits later (`update`); never a draft."""
@@ -196,7 +252,7 @@ class SlackChannel(ChannelBase):
         photo_b64 = payload.get("photo", "") or payload.get("imageBase64", "")
         caption = payload.get("caption", "") or ""
         thread_ts = payload.get("thread_ts") or payload.get("threadTs")
-        target = self._outbound_target(payload.get("channel"))
+        target = self._upload_target(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Slack not configured", "_http_status": 400}
         try:
@@ -210,8 +266,7 @@ class SlackChannel(ChannelBase):
                 kwargs["initial_comment"] = caption
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
-            self._run_coro(self._app_instance.client.files_upload_v2(**kwargs))  # type: ignore[union-attr]
-            return {"status": "ok"}
+            return {"status": "ok", **self._upload(kwargs)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -220,7 +275,7 @@ class SlackChannel(ChannelBase):
         caption = payload.get("caption", "") or ""
         filename = payload.get("filename") or f"aipg-{int(time.time() * 1000)}.mp4"
         thread_ts = payload.get("thread_ts") or payload.get("threadTs")
-        target = self._outbound_target(payload.get("channel"))
+        target = self._upload_target(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Slack not configured", "_http_status": 400}
         try:
@@ -234,8 +289,7 @@ class SlackChannel(ChannelBase):
                 kwargs["initial_comment"] = caption
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
-            self._run_coro(self._app_instance.client.files_upload_v2(**kwargs))  # type: ignore[union-attr]
-            return {"status": "ok"}
+            return {"status": "ok", **self._upload(kwargs)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -244,7 +298,7 @@ class SlackChannel(ChannelBase):
         mime = (payload.get("mime") or "").lower()
         caption = payload.get("caption", "") or ""
         thread_ts = payload.get("thread_ts") or payload.get("threadTs")
-        target = self._outbound_target(payload.get("channel"))
+        target = self._upload_target(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Slack not configured", "_http_status": 400}
         try:
@@ -277,8 +331,7 @@ class SlackChannel(ChannelBase):
                 kwargs["initial_comment"] = caption
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
-            self._run_coro(self._app_instance.client.files_upload_v2(**kwargs))  # type: ignore[union-attr]
-            return {"status": "ok"}
+            return {"status": "ok", **self._upload(kwargs)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -287,7 +340,7 @@ class SlackChannel(ChannelBase):
         caption = payload.get("caption", "") or ""
         filename = payload.get("filename") or f"aipg-{int(time.time() * 1000)}.bin"
         thread_ts = payload.get("thread_ts") or payload.get("threadTs")
-        target = self._outbound_target(payload.get("channel"))
+        target = self._upload_target(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Slack not configured", "_http_status": 400}
         try:
@@ -337,14 +390,16 @@ class SlackChannel(ChannelBase):
     def send_keyboard(self, payload: dict) -> SendResult:
         text = payload.get("text", "")
         blocks = payload.get("blocks") or []
+        thread_ts = payload.get("thread_ts") or payload.get("threadTs")
         target = self._outbound_target(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Slack not configured", "_http_status": 400}
         try:
+            kwargs: dict = {"channel": target, "text": text, "blocks": blocks}
+            if thread_ts:
+                kwargs["thread_ts"] = thread_ts
             resp = self._run_coro(
-                self._app_instance.client.chat_postMessage(  # type: ignore[union-attr]
-                    channel=target, text=text, blocks=blocks
-                )
+                self._app_instance.client.chat_postMessage(**kwargs)  # type: ignore[union-attr]
             )
             return {
                 "status": "ok",
@@ -521,10 +576,11 @@ class SlackChannel(ChannelBase):
                 else:
                     text_payload = ""
                 logger.info(
-                    "Slack DM received: user_id=%s channel=%s ts=%s len=%d images=%d audio=%d docs=%d",
+                    "Slack DM received: user_id=%s channel=%s ts=%s thread_ts=%s len=%d images=%d audio=%d docs=%d",
                     user_id,
                     channel,
                     ts,
+                    event.get("thread_ts") or "",
                     len(text),
                     len(images),
                     len(audio),

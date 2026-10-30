@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
+import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import type { DownloadDialogOptions } from '@/assets/js/store/dialogs'
 import type { ModelDownloadCallbacks } from '@/lib/modelDownloader'
 import { createCancellation } from '@/assets/js/errors/appError'
@@ -18,6 +20,7 @@ const showWarningDialog = vi.fn()
 const isAgentSessionTurn = vi.fn((_key: string | undefined) => false)
 const whenSessionInView = vi.fn(async (_key: string | undefined) => {})
 const whenSessionTurnEnds = vi.fn((_key: string) => new Promise<void>(() => {}))
+const sessionAnswerOrigin = vi.fn((_key: string): AgentAnswerOrigin | undefined => undefined)
 const respondMock = vi.fn(async (_payload: unknown) => {})
 const onPromptMock = vi.fn<(callback: (payload: PermissionsPromptPayload) => void) => () => void>()
 
@@ -70,6 +73,7 @@ vi.mock('@/assets/js/permissions/sessionPromptPort', () => ({
   whenSessionInView,
   whenSessionTurnEnds,
   isAgentSessionTurn,
+  sessionAnswerOrigin,
   sessionLabel: (key: string) => `"${key} title"`,
 }))
 
@@ -277,6 +281,17 @@ describe('an Agent Mode download asked as a Channel Question', () => {
     expect(dialogs[0].options.mode).toBe('ask')
   })
 
+  it('asks a turn a channel Answer started where that Answer was given', async () => {
+    sessionAnswerOrigin.mockReturnValueOnce({ channel: 'slack', replyTo: '1700.0001' })
+    void download('q1a', [X], SESSION)
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    expect(askDownloadQuestion).toHaveBeenCalledWith([X], {
+      label: `"${SESSION} title"`,
+      conversationKey: SESSION,
+      answer: { channel: 'slack', replyTo: '1700.0001' },
+    })
+  })
+
   it('a channel Confirm closes the dialog and edits the question into the download', async () => {
     const done = download('q2', [X], SESSION)
     await vi.waitFor(() => expect(dialogs).toHaveLength(1))
@@ -361,6 +376,45 @@ describe('an Agent Mode download asked as a Channel Question', () => {
     void download('q12', [Y])
     await vi.waitFor(() => expect(dialogs).toHaveLength(2))
     expect(askDownloadQuestion).not.toHaveBeenCalled()
+  })
+})
+
+describe('a voice Answer’s speech model download', () => {
+  let question: FakeQuestion
+  const IDLE = 'aipg-agent-idle'
+
+  beforeEach(() => {
+    canAskChannelQuestion.mockReturnValue(true)
+    question = fakeQuestion()
+    askDownloadQuestion.mockReturnValue(question)
+  })
+
+  it('is asked as the answered session’s Channel Question, though no turn of it runs', async () => {
+    const done = download('a1', [X], answerDownloadKey(IDLE))
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    expect(askDownloadQuestion).toHaveBeenCalledWith([X], {
+      label: `"${IDLE} title"`,
+      conversationKey: answerDownloadKey(IDLE),
+    })
+    question.tap(true)
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
+    runs[0].finish()
+    expect(await done).toEqual({ requestId: 'a1', result: true })
+  })
+
+  it('counts as a remote turn, so the remote-turn pre-grant covers it', async () => {
+    handler?.({ requestId: 'a2', kind: 'is-remote', conversationKey: answerDownloadKey(SESSION) })
+    await vi.waitFor(() => expect(respondMock).toHaveBeenCalledTimes(1))
+    expect(respondMock).toHaveBeenCalledWith({ requestId: 'a2', result: true })
+  })
+
+  it('downloads without asking when pre-granted', async () => {
+    const done = download('a3', [X], answerDownloadKey(IDLE), { skipConfirmation: true })
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
+    expect(askDownloadQuestion).not.toHaveBeenCalled()
+    expect(dialogs).toHaveLength(0)
+    runs[0].finish()
+    expect(await done).toEqual({ requestId: 'a3', result: true })
   })
 })
 

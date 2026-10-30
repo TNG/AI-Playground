@@ -5,7 +5,7 @@
 // channel shipper) should go through `extractToolMedia` instead of re-encoding
 // per-tool knowledge. A new media-producing tool only needs a case added here.
 
-export type ToolMediaKind = 'image' | 'video' | 'model3d'
+export type ToolMediaKind = 'image' | 'video' | 'model3d' | 'audio'
 
 export type ToolMediaItem = { kind: ToolMediaKind; url: string }
 
@@ -59,6 +59,14 @@ function extractAnnotatedImage(output: unknown): ToolMediaItem[] {
   return url ? [{ kind: 'image', url }] : []
 }
 
+/** synthesizeTextToSpeech: `{ ok, savedFilePath }` (a local audio file path). */
+function extractSavedSpeech(output: unknown): ToolMediaItem[] {
+  const record = asRecord(output)
+  if (!record || record.ok !== true) return []
+  const url = nonEmptyString(record.savedFilePath)
+  return url ? [{ kind: 'audio', url }] : []
+}
+
 const EXTRACTORS: Record<string, (_output: unknown) => ToolMediaItem[]> = {
   'tool-comfyUI': extractComfyMedia,
   'tool-comfyUiImageEdit': extractComfyMedia,
@@ -68,6 +76,7 @@ const EXTRACTORS: Record<string, (_output: unknown) => ToolMediaItem[]> = {
   'tool-captureScreenshot': extractOkDataUriImage,
   'tool-screenshotWebPage': extractOkDataUriImage,
   'tool-visualizeObjectDetections': extractAnnotatedImage,
+  'tool-synthesizeTextToSpeech': extractSavedSpeech,
 }
 
 /** Tool part types that produce shippable media (useful for callers that only

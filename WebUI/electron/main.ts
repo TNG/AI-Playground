@@ -34,7 +34,6 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { randomUUID } from 'node:crypto'
 import { PathsManager } from './kernel/pathsManager'
 import {
   LocalSettingsSchema,
@@ -329,7 +328,8 @@ import {
   openScreenCaptureSettings,
 } from './adapters/hardware/screenCapture.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './kernel/aipgRoot.ts'
-import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
+import { loadDemoProfile, loadModeDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
+import { writeLocalSettingsFile } from './persist/localSettingsFile'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
@@ -611,49 +611,22 @@ function getWritableSettingsPath(): string {
   return getUserLocalSettingsPath()
 }
 
-function writeUserSettingsFile(toWrite: LocalSettings): void {
-  const settingPath = getWritableSettingsPath()
-  const parsed = LocalSettingsSchema.parse(toWrite)
-  const serialized = JSON.stringify(parsed, null, 2)
-  const tmpPath = `${settingPath}.${randomUUID()}.tmp`
-  try {
-    fs.mkdirSync(path.dirname(settingPath), { recursive: true })
-    fs.writeFileSync(tmpPath, serialized, { encoding: 'utf8' })
-    fs.renameSync(tmpPath, settingPath)
-  } catch (e) {
-    try {
-      fs.unlinkSync(tmpPath)
-    } catch {
-      // ignore cleanup failure
-    }
-    throw e
-  }
-}
-
 function persistLocalSettingsToDisk(): void {
   try {
-    writeUserSettingsFile(demoModeConfig.withUserDemoValues(settings))
+    writeLocalSettingsFile(getWritableSettingsPath(), demoModeConfig.withUserDemoValues(settings))
   } catch (e) {
     appLogger.error(`failed to persist local settings: ${e}`, 'electron-backend')
   }
 }
 
-function reloadDemoProfile(): void {
-  const modeDemoDir = getModeDemoDir(settings)
-  const baseDemoDir = path.join(modesDir, 'base', 'demo')
-  try {
-    demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
-  } catch (e) {
-    appLogger.error(`Failed to load demo profile: ${e}`, 'demo-profile')
-  }
-}
-
 const demoModeConfig = createDemoModeConfig({
   settings: () => settings,
-  writeUserSettings: writeUserSettingsFile,
+  writeUserSettings: (toWrite) => writeLocalSettingsFile(getWritableSettingsPath(), toWrite),
   onDemoModeChanged: (enabled) => {
     invalidatePresetCatalog()
-    if (enabled) reloadDemoProfile()
+    if (enabled) {
+      demoProfile = loadModeDemoProfile(modesDir, resolveProductMode(settings), appLogger)
+    }
   },
 })
 
@@ -743,7 +716,9 @@ async function loadSettings() {
   demoModeConfig.resolveIntoSettings()
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
-  if (settings.isDemoModeEnabled) reloadDemoProfile()
+  if (settings.isDemoModeEnabled) {
+    demoProfile = loadModeDemoProfile(modesDir, resolveProductMode(settings), appLogger)
+  }
 
   return settings
 }

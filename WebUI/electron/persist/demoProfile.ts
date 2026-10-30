@@ -80,3 +80,21 @@ export function loadDemoProfile(
 
   return profile
 }
+
+/** The demo profile of a product mode, falling back to the base demo dir; null when it fails. */
+export function loadModeDemoProfile(
+  modesDir: string,
+  mode: string,
+  logger: { warn: (msg: string, tag: string) => void; error: (msg: string, tag: string) => void },
+): DemoProfile | null {
+  try {
+    return loadDemoProfile(
+      path.join(modesDir, mode, 'demo'),
+      path.join(modesDir, 'base', 'demo'),
+      logger,
+    )
+  } catch (e) {
+    logger.error(`Failed to load demo profile: ${e}`, 'demo-profile')
+    return null
+  }
+}

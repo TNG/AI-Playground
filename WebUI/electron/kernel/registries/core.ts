@@ -202,17 +202,10 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       }
       Object.assign(deps.settings, updates)
       // Any of these can change which preset files the catalog reads or injects.
-      if (
-        'productMode' in updates ||
-        'isDemoModeEnabled' in updates ||
-        'showDebugSettingsInUI' in updates
-      ) {
+      if ('productMode' in updates || 'showDebugSettingsInUI' in updates) {
         deps.invalidatePresetCatalog()
       }
-      const shouldReloadDemoProfile =
-        deps.settings.isDemoModeEnabled &&
-        ('productMode' in updates || 'isDemoModeEnabled' in updates)
-      if (shouldReloadDemoProfile) {
+      if (deps.settings.isDemoModeEnabled && 'productMode' in updates) {
         const modeDemoDir = deps.getModeDemoDir(deps.settings)
         const baseDemoDir = path.join(deps.modesDir, 'base', 'demo')
         try {

@@ -146,6 +146,262 @@
       StrCpy $AipgShareState "0"
     ${endif}
   FunctionEnd
+
+  ; Installer-only, like everything in this macro: the uninstaller build fails on an unused Var.
+  Var /GLOBAL AipgDemoEnabled
+  Var /GLOBAL AipgDemoPasscode
+  Var /GLOBAL AipgDemoResetMinutes
+  Var /GLOBAL AipgDemoPreviousInstallDir
+  Var /GLOBAL AipgDemoPageDone
+
+  ; Reads the previous install's settings.json now: an upgrade's uninstall deletes it before extraction.
+  Function aipgDemoModeInit
+    InitPluginsDir
+    Call aipgDemoPreviousInstall
+    Call aipgDemoModeLoad
+  FunctionEnd
+
+  ; The elevated inner instance is all-users before the install-mode page's PRE sets $installMode.
+  Function aipgDemoPreviousInstall
+    Push $0
+    ${If} $installMode == "all"
+    ${OrIf} ${UAC_IsInnerInstance}
+      StrCpy $0 $perMachineInstallationFolder
+      ${If} $0 == ""
+        StrCpy $0 $perUserInstallationFolder
+      ${EndIf}
+    ${Else}
+      StrCpy $0 $perUserInstallationFolder
+    ${EndIf}
+    Exch $0
+  FunctionEnd
+
+  Function aipgDemoRunScript
+    Exch $0
+    InitPluginsDir
+    File "/oname=$PLUGINSDIR\demo-mode-settings.ps1" "${BUILD_RESOURCES_DIR}\demo-mode-settings.ps1"
+    nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\demo-mode-settings.ps1" $0'
+    Pop $0
+    Exch $0
+  FunctionEnd
+
+  Function aipgDemoModeLoad
+    Exch $0
+    Push $1
+    Push $2
+    StrCpy $AipgDemoPreviousInstallDir $0
+    StrCpy $1 'read -ResultPath "$PLUGINSDIR\demo-mode-read.txt"'
+    ${If} $0 != ""
+      StrCpy $1 '$1 -Path "$0\resources\settings.json"'
+    ${EndIf}
+    ${GetParameters} $0
+
+    ClearErrors
+    ${GetOptions} $0 "/DEMORESET=" $2
+    ${IfNot} ${Errors}
+      ; An empty environment variable may not reach PowerShell; "0" means no Demo Reset as well.
+      ${If} $2 == ""
+        StrCpy $2 "0"
+      ${EndIf}
+      Push $2
+      System::Call 'kernel32::SetEnvironmentVariableW(w "AIPG_DEMO_RESET", w s)'
+    ${EndIf}
+    Push $1
+    Call aipgDemoRunScript
+    Pop $1
+    System::Call 'kernel32::SetEnvironmentVariableW(w "AIPG_DEMO_RESET", p 0)'
+    ${If} $1 == "0"
+      FileOpen $1 "$PLUGINSDIR\demo-mode-read.txt" r
+      FileReadUTF16LE $1 $AipgDemoEnabled
+      FileReadUTF16LE $1 $AipgDemoResetMinutes
+      FileReadUTF16LE $1 $AipgDemoPasscode
+      FileClose $1
+      StrCpy $AipgDemoEnabled $AipgDemoEnabled -2
+      StrCpy $AipgDemoResetMinutes $AipgDemoResetMinutes -2
+      StrCpy $AipgDemoPasscode $AipgDemoPasscode -2
+    ${EndIf}
+    Delete "$PLUGINSDIR\demo-mode-read.txt"
+
+    ClearErrors
+    ${GetOptions} $0 "/DEMO=" $2
+    ${IfNot} ${Errors}
+      ${If} $2 == "0"
+      ${OrIf} $2 == "1"
+        StrCpy $AipgDemoEnabled $2
+      ${EndIf}
+    ${EndIf}
+
+    ClearErrors
+    ${GetOptions} $0 "/DEMOPASSCODE=" $2
+    ${IfNot} ${Errors}
+      ${If} $2 != ""
+        StrCpy $AipgDemoPasscode $2
+      ${EndIf}
+    ${EndIf}
+    ClearErrors
+
+    Pop $2
+    Pop $1
+    Pop $0
+  FunctionEnd
+
+  ; Pushes "1" for 1 to 6 digits, else "0".
+  Function aipgDemoIsWholeMinutes
+    Exch $0
+    Push $1
+    Push $2
+    Push $3
+    Push $4
+    Push $5
+    StrCpy $1 "0"
+    StrLen $2 $0
+    ${If} $2 >= 1
+    ${AndIf} $2 <= 6
+      StrCpy $1 "1"
+      ${Do}
+        IntOp $2 $2 - 1
+        StrCpy $3 $0 1 $2
+        StrCpy $4 "0123456789"
+        ${Do}
+          StrCpy $5 $4 1
+          ${If} $5 == $3
+            ${Break}
+          ${EndIf}
+          StrCpy $4 $4 "" 1
+        ${LoopUntil} $4 == ""
+        ${If} $4 == ""
+          StrCpy $1 "0"
+          ${Break}
+        ${EndIf}
+      ${LoopUntil} $2 == 0
+    ${EndIf}
+    StrCpy $0 $1
+    Pop $5
+    Pop $4
+    Pop $3
+    Pop $2
+    Pop $1
+    Exch $0
+  FunctionEnd
+
+  Var /GLOBAL AipgDemoCheckbox
+  Var /GLOBAL AipgDemoPasscodeText
+  Var /GLOBAL AipgDemoResetText
+
+  Page custom aipgDemoPageCreate aipgDemoPageLeave
+
+  Function aipgDemoPageCreate
+    ; The install-mode page can switch to the other mode's previous install after customInit.
+    ${If} $AipgDemoPageDone != "1"
+      Call aipgDemoPreviousInstall
+      Pop $0
+      ${If} $0 != $AipgDemoPreviousInstallDir
+        Push $0
+        Call aipgDemoModeLoad
+      ${EndIf}
+    ${EndIf}
+
+    !insertmacro MUI_HEADER_TEXT "Demo Mode" "Set up AI Playground for an unattended retail display."
+
+    nsDialogs::Create 1018
+    Pop $0
+    ${if} $0 == error
+      Abort
+    ${endif}
+
+    ${NSD_CreateLabel} 0 0 100% 24u "In Demo Mode, visitors can try AI Playground without changing its setup. Staff leave Demo Mode with the Demo Passcode."
+    Pop $0
+
+    ${NSD_CreateCheckbox} 0 28u 100% 12u "Enable Demo Mode"
+    Pop $AipgDemoCheckbox
+    ${if} $AipgDemoEnabled == "1"
+      ${NSD_Check} $AipgDemoCheckbox
+    ${endif}
+    ${NSD_OnClick} $AipgDemoCheckbox aipgDemoToggle
+
+    ${NSD_CreateLabel} 0 48u 100% 10u "Demo Passcode:"
+    Pop $0
+    ${NSD_CreateText} 0 60u 50% 12u "$AipgDemoPasscode"
+    Pop $AipgDemoPasscodeText
+
+    ${NSD_CreateLabel} 0 80u 100% 10u "Demo Reset Timeout (minutes):"
+    Pop $0
+    ${NSD_CreateText} 0 92u 20% 12u "$AipgDemoResetMinutes"
+    Pop $AipgDemoResetText
+    ${NSD_CreateLabel} 0 108u 100% 10u "Leave empty or enter 0 for no Demo Reset."
+    Pop $0
+
+    Call aipgDemoSyncFields
+
+    nsDialogs::Show
+  FunctionEnd
+
+  Function aipgDemoToggle
+    Call aipgDemoSyncFields
+  FunctionEnd
+
+  Function aipgDemoSyncFields
+    ${NSD_GetState} $AipgDemoCheckbox $0
+    ${if} $0 == ${BST_CHECKED}
+      EnableWindow $AipgDemoPasscodeText 1
+      EnableWindow $AipgDemoResetText 1
+    ${else}
+      EnableWindow $AipgDemoPasscodeText 0
+      EnableWindow $AipgDemoResetText 0
+    ${endif}
+  FunctionEnd
+
+  Function aipgDemoPageLeave
+    ${NSD_GetText} $AipgDemoPasscodeText $AipgDemoPasscode
+    ${NSD_GetText} $AipgDemoResetText $1
+    StrCpy $2 "1"
+    ${if} $1 != ""
+      Push $1
+      Call aipgDemoIsWholeMinutes
+      Pop $2
+    ${endif}
+
+    ${NSD_GetState} $AipgDemoCheckbox $0
+    ${if} $0 == ${BST_CHECKED}
+      ${if} $AipgDemoPasscode == ""
+        MessageBox MB_ICONSTOP "Enter a Demo Passcode. Staff need it to leave Demo Mode."
+        Abort
+      ${endif}
+      ${if} $2 != "1"
+        MessageBox MB_ICONSTOP "Enter the Demo Reset Timeout as a whole number of minutes (at most 999999), or leave it empty or 0 for no Demo Reset."
+        Abort
+      ${endif}
+      StrCpy $AipgDemoEnabled "1"
+    ${else}
+      StrCpy $AipgDemoEnabled "0"
+    ${endif}
+    ; Unticked, the disabled field cannot be corrected, so an invalid timeout keeps the last valid one.
+    ${if} $2 == "1"
+      StrCpy $AipgDemoResetMinutes $1
+    ${endif}
+    StrCpy $AipgDemoPageDone "1"
+  FunctionEnd
+
+  ; Pushes the powershell exit code ("error" / "timeout" when it did not run).
+  Function aipgDemoModeWrite
+    Push $0
+    StrCpy $0 $AipgDemoResetMinutes
+    ${If} $0 == ""
+      StrCpy $0 "0"
+    ${EndIf}
+    Push $AipgDemoPasscode
+    System::Call 'kernel32::SetEnvironmentVariableW(w "AIPG_DEMO_PASSCODE", w s)'
+    Push 'write -Path "$INSTDIR\resources\settings.json" -Enabled $AipgDemoEnabled -ResetMinutes $0'
+    Call aipgDemoRunScript
+    Pop $0
+    ; Cleared so nothing launched later inherits the Demo Passcode.
+    System::Call 'kernel32::SetEnvironmentVariableW(w "AIPG_DEMO_PASSCODE", p 0)'
+    Exch $0
+  FunctionEnd
+!macroend
+
+!macro customInit
+  Call aipgDemoModeInit
 !macroend
 
 !macro customInstall
@@ -178,6 +434,18 @@
 
     end:
         DetailPrint "Installation completed."
+
+    ; --- AI Playground: Demo Mode ---
+    ; Every install mode: the app reads this file or seeds its own copy from it.
+    DetailPrint "Configuring Demo Mode..."
+    Call aipgDemoModeWrite
+    Pop $R3
+    ${if} $R3 != 0
+      DetailPrint "Failed to configure Demo Mode (powershell exit $R3)."
+      IfSilent +2
+      MessageBox MB_ICONSTOP "AI Playground could not configure Demo Mode (exit $R3).$\r$\n$\r$\nFile: $INSTDIR\resources\settings.json"
+      Abort
+    ${endif}
 
     ; --- AI Playground: all-users shared/per-user resources choice ---
     ; Only all-users installs get a machine-wide config; a per-user

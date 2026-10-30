@@ -1,6 +1,7 @@
 import z from 'zod'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { DemoConfigUpdateSchema, type DemoConfigUpdate } from '@/types/demoModeIpc'
+import { isHashedDemoPasscode } from '@/lib/demoPasscode'
 import {
   runElevatedRegistryChanges,
   type ElevatedRegistryRunner,
@@ -145,15 +146,29 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     if (!parsed.success) return { success: false, error: z.prettifyError(parsed.error) }
     const update = parsed.data
     const policy = resolved.sharedInstall ? parseDemoPolicy(readProbe().registryStdout) : null
+    const keptPasscode = resolved.sharedInstall
+      ? policy?.demoModePasscode
+      : ownValues().demoModePasscode
     const next: DemoModeValues = {
       isDemoModeEnabled: update.isDemoModeEnabled,
-      demoModePasscode:
-        update.demoModePasscode ??
-        (resolved.sharedInstall ? policy?.demoModePasscode : ownValues().demoModePasscode),
+      demoModePasscode: update.demoModePasscode ?? keptPasscode,
       demoModeResetInSeconds: update.demoModeResetInSeconds,
     }
     if (next.isDemoModeEnabled && !next.demoModePasscode) {
       return { success: false, error: 'Demo Mode needs a Demo Passcode' }
+    }
+    // A hand-written plain policy passcode cannot be carried into the registry write.
+    if (
+      resolved.sharedInstall &&
+      next.isDemoModeEnabled &&
+      !update.demoModePasscode &&
+      keptPasscode &&
+      !isHashedDemoPasscode(keptPasscode)
+    ) {
+      return {
+        success: false,
+        error: 'The Demo Policy passcode is not stored as a hash; set a new Demo Passcode',
+      }
     }
     if (resolved.sharedInstall) {
       const result = await runElevated(demoPolicyChanges(next))

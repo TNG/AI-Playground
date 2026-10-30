@@ -260,6 +260,21 @@ describe('saveDemoConfig', () => {
     ])
   })
 
+  it("keeps a user's hand-written plain passcode when none is given", async () => {
+    const settings = userSettings({ demoModePasscode: 'secret' })
+    const { config, written } = setup(settings)
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModeResetInSeconds: 120,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(written).toEqual([
+      expect.objectContaining({ isDemoModeEnabled: true, demoModePasscode: 'secret' }),
+    ])
+  })
+
   it.each([
     ['a plain-text passcode', { demoModePasscode: 'secret', demoModeResetInSeconds: null }],
     ['a zero Reset Timeout', { demoModePasscode: hashed, demoModeResetInSeconds: 0 }],
@@ -578,6 +593,41 @@ describe('saveDemoConfig on a Shared Install', () => {
     await config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
 
     expect(runs[0][0]).toEqual({
+      action: 'set',
+      name: 'demoModePasscode',
+      type: 'REG_SZ',
+      data: hashed,
+    })
+  })
+
+  it('asks for a new passcode instead of keeping a hand-written plain one', async () => {
+    const { config, runs } = sharedInstall({ isDemoModeEnabled: 1, demoModePasscode: 'teacher' })
+    config.leaveDemoMode()
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModeResetInSeconds: 600,
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: expect.stringMatching(/new Demo Passcode/),
+    })
+    expect(runs).toEqual([])
+  })
+
+  it('replaces a hand-written plain policy passcode with a new hashed one', async () => {
+    const { config, runs } = sharedInstall({ isDemoModeEnabled: 1, demoModePasscode: 'teacher' })
+    config.leaveDemoMode()
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toMatchObject({ success: true })
+    expect(runs[0]).toContainEqual({
       action: 'set',
       name: 'demoModePasscode',
       type: 'REG_SZ',

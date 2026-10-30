@@ -2,7 +2,7 @@ import { app } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
-import { readInstallConfig } from './installConfig.ts'
+import { installConfigAppliesTo, readInstallConfig } from './installConfig.ts'
 import { grantUsersModifySync } from './sharedAcl.ts'
 
 /**
@@ -42,7 +42,15 @@ import { grantUsersModifySync } from './sharedAcl.ts'
 let sharedMode: boolean | undefined
 const sharedModeActive = (): boolean => {
   if (sharedMode !== undefined) return sharedMode
-  sharedMode = process.platform === 'win32' && readInstallConfig()?.modelFolderMode === 'shared'
+  const config = process.platform === 'win32' ? readInstallConfig() : null
+  sharedMode = false
+  if (config?.modelFolderMode === 'shared') {
+    const installDir = path.dirname(process.resourcesPath)
+    sharedMode = installConfigAppliesTo(config, installDir, isInstallDirWritable)
+    if (!sharedMode) {
+      console.error(`[aipgRoot] machine install config belongs to another install: ${installDir}`)
+    }
+  }
   return sharedMode
 }
 
@@ -74,7 +82,7 @@ const writableUserRoot = (): string => {
  * validated base this falls back to the per-user writable root.
  */
 const sharedInstallRoot = (): string => {
-  const base = readInstallConfig()?.sharedResourcesDir?.trim()
+  const base = sharedModeActive() ? readInstallConfig()?.sharedResourcesDir?.trim() : undefined
   if (!base) return writableUserRoot()
   return path.join(base, 'resources')
 }

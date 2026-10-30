@@ -8,7 +8,16 @@
     </p>
 
     <form class="flex flex-col gap-4 pt-6 max-w-md mx-auto" @submit.prevent="done">
-      <p class="text-xs text-muted-foreground">{{ t('DEMO_MODE_SETUP_STORED_USER') }}</p>
+      <p class="text-xs text-muted-foreground">
+        {{
+          demoMode.sharedInstall
+            ? t('DEMO_MODE_SETUP_STORED_MACHINE')
+            : t('DEMO_MODE_SETUP_STORED_USER')
+        }}
+      </p>
+      <p v-if="wizard.demoModePolicyPresent" class="text-xs font-medium">
+        {{ t('DEMO_MODE_SET_BY_ADMIN') }}
+      </p>
 
       <div class="flex flex-col gap-1.5">
         <Label for="demo-passcode">{{ t('DEMO_MODE_SETUP_PASSCODE') }}</Label>
@@ -69,6 +78,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -76,6 +86,7 @@ import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
 import { hashDemoPasscode } from '@/lib/demoPasscode'
 
 const wizard = useSetupWizard()
+const demoMode = useDemoMode()
 const i18n = useI18N()
 
 function t(key: string) {

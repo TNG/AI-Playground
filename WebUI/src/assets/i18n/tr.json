@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "Demo Modu Kurulumu",
   "DEMO_MODE_SETUP_INTRO": "Demo Modunda ziyaretçiler ayarları değiştiremez veya bu sihirbazı açamaz; uygulama bir süre kullanılmadığında kendini sıfırlayabilir. Demo Modundan yalnızca Demo Parolası ile çıkılabilir.",
   "DEMO_MODE_SETUP_STORED_USER": "Kendi ayarlarınıza kaydedilir: yalnızca sizin için geçerlidir.",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "Bu bilgisayar için kaydedilir: tüm kullanıcılar için geçerlidir. Kaydetmek için yönetici onayı gerekir.",
+  "DEMO_MODE_SET_BY_ADMIN": "Yöneticiniz tarafından ayarlandı",
   "DEMO_MODE_SETUP_PASSCODE": "Demo Parolası",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "Demo Parolasını Onayla",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "Mevcut parolayı korumak için boş bırakın",

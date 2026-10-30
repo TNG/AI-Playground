@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "Demo Mode Setup",
   "DEMO_MODE_SETUP_INTRO": "In Demo Mode visitors cannot change settings or open this wizard, and the app can reset itself when nobody has used it for a while. Only the Demo Passcode leaves Demo Mode.",
   "DEMO_MODE_SETUP_STORED_USER": "Saved in your own settings: applies only to you.",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "Saved for this computer: applies to all users. Saving asks for administrator approval.",
+  "DEMO_MODE_SET_BY_ADMIN": "Set by your administrator",
   "DEMO_MODE_SETUP_PASSCODE": "Demo Passcode",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "Confirm Demo Passcode",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "Leave blank to keep the current passcode",

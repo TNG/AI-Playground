@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "Penyiapan Mode Demo",
   "DEMO_MODE_SETUP_INTRO": "Dalam Mode Demo pengunjung tidak dapat mengubah pengaturan atau membuka wizard ini, dan aplikasi dapat mereset dirinya sendiri jika tidak digunakan selama beberapa waktu. Hanya Kode Sandi Demo yang dapat keluar dari Mode Demo.",
   "DEMO_MODE_SETUP_STORED_USER": "Disimpan di pengaturan Anda sendiri: hanya berlaku untuk Anda.",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "Disimpan untuk komputer ini: berlaku untuk semua pengguna. Menyimpan memerlukan persetujuan administrator.",
+  "DEMO_MODE_SET_BY_ADMIN": "Ditetapkan oleh administrator Anda",
   "DEMO_MODE_SETUP_PASSCODE": "Kode Sandi Demo",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "Konfirmasi Kode Sandi Demo",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "Biarkan kosong untuk mempertahankan kode sandi saat ini",

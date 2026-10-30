@@ -126,12 +126,12 @@ describe('readEffectiveDemoConfig with a Demo Policy', () => {
   })
 })
 
-describe('resolveIntoSettings', () => {
+describe('applyEffectiveDemoConfig', () => {
   it('leaves the effective values in the live settings object and writes nothing', () => {
     const settings = userSettings({ isDemoModeEnabled: true, demoModeResetInSeconds: 30 })
     const { config, writeUserSettings } = setup(settings)
 
-    const effective = config.resolveIntoSettings()
+    const effective = config.applyEffectiveDemoConfig()
 
     expect(effective).toMatchObject({ isDemoModeEnabled: true, source: 'user' })
     expect(settings).toMatchObject({ isDemoModeEnabled: true, demoModeResetInSeconds: 30 })
@@ -329,16 +329,16 @@ describe('saveDemoConfig', () => {
 })
 
 describe('under a Demo Policy', () => {
-  const ownValues = {
+  const userValues = {
     isDemoModeEnabled: false,
     demoModeResetInSeconds: 60,
     demoModePasscode: 'user-secret',
   }
 
   function underPolicy() {
-    const settings = userSettings({ ...ownValues, productMode: 'studio' })
+    const settings = userSettings({ ...userValues, productMode: 'studio' })
     const harness = setup(settings)
-    harness.config.resolveIntoSettings({ registryStdout: demoPolicy })
+    harness.config.applyEffectiveDemoConfig({ registryStdout: demoPolicy })
     return { settings, ...harness }
   }
 
@@ -357,9 +357,9 @@ describe('under a Demo Policy', () => {
     const { settings, config } = underPolicy()
     settings.productMode = 'nvidia'
 
-    const toWrite = config.withUserDemoValues(settings)
+    const toWrite = config.toUserSettingsFile(settings)
 
-    expect(toWrite).toMatchObject({ ...ownValues, productMode: 'nvidia' })
+    expect(toWrite).toMatchObject({ ...userValues, productMode: 'nvidia' })
     expect(settings.isDemoModeEnabled).toBe(true)
   })
 
@@ -402,10 +402,10 @@ describe('under a Demo Policy', () => {
   it("falls back to the user's own values when the policy is gone on the next read", () => {
     const { settings, config } = underPolicy()
 
-    const effective = config.resolveIntoSettings({ registryStdout: installKeyOnly })
+    const effective = config.applyEffectiveDemoConfig({ registryStdout: installKeyOnly })
 
-    expect(effective).toMatchObject({ ...ownValues, source: 'user', sharedInstall: true })
-    expect(settings).toMatchObject(ownValues)
+    expect(effective).toMatchObject({ ...userValues, source: 'user', sharedInstall: true })
+    expect(settings).toMatchObject(userValues)
   })
 })
 
@@ -413,9 +413,9 @@ describe('without a Demo Policy', () => {
   it('writes the live settings unchanged', () => {
     const settings = userSettings({ isDemoModeEnabled: true, demoModePasscode: 'mine' })
     const { config } = setup(settings)
-    config.resolveIntoSettings({ registryStdout: installKeyOnly })
+    config.applyEffectiveDemoConfig({ registryStdout: installKeyOnly })
 
-    expect(config.withUserDemoValues(settings)).toBe(settings)
+    expect(config.toUserSettingsFile(settings)).toBe(settings)
     expect(config.currentDemoConfig()).toMatchObject({
       isDemoModeEnabled: true,
       demoModePasscode: 'mine',
@@ -430,7 +430,7 @@ describe('without a Demo Policy', () => {
     try {
       const { config } = setup(userSettings({ isDemoModeEnabled: false }))
 
-      expect(config.resolveIntoSettings()).toMatchObject({
+      expect(config.applyEffectiveDemoConfig()).toMatchObject({
         isDemoModeEnabled: false,
         source: 'user',
         sharedInstall: false,
@@ -488,7 +488,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       runElevated,
       readProbe: () => ({ registryStdout: registryStdout() }),
     })
-    config.resolveIntoSettings()
+    config.applyEffectiveDemoConfig()
     return {
       config,
       settings,
@@ -540,7 +540,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       source: 'policy',
       sharedInstall: true,
     })
-    expect(config.withUserDemoValues(settings)).toMatchObject({ demoModePasscode: 'mine' })
+    expect(config.toUserSettingsFile(settings)).toMatchObject({ demoModePasscode: 'mine' })
     expect(onDemoModeChanged).toHaveBeenCalledExactlyOnceWith(true)
   })
 

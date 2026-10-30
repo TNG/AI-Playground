@@ -1,5 +1,6 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref } from 'vue'
+import { useErrors } from './errors'
 
 // Machine-level debug controls. Their values live in settings.json (main reads
 // them), but the *controls* only appear when that file also sets
@@ -36,6 +37,7 @@ export function developerMode(): boolean {
 }
 
 export const useDebugSettings = defineStore('debugSettings', () => {
+  const errors = useErrors()
   const visible = ref(debugSettingsVisible())
   const oemVendorOverride = ref<string | null>(snapshot?.oemVendorOverride ?? null)
   const phisonSsdDetected = ref(snapshot?.PhisonSSDdetected === true)
@@ -43,20 +45,30 @@ export const useDebugSettings = defineStore('debugSettings', () => {
   // Edited as a comma-separated list; stored as an array.
   const openvinoImageGenDevices = ref((snapshot?.openvinoImageGenDevices ?? []).join(', '))
 
+  async function save(updates: Partial<LocalSettings>) {
+    const result = await window.electronAPI.updateLocalSettings(updates)
+    if (!result.success) {
+      errors.report(new Error(result.error), {
+        category: 'validation',
+        code: 'settings/update-failed',
+      })
+    }
+  }
+
   async function setOemVendorOverride(value: string | null) {
     oemVendorOverride.value = value
-    await window.electronAPI.updateLocalSettings({ oemVendorOverride: value })
+    await save({ oemVendorOverride: value })
   }
 
   async function setPhisonSsdDetected(value: boolean) {
     phisonSsdDetected.value = value
-    await window.electronAPI.updateLocalSettings({ PhisonSSDdetected: value })
+    await save({ PhisonSSDdetected: value })
   }
 
   async function saveRemoteRepository() {
     const value = remoteRepository.value.trim()
     if (!value) return
-    await window.electronAPI.updateLocalSettings({ remoteRepository: value })
+    await save({ remoteRepository: value })
   }
 
   async function saveOpenvinoImageGenDevices() {
@@ -65,7 +77,7 @@ export const useDebugSettings = defineStore('debugSettings', () => {
       .map((d) => d.trim())
       .filter((d) => d.length > 0)
     if (value.length === 0) return
-    await window.electronAPI.updateLocalSettings({ openvinoImageGenDevices: value })
+    await save({ openvinoImageGenDevices: value })
   }
 
   return {

@@ -8,6 +8,12 @@ export type DemoModeValues = Pick<
 
 export type DemoConfigSource = 'user'
 
+const DEMO_MODE_KEYS = [
+  'isDemoModeEnabled',
+  'demoModePasscode',
+  'demoModeResetInSeconds',
+] as const satisfies readonly (keyof DemoModeValues)[]
+
 export type EffectiveDemoConfig = DemoModeValues & {
   source: DemoConfigSource
   sharedInstall: boolean
@@ -66,8 +72,14 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     return effective
   }
 
+  /** Demo Mode settings can only change after leaving Demo Mode with the passcode. */
+  function refusesSettingsUpdate(updates: Partial<LocalSettings>): boolean {
+    return deps.settings().isDemoModeEnabled && DEMO_MODE_KEYS.some((key) => key in updates)
+  }
+
   return {
     readEffectiveDemoConfig,
+    refusesSettingsUpdate,
     resolveIntoSettings,
     leaveDemoMode: () => setUserDemoMode(false),
     enterDemoMode: () => setUserDemoMode(true),

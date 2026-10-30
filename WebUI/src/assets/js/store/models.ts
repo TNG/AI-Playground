@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
+import { useErrors } from './errors'
 import { useModelPreferences } from './modelPreferences'
 import { developerMode } from './debugSettings'
 import { pathKeyForCatalogModel } from '../models/library'
@@ -51,6 +52,7 @@ const devOnlyModels: Model[] = [
 export const useModels = defineStore(
   'models',
   () => {
+    const errors = useErrors()
     const hfToken = ref<string | undefined>(undefined)
     const hfEndpoint = ref<string>('https://huggingface.co')
     const models = ref<Model[]>([])
@@ -512,7 +514,13 @@ export const useModels = defineStore(
      */
     async function updateHfEndpoint(endpoint: string): Promise<void> {
       hfEndpoint.value = endpoint
-      await window.electronAPI.updateLocalSettings({ huggingfaceEndpoint: endpoint })
+      const result = await window.electronAPI.updateLocalSettings({ huggingfaceEndpoint: endpoint })
+      if (!result.success) {
+        errors.report(new Error(result.error), {
+          category: 'validation',
+          code: 'settings/update-failed',
+        })
+      }
     }
 
     /**

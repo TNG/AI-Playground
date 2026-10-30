@@ -11,6 +11,7 @@ import type {
   submitAgentToolResult,
 } from '../../agent/piAgentManager'
 import type { importAttachment } from '../../agent/workspaceAttachments'
+import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
 import type {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -23,8 +24,9 @@ import type {
   readAgentWorkspaceState,
   writeAgentWorkspaceState,
 } from '../../persist/workspaceStateFiles'
+import type { deleteAgentTask, readAgentTasks, saveAgentTask } from '../../persist/agentTaskFiles'
 
-/** The Pi manager, session-record and workspace-state seams the fourteen agentMode handlers close over. */
+/** The Pi manager, session-record, workspace-state and Tasks seams the agentMode handlers close over. */
 export type AgentModeDeps = {
   startAgentTurn: typeof startAgentTurn
   cancelAgentTurn: typeof cancelAgentTurn
@@ -33,6 +35,7 @@ export type AgentModeDeps = {
   submitAgentToolResult: typeof submitAgentToolResult
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
+  mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
   migrateLegacyAgentSessions: typeof migrateLegacyAgentSessions
   saveAgentSession: typeof saveAgentSession
@@ -41,6 +44,9 @@ export type AgentModeDeps = {
   readAgentWorkspaceState: typeof readAgentWorkspaceState
   migrateAgentWorkspaceState: typeof migrateAgentWorkspaceState
   writeAgentWorkspaceState: typeof writeAgentWorkspaceState
+  readAgentTasks: typeof readAgentTasks
+  saveAgentTask: typeof saveAgentTask
+  deleteAgentTask: typeof deleteAgentTask
 }
 
 export function buildAgentModeRegistry(deps: AgentModeDeps) {
@@ -93,8 +99,9 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       }
       return await deps.startAgentTurn(turnId, prompt, parsed.data)
     },
-    'agentMode:cancel': () => {
-      deps.cancelAgentTurn()
+    'agentMode:cancel': (_event, sessionId, turnId) => {
+      if (typeof sessionId !== 'string') return
+      deps.cancelAgentTurn(sessionId, typeof turnId === 'string' ? turnId : undefined)
     },
     'agentMode:resetSession': async () => {
       await deps.resetAgentSession()
@@ -124,6 +131,29 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         return ipcFail(e)
       }
     },
+    'agentMode:readTasks': async () => {
+      try {
+        return { success: true as const, tasks: await deps.readAgentTasks() }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:saveTask': async (_event, task) => {
+      try {
+        await deps.saveAgentTask(task)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:deleteTask': async (_event, id) => {
+      try {
+        await deps.deleteAgentTask(id)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
     'agentMode:deleteSession': async (_event, sessionId) => {
       // Both halves run even if one fails. Invalid ids return `{success:false}`.
       try {
@@ -144,6 +174,16 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       } catch (error) {
         return ipcFail(error)
       }
+    },
+    // File actions on a transcript's generated media (see agent/workspaceMediaFile.ts).
+    'agentMode:mediaFileAction': (event, ref, action) => {
+      const valid =
+        typeof ref?.sessionId === 'string' &&
+        typeof ref.appCopy === 'string' &&
+        (ref.workspacePath === undefined || typeof ref.workspacePath === 'string') &&
+        ['open', 'reveal', 'drag', 'saveAs'].includes(action)
+      if (!valid) return { success: false, error: 'invalid media file request' }
+      return deps.mediaFileAction(event.sender, ref, action)
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

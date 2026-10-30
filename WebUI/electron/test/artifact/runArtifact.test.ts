@@ -21,7 +21,6 @@ const activeVariantName = ref<Record<string, string>>({})
 
 const runIpcMock = vi.fn<(payload: unknown) => Promise<unknown>>()
 const cancelIpcMock = vi.fn<(runId?: string) => Promise<void>>()
-const ensureModelsMock = vi.fn<(preset: unknown) => Promise<void>>()
 const failGenerationMock = vi.fn<(message: string) => void>()
 const resolvePresetVariantMock = vi.fn<(name: string, variant?: string | null) => Preset | null>()
 const imageUrlToDataUriMock = vi.fn<(source: string) => Promise<string>>()
@@ -72,7 +71,6 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
       }
     },
     failGeneration: failGenerationMock,
-    ensureModelsAreAvailableFor: ensureModelsMock,
     trackArtifactRun: vi.fn(),
     untrackArtifactRun: vi.fn(),
   }),
@@ -113,7 +111,6 @@ vi.stubGlobal('window', {
 })
 
 const { runArtifact, artifactKindForMedia } = await import('@/assets/js/artifact/runArtifact')
-const { createAppError } = await import('@/assets/js/errors/appError')
 
 type RunPayload = {
   runId: string
@@ -219,7 +216,6 @@ describe('runArtifact', () => {
       return resolveCompleted()
     })
     cancelIpcMock.mockReset().mockResolvedValue()
-    ensureModelsMock.mockReset().mockResolvedValue()
     failGenerationMock.mockReset().mockImplementation((message: string) => {
       // Mirrors the real store: the failed panel reads this.
       lastError.value = message
@@ -474,23 +470,7 @@ describe('runArtifact', () => {
     expect(runIpcMock).not.toHaveBeenCalled()
   })
 
-  it('rethrows a cancelled model download instead of failing silently', async () => {
-    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    ensureModelsMock.mockRejectedValue(
-      createAppError({
-        category: 'validation',
-        code: 'user/cancelled',
-        userMessage: 'Download cancelled',
-      }),
-    )
-
-    await expect(
-      runArtifact({ kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' }),
-    ).rejects.toMatchObject({ code: 'user/cancelled' })
-    expect(runIpcMock).not.toHaveBeenCalled()
-  })
-
-  it('marks the payload as consented and forwards the keep-models-loaded flag', async () => {
+  it('leaves the model consent to main and forwards the keep-models-loaded flag', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
 
     const { result } = await startAndAwaitSubmit({
@@ -500,32 +480,11 @@ describe('runArtifact', () => {
     })
     await result
 
-    // The renderer's pre-flight (permissions dialog) already ran, so main
-    // must not ask again; the GPU-hold flag rides the payload.
+    // Main asks for missing models as the run joins the Turn Queue; the GPU-hold
+    // flag rides the payload.
     const payload = runIpcMock.mock.calls[0][0] as RunPayload
-    expect(payload.modelsConsented).toBe(true)
+    expect(payload.modelsConsented).toBe(false)
     expect(payload.keepModelsLoaded).toBe(false)
-  })
-
-  it('removes the queued stubs and fails fast when main refuses a run', async () => {
-    presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    runIpcMock.mockResolvedValueOnce({
-      state: 'failed',
-      items: [],
-      error: 'Another generation is already in progress',
-    })
-
-    const result = await runArtifact({
-      kind: 'create-image',
-      workflow: 'Draft Image',
-      prompt: 'a castle',
-    })
-
-    expect(result).toMatchObject({
-      state: 'failed',
-      error: expect.stringContaining('already in progress'),
-    })
-    expect(generatedImages.value).toEqual([])
   })
 
   it('drops the queued stubs when main fails the run before anything generated', async () => {
@@ -639,22 +598,15 @@ describe('runArtifact', () => {
     expect(cancelIpcMock).toHaveBeenCalledWith(payload.runId)
   })
 
-  it('resolves cancelled without registering items when the signal fires while models prepare', async () => {
+  it('resolves cancelled without registering items when the caller aborted before submit', async () => {
     presetsFixture.value = [comfyPreset({ name: 'Draft Image' })]
-    let resolveModels!: () => void
-    ensureModelsMock.mockImplementation(
-      () => new Promise<void>((resolve) => (resolveModels = resolve)),
-    )
     const controller = new AbortController()
+    controller.abort()
 
-    const pending = runArtifact(
+    const result = await runArtifact(
       { kind: 'create-image', workflow: 'Draft Image', prompt: 'a castle' },
       { abortSignal: controller.signal },
     )
-    controller.abort()
-    resolveModels()
-
-    const result = await pending
     expect(result).toMatchObject({ state: 'cancelled', items: [] })
     expect(runIpcMock).not.toHaveBeenCalled()
     expect(generatedImages.value).toEqual([])

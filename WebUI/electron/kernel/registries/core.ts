@@ -8,7 +8,6 @@ import {
   BrowserWindow,
   dialog,
   IpcMainInvokeEvent,
-  nativeImage,
   net,
   screen,
   shell,
@@ -16,8 +15,10 @@ import {
 } from 'electron'
 import z from 'zod'
 import { LocalSettingsSchema } from '../localSettings'
+import { agentTasksKeepAppAlive } from '../../persist/agentTaskFiles'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
+import { revealFileInFolder, startFileDrag } from '../../adapters/osFileActions.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -194,7 +195,6 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       if (
         'productMode' in updates ||
         'isDemoModeEnabled' in updates ||
-        'isAgentPresetEnabled' in updates ||
         'showDebugSettingsInUI' in updates
       ) {
         deps.invalidatePresetCatalog()
@@ -1506,6 +1506,20 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       }
     },
 
+    deleteUserPreset: async (_event, name: string) => {
+      try {
+        const presetsPath = path.join(app.getPath('documents'), 'AI Playground', 'presets')
+        const filePath = path.join(presetsPath, `${name.replace(/[^a-z0-9]/gi, '_')}.json`)
+        await fs.promises.rm(filePath, { force: true })
+        deps.appLogger.info(`Deleted user preset ${filePath}`, 'electron-backend')
+        deps.invalidatePresetCatalog()
+        return true
+      } catch (error) {
+        deps.appLogger.error(`Failed to delete user preset: ${error}`, 'electron-backend')
+        return false
+      }
+    },
+
     // Version management IPC handlers for frontend store integration
     resolveBackendVersion: async (_event, serviceName: BackendServiceName) => {
       return await deps.resolveBackendVersion(serviceName, deps.settings)
@@ -1549,6 +1563,9 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
         return undefined
       })
     },
+
+    // Enabled schedule or in-flight run marker in the tasks file. Demo mode is false.
+    tasksKeepAlive: () => agentTasksKeepAppAlive(),
   } satisfies InvokeHandlerMap<CoreInvokeName>
 }
 
@@ -1573,25 +1590,7 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
     ondragstart: async (event, filePath) => {
       const imagePath = getAssetPathFromUrl(filePath, deps)
       if (!imagePath) return
-      let thumbnail: Electron.NativeImage
-      try {
-        thumbnail = await nativeImage.createThumbnailFromPath(imagePath, {
-          height: 128,
-          width: 128,
-        })
-      } catch (_e: unknown) {
-        thumbnail = await nativeImage.createThumbnailFromPath(
-          path.join(deps.externalRes, 'cam.png'),
-          {
-            height: 128,
-            width: 128,
-          },
-        )
-      }
-      event.sender.startDrag({
-        file: imagePath,
-        icon: thumbnail,
-      })
+      await startFileDrag(event.sender, imagePath, path.join(deps.externalRes, 'cam.png'))
     },
 
     // Detach the main window's DevTools window.
@@ -1619,8 +1618,15 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
 
     // Quit outright instead of closing the window and hoping that cascades into a
     // quit: `app.quit()` always reaches the gated teardown in `before-quit`.
+    // The title bar asks first when a task schedule or run would be killed; Home
+    // Agent and ordinary turns still quit here with no question.
     exitApp: async () => {
       app.quit()
+    },
+
+    hideMainWindow: () => {
+      const win = deps.getWin()
+      if (win && !win.isDestroyed()) win.hide()
     },
 
     // Save a generated image to a file the user picks in a save dialog.
@@ -1705,15 +1711,7 @@ export function buildCoreSendRegistry(deps: CoreSendDeps) {
     openImageInFolder: (_event, url) => {
       const imagePath = getAssetPathFromUrl(url, deps)
       if (!imagePath) return
-
-      if (process.platform === 'win32') {
-        // `execFile`, not `exec`: the path is passed as an argument rather than
-        // spliced into a shell command line, so a media path containing a
-        // quote or an `&` opens the folder instead of running as a command.
-        execFile('explorer.exe', ['/select,', imagePath])
-      } else {
-        shell.showItemInFolder(imagePath)
-      }
+      revealFileInFolder(imagePath)
     },
 
     // Enter or leave full screen on the main window.

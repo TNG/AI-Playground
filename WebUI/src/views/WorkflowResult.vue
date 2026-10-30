@@ -85,7 +85,12 @@
           class="absolute left-0 top-0 w-full h-full flex justify-center items-center"
         >
           <loading-bar
-            v-if="
+            v-if="imageGeneration.queuedLabel"
+            :text="imageGeneration.queuedLabel"
+            class="w-3/4"
+          ></loading-bar>
+          <loading-bar
+            v-else-if="
               [
                 'start_backend',
                 'load_model',
@@ -311,8 +316,8 @@ watch(
 async function generateImage(prompt: string) {
   try {
     imageGeneration.prompt = prompt
-    // Readiness (model download dialog included) is the runner's — a cancelled
-    // download throws from generate() and lands in this same catch.
+    // Readiness (model download dialog included) is the runner's — a declined
+    // download settles the run as cancelled.
     await imageGeneration.generate(props.mode)
   } catch (error) {
     // Reset state on any error (including download cancellation). A user cancel

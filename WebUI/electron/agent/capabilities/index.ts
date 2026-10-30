@@ -8,6 +8,7 @@ import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
 import { memoryCapability } from './memory.ts'
 import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
+import { webCapability } from './web.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
 import {
   estimateToolTokens,
@@ -41,6 +42,7 @@ export { DEFAULT_CAPABILITY_IDS } from '@/types/agentCapabilities'
 /** Built-in capabilities, in the order their tools are registered. */
 const BUILT_IN_CAPABILITIES: AgentCapability[] = [
   webDebugCapability,
+  webCapability,
   mediaCapability,
   memoryCapability,
   ragCapability,

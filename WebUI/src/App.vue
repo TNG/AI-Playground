@@ -181,7 +181,7 @@
       <div class="fixed top-18 left-4 z-5 flex flex-col gap-2">
         <button
           id="show-history-button"
-          v-show="!uiStore.showHistory"
+          v-show="!uiStore.leftPanel"
           @click="openHistory"
           class="text-foreground px-3 py-1.5 bg-card border border-border shadow-sm hover:bg-muted rounded-lg text-sm"
         >
@@ -244,9 +244,9 @@
     </div>
 
     <SideModalSpecificSettings
-      :isVisible="showSpecificSettings"
+      :isVisible="uiStore.showSettings"
       :mode="promptStore.getCurrentMode()"
-      @close="showSpecificSettings = false"
+      @close="closeSpecificSettings"
     />
     <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
          decides, and the download / delete dialogs this view opens must be able
@@ -380,6 +380,7 @@ import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
+import { useI18N } from '@/assets/js/store/i18n'
 
 const theme = useTheme()
 const globalSetup = useGlobalSetup()
@@ -392,6 +393,7 @@ const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
+const i18n = useI18N()
 
 const demoModeOverlayDriverJs = ref<InstanceType<typeof DemoModeOverlayDriverJsRef>>()
 const showSettingBtn = ref<HTMLButtonElement>()
@@ -407,7 +409,6 @@ const isOpen = ref(false)
 const footerExpanded = ref(true)
 const showAppSettings = ref(false)
 const fullscreen = ref(false)
-const showSpecificSettings = ref(false)
 
 const platformTitle = window.envVars.platformTitle
 const productVersion = window.envVars.productVersion
@@ -514,8 +515,31 @@ function toggleFullScreen() {
   window.electronAPI.setFullScreen(fullscreen.value)
 }
 
-function closeWindow() {
-  window.electronAPI.exitApp()
+let closeInFlight = false
+
+async function closeWindow() {
+  if (closeInFlight) return
+  closeInFlight = true
+  try {
+    const keepAlive = await window.electronAPI.tasksKeepAlive().catch(() => false)
+    if (keepAlive) {
+      const keep = await dialogStore.requestConfirmation(
+        i18n.state.AGENT_TASKS_CLOSE_CONFIRM ??
+          'A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it?',
+        {
+          confirm: i18n.state.AGENT_TASKS_KEEP_RUNNING ?? 'Keep running',
+          cancel: i18n.state.AGENT_TASKS_QUIT ?? 'Quit',
+        },
+      )
+      if (keep) {
+        window.electronAPI.hideMainWindow()
+        return
+      }
+    }
+    window.electronAPI.exitApp()
+  } finally {
+    closeInFlight = false
+  }
 }
 
 function openDevTools() {
@@ -531,7 +555,12 @@ function openHistory() {
 }
 
 function openSpecificSettings() {
-  showSpecificSettings.value = !showSpecificSettings.value
+  if (uiStore.showSettings) closeSpecificSettings()
+  else uiStore.openSettings()
+}
+
+function closeSpecificSettings() {
+  uiStore.closeSettings()
 }
 
 function openAppSettings() {

@@ -26,9 +26,6 @@ export const LocalSettingsSchema = z.object({
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePasscode: z.string().optional(),
-  // Gates the experimental "Agent" chat preset. Written by the Settings →
-  // Developer checkbox, not a documented hand-edit flag. See docs/agent-preset.md.
-  isAgentPresetEnabled: z.boolean().default(false),
   // Shows the machine-level debug controls (OEM override, Phison pretend, remote
   // repository, OpenVINO image-gen devices, verbose agent logging, dummy media
   // workflows, the title-bar wizard shortcut) in Settings → Developer, and

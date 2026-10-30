@@ -4,6 +4,50 @@
       <div v-if="contextError" class="flex items-center gap-3">
         <p class="text-red-500">{{ contextError }}</p>
       </div>
+      <div
+        v-if="agentSettingsProblems.length > 0"
+        role="alert"
+        aria-label="Agent session settings unusable"
+        class="w-full max-w-3xl text-sm text-amber-500 flex flex-col gap-1"
+      >
+        <p>{{ languages?.AGENT_SETTINGS_UNUSABLE }}</p>
+        <p v-for="problem in agentSettingsProblems" :key="`${problem.field}:${problem.value}`">
+          {{ describeSettingsProblem(problem) }}
+        </p>
+      </div>
+      <div
+        v-if="lockingTask"
+        role="status"
+        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <p class="flex-1 min-w-0">{{ lockedNote }}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-7 px-2 text-xs"
+          :aria-label="(languages?.AGENT_TASKS_STOP ?? '').replace('{name}', lockingTask.name)"
+          @click="agentTasks.stopTask(lockingTask.id)"
+        >
+          <StopIcon class="size-3.5" aria-hidden="true" />
+          {{ languages?.AGENT_TASK_STOP_RUN }}
+        </Button>
+      </div>
+      <div
+        v-else-if="promptRun"
+        role="status"
+        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <p class="flex-1 min-w-0">{{ promptRunNote }}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-7 px-2 text-xs"
+          @click="agentTasks.stopPromptRun(agentMode.openSessionId)"
+        >
+          <StopIcon class="size-3.5" aria-hidden="true" />
+          {{ languages?.AGENT_STEPS_STOP }}
+        </Button>
+      </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <div class="w-full max-w-3xl flex flex-col">
         <PromptStatusBar />
@@ -369,20 +413,40 @@
               class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
               @click="handleAdvancedSettingsClick"
             >
-              {{ mapModeToLabel(promptStore.getCurrentMode()) }} Settings
+              {{ settingsLabel }}
             </Button>
             <!-- Send / stop / loading cluster — hidden for the STT preset, which
                  submits via its own record/upload controls. -->
             <template v-if="!isSttPreset">
-              <Button
-                v-if="readyForNewSubmit"
-                @click="handleSubmitPromptClick"
-                id="send-button"
-                aria-label="Send"
-                class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-              >
-                →
-              </Button>
+              <TooltipProvider v-if="readyForNewSubmit" :delay-duration="200">
+                <Tooltip v-if="canRunSteps">
+                  <TooltipTrigger as-child>
+                    <Button
+                      @click="handleRunStepsClick"
+                      :aria-label="languages?.AGENT_STEPS_RUN"
+                      :disabled="agentSettingsProblems.length > 0 || isSlashCommand"
+                      class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
+                    >
+                      <PlayIcon class="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN_TIP }}</TooltipContent>
+                </Tooltip>
+                <Tooltip :disabled="!canRunSteps">
+                  <TooltipTrigger as-child>
+                    <Button
+                      @click="handleSubmitPromptClick"
+                      id="send-button"
+                      aria-label="Send"
+                      :disabled="agentSettingsProblems.length > 0"
+                      class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
+                    >
+                      →
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_SEND_TIP }}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <Button
                 v-else-if="!isStopping"
                 @click="handleCancelClick"
@@ -451,7 +515,13 @@ import {
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import {
+  describeSettingsProblem as describeProblem,
+  type SessionSettingsProblem,
+} from '@/lib/sessionSettingsProblems'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
+import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
@@ -465,7 +535,14 @@ import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/pres
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { PlusIcon, PaperClipIcon, MusicalNoteIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import {
+  PlusIcon,
+  PaperClipIcon,
+  MusicalNoteIcon,
+  StopIcon,
+  XMarkIcon,
+} from '@heroicons/vue/24/outline'
+import { PlayIcon } from '@heroicons/vue/24/solid'
 import AcerCameraIcon from '@/components/AcerCameraIcon.vue'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
@@ -477,6 +554,8 @@ import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
+import { stepPrompts } from '@/lib/taskSteps'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -485,10 +564,11 @@ const i18nState = useI18N().state
 const prompt = ref('')
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
-const processingDebounceTimer = ref<number | null>(null)
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const oemBranding = useOemBranding()
+const settingsLabel = useModeSettingsLabel(() => promptStore.getCurrentMode())
 const textInference = useTextInference()
 const conversations = useConversations()
 const activities = useActivities()
@@ -663,7 +743,7 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
     } else if (onHomeAgentThread) {
       conversations.addNewConversation()
     }
-    toast.success(`Switched to ${preset.name}`)
+    toast.success(`Switched to ${oemBranding.presetLabel(preset.name)}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
   }
@@ -832,20 +912,40 @@ function removeImage(index: number) {
   openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)
 }
 
-// Busy state is unified through the activity sink: in addition to the streaming /
-// generation flags, any active chat activity for the current conversation (backend
-// prep, RAG search, tool resolution, thinking) keeps the prompt area in its busy
-// state so the send/stop control matches the in-turn activity indicator.
-const isProcessing = computed(
-  () =>
-    openAiCompatibleChat.processing ||
-    imageGeneration.processing ||
-    // Model/backend load runs before the chat stream starts (so `processing` is
-    // still false); keep the busy state up for it too, so the send/stop control
-    // is the single, complete signal for "is the app working on this turn".
-    textInference.isPreparingBackend ||
-    agentMode.processing ||
-    activities.chatActivity(conversations.activeKey) !== null,
+const lockingTask = computed(() =>
+  promptStore.getCurrentMode() === 'agent'
+    ? agentTasks.taskLockingSession(agentMode.openSessionId)
+    : undefined,
+)
+
+const lockedNote = computed(() =>
+  (languages?.AGENT_TASK_SESSION_LOCKED ?? '').replace('{name}', lockingTask.value?.name ?? ''),
+)
+
+const promptRun = computed(() =>
+  promptStore.getCurrentMode() === 'agent'
+    ? agentTasks.promptRunOf(agentMode.openSessionId)
+    : undefined,
+)
+
+const promptRunNote = computed(() =>
+  (languages?.AGENT_STEPS_RUNNING ?? '')
+    .replace('{step}', String(promptRun.value?.stepIndex ?? ''))
+    .replace('{count}', String(promptRun.value?.stepCount ?? '')),
+)
+
+// Busy state follows only what the prompt bar would send to (`promptBusy`). For the
+// open conversation that includes any chat activity on it (backend prep, a queued
+// turn, RAG search, tool resolution, thinking), so send/stop matches the in-turn
+// activity indicator.
+const isProcessing = computed(() =>
+  promptBusy(promptStore.getCurrentMode(), {
+    agentSession:
+      agentMode.processing || lockingTask.value !== undefined || promptRun.value !== undefined,
+    conversation:
+      openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
+    panelRun: imageGeneration.processing,
+  }),
 )
 
 const isStopping = computed(() => imageGeneration.stopping)
@@ -909,26 +1009,14 @@ const isTextAreaDisabled = computed(() => {
 
 const contextError = computed(() => openAiCompatibleChat.error)
 
-watch(isProcessing, (newValue, oldValue) => {
-  if (processingDebounceTimer.value !== null) {
-    clearTimeout(processingDebounceTimer.value)
-    processingDebounceTimer.value = null
-  }
-
-  if (oldValue === true && newValue === false) {
-    // Only clear the prompt in the chat-like modes (chat, agent, audio); persist it
-    // for the ComfyUI modes (imageGen, imageEdit, video)
-    if (isChatLikeMode.value) {
-      processingDebounceTimer.value = window.setTimeout(() => {
-        prompt.value = ''
-        promptStore.promptSubmitted = false
-        processingDebounceTimer.value = null
-      }, 1000)
-    } else {
-      // For ComfyUI modes, just reset the submitted flag but keep the prompt
-      promptStore.promptSubmitted = false
-    }
-  }
+watch(isProcessing, (busy, wasBusy) => {
+  const { clearPrompt, resetSubmitted } = promptOnBusyChange(promptStore.getCurrentMode(), {
+    busy,
+    wasBusy,
+    submitted: promptStore.promptSubmitted,
+  })
+  if (clearPrompt) prompt.value = ''
+  if (resetSubmitted) promptStore.promptSubmitted = false
 })
 
 // Sync prompt from store to textarea when switching to ComfyUI modes
@@ -1001,7 +1089,17 @@ function getTextAreaPlaceholder() {
   }
 }
 
+/** A sent Agent session whose stored settings cannot be used blocks Send (see agentMode). */
+const agentSettingsProblems = computed(() =>
+  promptStore.getCurrentMode() === 'agent' ? agentMode.settingsProblems : [],
+)
+
+function describeSettingsProblem(problem: SessionSettingsProblem): string {
+  return describeProblem(problem, languages as unknown as Record<string, string>)
+}
+
 function handleSubmitPromptClick() {
+  if (agentSettingsProblems.value.length > 0) return
   const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
@@ -1009,6 +1107,23 @@ function handleSubmitPromptClick() {
   }
   emits('autoHideFooter')
   promptStore.submitPrompt(prompt.value)
+}
+
+/** Agent Maker sessions with Steps can carry them out; Send then talks to the agent alone. */
+const canRunSteps = computed(
+  () =>
+    promptStore.getCurrentMode() === 'agent' &&
+    agentMode.sessionScoped &&
+    stepPrompts(agentMode.openSteps).length > 0,
+)
+
+const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
+
+function handleRunStepsClick() {
+  if (agentSettingsProblems.value.length > 0 || isSlashCommand.value) return
+  emits('autoHideFooter')
+  promptStore.promptSubmitted = true
+  void agentTasks.runSteps(prompt.value)
 }
 
 function handleCancelClick() {

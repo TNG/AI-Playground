@@ -1,7 +1,7 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
-  jsonResult,
   jsonSchemaParameters,
+  mediaToolResult,
   saveGeneratedMediaToWorkspace,
   workspaceFileToDataUri,
 } from '../piCustomTools.ts'
@@ -97,7 +97,7 @@ export async function buildDelegatedMediaTool(
       )
       const condensed = condenseMediaAgentRun(raw)
       const saved = await saveGeneratedMediaToWorkspace(slimCondensedMedia(condensed), workspaceDir)
-      return jsonResult(saved)
+      return mediaToolResult(saved, condensed.steps)
     },
   }) as ToolDefinition
 }

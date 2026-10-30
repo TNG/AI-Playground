@@ -2,7 +2,7 @@
   <SideModalBase
     id="advanced-settings-sidebar"
     :is-visible="isVisible"
-    :title="`${mapModeToLabel(mode)} Settings`"
+    :title="title"
     hide-header
     side="right"
     @close="$emit('close')"
@@ -34,6 +34,7 @@
 </template>
 
 <script setup lang="ts">
+import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
 import SideModalBase from '@/components/SideModalBase.vue'
 import SettingsChat from '@/components/SettingsChat.vue'
 import SettingsAgent from '@/components/SettingsAgent.vue'
@@ -49,4 +50,6 @@ const props = defineProps<{
 defineEmits<{
   close: []
 }>()
+
+const title = useModeSettingsLabel(() => props.mode)
 </script>

@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import type { AgentToolSpec } from '@/types/agentIpc'
+import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 
 // The agent's speech tools (capabilities/mediaSpeech.ts): the engine call is the
 // window's, over the same `chat:ask` seam the chat bodies use, and what differs
@@ -21,6 +22,12 @@ vi.mock('../../observability/logger.ts', () => ({
 
 vi.mock('../../agent/piRuntime.ts', () => ({
   loadPi: async () => ({ defineTool: (definition: unknown) => definition }),
+}))
+
+let audioDir: string
+vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getAudioDir: () => audioDir,
 }))
 
 const askRendererMock = vi.fn()
@@ -64,6 +71,10 @@ function parseOutput(output: unknown): Record<string, unknown> {
   return JSON.parse(result.content[0].text)
 }
 
+function detailsOf(output: unknown): AgentMediaDetails | undefined {
+  return (output as { details?: AgentMediaDetails }).details
+}
+
 function run(tool: BuiltTool, params: unknown): Promise<Record<string, unknown>> {
   return tool
     .execute('call-1', params, new AbortController().signal)
@@ -73,6 +84,7 @@ function run(tool: BuiltTool, params: unknown): Promise<Record<string, unknown>>
 describe('mediaSpeech (agent speech tools)', () => {
   beforeEach(() => {
     workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-'))
+    audioDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-audio-'))
     askRendererMock.mockReset()
   })
 
@@ -96,6 +108,40 @@ describe('mediaSpeech (agent speech tools)', () => {
     })
     expect(output).toMatchObject({ ok: true, savedFilePath: 'generated/speech.wav' })
     expect(fs.readFileSync(path.join(workspaceDir, 'generated', 'speech.wav'), 'utf8')).toBe('riff')
+  })
+
+  it('also keeps an app-folder copy for the transcript, which outlives the workspace', async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    const output = await tool.execute('call-1', { text: 'hello' }, new AbortController().signal)
+
+    expect(parseOutput(output)).toEqual({
+      ok: true,
+      message:
+        'Synthesized speech with Kokoro (Ryan). Saved into the workspace at generated/speech.wav.',
+      savedFilePath: 'generated/speech.wav',
+      speaker: 'Ryan',
+    })
+    const audio = detailsOf(output)?.audio
+    expect(audio?.workspacePath).toBe('generated/speech.wav')
+    expect(path.dirname(audio!.savedFilePath)).toBe(audioDir)
+    fs.rmSync(workspaceDir, { recursive: true })
+    expect(fs.readFileSync(audio!.savedFilePath, 'utf8')).toBe('riff')
+  })
+
+  it('gives a failed synthesis no details', async () => {
+    askRendererMock.mockRejectedValueOnce(new Error('no voice model'))
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    const output = await tool.execute('call-1', { text: 'hello' }, new AbortController().signal)
+
+    expect(detailsOf(output)).toBeUndefined()
   })
 
   it('names the clip after outputFileName and never overwrites a take', async () => {

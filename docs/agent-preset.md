@@ -2,8 +2,8 @@
 
 > **Status: draft for review.** The definition below is a proposal. The wording marked
 > _shipped copy_ is what currently sits in `modes/base/presets/agent.json`; change it there
-> once we agree on the positioning. The preset is experimental and hidden by default — see
-> [Turning it on](#turning-it-on).
+> once we agree on the positioning. The preset ships in the chat list as **Agent Maker** —
+> see [Turning it on](#turning-it-on).
 
 ## What it is
 
@@ -17,8 +17,9 @@ files, run commands in an emulated shell, search the folder, open pages in a rea
 read their console, and generate images, video or 3D models. Where Game Agent aims all of that
 at one outcome, Agent leaves the aim to you.
 
-_Shipped copy:_ "Give the model a task and a folder to work in. It writes and runs files,
-browses its own pages, and can generate images and video along the way."
+_Shipped copy:_ "Pick a folder and describe the job. The agent edits files there until it is
+done, with no undo. Name the settings to save them as an agent you can run again or on a
+schedule."
 
 ## When you would reach for it
 
@@ -104,16 +105,12 @@ model there is no browser and nothing to read back, which is exactly wrong for G
 
 ## Turning it on
 
-Hidden by default because it is experimental: it can overrun a small model, and it writes to a
-folder of your choosing with no undo. Tick **Agent preset** under **Settings → Developer**. The
-checkbox writes `isAgentPresetEnabled` into the app's settings
-(`{userData}/ai-playground-local-settings.json` in dev, the per-user `settings.json` in a packaged
-install) and re-reads the preset list, so the preset appears without a restart. Dev builds have it
-on already through `WebUI/external/settings-dev.json`.
+The preset is in the chat list. Its identity stays `Agent` — sessions, files and per-session
+settings key on that name — and the label **Agent Maker** is presentation only
+(`presetDisplayName` in `WebUI/src/lib/presetDisplayName.ts`). Pick it like any other chat
+preset. There is no developer flag and no restart.
 
-The preset is dropped while presets are read (`disabledFeaturePresets` in
-`WebUI/electron/main.ts`), so with the setting off nothing downstream can select it, and a
-persisted selection of it falls back to another chat preset at boot.
+It writes in the folder you point it at, with no undo, which the shipped copy says outright.
 
 ## Open questions for review
 

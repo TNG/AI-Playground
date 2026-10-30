@@ -438,6 +438,7 @@ export const useQwen3TextToSpeech = defineStore('qwen3TextToSpeech', () => {
     defaultInstruct,
     defaultVoiceName,
     savedVoices,
+    modelRepoForMode,
     synthesize,
     saveWavToDisk,
     ensureBackendRunning,

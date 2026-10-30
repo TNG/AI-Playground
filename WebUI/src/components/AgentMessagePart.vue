@@ -30,6 +30,17 @@
       :images="mediaToolImages"
       :phase="mediaToolPhase"
       :progress="mediaLive.progress"
+      hide-mode-switch
+      :file-handlers="workspaceFileHandlers"
+    />
+  </div>
+  <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
+  <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
+    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatTtsToolResult
+      :output="generatedMedia.audio"
+      :caption="workspaceCaption(generatedMedia.audio.workspacePath)"
+      :download="() => fileAction(generatedMedia!.audio!, 'saveAs')"
     />
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
@@ -60,14 +71,29 @@ import type { DynamicToolUIPart, ToolUIPart } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
+import { useErrors } from '@/assets/js/store/errors'
+import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
-import { compactionOutputOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import {
+  compactionOutputOf,
+  generatedMediaOf,
+  mediaFileRefOf,
+  mediaToolNameOf,
+  transcriptMediaItems,
+} from '@/lib/agentTranscript'
+import type {
+  AgentMediaFileAction,
+  AgentMediaItem,
+  AgentSpeechClip,
+} from '@/types/agentMediaDetails'
+import type { MediaFileHandlers } from '@/types/mediaItem'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -80,6 +106,8 @@ const props = defineProps<{ part: UIMessagePart<UIDataTypes, UITools> }>()
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
+const errors = useErrors()
+const i18nState = useI18N().state
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.
@@ -127,25 +155,16 @@ const compactionDelta = computed<string>(() => {
   return `${before} → ${output.tokensAfter.toLocaleString()} tokens`
 })
 
-type MediaToolOutput = { images?: unknown; steps?: unknown }
-
-const mediaOutput = computed<MediaToolOutput | undefined>(
-  () => (props.part as { output?: MediaToolOutput }).output,
-)
+const generatedMedia = computed(() => generatedMediaOf(props.part))
 
 /** Step lines from a finished result, for runs no longer in the store. */
-const mediaToolSteps = computed<string[] | undefined>(() => {
-  const steps = mediaOutput.value?.steps
-  return Array.isArray(steps) ? (steps as string[]) : undefined
-})
+const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 
 const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
 
-/** Finished media from the tool output, or what the owned runs have so far. */
-const mediaToolImages = computed<MediaItem[]>(() => {
-  if (mediaToolItems.value.length) return mediaToolItems.value
-  return mediaLive.value.items
-})
+const mediaToolImages = computed<MediaItem[]>(() =>
+  transcriptMediaItems(props.part, mediaLive.value.items),
+)
 
 const mediaToolPhase = computed(() => {
   const state = toolPart.value.state
@@ -154,33 +173,29 @@ const mediaToolPhase = computed(() => {
     : mediaLive.value.phase
 })
 
-/**
- * Completed tool parts whose output carries a comfy-shaped `images` array,
- * synthesized into full MediaItems so ChatWorkflowResult renders images,
- * videos and 3D models alike.
- */
-const mediaToolItems = computed<MediaItem[]>(() => {
-  if (!mediaToolNameOf(props.part) || toolPart.value.state !== 'output-available') return []
-  const images = mediaOutput.value?.images
-  if (!Array.isArray(images)) return []
-  return images
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map(
-      (item) =>
-        ({
-          mode: 'imageGen',
-          settings: {},
-          ...item,
-          state: 'done',
-        }) as MediaItem,
-    )
-    .filter((item) => {
-      if (item.type === 'image') return !!item.imageUrl
-      if (item.type === 'video') return !!item.videoUrl
-      if (item.type === 'model3d') return !!item.model3dUrl
-      return false
-    })
-})
+// The card shows the app copy; what the user opens or takes away is the agent's working file.
+async function fileAction(target: AgentMediaItem | AgentSpeechClip, action: AgentMediaFileAction) {
+  try {
+    const ref = mediaFileRefOf(agentMode.openSessionId, target)
+    const result = await window.electronAPI.agentMode.mediaFileAction(ref, action)
+    if (!result.success) throw new Error(result.error)
+  } catch (error) {
+    errors.report(error)
+  }
+}
+
+function workspaceCaption(workspacePath: string | undefined): string | undefined {
+  return workspacePath
+    ? i18nState.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', workspacePath)
+    : undefined
+}
+
+const workspaceFileHandlers: MediaFileHandlers = {
+  open: (item) => fileAction(item, 'open'),
+  reveal: (item) => fileAction(item, 'reveal'),
+  drag: (item) => fileAction(item, 'drag'),
+  caption: (item) => workspaceCaption((item as AgentMediaItem).workspacePath),
+}
 
 watch(
   () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,

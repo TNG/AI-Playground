@@ -12,6 +12,13 @@
 // Pi's dynamic tools are not in the app's tool union, so parts are inspected
 // structurally instead of being cast to a typed part.
 
+import type {
+  AgentMediaDetails,
+  AgentMediaFileRef,
+  AgentMediaItem,
+  AgentSpeechClip,
+} from '@/types/agentMediaDetails'
+import type { MediaItem } from '@/types/mediaItem'
 import { reasoningElapsedMsFromParts } from './reasoningTimings'
 
 type PartShape = {
@@ -59,6 +66,69 @@ const MEDIA_BRIDGE_TOOL_NAMES = new Set(['media', 'generateImage', 'editImage'])
 export function mediaToolNameOf(part: unknown): string | undefined {
   const name = toolPartNameOf(part)
   return name && MEDIA_BRIDGE_TOOL_NAMES.has(name) ? name : undefined
+}
+
+/** What a finished media tool call produced, as Chat's media card renders it. */
+export type GeneratedMedia = {
+  items: AgentMediaItem[]
+  steps?: string[]
+  audio?: AgentSpeechClip
+}
+
+export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
+  if (shapeOf(part).state !== 'output-available') return undefined
+  const output = shapeOf(part).output as { details?: unknown } | undefined
+  const details = (
+    typeof output?.details === 'object' && output.details !== null ? output.details : {}
+  ) as { [K in keyof AgentMediaDetails]?: unknown }
+  const audio = details.audio as Partial<AgentSpeechClip> | undefined
+  if (typeof audio?.savedFilePath === 'string' && audio.savedFilePath) {
+    return { items: [], audio: audio as AgentSpeechClip }
+  }
+  if (!mediaToolNameOf(part)) return undefined
+  const items = (Array.isArray(details.items) ? details.items : []).filter(isFinishedMedia)
+  const steps = Array.isArray(details.steps) ? (details.steps as string[]) : undefined
+  if (items.length === 0 && !steps) return undefined
+  return { items, steps }
+}
+
+/** A media tool's card renders even while it runs; any other part only once it has media. */
+export function showsGeneratedMedia(part: unknown): boolean {
+  return !!mediaToolNameOf(part) || !!generatedMediaOf(part)
+}
+
+/** The result's media, or — only while the call runs — what its live run has so far. */
+export function transcriptMediaItems(part: unknown, live: MediaItem[]): MediaItem[] {
+  const state = shapeOf(part).state
+  if (state === 'input-streaming' || state === 'input-available') return live
+  return generatedMediaOf(part)?.items ?? []
+}
+
+function isFinishedMedia(item: unknown): item is MediaItem {
+  if (typeof item !== 'object' || item === null) return false
+  const media = item as MediaItem
+  return media.state === 'done' && hasMediaUrl(media)
+}
+
+function hasMediaUrl(item: MediaItem): boolean {
+  return !!mediaUrlOf(item)
+}
+
+function mediaUrlOf(item: MediaItem): string | undefined {
+  if (item.type === 'image') return item.imageUrl
+  if (item.type === 'video') return item.videoUrl
+  if (item.type === 'model3d') return item.model3dUrl
+  return undefined
+}
+
+/** What a file action on generated media targets: the workspace copy, else the app copy. */
+export function mediaFileRefOf(
+  sessionId: string,
+  target: AgentMediaItem | AgentSpeechClip,
+): AgentMediaFileRef {
+  const appCopy = 'savedFilePath' in target ? target.savedFilePath : (mediaUrlOf(target) ?? '')
+  const workspacePath = typeof target.workspacePath === 'string' ? target.workspacePath : ''
+  return { sessionId, ...(workspacePath ? { workspacePath } : {}), appCopy }
 }
 
 export type TranscriptSegment =
@@ -218,4 +288,49 @@ export function busyLabelOf(
     return toolActionLabel(toolName, objectInputOf(lastPart))
   }
   return 'Thinking…'
+}
+
+type MessageShape = { parts?: readonly unknown[] }
+type StreamingPartShape = {
+  state?: unknown
+  providerMetadata?: { aipg?: Record<string, unknown> } & Record<string, unknown>
+}
+
+/**
+ * Mark text and reasoning parts still `streaming` as done. A stopped turn drops the closing
+ * chunks main sends after the abort, so without this a reasoning timer counts on forever.
+ * `finishedAt` stamps reasoning that has a start; without it no duration is invented.
+ */
+export function settleStreamingParts<M extends MessageShape>(
+  messages: readonly M[],
+  finishedAt?: number,
+): M[] {
+  return messages.map((message) => {
+    if (!message.parts?.some((part) => shapeOf(part).state === 'streaming')) return message
+    return { ...message, parts: message.parts.map((part) => settledPart(part, finishedAt)) }
+  })
+}
+
+function settledPart(part: unknown, finishedAt: number | undefined): unknown {
+  const shape = shapeOf(part)
+  if (shape.state !== 'streaming') return part
+  const { providerMetadata } = part as StreamingPartShape
+  const aipg = providerMetadata?.aipg
+  const stamp =
+    shape.type === 'reasoning' &&
+    finishedAt !== undefined &&
+    typeof aipg?.reasoningStarted === 'number' &&
+    aipg.reasoningFinished === undefined
+  return {
+    ...(part as object),
+    state: 'done',
+    ...(stamp
+      ? {
+          providerMetadata: {
+            ...providerMetadata,
+            aipg: { ...aipg, reasoningFinished: finishedAt },
+          },
+        }
+      : {}),
+  }
 }

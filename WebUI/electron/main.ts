@@ -42,6 +42,7 @@ import {
   type LocalSettings,
 } from './kernel/localSettings.ts'
 import { writableConfigFile } from './kernel/userConfig.ts'
+import { isDeveloperMode, setDeveloperModeSettings } from './kernel/developerMode.ts'
 import { appLoggerInstance } from './observability/logger.ts'
 import {
   aiplaygroundApiServiceRegistry,
@@ -120,6 +121,14 @@ import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecy
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
+import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import {
+  openFileWithSystem,
+  revealFileInFolder,
+  saveFileCopy,
+  startFileDrag,
+} from './adapters/osFileActions.ts'
 import {
   dedicatedEmbeddingServerUrl,
   EMBEDDING_SERVICE_BY_BACKEND,
@@ -165,6 +174,7 @@ import {
   handlePermissionsPromptResponse,
   rejectAllPermissionPrompts,
 } from './permissions/promptAdapter'
+import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
   grant as grantPermission,
   listGrants,
@@ -200,7 +210,10 @@ import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
 import { buildGamesRegistry } from './kernel/registries/games'
 import { buildMcpRegistry, buildMcpSendRegistry } from './kernel/registries/mcp'
-import { buildPermissionsRegistry } from './kernel/registries/permissions'
+import {
+  buildPermissionsRegistry,
+  buildPermissionsSendRegistry,
+} from './kernel/registries/permissions'
 import { buildWebBrowserRegistry } from './kernel/registries/webBrowser'
 import { buildArtifactRegistry } from './kernel/registries/artifact'
 import { buildCloudProviderRegistry } from './kernel/registries/cloudProvider'
@@ -258,6 +271,14 @@ import {
   wipeDemoAgentWorkspace,
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
+import {
+  agentTasksKeepAppAlive,
+  deleteAgentTask,
+  readAgentTasks,
+  saveAgentTask,
+  setAgentTaskFilesDeps,
+  wipeDemoAgentTasks,
+} from './persist/agentTaskFiles'
 
 import {
   migrateRagDocumentSection,
@@ -520,35 +541,17 @@ const appSize = {
   height: 128,
   maxChatContentHeight: 0,
 }
-/**
- * Bundled presets whose feature is switched off on this machine.
- *
- * They are dropped while presets are read, so nothing downstream — the selector,
- * the settings sidebar, preset switching — ever learns they exist. Anything that
- * still points at one (a persisted `activePresetName`) falls back on its own.
- */
-function disabledFeaturePresets(s: LocalSettings): string[] {
-  const disabled: string[] = []
-  if (!s.isAgentPresetEnabled) disabled.push('agent')
-  return disabled
-}
-
 function getPresetLoadConfig(s: LocalSettings): PresetLoadConfig {
   const mode = resolveProductMode(s)
   const variant = s.isDemoModeEnabled ? 'demo' : 'presets'
   const modeConfig = loadModeConfig(mode)
   const basePresetsDir = path.join(modesDir, 'base', 'presets')
-  // `includePresets` (when defined) takes precedence over `excludePresets`, so a
-  // disabled preset has to be taken out of both lists.
-  const disabled = new Set(disabledFeaturePresets(s))
-  const includePresets = modeConfig?.includePresets?.filter((p) => !disabled.has(p))
-  const excludePresets = [...(modeConfig?.excludePresets ?? []), ...disabled]
   return {
     baseDir: path.join(modesDir, 'base', variant),
     modeDir: path.join(modesDir, mode, variant),
     imageFallbackDirs: variant === 'demo' ? [basePresetsDir] : [],
-    includePresets,
-    excludePresets,
+    includePresets: modeConfig?.includePresets,
+    excludePresets: modeConfig?.excludePresets ?? [],
     excludeVariantBackends: modeConfig?.excludeVariantBackends,
   }
 }
@@ -558,6 +561,7 @@ function getModeDemoDir(s: LocalSettings): string {
 }
 
 let settings = LocalSettingsSchema.parse({})
+setDeveloperModeSettings(() => settings.showDebugSettingsInUI)
 let demoProfile: DemoProfile | null = null
 
 /** Packaged read-only default: `resources/settings.json` (dev: `external/settings-dev.json`). */
@@ -733,39 +737,56 @@ async function createWindow() {
   rejectAllMediaRequests('The app window was replaced')
   rejectAllChatAsks('The app window was replaced')
   rejectAllPermissionPrompts('The app window was replaced')
+  clearRendererWaits()
   cancelAllArtifactRuns('The app window was replaced')
   win.webContents.once('destroyed', () => {
     cancelAllArtifactRuns('The app window was replaced')
   })
   for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
+  // The file read is async, so the first close is always deferred. A later
+  // close with this set is the real one (macOS, after the policy says quit).
+  let allowWindowClose = false
+  let closeDecision: Promise<void> | null = null
   win.on('close', (event) => {
+    if (allowWindowClose) return
+    event.preventDefault()
+    if (closeDecision) return
     // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
-    // the renderer: closing the window only hides it while headless work a
-    // quit would orphan is in flight — Home Agent, in-flight agent/chat/artifact
-    // work in main, or anything the renderer reported busy. A hidden window is
-    // reopened by relaunching (second-instance) or dock activation.
-    const decision = resolveClosePolicy({
-      homeAgentRunning: isHomeAgentRunning(),
-      rendererBusy,
-      agentTurnActive: isAgentTurnActive(),
-      chatTurnActive: anyChatTurnActive(),
-      artifactWorkOpen: artifactWorkOpen(),
+    // the renderer. A hidden window is reopened by relaunching (second-instance)
+    // or dock activation. `tasksKeepAlive` is the tasks file, not a renderer flag.
+    closeDecision = (async () => {
+      const tasksKeepAlive = await agentTasksKeepAppAlive()
+      if (!win || win.isDestroyed()) return
+      const decision = resolveClosePolicy({
+        homeAgentRunning: isHomeAgentRunning(),
+        rendererBusy,
+        agentTurnActive: isAgentTurnActive(),
+        chatTurnActive: anyChatTurnActive(),
+        artifactWorkOpen: artifactWorkOpen(),
+        tasksKeepAlive,
+      })
+      if (decision === 'hide') {
+        win.hide()
+        return
+      }
+      // Tear down the headless web-browser window so the app can quit cleanly.
+      destroyWebBrowser()
+      // Quit from the main window's own close rather than waiting for
+      // `window-all-closed`, which Electron only emits once EVERY window is
+      // destroyed. Hidden helper windows (agent browser sessions, an image
+      // preview) used to swallow that event, and with it the whole teardown: the
+      // backends kept running and the single-instance lock stayed held, so the
+      // next launch was refused. macOS keeps the app alive by convention, so
+      // there the backends are freed in `window-all-closed` instead.
+      if (process.platform !== 'darwin') {
+        app.quit()
+        return
+      }
+      allowWindowClose = true
+      win.close()
+    })().finally(() => {
+      closeDecision = null
     })
-    if (decision === 'hide') {
-      event.preventDefault()
-      win?.hide()
-      return
-    }
-    // Tear down the headless web-browser window so the app can quit cleanly.
-    destroyWebBrowser()
-    // Quit from the main window's own close rather than waiting for
-    // `window-all-closed`, which Electron only emits once EVERY window is
-    // destroyed. Hidden helper windows (agent browser sessions, an image
-    // preview) used to swallow that event, and with it the whole teardown: the
-    // backends kept running and the single-instance lock stayed held, so the
-    // next launch was refused. macOS keeps the app alive by convention, so
-    // there the backends are freed in `window-all-closed` instead.
-    if (process.platform !== 'darwin') app.quit()
   })
 
   // Windows log-off / shutdown / restart. The session cannot be stopped and the
@@ -1123,6 +1144,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
+appShutdown.register({ name: 'demo agent tasks', run: () => wipeDemoAgentTasks() })
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
 appShutdown.register({ name: 'demo permission grants', run: () => wipeDemoPermissionGrants() })
@@ -1233,6 +1255,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireConversations(settings)
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
+  wireAgentTasks(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
@@ -1285,6 +1308,12 @@ function wireRagDocuments(settings: LocalSettings): void {
 function wireAgentWorkspace(settings: LocalSettings): void {
   setAgentWorkspaceFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentWorkspace()
+}
+
+/** Same demo discipline for the saved Tasks. */
+function wireAgentTasks(settings: LocalSettings): void {
+  setAgentTaskFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoAgentTasks()
 }
 
 /**
@@ -1377,12 +1406,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
 
   // The in-process media tools resolve workflows from the same catalog the
   // runner trusts (bundle + user presets, dummies behind the debug gate).
-  setMediaCatalogProvider(() =>
-    getPresetCatalog(
-      getPresetLoadConfig(settings),
-      !app.isPackaged || settings.showDebugSettingsInUI,
-    ),
-  )
+  setMediaCatalogProvider(() => getPresetCatalog(getPresetLoadConfig(settings), isDeveloperMode()))
 
   setArtifactRunnerDeps({
     getComfyService: comfyService,
@@ -1399,9 +1423,9 @@ function wireArtifactRunner(settings: LocalSettings): void {
       })
       return reply.models ?? []
     },
-    requestModelConsent: async (models, onProgress) => {
+    requestModelConsent: async (models, onProgress, conversationKey) => {
       try {
-        await requestDownloadConsent(models, { onProgress })
+        await requestDownloadConsent(models, { onProgress, conversationKey })
         return true
       } catch (error) {
         appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
@@ -1412,7 +1436,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
       ensureOvmsImageServerReady('openvino-backend', modelId, keepModelsLoaded, resolution),
     readMediaAsDataUri: readAipgMediaAsDataUri,
     getPlatform: () => process.platform,
-    devPresetsEnabled: () => !app.isPackaged || settings.showDebugSettingsInUI,
+    devPresetsEnabled: () => isDeveloperMode(),
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
@@ -1683,6 +1707,8 @@ function initEventHandle() {
     }),
   )
 
+  registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
+
   registerInvokeHandlers(
     buildPermissionsRegistry({
       requestDownloadConsent,
@@ -1724,6 +1750,16 @@ function initEventHandle() {
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,
+      mediaFileAction: workspaceMediaFileActions({
+        sessionWorkspaceDir,
+        mediaUrlPath: getLocalPathFromAipgMediaUrl,
+        audioDir: getAudioDir,
+        open: openFileWithSystem,
+        reveal: revealFileInFolder,
+        drag: (sender, filePath) =>
+          startFileDrag(sender, filePath, path.join(externalRes, 'cam.png')),
+        saveCopy: saveFileCopy,
+      }),
       bootstrapAgentSessions,
       migrateLegacyAgentSessions,
       saveAgentSession,
@@ -1732,6 +1768,9 @@ function initEventHandle() {
       readAgentWorkspaceState,
       migrateAgentWorkspaceState,
       writeAgentWorkspaceState,
+      readAgentTasks,
+      saveAgentTask,
+      deleteAgentTask,
     }),
   )
 

@@ -1,7 +1,7 @@
 <template>
   <SideModalBase
     :is-visible="isVisible"
-    :title="languages.COM_HISTORY"
+    :title="history.currentMode === 'agent' ? languages.COM_SESSIONS : languages.COM_HISTORY"
     side="left"
     @close="$emit('close')"
   >
@@ -30,7 +30,7 @@
       </AlertDialog>
       <!-- "New" follows the mode: a new game or agent conversation, a new chat
            thread, a blank canvas. -->
-      <button @click="history.startNew()" class="svg-icon i-add w-7 h-7" :title="newTitle" />
+      <button @click="startNew" class="svg-icon i-add w-7 h-7" :title="newTitle" />
     </template>
 
     <HistoryList @selected="onSelected" />
@@ -79,6 +79,10 @@ const newTitle = computed(() =>
     ? 'New game'
     : i18nState.COM_ADD,
 )
+
+async function startNew() {
+  await history.startNew()
+}
 
 function onSelected(entry: HistoryEntry) {
   if (entry.kind === 'conversation') emit('conversationSelected')

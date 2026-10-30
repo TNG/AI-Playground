@@ -7,13 +7,18 @@
 // is a request the renderer answers, not a notification.
 
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
-import type { KernelSnapshot } from '@/types/kernelEvents'
+import type { AgentTurnState, KernelSnapshot, PauseReason } from '@/types/kernelEvents'
+
+type AgentTurnRef = { sessionId: string; turnId: string }
 
 type AgentModeIpcHandlers = {
-  onStreamChunk: (data: { turnId: string; chunk: unknown }) => void
+  onStreamChunk: (data: AgentTurnRef & { chunk: unknown }) => void
   onToolProgress: (data: AgentToolProgress) => void
   onToolImage: (data: AgentToolImage) => void
-  onTurnDone: (data: { turnId: string }) => void
+  onTurnState: (data: AgentTurnRef & { state: AgentTurnState; pauseReason?: PauseReason }) => void
+  onTurnDone: (data: AgentTurnRef) => void
+  /** A text run's Turn Queue position; `position` is absent once it holds the place. */
+  onQueuePosition: (data: AgentTurnRef & { position?: number }) => void
   onExecuteTool: (data: AgentToolExecuteRequest) => void | Promise<void>
   /**
    * The kernel snapshot, at install time — before buffered events are applied.
@@ -32,10 +37,15 @@ export function registerAgentModeIpc(handlers: AgentModeIpcHandlers): void {
     (event) => {
       switch (event.type) {
         case 'agent-chunk':
-          handlers.onStreamChunk({ turnId: event.turnId, chunk: event.chunk })
+          handlers.onStreamChunk({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            chunk: event.chunk,
+          })
           break
         case 'agent-tool-progress':
           handlers.onToolProgress({
+            sessionId: event.sessionId,
             turnId: event.turnId,
             toolCallId: event.toolCallId,
             toolName: event.toolName,
@@ -44,13 +54,31 @@ export function registerAgentModeIpc(handlers: AgentModeIpcHandlers): void {
           break
         case 'agent-tool-image':
           handlers.onToolImage({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
             toolCallId: event.toolCallId,
             dataUri: event.dataUri,
             label: event.label,
           })
           break
+        case 'agent-turn-state':
+          handlers.onTurnState({
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+            state: event.state,
+            pauseReason: event.pauseReason,
+          })
+          break
         case 'agent-turn-done':
-          handlers.onTurnDone({ turnId: event.turnId })
+          handlers.onTurnDone({ sessionId: event.sessionId, turnId: event.turnId })
+          break
+        case 'queue-event':
+          if (event.kind !== 'text' || !event.conversationKey) break
+          handlers.onQueuePosition({
+            sessionId: event.conversationKey,
+            turnId: event.runKey,
+            position: event.position,
+          })
           break
       }
     },

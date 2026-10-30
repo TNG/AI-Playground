@@ -29,16 +29,24 @@ vi.mock('../../artifact/runner', () => ({
     owner: payload.owner,
   }),
   startArtifactRun: (payload: { runId: string }) => startArtifactRunMock(payload),
+  prepareRunModels: (payload: { runId: string }, onAsk: () => void) =>
+    prepareRunModelsMock(payload, onAsk),
 }))
+
+// A member run's model pre-flight; unless a test arms it, nothing is missing.
+const prepareRunModelsMock =
+  vi.fn<(payload: { runId: string }, onAsk: () => void) => Promise<unknown>>()
 
 import {
   artifactRunsQueued,
   artifactWorkOpen,
   awaitChatWindow,
+  beginUserWait,
   cancelArtifactRun,
   cancelAllArtifactRuns,
   finishTextRequest,
   mediaRequestsQueued,
+  reclaimTurnPlace,
   resetOrchestratorForTest,
   runMediaRequest,
   setOrchestratorDeps,
@@ -46,6 +54,7 @@ import {
   submitTextRequest,
   textRequestsOpen,
   type OrchestratorDeps,
+  type TurnPause,
 } from '../../kernel/orchestrator'
 import type { ArtifactRunPayload } from '../../artifact/runner'
 
@@ -81,6 +90,11 @@ function payload(overrides: Partial<ArtifactRunPayload> = {}): ArtifactRunPayloa
   } as ArtifactRunPayload
 }
 
+/** A run whose models were already consented, so admission starts at once. */
+function consented(overrides: Partial<ArtifactRunPayload> = {}): ArtifactRunPayload {
+  return payload({ modelsConsented: true, ...overrides })
+}
+
 /**
  * Arms the runner stub so the NEXT submitted run holds the active slot until
  * the returned deferred resolves.
@@ -110,6 +124,7 @@ describe('the orchestrator', () => {
     // once-implementation unconsumed, and the next test's run would inherit
     // a hold it can never resolve.
     vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
     queueEvents.length = 0
     phaseEvents.length = 0
     activeRunId = null
@@ -123,7 +138,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
     const owner = { kind: 'tool' as const, toolCallId: 'call-2' }
-    const queued = submitArtifactRun(payload({ runId: 'run-2', owner }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-2', owner }), { queue: 'queue' })
     expect(phaseEvents).toEqual([{ tag: { runId: 'run-2', owner }, phase: 'queued' }])
 
     cancelArtifactRun('run-2')
@@ -134,7 +149,7 @@ describe('the orchestrator', () => {
     await active
   })
 
-  it('fail-fast refuses while anything is executing or queued; queue submissions park FIFO', async () => {
+  it('queue submissions park FIFO behind the active run', async () => {
     setOrchestratorDeps(deps())
     const holdOne = holdNextRun()
     const active = submitArtifactRun(payload())
@@ -142,14 +157,9 @@ describe('the orchestrator', () => {
     // runs are synchronous at that point, here the slot is awaited.
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
-    const refused = await submitArtifactRun(payload({ runId: 'run-2' }))
-    expect(refused.state).toBe('failed')
-    expect(refused.error).toBe('Another generation is already in progress')
-
     const holdTwo = holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-3' }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-3' }), { queue: 'queue' })
     expect(artifactRunsQueued()).toBe(1)
-    expect((await submitArtifactRun(payload({ runId: 'run-4' }))).state).toBe('failed')
 
     holdOne.resolve({ state: 'completed', items: [] })
     await active
@@ -164,7 +174,7 @@ describe('the orchestrator', () => {
     const active = submitArtifactRun(payload({ conversationKey: 'c1', activityId: 'act-1' }))
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
     const queued = submitArtifactRun(
-      payload({ runId: 'run-2', conversationKey: 'c1', activityId: 'act-2' }),
+      consented({ runId: 'run-2', conversationKey: 'c1', activityId: 'act-2' }),
       { queue: 'queue' },
     )
 
@@ -197,7 +207,7 @@ describe('the orchestrator', () => {
     expect(activeRunId).toBe('run-1')
 
     const holdTwo = holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2' }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-2' }), { queue: 'queue' })
 
     // The head settles with work queued behind: no swap-back.
     holdOne.resolve({ state: 'completed', items: [] })
@@ -266,7 +276,7 @@ describe('the orchestrator', () => {
     holdNextRun()
     const acquiring = submitArtifactRun(payload())
     await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalled())
-    const queued = submitArtifactRun(payload({ runId: 'run-2' }), { queue: 'queue' })
+    const queued = submitArtifactRun(consented({ runId: 'run-2' }), { queue: 'queue' })
     expect(artifactWorkOpen()).toBe(true)
     expect(artifactRunsQueued()).toBe(1)
 
@@ -302,7 +312,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
 
     const holdTwo = holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2', keepModelsLoaded: true }), {
+    const queued = submitArtifactRun(consented({ runId: 'run-2', keepModelsLoaded: true }), {
       queue: 'queue',
     })
     holdOne.resolve({ state: 'completed', items: [] })
@@ -316,16 +326,20 @@ describe('the orchestrator', () => {
     expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
   })
 
-  it('fail-fast refuses a second submit in the same tick, before the runner is active', async () => {
+  it('a second panel submit in the same tick waits for the first instead of cancelling it', async () => {
     setOrchestratorDeps(deps())
-    const hold = holdNextRun()
+    const holdOne = holdNextRun()
     const first = submitArtifactRun(payload({ runId: 'run-1' }))
+    const holdTwo = holdNextRun()
     const second = submitArtifactRun(payload({ runId: 'run-2' }))
-    expect((await second).state).toBe('failed')
-    expect((await second).error).toBe('Another generation is already in progress')
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
-    hold.resolve({ state: 'completed', items: [] })
-    await first
+    expect(cancelActiveMock).not.toHaveBeenCalled()
+
+    holdOne.resolve({ state: 'completed', items: [] })
+    expect((await first).state).toBe('completed')
+    await vi.waitFor(() => expect(activeRunId).toBe('run-2'))
+    holdTwo.resolve({ state: 'completed', items: [] })
+    expect((await second).state).toBe('completed')
   })
 
   it('waits for open chat requests before stopping the backend', async () => {
@@ -388,7 +402,7 @@ describe('the orchestrator', () => {
     await vi.waitFor(() => expect(activeRunId).toBe('run-1'))
 
     holdNextRun()
-    const queued = submitArtifactRun(payload({ runId: 'run-2', activityId: 'act-2' }), {
+    const queued = submitArtifactRun(consented({ runId: 'run-2', activityId: 'act-2' }), {
       queue: 'queue',
     })
     cancelArtifactRun('run-2')
@@ -490,26 +504,7 @@ describe('the orchestrator', () => {
     expect(ran).toEqual(['one'])
   })
 
-  it('fail-fast refuses a panel run while a local chat turn occupies the GPU', async () => {
-    setOrchestratorDeps(deps())
-    await submitTextRequest({ runId: 'turn-1', conversationKey: 'c1', needsGpu: true })
-    expect(textRequestsOpen()).toBe(1)
-
-    const refused = await submitArtifactRun(payload({ runId: 'panel-1' }))
-    expect(refused.state).toBe('failed')
-    expect(refused.error).toBe('A chat turn is already in progress')
-    expect(startArtifactRunMock).not.toHaveBeenCalled()
-
-    finishTextRequest('turn-1')
-    expect(textRequestsOpen()).toBe(0)
-    const hold = holdNextRun()
-    const active = submitArtifactRun(payload({ runId: 'panel-2' }))
-    await vi.waitFor(() => expect(activeRunId).toBe('panel-2'))
-    hold.resolve({ state: 'completed', items: [] })
-    expect((await active).state).toBe('completed')
-  })
-
-  it('cloud chat occupancy does not fail-fast a panel run', async () => {
+  it('cloud chat occupancy does not hold up a panel run', async () => {
     setOrchestratorDeps(deps())
     await submitTextRequest({ runId: 'cloud-1', conversationKey: 'c1', needsGpu: false })
     const hold = holdNextRun()
@@ -599,5 +594,747 @@ describe('the orchestrator', () => {
 
     hold.resolve({ state: 'completed', items: [] })
     await active
+  })
+})
+
+describe('the Turn Queue', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  function member(runId: string, conversationKey: string, needsGpu = true, signal?: AbortSignal) {
+    const started: string[] = []
+    const admitted = submitTextRequest(
+      { runId, conversationKey, needsGpu, joinsTurnQueue: true },
+      signal,
+    ).then(() => {
+      started.push(runId)
+    })
+    return { admitted, started }
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  it('lets one member hold the place; the others start FIFO as each one finishes', async () => {
+    setOrchestratorDeps(deps())
+    const order: string[] = []
+    const track = (runId: string, conversationKey: string) =>
+      submitTextRequest({ runId, conversationKey, needsGpu: true, joinsTurnQueue: true }).then(() =>
+        order.push(runId),
+      )
+
+    const a = track('turn-a', 'session-a')
+    const b = track('turn-b', 'session-b')
+    const c = track('turn-c', 'session-c')
+    await a
+    await settle()
+    expect(order).toEqual(['turn-a'])
+
+    finishTextRequest('turn-a')
+    await b
+    await settle()
+    expect(order).toEqual(['turn-a', 'turn-b'])
+
+    finishTextRequest('turn-b')
+    await c
+    expect(order).toEqual(['turn-a', 'turn-b', 'turn-c'])
+    finishTextRequest('turn-c')
+  })
+
+  it('queues cloud agent turns like local ones', async () => {
+    setOrchestratorDeps(deps())
+    const local = member('turn-local', 'session-a', true)
+    await local.admitted
+    const cloud = member('turn-cloud', 'session-b', false)
+    await settle()
+    expect(cloud.started).toEqual([])
+
+    finishTextRequest('turn-local')
+    await cloud.admitted
+    expect(cloud.started).toEqual(['turn-cloud'])
+    finishTextRequest('turn-cloud')
+  })
+
+  it('does not hold up text requests outside the Turn Queue', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-agent', 'session-a').admitted
+    await submitTextRequest({ runId: 'cloud-chat', conversationKey: 'c1', needsGpu: false })
+    expect(textRequestsOpen()).toBe(2)
+    finishTextRequest('cloud-chat')
+    finishTextRequest('turn-agent')
+  })
+
+  it('dequeues a waiting member on abort without touching the holder', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-a', 'session-a').admitted
+    const ac = new AbortController()
+    const b = member('turn-b', 'session-b', true, ac.signal)
+    const c = member('turn-c', 'session-c')
+    await settle()
+
+    ac.abort()
+    await expect(b.admitted).rejects.toThrow('Cancelled while waiting in the Turn Queue.')
+    expect(b.started).toEqual([])
+    expect(textRequestsOpen()).toBe(2)
+    expect(c.started).toEqual([])
+
+    finishTextRequest('turn-a')
+    await c.admitted
+    expect(c.started).toEqual(['turn-c'])
+    finishTextRequest('turn-c')
+  })
+
+  it("runs the holder's nested media within its turn while other members wait", async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    await member('turn-a', 'session-a').admitted
+    const b = member('turn-b', 'session-b')
+
+    const hold = holdNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'media-a', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-a'))
+    expect(b.started).toEqual([])
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await nested).state).toBe('completed')
+    finishTextRequest('turn-a')
+    await b.admitted
+    finishTextRequest('turn-b')
+  })
+
+  it('two agent sessions that both generate media do not deadlock', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const a = member('turn-a', 'session-a')
+    const b = member('turn-b', 'session-b')
+    await a.admitted
+
+    const holdA = holdNextRun()
+    const mediaA = submitArtifactRun(payload({ runId: 'media-a', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-a'))
+    holdA.resolve({ state: 'completed', items: [] })
+    expect((await mediaA).state).toBe('completed')
+    finishTextRequest('turn-a')
+
+    await b.admitted
+    const holdB = holdNextRun()
+    const mediaB = submitArtifactRun(payload({ runId: 'media-b', conversationKey: 'session-b' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-b'))
+    holdB.resolve({ state: 'completed', items: [] })
+    expect((await mediaB).state).toBe('completed')
+    finishTextRequest('turn-b')
+    expect(textRequestsOpen()).toBe(0)
+  })
+
+  it('announces each waiting member’s position, and every move up as members ahead leave', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-a', 'session-a').admitted
+    const b = member('turn-b', 'session-b')
+    const ac = new AbortController()
+    const c = member('turn-c', 'session-c', true, ac.signal)
+    const d = member('turn-d', 'session-d')
+    await settle()
+
+    ac.abort()
+    await expect(c.admitted).rejects.toThrow('Cancelled while waiting in the Turn Queue.')
+    finishTextRequest('turn-a')
+    await b.admitted
+    finishTextRequest('turn-b')
+    await d.admitted
+    finishTextRequest('turn-d')
+
+    const positions = queueEvents
+      .filter((e) => e.kind === 'text' && e.action !== 'finished')
+      .map((e) => [e.runKey, e.action, e.position, e.conversationKey])
+    expect(positions).toEqual([
+      ['turn-a', 'enqueued', undefined, 'session-a'],
+      ['turn-a', 'started', undefined, 'session-a'],
+      ['turn-b', 'enqueued', 1, 'session-b'],
+      ['turn-c', 'enqueued', 2, 'session-c'],
+      ['turn-d', 'enqueued', 3, 'session-d'],
+      // c withdrawn: only d, behind it, moves up.
+      ['turn-d', 'moved', 2, 'session-d'],
+      // a done: b takes the place, d is next.
+      ['turn-d', 'moved', 1, 'session-d'],
+      ['turn-b', 'started', undefined, 'session-b'],
+      ['turn-d', 'started', undefined, 'session-d'],
+    ])
+  })
+
+  it('gives text requests outside the Turn Queue no position', async () => {
+    setOrchestratorDeps(deps())
+    await member('turn-agent', 'session-a').admitted
+    await submitTextRequest({ runId: 'cloud-chat', conversationKey: 'c1', needsGpu: false })
+    const chat = queueEvents.filter((e) => e.runKey === 'cloud-chat')
+    expect(chat.map((e) => e.position)).toEqual([undefined, undefined])
+    finishTextRequest('cloud-chat')
+    finishTextRequest('turn-agent')
+  })
+
+  it('tells a waiting member what kind of work holds the place, as the holder changes', async () => {
+    setOrchestratorDeps(deps())
+    await submitTextRequest({
+      runId: 'turn-agent',
+      conversationKey: 'session-a',
+      needsGpu: false,
+      joinsTurnQueue: true,
+      work: 'agent',
+    })
+    const summary = submitTextRequest({
+      runId: 'summary',
+      conversationKey: 'home-agent-summarize',
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'summary',
+    })
+    const chat = submitTextRequest({
+      runId: 'turn-chat',
+      conversationKey: 'conv-1',
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'chat',
+    })
+    await settle()
+
+    finishTextRequest('turn-agent')
+    await summary
+    finishTextRequest('summary')
+    await chat
+    finishTextRequest('turn-chat')
+
+    const waits = queueEvents
+      .filter((e) => e.runKey === 'turn-chat')
+      .map((e) => [e.action, e.position, e.work, e.holder])
+    expect(waits).toEqual([
+      ['enqueued', 2, 'chat', 'agent'],
+      ['moved', 1, 'chat', 'summary'],
+      ['started', undefined, 'chat', undefined],
+      ['finished', undefined, 'chat', undefined],
+    ])
+  })
+})
+
+describe('panel runs in the Turn Queue', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  function holdTurn(runId: string, conversationKey: string, work: 'agent' | 'chat' = 'agent') {
+    return submitTextRequest({
+      runId,
+      conversationKey,
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work,
+    })
+  }
+
+  it('waits for the turn holding the place instead of being refused', async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-chat', 'c1', 'chat')
+
+    const hold = holdNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await settle()
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+    expect(phaseEvents.map((e) => [e.tag.runId, e.phase])).toEqual([['panel-1', 'queued']])
+    expect(queueEvents.find((e) => e.runKey === 'panel-1')).toMatchObject({
+      kind: 'artifact',
+      action: 'enqueued',
+      position: 1,
+      work: 'generation',
+      holder: 'chat',
+    })
+    expect(artifactWorkOpen()).toBe(true)
+
+    finishTextRequest('turn-chat')
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+    expect(artifactWorkOpen()).toBe(false)
+  })
+
+  it('holds the place while it runs: a turn submitted meanwhile starts after it, GPU returned', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const hold = holdNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+
+    let started = false
+    const turn = holdTurn('turn-a', 'session-a').then(() => {
+      started = true
+    })
+    await settle()
+    expect(started).toBe(false)
+    expect(queueEvents.find((e) => e.runKey === 'turn-a')).toMatchObject({
+      action: 'enqueued',
+      position: 1,
+      holder: 'generation',
+    })
+
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+    await turn
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+    finishTextRequest('turn-a')
+  })
+
+  it('cancelling a waiting panel run dequeues it without touching the holder', async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-a', 'session-a')
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    const behind = holdTurn('turn-b', 'session-b')
+    await settle()
+
+    cancelArtifactRun('panel-1')
+    expect((await panel).state).toBe('cancelled')
+    expect(phaseEvents.map((e) => e.phase)).toEqual(['queued', 'cancelled'])
+    expect(cancelActiveMock).not.toHaveBeenCalled()
+    expect(artifactWorkOpen()).toBe(false)
+    expect(
+      queueEvents.filter((e) => e.runKey === 'turn-b').map((e) => [e.action, e.position]),
+    ).toEqual([
+      ['enqueued', 2],
+      ['moved', 1],
+    ])
+
+    finishTextRequest('turn-a')
+    await behind
+    finishTextRequest('turn-b')
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('a replaced window drops panel runs still waiting for the place', async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-a', 'session-a')
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    cancelAllArtifactRuns('The app window was replaced')
+    expect((await panel).state).toBe('cancelled')
+    finishTextRequest('turn-a')
+    expect(artifactWorkOpen()).toBe(false)
+  })
+
+  it("runs the holding turn's nested media ahead of panel runs waiting for the place", async () => {
+    setOrchestratorDeps(deps())
+    await holdTurn('turn-a', 'session-a')
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+
+    const holdNested = holdNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'media-a', conversationKey: 'session-a' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-a'))
+    holdNested.resolve({ state: 'completed', items: [] })
+    expect((await nested).state).toBe('completed')
+
+    const holdPanel = holdNextRun()
+    await settle()
+    expect(startArtifactRunMock).toHaveBeenCalledTimes(1)
+
+    finishTextRequest('turn-a')
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    holdPanel.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+  })
+
+  it('back-to-back panel runs share one GPU swap', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const holdOne = holdNextRun()
+    const first = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(d.stopChatForMedia).toHaveBeenCalledTimes(1))
+    const holdTwo = holdNextRun()
+    const second = submitArtifactRun(payload({ runId: 'panel-2' }))
+
+    holdOne.resolve({ state: 'completed', items: [] })
+    await first
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-2'))
+    expect(d.freeComfyMemory).not.toHaveBeenCalled()
+    expect(d.restartChatBackend).not.toHaveBeenCalled()
+
+    holdTwo.resolve({ state: 'completed', items: [] })
+    await second
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
+    expect(d.freeComfyMemory).toHaveBeenCalledTimes(1)
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('paused members', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  /** A pausable member recording what it hears, in order. */
+  function pausable(runId: string, conversationKey: string, log: string[], signal?: AbortSignal) {
+    const pause: TurnPause = {
+      onUserWait: (waiting, reason) =>
+        log.push(
+          `${runId} ${waiting ? 'paused' : 'answered'}${reason ? ` for ${reason.summary}` : ''}`,
+        ),
+      onRequeued: () => log.push(`${runId} requeued`),
+      readyAgain: async () => {
+        log.push(`${runId} ready again`)
+      },
+    }
+    return submitTextRequest(
+      { runId, conversationKey, needsGpu: true, joinsTurnQueue: true, work: 'agent', pause },
+      signal,
+    ).then(() => log.push(`${runId} started`))
+  }
+
+  function waiting(runId: string, conversationKey: string, log: string[]) {
+    return submitTextRequest({
+      runId,
+      conversationKey,
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'agent',
+    }).then(() => log.push(`${runId} started`))
+  }
+
+  it('gives the place to the next member while the user is asked', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    await settle()
+    expect(log).toEqual(['turn-a started'])
+
+    const answered = beginUserWait('session-a')
+    await b
+    expect(log).toEqual(['turn-a started', 'turn-a paused', 'turn-b started'])
+
+    answered()
+    expect(log.at(-1)).toBe('turn-a answered')
+    finishTextRequest('turn-b')
+    finishTextRequest('turn-a')
+  })
+
+  it('takes the place back at the front of the queue, ahead of members that waited longer', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    const c = waiting('turn-c', 'session-c', log)
+    await settle()
+
+    beginUserWait('session-a')()
+    await b
+    let reclaimed = false
+    const back = reclaimTurnPlace('turn-a').then(() => {
+      reclaimed = true
+    })
+    await settle()
+    expect(reclaimed).toBe(false)
+
+    finishTextRequest('turn-b')
+    await back
+    expect(log.slice(-2)).toEqual(['turn-a requeued', 'turn-a ready again'])
+    expect(log).not.toContain('turn-c started')
+
+    finishTextRequest('turn-a')
+    await c
+    expect(log.at(-1)).toBe('turn-c started')
+    finishTextRequest('turn-c')
+
+    const moves = queueEvents
+      .filter(
+        (e) =>
+          e.kind === 'text' &&
+          ['yielded', 'reclaimed', 'enqueued', 'moved'].includes(String(e.action)),
+      )
+      .map((e) => [e.runKey, e.action, e.position])
+    expect(moves).toEqual([
+      ['turn-a', 'enqueued', undefined],
+      ['turn-b', 'enqueued', 1],
+      ['turn-c', 'enqueued', 2],
+      ['turn-a', 'yielded', undefined],
+      ['turn-c', 'moved', 1],
+      ['turn-a', 'enqueued', 1],
+      ['turn-c', 'moved', 2],
+      // b done: a holds the place again, c is next.
+      ['turn-c', 'moved', 1],
+      ['turn-a', 'reclaimed', undefined],
+    ])
+  })
+
+  it('takes a free place back at once, and re-runs readiness before resolving', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    beginUserWait('session-a')()
+    await reclaimTurnPlace('turn-a')
+    expect(log).toEqual([
+      'turn-a started',
+      'turn-a paused',
+      'turn-a answered',
+      'turn-a ready again',
+    ])
+    finishTextRequest('turn-a')
+  })
+
+  it('stays paused until every open question is answered', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const first = beginUserWait('session-a')
+    const second = beginUserWait('session-a')
+    first()
+    expect(log).toEqual(['turn-a started', 'turn-a paused', 'turn-a paused'])
+    second()
+    expect(log.at(-1)).toBe('turn-a answered')
+    finishTextRequest('turn-a')
+  })
+
+  it('names the latest open question while paused, and the one left once it is answered', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const voice = beginUserWait('session-a', { kind: 'download', summary: 'voice' })
+    const card = beginUserWait('session-a', { kind: 'confirmation', summary: 'card' })
+    expect(log.slice(1)).toEqual(['turn-a paused for voice', 'turn-a paused for card'])
+    card()
+    expect(log.at(-1)).toBe('turn-a paused for voice')
+    const embedding = beginUserWait('session-a', { kind: 'download', summary: 'embedding' })
+    voice()
+    expect(log.at(-1)).toBe('turn-a paused for embedding')
+    embedding()
+    expect(log.at(-1)).toBe('turn-a answered')
+    finishTextRequest('turn-a')
+  })
+
+  it('leaves a member that cannot pause holding its place', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await waiting('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    beginUserWait('session-a')()
+    await settle()
+    expect(log).toEqual(['turn-a started'])
+    finishTextRequest('turn-a')
+    await b
+    finishTextRequest('turn-b')
+  })
+
+  it('a paused member cancelled while it waits to reclaim leaves the queue without starting', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    const ac = new AbortController()
+    await pausable('turn-a', 'session-a', log, ac.signal)
+    const b = waiting('turn-b', 'session-b', log)
+    beginUserWait('session-a')()
+    await b
+    const back = reclaimTurnPlace('turn-a', ac.signal)
+    ac.abort()
+    await expect(back).rejects.toThrow('Cancelled while waiting in the Turn Queue.')
+    finishTextRequest('turn-a')
+    expect(log).not.toContain('turn-a ready again')
+    finishTextRequest('turn-b')
+    expect(textRequestsOpen()).toBe(0)
+  })
+
+  it("lets the next member's media take the GPU while the holder is paused", async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const log: string[] = []
+    await pausable('turn-a', 'session-a', log)
+    const b = waiting('turn-b', 'session-b', log)
+    beginUserWait('session-a')
+    await b
+
+    const hold = holdNextRun()
+    const media = submitArtifactRun(payload({ runId: 'media-b', conversationKey: 'session-b' }), {
+      queue: 'queue',
+    })
+    await vi.waitFor(() => expect(activeRunId).toBe('media-b'))
+    expect(d.stopChatForMedia).toHaveBeenCalledTimes(1)
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await media).state).toBe('completed')
+    finishTextRequest('turn-b')
+    finishTextRequest('turn-a')
+  })
+})
+
+describe('panel runs waiting on model download consent', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    prepareRunModelsMock.mockResolvedValue({ state: 'ready' })
+    queueEvents.length = 0
+    phaseEvents.length = 0
+    activeRunId = null
+    resetOrchestratorForTest()
+  })
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+  function member(runId: string, log: string[]) {
+    return submitTextRequest({
+      runId,
+      conversationKey: runId,
+      needsGpu: true,
+      joinsTurnQueue: true,
+      work: 'agent',
+    }).then(() => log.push(`${runId} started`))
+  }
+
+  /** Arms the next pre-flight to find models missing and wait for the user's answer. */
+  function askNextRun(): { answer: (state: 'ready' | 'declined') => void } {
+    const answer = deferred()
+    prepareRunModelsMock.mockImplementationOnce(async (_payload, onAsk) => {
+      onAsk()
+      return { state: await answer.promise }
+    })
+    return { answer: (state) => answer.resolve(state) }
+  }
+
+  it('asks at once, even while it waits behind another turn', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await member('turn-a', log)
+    askNextRun()
+    void submitArtifactRun(payload({ runId: 'panel-1' }))
+    expect(prepareRunModelsMock).toHaveBeenCalledTimes(1)
+    cancelArtifactRun('panel-1')
+    finishTextRequest('turn-a')
+  })
+
+  it('gives its place to the next member while the user decides, then runs first once answered', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    const { answer } = askNextRun()
+    const hold = holdNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await settle()
+    const b = member('turn-b', log)
+    await b
+    expect(log).toEqual(['turn-b started'])
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+
+    const c = member('turn-c', log)
+    answer('ready')
+    await settle()
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+
+    finishTextRequest('turn-b')
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    expect(startArtifactRunMock.mock.calls[0][0]).toMatchObject({ modelsConsented: true })
+    expect(log).toEqual(['turn-b started'])
+
+    hold.resolve({ state: 'completed', items: [] })
+    expect((await panel).state).toBe('completed')
+    await c
+    expect(log).toEqual(['turn-b started', 'turn-c started'])
+    finishTextRequest('turn-c')
+
+    const moves = queueEvents
+      .filter((e) => e.runKey === 'panel-1' || e.runKey === 'turn-c')
+      .filter((e) => ['yielded', 'reclaimed', 'enqueued', 'moved'].includes(String(e.action)))
+      .map((e) => [e.runKey, e.action, e.position])
+    expect(moves).toEqual([
+      ['panel-1', 'yielded', undefined],
+      ['turn-c', 'enqueued', 1],
+      ['panel-1', 'enqueued', 1],
+      ['turn-c', 'moved', 2],
+      ['turn-c', 'moved', 1],
+      ['panel-1', 'reclaimed', undefined],
+    ])
+  })
+
+  it('returns the GPU to chat when it gives up the place it took after another panel run', async () => {
+    const d = deps()
+    setOrchestratorDeps(d)
+    const log: string[] = []
+    const holdFirst = holdNextRun()
+    const first = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await vi.waitFor(() => expect(activeRunId).toBe('panel-1'))
+    const { answer } = askNextRun()
+    const second = submitArtifactRun(payload({ runId: 'panel-2' }))
+    const b = member('turn-b', log)
+
+    holdFirst.resolve({ state: 'completed', items: [] })
+    await first
+    await b
+    expect(d.restartChatBackend).toHaveBeenCalledTimes(1)
+
+    answer('declined')
+    expect((await second).state).toBe('cancelled')
+    finishTextRequest('turn-b')
+    expect(startArtifactRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the queue without running when the download is declined while it waits', async () => {
+    setOrchestratorDeps(deps())
+    const log: string[] = []
+    await member('turn-a', log)
+    const { answer } = askNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    const b = member('turn-b', log)
+    await settle()
+
+    answer('declined')
+    expect((await panel).state).toBe('cancelled')
+    expect(phaseEvents.map((e) => e.phase)).toEqual(['queued', 'cancelled'])
+    expect(queueEvents.filter((e) => e.runKey === 'turn-b').map((e) => e.position)).toEqual([2, 1])
+
+    finishTextRequest('turn-a')
+    await b
+    finishTextRequest('turn-b')
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+    expect(artifactWorkOpen()).toBe(false)
+  })
+
+  it('fails with the reason when its models cannot be checked', async () => {
+    setOrchestratorDeps(deps())
+    prepareRunModelsMock.mockResolvedValueOnce({
+      state: 'failed',
+      error: 'Required models are unavailable: gated',
+    })
+    const result = await submitArtifactRun(payload({ runId: 'panel-1' }))
+    expect(result).toEqual({
+      state: 'failed',
+      items: [],
+      error: 'Required models are unavailable: gated',
+    })
+    expect(phaseEvents.map((e) => e.phase)).toEqual(['failed'])
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('a stop while the user decides ends the run, and the answer is ignored', async () => {
+    setOrchestratorDeps(deps())
+    const { answer } = askNextRun()
+    const panel = submitArtifactRun(payload({ runId: 'panel-1' }))
+    await settle()
+    cancelArtifactRun('panel-1')
+    expect((await panel).state).toBe('cancelled')
+    answer('ready')
+    await settle()
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+    expect(artifactWorkOpen()).toBe(false)
   })
 })

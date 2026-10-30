@@ -6,6 +6,7 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 /** Shape of an `agentMode:executeTool` dispatch (`AgentToolExecuteRequest`). */
 type ToolCall = {
   requestId: string
+  sessionId: string
   toolCallId: string
   toolName: string
   input: Record<string, unknown>
@@ -58,7 +59,12 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
 }))
 
 vi.mock('@/assets/js/store/textInference', () => ({
-  useTextInference: () => ({ backend: 'llamaCPP', ensureReadyForInference: vi.fn() }),
+  useTextInference: () => ({
+    backend: 'llamaCPP',
+    ensureReadyForInference: vi.fn(),
+    bindSessionSettings: vi.fn(),
+    loadSettingsForActivePreset: vi.fn(),
+  }),
 }))
 
 vi.mock('@/assets/js/store/models', () => ({
@@ -151,7 +157,7 @@ function seedQuickCoderGame(): void {
       capabilities: ['game-studio-quick'],
     },
   }
-  store.activeSessionId = 'qc-1'
+  store.openSessionId = 'qc-1'
   store.workspaceDir = '/games/space-dodger'
   store.currentGame = SPACE_DODGER as never
 }
@@ -167,6 +173,7 @@ async function offerDuringTurn(input: Record<string, unknown>, accept: boolean):
   store.processing = true
   const dispatched = dispatchTool?.({
     requestId: 'req-1',
+    sessionId: 'qc-1',
     toolCallId: 'call-1',
     toolName: 'offerGameAgent',
     input,
@@ -202,7 +209,7 @@ describe('offering the switch to Game Agent', () => {
     expect(switchPreset).toHaveBeenCalledWith('Game Agent', { skipMemoryAlert: true })
     // A fresh conversation on the same folder: the one-shot run stays as it was,
     // under the preset it was held with.
-    expect(store.activeSessionId).not.toBe('qc-1')
+    expect(store.openSessionId).not.toBe('qc-1')
     expect(store.sessions['qc-1'].presetName).toBe('Quick Coder')
     expect(store.workspaceDir).toBe('/games/space-dodger')
     // Everything Game Agent is told about the game it just inherited.
@@ -223,6 +230,7 @@ describe('offering the switch to Game Agent', () => {
     store.processing = true
     const dispatched = dispatchTool?.({
       requestId: 'req-2',
+      sessionId: 'qc-1',
       toolCallId: 'call-2',
       toolName: 'offerGameAgent',
       input: { reason: 'add a boss', summary: 'Canvas shooter.' },
@@ -231,7 +239,7 @@ describe('offering the switch to Game Agent', () => {
     await dispatched
 
     expect(switchPreset).not.toHaveBeenCalled()
-    expect(store.activeSessionId).toBe('qc-1')
+    expect(store.openSessionId).toBe('qc-1')
 
     store.processing = false
     await vi.waitFor(() => expect(switchPreset).toHaveBeenCalled())
@@ -242,7 +250,7 @@ describe('offering the switch to Game Agent', () => {
 
     expect(switchPreset).not.toHaveBeenCalled()
     expect(sendMessage).not.toHaveBeenCalled()
-    expect(store.activeSessionId).toBe('qc-1')
+    expect(store.openSessionId).toBe('qc-1')
     expect(store.sessions['qc-1'].presetName).toBe('Quick Coder')
     expect(submitToolResult).toHaveBeenCalledWith(
       'req-1',
@@ -256,6 +264,7 @@ describe('offering the switch to Game Agent', () => {
     store.processing = true
     const dispatched = dispatchTool?.({
       requestId: 'req-3',
+      sessionId: 'qc-1',
       toolCallId: 'call-3',
       toolName: 'offerGameAgent',
       input: { reason: 'add a boss', summary: 'Canvas shooter.' },
@@ -267,6 +276,6 @@ describe('offering the switch to Game Agent', () => {
 
     expect(confirmations.items).toHaveLength(0)
     expect(switchPreset).not.toHaveBeenCalled()
-    expect(store.activeSessionId).toBe('qc-1')
+    expect(store.openSessionId).toBe('qc-1')
   })
 })

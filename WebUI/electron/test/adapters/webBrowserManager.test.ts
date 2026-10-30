@@ -24,17 +24,56 @@ const sessionSpy = vi.hoisted(() => {
 
 const created: FakeBrowserWindow[] = []
 
+let inFlight = 0
+let maxInFlight = 0
+const releases: Array<() => void> = []
+
 class FakeBrowserWindow {
   destroyed = false
   options: { webPreferences?: { partition?: string } }
-  webContents = {
-    setUserAgent: vi.fn(),
-    setWindowOpenHandler: vi.fn(),
-    on: vi.fn(),
+  finishLoad: (() => void) | undefined
+  webContents: {
+    setUserAgent: ReturnType<typeof vi.fn>
+    setWindowOpenHandler: ReturnType<typeof vi.fn>
+    on: ReturnType<typeof vi.fn>
+    off: ReturnType<typeof vi.fn>
+    once: ReturnType<typeof vi.fn>
+    getURL: () => string
+    getTitle: () => string
+    executeJavaScript: ReturnType<typeof vi.fn>
+    loadURL: ReturnType<typeof vi.fn>
   }
 
   constructor(options: { webPreferences?: { partition?: string } }) {
     this.options = options
+    this.webContents = {
+      setUserAgent: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn((event: string, listener: () => void) => {
+        if (event === 'did-finish-load') this.finishLoad = listener
+      }),
+      getURL: () => 'https://example.com/',
+      getTitle: () => 'Example',
+      executeJavaScript: vi.fn(async () => ({
+        title: 'Example',
+        url: 'https://example.com/',
+        text: 'hello',
+        links: [],
+      })),
+      loadURL: vi.fn(async () => {
+        inFlight += 1
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        await new Promise<void>((resolve) => {
+          releases.push(() => {
+            inFlight -= 1
+            this.finishLoad?.()
+            resolve()
+          })
+        })
+      }),
+    }
     sessionSpy.order.push('window')
     created.push(this)
   }
@@ -62,7 +101,7 @@ vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const { close, show } = await import('../../adapters/webBrowserManager.ts')
+const { close, navigate, show } = await import('../../adapters/webBrowserManager.ts')
 
 describe('web browser session permissions', () => {
   beforeEach(() => {
@@ -144,5 +183,30 @@ describe('web browser session permissions', () => {
     expect(created).toHaveLength(1)
     expect(sessionSpy.fromPartition).toHaveBeenCalledTimes(2)
     expect(sessionSpy.handlers.setPermissionCheckHandler).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('one window, one navigation at a time', () => {
+  beforeEach(() => {
+    close()
+    created.length = 0
+    inFlight = 0
+    maxInFlight = 0
+    releases.length = 0
+  })
+
+  it('does not start a second navigation until the first has finished', async () => {
+    const first = navigate('https://one.example')
+    const second = navigate('https://two.example')
+    await vi.waitFor(() => expect(created[0]?.webContents.loadURL).toHaveBeenCalledTimes(1))
+    expect(inFlight).toBe(1)
+
+    releases[0]?.()
+    await vi.waitFor(() => expect(created[0]?.webContents.loadURL).toHaveBeenCalledTimes(2))
+    expect(maxInFlight).toBe(1)
+
+    releases[1]?.()
+    await Promise.all([first, second])
+    expect(maxInFlight).toBe(1)
   })
 })

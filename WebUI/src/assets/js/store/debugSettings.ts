@@ -30,26 +30,18 @@ export function debugSettingsVisible(): boolean {
   return snapshot?.showDebugSettingsInUI === true
 }
 
+/** Running from source (`npm run dev`) or with the debug controls shown. */
+export function developerMode(): boolean {
+  return window.envVars?.debugToolsEnabled === true || debugSettingsVisible()
+}
+
 export const useDebugSettings = defineStore('debugSettings', () => {
   const visible = ref(debugSettingsVisible())
-  // Not gated on `visible`: the Agent preset is an ordinary developer setting.
-  const agentPresetEnabled = ref(snapshot?.isAgentPresetEnabled === true)
   const oemVendorOverride = ref<string | null>(snapshot?.oemVendorOverride ?? null)
   const phisonSsdDetected = ref(snapshot?.PhisonSSDdetected === true)
   const remoteRepository = ref(snapshot?.remoteRepository ?? '')
   // Edited as a comma-separated list; stored as an array.
   const openvinoImageGenDevices = ref((snapshot?.openvinoImageGenDevices ?? []).join(', '))
-
-  /**
-   * The preset is filtered out while presets are read in the main process, so the
-   * caller only has to re-read them afterwards — no restart. Reloading is left to
-   * the caller to keep this store free of store dependencies (the preset store
-   * reaches back here through the dev presets).
-   */
-  async function setAgentPresetEnabled(value: boolean) {
-    agentPresetEnabled.value = value
-    await window.electronAPI.updateLocalSettings({ isAgentPresetEnabled: value })
-  }
 
   async function setOemVendorOverride(value: string | null) {
     oemVendorOverride.value = value
@@ -78,8 +70,6 @@ export const useDebugSettings = defineStore('debugSettings', () => {
 
   return {
     visible,
-    agentPresetEnabled,
-    setAgentPresetEnabled,
     oemVendorOverride,
     phisonSsdDetected,
     remoteRepository,

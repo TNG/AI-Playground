@@ -155,4 +155,88 @@ describe('queue activity projection', () => {
     })
     expect(activities.activeItems.find((a) => a.id === id)?.label).toBe('Generating image…')
   })
+
+  it('shows a waiting chat turn as queued on its conversation until it takes the place', async () => {
+    const { startQueueActivityProjection } = await import('@/lib/queueActivityProjection')
+    const { useActivities } = await import('@/assets/js/store/activities')
+    const { useI18N } = await import('@/assets/js/store/i18n')
+    const i18nState = useI18N().state
+    i18nState.COM_ACTIVITY_TURN_QUEUED_FOR_AGENT =
+      'Queued ({position}), waiting for an agent turn to finish'
+    i18nState.COM_ACTIVITY_TURN_QUEUED_FOR_CHAT =
+      'Queued ({position}), waiting for a chat turn to finish'
+    i18nState.HISTORY_QUEUE_ORDINAL_ONE = '{n}st'
+    i18nState.HISTORY_QUEUE_ORDINAL_TWO = '{n}nd'
+    i18nState.HISTORY_QUEUE_ORDINAL_OTHER = '{n}th'
+    const activities = useActivities()
+
+    startQueueActivityProjection()
+    const turn = { type: 'queue-event', runKey: 'turn-chat', kind: 'text', work: 'chat' } as const
+    emit({
+      ...turn,
+      action: 'enqueued',
+      queueDepth: 0,
+      position: 2,
+      holder: 'agent',
+      conversationKey: 'conv-1',
+    })
+    expect(activities.chatActivity('conv-1')?.label).toBe(
+      'Queued (2nd), waiting for an agent turn to finish',
+    )
+
+    emit({
+      ...turn,
+      action: 'moved',
+      queueDepth: 0,
+      position: 1,
+      holder: 'chat',
+      conversationKey: 'conv-1',
+    })
+    expect(activities.chatActivity('conv-1')?.label).toBe(
+      'Queued (1st), waiting for a chat turn to finish',
+    )
+
+    emit({ ...turn, action: 'started', queueDepth: 0, conversationKey: 'conv-1' })
+    expect(activities.chatActivity('conv-1')).toBeNull()
+  })
+
+  it('drops the queued line when a waiting chat turn is stopped', async () => {
+    const { startQueueActivityProjection } = await import('@/lib/queueActivityProjection')
+    const { useActivities } = await import('@/assets/js/store/activities')
+    const activities = useActivities()
+
+    startQueueActivityProjection()
+    const turn = { type: 'queue-event', runKey: 'turn-chat', kind: 'text', work: 'chat' } as const
+    emit({
+      ...turn,
+      action: 'enqueued',
+      queueDepth: 0,
+      position: 1,
+      holder: 'agent',
+      conversationKey: 'conv-1',
+    })
+    expect(activities.chatActivity('conv-1')).not.toBeNull()
+    emit({ ...turn, action: 'finished', queueDepth: 0, conversationKey: 'conv-1' })
+    expect(activities.chatActivity('conv-1')).toBeNull()
+  })
+
+  it('leaves waiting agent turns to the session view', async () => {
+    const { startQueueActivityProjection } = await import('@/lib/queueActivityProjection')
+    const { useActivities } = await import('@/assets/js/store/activities')
+    const activities = useActivities()
+
+    startQueueActivityProjection()
+    emit({
+      type: 'queue-event',
+      runKey: 'turn-agent',
+      kind: 'text',
+      work: 'agent',
+      action: 'enqueued',
+      queueDepth: 0,
+      position: 1,
+      holder: 'chat',
+      conversationKey: 'session-b',
+    })
+    expect(activities.chatActivity('session-b')).toBeNull()
+  })
 })

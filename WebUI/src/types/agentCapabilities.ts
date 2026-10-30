@@ -1,9 +1,17 @@
-export const DEFAULT_CAPABILITY_IDS = ['media', 'web-debug', 'rag'] as const
+export const WEB_CAPABILITY_ID = 'web'
+
+export const DEFAULT_CAPABILITY_IDS = ['media', 'web-debug', 'rag', WEB_CAPABILITY_ID] as const
 
 export const MCP_CAPABILITY_PREFIX = 'mcp:'
 
 export const GAME_STUDIO_ID = 'game-studio'
 export const GAME_STUDIO_QUICK_ID = 'game-studio-quick'
+
+/** Capabilities that declare a `planningEnd`, i.e. where "reasoning only during planning" can bite. */
+export const PLANNING_PHASE_CAPABILITY_IDS: readonly string[] = [
+  GAME_STUDIO_ID,
+  GAME_STUDIO_QUICK_ID,
+]
 
 /**
  * Renderer-side name of the tool Quick Coder offers the switch to Game Agent

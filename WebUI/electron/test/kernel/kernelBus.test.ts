@@ -10,6 +10,7 @@ const {
   setKernelEventWindow,
   emitServiceUpdate,
   beginAgentTurnSnapshot,
+  emitAgentTurnState,
   emitAgentChunk,
   emitAgentToolProgress,
   emitAgentToolImage,
@@ -27,6 +28,7 @@ const {
   emitFailure,
   emitStored,
   setInferenceProfileSnapshot,
+  emitQueueEvent,
 } = await import('../../kernel/kernelBus')
 
 function fakeWindow(): { win: BrowserWindow; sent: KernelEvent[] } {
@@ -47,11 +49,11 @@ describe('kernel bus', () => {
     const { win, sent } = fakeWindow()
     setKernelEventWindow(win)
     emitServiceUpdate({ serviceName: 'ai-backend', status: 'notYetStarted' })
-    beginAgentTurnSnapshot('turn-1')
-    emitAgentChunk('turn-1', { type: 'text-start' })
-    emitAgentToolProgress('turn-1', 'call-1', 'browser', 'navigating')
-    emitAgentToolImage('call-1', 'data:image/png;base64,', 'cover.png')
-    emitAgentTurnDone('turn-1')
+    beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentChunk('s1', 'turn-1', { type: 'text-start' })
+    emitAgentToolProgress('s1', 'turn-1', 'call-1', 'browser', 'navigating')
+    emitAgentToolImage('s1', 'turn-1', 'call-1', 'data:image/png;base64,', 'cover.png')
+    emitAgentTurnDone('s1', 'turn-1')
     const seqs = sent.map((event) => event.seq)
     expect(seqs).toEqual([1, 2, 3, 4, 5])
   })
@@ -84,13 +86,13 @@ describe('kernel bus', () => {
   })
 
   it('merges adjacent text deltas of the same part in the turn snapshot', () => {
-    beginAgentTurnSnapshot('turn-1')
-    emitAgentChunk('turn-1', { type: 'text-start', id: 'a' })
-    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'Hel' })
-    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'lo' })
-    emitAgentChunk('turn-1', { type: 'reasoning-delta', id: 'r', delta: 'hmm' })
-    emitAgentChunk('turn-1', { type: 'reasoning-delta', id: 'r', delta: '…' })
-    expect(getKernelSnapshot().state.activeTurn?.chunks).toEqual([
+    beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentChunk('s1', 'turn-1', { type: 'text-start', id: 'a' })
+    emitAgentChunk('s1', 'turn-1', { type: 'text-delta', id: 'a', delta: 'Hel' })
+    emitAgentChunk('s1', 'turn-1', { type: 'text-delta', id: 'a', delta: 'lo' })
+    emitAgentChunk('s1', 'turn-1', { type: 'reasoning-delta', id: 'r', delta: 'hmm' })
+    emitAgentChunk('s1', 'turn-1', { type: 'reasoning-delta', id: 'r', delta: '…' })
+    expect(getKernelSnapshot().state.agentTurns[0]?.chunks).toEqual([
       { type: 'text-start', id: 'a' },
       { type: 'text-delta', id: 'a', delta: 'Hello' },
       { type: 'reasoning-delta', id: 'r', delta: 'hmm…' },
@@ -98,11 +100,11 @@ describe('kernel bus', () => {
   })
 
   it('does not merge agent snapshot deltas across parts or types', () => {
-    beginAgentTurnSnapshot('turn-1')
-    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'a' })
-    emitAgentChunk('turn-1', { type: 'text-delta', id: 'b', delta: 'b' })
-    emitAgentChunk('turn-1', { type: 'reasoning-delta', id: 'a', delta: 'c' })
-    expect(getKernelSnapshot().state.activeTurn?.chunks).toEqual([
+    beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentChunk('s1', 'turn-1', { type: 'text-delta', id: 'a', delta: 'a' })
+    emitAgentChunk('s1', 'turn-1', { type: 'text-delta', id: 'b', delta: 'b' })
+    emitAgentChunk('s1', 'turn-1', { type: 'reasoning-delta', id: 'a', delta: 'c' })
+    expect(getKernelSnapshot().state.agentTurns[0]?.chunks).toEqual([
       { type: 'text-delta', id: 'a', delta: 'a' },
       { type: 'text-delta', id: 'b', delta: 'b' },
       { type: 'reasoning-delta', id: 'a', delta: 'c' },
@@ -110,50 +112,113 @@ describe('kernel bus', () => {
   })
 
   it('accumulates the active turn and clears it when the turn is done', () => {
-    beginAgentTurnSnapshot('turn-1')
-    emitAgentChunk('turn-1', { type: 'text-start' })
-    emitAgentChunk('turn-1', { type: 'text-delta', id: 'a', delta: 'hello' })
-    emitAgentToolProgress('turn-1', 'call-1', 'browser', 'navigating')
-    emitAgentToolImage('call-1', 'data:image/png;base64,', 'cover.png')
+    beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentTurnState('s1', 'turn-1', 'running')
+    emitAgentChunk('s1', 'turn-1', { type: 'text-start' })
+    emitAgentChunk('s1', 'turn-1', { type: 'text-delta', id: 'a', delta: 'hello' })
+    emitAgentToolProgress('s1', 'turn-1', 'call-1', 'browser', 'navigating')
+    emitAgentToolImage('s1', 'turn-1', 'call-1', 'data:image/png;base64,', 'cover.png')
 
-    expect(getKernelSnapshot().state.activeTurn).toEqual({
-      turnId: 'turn-1',
-      chunks: [{ type: 'text-start' }, { type: 'text-delta', id: 'a', delta: 'hello' }],
-      toolProgress: { 'call-1': 'navigating' },
-      toolImages: {
-        'call-1': [
-          {
-            type: 'agent-tool-image',
-            toolCallId: 'call-1',
-            dataUri: 'data:image/png;base64,',
-            label: 'cover.png',
-          },
-        ],
+    expect(getKernelSnapshot().state.agentTurns).toEqual([
+      {
+        sessionId: 's1',
+        turnId: 'turn-1',
+        state: 'running',
+        chunks: [{ type: 'text-start' }, { type: 'text-delta', id: 'a', delta: 'hello' }],
+        toolProgress: { 'call-1': 'navigating' },
+        toolImages: {
+          'call-1': [
+            {
+              type: 'agent-tool-image',
+              sessionId: 's1',
+              turnId: 'turn-1',
+              toolCallId: 'call-1',
+              dataUri: 'data:image/png;base64,',
+              label: 'cover.png',
+            },
+          ],
+        },
       },
-    })
+    ])
 
-    emitAgentTurnDone('turn-1')
-    expect(getKernelSnapshot().state.activeTurn).toBeNull()
+    emitAgentTurnDone('s1', 'turn-1')
+    expect(getKernelSnapshot().state.agentTurns).toEqual([])
   })
 
   it('clears the accumulator synchronously with the done event, so the watermark stays sound', () => {
     const { win, sent } = fakeWindow()
     setKernelEventWindow(win)
-    beginAgentTurnSnapshot('turn-1')
-    emitAgentTurnDone('turn-1')
+    beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentTurnDone('s1', 'turn-1')
     // The done event is on the stream; a snapshot at this seq must not still
     // name the turn, or a reconnect would adopt a dead one.
     expect(sent.at(-1)?.type).toBe('agent-turn-done')
-    expect(getKernelSnapshot().state.activeTurn).toBeNull()
+    expect(getKernelSnapshot().state.agentTurns).toEqual([])
   })
 
-  it('ignores chunks and progress that belong to no active turn', () => {
-    emitAgentChunk('turn-9', { type: 'text-start' })
-    emitAgentToolProgress('turn-9', 'call-1', 'browser', 'x')
-    emitAgentToolImage('call-9', 'data:image/png;base64,', 'orphan.png')
+  it('ignores chunks and progress that belong to no open turn', () => {
+    emitAgentChunk('s1', 'turn-9', { type: 'text-start' })
+    emitAgentToolProgress('s1', 'turn-9', 'call-1', 'browser', 'x')
+    emitAgentToolImage('s1', 'turn-9', 'call-9', 'data:image/png;base64,', 'orphan.png')
     const snapshot = getKernelSnapshot()
-    expect(snapshot.state.activeTurn).toBeNull()
+    expect(snapshot.state.agentTurns).toEqual([])
     expect(snapshot.sequence).toBe(3)
+  })
+
+  it('lists one snapshot per open session and keeps their chunks apart', () => {
+    beginAgentTurnSnapshot('s1', 'turn-a')
+    beginAgentTurnSnapshot('s2', 'turn-b')
+    emitAgentTurnState('s1', 'turn-a', 'running')
+    emitAgentChunk('s1', 'turn-a', { type: 'text-delta', id: 'p', delta: 'from a' })
+    emitAgentChunk('s2', 'turn-b', { type: 'text-delta', id: 'p', delta: 'from b' })
+    emitAgentToolImage('s2', 'turn-b', 'call-b', 'data:image/png;base64,', 'b.png')
+    // A turn id that is not the session's open turn records nothing.
+    emitAgentChunk('s1', 'turn-b', { type: 'text-delta', id: 'q', delta: 'stray' })
+
+    const turns = getKernelSnapshot().state.agentTurns
+    expect(turns.map(({ sessionId, turnId, state }) => ({ sessionId, turnId, state }))).toEqual([
+      { sessionId: 's1', turnId: 'turn-a', state: 'running' },
+      { sessionId: 's2', turnId: 'turn-b', state: 'queued' },
+    ])
+    expect(turns[0].chunks).toEqual([{ type: 'text-delta', id: 'p', delta: 'from a' }])
+    expect(turns[0].toolImages).toEqual({})
+    expect(turns[1].chunks).toEqual([{ type: 'text-delta', id: 'p', delta: 'from b' }])
+    expect(Object.keys(turns[1].toolImages)).toEqual(['call-b'])
+
+    emitAgentTurnDone('s1', 'turn-a')
+    expect(getKernelSnapshot().state.agentTurns.map((turn) => turn.sessionId)).toEqual(['s2'])
+  })
+
+  it('keeps a queued agent turn’s Turn Queue position on its snapshot', () => {
+    beginAgentTurnSnapshot('s1', 'turn-a')
+    const queued = { kind: 'text', queueDepth: 0, conversationKey: 's1', runKey: 'turn-a' } as const
+    emitQueueEvent({ ...queued, action: 'enqueued', position: 3 })
+    emitQueueEvent({ ...queued, action: 'moved', position: 2 })
+    expect(getKernelSnapshot().state.agentTurns[0].queuePosition).toBe(2)
+    emitQueueEvent({ ...queued, action: 'started' })
+    expect(getKernelSnapshot().state.agentTurns[0].queuePosition).toBeUndefined()
+  })
+
+  it('stamps session and turn id on every agent event', () => {
+    const { win, sent } = fakeWindow()
+    setKernelEventWindow(win)
+    beginAgentTurnSnapshot('s1', 'turn-1')
+    emitAgentTurnState('s1', 'turn-1', 'running')
+    emitAgentChunk('s1', 'turn-1', { type: 'text-start' })
+    emitAgentToolProgress('s1', 'turn-1', 'call-1', 'browser', 'navigating')
+    emitAgentToolImage('s1', 'turn-1', 'call-1', 'data:image/png;base64,', 'cover.png')
+    emitAgentTurnDone('s1', 'turn-1')
+    expect(sent.map((event) => [event.type, 'sessionId' in event && event.sessionId])).toEqual([
+      ['agent-turn-state', 's1'],
+      ['agent-chunk', 's1'],
+      ['agent-tool-progress', 's1'],
+      ['agent-tool-image', 's1'],
+      ['agent-turn-done', 's1'],
+    ])
+    expect(sent.every((event) => 'turnId' in event && event.turnId === 'turn-1')).toBe(true)
+    expect(
+      sent.every((event) => event.scope.kind === 'run' && event.scope.runId === 'turn-1'),
+    ).toBe(true)
   })
 
   it('sends to the window set by setKernelEventWindow, not an older one', () => {

@@ -350,6 +350,7 @@ async function buildQuickTools(host: CapabilityHost): Promise<ToolDefinition[]> 
         // The offer is a card in the renderer's transcript and the switch is
         // Pinia state, so both live there (`storeTools` in agentModeTurn.ts).
         const result = await executeToolInRenderer(
+          host.sessionId,
           OFFER_GAME_AGENT_TOOL,
           { reason: reason ?? '', summary: summary ?? '' },
           toolCallId,

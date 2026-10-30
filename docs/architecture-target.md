@@ -463,7 +463,14 @@ not. Persistence is its own surface, and the ownership splits four ways:
 | **How** it is written | Persistence only | atomic write, index upkeep, `schemaVersion` + migration, demo-mode root, single-writer discipline |
 
 ```ts
-type Collection = 'conversations' | 'agent-sessions' | 'media' | 'games' | 'audio' | 'preferences'
+type Collection =
+  | 'conversations'
+  | 'agent-sessions'
+  | 'agent-tasks'
+  | 'media'
+  | 'games'
+  | 'audio'
+  | 'preferences'
 
 type Persistence = {
   put(c: Collection, id: string, doc: Doc, opts?: { commit: 'now' | 'debounced' }): Promise<void>
@@ -568,8 +575,8 @@ the notifications that were pushed point-to-point: service status, the four agen
 `src/assets/js/projection/kernelProjection.ts`). The handshake installs the snapshot through an
 `onInstall` hook that runs **before** the buffered flush, because a consumer that adopts snapshot
 state (a resumed agent turn's stream controller) must exist before the events meant to follow it
-arrive. The snapshot carries service status, the one active agent turn's accumulated chunks,
-tool progress and tool images, and the one active artifact run (phase + items) — enough for a
+arrive. The snapshot carries service status, every open agent turn (session id, turn id, state,
+accumulated chunks, tool progress and tool images), and the one active artifact run (phase + items) — enough for a
 recreated window to resume a running turn through `Chat.resumeStream()` without restarting it, and
 to rehydrate a renderer-originated Image Gen run. Chat turns also ride the bus (`chat-chunk` /
 `chat-turn-done`, with adjacent deltas coalesced at the bridge — step 6). What is not on the bus
@@ -684,18 +691,25 @@ The lifecycle policy belongs in main, beside Electron's existing single-instance
 handling. The renderer must never decide whether a process-backed run survives its own window.
 
 **Renderer interim (step 4 done).** The policy is a pure function,
-`resolveClosePolicy({ homeAgentRunning, rendererBusy, agentTurnActive, chatTurnActive, artifactWorkOpen }) → 'hide' | 'close'`
+`resolveClosePolicy({ homeAgentRunning, rendererBusy, agentTurnActive, chatTurnActive, artifactWorkOpen, tasksKeepAlive }) → 'hide' | 'close'`
 (`electron/kernel/windowLifecycle.ts`), consulted in the window's `close` handler: `hide` prevents
 the default and hides the window; `close` tears down the browser-backed windows and quits (via
 `app.quit()` off-darwin, backends freed in `window-all-closed` on macOS, as before). Main owns
 every input: Home Agent service status, `isAgentTurnActive()`, `anyChatTurnActive()`,
-`artifactWorkOpen()` (admitted / executing / queued), and a `rendererBusy` flag the renderer
-pushes over `lifecycle:busy` whenever the activities sink flips. Chat and artifact occupancy do
-not round-trip through that flag — it clears when the renderer dies. A hidden window is reopened
+`artifactWorkOpen()` (admitted / executing / queued), a `rendererBusy` flag the renderer
+pushes over `lifecycle:busy` whenever the activities sink flips (an in-flight task run holds it
+for the moment before its marker is on disk), and `tasksKeepAlive`, read from
+`AI-Playground/agent-tasks.json` when a saved task has an enabled schedule or an `activeRun`.
+Demo-mode tasks and an unreadable file are not keep-alive. Chat and artifact occupancy do
+not round-trip through `rendererBusy` — it clears when the renderer dies. A hidden window is reopened
 by relaunch (`second-instance`) and dock activation (`activate`), and the recreated/relaunched
-renderer resumes a running agent turn from the kernel snapshot (§4.6 interim). Explicit quit
-still runs the shutdown task — the title-bar X and `exitApp` bypass `close` via `app.quit()`,
-which the `before-quit` handler routes to the shutdown sequence, so no isQuitting flag is needed.
+renderer resumes a running agent turn from the kernel snapshot (§4.6 interim). A task run whose
+session is still in that snapshot is reattached, so the step loop continues; a marker with no
+turn left is recorded as `app-closed`. Explicit quit still runs the shutdown task. The title-bar
+X (`exitApp`) still quits outright for Home Agent and for ordinary chat, agent and artifact work.
+When `tasksKeepAlive` is set it asks first — the renderer shows the localized dialog, main owns
+the fact — and Keep running hides the window, while Quit calls `app.quit()`, which the
+`before-quit` handler routes to the shutdown sequence.
 
 ---
 
@@ -728,6 +742,7 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | `agentMode.sessions`                                          | app data           | kernel-owned files as of step 8 (`AI-Playground/agent-sessions/`)     |
 | `agentMode.defaultCapabilities`, `planningThinkingOnly`        | user preference    | same store as the line above                                          |
 | `agentMode.workspaceDir`, `lastWorkspaceByKind`                | app data           | kernel-owned file as of step 8 (`AI-Playground/agent-workspace.json`) |
+| Agent tasks (recipes, schedules, in-flight run markers)       | app data           | kernel-owned file (`AI-Playground/agent-tasks.json`; demo sibling wiped on boot and shutdown) |
 | `promptArea.currentMode`                                       | UI state           | session-only; hydrated at startup from default-preset pref            |
 | `promptArea.userSelectedMode`                                  | UI state           | **deleted** (step 8); status bar / history filter read `currentMode`; `setModeOnly` remains for Home Agent remote focus |
 | last-used preset per category (today inside preset switching)  | user preference    | kernel-owned preference as of step 8 (`presets` section); the `Preset \| "last"` choice stays parked (§8.2) |
@@ -775,6 +790,7 @@ AI-Playground/
   preferences.json        # theme, dev toggles, favorites, voices, per-preset knobs, last-used names (step 8)
   rag/documents.json      # the indexed document set, full split text included (step 8)
   agent-workspace.json    # last-used workspace pointers (step 8)
+  agent-tasks.json        # reusable Agent tasks: steps, schedule, in-flight run marker
 ```
 
 (Landed with step 8: `conversations/`, `agent-sessions/`, `media/records/`,
@@ -783,7 +799,10 @@ AI-Playground/
 `electron/persist/agentSessionFiles.ts`, `electron/persist/mediaItemFiles.ts`,
 `electron/persist/preferencesFile.ts`, `electron/persist/ragDocumentFiles.ts` and
 `electron/persist/workspaceStateFiles.ts`. The agent-session index also carries
-`activeSessionId`; Pi's own session files are untouched.)
+`activeSessionId`; Pi's own session files are untouched. Tasks are one file,
+`agent-tasks.json`, written by `electron/persist/agentTaskFiles.ts` — schemaVersion 1,
+one writer, atomic replace. Demo mode uses `agent-tasks-demo.json`, wiped on boot and
+shutdown. An unreadable tasks file is not overwritten and does not count as keep-alive.)
 
 User preferences that a human would want in a backup live as `AI-Playground/preferences.json`
 (theme, developer toggles, model favorites, TTS voices, per-preset knobs and last-used names

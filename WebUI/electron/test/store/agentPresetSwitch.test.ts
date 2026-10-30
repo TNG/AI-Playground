@@ -69,7 +69,12 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
 }))
 
 vi.mock('@/assets/js/store/textInference', () => ({
-  useTextInference: () => ({ backend: 'llamaCPP', ensureReadyForInference: vi.fn() }),
+  useTextInference: () => ({
+    backend: 'llamaCPP',
+    ensureReadyForInference: vi.fn(),
+    bindSessionSettings: vi.fn(),
+    loadSettingsForActivePreset: vi.fn(),
+  }),
 }))
 
 vi.mock('@/assets/js/store/models', () => ({
@@ -148,7 +153,7 @@ function seedGameSession(store: Store, presetName: string): void {
       capabilities: ['game-studio-quick'],
     },
   }
-  store.activeSessionId = 'qc-1'
+  store.openSessionId = 'qc-1'
   store.workspaceDir = SPACE_DODGER.dir
   store.currentGame = SPACE_DODGER as never
   store.chat.messages = transcript('dodge asteroids') as never
@@ -171,7 +176,7 @@ describe('switching agent preset', () => {
     await selectPreset(store, GAME_AGENT)
 
     expect(store.workspaceDir).toBe('')
-    expect(store.activeSessionId).toBe('')
+    expect(store.openSessionId).toBe('')
     expect(store.chat.messages).toEqual([])
     expect(store.currentGame).toBe(null)
     // The one-shot run stays in the panel, under the preset that held it.
@@ -182,7 +187,7 @@ describe('switching agent preset', () => {
   // A session whose first turn is still running has no record yet, so the
   // snapshot is the only thing deciding which preset it is filed under.
   it('files a turn that was still running under the preset that held it', async () => {
-    store.activeSessionId = 'live-1'
+    store.openSessionId = 'live-1'
     store.workspaceDir = SPACE_DODGER.dir
     store.chat.messages = transcript('a game where I dodge asteroids') as never
     store.processing = true
@@ -214,7 +219,7 @@ describe('switching agent preset', () => {
     await selectPreset(store, GAME_AGENT)
 
     expect(store.workspaceDir).toBe('')
-    expect(store.activeSessionId).toBe('')
+    expect(store.openSessionId).toBe('')
   })
 
   it('lands on the last picked folder when going back to the Agent preset', async () => {
@@ -224,8 +229,8 @@ describe('switching agent preset', () => {
     await selectPreset(store, AGENT)
 
     expect(store.workspaceDir).toBe('/code/project')
-    expect(store.activeSessionId).not.toBe('qc-1')
-    expect(store.activeSessionId).not.toBe('')
+    expect(store.openSessionId).not.toBe('qc-1')
+    expect(store.openSessionId).not.toBe('')
     expect(store.chat.messages).toEqual([])
   })
 
@@ -239,7 +244,7 @@ describe('switching agent preset', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(store.workspaceDir).toBe(SPACE_DODGER.dir)
-    expect(store.activeSessionId).toBe('qc-1')
+    expect(store.openSessionId).toBe('qc-1')
     expect(store.chat.messages).toHaveLength(1)
   })
 
@@ -262,7 +267,7 @@ describe('switching agent preset', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(switchPreset).toHaveBeenCalledWith('Quick Coder')
-    expect(store.activeSessionId).toBe('qc-1')
+    expect(store.openSessionId).toBe('qc-1')
     expect(store.workspaceDir).toBe(SPACE_DODGER.dir)
     expect(store.chat.messages).toHaveLength(1)
   })

@@ -332,6 +332,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             // session; a failed download can be retried on the next call.
             const prep = (await untilAbort(
               executeToolInRenderer(
+                host.sessionId,
                 RAG_PREPARE_EMBEDDING_MODEL,
                 { model: embeddingModel, backend: embeddingBackend },
                 toolCallId,
@@ -450,7 +451,7 @@ export const ragCapability: AgentCapability = {
   unavailableReason: (host) =>
     host.embeddingModel
       ? undefined
-      : 'No embedding model selected — pick one in Agent Settings to enable it.',
+      : 'No embedding model selected — pick one in the settings sidebar to enable it.',
   lazyEligible: true,
 }
 

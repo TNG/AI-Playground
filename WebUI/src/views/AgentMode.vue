@@ -1,4 +1,5 @@
 <template>
+  <ScrollToBottomButton v-if="showScrollButton" @click="scrollToBottom()" />
   <div class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative" ref="panel">
     <div class="w-full max-w-4xl mx-auto flex flex-col gap-4">
       <!-- Game Agent works on one game at a time, and what to do with that game
@@ -10,7 +11,7 @@
         <GameBar />
       </div>
 
-      <!-- Empty state: configuration lives in Agent Settings, model/context in
+      <!-- Empty state: configuration lives in the settings sidebar, model/context in
            the prompt status bar — so an empty transcript just needs a hint. -->
       <div
         v-if="agentMode.messages.length === 0 && !agentMode.processing"
@@ -42,9 +43,7 @@
           <Button v-else variant="secondary" @click="agentMode.pickWorkspaceFolder()">
             Select a workspace folder…
           </Button>
-          <p class="text-xs">
-            Configure workspace, model and tools via Agent Settings in the settings sidebar.
-          </p>
+          <p class="text-xs">Configure workspace, model and tools in {{ settingsLabel }}.</p>
         </template>
       </div>
 
@@ -56,6 +55,36 @@
           <UserCircleIcon class="size-6 text-foreground/90" />
           <div class="flex flex-col gap-2 max-w-4/5 bg-muted rounded-md px-4 py-3">
             <MarkdownRenderer :content="messageText(message)" />
+          </div>
+          <span
+            v-if="isQueuedMessage(message)"
+            role="status"
+            class="self-center inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          >
+            <ClockIcon class="size-3.5" aria-hidden="true" />
+            {{ languages.AGENT_TURN_QUEUED }}
+          </span>
+          <div
+            v-else-if="isNotRunMessage(message)"
+            class="self-center flex items-center gap-2 text-xs text-muted-foreground"
+          >
+            <span
+              role="status"
+              class="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5"
+            >
+              <ExclamationCircleIcon class="size-3.5" aria-hidden="true" />
+              {{ languages.AGENT_TURN_NOT_RUN }}
+            </span>
+            <Button
+              v-if="agentMode.canResendNotRun && message.id === agentMode.messages.at(-1)?.id"
+              variant="secondary"
+              size="sm"
+              class="h-6 px-2 text-xs"
+              @click="agentMode.resendNotRun()"
+            >
+              <ArrowPathIcon class="size-3.5" aria-hidden="true" />
+              {{ languages.AGENT_TURN_RESEND }}
+            </Button>
           </div>
         </div>
         <div v-else-if="message.role === 'assistant'" class="flex items-start gap-3">
@@ -79,14 +108,16 @@
 
       <!-- A tool can put a question to the user mid-turn (Quick Coder offering to
            hand the game to Game Agent). Same card as Chat, keyed by the session. -->
-      <ChatConfirmation :conversation-key="agentMode.activeSessionId" with-avatar />
+      <ChatConfirmation :conversation-key="agentMode.openSessionId" with-avatar />
 
       <div
         v-if="agentMode.processing"
         class="flex items-center gap-2 text-sm text-muted-foreground"
       >
         <span class="inline-block size-2 rounded-full bg-current animate-pulse"></span>
-        <span>{{ busyLabel }}</span>
+        <span>{{
+          agentMode.turnState === 'queued' ? languages.AGENT_TURN_QUEUED_DETAIL : busyLabel
+        }}</span>
       </div>
       <div
         v-if="agentMode.chat.error"
@@ -102,6 +133,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { UIDataTypes, UIMessagePart, UITools, UIMessage } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { Button } from '@/components/ui/button'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -109,30 +141,55 @@ import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import AgentActivitySummary from '@/components/AgentActivitySummary.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import GameBar from '@/components/GameBar.vue'
+import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import {
   busyLabelOf,
   compactionOutputOf,
   groupTranscriptParts,
   isReasoningPart,
-  mediaToolNameOf,
+  showsGeneratedMedia,
   toolPartNameOf,
   type TranscriptSegment,
 } from '@/lib/agentTranscript'
 import { agentEmptyStateKind } from '@/lib/presetModes'
+import { useStickToBottom } from '@/lib/useStickToBottom'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
-import { UserCircleIcon } from '@heroicons/vue/24/outline'
+import { useI18N } from '@/assets/js/store/i18n'
+import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
+import {
+  ArrowPathIcon,
+  ClockIcon,
+  ExclamationCircleIcon,
+  UserCircleIcon,
+} from '@heroicons/vue/24/outline'
 
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const promptStore = usePromptStore()
 const mediaRuns = useMediaAgentRuns()
+const languages = useI18N().state
+const settingsLabel = useModeSettingsLabel('agent')
 
 const panel = ref<HTMLElement | null>(null)
+const { showScrollButton, scrollToBottom } = useStickToBottom(panel)
 
 // The game bar and the game-specific empty state belong to the preset that works
 // on a managed game folder, not to Agent Mode in general.
 const isGameAgent = computed(() => agentMode.agentWorkspaceKind === 'games')
 const emptyStateKind = computed(() => agentEmptyStateKind(agentMode.activeAgentPreset?.name))
+
+/** The sent message of a turn still waiting in the Turn Queue. */
+function isQueuedMessage(message: UIMessage): boolean {
+  if (agentMode.turnState !== 'queued') return false
+  const lastUser = agentMode.messages.findLast((entry) => entry.role === 'user')
+  return lastUser?.id === message.id
+}
+
+/** A message whose turn never ran before the app last quit. */
+function isNotRunMessage(message: UIMessage): boolean {
+  return agentMode.notRunMessages[agentMode.openSessionId] === message.id
+}
 
 function messageText(message: UIMessage): string {
   return (
@@ -175,7 +232,7 @@ function isFoldable(part: unknown): boolean {
   // Compaction is its own notice, media tools render what they generated, and a
   // browser screenshot is only ever visible here — none of it is noise.
   if (compactionOutputOf(part)) return false
-  if (mediaToolNameOf(part)) return false
+  if (showsGeneratedMedia(part)) return false
   const toolCallId = (part as { toolCallId?: string }).toolCallId
   return !(toolCallId && agentMode.toolImages[toolCallId]?.length)
 }
@@ -187,28 +244,33 @@ const busyLabel = computed<string>(() =>
 )
 
 function handlePromptSubmit(prompt: string) {
-  void agentMode.generate(prompt)
+  scrollToBottom()
+  void agentTasks.submitPrompt(prompt)
 }
 
+// A run may be between Steps with no turn to stop, so the run is stopped instead.
 function handleCancel() {
-  void agentMode.stop()
+  const sessionId = agentMode.openSessionId
+  const task = agentTasks.taskLockingSession(sessionId)
+  if (task) void agentTasks.stopTask(task.id)
+  else if (agentTasks.promptRunOf(sessionId)) void agentTasks.stopPromptRun(sessionId)
+  else void agentMode.stop()
 }
 
 watch(
-  () => agentMode.messages.length + (agentMode.messages.at(-1)?.parts?.length ?? 0),
-  async () => {
-    await nextTick()
-    panel.value?.scrollTo({ top: panel.value.scrollHeight })
-  },
+  () => agentMode.openSessionId,
+  () => nextTick(() => scrollToBottom(false)),
 )
 
 onMounted(() => {
   promptStore.registerSubmitCallback('agent', handlePromptSubmit)
   promptStore.registerCancelCallback('agent', handleCancel)
   ensureMediaAgentEventWiring()
+  agentMode.setViewShown(true)
 })
 
 onUnmounted(() => {
+  agentMode.setViewShown(false)
   promptStore.unregisterSubmitCallback('agent')
   promptStore.unregisterCancelCallback('agent')
 })

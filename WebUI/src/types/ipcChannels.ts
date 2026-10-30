@@ -6,7 +6,9 @@ import type {
   ArcadeCatalogEntry,
   GameLibraryEntry,
 } from './agentIpc'
+import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
+import type { AgentTask } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
 import type {
@@ -21,7 +23,7 @@ import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
 import type { LlamaCppVramInputs } from '../lib/vram/types'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
-import type { KernelEvent, KernelSnapshot } from './kernelEvents'
+import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -244,11 +246,11 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string, AgentModeTurnConfig],
     result: null as unknown as IpcMutationResult,
   },
-  /** Abort the running agent turn, if any. */
+  /** Abort one Agent Session's open turn; a turn id narrows it to that turn. */
   'agentMode:cancel': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as const,
+    args: [] as unknown as readonly [string, string?],
     result: null as unknown as void,
   },
   /** Hard-reset the live Pi session and its workspace runtime. */
@@ -314,12 +316,40 @@ export const CHANNELS = {
     args: [] as unknown as readonly [unknown],
     result: null as unknown as IpcMutationResult,
   },
+  /** Every saved Task; an absent file reads as none, an unreadable one fails. */
+  'agentMode:readTasks': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ tasks: AgentTask[] }>,
+  },
+  /** Insert a Task, or replace the one with its id. */
+  'agentMode:saveTask': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentTask],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete one Task; the sessions it created stay. */
+  'agentMode:deleteTask': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Copy an attached file into the workspace; the answer carries its relative path. */
   'agentMode:importAttachment': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
+  },
+  /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */
+  'agentMode:mediaFileAction': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentMediaFileRef, AgentMediaFileAction],
+    result: null as unknown as IpcMutationResult,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */
   'agentMode:listCapabilities': {
@@ -402,7 +432,7 @@ export const CHANNELS = {
   'artifact:run': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [ArtifactRunRequest, { queue?: 'fail-fast' | 'queue' }?],
+    args: [] as unknown as readonly [ArtifactRunRequest, { queue?: 'turn' | 'queue' }?],
     result: null as unknown as ArtifactRunResult,
   },
   /** Cancel the active run, or one in-flight run by id. */
@@ -477,6 +507,15 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [PermissionsPromptResponse],
     result: null as unknown as void,
+  },
+  /**
+   * A confirmation card for a conversation opened (`true`, with what it asks) or settled
+   * (`false`); a pausable Turn Queue member of that conversation gives up its place meanwhile.
+   */
+  'permissions:awaitingUser': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean, PauseReason?],
   },
   /** Main asks the window to show a consent dialog (download modal, VRAM warning). */
   'permissions:prompt': {
@@ -746,6 +785,13 @@ export const CHANNELS = {
   },
   /** Write one user preset file (its `name` field names it); false on failure. */
   saveUserPreset: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
+  },
+  /** Delete the user preset file named after `name`; true when none is left. */
+  deleteUserPreset: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
@@ -1116,6 +1162,22 @@ export const CHANNELS = {
   },
   /** Quit the app outright (reaches the gated teardown in `before-quit`). */
   exitApp: {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /**
+   * Whether a saved task should keep the app alive: an enabled schedule or a run
+   * marker in `agent-tasks.json`. Demo mode and an unreadable file are false.
+   */
+  tasksKeepAlive: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: false as boolean,
+  },
+  /** Hide the main window without quitting. */
+  hideMainWindow: {
     kind: 'send',
     owner: 'main',
     args: [] as const,

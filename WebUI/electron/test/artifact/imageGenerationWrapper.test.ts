@@ -26,7 +26,7 @@ vi.stubGlobal('window', {
       sequence: 0,
       state: {
         services: [],
-        activeTurn: null,
+        agentTurns: [],
         activeArtifactRun: null,
         chatTurns: [],
         activities: [],
@@ -77,7 +77,18 @@ vi.mock('@/assets/js/store/errors', () => ({
   useErrors: () => ({ report: errorsReportMock, recentErrors: [] }),
 }))
 vi.mock('@/assets/js/store/i18n', () => ({
-  useI18N: () => ({ state: { COM_GENERATING: 'Generating' } }),
+  useI18N: () => ({
+    langName: 'en-US',
+    state: {
+      COM_GENERATING: 'Generating',
+      COM_ACTIVITY_TURN_QUEUED_FOR_AGENT:
+        'Queued ({position}), waiting for an agent turn to finish',
+      HISTORY_QUEUE_ORDINAL_ONE: '{n}st',
+      HISTORY_QUEUE_ORDINAL_TWO: '{n}nd',
+      HISTORY_QUEUE_ORDINAL_FEW: '{n}rd',
+      HISTORY_QUEUE_ORDINAL_OTHER: '{n}th',
+    },
+  }),
 }))
 vi.mock('@/assets/js/store/demoMode', () => ({
   // Plain false: a function (truthy) would flip the demo branches on.
@@ -197,14 +208,78 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(runArtifactMock.mock.calls[0][0]).not.toHaveProperty('source')
   })
 
-  it('routes the stop button to the main runner cancel and settles the UI', async () => {
+  it('routes the stop button to the main runner cancel for its own run and settles the UI', async () => {
+    cancelIpcMock.mockClear()
     const store = useImageGenerationPresets()
+    store.trackArtifactRun('panel-1')
 
     store.stopGeneration()
 
     await vi.waitFor(() => expect(cancelIpcMock).toHaveBeenCalledTimes(1))
+    // Never a bare cancel: that would stop whatever runs, e.g. an agent turn's media.
+    expect(cancelIpcMock).toHaveBeenCalledWith('panel-1')
     // Locally the FSM leaves the processing state immediately.
     expect(store.processing).toBe(false)
+  })
+
+  it('stop aborts a generate that has not reached the runner yet', async () => {
+    activePresetWithVariant.value = comfyPresetFixture()
+    let signal: AbortSignal | undefined
+    runArtifactMock.mockImplementation(async (_request, ctx) => {
+      signal = (ctx as { abortSignal?: AbortSignal }).abortSignal
+      await new Promise((resolve) => signal?.addEventListener('abort', resolve))
+      return { state: 'cancelled', items: [] }
+    })
+    const store = useImageGenerationPresets()
+    const pending = store.generate('imageGen')
+    await vi.waitFor(() => expect(signal).toBeDefined())
+
+    store.stopGeneration()
+    expect(signal?.aborted).toBe(true)
+    expect(await pending).toMatchObject({ state: 'cancelled' })
+  })
+
+  it('labels the overlay with the Turn Queue position while its run waits', async () => {
+    const store = useImageGenerationPresets()
+    store.trackArtifactRun('panel-1')
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    const queueEvent = (action: string, position?: number) => ({
+      type: 'queue-event',
+      runKey: 'panel-1',
+      kind: 'artifact',
+      action,
+      queueDepth: 0,
+      position,
+      work: 'generation',
+      holder: position === undefined ? undefined : 'agent',
+      seq: 1,
+      scope: { kind: 'global' },
+    })
+
+    for (const listener of kernelListeners) listener(queueEvent('enqueued', 2))
+    expect(store.queuedLabel).toBe('Queued (2nd), waiting for an agent turn to finish')
+    for (const listener of kernelListeners) listener(queueEvent('moved', 1))
+    expect(store.queuedLabel).toBe('Queued (1st), waiting for an agent turn to finish')
+    for (const listener of kernelListeners) listener(queueEvent('started'))
+    expect(store.queuedLabel).toBeNull()
+  })
+
+  it('ignores queue events of runs the panel does not own', async () => {
+    const store = useImageGenerationPresets()
+    await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
+    for (const listener of kernelListeners) {
+      listener({
+        type: 'queue-event',
+        runKey: 'someone-else',
+        kind: 'artifact',
+        action: 'enqueued',
+        queueDepth: 0,
+        position: 1,
+        seq: 1,
+        scope: { kind: 'global' },
+      })
+    }
+    expect(store.queuedLabel).toBeNull()
   })
 
   it('reports generation/no-preset and never reaches the runner without a comfy preset', async () => {

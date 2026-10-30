@@ -68,6 +68,40 @@
           <TooltipContent>{{ label }}</TooltipContent>
         </Tooltip>
         <span class="truncate text-sm text-foreground">{{ entry.title }}</span>
+        <Tooltip v-if="marker">
+          <TooltipTrigger as-child>
+            <span
+              role="img"
+              :aria-label="marker.label"
+              class="ml-auto inline-flex flex-none items-center gap-0.5 text-xs cursor-help"
+            >
+              <Spinner
+                v-if="marker.status === 'running'"
+                class="size-3.5 text-primary"
+                aria-hidden="true"
+              />
+              <template v-else-if="marker.status === 'queued'">
+                <ClockIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <span v-if="marker.short" class="text-muted-foreground" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
+              <template v-else-if="marker.status === 'paused'">
+                <HandRaisedIcon class="size-3.5 text-amber-500" aria-hidden="true" />
+                <span v-if="marker.short" class="text-amber-500" aria-hidden="true">{{
+                  marker.short
+                }}</span>
+              </template>
+              <span
+                v-else
+                class="size-2 rounded-full"
+                :class="marker.status === 'unseenFailed' ? 'bg-red-500' : 'bg-primary'"
+                aria-hidden="true"
+              ></span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ marker.label }}</TooltipContent>
+        </Tooltip>
       </span>
 
       <div class="flex items-center gap-2 min-w-0">
@@ -75,6 +109,22 @@
         <span class="text-xs text-muted-foreground shrink-0">{{
           isDraft ? 'Draft' : relativeTime(entry.updatedAt)
         }}</span>
+        <Tooltip v-if="taskMarker">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 min-w-0 rounded-full px-1.5 py-px text-xs text-muted-foreground border border-border hover:text-foreground hover:border-primary"
+              :aria-label="taskMarkerLabel"
+              @click.stop="emit('filterByTask', taskMarker.id)"
+            >
+              <ClipboardDocumentListIcon class="size-3 flex-none" aria-hidden="true" />
+              <span class="truncate">{{ taskMarkerLabel }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{{
+            i18nState.AGENT_TASKS_SHOW_SESSIONS.replace('{name}', taskMarker.name)
+          }}</TooltipContent>
+        </Tooltip>
         <!-- Where the work lives: the agent's folder, the workflow behind an output. -->
         <span v-if="entry.kind === 'agent'" class="ml-auto min-w-0 max-w-[60%]">
           <Tooltip>
@@ -176,7 +226,12 @@
 
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
-import { PuzzlePieceIcon } from '@heroicons/vue/24/outline'
+import {
+  ClipboardDocumentListIcon,
+  ClockIcon,
+  HandRaisedIcon,
+  PuzzlePieceIcon,
+} from '@heroicons/vue/24/outline'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -214,10 +269,13 @@ import { collapseGamesPrefix } from '@/assets/js/store/agentModeSessions'
 import {
   isEmptyDraft,
   mediaSettings,
+  pausedStatusLabel,
+  queueOrdinal,
   relativeTime,
   toolMedia,
   type HistoryEntry,
 } from '@/assets/js/store/historyEntries'
+import type { TaskRef } from '@/assets/js/store/historySessions'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -227,17 +285,20 @@ const props = defineProps<{
   entry: HistoryEntry
   active: boolean
   renamable: boolean
+  taskMarker?: TaskRef | null
 }>()
 
 const emit = defineEmits<{
   select: []
   delete: []
   rename: [title: string]
+  filterByTask: [taskId: string]
 }>()
 
 const presetsStore = usePresets()
 const oemBranding = useOemBranding()
-const i18nState = useI18N().state
+const i18n = useI18N()
+const i18nState = i18n.state
 
 const menuOpen = ref(false)
 const renameOpen = ref(false)
@@ -267,6 +328,34 @@ const mediaPreset = computed(() => {
   if (!preset) return ''
   return variant ? `${preset} - ${variant}` : preset
 })
+
+const marker = computed(() => {
+  if (props.entry.kind !== 'agent' || !props.entry.status) return null
+  const { status, queuePosition } = props.entry
+  switch (status) {
+    case 'running':
+      return { status, label: i18nState.HISTORY_STATUS_RUNNING }
+    case 'queued':
+      return queuePosition
+        ? {
+            status,
+            label: i18nState.HISTORY_STATUS_QUEUED_AT.replace('{position}', String(queuePosition)),
+            short: queueOrdinal(queuePosition, i18n.langName, i18nState),
+          }
+        : { status, label: i18nState.HISTORY_STATUS_QUEUED }
+    case 'paused':
+      return { status, ...pausedStatusLabel(props.entry.pauseReason, i18nState) }
+    case 'unseen':
+      return { status, label: i18nState.HISTORY_STATUS_UNSEEN }
+    case 'unseenFailed':
+      return { status, label: i18nState.HISTORY_STATUS_UNSEEN_FAILED }
+  }
+  return null
+})
+
+const taskMarkerLabel = computed(() =>
+  props.taskMarker ? i18nState.HISTORY_TASK_MARKER.replace('{name}', props.taskMarker.name) : '',
+)
 
 const mediaReady = computed(
   () => props.entry.kind === 'media' && hasDisplayableMedia(props.entry.media),

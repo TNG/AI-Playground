@@ -1,7 +1,7 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
-  jsonResult,
   jsonSchemaParameters,
+  mediaToolResult,
   saveGeneratedMediaToWorkspace,
   workspaceFileToDataUri,
 } from '../piCustomTools.ts'
@@ -74,7 +74,7 @@ export async function buildDirectMediaTools(
               }
             }
             const result = await runDirectTool(host, spec, args, toolCallId, signal ?? undefined)
-            return jsonResult(await saveGeneratedMediaToWorkspace(result, workspaceDir))
+            return mediaToolResult(await saveGeneratedMediaToWorkspace(result, workspaceDir))
           },
         }) as ToolDefinition,
     ),

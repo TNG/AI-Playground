@@ -1,8 +1,11 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { UIMessage } from 'ai'
+import type { AgentTask } from '@/types/agentTaskIpc'
 import { useConversations, type ThreadKind } from './conversations'
 import { useAgentMode } from './agentMode'
+import { useAgentTasks } from './agentTasks'
+import { useUIStore } from './ui'
 import { useImageGenerationPresets, hasDisplayableMedia } from './imageGenerationPresets'
 import { usePresets } from './presets'
 import { usePromptStore } from './promptArea'
@@ -16,8 +19,10 @@ import {
   conversationTitle,
   entryRuntimeShown,
   isEmptyDraft,
+  agentSessionStatus,
   isWorkflowMode,
   matchesFilter,
+  matchesTask,
   mediaSettings,
   mediaTimes,
   mediaTitle,
@@ -30,6 +35,9 @@ import {
   type HistoryFilter,
   type MediaEntry,
 } from './historyEntries'
+
+export type TaskRef = Pick<AgentTask, 'id' | 'name'>
+export type TaskPickerEntry = TaskRef & { sessionCount: number }
 
 /**
  * Every reopenable unit of work as one list. This projects the three stores that
@@ -44,9 +52,12 @@ export const useHistorySessions = defineStore('historySessions', () => {
   const presetsStore = usePresets()
   const promptStore = usePromptStore()
   const presetSwitching = usePresetSwitching()
+  const agentTasks = useAgentTasks()
+  const ui = useUIStore()
 
   const filter = ref<HistoryFilter>('current')
   const query = ref('')
+  const taskFilterId = ref<string | null>(null)
 
   /**
    * A game's display name lives in its `game.json`, not on the session record,
@@ -117,6 +128,11 @@ export const useHistorySessions = defineStore('historySessions', () => {
       messages: session.messages,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+      ...(session.taskId ? { taskId: session.taskId } : {}),
+      ...agentSessionStatus({
+        turn: agentMode.sessionTurns[session.id],
+        unseen: agentMode.unseenTurns[session.id],
+      }),
     })),
   )
 
@@ -166,20 +182,75 @@ export const useHistorySessions = defineStore('historySessions', () => {
     return conversations.getThreadKind(conversations.activeKey)
   })
 
-  const matchingEntries = computed<HistoryEntry[]>(() =>
-    searchEntries(
-      entries.value.filter((entry) =>
-        matchesFilter(entry, {
-          filter: filter.value,
-          currentMode: currentMode.value,
-          agentPresetName: agentMode.agentPresetName,
-          activeConversationId: conversations.activeKey,
-          threadScope: conversationScope.value,
-        }),
-      ),
-      query.value,
-    ),
+  /** Agents belong to the Agent preset in Agent mode, where its settings panel lists them. */
+  const tasksAvailable = computed(() => currentMode.value === 'agent' && agentMode.sessionScoped)
+
+  /** Names come from the Tasks store, never a session's title, so a rename shows at once. */
+  function liveTask(taskId: string | null | undefined): TaskRef | null {
+    const task = agentTasks.tasks.find((entry) => entry.id === taskId)
+    return task ? { id: task.id, name: task.name } : null
+  }
+
+  /** The Task the list is narrowed to. */
+  const taskFilter = computed<TaskRef | null>(() => liveTask(taskFilterId.value))
+
+  /** The history panel's Task picker: every Task by name, with its Task Session count. */
+  const taskPickerEntries = computed<TaskPickerEntry[]>(() => {
+    if (!tasksAvailable.value) return []
+    const counts = new Map<string, number>()
+    for (const session of Object.values(agentMode.sessions)) {
+      if (session.taskId) counts.set(session.taskId, (counts.get(session.taskId) ?? 0) + 1)
+    }
+    return agentTasks.tasks
+      .map((task) => ({ id: task.id, name: task.name, sessionCount: counts.get(task.id) ?? 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  })
+
+  /** A Task Session row's "From task" marker; hidden while a Task filter would repeat it. */
+  function taskMarker(entry: HistoryEntry): TaskRef | null {
+    if (entry.kind !== 'agent' || !tasksAvailable.value || taskFilter.value) return null
+    return liveTask(entry.taskId)
+  }
+
+  function setTaskFilter(taskId: string): void {
+    if (liveTask(taskId)) taskFilterId.value = taskId
+  }
+
+  function clearTaskFilter(): void {
+    if (taskFilterId.value === null) return
+    taskFilterId.value = null
+    filter.value = 'current'
+  }
+
+  /** An Agent's "Show sessions": History opens narrowed to that Agent. */
+  function showTaskSessions(taskId: string): void {
+    query.value = ''
+    setTaskFilter(taskId)
+    ui.openHistory()
+  }
+
+  watch(
+    [() => ui.showHistory, tasksAvailable, () => taskFilter.value === null],
+    ([panelOpen, available, noTask]) => {
+      if (!panelOpen || !available || noTask) clearTaskFilter()
+    },
   )
+
+  const matchingEntries = computed<HistoryEntry[]>(() => {
+    const task = taskFilter.value
+    const filtered = entries.value.filter((entry) =>
+      task
+        ? matchesTask(entry, task.id)
+        : matchesFilter(entry, {
+            filter: filter.value,
+            currentMode: currentMode.value,
+            agentPresetName: agentMode.agentPresetName,
+            activeConversationId: conversations.activeKey,
+            threadScope: conversationScope.value,
+          }),
+    )
+    return searchEntries(filtered, query.value)
+  })
 
   /**
    * The thread the next send goes into, before there is anything to date. It
@@ -212,7 +283,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
       case 'conversation':
         return conversations.activeKey === entry.id
       case 'agent':
-        return agentMode.activeSessionId === entry.id
+        return agentMode.openSessionId === entry.id
       case 'media':
         return selectedMediaId(entry.media.mode) === entry.id
     }
@@ -317,6 +388,7 @@ export const useHistorySessions = defineStore('historySessions', () => {
   async function startNew(): Promise<void> {
     const mode = currentMode.value
     if (mode === 'agent') {
+      clearTaskFilter()
       await agentMode.startNew()
       return
     }
@@ -337,6 +409,13 @@ export const useHistorySessions = defineStore('historySessions', () => {
   return {
     filter,
     query,
+    taskFilter,
+    tasksAvailable,
+    taskPickerEntries,
+    taskMarker,
+    setTaskFilter,
+    clearTaskFilter,
+    showTaskSessions,
     entries,
     visibleEntries,
     pinnedDraft,

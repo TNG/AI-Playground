@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-6 p-1">
+  <div class="flex flex-col gap-4 p-1">
     <!-- Same picker as Chat Settings: agent presets are chat presets, so this is how
          the user gets back to a plain chat preset (and vice versa). -->
     <PresetSelector
@@ -7,6 +7,8 @@
       :model-value="presetsStore.activePresetName || undefined"
       @update:model-value="handlePresetChange"
     />
+
+    <AgentSaveBar v-if="agentMode.sessionScoped" />
 
     <!-- Managed workspace: the app owns one folder per game, so there is nothing
          to pick — only the game to start over with. -->
@@ -50,9 +52,21 @@
       </p>
     </div>
 
-    <!-- Shell sandbox (per-workspace opt-in) -->
-    <div v-if="!isManagedWorkspace" class="flex flex-col gap-2">
-      <Label class="whitespace-nowrap">Shell</Label>
+    <SettingsSection
+      v-if="agentMode.sessionScoped"
+      :title="i18n.AGENT_TASK_STEPS"
+      :summary="stepsSummary"
+    >
+      <TaskStepsEditor
+        :steps="agentMode.openSteps"
+        id-prefix="agent-steps"
+        @update:steps="agentMode.setOpenSteps"
+      />
+      <p class="text-xs text-muted-foreground">{{ i18n.AGENT_STEPS_HINT }}</p>
+    </SettingsSection>
+
+    <!-- Shell sandbox (per-workspace opt-in, developer mode only) -->
+    <SettingsSection v-if="showShellOption" :title="i18n.AGENT_SECTION_SHELL">
       <label class="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
@@ -80,293 +94,142 @@
       <p v-else-if="!agentMode.workspaceDir" class="text-xs text-muted-foreground italic">
         Select a workspace folder first.
       </p>
-    </div>
+    </SettingsSection>
 
-    <!-- Model settings (fully shared with chat via textInference/cloudMode) -->
-    <div class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label class="whitespace-nowrap">Backend</Label>
-      <drop-down-new
-        title="Select Backend"
-        :value="textInference.backend"
-        :items="backendItems"
-        @change="handleBackendChange"
-      ></drop-down-new>
-    </div>
-    <!-- Cloud Mode swaps the hardware "Device" picker for a remote "Provider" picker. -->
-    <div
-      v-if="textInference.backend === 'cloud'"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
+    <p
+      v-if="settingsReadOnly"
+      id="agent-settings-read-only"
+      class="text-xs text-muted-foreground rounded-sm ring-1 ring-border px-2 py-1"
     >
-      <Label class="whitespace-nowrap">Provider</Label>
-      <ProviderSelector />
-    </div>
-    <div v-else class="grid grid-cols-[120px_1fr] items-center gap-4">
-      <Label class="whitespace-nowrap">{{ languages.DEVICE }}</Label>
-      <DeviceSelector :backend="deviceServiceName" />
-    </div>
-    <!-- Named like Chat Settings' model row: the picker's trigger is named after
-         whichever model is selected, so the row carries the stable name saying
-         what the control is for. -->
-    <div
-      role="group"
-      :aria-label="languages.MODEL"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-    >
-      <Label class="whitespace-nowrap">{{ languages.MODEL }}</Label>
-      <!-- Same picker as Chat Settings, so an agent preset's requirements (tool
-           calling, and coding for Game Agent) filter the list here too. -->
-      <div class="flex items-center gap-2 min-w-0">
-        <div class="flex-1 min-w-0">
-          <ModelSelector />
-        </div>
-        <CapabilityIcons v-if="currentModel" :model="currentModel" />
-      </div>
-    </div>
-    <div
-      v-if="textInference.contextSizeSettingSupported"
-      class="grid grid-cols-[120px_1fr] items-center gap-4"
-    >
-      <Label for="agent-context-size" class="whitespace-nowrap">
-        {{ languages.ANSWER_CONTEXT_SIZE }}
-      </Label>
-      <div class="flex items-center gap-3">
-        <input
-          id="agent-context-size"
-          type="text"
-          inputmode="numeric"
-          autocomplete="off"
-          :value="contextSizeField.draft"
-          class="rounded-sm text-foreground text-center h-7 w-24 leading-7 p-0 bg-transparent border border-border"
-          @focus="contextSizeField.onFocus"
-          @input="contextSizeField.onInput"
-          @blur="contextSizeField.commit"
-          @keydown.enter="contextSizeField.commit"
-        />
-        <span v-if="textInference.contextSize < 16384" class="text-xs text-amber-500">
-          Agentic sessions typically need 32k+ context.
-        </span>
-      </div>
-    </div>
-    <p class="text-xs text-muted-foreground">
-      Backend, device/provider, model and context size are shared with Chat mode.
+      {{ i18n.AGENT_TASK_SESSION_SETTINGS_READ_ONLY }}
     </p>
 
-    <!-- Thinking. Only models whose template honours enable_thinking can be told
-         to stop, and only a session that thinks has anything to shorten. -->
-    <div v-if="textInference.modelSupportsThinkingToggle" class="flex flex-col gap-2">
-      <Label class="whitespace-nowrap">Thinking</Label>
-      <label class="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          :checked="textInference.thinkingEnabled"
-          @change="textInference.thinkingEnabled = !textInference.thinkingEnabled"
-        />
-        <span class="flex flex-col">
-          <span class="text-foreground">Think before acting</span>
-          <span class="text-xs text-muted-foreground">
-            Shared with Chat mode, where it applies to every answer.
-          </span>
-        </span>
-      </label>
-      <label class="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          class="mt-0.5"
-          :disabled="!textInference.thinkingEnabled"
-          :checked="agentMode.planningThinkingOnly"
-          @change="agentMode.planningThinkingOnly = !agentMode.planningThinkingOnly"
-        />
-        <span class="flex flex-col">
-          <span class="text-foreground" :class="{ 'opacity-50': !textInference.thinkingEnabled }">
-            Reasoning only during planning
-          </span>
-          <span class="text-xs text-muted-foreground">
-            The agent thinks while it works out what to build and stops once it starts building:
-            Game Agent follows the checklist in its plan file from then on, and Quick Coder writes
-            its game as a second step, after the plan. Presets that do not plan think throughout.
-          </span>
-        </span>
-      </label>
-    </div>
+    <AgentSettingsForm
+      :binding="binding"
+      id-prefix="agent"
+      :disabled="settingsReadOnly"
+      :described-by="settingsReadOnly ? 'agent-settings-read-only' : undefined"
+      live-session
+    >
+      <template #provider><ProviderSelector /></template>
+      <template #device><DeviceSelector :backend="deviceServiceName" /></template>
+      <!-- Same picker as Chat Settings, so an agent preset's requirements (tool calling, and
+           coding for Game Agent) filter the list here too. -->
+      <template #model><ModelSelector auto-select /></template>
 
-    <!-- Capabilities (built-in capability set + MCP servers) -->
-    <div class="border-t border-border pt-4 flex flex-col gap-3">
-      <Label class="whitespace-nowrap">Capabilities</Label>
-      <p class="text-xs text-muted-foreground">
-        What the agent is equipped with, on top of its file and shell tools. Each capability adds
-        its tools and instructions to the session.
-      </p>
-      <div class="flex flex-col gap-2">
-        <label
-          v-for="capability in builtInCapabilities"
-          :key="capability.id"
-          class="flex items-start gap-2 text-sm"
+      <!-- Slash commands of the enabled capabilities: sending one as a prompt is exactly how
+           the agent's own input dispatches it. -->
+      <template #capability-extras>
+        <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
+          <Label class="whitespace-nowrap mt-2">{{
+            i18n.AGENT_SETTINGS_CAPABILITY_COMMANDS
+          }}</Label>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              v-for="command in capabilityCommands"
+              :key="command.command"
+              variant="secondary"
+              class="px-3 py-1.5 rounded text-sm"
+              :disabled="agentMode.processing"
+              :title="command.description"
+              @click="agentMode.generate(command.command)"
+            >
+              {{ command.command }}
+            </Button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Same reset affordance the Chat, Audio and workflow panels carry, so every preset
+           offers a way back to its defaults. -->
+      <template #footer>
+        <div
+          v-if="agentMode.sessionScoped && !agentTasks.presetAgent"
+          class="border-t border-border pt-4 flex flex-wrap items-center gap-2"
         >
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            :disabled="!!capability.unavailableReason"
-            :checked="agentMode.isCapabilityEnabled(capability.id)"
-            @change="toggleCapability(capability.id, $event)"
-          />
-          <span class="flex flex-col">
-            <span class="text-foreground">{{ capability.label }}</span>
-            <span class="text-xs text-muted-foreground">{{ capability.summary }}</span>
-            <span v-if="capability.requires.length > 0" class="text-xs text-muted-foreground">
-              Also enables: {{ capabilityLabels(capability.requires) }}
-            </span>
-            <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
-              {{ capability.unavailableReason }}
-            </span>
-          </span>
-        </label>
-      </div>
-
-      <!-- Same selector as Chat Settings' Embeddings row, but bound to the
-           embedding backend rather than the chat backend: an agent can run on a
-           cloud model while its document search stays local. The model
-           downloads on first actual rag use, not from here. -->
-      <div v-if="ragEnabled" class="grid grid-cols-[120px_1fr] items-center gap-4">
-        <Label class="whitespace-nowrap">Embeddings</Label>
-        <drop-down-new
-          :title="languages.RAG_DOCUMENT_EMBEDDING_MODEL"
-          :value="activeEmbeddingModelName"
-          :items="embeddingModelItems"
-          @change="
-            (modelName) =>
-              textInference.selectEmbeddingModel(textInference.embeddingBackend, modelName)
-          "
-        ></drop-down-new>
-      </div>
-
-      <!-- Which workflows the media capability may use. Shown whenever the
-           capability exists, including while it reports itself unavailable —
-           turning every workflow off is what makes it unavailable, and this is
-           where they are turned back on. -->
-      <SettingsBuiltinTools v-if="hasMediaCapability" variant="media" />
-
-      <!-- Slash commands of the enabled capabilities: sending one as a prompt is
-           exactly how the agent's own input dispatches it. -->
-      <div v-if="capabilityCommands.length > 0" class="flex flex-col gap-2">
-        <Label class="whitespace-nowrap mt-2">Capability commands</Label>
-        <div class="flex flex-wrap gap-2">
-          <Button
-            v-for="command in capabilityCommands"
-            :key="command.command"
-            variant="secondary"
-            class="px-3 py-1.5 rounded text-sm"
-            :disabled="agentMode.processing"
-            :title="command.description"
-            @click="agentMode.generate(command.command)"
-          >
-            {{ command.command }}
+          <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="saveAsDefault">
+            {{ languages.AGENT_SAVE_AS_DEFAULT }}
+          </Button>
+          <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="resetToDefault">
+            {{ languages.AGENT_RESET_TO_DEFAULT }}
           </Button>
         </div>
-      </div>
-
-      <Label class="whitespace-nowrap mt-2">MCP servers</Label>
-      <div v-if="mcp.allServers.length > 0" class="flex flex-col gap-2">
-        <label
-          v-for="server in mcp.allServers"
-          :key="server.id"
-          class="flex items-start gap-2 text-sm"
+        <div
+          v-else-if="!agentMode.sessionScoped"
+          class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2"
         >
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            :checked="agentMode.isCapabilityEnabled(mcpCapabilityId(server.id))"
-            @change="toggleCapability(mcpCapabilityId(server.id), $event)"
-          />
-          <span class="flex flex-col">
-            <span class="text-foreground">{{ server.name }}</span>
-            <span v-if="server.instructions" class="text-xs text-muted-foreground">
-              {{ server.instructions }}
-            </span>
-          </span>
-        </label>
-      </div>
-      <p v-else class="text-xs text-muted-foreground italic">
-        No MCP servers configured. Add one under App Settings → MCP.
-      </p>
-      <p class="text-xs text-amber-500">
-        Changes take effect on the next turn, which starts a fresh Pi session. Attached MCP servers
-        are started then too.
-      </p>
-    </div>
+          <button class="mt-4" @click="resetPresetSettings">
+            <div class="svg-icon i-refresh">Reset</div>
+            {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
+          </button>
+        </div>
+      </template>
+    </AgentSettingsForm>
 
-    <!-- Same reset affordance the Chat, Audio and workflow panels carry, so every
-         preset offers a way back to its defaults. -->
-    <div class="border-t border-border items-center flex-wrap grid grid-cols-1 gap-2">
-      <button class="mt-4" @click="resetPresetSettings">
-        <div class="svg-icon i-refresh">Reset</div>
-        {{ languages.COM_LOAD_PRESET_DEFAULTS || 'Reset Preset Settings' }}
-      </button>
-    </div>
+    <SettingsAgents v-if="agentMode.sessionScoped && !agentTasks.presetAgent" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef, watch } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import DropDownNew from '@/components/DropDownNew.vue'
 import DeviceSelector from '@/components/DeviceSelector.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
-import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import {
   backendToService,
   type LlmBackend,
   useTextInference,
-  textInferenceBackendDisplayName,
 } from '@/assets/js/store/textInference'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useBackendServices } from '@/assets/js/store/backendServices'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
-import { useProductMode } from '@/assets/js/store/productMode'
-import { useMcp } from '@/assets/js/store/mcp'
-import { getAgentToolSpecs } from '@/assets/js/tools/agentBridge'
-import { mediaAgentHasTools } from '@/assets/js/agents/mediaAgent'
-import { mcpCapabilityId } from '@/types/agentCapabilities'
+import { developerMode } from '@/assets/js/store/debugSettings'
+import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
+import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
+import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import ProviderSelector from '@/components/ProviderSelector.vue'
 import PresetSelector from '@/components/PresetSelector.vue'
-import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
+import AgentSettingsForm from '@/components/AgentSettingsForm.vue'
+import AgentSaveBar from '@/components/AgentSaveBar.vue'
+import SettingsAgents from '@/components/SettingsAgents.vue'
+import SettingsSection from '@/components/SettingsSection.vue'
+import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
-import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
+import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import * as toast from '@/assets/js/toast'
+import { useI18N } from '@/assets/js/store/i18n'
 
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
+const oemBranding = useOemBranding()
+const i18n = useI18N().state
+
+const stepsSummary = computed(() =>
+  i18n.AGENT_TASKS_STEP_COUNT.replace('{count}', String(agentMode.openSteps.length)),
+)
+
+const settingsReadOnly = computed(
+  () => agentMode.sessionScoped && agentTasks.openSessionSettingsReadOnly,
+)
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
 const textInference = useTextInference()
-const contextSizeField = useContextSizeField(toRef(textInference, 'contextSize'), () =>
-  textInference.markContextSizeEdited(),
-)
-const backendServices = useBackendServices()
 const cloudMode = useCloudMode()
-const productModeStore = useProductMode()
-const mcp = useMcp()
 
 // The capability catalog lives in the main process (it is what the Pi session is
 // actually built from), so the checkbox list — including which capabilities are
 // unavailable and why — is fetched rather than duplicated here.
-const capabilityCatalog = ref<AgentCapabilityInfo[]>([])
-const builtInCapabilities = computed(() =>
-  capabilityCatalog.value.filter((capability) => !capability.id.startsWith('mcp:')),
-)
-
-const hasMediaCapability = computed(() =>
-  capabilityCatalog.value.some((capability) => capability.id === 'media'),
-)
-
-// The embedding picker below belongs to the rag capability; hide it with the
-// checkbox rather than dangling a control for something the session lacks.
-const ragEnabled = computed(
-  () =>
-    capabilityCatalog.value.some((capability) => capability.id === 'rag') &&
-    agentMode.isCapabilityEnabled('rag'),
+const mediaTools = storeMediaToolSettings(textInference)
+const { catalog: capabilityCatalog, refresh: refreshCapabilityCatalog } = useCapabilityCatalog(
+  () => ({
+    workspaceDir: agentMode.workspaceDir,
+    embeddingModel: textInference.activeEmbeddingModel,
+    mediaTools,
+  }),
 )
 
 const { activeName: activeEmbeddingModelName, items: embeddingModelItems } =
@@ -383,46 +246,14 @@ const capabilityCommands = computed(() =>
     .flatMap((capability) => capability.commands),
 )
 
-async function refreshCapabilityCatalog(): Promise<void> {
-  capabilityCatalog.value = await window.electronAPI.agentMode.listCapabilities({
-    workspaceDir: agentMode.workspaceDir,
-    toolSpecs: getAgentToolSpecs(),
-    embeddingModel: textInference.activeEmbeddingModel ?? undefined,
-  })
-}
-
 onMounted(async () => {
-  void mcp.refreshAvailableServers()
   await refreshCapabilityCatalog()
 })
-
-// Whether the media capability has anything to offer is decided in the main
-// process from the tool specs, so turning its last workflow or speech tool off
-// (or back on) in the panel below only reaches the checkbox after re-asking.
-watch(
-  () => [
-    mediaAgentHasTools(),
-    textInference.toolDelegationEnabled,
-    textInference.isBuiltinToolEnabled('synthesizeTextToSpeech'),
-    textInference.isBuiltinToolEnabled('transcribeAudio'),
-    textInference.activeEmbeddingModel,
-  ],
-  () => void refreshCapabilityCatalog(),
-)
 
 // Game Agent's folders are the app's to create, and they stay sandboxed: a game is
 // plain HTML with no build step, so a real shell would only add risk.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
-
-function capabilityLabels(ids: string[]): string {
-  return ids
-    .map((id) => capabilityCatalog.value.find((entry) => entry.id === id)?.label ?? id)
-    .join(', ')
-}
-
-function toggleCapability(id: string, event: Event): void {
-  agentMode.setCapabilityEnabled(id, (event.target as HTMLInputElement).checked)
-}
+const showShellOption = computed(() => !isManagedWorkspace.value && developerMode())
 
 // Consent is stored per workspace folder, so this only ever affects the folder
 // currently selected — pointing the agent elsewhere needs a fresh opt-in.
@@ -436,37 +267,7 @@ const deviceServiceName = computed(
   () => backendToService[textInference.backend] ?? 'llamacpp-backend',
 )
 
-// Mirrors SettingsChat's availableBackends: the preset's backends, filtered by
-// product mode, plus Cloud Mode when its feature flag is on.
-const availableBackends = computed<LlmBackend[]>(() => {
-  const preset = agentMode.activeAgentPreset
-  let base: LlmBackend[] = (preset?.backends as LlmBackend[] | undefined)?.filter(
-    (b) => b !== 'cloud',
-  ) ?? ['llamaCPP', 'openVINO']
-  if (productModeStore.productMode === 'nvidia') {
-    base = base.filter((b) => b !== 'openVINO')
-  }
-  if (cloudMode.isFeatureEnabled) {
-    base = [...base, 'cloud']
-  }
-  return base
-})
-
-const backendItems = computed(() =>
-  availableBackends.value.map((backend) => ({
-    label: textInferenceBackendDisplayName[backend] ?? backend,
-    value: backend,
-    active: isBackendRunning(backend),
-  })),
-)
-
-function isBackendRunning(backend: LlmBackend): boolean {
-  // Cloud Mode has no local service — it's "ready" once a provider base URL
-  // is configured.
-  if (backend === 'cloud') return !!cloudMode.activeProviderBaseUrl
-  const serviceName = backendToService[backend]
-  return backendServices.info.find((s) => s.serviceName === serviceName)?.status === 'running'
-}
+const { items: backendItems } = useAgentBackendItems(() => agentMode.activeAgentPreset?.backends)
 
 function handleBackendChange(newBackend: string) {
   textInference.backend = newBackend as LlmBackend
@@ -477,11 +278,39 @@ function handleBackendChange(newBackend: string) {
   }
 }
 
-// Active model (capabilities) for the icon row next to the selector — same source
-// as SettingsChat / PromptStatusBar.
-const currentModel = computed(() =>
-  textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
-)
+// Model settings are textInference's, as in Chat Settings; the agent-only ones are agentMode's.
+const binding: AgentSettingsBinding = reactive({
+  backend: computed(() => textInference.backend),
+  backendItems,
+  setBackend: handleBackendChange,
+  currentModel: computed(() =>
+    textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
+  ),
+  contextSizeSupported: computed(() => textInference.contextSizeSettingSupported),
+  contextSize: computed(() => textInference.contextSize),
+  setContextSize: (contextSize: number) => {
+    textInference.contextSize = contextSize
+    textInference.markContextSizeEdited()
+  },
+  thinkingToggleSupported: computed(() => textInference.modelSupportsThinkingToggle),
+  thinkingEnabled: computed(() => textInference.thinkingEnabled),
+  setThinkingEnabled: (enabled: boolean) => {
+    textInference.thinkingEnabled = enabled
+  },
+  planningPhaseSupported: computed(() => agentMode.planningPhaseSupported),
+  planningThinkingOnly: computed(() => agentMode.effectivePlanningThinkingOnly),
+  setPlanningThinkingOnly: agentMode.setPlanningThinkingOnly,
+  capabilities: computed(() => agentMode.capabilities),
+  setCapabilities: agentMode.setCapabilities,
+  capabilityCatalog,
+  embeddingModelName: activeEmbeddingModelName,
+  embeddingModelItems,
+  setEmbeddingModel: (modelName: string) =>
+    textInference.selectEmbeddingModel(textInference.embeddingBackend, modelName),
+  mediaTools,
+  problems: computed(() => agentMode.settingsProblems),
+  sharedWithChat: computed(() => !agentMode.sessionScoped),
+})
 
 async function pickFolder() {
   await agentMode.pickWorkspaceFolder()
@@ -500,10 +329,21 @@ function resetPresetSettings() {
   toast.success('Reset to preset defaults')
 }
 
+function saveAsDefault() {
+  agentMode.saveAsDefault()
+  toast.success(i18n.AGENT_SAVED_AS_DEFAULT)
+}
+
+function resetToDefault() {
+  agentMode.resetToDefault()
+  void refreshCapabilityCatalog()
+  toast.success(i18n.AGENT_RESET_TO_DEFAULT_DONE)
+}
+
 async function handlePresetChange(presetName: string) {
   const result = await presetSwitching.switchPreset(presetName)
   if (result.success) {
-    toast.success(`Switched to ${presetName}`)
+    toast.success(`Switched to ${oemBranding.presetLabel(presetName)}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
   }

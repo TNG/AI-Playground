@@ -3,6 +3,7 @@ import type { ThreadKind } from './conversations'
 import type { GenerationSettings, MediaItem } from './imageGenerationPresets'
 import { sessionListedUnderPreset } from './agentModeSessions'
 import { extractToolMedia, type ToolMediaItem } from '@/assets/js/tools/toolMedia'
+import type { PauseReason } from '@/types/kernelEvents'
 
 // One history model for every reopenable unit of work. The window filters; the
 // runtimes behind a row stay specialized (LLM chat, direct TTS, direct STT,
@@ -30,12 +31,21 @@ export type ConversationEntry = EntryBase & {
   messages: UIMessage[]
 }
 
+/** What an Agent Session's turn is doing, or how it went while nobody was looking. */
+export type AgentSessionStatus = 'running' | 'queued' | 'paused' | 'unseen' | 'unseenFailed'
+
 /** Agent, Game Agent, Quick Coder: a transcript plus a workspace folder. */
 export type AgentEntry = EntryBase & {
   kind: 'agent'
   workspaceDir: string
   capabilities?: string[]
   messages: UIMessage[]
+  status?: AgentSessionStatus
+  /** 1-based Turn Queue place, only while `queued` and known. */
+  queuePosition?: number
+  /** What the user is asked, only while `paused` and known. */
+  pauseReason?: PauseReason
+  taskId?: string
 }
 
 /**
@@ -68,6 +78,76 @@ export type FilterContext = {
 }
 
 const WORKFLOW_MODES: readonly string[] = ['imageGen', 'imageEdit', 'video']
+
+/**
+ * A turn in flight outranks an unseen result: the dot is about the last turn, and
+ * a new one has already started.
+ */
+export function agentSessionStatus(input: {
+  turn?: {
+    state: 'queued' | 'running' | 'paused'
+    queuePosition?: number | null
+    pauseReason?: PauseReason
+  }
+  unseen?: 'done' | 'failed'
+}): { status?: AgentSessionStatus; queuePosition?: number; pauseReason?: PauseReason } {
+  const { turn, unseen } = input
+  if (turn?.state === 'queued') {
+    return turn.queuePosition
+      ? { status: 'queued', queuePosition: turn.queuePosition }
+      : { status: 'queued' }
+  }
+  if (turn?.state === 'paused' && turn.pauseReason) {
+    return { status: 'paused', pauseReason: turn.pauseReason }
+  }
+  if (turn) return { status: turn.state }
+  if (unseen === 'failed') return { status: 'unseenFailed' }
+  if (unseen === 'done') return { status: 'unseen' }
+  return {}
+}
+
+const PAUSE_KIND_KEYS: Record<PauseReason['kind'], string> = {
+  download: 'HISTORY_PAUSE_DOWNLOAD',
+  'vram-warning': 'HISTORY_PAUSE_VRAM_WARNING',
+  confirmation: 'HISTORY_PAUSE_CONFIRMATION',
+  question: 'HISTORY_PAUSE_QUESTION',
+}
+
+/** "Needs you: model download · Qwen3.8-27B", plus the kind alone for the row's marker. */
+export function pausedStatusLabel(
+  reason: PauseReason | undefined,
+  labels: Record<string, string>,
+): { label: string; short?: string } {
+  const kind = reason ? labels[PAUSE_KIND_KEYS[reason.kind]] : undefined
+  if (!reason || !kind) return { label: labels.HISTORY_STATUS_PAUSED }
+  const label = labels.HISTORY_STATUS_PAUSED_FOR.replace('{reason}', kind)
+  return { label: reason.summary ? `${label} · ${reason.summary}` : label, short: kind }
+}
+
+const ORDINAL_KEYS: Partial<Record<Intl.LDMLPluralRule, string>> = {
+  one: 'HISTORY_QUEUE_ORDINAL_ONE',
+  two: 'HISTORY_QUEUE_ORDINAL_TWO',
+  few: 'HISTORY_QUEUE_ORDINAL_FEW',
+}
+
+/** "2nd" in English; each locale's ordinal pattern comes from its own strings. */
+export function queueOrdinal(
+  position: number,
+  locale: string,
+  labels: Record<string, string>,
+): string {
+  let category: Intl.LDMLPluralRule = 'other'
+  try {
+    category = new Intl.PluralRules(locale, { type: 'ordinal' }).select(position)
+  } catch {
+    // An unknown locale tag falls back to the generic pattern.
+  }
+  const pattern =
+    labels[ORDINAL_KEYS[category] ?? 'HISTORY_QUEUE_ORDINAL_OTHER'] ??
+    labels.HISTORY_QUEUE_ORDINAL_OTHER ??
+    '{n}'
+  return pattern.replace('{n}', String(position))
+}
 
 export function isWorkflowMode(mode: ModeType): mode is WorkflowModeType {
   return WORKFLOW_MODES.includes(mode)
@@ -187,6 +267,11 @@ export function matchesFilter(entry: HistoryEntry, context: FilterContext): bool
     case 'media':
       return entry.mode === context.currentMode
   }
+}
+
+/** One of the Task's Task Sessions, whatever state its run ended in. */
+export function matchesTask(entry: HistoryEntry, taskId: string): boolean {
+  return entry.kind === 'agent' && entry.taskId === taskId
 }
 
 /**

@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import type { AgentToolAccess } from './piToolOperations.ts'
 import type { PlanningEnd } from './planningPhase.ts'
+import type { InferenceTraceContext } from '../observability/laminarAttributes.ts'
 
 export type ActiveSession = {
   configKey: string
@@ -18,6 +19,8 @@ export type ActiveSession = {
    * `planningPhase.ts` can end thinking mid-turn by mutating it.
    */
   samplingParams?: Record<string, unknown>
+  /** The session's trace context, re-applied whenever its turn takes the place back. */
+  traceContext: () => InferenceTraceContext
   /**
    * What ends this session's thinking phase, or null when it thinks throughout
    * (the user's setting, or a capability with no plan step of its own).
@@ -32,18 +35,29 @@ export type ActiveSession = {
   planPending: boolean
 }
 
-export type CurrentTurn = {
+/** One agent turn main holds open, from submission until it settles. */
+export type AgentTurn = {
+  sessionId: string
   turnId: string
-  onEvent: (event: AgentSessionEvent) => void
+  abort: AbortController
+  /** The live Pi session the turn runs on, once it has been readied. */
+  live: ActiveSession | null
+  onEvent?: (event: AgentSessionEvent) => void
   /** Host-side text (an extension's slash command output) for the transcript. */
   notice?: (text: string) => void
+  /** Takes back a Turn Queue place given up while paused; resolves at once otherwise. */
+  reclaim?: () => Promise<void>
 }
 
 export let mainWin: BrowserWindow | null = null
+/**
+ * The live session the next turn reuses. A session whose turn is paused is not
+ * here once another turn has built its own; that turn's `live` keeps it alive.
+ */
 export let active: ActiveSession | null = null
 export let lastSessionId: string | null = null
-export let currentTurn: CurrentTurn | null = null
-export let activeAbort: AbortController | null = null
+/** Open agent turns, keyed by the Agent Session they belong to. */
+export const agentTurns = new Map<string, AgentTurn>()
 
 export function setMainWin(win: BrowserWindow | null): void {
   mainWin = win
@@ -55,12 +69,4 @@ export function setActive(next: ActiveSession | null): void {
 
 export function setLastSessionId(id: string | null): void {
   lastSessionId = id
-}
-
-export function setCurrentTurn(turn: CurrentTurn | null): void {
-  currentTurn = turn
-}
-
-export function setActiveAbort(controller: AbortController | null): void {
-  activeAbort = controller
 }

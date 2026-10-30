@@ -16,6 +16,12 @@ const requestDownloadMock = vi.fn<(models: unknown[]) => Promise<void>>()
 vi.mock('@/assets/js/store/imageGenerationUtils', () => ({
   getMissingComfyuiBackendModels: getMissingModelsMock,
 }))
+const getMissingLlmModelsMock =
+  vi.fn<(backend: string, model: string, options: unknown) => Promise<unknown[]>>()
+vi.mock('@/assets/js/store/textInference', () => ({
+  backendToService: { llamaCPP: 'llamacpp-backend', openVINO: 'openvino-backend', cloud: null },
+  useTextInference: () => ({ getMissingLlmModels: getMissingLlmModelsMock }),
+}))
 vi.mock('@/assets/js/permissions/permissions', () => ({
   requestDownload: requestDownloadMock,
 }))
@@ -43,6 +49,7 @@ beforeEach(() => {
   respondMock.mockReset().mockResolvedValue()
   getMissingModelsMock.mockReset().mockResolvedValue([{ repo_id: 'flux' }])
   requestDownloadMock.mockReset().mockResolvedValue()
+  getMissingLlmModelsMock.mockReset().mockResolvedValue([])
   startMediaRequestBridge()
 })
 
@@ -73,6 +80,25 @@ describe('mediaRequestBridge', () => {
     await vi.waitFor(() => expect(requests('result')).toHaveLength(1))
 
     expect(getMissingModelsMock).toHaveBeenCalledWith([{ type: 'unet', model: 'flux' }])
+    expect(requests('result')[0]).toEqual({ requestId: 'r1', result: { models: missing } })
+  })
+
+  it('reports the chat model files an agent turn is missing, on its backend', async () => {
+    const missing = [{ repo_id: 'org/llm', type: 'openvinoLLM', backend: 'openvino' }]
+    getMissingLlmModelsMock.mockResolvedValueOnce(missing)
+
+    handler!({
+      kind: 'chat-check-models',
+      serviceName: 'openvino-backend',
+      llmModelName: 'org/llm',
+      needsVision: true,
+      requestId: 'r1',
+    })
+    await vi.waitFor(() => expect(requests('result')).toHaveLength(1))
+
+    expect(getMissingLlmModelsMock).toHaveBeenCalledWith('openVINO', 'org/llm', {
+      needsVision: true,
+    })
     expect(requests('result')[0]).toEqual({ requestId: 'r1', result: { models: missing } })
   })
 

@@ -31,7 +31,6 @@ vi.mock('../../agent/piCustomTools.ts', async (importOriginal) => {
   return {
     ...actual,
     saveGeneratedMediaToWorkspace: saveMediaMock,
-    jsonResult: (value: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(value) }] }),
   }
 })
 
@@ -121,6 +120,84 @@ describe('mediaDelegation (in-process media tool)', () => {
       }),
       workspaceDir,
     )
+  })
+
+  it('returns the model its text unchanged and the transcript the items and steps', async () => {
+    const video = { id: 'v', type: 'video', videoUrl: 'aipg-media://clip.mp4' }
+    const model = { id: 'm', type: 'model3d', model3dUrl: 'aipg-media://shape.glb' }
+    runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult([video, model]))
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a clip and a model' },
+      new AbortController().signal,
+    )) as { content: { type: string; text: string }[]; details?: unknown }
+
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      summary: 'Made it.',
+      steps: ['comfyUI (W1): produced 2 video, model3d'],
+      images: [video, model],
+    })
+    expect(result.details).toEqual({
+      items: [
+        { ...video, mode: 'imageGen', settings: {}, state: 'done' },
+        { ...model, mode: 'imageGen', settings: {}, state: 'done' },
+      ],
+      steps: ['comfyUI (W1): produced 2 video, model3d'],
+    })
+  })
+
+  it('tells the transcript where the saved items landed in the workspace', async () => {
+    const video = { id: 'v', type: 'video', videoUrl: 'aipg-media://media/clip.mp4' }
+    const model = { id: 'm', type: 'model3d', model3dUrl: 'aipg-media://media/shape.glb' }
+    runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult([video, model]))
+    saveMediaMock.mockImplementationOnce(async (result) => ({
+      ...(result as object),
+      savedFiles: ['generated/clip.mp4'],
+    }))
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'a clip and a model' },
+      new AbortController().signal,
+    )) as { details: { items: { workspacePath?: string }[] } }
+
+    expect(result.details.items.map((item) => item.workspacePath)).toEqual([
+      'generated/clip.mp4',
+      undefined,
+    ])
+  })
+
+  it('keeps the step lines of a run that produced nothing', async () => {
+    runMediaAgentInMainMock.mockResolvedValueOnce({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'W1' },
+          output: { success: false, message: 'oom' },
+        },
+      ],
+    })
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+
+    const result = (await tool.execute(
+      'call-1',
+      { request: 'x' },
+      new AbortController().signal,
+    )) as {
+      details?: unknown
+    }
+
+    expect(result.details).toEqual({ items: [], steps: ['comfyUI (W1): failed — oom'] })
   })
 
   it('resolves a workspace source path to a data URI before the specialist run', async () => {

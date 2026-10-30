@@ -97,13 +97,18 @@
           class="absolute top-1/2 -translate-y-1/2 -right-8 flex flex-col items-center justify-center gap-2"
         >
           <IconButton
-            v-if="currentImage && currentImage.state !== 'generating'"
+            v-if="!hideModeSwitch && currentImage && currentImage.state !== 'generating'"
             icon="i-transfer"
             :tooltip="languages.COM_POST_TO_IMAGE_EDIT"
             @click="postImageToMode(currentImage, 'imageEdit')"
           />
           <IconButton
-            v-if="currentImage && currentImage.state !== 'generating' && !is3D(currentImage)"
+            v-if="
+              !hideModeSwitch &&
+              currentImage &&
+              currentImage.state !== 'generating' &&
+              !is3D(currentImage)
+            "
             icon="i-video"
             :tooltip="languages.COM_POST_TO_VIDEO"
             @click="postImageToMode(currentImage, 'video')"
@@ -141,6 +146,9 @@
         @close="showInfoParams = false"
       ></info-table>
     </div>
+    <p v-if="currentCaption" class="text-xs text-muted-foreground break-all">
+      {{ currentCaption }}
+    </p>
   </div>
 </template>
 
@@ -153,6 +161,7 @@ import LoadingBar from './LoadingBar.vue'
 import InfoTable from '@/components/InfoTable.vue'
 import ImageGenerationProgress from '@/components/ImageGenerationProgress.vue'
 import { Spinner } from '@/components/ui/spinner'
+import type { MediaFileHandlers } from '@/types/mediaItem'
 import {
   MediaItem,
   isVideo,
@@ -170,6 +179,9 @@ const props = defineProps<{
   /** Phase of the owning tool's run in flight; absent once nothing is running. */
   phase?: ArtifactPhase
   progress?: { current: number; max: number }
+  /** Hides Send to Image Edit / Send to Video. */
+  hideModeSwitch?: boolean
+  fileHandlers?: MediaFileHandlers
 }>()
 const i18nState = useI18N().state
 const languages = i18nState
@@ -230,9 +242,14 @@ const currentImage = computed<MediaItem | null>(() => {
   return imagesWithPreview.value.find((image) => image.id === selectedImageId.value) ?? null
 })
 
+const currentCaption = computed(() =>
+  currentImage.value ? props.fileHandlers?.caption(currentImage.value) : undefined,
+)
+
 const dragImage = (item: MediaItem | null) => (event: Event) => {
   if (!item) return
   event.preventDefault()
+  if (props.fileHandlers) return props.fileHandlers.drag(item)
   const url = getMediaUrl(item)
   window.electronAPI.startDrag(url)
 }
@@ -248,6 +265,7 @@ async function postImageToMode(image: MediaItem, mode: WorkflowModeType) {
 }
 
 function openImage(image: MediaItem) {
+  if (props.fileHandlers) return props.fileHandlers.open(image)
   window.electronAPI.openImageWithSystem(getMediaUrl(image))
 }
 
@@ -257,6 +275,7 @@ function copyImage(image: MediaItem) {
 }
 
 function openImageInFolder(image: MediaItem) {
+  if (props.fileHandlers) return props.fileHandlers.reveal(image)
   window.electronAPI.openImageInFolder(getMediaUrl(image))
 }
 

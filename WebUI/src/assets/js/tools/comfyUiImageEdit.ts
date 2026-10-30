@@ -49,7 +49,8 @@ export const ImageEditToolOutputSchema = z
 
 export type ImageEditToolOutput = z.infer<typeof ImageEditToolOutputSchema>
 
-export function getAvailableEditWorkflows(): Array<{
+/** `isEnabled` defaults to the chat store's per-workflow toggles. */
+export function getAvailableEditWorkflows(isEnabled?: (presetName: string) => boolean): Array<{
   name: string
   mediaType?: 'image' | 'video' | 'model3d'
   description?: string
@@ -65,7 +66,7 @@ export function getAvailableEditWorkflows(): Array<{
       // workflows, so a verification run can't wander into a real model.
       if (dummyWorkflowsOnly()) return DEV_PRESET_NAMES.has(p.name)
       // Honour the per-workflow sub-checkboxes (Settings › Built-in tools).
-      return textInference.isWorkflowPresetEnabled(p.name)
+      return (isEnabled ?? textInference.isWorkflowPresetEnabled)(p.name)
     })
     .map((p: Preset) => ({
       name: p.name,

@@ -113,6 +113,12 @@ const stepDisplayNames: Record<string, string> = {
   'install comfyUI manager': 'Installing ComfyUI Manager...',
 }
 
+type DemoModeDraft = {
+  enabled: boolean
+  passcodeHash?: string
+  resetInSeconds: number | null
+}
+
 export const useSetupWizard = defineStore('setupWizard', () => {
   const backendServices = useBackendServices()
   const productModeStore = useProductMode()
@@ -131,8 +137,23 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const installSelection = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
-  const wizardPage = ref<'main' | 'homeAgentSetup' | 'cloudModeSetup'>('main')
+  const wizardPage = ref<'main' | 'homeAgentSetup' | 'cloudModeSetup' | 'demoModeSetup'>('main')
   const homeAgentSetupOrigin = ref<'install' | 'edit'>('install')
+
+  // Staged until Continue; null means "as currently saved".
+  const demoModeDraft = ref<DemoModeDraft | null>(null)
+  const demoModeSetupEnabling = ref(false)
+  const demoModeRestartPending = ref(false)
+  const demoModeView = computed<DemoModeDraft>(
+    () =>
+      demoModeDraft.value ?? {
+        enabled: demoMode.enabled,
+        resetInSeconds: demoMode.resetInSeconds,
+      },
+  )
+  const demoModeHasPasscode = computed(
+    () => !!demoModeDraft.value?.passcodeHash || demoMode.hasPasscode,
+  )
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
 
@@ -810,6 +831,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     overrideExistingDeviceSelection.value = false
     seedInstallSelection()
     wizardDirty.value = false
+    demoModeDraft.value = null
     wizardPage.value = 'main'
     globalSetup.loadingState = 'setupWizard'
   }
@@ -988,6 +1010,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
+    if (!(await commitDemoModeDraft())) return
+
     const noChannelVerified = CHANNELS.every((c) => !homeAgent.channelPrefs[c.kind].verified)
     if (noChannelVerified) {
       const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
@@ -1002,6 +1026,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
 
+    if (demoModeRestartPending.value) {
+      await demoMode.restartIntoDemoMode()
+      return
+    }
     await dismiss()
     await syncPresetsForCurrentProductMode()
   }
@@ -1107,6 +1135,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
    * so leaving the wizard via Home Agent setup also refreshes preset state.
    */
   async function finishHomeAgentSetup() {
+    if (demoModeRestartPending.value) {
+      await demoMode.restartIntoDemoMode()
+      return
+    }
     await dismiss()
     // Reset the wizard page after the wizard is hidden (dismiss set loadingState
     // to 'running') so HomeAgentSetupPage unmounts and its local UI state
@@ -1130,6 +1162,51 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     await dismiss()
     wizardPage.value = 'main'
     await syncPresetsForCurrentProductMode()
+  }
+
+  function toggleDemoMode(value: boolean) {
+    if (value && !demoModeHasPasscode.value) {
+      openDemoModeSetup(true)
+      return
+    }
+    demoModeDraft.value = { ...demoModeView.value, enabled: value }
+  }
+
+  function openDemoModeSetup(enabling = false) {
+    demoModeSetupEnabling.value = enabling
+    wizardPage.value = 'demoModeSetup'
+  }
+
+  function applyDemoModeSetup(values: { passcodeHash?: string; resetInSeconds: number | null }) {
+    const current = demoModeView.value
+    demoModeDraft.value = {
+      enabled: current.enabled || demoModeSetupEnabling.value,
+      passcodeHash: values.passcodeHash ?? current.passcodeHash,
+      resetInSeconds: values.resetInSeconds,
+    }
+    demoModeSetupEnabling.value = false
+    wizardPage.value = 'main'
+  }
+
+  function cancelDemoModeSetup() {
+    demoModeSetupEnabling.value = false
+    wizardPage.value = 'main'
+  }
+
+  async function commitDemoModeDraft(): Promise<boolean> {
+    const draft = demoModeDraft.value
+    if (!draft) return true
+    const becameEnabled = draft.enabled && !demoMode.enabled
+    const saved = await demoMode.saveConfig({
+      isDemoModeEnabled: draft.enabled,
+      demoModePasscode: draft.passcodeHash,
+      demoModeResetInSeconds: draft.resetInSeconds,
+    })
+    if (!saved) return false
+    demoModeDraft.value = null
+    demoModeRestartPending.value = becameEnabled
+    if (!becameEnabled) await demoMode.refreshFromMainConfig()
+    return true
   }
 
   function showErrorModal(serviceName: BackendServiceName) {
@@ -1179,6 +1256,13 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     finishHomeAgentSetup,
     openCloudModeSetup,
     finishCloudModeSetup,
+    demoModeView,
+    demoModeHasPasscode,
+    demoModeSetupEnabling,
+    toggleDemoMode,
+    openDemoModeSetup,
+    applyDemoModeSetup,
+    cancelDemoModeSetup,
     installBackend,
     repairBackend,
     restartBackend,

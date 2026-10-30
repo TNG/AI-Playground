@@ -14,6 +14,8 @@
       @done="wizard.finishCloudModeSetup()"
     />
 
+    <DemoModeSetupPage v-else-if="wizard.wizardPage === 'demoModeSetup'" />
+
     <template v-else>
       <div class="px-12 py-5 max-w-5xl w-5xl">
         <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
@@ -284,6 +286,24 @@
                     </SettingsMenu>
                   </template>
                 </SetupWizardRow>
+
+                <SetupWizardRow
+                  :row="demoModeRow"
+                  compact
+                  @toggle="(v) => wizard.toggleDemoMode(v)"
+                >
+                  <template #options>
+                    <SettingsMenu
+                      v-model:open="demoModeMenuOpen"
+                      :label="demoModeRow.displayName"
+                      :title="t('SETUP_WIZARD_DEMO_MODE_OPTIONS')"
+                    >
+                      <DropdownMenuItem @select="openDemoModeSetup">{{
+                        languages.COM_GO_TO_SETUP || 'Setup'
+                      }}</DropdownMenuItem>
+                    </SettingsMenu>
+                  </template>
+                </SetupWizardRow>
               </SetupWizardGroup>
 
               <!-- Inference engines and everything not grouped above. -->
@@ -470,6 +490,7 @@ import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
 import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
+import DemoModeSetupPage from '@/components/DemoModeSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
@@ -712,6 +733,28 @@ const cloudMenuOpen = ref(false)
 function openCloudSetup() {
   cloudMenuOpen.value = false
   void wizard.openCloudModeSetup()
+}
+
+// Kept out of the group's master switch: Demo Mode needs a passcode and locks the app.
+const demoModeRow = computed<SetupWizardRowView>(() => {
+  const enabled = wizard.demoModeView.enabled
+  return {
+    displayName: t('SETUP_WIZARD_DEMO_MODE'),
+    infoTooltip: t('SETUP_WIZARD_DEMO_MODE_INFO'),
+    statusColor: mapStatusToColor(enabled ? 'notYetStarted' : 'notInstalled'),
+    statusText: enabled ? t('SETUP_WIZARD_DEMO_MODE_PENDING') : t('SETUP_WIZARD_DEMO_MODE_OFF'),
+    versionDisplay: '',
+    enabled,
+    toggleTooltip: enabled
+      ? t('SETUP_WIZARD_DEMO_MODE_TOGGLE_OFF')
+      : t('SETUP_WIZARD_DEMO_MODE_TOGGLE_ON'),
+  }
+})
+
+const demoModeMenuOpen = ref(false)
+function openDemoModeSetup() {
+  demoModeMenuOpen.value = false
+  wizard.openDemoModeSetup()
 }
 
 function openDebug() {

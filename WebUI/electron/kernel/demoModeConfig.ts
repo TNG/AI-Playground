@@ -1,4 +1,6 @@
+import z from 'zod'
 import type { IpcMutationResult } from '@/types/ipcChannels'
+import { DemoConfigUpdateSchema, type DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { LocalSettings } from './localSettings'
 
 export type DemoModeValues = Pick<
@@ -56,6 +58,38 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     return { success: true }
   }
 
+  function saveDemoConfig(input: DemoConfigUpdate): IpcMutationResult {
+    if (readEffectiveDemoConfig().isDemoModeEnabled) {
+      return { success: false, error: 'Leave Demo Mode before changing its settings' }
+    }
+    const parsed = DemoConfigUpdateSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: z.prettifyError(parsed.error) }
+    const update = parsed.data
+    const s = deps.settings()
+    const passcode = update.demoModePasscode ?? s.demoModePasscode
+    if (update.isDemoModeEnabled && !passcode) {
+      return { success: false, error: 'Demo Mode needs a Demo Passcode' }
+    }
+    const previous: DemoModeValues = {
+      isDemoModeEnabled: s.isDemoModeEnabled,
+      demoModePasscode: s.demoModePasscode,
+      demoModeResetInSeconds: s.demoModeResetInSeconds,
+    }
+    s.isDemoModeEnabled = update.isDemoModeEnabled
+    s.demoModePasscode = passcode
+    s.demoModeResetInSeconds = update.demoModeResetInSeconds
+    try {
+      deps.writeUserSettings(s)
+    } catch (e) {
+      Object.assign(s, previous)
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+    if (previous.isDemoModeEnabled !== update.isDemoModeEnabled) {
+      deps.onDemoModeChanged(update.isDemoModeEnabled)
+    }
+    return { success: true }
+  }
+
   /** At settings load: makes the live settings carry the effective values. */
   function resolveIntoSettings(probe?: DemoConfigProbe): EffectiveDemoConfig {
     const effective = readEffectiveDemoConfig(probe)
@@ -71,6 +105,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     resolveIntoSettings,
     leaveDemoMode: () => setUserDemoMode(false),
     enterDemoMode: () => setUserDemoMode(true),
+    saveDemoConfig,
   }
 }
 

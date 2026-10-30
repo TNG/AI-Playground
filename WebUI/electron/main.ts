@@ -613,7 +613,7 @@ function getWritableSettingsPath(): string {
 
 function persistLocalSettingsToDisk(): void {
   try {
-    writeLocalSettingsFile(getWritableSettingsPath(), demoModeConfig.withUserDemoValues(settings))
+    writeLocalSettingsFile(getWritableSettingsPath(), demoModeConfig.toUserSettingsFile(settings))
   } catch (e) {
     appLogger.error(`failed to persist local settings: ${e}`, 'electron-backend')
   }
@@ -713,7 +713,7 @@ async function loadSettings() {
     }
   }
 
-  demoModeConfig.resolveIntoSettings()
+  demoModeConfig.applyEffectiveDemoConfig()
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
   if (settings.isDemoModeEnabled) {

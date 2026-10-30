@@ -163,12 +163,7 @@ type HardwareRecommendationResult = {
   error?: string
 }
 
-type DemoModeSettings = {
-  isDemoModeEnabled: boolean
-  demoModeResetInSeconds: null | number
-  demoModePasscode?: string
-  source: 'policy' | 'user'
-  sharedInstall: boolean
+type DemoModeSettings = import('../electron/kernel/demoModeConfig').EffectiveDemoConfig & {
   profile?: DemoProfile | null
 }
 

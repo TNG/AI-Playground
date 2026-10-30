@@ -30,7 +30,6 @@ export type EffectiveDemoConfig = DemoModeValues & {
   sharedInstall: boolean
 }
 
-/** Test seam. Production probes the machine itself. */
 export type DemoConfigProbe = {
   /** `reg query` output of the install key; null when the key does not exist. */
   registryStdout: string | null
@@ -42,7 +41,6 @@ export type DemoModeConfigDeps = {
   /** Writes the user's own settings file; throws when it cannot. */
   writeUserSettings: (settings: LocalSettings) => void
   onDemoModeChanged: (enabled: boolean) => void
-  /** Writes the Demo Policy behind a UAC prompt; production runs `reg.exe` elevated. */
   runElevated?: ElevatedRegistryRunner
   readProbe?: () => DemoConfigProbe
 }
@@ -115,35 +113,35 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     ((changes: RegistryValueChange[], rollback: RegistryValueChange[]) =>
       runElevatedRegistryChanges(INSTALL_CONFIG_KEY, changes, rollback))
   // Set only while a Demo Policy is in effect: the live settings then carry the policy's values.
-  let userOwnValues: DemoModeValues | null = null
+  let userValuesUnderPolicy: DemoModeValues | null = null
   let resolved: Pick<EffectiveDemoConfig, 'source' | 'sharedInstall'> = {
     source: 'user',
     sharedInstall: false,
   }
 
-  const ownValues = () => userOwnValues ?? demoValuesOf(deps.settings())
+  const userDemoValues = () => userValuesUnderPolicy ?? demoValuesOf(deps.settings())
 
   function readEffectiveDemoConfig(probe: DemoConfigProbe = readProbe()): EffectiveDemoConfig {
     const sharedInstall = probe.registryStdout !== null
     const policy = parseDemoPolicy(probe.registryStdout)
     if (policy) return { ...policy, source: 'policy', sharedInstall }
-    return { ...ownValues(), source: 'user', sharedInstall }
+    return { ...userDemoValues(), source: 'user', sharedInstall }
   }
 
   /** The settings to write to the user's file: never the policy's Demo Mode values. */
-  function withUserDemoValues(settings: LocalSettings): LocalSettings {
-    return userOwnValues ? { ...settings, ...userOwnValues } : settings
+  function toUserSettingsFile(settings: LocalSettings): LocalSettings {
+    return userValuesUnderPolicy ? { ...settings, ...userValuesUnderPolicy } : settings
   }
 
   function setDemoMode(enabled: boolean): IpcMutationResult {
-    const s = deps.settings()
-    const previous = s.isDemoModeEnabled
-    s.isDemoModeEnabled = enabled
+    const live = deps.settings()
+    const previous = live.isDemoModeEnabled
+    live.isDemoModeEnabled = enabled
     if (resolved.source === 'user') {
       try {
-        deps.writeUserSettings(s)
+        deps.writeUserSettings(live)
       } catch (e) {
-        s.isDemoModeEnabled = previous
+        live.isDemoModeEnabled = previous
         return ipcFail(e)
       }
     }
@@ -152,15 +150,15 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
   }
 
   async function saveDemoConfig(input: DemoConfigUpdate): Promise<DemoConfigSaveResult> {
-    const s = deps.settings()
-    if (s.isDemoModeEnabled) return ipcFail('Leave Demo Mode before changing its settings')
+    const live = deps.settings()
+    if (live.isDemoModeEnabled) return ipcFail('Leave Demo Mode before changing its settings')
     const parsed = DemoConfigUpdateSchema.safeParse(input)
     if (!parsed.success) return ipcFail(z.prettifyError(parsed.error))
     const update = parsed.data
     const policy = resolved.sharedInstall ? parseDemoPolicy(readProbe().registryStdout) : null
     const keptPasscode = resolved.sharedInstall
       ? policy?.demoModePasscode
-      : ownValues().demoModePasscode
+      : userDemoValues().demoModePasscode
     const next: DemoModeValues = {
       isDemoModeEnabled: update.isDemoModeEnabled,
       demoModePasscode: update.demoModePasscode ?? keptPasscode,
@@ -190,31 +188,30 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
       }
     } else {
       try {
-        deps.writeUserSettings({ ...withUserDemoValues(s), ...next })
+        deps.writeUserSettings({ ...toUserSettingsFile(live), ...next })
       } catch (e) {
         return ipcFail(e)
       }
-      Object.assign(s, next)
+      Object.assign(live, next)
     }
     const policyWasInEffect = resolved.source === 'policy'
-    const effective = resolveIntoSettings()
+    const effective = applyEffectiveDemoConfig()
     // Editing a policy that was left for this session keeps the session-only Leave.
-    if (policyWasInEffect && effective.source === 'policy') s.isDemoModeEnabled = false
-    const enteredDemoMode = s.isDemoModeEnabled
+    if (policyWasInEffect && effective.source === 'policy') live.isDemoModeEnabled = false
+    const enteredDemoMode = live.isDemoModeEnabled
     if (enteredDemoMode) deps.onDemoModeChanged(true)
     return { success: true, enteredDemoMode }
   }
 
-  /** At settings load: makes the live settings carry the effective values. */
-  function resolveIntoSettings(probe?: DemoConfigProbe): EffectiveDemoConfig {
-    const own = ownValues()
+  function applyEffectiveDemoConfig(probe?: DemoConfigProbe): EffectiveDemoConfig {
+    const userValues = userDemoValues()
     const effective = readEffectiveDemoConfig(probe)
-    userOwnValues = effective.source === 'policy' ? own : null
+    userValuesUnderPolicy = effective.source === 'policy' ? userValues : null
     resolved = { source: effective.source, sharedInstall: effective.sharedInstall }
-    const s = deps.settings()
-    s.isDemoModeEnabled = effective.isDemoModeEnabled
-    s.demoModeResetInSeconds = effective.demoModeResetInSeconds
-    s.demoModePasscode = effective.demoModePasscode
+    const live = deps.settings()
+    live.isDemoModeEnabled = effective.isDemoModeEnabled
+    live.demoModeResetInSeconds = effective.demoModeResetInSeconds
+    live.demoModePasscode = effective.demoModePasscode
     return effective
   }
 
@@ -230,9 +227,9 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
   return {
     readEffectiveDemoConfig,
     touchesDemoModeKeys,
-    resolveIntoSettings,
+    applyEffectiveDemoConfig,
     currentDemoConfig,
-    withUserDemoValues,
+    toUserSettingsFile,
     leaveDemoMode: () => setDemoMode(false),
     enterDemoMode: () => setDemoMode(true),
     saveDemoConfig,

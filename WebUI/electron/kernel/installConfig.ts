@@ -71,24 +71,39 @@ export function isTrustedOwnerSid(sid: string | null | undefined): boolean {
   return normalized.startsWith('S-1-5-80-') && normalized.length > 'S-1-5-80-'.length
 }
 
+/** Values of one `reg query` key: strings as text, `REG_DWORD`s as numbers. */
+export function parseRegistryValues(stdout: string): Map<string, string | number> {
+  const values = new Map<string, string | number>()
+  for (const line of stdout.split(/\r?\n/)) {
+    const text = line.match(/^\s+(\S+)\s+REG_(?:SZ|EXPAND_SZ)\s+(.*?)\s*$/)
+    if (text) {
+      values.set(text[1], text[2].trim())
+      continue
+    }
+    const dword = line.match(/^\s+(\S+)\s+REG_DWORD\s+0x([0-9a-fA-F]+)\s*$/)
+    if (dword) values.set(dword[1], parseInt(dword[2], 16))
+  }
+  return values
+}
+
 /** `reg query` text for the install-config values. */
 export function parseInstallRegistry(stdout: string): {
   modelFolderMode?: string
   sharedResourcesDir?: string
 } {
-  const values = new Map<string, string>()
-  for (const line of stdout.split(/\r?\n/)) {
-    const match = line.match(/^\s+(\S+)\s+REG_(?:SZ|EXPAND_SZ)\s+(.*?)\s*$/)
-    if (!match) continue
-    values.set(match[1], match[2].trim())
+  const values = parseRegistryValues(stdout)
+  const text = (name: string) => {
+    const value = values.get(name)
+    return typeof value === 'string' ? value : undefined
   }
   return {
-    modelFolderMode: values.get('modelFolderMode'),
-    sharedResourcesDir: values.get('sharedResourcesDir'),
+    modelFolderMode: text('modelFolderMode'),
+    sharedResourcesDir: text('sharedResourcesDir'),
   }
 }
 
-function readRegistryStdout(): string | null {
+/** Raw `reg query` output of the install key, or null when it is missing or unreadable. */
+export function readInstallRegistryStdout(): string | null {
   try {
     return execFileSync('reg.exe', ['query', INSTALL_CONFIG_KEY, '/reg:64'], {
       encoding: 'utf8',
@@ -161,7 +176,7 @@ function rejectShared(reason: string): null {
 
 function loadInstallConfig(probe?: InstallConfigProbe): InstallConfig | null {
   if (!probe && process.platform !== 'win32') return null
-  const stdout = probe ? probe.registryStdout : readRegistryStdout()
+  const stdout = probe ? probe.registryStdout : readInstallRegistryStdout()
   if (!stdout) return null
   const parsed = parseInstallRegistry(stdout)
   if (parsed.modelFolderMode === 'per-user') return { modelFolderMode: 'per-user' }

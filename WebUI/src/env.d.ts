@@ -167,7 +167,7 @@ type DemoModeSettings = {
   isDemoModeEnabled: boolean
   demoModeResetInSeconds: null | number
   demoModePasscode?: string
-  source: 'user'
+  source: 'policy' | 'user'
   sharedInstall: boolean
   profile?: DemoProfile | null
 }

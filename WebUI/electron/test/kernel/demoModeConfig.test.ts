@@ -461,16 +461,20 @@ describe('saveDemoConfig on a Shared Install', () => {
         ),
       )
     const runs: RegistryValueChange[][] = []
+    const rollbacks: RegistryValueChange[][] = []
     let outcome: ElevatedRunResult = { ok: true }
-    const runElevated = vi.fn(async (changes: RegistryValueChange[]) => {
-      runs.push(changes)
-      if (!outcome.ok) return outcome
-      for (const change of changes) {
-        if (change.action === 'delete') machine.delete(change.name)
-        else machine.set(change.name, change.data)
-      }
-      return outcome
-    })
+    const runElevated = vi.fn(
+      async (changes: RegistryValueChange[], rollback: RegistryValueChange[]) => {
+        runs.push(changes)
+        rollbacks.push(rollback)
+        if (!outcome.ok) return outcome
+        for (const change of changes) {
+          if (change.action === 'delete') machine.delete(change.name)
+          else machine.set(change.name, change.data)
+        }
+        return outcome
+      },
+    )
     const settings = userSettings(own)
     const written: LocalSettings[] = []
     const writeUserSettings = vi.fn((s: LocalSettings) => {
@@ -490,6 +494,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       settings,
       machine,
       runs,
+      rollbacks,
       written,
       writeUserSettings,
       onDemoModeChanged,
@@ -537,6 +542,68 @@ describe('saveDemoConfig on a Shared Install', () => {
     })
     expect(config.withUserDemoValues(settings)).toMatchObject({ demoModePasscode: 'mine' })
     expect(onDemoModeChanged).toHaveBeenCalledExactlyOnceWith(true)
+  })
+
+  it('hands the runner a rollback to the previous policy', async () => {
+    const { config, rollbacks } = sharedInstall({
+      isDemoModeEnabled: 1,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 60,
+    })
+    config.leaveDemoMode()
+
+    await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: 'pbkdf2$1$bmV3$bmV3',
+      demoModeResetInSeconds: null,
+    })
+
+    expect(rollbacks).toEqual([
+      [
+        { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
+        { action: 'set', name: 'demoModeResetInSeconds', type: 'REG_DWORD', data: 60 },
+        { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
+      ],
+    ])
+  })
+
+  it('rolls a new policy back by removing it', async () => {
+    const { config, rollbacks } = sharedInstall({})
+
+    await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+    })
+
+    expect(rollbacks).toEqual([
+      [
+        { action: 'delete', name: 'isDemoModeEnabled' },
+        { action: 'delete', name: 'demoModePasscode' },
+        { action: 'delete', name: 'demoModeResetInSeconds' },
+      ],
+    ])
+  })
+
+  it('leaves a hand-written plain passcode out of the rollback', async () => {
+    const { config, rollbacks } = sharedInstall({
+      isDemoModeEnabled: 1,
+      demoModePasscode: 'teacher',
+    })
+    config.leaveDemoMode()
+
+    await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(rollbacks).toEqual([
+      [
+        { action: 'delete', name: 'demoModeResetInSeconds' },
+        { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
+      ],
+    ])
   })
 
   it('removes a Reset Timeout that was cleared', async () => {

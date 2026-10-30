@@ -8,6 +8,7 @@ import {
   type RegistryValueChange,
 } from '../adapters/elevatedRegistry'
 import { INSTALL_CONFIG_KEY, parseRegistryValues, readInstallRegistryStdout } from './installConfig'
+import { ipcFail } from './typedIpc'
 import type { LocalSettings } from './localSettings'
 
 export type DemoModeValues = Pick<
@@ -87,6 +88,17 @@ function demoPolicyChanges(values: DemoModeValues): RegistryValueChange[] {
   ]
 }
 
+/** Restores `previous` if a policy write fails; a plain passcode cannot be written back. */
+function rollbackTo(previous: DemoModeValues | null): RegistryValueChange[] {
+  const changes = demoPolicyChanges(
+    previous ?? { isDemoModeEnabled: false, demoModeResetInSeconds: null },
+  )
+  return changes.filter(
+    (change) =>
+      !(change.action === 'set' && change.type === 'REG_SZ' && !isHashedDemoPasscode(change.data)),
+  )
+}
+
 function demoValuesOf(settings: LocalSettings): DemoModeValues {
   return {
     isDemoModeEnabled: settings.isDemoModeEnabled,
@@ -99,7 +111,8 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
   const readProbe = deps.readProbe ?? productionProbe
   const runElevated =
     deps.runElevated ??
-    ((changes: RegistryValueChange[]) => runElevatedRegistryChanges(INSTALL_CONFIG_KEY, changes))
+    ((changes: RegistryValueChange[], rollback: RegistryValueChange[]) =>
+      runElevatedRegistryChanges(INSTALL_CONFIG_KEY, changes, rollback))
   // Set only while a Demo Policy is in effect: the live settings then carry the policy's values.
   let userOwnValues: DemoModeValues | null = null
   let resolved: Pick<EffectiveDemoConfig, 'source' | 'sharedInstall'> = {
@@ -130,7 +143,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
         deps.writeUserSettings(s)
       } catch (e) {
         s.isDemoModeEnabled = previous
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
+        return ipcFail(e)
       }
     }
     deps.onDemoModeChanged(enabled)
@@ -139,11 +152,9 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
 
   async function saveDemoConfig(input: DemoConfigUpdate): Promise<IpcMutationResult> {
     const s = deps.settings()
-    if (s.isDemoModeEnabled) {
-      return { success: false, error: 'Leave Demo Mode before changing its settings' }
-    }
+    if (s.isDemoModeEnabled) return ipcFail('Leave Demo Mode before changing its settings')
     const parsed = DemoConfigUpdateSchema.safeParse(input)
-    if (!parsed.success) return { success: false, error: z.prettifyError(parsed.error) }
+    if (!parsed.success) return ipcFail(z.prettifyError(parsed.error))
     const update = parsed.data
     const policy = resolved.sharedInstall ? parseDemoPolicy(readProbe().registryStdout) : null
     const keptPasscode = resolved.sharedInstall
@@ -155,7 +166,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
       demoModeResetInSeconds: update.demoModeResetInSeconds,
     }
     if (next.isDemoModeEnabled && !next.demoModePasscode) {
-      return { success: false, error: 'Demo Mode needs a Demo Passcode' }
+      return ipcFail('Demo Mode needs a Demo Passcode')
     }
     // A hand-written plain policy passcode cannot be carried into the registry write.
     if (
@@ -165,24 +176,22 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
       keptPasscode &&
       !isHashedDemoPasscode(keptPasscode)
     ) {
-      return {
-        success: false,
-        error: 'The Demo Policy passcode is not stored as a hash; set a new Demo Passcode',
-      }
+      return ipcFail('The Demo Policy passcode is not stored as a hash; set a new Demo Passcode')
     }
     if (resolved.sharedInstall) {
-      const result = await runElevated(demoPolicyChanges(next))
+      const result = await runElevated(demoPolicyChanges(next), rollbackTo(policy))
       if (!result.ok) {
-        const error = result.cancelled
-          ? 'Administrator approval was cancelled; the Demo Policy is unchanged'
-          : result.error
-        return { success: false, error }
+        return ipcFail(
+          result.cancelled
+            ? 'Administrator approval was cancelled; the Demo Policy is unchanged'
+            : result.error,
+        )
       }
     } else {
       try {
         deps.writeUserSettings({ ...withUserDemoValues(s), ...next })
       } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) }
+        return ipcFail(e)
       }
       Object.assign(s, next)
     }

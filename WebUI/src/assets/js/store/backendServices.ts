@@ -212,9 +212,7 @@ export const useBackendServices = defineStore('backendServices', () => {
       if (isDemoModeActive()) return { success: true as const }
       try {
         const r = await window.electronAPI.updateLocalSettings(value as Partial<LocalSettings>)
-        return r.success
-          ? { success: true as const }
-          : { success: false as const, error: 'updating local settings failed' }
+        return r.success ? { success: true as const } : { success: false as const, error: r.error }
       } catch (error) {
         return { success: false as const, error: String(error) }
       }

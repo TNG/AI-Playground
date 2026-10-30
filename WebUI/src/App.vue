@@ -33,7 +33,7 @@
         class="self-center"
       />
       <button
-        v-if="showDebugSettings"
+        v-if="showDebugSettings && !demoMode.enabled"
         :title="languages.COM_SETTINGS"
         @click="
           () => {

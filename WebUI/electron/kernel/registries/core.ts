@@ -191,7 +191,14 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       return LocalSettingsSchema.parse(deps.settings)
     },
 
-    updateLocalSettings: (_event, updates: Partial<LocalSettings>) => {
+    updateLocalSettings: (_event, updates: Partial<LocalSettings>): IpcMutationResult => {
+      if (deps.demoModeConfig.refusesSettingsUpdate(updates)) {
+        deps.appLogger.warn(
+          `Refused a Demo Mode settings change while Demo Mode is active: ${Object.keys(updates).join(', ')}`,
+          'demo-mode',
+        )
+        return { success: false, error: 'Demo Mode settings cannot be changed in Demo Mode' }
+      }
       Object.assign(deps.settings, updates)
       // Any of these can change which preset files the catalog reads or injects.
       if (

@@ -676,12 +676,15 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as LocaleSettings,
   },
-  /** Merge updates into the machine-level settings.json and persist it. */
+  /**
+   * Merge updates into the machine-level settings.json and persist it. Refuses the three Demo Mode
+   * keys while Demo Mode is active.
+   */
   updateLocalSettings: {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [Partial<LocalSettings>],
-    result: null as unknown as IpcOk,
+    result: null as unknown as IpcMutationResult,
   },
   /** The whole machine-level settings object. */
   getLocalSettings: {

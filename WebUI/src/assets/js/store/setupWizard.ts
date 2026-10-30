@@ -144,15 +144,22 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const demoModeDraft = ref<DemoModeDraft | null>(null)
   const demoModeSetupEnabling = ref(false)
   const demoModeRestartPending = ref(false)
-  const demoModeView = computed<DemoModeDraft>(
-    () =>
-      demoModeDraft.value ?? {
-        enabled: demoMode.enabled,
-        resetInSeconds: demoMode.resetInSeconds,
-      },
-  )
+  // On a Shared Install the row edits the Demo Policy, so the user's own values do not show.
+  const demoModePolicyPresent = computed(() => demoMode.source === 'policy')
+  const demoModeSaved = computed<DemoModeDraft>(() => {
+    if (!demoMode.sharedInstall) {
+      return { enabled: demoMode.enabled, resetInSeconds: demoMode.resetInSeconds }
+    }
+    return demoModePolicyPresent.value
+      ? { enabled: true, resetInSeconds: demoMode.resetInSeconds }
+      : { enabled: false, resetInSeconds: null }
+  })
+  const demoModeView = computed<DemoModeDraft>(() => demoModeDraft.value ?? demoModeSaved.value)
+  const demoModeChanged = computed(() => demoModeDraft.value !== null)
   const demoModeHasPasscode = computed(
-    () => !!demoModeDraft.value?.passcodeHash || demoMode.hasPasscode,
+    () =>
+      !!demoModeDraft.value?.passcodeHash ||
+      (demoMode.hasPasscode && (!demoMode.sharedInstall || demoModePolicyPresent.value)),
   )
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
@@ -1216,8 +1223,9 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     })
     if (!saved) return false
     demoModeDraft.value = null
-    demoModeRestartPending.value = becameEnabled
     if (!becameEnabled) await demoMode.refreshFromMainConfig()
+    // Removing a Demo Policy hands control back to the user's own settings, which may be on.
+    demoModeRestartPending.value = becameEnabled || demoMode.enabled
     return true
   }
 
@@ -1269,6 +1277,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     openCloudModeSetup,
     finishCloudModeSetup,
     demoModeView,
+    demoModeChanged,
+    demoModePolicyPresent,
     demoModeHasPasscode,
     demoModeSetupEnabling,
     toggleDemoMode,

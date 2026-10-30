@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "Demo-Modus einrichten",
   "DEMO_MODE_SETUP_INTRO": "Im Demo-Modus können Besucher weder Einstellungen ändern noch diesen Assistenten öffnen, und die App kann sich zurücksetzen, wenn sie eine Weile niemand benutzt hat. Nur der Demo-Passcode beendet den Demo-Modus.",
   "DEMO_MODE_SETUP_STORED_USER": "In Ihren eigenen Einstellungen gespeichert: gilt nur für Sie.",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "Für diesen Computer gespeichert: gilt für alle Benutzer. Zum Speichern ist eine Administratorfreigabe nötig.",
+  "DEMO_MODE_SET_BY_ADMIN": "Von Ihrem Administrator festgelegt",
   "DEMO_MODE_SETUP_PASSCODE": "Demo-Passcode",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "Demo-Passcode bestätigen",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "Leer lassen, um den aktuellen Passcode zu behalten",

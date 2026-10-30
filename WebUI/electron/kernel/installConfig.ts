@@ -30,7 +30,7 @@ export type InstallConfig = {
   sharedResourcesDir?: string
 }
 
-const INSTALL_CONFIG_KEY = 'HKLM\\SOFTWARE\\AI Playground'
+export const INSTALL_CONFIG_KEY = 'HKLM\\SOFTWARE\\AI Playground'
 
 // Drive-letter absolute path. `C:relative` and UNC both fail this.
 const DRIVE_ABSOLUTE = /^[a-zA-Z]:[\\/]/

@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "デモモードの設定",
   "DEMO_MODE_SETUP_INTRO": "デモモードでは、来場者は設定を変更したりこのウィザードを開いたりできません。また、しばらく使われていないとアプリが自動的にリセットされます。デモモードを終了できるのはデモパスコードだけです。",
   "DEMO_MODE_SETUP_STORED_USER": "ご自身の設定に保存されます: あなたにのみ適用されます。",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "このコンピューターに保存されます: すべてのユーザーに適用されます。保存には管理者の承認が必要です。",
+  "DEMO_MODE_SET_BY_ADMIN": "管理者によって設定されています",
   "DEMO_MODE_SETUP_PASSCODE": "デモパスコード",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "デモパスコードの確認",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "現在のパスコードを維持する場合は空欄のままにしてください",

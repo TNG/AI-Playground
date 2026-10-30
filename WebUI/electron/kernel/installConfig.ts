@@ -28,6 +28,8 @@ export type InstallConfig = {
    * the `resources` folder). Present only for a validated shared install.
    */
   sharedResourcesDir?: string
+  /** `$INSTDIR` of the all-users install that wrote the config. Absent on older installers. */
+  installDir?: string
 }
 
 const INSTALL_CONFIG_KEY = 'HKLM\\SOFTWARE\\AI Playground'
@@ -75,6 +77,7 @@ export function isTrustedOwnerSid(sid: string | null | undefined): boolean {
 export function parseInstallRegistry(stdout: string): {
   modelFolderMode?: string
   sharedResourcesDir?: string
+  installDir?: string
 } {
   const values = new Map<string, string>()
   for (const line of stdout.split(/\r?\n/)) {
@@ -85,7 +88,32 @@ export function parseInstallRegistry(stdout: string): {
   return {
     modelFolderMode: values.get('modelFolderMode'),
     sharedResourcesDir: values.get('sharedResourcesDir'),
+    installDir: values.get('installDir'),
   }
+}
+
+const comparablePath = (p: string) =>
+  path.win32
+    .normalize(p.trim())
+    .replace(/[\\/]+$/, '')
+    .toLowerCase()
+
+/**
+ * Whether the HKLM config belongs to the install that is running. HKLM outlives an
+ * all-users install that a later per-user install replaced, and a per-user
+ * installer cannot clear it, so a per-user copy must not follow it into the shared
+ * tree. Older installers did not record `installDir`; for those, an all-users copy
+ * is recognized by its install directory being read-only to the user.
+ */
+export function installConfigAppliesTo(
+  config: InstallConfig,
+  runningInstallDir: string,
+  installDirWritable: () => boolean,
+): boolean {
+  if (config.installDir) {
+    return comparablePath(config.installDir) === comparablePath(runningInstallDir)
+  }
+  return !installDirWritable()
 }
 
 function readRegistryStdout(): string | null {
@@ -164,7 +192,13 @@ function loadInstallConfig(probe?: InstallConfigProbe): InstallConfig | null {
   const stdout = probe ? probe.registryStdout : readRegistryStdout()
   if (!stdout) return null
   const parsed = parseInstallRegistry(stdout)
-  if (parsed.modelFolderMode === 'per-user') return { modelFolderMode: 'per-user' }
+  const installDir = parsed.installDir ? normalizeLocalAbsolutePath(parsed.installDir) : undefined
+  if (installDir === null) {
+    console.error('[installConfig] ignoring machine install config: installDir is not local')
+    return null
+  }
+  const owner = installDir ? { installDir } : {}
+  if (parsed.modelFolderMode === 'per-user') return { modelFolderMode: 'per-user', ...owner }
   if (parsed.modelFolderMode !== 'shared') {
     if (parsed.modelFolderMode) {
       console.error(
@@ -188,7 +222,7 @@ function loadInstallConfig(probe?: InstallConfigProbe): InstallConfig | null {
   if (!isTrustedOwnerSid(sid)) {
     return rejectShared(`${dir} is not owned by an administrator`)
   }
-  return { modelFolderMode: 'shared', sharedResourcesDir: dir }
+  return { modelFolderMode: 'shared', sharedResourcesDir: dir, ...owner }
 }
 
 export function readInstallConfig(probe?: InstallConfigProbe): InstallConfig | null {

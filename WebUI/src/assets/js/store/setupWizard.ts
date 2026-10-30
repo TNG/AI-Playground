@@ -139,7 +139,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   // Staged until Continue; null means "as currently saved".
   const demoModeDraft = ref<DemoModeDraft | null>(null)
   const demoModeSetupEnabling = ref(false)
-  const demoModeRestartPending = ref(false)
   const demoModeView = computed<DemoModeDraft>(() => demoModeDraft.value ?? demoMode.savedSetup)
   const demoModeChanged = computed(() => demoModeDraft.value !== null)
   const demoModeHasPasscode = computed(
@@ -1013,8 +1012,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
-    if (!(await commitDemoModeDraft())) return
-
     const noChannelVerified = CHANNELS.every((c) => !homeAgent.channelPrefs[c.kind].verified)
     if (noChannelVerified) {
       const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
@@ -1029,11 +1026,33 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
 
-    if (demoModeRestartPending.value) {
-      await demoMode.restartIntoDemoMode()
-      return
+    await closeWizard()
+  }
+
+  /**
+   * Every way out of the wizard ends here: the Demo Mode draft is saved last, after any detour
+   * through Home Agent setup, and entering Demo Mode restarts the app instead of closing.
+   */
+  async function closeWizard() {
+    const draft = demoModeDraft.value
+    if (draft) {
+      const saved = await demoMode.saveConfig({
+        isDemoModeEnabled: draft.enabled,
+        demoModePasscode: draft.passcodeHash,
+        demoModeResetInSeconds: draft.resetInSeconds,
+      })
+      if (!saved) return
+      demoModeDraft.value = null
+      if (saved.enteredDemoMode) {
+        await demoMode.restartIntoDemoMode()
+        return
+      }
     }
     await dismiss()
+    // Reset the wizard page after the wizard is hidden (dismiss set loadingState
+    // to 'running') so a setup page unmounts and its local UI state starts fresh
+    // on the next open. The outer wizard uses v-show, so it would stay mounted.
+    wizardPage.value = 'main'
     await syncPresetsForCurrentProductMode()
   }
 
@@ -1132,39 +1151,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     textToSpeech.initialize()
   }
 
-  /**
-   * Finish the Home Agent setup step and close the wizard. Mirrors the normal
-   * install path which calls `dismiss()` followed by `syncPresetsForCurrentProductMode()`,
-   * so leaving the wizard via Home Agent setup also refreshes preset state.
-   */
-  async function finishHomeAgentSetup() {
-    if (demoModeRestartPending.value) {
-      await demoMode.restartIntoDemoMode()
-      return
-    }
-    await dismiss()
-    // Reset the wizard page after the wizard is hidden (dismiss set loadingState
-    // to 'running') so HomeAgentSetupPage unmounts and its local UI state
-    // (active tab, Reconfigure expansion) starts fresh on the next open. The
-    // outer wizard uses v-show, so without this the page would stay mounted.
-    wizardPage.value = 'main'
-    await syncPresetsForCurrentProductMode()
-  }
-
   /** Open the Cloud Mode provider setup screen. Frontend-only — no backend
    *  install is involved, so this just swaps the wizard page. */
   async function openCloudModeSetup() {
     if (!cloudMode.isFeatureEnabled) return
     wizardPage.value = 'cloudModeSetup'
     globalSetup.loadingState = 'setupWizard'
-  }
-
-  /** Finish Cloud Mode setup and close the wizard, mirroring the Home Agent
-   *  finish path so preset state is refreshed on exit. */
-  async function finishCloudModeSetup() {
-    await dismiss()
-    wizardPage.value = 'main'
-    await syncPresetsForCurrentProductMode()
   }
 
   function toggleDemoMode(value: boolean) {
@@ -1194,23 +1186,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   function cancelDemoModeSetup() {
     demoModeSetupEnabling.value = false
     wizardPage.value = 'main'
-  }
-
-  async function commitDemoModeDraft(): Promise<boolean> {
-    const draft = demoModeDraft.value
-    if (!draft) return true
-    const becameEnabled = draft.enabled && !demoMode.enabled
-    const saved = await demoMode.saveConfig({
-      isDemoModeEnabled: draft.enabled,
-      demoModePasscode: draft.passcodeHash,
-      demoModeResetInSeconds: draft.resetInSeconds,
-    })
-    if (!saved) return false
-    demoModeDraft.value = null
-    if (!becameEnabled) await demoMode.refreshFromMainConfig()
-    // Removing a Demo Policy hands control back to the user's own settings, which may be on.
-    demoModeRestartPending.value = becameEnabled || demoMode.enabled
-    return true
   }
 
   function showErrorModal(serviceName: BackendServiceName) {
@@ -1257,9 +1232,9 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     phisonAidaptivRow,
     commitAndInstall,
     dismiss,
-    finishHomeAgentSetup,
+    finishHomeAgentSetup: closeWizard,
     openCloudModeSetup,
-    finishCloudModeSetup,
+    finishCloudModeSetup: closeWizard,
     demoModeView,
     demoModeChanged,
     demoModeHasPasscode,

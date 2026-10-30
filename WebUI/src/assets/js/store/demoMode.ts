@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { verifyDemoPasscode } from '@/lib/demoPasscode'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 
 export type DemoButtonId =
@@ -218,8 +219,8 @@ export const useDemoMode = defineStore('demoMode', () => {
     }
   }
 
-  function verifyPasscode(input: string): boolean {
-    return input === passcode.value
+  function verifyPasscode(input: string): Promise<boolean> {
+    return verifyDemoPasscode(input, passcode.value)
   }
 
   async function setEnabled(value: boolean) {

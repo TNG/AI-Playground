@@ -10,7 +10,7 @@ The logic is intentionally kept simple, no deepmerging from multiple places or s
 
 To disable only sliders/checkboxes/features during demo mode:
 
-- generally: manually copy files + replace `modifyable: true` with `false`
+- generally: manually copy files + replace `modifiable: true` with `false`
 - there is a `"settings":` block for all available inputs
 - there is a `"variants":` block with overrides for "Fast" or "Standard" presets
 
@@ -20,9 +20,11 @@ To change defaults during demo:
 
 Typical things to change for demo mode:
 
-- "Safety Checker Strength" slider to `defaultValue: 0` and `modifyable: false`
-- "Show Preview" checkbox to `defaultValue: false` and `modifyable: false`
-- "Input Image" image picker to `modifyable: false`
+- "Safety Check" strength slider (`nodeTitle: "SafetyCheckerStrength"`) to a high
+  `defaultValue` (the shipped demo presets use `0.93`; `0` turns the checker off) and
+  `modifiable: false`
+- "Show Preview" checkbox to `defaultValue: false` and `modifiable: false`
+- "Input Image" image picker to `modifiable: false`
 
 ## `_profile.json` — Demo Profile Descriptor
 

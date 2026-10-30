@@ -17,4 +17,10 @@ export type HomeAgentInboundMessage = {
   audio?: RemoteAudio[]
   documents?: RemoteDocument[]
   callback?: string
+  /** The platform id of the message this one replies to. */
+  reply_to?: string
+  /** The platform ref an outbound reply to this message names (Telegram: its message id). */
+  reply_target?: string
+  /** The channel's notice for a file it refused to read (unsupported type, too large). */
+  refused?: string
 }

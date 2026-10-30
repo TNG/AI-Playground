@@ -461,6 +461,38 @@ export class AppDriver {
   }
 
   /**
+   * Select the general-purpose "Agent" preset on its defaults, a random backend, an
+   * {@link AGENT_CONTEXT} context and `workspaceDir` (the native picker must already be
+   * stubbed at it). Returns false when the preset isn't offered in this product mode.
+   */
+  async prepareAgentPreset(workspaceDir: string): Promise<boolean> {
+    const selected = await test.step(`Select agent preset "${AGENT_PRESET}"`, () =>
+      this.main.selectPreset('Chat', AGENT_PRESET))
+    if (!selected) return false
+
+    // Reset before the context size below, never after — a reset would undo it.
+    const owner = await this.main.activePresetLabel()
+    await this.resetPresetDefaults(owner)
+
+    await test.step('Point the agent at a scratch workspace on a random backend', async () => {
+      await this.pickRandomBackend(owner)
+      // A no-op on OpenVINO GPU, which has no such setting to get wrong.
+      await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
+        this.settings.setContextSize(AppDriver.AGENT_CONTEXT, owner))
+      await this.agent.selectWorkspaceFolder(workspaceDir, owner)
+      await this.settings.close(owner)
+    })
+    return true
+  }
+
+  /** Send one prompt to the active agent preset and wait until its turn has finished cleanly. */
+  async runAgentTurn(prompt: string, timeout: number): Promise<void> {
+    await this.startAgentTurn(prompt)
+    await this.waitForAgenticMediaTurn(timeout)
+    await this.agent.assertNoTurnError()
+  }
+
+  /**
    * Drive the general-purpose "Agent" preset through the same two turns the fast
    * agentic smoke runs on the Assistant preset: write a haiku, then turn it into an
    * image. The preset keeps its own defaults — its model per backend, its default
@@ -483,22 +515,7 @@ export class AppDriver {
     prompt: string
     imagePrompt: string
   }): Promise<boolean> {
-    const selected = await test.step(`Select agent preset "${AGENT_PRESET}"`, () =>
-      this.main.selectPreset('Chat', AGENT_PRESET))
-    if (!selected) return false
-
-    // Reset before the context size below, never after — a reset would undo it.
-    const owner = await this.main.activePresetLabel()
-    await this.resetPresetDefaults(owner)
-
-    await test.step('Point the agent at a scratch workspace on a random backend', async () => {
-      await this.pickRandomBackend(owner)
-      // A no-op on OpenVINO GPU, which has no such setting to get wrong.
-      await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
-        this.settings.setContextSize(AppDriver.AGENT_CONTEXT, owner))
-      await this.agent.selectWorkspaceFolder(opts.workspaceDir, owner)
-      await this.settings.close(owner)
-    })
+    if (!(await this.prepareAgentPreset(opts.workspaceDir))) return false
 
     let imagesBefore = 0
 

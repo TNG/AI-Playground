@@ -334,6 +334,23 @@ describe('sending to a session that is not open', () => {
     expect(sent).toContain('step two')
   })
 
+  it('marks only the turn an Answer started with where the Answer came from', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+    const answer = { channel: 'telegram' as const, replyTo: '1300' }
+    await store.sendToSession(id, 'try again', { useStoredSettings: true, answer })
+    await turnIdOf(0)
+    expect(sentConfig(0).answer).toEqual(answer)
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+
+    await store.sendToSession(id, 'next step')
+    await turnIdOf(1)
+
+    expect(sentConfig(1).answer).toBeUndefined()
+  })
+
   it('refuses a session that already has a turn in flight', async () => {
     const store = await readyStore()
     const id = createTaskSession(store)
@@ -344,6 +361,63 @@ describe('sending to a session that is not open', () => {
 
     expect(result).toMatchObject({ ok: false, reason: 'busy' })
     expect(startTurn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('an Answer from a channel', () => {
+  it('is stored with the channel it came from', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'make it faster', { answer: { channel: 'telegram' } })
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+
+    const messages = lastSaved(id)?.messages as Array<{ role: string; metadata?: unknown }>
+    expect(messages.find((m) => m.role === 'user')?.metadata).toEqual({ origin: 'telegram' })
+  })
+
+  it('leaves a prompt typed on the desktop without an origin', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'tidy up')
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+
+    const messages = lastSaved(id)?.messages as Array<{ role: string; metadata?: unknown }>
+    expect(messages.find((m) => m.role === 'user')?.metadata).toBeUndefined()
+  })
+
+  it('streams live in the session open on the desktop, marked with its channel', async () => {
+    const store = await readyStore()
+    const id = createTaskSession(store)
+    await store.switchSession(id)
+
+    await store.sendToSession(id, 'make it faster', {
+      useStoredSettings: true,
+      answer: { channel: 'slack' },
+    })
+    const turnId = await turnIdOf(0)
+    pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk: { type: 'start' } })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'text-start', id: 't' },
+    })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'text-delta', id: 't', delta: 'on it' },
+    })
+
+    await vi.waitFor(() => expect(JSON.stringify(store.messages)).toContain('on it'))
+    expect(store.processing).toBe(true)
+    expect(store.messages[0]).toMatchObject({ role: 'user', metadata: { origin: 'slack' } })
   })
 })
 
@@ -513,5 +587,53 @@ describe('how a turn settled', () => {
     await finishTurn(id, 0)
     await vi.waitFor(() => expect(store.anyTurnOpen).toBe(false))
     expect(seen).toEqual([])
+  })
+})
+
+describe('what decides a Held Answer', () => {
+  function recordHeldEnds(store: Awaited<ReturnType<typeof readyStore>>) {
+    const ends: Array<{ sessionId: string; end: string }> = []
+    store.onHeldAnswerSettled((sessionId, end) => ends.push({ sessionId, end }))
+    return ends
+  }
+
+  it('is the turn completing', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'go')
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'completed' }]))
+  })
+
+  it('is a stop on the desktop', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'go')
+    await turnIdOf(0)
+    await store.stopSession(id)
+    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'stopped' }]))
+  })
+
+  it('is the session being deleted, even though deleting stops its turn first', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'go')
+    await turnIdOf(0)
+    await store.deleteSession(id)
+    await vi.waitFor(() => expect(ends).toEqual([{ sessionId: id, end: 'deleted' }]))
+  })
+
+  it('is a discard on the desktop, which clears the Held Answer shown', async () => {
+    const store = await readyStore()
+    const ends = recordHeldEnds(store)
+    const id = createTaskSession(store)
+    store.setHeldAnswer(id, { text: 'make it faster', channel: 'telegram' })
+    expect(store.heldAnswers[id]).toEqual({ text: 'make it faster', channel: 'telegram' })
+    store.discardHeldAnswer(id)
+    expect(ends).toEqual([{ sessionId: id, end: 'discarded' }])
+    expect(store.heldAnswers[id]).toBeUndefined()
   })
 })

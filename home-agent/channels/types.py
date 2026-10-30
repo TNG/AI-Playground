@@ -68,6 +68,12 @@ class QueueItem(TypedDict, total=False):
     chat_id: str
     channel: str
     ts: str
+    # The platform id of the message this one replies to.
+    reply_to: str
+    # The platform ref an outbound reply to this message names (Telegram: its id).
+    reply_target: str
+    # The channel's notice for a file it refused to read (unsupported type, too large).
+    refused: str
 
 
 class SendResult(TypedDict, total=False):

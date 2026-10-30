@@ -1157,6 +1157,55 @@ describe('locking the Task Session', () => {
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
   })
 
+  it('refuses anyone else sending into the Task Session mid-turn', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    expect(await agentMode.sendToSession(sessionId, 'answer')).toMatchObject({
+      ok: false,
+      reason: 'task-locked',
+    })
+  })
+
+  it('refuses anyone else sending into the Task Session between two Steps', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    let releaseStep: () => void = () => {}
+    vi.mocked(window.electronAPI.existsPath).mockImplementationOnce(
+      () => new Promise((resolve) => (releaseStep = () => resolve(true))),
+    )
+
+    await finishTurn(0)
+    await vi.waitFor(() =>
+      expect(tasks.taskState('t1')).toMatchObject({ running: { stepIndex: 2 } }),
+    )
+    await settleMicrotasks()
+    const interloper = await agentMode.sendToSession(sessionId, 'answer', {
+      useStoredSettings: true,
+    })
+    releaseStep()
+
+    expect(interloper).toMatchObject({ ok: false, reason: 'task-locked' })
+    await turnIdOf(1)
+    await settleMicrotasks()
+    expect(sentSteps()).toEqual(['one', 'two'])
+  })
+
+  it('accepts a send into the session once the run has settled', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+
+    expect(await agentMode.sendToSession(sessionId, 'answer')).toEqual({ ok: true })
+  })
+
   it.each([
     ['failed', () => failTurn(0, 'boom')],
     ['stopped', (tasks: ReturnType<typeof useAgentTasks>) => tasks.stopTask('t1')],
@@ -1182,6 +1231,26 @@ describe('locking the Task Session', () => {
       name: 'Task t1',
     })
     expect(tasks.taskLockingSession('session-open')).toBeUndefined()
+  })
+
+  it('lets a Held Answer go when the run ends on a Step that could not be sent', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    const ends: [string, string][] = []
+    agentMode.onHeldAnswerSettled((id, end) => ends.push([id, end]))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+
+    await finishTurn(0)
+
+    await settledOutcome(tasks, 't1')
+    await vi.waitFor(() =>
+      expect(ends).toEqual([
+        [sessionId, 'completed'],
+        [sessionId, 'failed'],
+      ]),
+    )
   })
 
   it('makes the open Task Session’s settings read-only while its run lasts', async () => {
@@ -1578,5 +1647,73 @@ describe('a prompt sent with Steps set', () => {
 
     await settleMicrotasks()
     expect(startTurn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a session carrying out Steps from the prompt bar', () => {
+  it('refuses anyone else sending into it between two Steps', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(STEPS)
+    void tasks.runSteps('Intel news')
+    await turnIdOf(0)
+    let releaseStep: () => void = () => {}
+    vi.mocked(window.electronAPI.existsPath).mockImplementationOnce(
+      () => new Promise((resolve) => (releaseStep = () => resolve(true))),
+    )
+
+    await finishTurn(0)
+    await vi.waitFor(() =>
+      expect(tasks.promptRunOf('session-open')).toEqual({ stepIndex: 2, stepCount: 3 }),
+    )
+    await settleMicrotasks()
+    const interloper = await agentMode.sendToSession('session-open', 'answer', {
+      useStoredSettings: true,
+    })
+    releaseStep()
+
+    expect(interloper).toMatchObject({ ok: false, reason: 'task-locked' })
+    await turnIdOf(1)
+    await settleMicrotasks()
+    expect(sentPrompts().slice(1)).toEqual(['Step 2 of 3: Summarise it by topic'])
+  })
+
+  it('accepts a send into it once the Steps are done', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(STEPS.slice(0, 1))
+    void tasks.runSteps('Intel news')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
+
+    expect(await agentMode.sendToSession('session-open', 'answer')).toEqual({ ok: true })
+  })
+
+  it('lets a Held Answer go when a Step could not be sent', async () => {
+    const { agentMode, tasks } = await readyStores()
+    const ends: [string, string][] = []
+    agentMode.onHeldAnswerSettled((id, end) => ends.push([id, end]))
+    agentMode.setOpenSteps(STEPS)
+    void tasks.runSteps('Intel news')
+    await turnIdOf(0)
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+
+    await finishTurn(0)
+
+    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
+    await vi.waitFor(() =>
+      expect(ends).toEqual([
+        ['session-open', 'completed'],
+        ['session-open', 'failed'],
+      ]),
+    )
+  })
+
+  it('leaves the desktop prompt bar unlocked', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(STEPS)
+    void tasks.runSteps('Intel news')
+    await turnIdOf(0)
+
+    expect(tasks.isSessionLockedByTask('session-open')).toBe(false)
+    expect(tasks.taskLockingSession('session-open')).toBeUndefined()
   })
 })

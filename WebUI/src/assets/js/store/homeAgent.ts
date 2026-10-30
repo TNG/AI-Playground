@@ -9,12 +9,16 @@ import { usePromptStore } from './promptArea'
 import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
 import { usePresets } from './presets'
 import { useConfirmations } from './confirmations'
-import { useActivities } from './activities'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
-import { parseConfirmationReply } from './confirmationReply'
-import { fetchModelMeta, runModelDownload } from '@/lib/modelDownloader'
+import { fetchModelMeta } from '@/lib/modelDownloader'
 import type { IpcMutationResult } from '@/types/ipcChannels'
+import type { NotificationRoute } from '@/types/notificationsIpc'
+import {
+  canDeliverNotifications,
+  resolveNotificationChannel,
+  usableNotificationChannels,
+} from '@/lib/notificationChannel'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
@@ -49,7 +53,6 @@ import {
   type RemoteDocument,
   type KeyboardButton,
   type ChannelQueueItem,
-  type ChannelMessageRef,
 } from './channels/types'
 import type { ChannelAdapter, RawPart } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
@@ -58,7 +61,31 @@ import { useErrors } from './errors'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
-import { registerRemoteTurnPort } from '@/assets/js/permissions/remoteTurnPort'
+import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
+import { createAnswerRouter } from './channels/answerRouter'
+import { answerSessions } from './channels/answerSessionsPort'
+import { heldAnswerJournal } from './channels/heldAnswerJournal'
+import {
+  closeDownloadMessages,
+  postDownloadMessage,
+  runHeadlessDownload,
+  trackModelDownload,
+  type HeadlessDownloadText,
+} from './channels/headlessDownload'
+import {
+  modelDownloads,
+  throwUnlessDone,
+  type ModelDownloadOutcome,
+} from '../models/modelDownloadQueue'
+import { holdOpenDownloadQuestion } from '../models/openDownloadQuestions'
+import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
+import { fillTemplate } from '@/lib/notificationLabel'
+import { answerHelpLine } from '@/lib/answerRouterWording'
+import {
+  registerRemoteTurnPort,
+  type ChannelQuestionOutcome,
+  type DownloadChannelQuestion,
+} from '@/assets/js/permissions/remoteTurnPort'
 
 // ── Channel registry ────────────────────────────────────────────────────────
 // Kinds we manage in this store. Adding a fourth one means appending to this
@@ -85,8 +112,6 @@ const CONFIRM_TIMEOUT_MS = 2 * 60_000
 const SETTINGS_CONFIRM_TITLE = 'Apply Home Agent settings?'
 /** Title shown on the inline desktop confirmation card for remote downloads. */
 const DOWNLOAD_CONFIRM_TITLE = 'Download model?'
-/** Min gap between in-channel download progress draft updates. */
-const DOWNLOAD_DRAFT_THROTTLE_MS = 3000
 
 /** Module-level so Vite HMR does not orphan intervals across Pinia setup
  *  closures. Indexed by ChannelKind so adding a kind = one map entry. */
@@ -161,6 +186,11 @@ export const useHomeAgent = defineStore(
       'local-web': emptyPrefs(),
     })
 
+    /** Falls back to the default order while the pick is disabled or unverified. */
+    const chosenNotificationChannel = ref<ChannelKind | null>(null)
+    /** Background agent runs notify on their own when they need the user. */
+    const autoNotify = ref(true)
+
     // Runtime-only per-channel state (secret config + derived `active`). Never
     // persisted; rebuilt on launch from safeStorage + channelPrefs.
     const channels = reactive<Record<ChannelKind, ChannelRuntimeState>>({
@@ -227,44 +257,18 @@ export const useHomeAgent = defineStore(
       checkpoint?: () => Promise<void>
     } | null = null
 
-    /**
-     * In-flight in-channel confirmations keyed by channel kind. Resolved by the
-     * next inbound yes/no reply (intercepted in `processChannelMessages` so it
-     * never blocks on the busy drain loop) or by timeout.
-     */
-    type PendingConfirmation = {
-      resolve: (_v: boolean) => void
-      timeoutId: ReturnType<typeof setTimeout>
-      adapter: ChannelAdapter
-      meta?: InboundMeta
-      summaryMarkdown: string
-      // Handle to the posted button message, set once the keyboard send round-
-      // trips. Lets us edit the prompt in place (drop the buttons, show the
-      // outcome) when the confirmation settles.
-      ref?: ChannelMessageRef
-    }
-    const pendingConfirmations: Partial<Record<ChannelKind, PendingConfirmation>> = {}
+    const channelQuestions = createChannelQuestionRegistry({
+      staleReply: () => channelQuestionTemplates().stale,
+    })
 
-    function settleConfirmation(kind: ChannelKind, answer: boolean, outcomeNote?: string): void {
-      const pending = pendingConfirmations[kind]
-      if (!pending) return
-      clearTimeout(pending.timeoutId)
-      delete pendingConfirmations[kind]
-      // Settle the interactive prompt in place: replace the buttons with the
-      // outcome so it no longer looks tappable/pending. Best-effort — a failed
-      // edit must not block resolving the confirmation.
-      if (pending.ref) {
-        const outcome = outcomeNote ?? (answer ? '✅ Confirmed.' : '❌ Cancelled.')
-        pending.adapter
-          .editKeyboardMessage(
-            pending.ref,
-            pending.adapter.formatMarkdown(`${pending.summaryMarkdown}\n\n${outcome}`),
-            pending.meta,
-          )
-          .catch((e: unknown) => console.error('homeAgent: confirmation settle edit failed:', e))
-      }
-      pending.resolve(answer)
-    }
+    const answerRouter = createAnswerRouter({
+      sessions: answerSessions,
+      questions: channelQuestions,
+      transcribe: (adapter, audio, meta) => transcribeRemoteAudio(adapter, audio, meta),
+      downloadQuestionChannel: () => questionChannel.value,
+      journal: heldAnswerJournal,
+      log: (message, error) => reportSilently(message, error),
+    })
 
     /** Visibility flag for the dedicated Home Agent inference settings panel. */
     const showSettings = ref(false)
@@ -334,6 +338,16 @@ export const useHomeAgent = defineStore(
       { immediate: true, deep: true },
     )
 
+    const notificationRoute = computed<NotificationRoute>(() => ({
+      homeAgentEnabled: isAvailable.value && masterEnabled.value,
+      notificationChannel: resolveNotificationChannel(
+        channelPrefs,
+        chosenNotificationChannel.value,
+      ),
+    }))
+    const notificationChannelOptions = computed(() => usableNotificationChannels(channelPrefs))
+    const notificationsReady = computed(() => canDeliverNotifications(notificationRoute.value))
+
     // When the backend + channel credentials are ready, inject so the bot
     // starts (or restarts if creds changed). One watcher per kind so each
     // can decide its own "credentials ready" predicate without coupling.
@@ -396,7 +410,7 @@ export const useHomeAgent = defineStore(
     const LOAD_BARE_REGEX = /^\/load\s*$/i
     const RESET_REGEX = /^\/reset(?:Config)?\s*$/i
 
-    const HELP_MESSAGE =
+    const helpMessage = (kind: ChannelKind) =>
       '🤖 <b>Available commands</b>\n\n' +
       '/imgGen\n' +
       'Open the image-generation picker. Tap a preset, then send your prompt as the next message.\n' +
@@ -418,6 +432,7 @@ export const useHomeAgent = defineStore(
       '/help\n' +
       'Show this help message.\n\n' +
       'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.\n\n' +
+      answeringHelp(kind) +
       '📷 <b>Photos</b>\n' +
       'Send a photo (with or without a caption) and the AI will answer based on what it sees. ' +
       'Requires a <b>vision-capable model</b> selected in Chat settings.\n\n' +
@@ -428,6 +443,11 @@ export const useHomeAgent = defineStore(
       '📄 <b>Documents</b>\n' +
       'Send a <code>txt</code>, <code>md</code>, <code>doc</code>, <code>docx</code> or <code>pdf</code> file and it is added to the knowledge base. ' +
       'Future questions are answered using the content of the documents you upload.'
+
+    function answeringHelp(kind: ChannelKind): string {
+      const line = answerHelpLine(kind)
+      return line ? `💬 ${escapeHtml(line)}\n\n` : ''
+    }
 
     function resolveLoadTarget(idArg: string): string | null {
       const items = listRemoteConversations()
@@ -711,82 +731,31 @@ export const useHomeAgent = defineStore(
       await reply(adapter, `⚠️ ${escapeHtml(message)}`, meta)
     }
 
-    /**
-     * Ask the user to confirm a settings change over the active channel.
-     * Posts the summary, then resolves with the next yes/no reply (intercepted
-     * in `processChannelMessages`) or `false` on timeout.
-     */
+    /** In-turn confirmation over the active channel: buttons or a typed yes/no, declined on timeout. */
     function requestRemoteConfirmation(
       adapter: ChannelAdapter,
       summaryMarkdown: string,
       meta?: InboundMeta,
-    ): Promise<boolean> {
-      const kind = adapter.kind
-      // Cancel any earlier pending confirmation on this channel.
-      settleConfirmation(kind, false)
-      return new Promise<boolean>((resolve) => {
-        const timeoutId = setTimeout(() => {
-          const pending = pendingConfirmations[kind]
-          delete pendingConfirmations[kind]
-          // Settle the prompt visually in place when possible, else fall back
-          // to a fresh message.
-          if (pending?.ref) {
-            adapter
-              .editKeyboardMessage(
-                pending.ref,
-                adapter.formatMarkdown(`${summaryMarkdown}\n\n⌛ No response — cancelled.`),
-                meta,
-              )
-              .catch((e: unknown) =>
-                console.error('homeAgent: confirmation timeout edit failed:', e),
-              )
-          } else {
-            reply(adapter, '⌛ No response — cancelled.', meta).catch((e: unknown) =>
-              console.error('homeAgent: confirmation timeout reply failed:', e),
-            )
-          }
-          resolve(false)
-        }, CONFIRM_TIMEOUT_MS)
-        const entry: PendingConfirmation = {
-          resolve,
-          timeoutId,
-          adapter,
-          meta,
-          summaryMarkdown,
-        }
-        pendingConfirmations[kind] = entry
-        // Interactive buttons instead of a typed yes/no reply: a tap resolves
-        // the confirmation (intercepted in processChannelMessages) and the
-        // prompt is edited in place to show the outcome.
-        const buttons: KeyboardButton[][] = [
-          [
-            { text: '✅ Confirm', callbackData: 'confirm:yes' },
-            { text: '✖ Cancel', callbackData: 'confirm:no' },
-          ],
-        ]
-        ;(async () => {
-          // Freeze the in-progress streamed reply first so the prompt (and any
-          // follow-up content) lands below a settled message rather than having
-          // the message above it rewritten when the turn finalizes.
-          try {
-            await activeRemoteTurn?.checkpoint?.()
-          } catch (e) {
-            console.error('homeAgent: confirmation checkpoint failed:', e)
-          }
-          try {
-            const res = await adapter.keyboard(
-              adapter.formatMarkdown(summaryMarkdown),
-              buttons,
-              meta,
-            )
-            // The user may answer before the send round-trips; only keep the ref
-            // if this confirmation is still the pending one.
-            if (res.ref && pendingConfirmations[kind] === entry) entry.ref = res.ref
-          } catch {
-            // best-effort
-          }
-        })().catch((e: unknown) => console.error('homeAgent: confirmation prompt failed:', e))
+    ) {
+      return channelQuestions.ask({
+        adapter,
+        meta,
+        summaryMarkdown,
+        typedReply: true,
+        timeoutMs: CONFIRM_TIMEOUT_MS,
+        beforeSend: async () => {
+          // Freeze the streamed reply so the prompt lands below a settled message.
+          await activeRemoteTurn?.checkpoint?.()
+        },
       })
+    }
+
+    function settleFromDesktop(id: string, answer: boolean): void {
+      channelQuestions.settle(
+        id,
+        answer,
+        answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
+      )
     }
 
     /**
@@ -815,18 +784,9 @@ export const useHomeAgent = defineStore(
           channelLabel: kind,
         })
         const channel = requestRemoteConfirmation(turn.adapter, summaryMarkdown, turn.meta)
-        const answer = await Promise.race([mirror, channel])
-        // If the desktop card answered first the channel is still waiting:
-        // settle it and edit the in-channel prompt in place to note the desktop
-        // origin. (The channel-answered and timeout paths already delete their
-        // own pending entry + settle the prompt.)
-        if (pendingConfirmations[kind]) {
-          settleConfirmation(
-            kind,
-            answer,
-            answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
-          )
-        }
+        const answer = await Promise.race([mirror, channel.answer])
+        // A no-op when the channel answered or timed out first.
+        settleFromDesktop(channel.id, answer)
         // Remove the mirror card if it is still showing (channel/timeout win).
         confirmations.cancelForConversation(conversationKey, answer)
         return answer
@@ -847,12 +807,16 @@ export const useHomeAgent = defineStore(
       return activeRemoteTurn !== null
     }
 
-    /** Ask the remote user (mirrored on the desktop) to approve a download. */
+    /**
+     * Ask the remote user (mirrored on the desktop) to approve a download. `closedBy`
+     * answers it for them with a note, once a yes elsewhere downloads it all.
+     */
     async function requestDownloadConfirmation(
       turn: { adapter: ChannelAdapter; meta?: InboundMeta },
       conversationKey: string,
       summaryMarkdown: string,
-    ): Promise<boolean> {
+      closedBy: Promise<string>,
+    ): Promise<boolean | 'closed'> {
       const kind = turn.adapter.kind
       const mirror = confirmations.request({
         conversationKey,
@@ -862,14 +826,17 @@ export const useHomeAgent = defineStore(
         channelLabel: kind,
       })
       const channel = requestRemoteConfirmation(turn.adapter, summaryMarkdown, turn.meta)
-      const answer = await Promise.race([mirror, channel])
-      if (pendingConfirmations[kind]) {
-        settleConfirmation(
-          kind,
-          answer,
-          answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
-        )
+      const answer = await Promise.race([
+        mirror,
+        channel.answer,
+        closedBy.then((note) => ({ note })),
+      ])
+      if (typeof answer === 'object') {
+        channelQuestions.settle(channel.id, false, answer.note)
+        confirmations.cancelForConversation(conversationKey, false)
+        return 'closed'
       }
+      settleFromDesktop(channel.id, answer)
       confirmations.cancelForConversation(conversationKey, answer)
       return answer
     }
@@ -879,14 +846,15 @@ export const useHomeAgent = defineStore(
      * models during a remote turn (no desktop user to drive the modal). Declines
      * gated models that need browser interaction, asks approval in-channel
      * (mirrored on the desktop) unless the caller passes a pre-grant's
-     * `skipConfirmation`, then runs the download headlessly with progress
-     * streamed to both the channel and the desktop activity sink. Resolves on
+     * `skipConfirmation`, then waits on a Model Download in the shared queue with
+     * one edited progress message (`runHeadlessDownload`). Models another Model
+     * Download already covers are joined, not asked about again. Resolves on
      * success; throws (silent/cancelled AppError) on decline or failure so the
      * caller's `reject` unwinds the inference attempt cleanly.
      */
     async function handleRemoteModelDownload(
       list: DownloadModelParam[],
-      options?: { skipConfirmation?: boolean },
+      options?: { skipConfirmation?: boolean; signal?: AbortSignal },
     ): Promise<void> {
       const turn = activeRemoteTurn
       if (!turn) {
@@ -900,91 +868,277 @@ export const useHomeAgent = defineStore(
       const { adapter, meta } = turn
       const globalSetup = useGlobalSetup()
       const models = useModels()
-      const activities = useActivities()
       const conversationKey = conversations.activeKey
-
-      let metaList
+      const waiter = modelDownloads().waiter(conversationKey)
+      const leave = () => waiter.detach()
+      options?.signal?.addEventListener('abort', leave, { once: true })
+      if (options?.signal?.aborted) leave()
       try {
-        metaList = await fetchModelMeta(list, {
-          apiHost: globalSetup.apiHost,
-          hfToken: models.hfToken,
-        })
-      } catch (e) {
-        await reply(adapter, '⚠️ Could not check the required model download. Try again.', meta)
-        throw createAppError({
-          category: 'inference',
-          code: 'model/download-meta-failed',
-          userMessage: 'Could not check the required model download.',
-          surface: 'silent',
-          cause: e,
-        })
-      }
-
-      const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
-      if (blocked.length > 0) {
-        const names = blocked.map((m) => m.repo_id).join(', ')
-        await reply(
-          adapter,
-          `🔒 ${names} ${blocked.length === 1 ? 'is gated' : 'are gated'} and can't be downloaded remotely. Open AI Playground on your computer to accept the license / set a Hugging Face token, then try again.`,
-          meta,
+        // Models another Model Download already covers are waited on, never asked again.
+        const toAsk = waiter.attach(list)
+        const joined = toAsk.length > 0 && (await approveRemoteDownload(toAsk)) === 'joined'
+        await runHeadlessDownload(
+          {
+            adapter,
+            meta,
+            list: joined ? [] : toAsk,
+            waiter,
+            label: channelQuestionTemplates().forHomeAgent,
+          },
+          { queue: modelDownloads(), log: reportSilently },
         )
-        throw createCancellation({
-          technicalMessage: `gated model(s) not downloadable remotely: ${names}`,
+      } catch (e) {
+        leave()
+        throw e
+      } finally {
+        options?.signal?.removeEventListener('abort', leave)
+      }
+
+      async function approveRemoteDownload(
+        toDownload: DownloadModelParam[],
+      ): Promise<'approved' | 'joined'> {
+        let metaList
+        try {
+          metaList = await fetchModelMeta(toDownload, {
+            apiHost: globalSetup.apiHost,
+            hfToken: models.hfToken,
+          })
+        } catch (e) {
+          await reply(adapter, '⚠️ Could not check the required model download. Try again.', meta)
+          throw createAppError({
+            category: 'inference',
+            code: 'model/download-meta-failed',
+            userMessage: 'Could not check the required model download.',
+            surface: 'silent',
+            cause: e,
+          })
+        }
+
+        const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
+        if (blocked.length > 0) {
+          const names = blocked.map((m) => m.repo_id).join(', ')
+          await reply(adapter, gatedDownloadText(blocked), meta)
+          throw createCancellation({
+            technicalMessage: `gated model(s) not downloadable remotely: ${names}`,
+          })
+        }
+
+        const summaryLines = metaList.map(
+          (m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`,
+        )
+        const summaryMarkdown = `I need to download ${metaList.length === 1 ? 'a model' : `${metaList.length} models`} before I can answer:\n${summaryLines.join('\n')}`
+        if (options?.skipConfirmation === true) return 'approved'
+        let join: (label: string) => void = () => {}
+        const joined = new Promise<string>((resolve) => {
+          join = (label) =>
+            resolve(fillTemplate(channelQuestionTemplates().alreadyDownloadingFor, { label }))
         })
-      }
-
-      const summaryLines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
-      const summaryMarkdown = `I need to download ${metaList.length === 1 ? 'a model' : `${metaList.length} models`} before I can answer:\n${summaryLines.join('\n')}`
-      const approved =
-        options?.skipConfirmation === true ||
-        (await requestDownloadConfirmation(turn, conversationKey, summaryMarkdown))
-      if (!approved) {
-        throw createCancellation({ technicalMessage: 'remote model download declined' })
-      }
-
-      const activityId = activities.begin({
-        category: 'backend',
-        label: 'Downloading model…',
-        scope: { kind: 'chat', conversationKey },
-        progress: 0,
-      })
-      const draft = draftStream(adapter, meta)
-      let lastChannelUpdate = 0
-      try {
-        await runModelDownload(list, {
-          apiHost: globalSetup.apiHost,
-          hfToken: models.hfTokenIsValid ? models.hfToken : undefined,
-          onProgress: (p) => {
-            activities.update(activityId, {
-              label: `Downloading ${p.repoId}… (${p.completed}/${p.total})`,
-              progress: Math.max(0, Math.min(1, p.percent / 100)),
-            })
-            const now = Date.now()
-            if (p.speed !== undefined && now - lastChannelUpdate > DOWNLOAD_DRAFT_THROTTLE_MS) {
-              lastChannelUpdate = now
-              draft.update(
-                `⬇️ Downloading \`${p.repoId}\` — ${p.percent}% (${p.completed}/${p.total} models)`,
+        // A Model Download it already waits on was cancelled or failed mid-question.
+        let endedEarly = null as ModelDownloadOutcome | null
+        const ended = waiter.settled.then((outcome) => {
+          endedEarly = outcome
+          return channelQuestionTemplates().cancelledInApp
+        })
+        const stopHolding = holdOpenDownloadQuestion({ waiter, models: toDownload, join })
+        try {
+          const answer = await requestDownloadConfirmation(
+            { adapter, meta },
+            conversationKey,
+            summaryMarkdown,
+            Promise.race([joined, ended]),
+          )
+          if (answer === 'closed') {
+            if (endedEarly) {
+              throwUnlessDone(endedEarly, () =>
+                createCancellation({ technicalMessage: 'remote model download cancelled' }),
               )
             }
-          },
-          onModelCompleted: () => {
-            models.refreshModels()
-          },
+            return 'joined'
+          }
+          if (!answer) {
+            throw createCancellation({ technicalMessage: 'remote model download declined' })
+          }
+          return 'approved'
+        } finally {
+          stopHolding()
+        }
+      }
+    }
+
+    function gatedDownloadText(blocked: { repo_id: string }[]): string {
+      const names = blocked.map((m) => m.repo_id).join(', ')
+      return `🔒 ${names} ${blocked.length === 1 ? 'is gated' : 'are gated'} and can't be downloaded remotely. Open AI Playground on your computer to accept the license / set a Hugging Face token, then try again.`
+    }
+
+    function channelQuestionNote(outcome: ChannelQuestionOutcome): string {
+      const text = channelQuestionTemplates()
+      if (typeof outcome === 'object') {
+        return fillTemplate(text.alreadyDownloadingFor, { label: outcome.alreadyDownloadingFor })
+      }
+      switch (outcome) {
+        case 'answered-in-app':
+          return text.answeredInApp
+        case 'declined-in-app':
+          return text.declinedInApp
+        case 'closed':
+          return text.closed
+        case 'unavailable':
+          return text.unavailable
+      }
+    }
+
+    function downloadText(label: string): HeadlessDownloadText {
+      const text = channelQuestionTemplates()
+      return {
+        queued: text.queued,
+        starting: text.starting,
+        progress: (p) =>
+          fillTemplate(text.progress, {
+            model: p.repoId,
+            percent: String(p.percent),
+            completed: String(p.completed),
+            total: String(p.total),
+          }),
+        complete: fillTemplate(text.complete, { label }),
+        failed: (error) => fillTemplate(text.failed, { label, error }),
+        cancelled: text.cancelledInApp,
+      }
+    }
+
+    function reportSilently(message: string, error: unknown): void {
+      errors.report(error, { surface: 'silent', technicalMessage: message })
+    }
+
+    function canAskChannelQuestion(): boolean {
+      return notificationsReady.value && autoNotify.value
+    }
+
+    const questionChannel = computed(() =>
+      canAskChannelQuestion() ? notificationRoute.value.notificationChannel : null,
+    )
+
+    // A channel the user left must not download anything; the desktop keeps asking.
+    watch(questionChannel, (kind) =>
+      channelQuestions.retireOutside(kind, channelQuestionNote('unavailable')),
+    )
+
+    window.addEventListener('beforeunload', () => {
+      closeDownloadMessages(channelQuestionTemplates().appClosed)
+      channelQuestions.retireOutside(null, channelQuestionNote('closed'))
+    })
+
+    /** An Agent Mode download asked in the Paired Chat; buttons only, no timeout (docs/adr/0004). */
+    function askDownloadQuestion(
+      list: DownloadModelParam[],
+      context: {
+        label: string
+        conversationKey: string
+        alreadyDownloading?: DownloadModelParam[]
+      },
+    ): DownloadChannelQuestion {
+      const kind = questionChannel.value
+      const adapter = kind ? adapters[kind] : null
+      let retired: ChannelQuestionOutcome | null = null
+      let asked: ChannelQuestion | null = null
+      // A desktop yes that came before the question reached the channel.
+      let answeredEarly: string | null = null
+      const never = new Promise<boolean>(() => {})
+
+      const answer = (async (): Promise<boolean> => {
+        if (!adapter) return never
+        const globalSetup = useGlobalSetup()
+        const models = useModels()
+        let metaList
+        try {
+          metaList = await fetchModelMeta(list, {
+            apiHost: globalSetup.apiHost,
+            hfToken: models.hfToken,
+          })
+        } catch (e) {
+          errors.report(e, { surface: 'silent' })
+          if (!retired) {
+            await reply(
+              adapter,
+              fillTemplate(channelQuestionTemplates().lookupFailed, {
+                label: escapeHtml(context.label),
+              }),
+            ).catch((err: unknown) => errors.report(err, { surface: 'silent' }))
+          }
+          return never
+        }
+        // The channel may have been left while the model sizes were looked up.
+        if (retired || questionChannel.value !== kind) return never
+        const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
+        if (blocked.length > 0) {
+          const gated = fillTemplate(channelQuestionTemplates().gated, {
+            label: escapeHtml(context.label),
+            models: escapeHtml(blocked.map((m) => m.repo_id).join(', ')),
+          })
+          await reply(adapter, gated).catch((err: unknown) =>
+            errors.report(err, { surface: 'silent' }),
+          )
+          return never
+        }
+        const text = channelQuestionTemplates()
+        const lines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
+        const heading = fillTemplate(metaList.length === 1 ? text.askOne : text.askMany, {
+          label: context.label,
+          count: String(metaList.length),
         })
-        await draft.finalize('✅ Download complete.')
-      } catch (e) {
-        draft.cancel()
-        const message = isAppError(e) ? e.userMessage : extractMessage(e)
-        await reply(adapter, `⚠️ The model download failed: ${escapeHtml(message)}`, meta)
-        throw createAppError({
-          category: 'inference',
-          code: 'model/download-failed',
-          userMessage: 'The model download failed.',
-          surface: 'silent',
-          cause: e,
+        const already = context.alreadyDownloading ?? []
+        const alreadyLine = already.length
+          ? `\n${fillTemplate(text.alreadyDownloading, {
+              models: already.map((m) => `\`${m.repo_id}\``).join(', '),
+            })}`
+          : ''
+        const summaryMarkdown = `${heading}\n${lines.join('\n')}${alreadyLine}`
+        if (answeredEarly) {
+          // No buttons to answer any more: the message only follows the download.
+          const prefix = channelQuestionNote('answered-in-app')
+          const posted = postDownloadMessage(
+            adapter,
+            `${summaryMarkdown}\n\n${prefix}`,
+            undefined,
+            reportSilently,
+          )
+          followDownload(
+            answeredEarly,
+            (note) => posted.edit(`${summaryMarkdown}\n\n${note}`),
+            prefix,
+          )
+          return never
+        }
+        asked = channelQuestions.ask({ adapter, summaryMarkdown, labels: text })
+        return asked.answer
+      })()
+
+      function followDownload(downloadId: string, edit: (note: string) => void, prefix?: string) {
+        trackModelDownload({
+          queue: modelDownloads(),
+          downloadId,
+          message: { edit },
+          text: downloadText(context.label),
+          prefix,
         })
-      } finally {
-        activities.end(activityId)
+      }
+
+      return {
+        answer,
+        follow: (downloadId, options) => {
+          const question = asked
+          if (!question) {
+            answeredEarly = downloadId
+            return
+          }
+          const prefix = options?.answeredInApp ? channelQuestionNote('answered-in-app') : undefined
+          if (prefix) channelQuestions.retire(question.id, prefix)
+          followDownload(downloadId, question.edit, prefix)
+        },
+        retire: (outcome) => {
+          if (retired) return
+          retired = outcome
+          if (asked) channelQuestions.retire(asked.id, channelQuestionNote(outcome))
+        },
       }
     }
 
@@ -2117,7 +2271,7 @@ export const useHomeAgent = defineStore(
           try {
             if (HELP_REGEX.test(text)) {
               focusRemoteChatDiscussion()
-              await reply(adapter, HELP_MESSAGE, meta)
+              await reply(adapter, helpMessage(adapter.kind), meta)
             } else if (RESET_REGEX.test(text)) {
               resetHomeAgentConfig()
               await reply(adapter, '♻️ Home Agent settings restored to defaults.', meta)
@@ -2220,28 +2374,29 @@ export const useHomeAgent = defineStore(
     async function processChannelMessages(kind: ChannelKind) {
       try {
         const msgs = await window.electronAPI.homeAgent.channel.poll(kind)
+        const adapter = adapters[kind]
+        if (adapter) await answerRouter.channelReady(adapter)
         if (!msgs || msgs.length === 0) return
         const queue = messageQueues[kind]
         for (const msg of msgs) {
-          // Resolve a pending settings/download confirmation here (independent of
-          // the busy drain loop, which is blocked awaiting this very answer).
-          if (pendingConfirmations[kind]) {
-            // Primary path: an interactive Confirm/Cancel button tap.
-            if (msg.callback === 'confirm:yes' || msg.callback === 'confirm:no') {
-              settleConfirmation(kind, msg.callback === 'confirm:yes')
-              continue
-            }
-            // Fallback path: a typed yes/no reply. A recognized answer is
-            // consumed; anything else cancels the change and falls through as a
-            // normal message.
-            if (!msg.callback) {
-              const answer = parseConfirmationReply(msg.text ?? '')
-              if (answer !== null) {
-                settleConfirmation(kind, answer)
-                continue
-              }
-              settleConfirmation(kind, false)
-            }
+          // Threaded so adapters can target reactions / threaded sends at the originating message.
+          const meta =
+            msg.channel || msg.ts || msg.chat_id
+              ? { channel: msg.channel, ts: msg.ts, chatId: msg.chat_id }
+              : undefined
+          // Answered here, not in the drain loop, which is blocked awaiting this very answer.
+          if (
+            adapter &&
+            (await answerRouter.route(
+              adapter,
+              { ...msg, replyTo: msg.reply_to, replyTarget: msg.reply_target },
+              meta,
+            ))
+          )
+            continue
+          if (msg.refused) {
+            if (adapter) await reply(adapter, escapeHtml(msg.refused), meta)
+            continue
           }
           if (queue.length >= MAX_QUEUE_SIZE) {
             toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
@@ -2253,13 +2408,7 @@ export const useHomeAgent = defineStore(
             audio: msg.audio,
             documents: msg.documents,
             callback: msg.callback,
-            // Thread inbound metadata so adapters can target reactions /
-            // threaded sends at the originating message (only Slack uses this
-            // today; benign for Telegram).
-            meta:
-              msg.channel || msg.ts || msg.chat_id
-                ? { channel: msg.channel, ts: msg.ts, chatId: msg.chat_id }
-                : undefined,
+            meta,
           })
         }
         drainCommonQueue(kind).catch((e: unknown) =>
@@ -2431,6 +2580,8 @@ export const useHomeAgent = defineStore(
     registerRemoteTurnPort({
       isActive: () => isRemoteTurnActive(),
       downloadModels: (models, options) => handleRemoteModelDownload(models, options),
+      canAskChannelQuestion,
+      askDownloadQuestion,
     })
 
     // ── Read-only convenience getters ───────────────────────────────────────
@@ -2446,6 +2597,11 @@ export const useHomeAgent = defineStore(
       // Master title-bar switch + persisted per-channel prefs.
       masterEnabled,
       channelPrefs,
+      chosenNotificationChannel,
+      autoNotify,
+      notificationRoute,
+      notificationChannelOptions,
+      notificationsReady,
       // Runtime channel state map (secrets + derived `active`); in-memory only.
       channels,
       // Read-only per-kind convenience getters over channelPrefs.
@@ -2493,7 +2649,14 @@ export const useHomeAgent = defineStore(
       // safeStorage by initConfig() and never serialized here.
       // activeRemoteConversationKey persisted so /load <id> survives restart.
       // summaryCache persisted so /load menu summaries survive restarts.
-      pick: ['masterEnabled', 'channelPrefs', 'activeRemoteConversationKey', 'summaryCache'],
+      pick: [
+        'masterEnabled',
+        'channelPrefs',
+        'chosenNotificationChannel',
+        'autoNotify',
+        'activeRemoteConversationKey',
+        'summaryCache',
+      ],
     },
   },
 )

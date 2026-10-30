@@ -82,6 +82,15 @@ def _password_bytes(password: str) -> bytes:
     return unicodedata.normalize("NFC", password).encode("utf-8")
 
 
+def _message_ref(raw: object) -> int | None:
+    """A page message id from a number or its decimal string, else None."""
+    if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+        raw = int(raw)
+    if isinstance(raw, int) and not isinstance(raw, bool) and 0 < raw < 2**53:
+        return raw
+    return None
+
+
 class _BodyError(Exception):
     """A request body we refuse to read (too large, or not length-delimited).
 
@@ -109,6 +118,10 @@ class LocalWebChannel(ChannelBase):
         # Set of live SSE client queues; broadcast() fans events out to each.
         self._sse_clients: set[queue.Queue] = set()
         self._sse_lock = threading.Lock()
+        self._message_id_lock = threading.Lock()
+        # Random start: the message map outlives a restart, so ids must not repeat
+        # across runs. Kept below 2**53 so the page's numbers stay exact.
+        self._last_message_id = secrets.randbelow(2**48)
         # Session ids that have authenticated with the password, each mapped to
         # the monotonic deadline at which it stops being valid.
         self._sessions: dict[str, float] = {}
@@ -217,7 +230,7 @@ class LocalWebChannel(ChannelBase):
         return {"status": "ok"}
 
     def send_reply(self, payload: dict) -> SendResult:
-        return self._broadcast("reply", payload)
+        return self._send_with_id("reply", {"text": payload.get("text", "")}, payload)
 
     def send_update(self, payload: dict) -> SendResult:
         return self._broadcast("update", payload)
@@ -231,20 +244,23 @@ class LocalWebChannel(ChannelBase):
             or payload.get("imageBase64")
             or ""
         )
-        return self._broadcast(
-            "photo", {"base64": base64_data, "caption": payload.get("caption", "")}
+        return self._send_with_id(
+            "photo",
+            {"base64": base64_data, "caption": payload.get("caption", "")},
+            payload,
         )
 
     def send_video(self, payload: dict) -> SendResult:
         # The browser renders a native <video> from the base64 payload.
         base64_data = payload.get("base64") or payload.get("video") or ""
-        return self._broadcast(
+        return self._send_with_id(
             "video",
             {
                 "base64": base64_data,
                 "caption": payload.get("caption", ""),
                 "filename": payload.get("filename", ""),
             },
+            payload,
         )
 
     def send_voice(self, payload: dict) -> SendResult:
@@ -278,24 +294,51 @@ class LocalWebChannel(ChannelBase):
             "typing", {"state": "stop" if raw == "stop" else "start"}
         )
 
-    def send_keyboard(self, payload: dict) -> SendResult:
-        result = self._broadcast(
-            "keyboard",
-            {"text": payload.get("text", ""), "buttons": payload.get("buttons", [])},
-        )
-        # Match the other channels' contract: return a handle the renderer can
-        # use to settle the prompt in place. The browser edits by re-rendering,
-        # so any stable ref works.
+    def _message_id(self) -> int:
+        with self._message_id_lock:
+            self._last_message_id += 1
+            return self._last_message_id
+
+    def _send_with_id(
+        self, action: str, event: dict, payload: dict | None = None
+    ) -> SendResult:
+        message_id = self._message_id()
+        reply_to = _message_ref((payload or {}).get("reply_to"))
+        if reply_to is not None:
+            event = {**event, "replyTo": reply_to}
+        result = self._broadcast(action, {**event, "id": message_id})
+        # Match the other channels' contract: a handle the renderer edits the
+        # message by. The page tags the bubble with it.
         if "error" not in result:
-            result["message_id"] = 0
+            result["message_id"] = message_id
         return result
 
+    def send_keyboard(self, payload: dict) -> SendResult:
+        event: dict = {
+            "text": payload.get("text", ""),
+            "buttons": payload.get("buttons", []),
+        }
+        # The session an Answer button answers, shown in the page's composer chip.
+        title = payload.get("answer_title")
+        if isinstance(title, str) and title:
+            event["answerTitle"] = title
+        return self._send_with_id("keyboard", event, payload)
+
+    def send_post(self, payload: dict) -> SendResult:
+        # Its own action rather than a reply: a reply settles the streaming draft
+        # bubble, and this message must never take over a Home Agent answer.
+        return self._send_with_id("post", {"text": payload.get("text", "")}, payload)
+
     def send_edit_message(self, payload: dict) -> SendResult:
-        # SSE has no in-place edit, but this call still means "that interactive
-        # prompt is settled" — so it travels as its own action and the page retires
-        # the live buttons before posting the outcome. Sending it as a plain reply
-        # would leave a tappable, already-answered prompt behind.
-        return self._broadcast("editMessage", {"text": payload.get("text", "")})
+        # SSE has no in-place edit, so the page edits the bubble it tagged with
+        # this id and retires its buttons. Without an id it still means "that
+        # interactive prompt is settled": the page retires every live prompt and
+        # posts the outcome, rather than leave a tappable, answered prompt behind.
+        event: dict = {"text": payload.get("text", "")}
+        raw_id = _message_ref(payload.get("message_id", payload.get("messageId")))
+        if raw_id is not None:
+            event["id"] = raw_id
+        return self._broadcast("editMessage", event)
 
     def send_history(self, payload: dict) -> SendResult:
         # Repaint the browser log with a conversation's full transcript. Unlike
@@ -403,8 +446,17 @@ class LocalWebChannel(ChannelBase):
         images: list | None = None,
         audio: list | None = None,
         documents: list | None = None,
-    ) -> None:
-        item: dict = {"chat_id": client_id, "channel": "local-web"}
+        reply_to: int | None = None,
+    ) -> int:
+        """Queue one inbound message and return the id the page tags its bubble with."""
+        message_id = self._message_id()
+        item: dict = {
+            "chat_id": client_id,
+            "channel": "local-web",
+            "reply_target": str(message_id),
+        }
+        if reply_to is not None:
+            item["reply_to"] = str(reply_to)
         if text is not None:
             item["text"] = text
         if callback is not None:
@@ -419,6 +471,7 @@ class LocalWebChannel(ChannelBase):
         if documents:
             item["documents"] = documents
         self.queue_append(item)
+        return message_id
 
     def _register_sse(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=256)
@@ -719,15 +772,16 @@ class _LocalWebRequestHandler(BaseHTTPRequestHandler):
                 value = body.get(key)
                 return value if isinstance(value, list) and value else None
 
-            channel._enqueue_inbound(
+            message_id = channel._enqueue_inbound(
                 text if isinstance(text, str) else None,
                 callback if isinstance(callback, str) else None,
                 self._client_id(),
                 images=_list("images"),
                 audio=_list("audio"),
                 documents=_list("documents"),
+                reply_to=_message_ref(body.get("replyTo")),
             )
-            self._send_json(HTTPStatus.OK, {"ok": True})
+            self._send_json(HTTPStatus.OK, {"ok": True, "id": message_id})
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 

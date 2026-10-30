@@ -176,6 +176,23 @@ import {
 } from './permissions/promptAdapter'
 import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
+  setNotificationChannel,
+  setNotificationConfig,
+  setNotificationWindowShown,
+  startAutoNotifications,
+} from './agent/notifier'
+import { homeAgentNotificationChannel } from './agent/notificationChannelSend'
+import {
+  buildNotificationsRegistry,
+  buildNotificationsSendRegistry,
+} from './kernel/registries/notifications'
+import {
+  channelMessageOwner,
+  forgetSessionMessages,
+  setChannelMessageMapDeps,
+  wipeDemoChannelMessageMap,
+} from './persist/channelMessageMap'
+import {
   grant as grantPermission,
   listGrants,
   migrateGrants,
@@ -1145,6 +1162,10 @@ appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversati
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo agent tasks', run: () => wipeDemoAgentTasks() })
+appShutdown.register({
+  name: 'demo channel messages',
+  run: () => wipeDemoChannelMessageMap(),
+})
 appShutdown.register({ name: 'demo media records', run: () => wipeDemoMediaRecords() })
 appShutdown.register({ name: 'demo preferences', run: () => wipeDemoPreferences() })
 appShutdown.register({ name: 'demo permission grants', run: () => wipeDemoPermissionGrants() })
@@ -1250,12 +1271,18 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
+    setNotificationChannel(
+      homeAgentNotificationChannel((kind, action, payload) =>
+        homeAgent.channelSend(kind, action, payload),
+      ),
+    )
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
   wireAgentTasks(settings)
+  wireChannelMessageMap(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
   wireRagDocuments(settings)
@@ -1314,6 +1341,12 @@ function wireAgentWorkspace(settings: LocalSettings): void {
 function wireAgentTasks(settings: LocalSettings): void {
   setAgentTaskFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentTasks()
+}
+
+/** Same demo discipline for the map of channel messages agents sent. */
+function wireChannelMessageMap(settings: LocalSettings): void {
+  setChannelMessageMapDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoChannelMessageMap()
 }
 
 /**
@@ -1708,6 +1741,18 @@ function initEventHandle() {
   )
 
   registerSendHandlers(buildPermissionsSendRegistry({ setAwaitingUser }))
+  registerSendHandlers(buildNotificationsSendRegistry({ setNotificationConfig }))
+  registerInvokeHandlers(
+    buildNotificationsRegistry({
+      channelMessageOwner,
+      appLogger: appLoggerInstance,
+    }),
+  )
+  setNotificationWindowShown(
+    () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized(),
+  )
+  const stopAutoNotifications = startAutoNotifications()
+  appShutdown.register({ name: 'auto notifications', run: () => stopAutoNotifications() })
 
   registerInvokeHandlers(
     buildPermissionsRegistry({
@@ -1771,6 +1816,8 @@ function initEventHandle() {
       readAgentTasks,
       saveAgentTask,
       deleteAgentTask,
+      forgetSessionMessages,
+      appLogger: appLoggerInstance,
     }),
   )
 

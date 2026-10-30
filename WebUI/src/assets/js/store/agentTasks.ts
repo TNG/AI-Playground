@@ -655,6 +655,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     })
     if (!result.ok && result.reason !== 'aborted') {
       await settleRun(taskId, { kind: 'failed', stepIndex, message: result.message })
+      agentMode.releaseHeldAnswer(run.sessionId)
     }
   }
 
@@ -692,6 +693,19 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const taskId = runOfSession(sessionId)
     return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
   }
+
+  // Prompt runs lock too, so an Answer cannot slip in between their Steps.
+  agentMode.setTaskLockLookup((sessionId) => {
+    const promptRun = promptRunContexts[sessionId]
+    if (promptRun) {
+      const taskName = agentMode.sessions[sessionId]?.title ?? ''
+      return { taskName, signal: promptRun.abort.signal }
+    }
+    const taskId = runOfSession(sessionId)
+    if (!taskId) return undefined
+    const taskName = tasks.value.find((task) => task.id === taskId)?.name ?? ''
+    return { taskName, signal: runContexts[taskId]?.abort.signal }
+  })
 
   /** The Agent the Open Session was loaded from or saved as, while it still exists. */
   const openSessionTask = computed(() => {
@@ -933,9 +947,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const title = prompt.trim() || openSessionTask.value?.name || steps[0]
     const started = await agentMode.generate(turn, { title }).catch((error) => {
       endPromptRun(sessionId)
+      agentMode.releaseHeldAnswer(sessionId)
       throw error
     })
-    if (!started) endPromptRun(sessionId)
+    if (!started) {
+      endPromptRun(sessionId)
+      agentMode.releaseHeldAnswer(sessionId)
+    }
   }
 
   function promptRunOf(sessionId: string): PromptRun | undefined {
@@ -973,6 +991,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (result.ok) return
     endPromptRun(sessionId)
     if (result.reason === 'aborted') return
+    agentMode.releaseHeldAnswer(sessionId)
     errors.report(
       createAppError({
         category: 'inference',

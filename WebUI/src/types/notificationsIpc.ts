@@ -1,0 +1,50 @@
+import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { PauseReason } from './kernelEvents'
+
+/** Where a Notification goes, and whether it can go at all. */
+export type NotificationRoute = {
+  /** The title-bar master toggle is on and the Home Agent backend is running. */
+  homeAgentEnabled: boolean
+  notificationChannel: ChannelKind | null
+}
+
+/** Who sent a channel message: a live agent session, or one that has since been deleted. */
+export type ChannelMessageOwner = { sessionId: string } | { deletedSession: true }
+
+/** Automatic Notification texts in the app language. */
+export type NotificationTemplates = {
+  /** First line of every agent's Notification: `{title}` (a label) */
+  header: string
+  /** `{title}` (a label), `{reason}` */
+  paused: string
+  /** `{kind}`, `{summary}` */
+  pauseReason: string
+  pauseKinds: Record<PauseReason['kind'], string>
+  /** `{title}` (a label), `{error}` */
+  failed: string
+  /** The label of a session, quoted: `{title}` */
+  sessionLabel: string
+  /** The label of a Task run: `{task}`, `{step}`, `{steps}` */
+  taskLabel: string
+  /** The title of a session with no title. */
+  untitled: string
+  /** Label of the 💬 Answer button under an answerable Notification. */
+  answerButton: string
+  /** Last line of a Notification from a session that cannot be answered remotely. */
+  answerOnComputer: string
+  /** Last line of an answerable Notification on a channel answered by replying in its thread. */
+  answerInThread: string
+  /** Last line of an answerable Notification on a channel answered by replying to the message. */
+  answerByReply: string
+}
+
+/** What main needs from the window to deliver a Notification (docs/adr/0003). */
+export type NotificationConfig = NotificationRoute & {
+  /** Background Sessions notify when they pause or fail. */
+  autoNotify: boolean
+  /** The Agent Mode session open on screen; null while Agent Mode is not shown. */
+  sessionInView: string | null
+  /** Sessions whose folder uses the real system shell; Answers to them are refused. */
+  realShellSessions: string[]
+  templates: NotificationTemplates
+}

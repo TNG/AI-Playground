@@ -53,13 +53,16 @@ import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
   WEB_CAPABILITY_ID,
+  NOTIFY_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
   PLANNING_PHASE_CAPABILITY_IDS,
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
 } from '@/types/agentCapabilities'
-import type { GameLibraryEntry } from '@/types/agentIpc'
+import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
+import type { ChannelKind } from './channels/types'
+import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
   AGENT_PRESET,
   applySessionPresetNames,
@@ -103,11 +106,18 @@ export type UnseenTurn = 'done' | 'failed'
 export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
+/** Stored with a user message; `origin` is the channel an Answer arrived on. */
+export type AgentMessageMetadata = { origin?: ChannelKind }
+
+/** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
+export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
+
 export type SendToSessionResult =
   | { ok: true }
   | {
       ok: false
-      reason: 'no-session' | 'busy' | 'missing-folder' | 'settings-problems' | 'aborted'
+      reason:
+        'no-session' | 'busy' | 'task-locked' | 'missing-folder' | 'settings-problems' | 'aborted'
       message: string
       problems?: SessionSettingsProblem[]
     }
@@ -210,6 +220,8 @@ export const useAgentMode = defineStore(
     const mcpServerIds = ref<string[]>([])
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
+    /** Set once `notify` has been added to default lists saved before it existed. */
+    const notifyCapabilityAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -710,6 +722,28 @@ export const useAgentMode = defineStore(
       }
     }
 
+    /**
+     * Existing sessions keep their lists (docs/adr/0001); only the defaults new sessions
+     * start from gain `notify`. Needs the Agent preset's settings hydrated.
+     */
+    function adoptNotifyCapability(): void {
+      if (notifyCapabilityAdopted.value) return
+      notifyCapabilityAdopted.value = true
+      if (!defaultCapabilities.value.includes(NOTIFY_CAPABILITY_ID)) {
+        defaultCapabilities.value = [...defaultCapabilities.value, NOTIFY_CAPABILITY_ID]
+      }
+      const bags = textInference.settingsPerPreset ?? {}
+      const stored = bags[AGENT_PRESET]?.[DEFAULT_CAPABILITIES_KEY]
+      if (!Array.isArray(stored) || stored.includes(NOTIFY_CAPABILITY_ID)) return
+      textInference.settingsPerPreset = {
+        ...bags,
+        [AGENT_PRESET]: {
+          ...bags[AGENT_PRESET],
+          [DEFAULT_CAPABILITIES_KEY]: [...stored, NOTIFY_CAPABILITY_ID],
+        },
+      }
+    }
+
     function migrateMcpServerIds(): void {
       const migrated = migrateMcpServerIdsIntoCapabilities(
         mcpServerIds.value,
@@ -800,6 +834,8 @@ export const useAgentMode = defineStore(
       settings?: AgentSessionSettings
       stored: boolean
       quietErrors?: boolean
+      /** Set for the one turn a channel Answer started. */
+      answer?: AgentAnswerOrigin
     }
     const turnContexts: Record<string, TurnContext> = {}
 
@@ -846,6 +882,7 @@ export const useAgentMode = defineStore(
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
+        answer: turnContexts[sessionId]?.answer,
       })
     }
 
@@ -869,6 +906,7 @@ export const useAgentMode = defineStore(
         textInference: stored.inference,
         cloudMode: stored.cloud,
         tools: stored.tools,
+        answer: context.answer,
       })
     }
 
@@ -1001,10 +1039,12 @@ export const useAgentMode = defineStore(
     function inView(sessionId: string): boolean {
       return viewShown.value && openSessionId.value === sessionId
     }
+    const sessionInView = computed(() => (viewShown.value && openSessionId.value) || null)
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
     // session is in view, so a Paused Session never pops up over other work.
     const heldPrompts: Record<string, Array<{ show: () => void; drop: () => void }>> = {}
+    const turnEndWaiters: Record<string, Array<() => void>> = {}
 
     registerSessionPromptPort({
       whenInView: (sessionId) => {
@@ -1016,6 +1056,11 @@ export const useAgentMode = defineStore(
               reject(createCancellation({ technicalMessage: 'The turn that asked has ended.' })),
           })
         })
+      },
+      isAgentTurn: (sessionId) => !!turns.runtimeOf(sessionId)?.hasTurn(),
+      whenTurnEnds: (sessionId) => {
+        if (!turns.runtimeOf(sessionId)?.hasTurn()) return Promise.resolve()
+        return new Promise<void>((resolve) => (turnEndWaiters[sessionId] ??= []).push(resolve))
       },
     })
 
@@ -1082,8 +1127,13 @@ export const useAgentMode = defineStore(
      * (mirrors the chat store). Everything here is the ending turn's own session's.
      */
     function settleTurn(sessionId: string): void {
-      // Only an in-flight stored turn keeps the record's settings over the live controls.
-      if (turnContexts[sessionId]) turnContexts[sessionId].stored = false
+      // Only an in-flight stored turn keeps the record's settings over the live controls,
+      // and an Answer's reply rule holds for its one turn.
+      const ended = turnContexts[sessionId]
+      if (ended) {
+        ended.stored = false
+        delete ended.answer
+      }
       const stopped = stoppedByUser.delete(sessionId)
       const chat = turns.runtimeOf(sessionId)?.chat
       const failed = chat?.status === 'error'
@@ -1092,6 +1142,9 @@ export const useAgentMode = defineStore(
       }
       confirmations.cancelForConversation(sessionId, false)
       settleHeldPrompts(sessionId, 'drop')
+      const waiters = turnEndWaiters[sessionId] ?? []
+      delete turnEndWaiters[sessionId]
+      for (const resolve of waiters) resolve()
       const handoff = pendingHandoffs[sessionId]
       if (handoff) {
         delete pendingHandoffs[sessionId]
@@ -1104,6 +1157,49 @@ export const useAgentMode = defineStore(
           ? { kind: 'error', message: extractMessage(chat?.error) }
           : { kind: 'completed' }
       for (const listener of [...turnSettledListeners]) listener(sessionId, outcome)
+      // After the Tasks store has heard it, so a finished run no longer holds the session.
+      if (!deletingSessions.has(sessionId)) {
+        settleHeldAnswer(
+          sessionId,
+          outcome.kind === 'completed'
+            ? 'completed'
+            : outcome.kind === 'error'
+              ? 'failed'
+              : 'stopped',
+        )
+      }
+    }
+
+    const heldAnswers = ref<Record<string, HeldAnswerView>>({})
+    type HeldAnswerListener = (sessionId: string, end: SessionTurnEnd) => void
+    const heldAnswerListeners = new Set<HeldAnswerListener>()
+    const deletingSessions = new Set<string>()
+
+    /** The Answer router keeps the Held Answer; the store only shows it. */
+    function setHeldAnswer(sessionId: string, answer: HeldAnswerView | null): void {
+      const { [sessionId]: _previous, ...rest } = heldAnswers.value
+      heldAnswers.value = answer ? { ...rest, [sessionId]: answer } : rest
+    }
+
+    function discardHeldAnswer(sessionId: string): void {
+      if (!heldAnswers.value[sessionId]) return
+      setHeldAnswer(sessionId, null)
+      settleHeldAnswer(sessionId, 'discarded')
+    }
+
+    /** A Steps run ended on a Step it could not send, so no turn settles to let the Answer go. */
+    function releaseHeldAnswer(sessionId: string): void {
+      if (!deletingSessions.has(sessionId)) settleHeldAnswer(sessionId, 'failed')
+    }
+
+    function settleHeldAnswer(sessionId: string, end: SessionTurnEnd): void {
+      for (const listener of [...heldAnswerListeners]) listener(sessionId, end)
+    }
+
+    /** Hear what decides each session's Held Answer; returns the unsubscribe. */
+    function onHeldAnswerSettled(listener: HeldAnswerListener): () => void {
+      heldAnswerListeners.add(listener)
+      return () => heldAnswerListeners.delete(listener)
     }
 
     type TurnSettledListener = (sessionId: string, outcome: TurnOutcome) => void
@@ -1393,12 +1489,24 @@ export const useAgentMode = defineStore(
     }
 
     async function deleteSession(id: string): Promise<void> {
+      // The stop below is the delete's, not the desktop taking over a Held Answer.
+      deletingSessions.add(id)
+      try {
+        await removeSession(id)
+      } finally {
+        deletingSessions.delete(id)
+      }
+    }
+
+    async function removeSession(id: string): Promise<void> {
       // Stop first so Pi teardown in the same IPC is not racing a live turn,
       // then wait for the kernel: dropping the row before that would make a
       // failed delete vanish from the panel and come back on the next boot.
-      if (id === openSessionId.value || turns.runtimeOf(id)?.hasTurn()) await stopSession(id)
+      const stopping = id === openSessionId.value || turns.runtimeOf(id)?.hasTurn()
+      if (stopping) await stopSession(id)
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
+        if (stopping) settleHeldAnswer(id, 'stopped')
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
           category: 'unknown',
           code: 'agent/delete-session-failed',
@@ -1421,6 +1529,7 @@ export const useAgentMode = defineStore(
       } else {
         turns.release(id)
       }
+      settleHeldAnswer(id, 'deleted')
     }
 
     async function adoptWorkspace(dir: string): Promise<void> {
@@ -1639,6 +1748,28 @@ export const useAgentMode = defineStore(
       return { ok: false, reason, message, ...(problems ? { problems } : {}) }
     }
 
+    let taskLockOf: (sessionId: string) => SessionTaskLock | undefined = () => undefined
+
+    /** The Tasks store names the run holding a session; it cannot be imported here (cycle). */
+    function setTaskLockLookup(lookup: (sessionId: string) => SessionTaskLock | undefined): void {
+      taskLockOf = lookup
+    }
+
+    function taskLockRefusal(
+      sessionId: string,
+      signal: AbortSignal | undefined,
+    ): SendToSessionResult | undefined {
+      const lock = taskLockOf(sessionId)
+      if (!lock || (lock.signal && lock.signal === signal)) return undefined
+      return refuseSend(
+        'task-locked',
+        (
+          i18n.state.AGENT_TASK_SESSION_LOCKED ??
+          'Agent “{name}” is running. Stop it to type in this session.'
+        ).replace('{name}', lock.taskName),
+      )
+    }
+
     /**
      * Send to any session; one not open (or `useStoredSettings`) runs on its record, not the
      * live controls. Resolves once handed off or refused; the end comes via `onTurnSettled`.
@@ -1654,12 +1785,16 @@ export const useAgentMode = defineStore(
         settings?: AgentSessionSettings
         signal?: AbortSignal
         quietErrors?: boolean
+        /** A channel Answer: the turn's result is replied under it. */
+        answer?: AgentAnswerOrigin
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
       const live =
         sessionId === openSessionId.value && !options.useStoredSettings && !options.settings
       if (!record && !live) return refuseSend('no-session', `No agent session ${sessionId}.`)
+      const locked = taskLockRefusal(sessionId, options.signal)
+      if (locked) return locked
       if (turns.runtimeOf(sessionId)?.hasTurn()) {
         return refuseSend('busy', 'This session already has a turn in flight.')
       }
@@ -1693,17 +1828,24 @@ export const useAgentMode = defineStore(
           ).replace('{path}', context.workspaceDir),
         )
       }
+      const lockedSince = taskLockRefusal(sessionId, options.signal)
+      if (lockedSince) return lockedSince
       if (turns.runtimeOf(sessionId)?.hasTurn()) {
         return refuseSend('busy', 'This session already has a turn in flight.')
       }
       if (options.signal?.aborted) return refuseSend('aborted', 'The send was cancelled.')
       if (options.quietErrors) context.quietErrors = true
-      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt })).catch((error) =>
-        errors.report(error, {
-          category: 'inference',
-          code: 'agent/turn-failed',
-          surface: 'silent',
-        }),
+      if (options.answer) context.answer = options.answer
+      const metadata: AgentMessageMetadata | undefined = options.answer
+        ? { origin: options.answer.channel }
+        : undefined
+      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
+        (error) =>
+          errors.report(error, {
+            category: 'inference',
+            code: 'agent/turn-failed',
+            surface: 'silent',
+          }),
       )
       return { ok: true }
     }
@@ -1767,6 +1909,8 @@ export const useAgentMode = defineStore(
       migrateMcpServerIds,
       adoptWebCapability,
       webCapabilityAdopted,
+      adoptNotifyCapability,
+      notifyCapabilityAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
@@ -1791,6 +1935,7 @@ export const useAgentMode = defineStore(
       migrateAgentDefaults,
       unsandboxedWorkspaces,
       unsandboxed,
+      isUnsandboxed,
       setUnsandboxed,
       attachments,
       attachFiles,
@@ -1823,14 +1968,21 @@ export const useAgentMode = defineStore(
       generate,
       createSession,
       sendToSession,
+      setTaskLockLookup,
       quietSessionErrors,
       onTurnSettled,
+      heldAnswers,
+      setHeldAnswer,
+      discardHeldAnswer,
+      releaseHeldAnswer,
+      onHeldAnswerSettled,
       stopSession,
       stop,
       newSession,
       switchSession,
       openSession,
       setViewShown,
+      sessionInView,
       deleteSession,
       restoreOpenSession,
     }
@@ -1843,6 +1995,7 @@ export const useAgentMode = defineStore(
       pick: [
         'mcpServerIds',
         'webCapabilityAdopted',
+        'notifyCapabilityAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',

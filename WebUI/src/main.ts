@@ -23,8 +23,10 @@ import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
 import { startChatAskBridge } from './assets/js/chat/chatAskBridge'
 import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
+import { startModelDownloader } from './lib/modelDownloaderWiring'
 import { usePermissionGrants } from './assets/js/store/permissionGrants'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
+import { startNotificationConfigPush } from './lib/notificationConfigPush'
 import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
 
 const [settings, initialPage] = await Promise.all([
@@ -81,6 +83,7 @@ startMediaRequestBridge()
 // genuinely the window's: the speech engine (and its download prompt),
 // Chromium's audio decoder, and the Home Agent confirmation card.
 startChatAskBridge()
+startModelDownloader()
 startPermissionsAdapter()
 
 // Hydrate the conversation threads from the kernel's files (step 8) before
@@ -122,11 +125,15 @@ await Promise.all([
   usePermissionGrants().init(),
 ])
 
+// Reads the Agent preset's saved defaults, which hydrate with textInference above.
+useAgentMode().adoptNotifyCapability()
+
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7). Ledger events (activity / error /
 // stored) project onto the renderer sinks (step 14).
 startQueueActivityProjection()
 startKernelLedgerProjection()
+startNotificationConfigPush()
 
 const i18n = useI18N()
 i18n.init().then(() => {

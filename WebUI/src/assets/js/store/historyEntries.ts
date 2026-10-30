@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import type { ThreadKind } from './conversations'
 import type { GenerationSettings, MediaItem } from './imageGenerationPresets'
 import { sessionListedUnderPreset } from './agentModeSessions'
+import type { HeldAnswerView } from './channels/answerRouter'
 import { extractToolMedia, type ToolMediaItem } from '@/assets/js/tools/toolMedia'
 import type { PauseReason } from '@/types/kernelEvents'
 
@@ -32,7 +33,8 @@ export type ConversationEntry = EntryBase & {
 }
 
 /** What an Agent Session's turn is doing, or how it went while nobody was looking. */
-export type AgentSessionStatus = 'running' | 'queued' | 'paused' | 'unseen' | 'unseenFailed'
+export type AgentSessionStatus =
+  'running' | 'queued' | 'paused' | 'downloading' | 'unseen' | 'unseenFailed'
 
 /** Agent, Game Agent, Quick Coder: a transcript plus a workspace folder. */
 export type AgentEntry = EntryBase & {
@@ -45,8 +47,15 @@ export type AgentEntry = EntryBase & {
   queuePosition?: number
   /** What the user is asked, only while `paused` and known. */
   pauseReason?: PauseReason
+  /** The Model Download it waits on, only while `downloading`. */
+  download?: SessionDownload
   taskId?: string
+  /** A channel's Answer waiting for this session's turn to end. */
+  heldAnswer?: HeldAnswerView
 }
+
+/** Overall percent of the Model Download a session waits on, or that it is still queued. */
+export type SessionDownload = { percent: number; queued: boolean }
 
 /**
  * One canvas output. `origin` is what keeps a tool's image from being listed
@@ -81,7 +90,8 @@ const WORKFLOW_MODES: readonly string[] = ['imageGen', 'imageEdit', 'video']
 
 /**
  * A turn in flight outranks an unseen result: the dot is about the last turn, and
- * a new one has already started.
+ * a new one has already started. Waiting on a Model Download is not a pause:
+ * nobody is being asked anything (docs/adr/0005).
  */
 export function agentSessionStatus(input: {
   turn?: {
@@ -90,8 +100,15 @@ export function agentSessionStatus(input: {
     pauseReason?: PauseReason
   }
   unseen?: 'done' | 'failed'
-}): { status?: AgentSessionStatus; queuePosition?: number; pauseReason?: PauseReason } {
-  const { turn, unseen } = input
+  download?: SessionDownload | null
+}): {
+  status?: AgentSessionStatus
+  queuePosition?: number
+  pauseReason?: PauseReason
+  download?: SessionDownload
+} {
+  const { turn, unseen, download } = input
+  if (turn && download && turn.state !== 'paused') return { status: 'downloading', download }
   if (turn?.state === 'queued') {
     return turn.queuePosition
       ? { status: 'queued', queuePosition: turn.queuePosition }

@@ -118,6 +118,14 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     a.doc-link { color: inherit; text-decoration: underline; font-size: 14px; }
     .kbd-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .kbd-row button { background: var(--muted); color: var(--fg); border: 1px solid var(--border); font-weight: 500; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); cursor: pointer; }
+    .answer-row { margin-top: 8px; }
+    .answer-row button { background: var(--primary); color: var(--primary-fg); border: none; font-weight: 600; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); cursor: pointer; }
+    .quote { border-left: 3px solid var(--primary); padding: 2px 8px; margin-bottom: 6px; font-size: 13px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-user .quote { border-left-color: var(--primary-fg); }
+    .reply-chip { position: fixed; left: 10px; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; background: var(--muted); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: var(--radius); font-size: 13px; z-index: 10; }
+    .reply-chip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .reply-chip button { border: none; background: transparent; color: var(--muted-fg); font-size: 16px; cursor: pointer; padding: 2px 8px; }
+    #log.answering { padding-bottom: 128px; }
     details.reasoning { margin: 2px 0; }
     details.reasoning > summary { cursor: pointer; color: var(--muted-fg); font-size: 13px; list-style: none; user-select: none; }
     details.reasoning > summary::-webkit-details-marker { display: none; }
@@ -147,6 +155,10 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     </div>
     <div id="log" role="log" aria-label="Conversation"></div>
     <div id="cmd-menu" class="cmd-menu hidden" role="menu" aria-label="Commands"></div>
+    <div id="reply-chip" class="reply-chip hidden" role="status" aria-label="Answer target">
+      <span id="reply-chip-text"></span>
+      <button type="button" id="reply-chip-cancel" aria-label="Cancel answer">&#10005;</button>
+    </div>
     <div class="compose">
       <button type="button" id="menu-btn" title="Commands" aria-label="Commands">/</button>
       <button type="button" id="attach-btn" title="Attach files" aria-label="Attach files">&#128206;</button>
@@ -171,6 +183,9 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     const attachBtn = document.getElementById('attach-btn')
     const fileInput = document.getElementById('file-input')
     const statusLine = document.getElementById('status-line')
+    const replyChip = document.getElementById('reply-chip')
+    const replyChipText = document.getElementById('reply-chip-text')
+    const replyChipCancel = document.getElementById('reply-chip-cancel')
     let draftBubble = null
     let draftRow = null
     let typingRow = null
@@ -188,6 +203,15 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // settled reply — "wait for the reply" must not settle on the question.
     const LABEL_PROMPT = 'Home Agent prompt'
     const LABEL_KEYBOARD = 'Choose an option'
+    // A message from an agent session, which the user can answer.
+    const LABEL_AGENT = 'Agent message'
+    // The Answer button's callback (ANSWER_CALLBACK in answerButton.ts). The page
+    // handles it itself, with a chip in the composer, instead of posting it.
+    const ANSWER_CALLBACK = 'answer'
+    // The agent message the next typed message answers: { id, title } or null.
+    let answering = null
+    // What each message sent from this page said, by its id, to quote above a reply to it.
+    const sentTexts = new Map()
 
     function scrollBottom() { log.scrollTop = log.scrollHeight }
 
@@ -252,10 +276,11 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       scrollBottom()
     }
 
-    function appendUser(text, images, fileLabels) {
+    function appendUser(text, images, fileLabels, quoted) {
       const row = document.createElement('div')
       row.className = 'row row-user'
       const bubble = bubbleEl(LABEL_USER)
+      if (quoted) bubble.appendChild(quoteEl(quoted))
       if (text) bubble.appendChild(document.createTextNode(text))
       for (const b64 of (images || [])) bubble.appendChild(inlineImg(b64))
       for (const label of (fileLabels || [])) {
@@ -271,7 +296,73 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       row.appendChild(bubble)
       log.appendChild(row)
       scrollBottom()
+      return bubble
     }
+
+    function quoteEl(text) {
+      const quote = document.createElement('div')
+      quote.className = 'quote'
+      quote.setAttribute('role', 'note')
+      quote.setAttribute('aria-label', 'In reply to')
+      quote.textContent = '↪ ' + text
+      return quote
+    }
+
+    /** Marks a bubble as the reply to the message `replyTo` names, quoting it when known. */
+    function quoteReply(bubble, replyTo) {
+      if (!replyTo) return
+      const text = sentTexts.get(String(Number(replyTo)))
+      if (text !== undefined) bubble.insertBefore(quoteEl(text), bubble.firstChild)
+    }
+
+    function botRow(bubble, avatarText) {
+      const row = document.createElement('div')
+      row.className = 'row row-bot'
+      const av = document.createElement('div')
+      av.className = 'tg-avatar'
+      av.style.width = '32px'
+      av.style.height = '32px'
+      av.style.fontSize = '11px'
+      av.textContent = avatarText || 'HA'
+      row.appendChild(av)
+      row.appendChild(bubble)
+      return row
+    }
+
+    /** Adds a row above a reply that is still streaming, so the reply stays the newest bubble. */
+    function appendAboveLive(row) {
+      const live = draftRow || typingRow
+      if (live && live.parentNode === log) log.insertBefore(row, live)
+      else log.appendChild(row)
+      scrollBottom()
+    }
+
+    /** An agent session's message: it never takes over a streaming Home Agent reply. */
+    function appendAgentHtml(html, media, replyTo) {
+      const bubble = bubbleEl(LABEL_AGENT)
+      bubble.innerHTML = html
+      for (const node of (media || [])) bubble.appendChild(node)
+      quoteReply(bubble, replyTo)
+      stampTime(bubble)
+      appendAboveLive(botRow(bubble, 'AI'))
+      return bubble
+    }
+
+    function setAnswering(id, title) {
+      answering = { id: id, title: title }
+      replyChipText.textContent = title ? 'Replying to ' + title : 'Replying to the agent'
+      replyChip.classList.remove('hidden')
+      log.classList.add('answering')
+      input.focus()
+    }
+
+    function clearAnswering() {
+      answering = null
+      replyChipText.textContent = ''
+      replyChip.classList.add('hidden')
+      log.classList.remove('answering')
+    }
+    replyChipCancel.onclick = () => clearAnswering()
 
     // Build an inline <img> from base64. Browsers sniff the real format, so the
     // declared jpeg mime works for png/webp too. Scroll once it loads (its height
@@ -361,14 +452,6 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     function appendBotHtml(html, withTime, media) {
       clearDraft()
       hideTyping()
-      const row = document.createElement('div')
-      row.className = 'row row-bot'
-      const av = document.createElement('div')
-      av.className = 'tg-avatar'
-      av.style.width = '32px'
-      av.style.height = '32px'
-      av.style.fontSize = '11px'
-      av.textContent = 'HA'
       const bubble = bubbleEl(LABEL_BOT)
       bubble.innerHTML = html
       // Inline media loads asynchronously; scroll to the bottom once each is
@@ -382,9 +465,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         tm.textContent = timeNow()
         bubble.appendChild(tm)
       }
-      row.appendChild(av)
-      row.appendChild(bubble)
-      log.appendChild(row)
+      log.appendChild(botRow(bubble))
       scrollBottom()
       return bubble
     }
@@ -538,20 +619,47 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // silently on the dropped POST.
     async function postChat(body) {
       try {
-        await api('/api/chat', body)
+        return await api('/api/chat', body)
       } catch (_) {
         if (!(await verifySession())) showLogin(SESSION_ENDED_MSG)
         else appendSys('Could not send — please try again.')
+        return null
       }
+    }
+
+    /** Posts what the user wrote, as an Answer while the composer shows a chip. */
+    async function postUserMessage(bubble, text, body) {
+      const target = answering
+      if (target) {
+        clearAnswering()
+        body.replyTo = target.id
+      }
+      const res = await postChat(body)
+      const id = res && Number(res.id)
+      if (!id) return
+      bubble.dataset.mid = String(id)
+      if (text) sentTexts.set(String(id), text)
     }
 
     async function sendText(text) {
       const t = text.trim()
       if (!t) return
-      appendUser(t)
+      if (t.startsWith('/')) {
+        input.value = ''
+        input.style.height = 'auto'
+        await sendCommand(t)
+        return
+      }
+      const bubble = appendUser(t, null, null, answering && answering.title)
       input.value = ''
       input.style.height = 'auto'
-      await postChat({ text: t })
+      await postUserMessage(bubble, t, { text: t })
+    }
+
+    /** A command is always Home Agent's, so it leaves an Answer chip in place. */
+    async function sendCommand(cmd) {
+      appendUser(cmd)
+      await postChat({ text: cmd })
     }
 
     sendBtn.onclick = () => sendText(input.value)
@@ -593,8 +701,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       const text = input.value.trim()
       input.value = ''
       input.style.height = 'auto'
-      appendUser(text, userImgs, labels)
-      await postChat({
+      const bubble = appendUser(text, userImgs, labels, answering && answering.title)
+      await postUserMessage(bubble, text, {
         text: text || undefined,
         images: images.length ? images : undefined,
         audio: audio.length ? audio : undefined,
@@ -644,7 +752,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         item.onclick = () => {
           hideMenu()
           if (c.send) {
-            sendText(c.cmd)
+            sendCommand(c.cmd)
           } else {
             input.value = c.cmd + ' '
             input.focus()
@@ -681,21 +789,30 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         finalizeBot(d.text || '')
         return
       }
+      if (action === 'post') {
+        appendBotNote(formatBotText(d.text || ''), d.id, d.replyTo)
+        return
+      }
       if (action === 'editMessage') {
-        // The store settles an interactive prompt in place (confirmed/cancelled/
-        // timed out). SSE has no message edit, so retire the live buttons and post
-        // the outcome — otherwise the prompt stays tappable and fires again.
+        if (d.id && editBubble(d.id, d.text || '')) return
+        // No bubble to edit: still retire the live buttons and post the outcome,
+        // or the settled prompt stays tappable and fires again.
         consumeKeyboards()
         finalizeBot(d.text || '')
         return
       }
       const caption = d.caption ? formatBotText(d.caption) : ''
+      // Only an agent's reply to an Answer names the message it replies to.
       if (action === 'photo' && d.base64) {
-        appendBotHtml(caption, true, [inlineImg(d.base64)])
+        const media = [inlineImg(d.base64)]
+        if (d.replyTo) appendAgentHtml(caption, media, d.replyTo)
+        else appendBotHtml(caption, true, media)
         return
       }
       if (action === 'video' && d.base64) {
-        appendBotHtml(caption, true, [inlineVideo(d.base64, d.filename)])
+        const media = [inlineVideo(d.base64, d.filename)]
+        if (d.replyTo) appendAgentHtml(caption, media, d.replyTo)
+        else appendBotHtml(caption, true, media)
         return
       }
       if (action === 'voice' && d.base64) {
@@ -709,14 +826,26 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         return
       }
       if (action === 'keyboard' && d.buttons) {
+        const buttons = d.buttons.flat()
+        const answerButton = buttons.find((btn) => callbackOf(btn) === ANSWER_CALLBACK)
+        if (answerButton) {
+          const bubble = appendAgentHtml(
+            formatBotText(d.text || ''),
+            [answerRowEl(answerButton, d.id, d.answerTitle)],
+            d.replyTo,
+          )
+          if (d.id) bubble.dataset.mid = String(d.id)
+          return
+        }
         const row = document.createElement('div')
         row.className = 'kbd-row'
         row.setAttribute('role', 'group')
         row.setAttribute('aria-label', LABEL_KEYBOARD)
         const bubble = appendBotHtml(formatBotText(d.text || ''), false, [row])
         bubble.setAttribute('aria-label', LABEL_PROMPT)
-        for (const btn of d.buttons.flat()) {
-          const cb = btn.callbackData || btn.callback
+        if (d.id) bubble.dataset.mid = String(d.id)
+        for (const btn of buttons) {
+          const cb = callbackOf(btn)
           const b = document.createElement('button')
           b.type = 'button'
           b.textContent = btn.text || cb
@@ -735,6 +864,50 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         bubble.appendChild(tm)
         scrollBottom()
       }
+    }
+
+    function stampTime(bubble) {
+      const tm = document.createElement('span')
+      tm.className = 'time'
+      tm.textContent = timeNow()
+      bubble.appendChild(tm)
+    }
+
+    // Renderer keyboards send `callbackData`; the Notifier's go out as `callback_data`.
+    function callbackOf(btn) {
+      return btn.callbackData || btn.callback_data || btn.callback
+    }
+
+    /** The Answer button: it answers nothing by itself, it points the composer at this message. */
+    function answerRowEl(btn, id, title) {
+      const row = document.createElement('div')
+      row.className = 'answer-row'
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.textContent = btn.text || 'Answer'
+      b.onclick = () => setAnswering(id, typeof title === 'string' ? title : '')
+      row.appendChild(b)
+      return row
+    }
+
+    /** A message the app edits in place later; it never touches a streaming reply. */
+    function appendBotNote(html, id, replyTo) {
+      const bubble = bubbleEl(LABEL_BOT)
+      bubble.innerHTML = html
+      if (id) bubble.dataset.mid = String(id)
+      quoteReply(bubble, replyTo)
+      stampTime(bubble)
+      appendAboveLive(botRow(bubble))
+    }
+
+    /** Rewrites a tagged bubble's text and retires its buttons; false when it is gone. */
+    function editBubble(id, text) {
+      const bubble = log.querySelector('[data-mid="' + String(Number(id)) + '"]')
+      if (!bubble) return false
+      bubble.innerHTML = formatBotText(text)
+      bubble.setAttribute('aria-label', LABEL_BOT)
+      stampTime(bubble)
+      return true
     }
 
     /** Replace a prompt's buttons with the choice that was made. */
@@ -758,6 +931,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       log.innerHTML = ''
       clearDraft()
       hideTyping()
+      clearAnswering()
       appendSys('Connected · try /help')
       if (es) es.close()
       es = new EventSource('/api/events', { withCredentials: true })

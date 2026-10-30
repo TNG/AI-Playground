@@ -319,6 +319,90 @@ class TestInbound(LocalWebChannelTestCase):
         self.assertEqual(queued[1]["callback"], "imgGen:preset:Draft")
 
 
+class TestAnswers(LocalWebChannelTestCase):
+    """An agent bubble's Answer button: the page posts the id of the bubble it answers."""
+
+    def test_an_answer_names_the_agent_message_and_gets_an_id_of_its_own(self):
+        _, cookie = self.login()
+        notification = self.channel.send_keyboard(
+            {"text": "Asteroids clone failed", "buttons": []}
+        )
+        status, body, _, _ = self.request(
+            "POST",
+            "/api/chat",
+            {"text": "try again", "replyTo": notification["message_id"]},
+            cookie=cookie,
+        )
+        self.assertEqual(status, 200)
+        answer_id = json.loads(body)["id"]
+        queued = self.channel.poll()
+        self.assertEqual(queued[0]["text"], "try again")
+        self.assertEqual(queued[0]["reply_to"], str(notification["message_id"]))
+        # The agent's reply names this id, and the page tags the user bubble with it.
+        self.assertEqual(queued[0]["reply_target"], str(answer_id))
+
+    def test_a_plain_message_is_no_answer(self):
+        _, cookie = self.login()
+        for reply_to in (None, "", "abc", -3, True, 1.5):
+            self.request(
+                "POST", "/api/chat", {"text": "hi", "replyTo": reply_to}, cookie=cookie
+            )
+        for item in self.channel.poll():
+            self.assertNotIn("reply_to", item)
+
+    def test_the_reply_to_an_answer_reaches_the_page_under_it(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        sent = self.channel.send_keyboard(
+            {
+                "text": "Done: three asteroids per level",
+                "buttons": [[{"text": "💬 Answer", "callback_data": "answer"}]],
+                "answer_title": '"Asteroids clone"',
+                "reply_to": "1234567",
+            }
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "keyboard",
+                    "text": "Done: three asteroids per level",
+                    "buttons": [[{"text": "💬 Answer", "callback_data": "answer"}]],
+                    "answerTitle": '"Asteroids clone"',
+                    "replyTo": 1234567,
+                    "id": sent["message_id"],
+                }
+            ],
+        )
+
+    def test_every_message_the_page_shows_has_an_id(self):
+        for send in (
+            lambda: self.channel.send_reply({"text": "hi"}),
+            lambda: self.channel.send_post({"text": "hi"}),
+            lambda: self.channel.send_photo({"photo": "AAAA", "caption": "c"}),
+            lambda: self.channel.send_video({"video": "AAAA", "filename": "v.mp4"}),
+        ):
+            self.assertGreater(send()["message_id"], 0)
+
+    def test_message_ids_do_not_repeat_after_a_restart(self):
+        # The message map outlives the app, so a restarted channel must not hand an
+        # agent's old Notification id to an unrelated new message.
+        first = self.channel.send_post({"text": "before"})["message_id"]
+        self.channel.request_shutdown()
+        restarted = LocalWebChannel(Path(tempfile.mkdtemp()))
+        restarted.set_config({"password": PASSWORD, "port": str(free_port())})
+        try:
+            self.assertNotEqual(
+                restarted.send_post({"text": "after"})["message_id"], first
+            )
+        finally:
+            restarted.request_shutdown()
+
+
 class TestOutboundEvents(LocalWebChannelTestCase):
     def test_sse_is_not_framed_as_a_keep_alive_response(self):
         _, cookie = self.login()
@@ -364,9 +448,44 @@ class TestOutboundEvents(LocalWebChannelTestCase):
         # settled, and left its buttons live to fire the callback a second time.
         self.assertEqual(events, [{"action": "editMessage", "text": "Cancelled."}])
 
+    def test_a_download_message_is_posted_and_edited_by_its_id(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        posted = self.channel.send_post({"text": "Downloading 10%"})
+        self.channel.send_edit_message(
+            {"text": "Downloaded.", "message_id": posted["message_id"]}
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        # A post, not a reply: a reply would settle the streaming draft bubble and
+        # overwrite a Home Agent answer with download progress.
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "post",
+                    "text": "Downloading 10%",
+                    "id": posted["message_id"],
+                },
+                {
+                    "action": "editMessage",
+                    "text": "Downloaded.",
+                    "id": posted["message_id"],
+                },
+            ],
+        )
+
+    def test_every_keyboard_gets_its_own_message_id(self):
+        first = self.channel.send_keyboard({"text": "A?", "buttons": []})
+        second = self.channel.send_keyboard({"text": "B?", "buttons": []})
+        self.assertGreater(first["message_id"], 0)
+        self.assertNotEqual(first["message_id"], second["message_id"])
+
     def test_sending_without_a_connected_browser_is_not_an_error(self):
         self.assertEqual(
-            self.channel.send_reply({"text": "into the void"}), {"status": "ok"}
+            self.channel.send_reply({"text": "into the void"})["status"], "ok"
         )
 
     def test_sending_while_stopped_is_an_error(self):

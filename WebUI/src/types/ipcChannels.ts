@@ -35,6 +35,7 @@ import type {
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type { SpeechSynthesisRequest } from './speechIpc'
+import type { ChannelMessageOwner, NotificationConfig } from './notificationsIpc'
 import type {
   McpServerConfig,
   McpServerInfo,
@@ -458,11 +459,11 @@ export const CHANNELS = {
 
   // ── Permissions (step 13): policy in main, dialogs in the renderer ──
 
-  /** Desktop download modal / Home Agent in-channel consent for model downloads. */
+  /** Model-download consent; a Chat turn names its conversation, which shows the download card. */
   'permissions:requestDownload': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [unknown[]],
+    args: [] as unknown as readonly [unknown[], { conversationKey?: string }?],
     result: null as unknown as
       { success: true } | { success: false; error: string; cancelled?: boolean },
   },
@@ -522,6 +523,19 @@ export const CHANNELS = {
     kind: 'push',
     owner: 'main',
     payload: null as unknown as PermissionsPromptPayload,
+  },
+  /** The agent session that sent a channel message (kind, platform message ref); null for none. */
+  'notifications:lookupMessage': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string],
+    result: null as unknown as ChannelMessageOwner | null,
+  },
+  /** The Home Agent state main's Notifier delivers through; pushed on every change. */
+  'notifications:setConfig': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [NotificationConfig],
   },
 
   // ── Flat members (no `prefix:` — these sit at the top level of electronAPI) ──
@@ -1774,6 +1788,7 @@ export const CHANNELS = {
         | 'keyboard'
         | 'editMessage'
         | 'history'
+        | 'post'
       ),
       Record<string, unknown>,
     ],

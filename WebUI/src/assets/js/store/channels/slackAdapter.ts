@@ -256,6 +256,15 @@ function createSlackDraftStream(meta: InboundMeta | undefined): DraftStream {
   return { update, finalize, cancel }
 }
 
+/** A send's result with the ts/channel pair `chat.update` edits by. */
+function withMessageRef(r: { success: boolean; error?: string; ts?: string; channel?: string }) {
+  return {
+    success: r.success,
+    error: r.success ? undefined : r.error,
+    ref: r.success && r.ts && r.channel ? { ts: r.ts, channel: r.channel } : undefined,
+  }
+}
+
 export function createSlackAdapter(): ChannelAdapter {
   return {
     kind: 'slack',
@@ -264,11 +273,7 @@ export function createSlackAdapter(): ChannelAdapter {
         text,
         channel: meta?.channel,
       })
-      return {
-        success: r.success,
-        error: r.success ? undefined : r.error,
-        ref: r.success && r.ts && r.channel ? { ts: r.ts, channel: r.channel } : undefined,
-      }
+      return withMessageRef(r)
     },
     photo: async (imageBase64, caption, meta) => {
       return window.electronAPI.homeAgent.channel.send('slack', 'photo', {
@@ -327,11 +332,16 @@ export function createSlackAdapter(): ChannelAdapter {
         blocks,
         channel: meta?.channel,
       })
-      return {
-        success: r.success,
-        error: r.success ? undefined : r.error,
-        ref: r.success && r.ts && r.channel ? { ts: r.ts, channel: r.channel } : undefined,
-      }
+      return withMessageRef(r)
+    },
+    post: async (text, meta) => {
+      return withMessageRef(
+        await window.electronAPI.homeAgent.channel.send('slack', 'post', {
+          text,
+          channel: meta?.channel,
+          ...(meta?.threadTs ? { thread_ts: meta.threadTs } : {}),
+        }),
+      )
     },
     editKeyboardMessage: async (ref, text) => {
       if (!ref.ts || !ref.channel) return { success: false, error: 'no message ref' }

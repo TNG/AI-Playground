@@ -7,6 +7,7 @@ import { currentPresetName } from '@/lib/presetRenames'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { useErrors } from './errors'
+import { modelDownloads } from '../models/modelDownloadQueue'
 import type { ConversationBootstrap, ConversationLegacyState } from '@/types/conversationIpc'
 
 /**
@@ -120,6 +121,7 @@ export const useConversations = defineStore('conversations', () => {
   }
 
   function deleteConversation(conversationKey: string) {
+    modelDownloads().detachGroup(conversationKey)
     delete conversationList.value[conversationKey]
     delete conversationThreadMeta.value[conversationKey]
     delete conversationRagSelection.value[conversationKey]

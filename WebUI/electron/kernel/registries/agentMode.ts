@@ -25,6 +25,8 @@ import type {
   writeAgentWorkspaceState,
 } from '../../persist/workspaceStateFiles'
 import type { deleteAgentTask, readAgentTasks, saveAgentTask } from '../../persist/agentTaskFiles'
+import type { forgetSessionMessages } from '../../persist/channelMessageMap'
+import type { appLoggerInstance } from '../../observability/logger'
 
 /** The Pi manager, session-record, workspace-state and Tasks seams the agentMode handlers close over. */
 export type AgentModeDeps = {
@@ -47,6 +49,8 @@ export type AgentModeDeps = {
   readAgentTasks: typeof readAgentTasks
   saveAgentTask: typeof saveAgentTask
   deleteAgentTask: typeof deleteAgentTask
+  forgetSessionMessages: typeof forgetSessionMessages
+  appLogger: typeof appLoggerInstance
 }
 
 export function buildAgentModeRegistry(deps: AgentModeDeps) {
@@ -161,6 +165,16 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         const record = await deps.deleteAgentSessionRecord(sessionId)
         const live = await deps.deleteAgentSession(sessionId)
         if (!record.success) return record
+        if (!live.success) return live
+        // A tombstone, not a removal: an Answer to its messages is told the session is gone.
+        await deps
+          .forgetSessionMessages(sessionId)
+          .catch((e) =>
+            deps.appLogger.warn(
+              `channel messages of deleted session ${sessionId} not forgotten: ${ipcErrorText(e)}`,
+              'agent-mode',
+            ),
+          )
         return live
       } catch (e) {
         return ipcFail(e)

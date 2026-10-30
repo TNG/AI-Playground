@@ -89,10 +89,14 @@ export type ChannelAdapter = {
     buttons: KeyboardButton[][],
     meta?: InboundMeta,
   ) => Promise<ChannelSendResult>
-  /** Edit a previously-sent `keyboard` message in place: replace its text and
-   *  drop the buttons. Used to settle an interactive confirmation prompt so it
-   *  no longer looks tappable/pending. `ref` is the handle returned by
-   *  `keyboard()`. Best-effort — a failed edit must not break the turn. */
+  /** Send a standalone message that `editKeyboardMessage` can rewrite later (a
+   *  download's progress). Unlike `reply` it never settles a streaming draft. */
+  post: (text: string, meta?: InboundMeta) => Promise<ChannelSendResult>
+  /** Edit a previously-sent `keyboard` or `post` message in place: replace its
+   *  text and drop any buttons. Used to settle an interactive confirmation
+   *  prompt so it no longer looks tappable/pending, and to move a download
+   *  message on. `ref` is the handle the send returned. Best-effort — a failed
+   *  edit must not break the turn. */
   editKeyboardMessage: (
     ref: ChannelMessageRef,
     text: string,

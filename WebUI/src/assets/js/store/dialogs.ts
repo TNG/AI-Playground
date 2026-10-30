@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import { sanitizeMarkdown } from '@/lib/sanitize'
 import { parse } from '../markdownParser'
 
@@ -32,6 +32,29 @@ export type InstallationProgressData = {
   modelDownloadList?: DownloadModelParam[]
 }
 
+/** `ask` closes on Confirm and hands back what was accepted; `progress` downloads in the dialog. */
+export type DownloadDialogOptions =
+  | { mode: 'ask'; alreadyDownloading?: DownloadModelParam[] }
+  | {
+      mode: 'progress'
+      /** Who the download card would belong to; a panel run's own. */
+      group: string
+      /** Opens on the progress view: everything asked for is already downloading. */
+      joined?: boolean
+      alreadyDownloading?: DownloadModelParam[]
+      onConfirm?: () => void
+    }
+
+export type DownloadDialogRequest = {
+  id: number
+  list: DownloadModelParam[]
+  options: DownloadDialogOptions
+  success?: (accepted?: DownloadModelParam[]) => void
+  fail?: (reason?: unknown) => void
+  settled: boolean
+  pendingFailure?: { reason: unknown }
+}
+
 export const useDialogStore = defineStore('dialog', () => {
   // Warning dialog state
   const warningDialogVisible = ref(false)
@@ -42,11 +65,12 @@ export const useDialogStore = defineStore('dialog', () => {
   const warningConfirmLabel = ref<string | null>(null)
   const warningCancelLabel = ref<string | null>(null)
 
-  // Download dialog state
-  const downloadDialogVisible = ref(false)
-  const downloadList = ref<DownloadModelParam[]>([])
-  const downloadSuccessFunction = ref<(() => void) | undefined>(undefined)
-  const downloadFailFunction = ref<((reason?: unknown) => void) | undefined>(undefined)
+  // Download dialog state: requests wait their turn and are never replaced.
+  const downloadRequests = shallowRef<DownloadDialogRequest[]>([])
+  const currentDownloadRequest = computed(() => downloadRequests.value[0] ?? null)
+  const downloadDialogVisible = computed(() => currentDownloadRequest.value !== null)
+  const downloadList = computed(() => currentDownloadRequest.value?.list ?? [])
+  let nextDownloadRequestId = 0
 
   // Preset requirements dialog state
   const presetRequirementsDialogVisible = ref(false)
@@ -118,50 +142,79 @@ export const useDialogStore = defineStore('dialog', () => {
     warningCancelLabel.value = null
   }
 
-  /** Settles the open request once; a resumable error waits for a retry or for Close. */
-  let downloadRequest: {
-    settled: boolean
-    pendingFailure?: { reason: unknown }
-  } = { settled: true }
+  function removeDownloadRequest(request: DownloadDialogRequest) {
+    downloadRequests.value = downloadRequests.value.filter((open) => open !== request)
+  }
 
+  /** Queues a request behind any already shown; the caller hears only its own outcome. */
   function showDownloadDialog(
     downList: DownloadModelParam[],
-    success?: () => void,
+    success?: (accepted?: DownloadModelParam[]) => void,
     fail?: (reason?: unknown) => void,
-  ) {
-    // A request still waiting on a retry is superseded; its caller hears the error it saw.
-    if (downloadRequest.pendingFailure) downloadFailed(downloadRequest.pendingFailure.reason)
-    downloadRequest = { settled: false }
-    downloadList.value = downList
-    downloadSuccessFunction.value = success
-    downloadFailFunction.value = fail
-    downloadDialogVisible.value = true
+    options?: DownloadDialogOptions,
+  ): { dismiss: () => void } {
+    const id = ++nextDownloadRequestId
+    const request: DownloadDialogRequest = {
+      id,
+      list: downList,
+      options: options ?? { mode: 'progress', group: `download-dialog:${id}` },
+      success,
+      fail,
+      settled: false,
+    }
+    downloadRequests.value = [...downloadRequests.value, request]
+    return {
+      /** Withdraws this request without calling back; the caller settled it elsewhere. */
+      dismiss: () => {
+        if (request.settled) return
+        request.settled = true
+        removeDownloadRequest(request)
+      },
+    }
+  }
+
+  /** The user confirmed the shown request; an ask-only request is done with that. */
+  function downloadConfirmed(accepted: DownloadModelParam[]) {
+    const request = currentDownloadRequest.value
+    if (!request || request.settled) return
+    if (request.options.mode !== 'ask') {
+      request.options.onConfirm?.()
+      return
+    }
+    request.settled = true
+    removeDownloadRequest(request)
+    request.success?.(accepted)
   }
 
   function downloadCompleted() {
-    const request = downloadRequest
-    downloadDialogVisible.value = false
+    const request = currentDownloadRequest.value
+    if (!request) return
+    removeDownloadRequest(request)
     if (request.settled) return
     request.settled = true
-    downloadSuccessFunction.value?.()
+    request.success?.()
   }
 
   function downloadFailed(reason?: unknown) {
-    const request = downloadRequest
-    if (request.settled) return
+    const request = currentDownloadRequest.value
+    if (!request || request.settled) return
     request.settled = true
     request.pendingFailure = undefined
-    downloadFailFunction.value?.(reason)
+    request.fail?.(reason)
   }
 
+  /** Settles the shown request once; a resumable error waits for a retry or for Close. */
   function downloadFailedResumable(reason: unknown) {
-    if (!downloadRequest.settled) downloadRequest.pendingFailure = { reason }
+    const request = currentDownloadRequest.value
+    if (request && !request.settled) request.pendingFailure = { reason }
   }
 
   function closeDownloadDialog() {
-    downloadDialogVisible.value = false
-    const pending = downloadRequest.pendingFailure
+    const request = currentDownloadRequest.value
+    if (!request) return
+    const pending = request.pendingFailure
     if (pending) downloadFailed(pending.reason)
+    removeDownloadRequest(request)
   }
 
   function showPresetRequirementsDialog(data: PresetRequirementsData, confirmFunction: () => void) {
@@ -360,7 +413,9 @@ export const useDialogStore = defineStore('dialog', () => {
     // Download dialog
     downloadDialogVisible,
     downloadList,
+    currentDownloadRequest,
     showDownloadDialog,
+    downloadConfirmed,
     downloadCompleted,
     downloadFailed,
     downloadFailedResumable,

@@ -20,6 +20,7 @@ import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
+import type { NotificationConfig } from '@/types/notificationsIpc'
 import type {
   PermissionGrant,
   PermissionGrantOrigin,
@@ -228,8 +229,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onPush('artifact:request', callback),
   },
   permissions: {
-    requestDownload: (models: unknown[]) =>
-      invoke('permissions:requestDownload', cloneForIpc(models)),
+    requestDownload: (models: unknown[], options?: { conversationKey?: string }) =>
+      invoke('permissions:requestDownload', cloneForIpc(models), options),
     requestVramWarning: (req: { presetName: string; message: string }) =>
       invoke('permissions:requestVramWarning', req),
     list: () => invoke('permissions:list'),
@@ -242,6 +243,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       send('permissions:awaitingUser', conversationKey, waiting, reason),
     onPrompt: (callback: (payload: PermissionsPromptPayload) => void) =>
       onPush('permissions:prompt', callback),
+  },
+  notifications: {
+    setConfig: (config: NotificationConfig) => send('notifications:setConfig', config),
+    lookupMessage: (kind: ChannelKind, ref: string) =>
+      invoke('notifications:lookupMessage', kind, ref),
   },
   chat: {
     submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),
@@ -449,7 +455,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
           | 'typing'
           | 'keyboard'
           | 'editMessage'
-          | 'history',
+          | 'history'
+          | 'post',
         payload: Record<string, unknown>,
       ) => invoke('channel:send', kind, action, payload),
     },

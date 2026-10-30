@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .base import ChannelBase
 from .commands import HOME_AGENT_COMMANDS
-from .types import SendResult
+from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,62 @@ _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
+
+
+def inbound_item(message, text: str, **attachments) -> QueueItem:
+    """The queue item for an inbound message; a reply names the message it answers."""
+    item: QueueItem = {"text": text, "chat_id": str(message.chat_id), **attachments}
+    if getattr(message, "message_id", None) is not None:
+        item["reply_target"] = str(message.message_id)
+    replied = getattr(message, "reply_to_message", None)
+    if replied is not None and replied.message_id is not None:
+        item["reply_to"] = str(replied.message_id)
+    return item
+
+
+def _reply_parameters(payload: dict) -> dict:
+    """The send kwargs naming the message a send replies to, when the payload names one."""
+    raw = payload.get("reply_to_message_id")
+    try:
+        message_id = int(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        message_id = None
+    if message_id is None:
+        return {}
+    from telegram import ReplyParameters
+
+    # The answered message may have been deleted; the reply is still worth sending.
+    return {
+        "reply_parameters": ReplyParameters(
+            message_id=message_id, allow_sending_without_reply=True
+        )
+    }
+
+
+def inbound_text_item(message) -> QueueItem:
+    """The queue item for a typed message."""
+    return inbound_item(message, message.text or "")
+
+
+def refused_document_item(message, notice: str) -> QueueItem | None:
+    """A refused document that replies to a message, queued so the renderer decides who
+    is told what: an Answer to an agent hears it must be text, Home Agent gets `notice`.
+    None when it replies to nothing; the notice is then sent here."""
+    if getattr(message, "reply_to_message", None) is None:
+        return None
+    return inbound_item(
+        message, getattr(message, "caption", None) or "", refused=notice
+    )
+
+
+def answer_callback_item(callback_query) -> QueueItem:
+    """The queue item for a 💬 Answer tap; the message it sits under names the session."""
+    tapped = callback_query.message
+    return {
+        "chat_id": str(tapped.chat_id),
+        "callback": callback_query.data or "",
+        "reply_to": str(tapped.message_id),
+    }
 
 
 class TelegramChannel(ChannelBase):
@@ -140,14 +196,21 @@ class TelegramChannel(ChannelBase):
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_message(  # type: ignore[union-attr]
-                    chat_id=target, text=text, parse_mode=parse_mode
+                    chat_id=target,
+                    text=text,
+                    parse_mode=parse_mode,
+                    **_reply_parameters(payload),
                 )
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
+
+    def send_post(self, payload: dict) -> SendResult:
+        """A message the renderer edits later (`editMessage`); never a draft."""
+        return self.send_reply(payload)
 
     def send_update(self, payload: dict) -> SendResult:
         """Telegram uses sendMessageDraft for streaming updates (no chat.update)."""
@@ -190,15 +253,16 @@ class TelegramChannel(ChannelBase):
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
             photo_bytes = base64.b64decode(photo_b64)
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_photo(  # type: ignore[union-attr]
                     chat_id=target,
                     photo=photo_bytes,
                     caption=caption or None,
+                    **_reply_parameters(payload),
                 ),
                 timeout=120,
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -210,16 +274,17 @@ class TelegramChannel(ChannelBase):
             return {"error": "Telegram not configured", "_http_status": 400}
         try:
             video_bytes = base64.b64decode(video_b64)
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_video(  # type: ignore[union-attr]
                     chat_id=target,
                     video=video_bytes,
                     caption=caption or None,
                     supports_streaming=True,
+                    **_reply_parameters(payload),
                 ),
                 timeout=180,
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 
@@ -332,6 +397,7 @@ class TelegramChannel(ChannelBase):
                     text=text,
                     parse_mode=parse_mode,
                     reply_markup=markup,
+                    **_reply_parameters(payload),
                 )
             )
             # Return the message id so the renderer can edit the prompt in place
@@ -426,7 +492,7 @@ class TelegramChannel(ChannelBase):
                 update.message.message_id,
                 len(user_text),
             )
-            self.queue_append({"text": user_text, "chat_id": chat_id})
+            self.queue_append(inbound_text_item(update.message))
 
         def make_command_handler(command_name: str, full_text_builder=None):
             """Factory: build a /command handler that queues a uniform message.
@@ -523,6 +589,27 @@ class TelegramChannel(ChannelBase):
             logger.info("Telegram confirm callback: chat_id=%s data=%r", chat_id, data)
             self.queue_append({"chat_id": chat_id, "callback": data})
 
+        async def handle_answer_callback(
+            update: Update, context: ContextTypes.DEFAULT_TYPE
+        ) -> None:
+            cq = update.callback_query
+            if cq is None or cq.message is None:
+                return
+            chat_id = str(cq.message.chat_id)
+            allow = self._allowed_chat_id
+            self._record_authorized_chat_id(chat_id)
+            try:
+                await cq.answer()
+            except Exception as exc:
+                logger.warning("Failed to ack answer callback_query: %s", exc)
+            if allow and chat_id != allow:
+                logger.warning(
+                    "Ignoring answer callback from unauthorized chat_id: %s", chat_id
+                )
+                return
+            logger.info("Telegram answer callback: chat_id=%s", chat_id)
+            self.queue_append(answer_callback_item(cq))
+
         async def handle_load_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
         ) -> None:
@@ -589,11 +676,11 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": text_payload,
-                    "chat_id": chat_id,
-                    "images": [{"mime": "image/jpeg", "data_base64": data_b64}],
-                }
+                inbound_item(
+                    update.message,
+                    text_payload,
+                    images=[{"mime": "image/jpeg", "data_base64": data_b64}],
+                )
             )
 
         async def handle_voice(
@@ -638,11 +725,11 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": caption,
-                    "chat_id": chat_id,
-                    "audio": [{"mime": mime, "data_base64": data_b64}],
-                }
+                inbound_item(
+                    update.message,
+                    caption,
+                    audio=[{"mime": mime, "data_base64": data_b64}],
+                )
             )
 
         async def handle_document(
@@ -668,23 +755,24 @@ class TelegramChannel(ChannelBase):
 
             filename = doc.file_name or "document"
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            notice = None
             if ext not in _SUPPORTED_DOC_EXTENSIONS:
+                notice = (
+                    "Unsupported document type. Send a "
+                    f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} file to add it to the "
+                    "knowledge base."
+                )
+            elif doc.file_size and doc.file_size > _MAX_DOC_BYTES:
+                notice = "That document is too large to add to the knowledge base."
+            if notice:
+                refused = refused_document_item(update.message, notice)
+                if refused is not None:
+                    self.queue_append(refused)
+                    return
                 try:
-                    await update.message.reply_text(
-                        "Unsupported document type. Send a "
-                        f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} file to add it to the "
-                        "knowledge base."
-                    )
+                    await update.message.reply_text(notice)
                 except Exception as exc:
-                    logger.debug("Failed to send unsupported-document notice: %s", exc)
-                return
-            if doc.file_size and doc.file_size > _MAX_DOC_BYTES:
-                try:
-                    await update.message.reply_text(
-                        "That document is too large to add to the knowledge base."
-                    )
-                except Exception as exc:
-                    logger.debug("Failed to send document-too-large notice: %s", exc)
+                    logger.debug("Failed to send refused-document notice: %s", exc)
                 return
             try:
                 tg_file = await context.bot.get_file(doc.file_id)
@@ -704,13 +792,13 @@ class TelegramChannel(ChannelBase):
                 len(raw),
             )
             self.queue_append(
-                {
-                    "text": caption,
-                    "chat_id": chat_id,
-                    "documents": [
+                inbound_item(
+                    update.message,
+                    caption,
+                    documents=[
                         {"filename": filename, "mime": mime, "data_base64": data_b64}
                     ],
-                }
+                )
             )
 
         async def run() -> None:
@@ -753,6 +841,9 @@ class TelegramChannel(ChannelBase):
             )
             application.add_handler(
                 CallbackQueryHandler(handle_confirm_callback, pattern=r"^confirm:")
+            )
+            application.add_handler(
+                CallbackQueryHandler(handle_answer_callback, pattern=r"^answer$")
             )
             await application.initialize()
             await application.start()

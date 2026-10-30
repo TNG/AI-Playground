@@ -192,12 +192,13 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     },
 
     updateLocalSettings: (_event, updates: Partial<LocalSettings>): IpcMutationResult => {
-      if (deps.demoModeConfig.refusesSettingsUpdate(updates)) {
+      // The demoMode:* rows own these keys: they know about the Demo Policy and Demo Mode's lock.
+      if (deps.demoModeConfig.touchesDemoModeKeys(updates)) {
         deps.appLogger.warn(
-          `Refused a Demo Mode settings change while Demo Mode is active: ${Object.keys(updates).join(', ')}`,
+          `Refused a Demo Mode settings change via updateLocalSettings: ${Object.keys(updates).join(', ')}`,
           'demo-mode',
         )
-        return { success: false, error: 'Demo Mode settings cannot be changed in Demo Mode' }
+        return { success: false, error: 'Demo Mode settings are changed through demoMode:* only' }
       }
       Object.assign(deps.settings, updates)
       // Any of these can change which preset files the catalog reads or injects.

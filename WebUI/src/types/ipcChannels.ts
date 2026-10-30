@@ -679,7 +679,7 @@ export const CHANNELS = {
   },
   /**
    * Merge updates into the machine-level settings.json and persist it. Refuses the three Demo Mode
-   * keys while Demo Mode is active.
+   * keys, which only the `demoMode:*` rows change.
    */
   updateLocalSettings: {
     kind: 'invoke',

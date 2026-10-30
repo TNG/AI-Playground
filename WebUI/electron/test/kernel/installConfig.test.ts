@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
+  installConfigAppliesTo,
   isTrustedOwnerSid,
   normalizeLocalAbsolutePath,
   parseInstallRegistry,
@@ -97,6 +98,29 @@ describe('parseInstallRegistry', () => {
   })
 })
 
+describe('installConfigAppliesTo', () => {
+  const shared = { modelFolderMode: 'shared' as const, sharedResourcesDir: 'D:\\AI Playground' }
+  const machineDir = 'C:\\Program Files\\AI Playground'
+  const userDir = 'C:\\Users\\me\\AppData\\Local\\Programs\\AI Playground'
+
+  it('applies to the install that recorded itself, ignoring case and trailing slashes', () => {
+    const config = { ...shared, installDir: machineDir }
+    expect(installConfigAppliesTo(config, 'c:\\program files\\ai playground\\', () => true)).toBe(
+      true,
+    )
+  })
+
+  it('does not apply to a different (per-user) install', () => {
+    const config = { ...shared, installDir: machineDir }
+    expect(installConfigAppliesTo(config, userDir, () => false)).toBe(false)
+  })
+
+  it('falls back to a read-only install dir when installDir was never recorded', () => {
+    expect(installConfigAppliesTo(shared, machineDir, () => false)).toBe(true)
+    expect(installConfigAppliesTo(shared, userDir, () => true)).toBe(false)
+  })
+})
+
 describe('readInstallConfig', () => {
   it('returns null off Windows when nothing is injected', () => {
     if (process.platform === 'win32') return
@@ -172,6 +196,20 @@ describe('readInstallConfig', () => {
   it('ignores a shared config the current user owns', () => {
     expect(readInstallConfig(probe({ ownerSid: () => 'S-1-5-21-1-1001' }))).toBeNull()
     expect(readInstallConfig(probe({ ownerSid: () => null }))).toBeNull()
+  })
+
+  it('returns the install dir that wrote the config', () => {
+    const registryStdout = `${sharedRegistry}    installDir    REG_SZ    C:\\Program Files\\AI Playground\r\n`
+    expect(readInstallConfig(probe({ registryStdout }))).toEqual({
+      modelFolderMode: 'shared',
+      sharedResourcesDir: 'D:\\AI Playground',
+      installDir: 'C:\\Program Files\\AI Playground',
+    })
+  })
+
+  it('ignores a config whose installDir is not a local path', () => {
+    const registryStdout = `${sharedRegistry}    installDir    REG_SZ    \\\\server\\share\r\n`
+    expect(readInstallConfig(probe({ registryStdout }))).toBeNull()
   })
 
   it('ignores an unknown mode', () => {

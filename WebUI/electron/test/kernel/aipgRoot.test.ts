@@ -30,13 +30,15 @@ async function loadAipgRoot(opts: {
   mode: 'shared' | 'per-user' | null
   platform: NodeJS.Platform
   sharedResourcesDir?: string
+  installDir?: string | null
 }) {
   vi.resetModules()
   setProp(process, 'platform', opts.platform)
   vi.doMock('electron', () => ({
     app: { isPackaged: opts.isPackaged, getVersion: () => '0.0.0-test' },
   }))
-  vi.doMock('../../kernel/installConfig.ts', () => ({
+  vi.doMock('../../kernel/installConfig.ts', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../kernel/installConfig.ts')>()),
     readInstallConfig: () => {
       if (!opts.mode) return null
       const sharedResourcesDir =
@@ -45,7 +47,9 @@ async function loadAipgRoot(opts: {
           : opts.mode === 'shared'
             ? path.join(tmpPublic, 'AI Playground')
             : undefined
-      return { modelFolderMode: opts.mode, sharedResourcesDir }
+      const installDir =
+        opts.installDir === null ? undefined : (opts.installDir ?? path.dirname(tmpResources))
+      return { modelFolderMode: opts.mode, sharedResourcesDir, installDir }
     },
   }))
   return import('../../kernel/aipgRoot.ts')
@@ -63,6 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.doUnmock('electron')
   vi.doUnmock('../../kernel/installConfig.ts')
   vi.doUnmock('../../kernel/sharedAcl.ts')
@@ -150,6 +155,34 @@ describe('packagedResourcesRoot', () => {
     expect(mod.packagedResourcesRoot()).toBe(
       path.join(tmpLocalAppData, 'ai-playground', 'resources'),
     )
+  })
+
+  it('ignores a shared config left by another install (per-user install after all-users)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mod = await loadAipgRoot({
+      isPackaged: true,
+      mode: 'shared',
+      platform: 'win32',
+      installDir: 'C:\\Program Files\\AI Playground',
+    })
+
+    expect(mod.isSharedAllUsersInstall()).toBe(false)
+    expect(mod.packagedResourcesRoot()).toBe(tmpResources)
+    expect(mod.writableConfigRoot()).toBe(tmpResources)
+    expect(fs.existsSync(path.join(tmpPublic, 'AI Playground'))).toBe(false)
+  })
+
+  it('ignores a legacy shared config without installDir when the install dir is writable', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mod = await loadAipgRoot({
+      isPackaged: true,
+      mode: 'shared',
+      platform: 'win32',
+      installDir: null,
+    })
+
+    expect(mod.isSharedAllUsersInstall()).toBe(false)
+    expect(mod.packagedResourcesRoot()).toBe(tmpResources)
   })
 
   it('replaces a pre-seeded uv.exe when the seed marker matches', async () => {

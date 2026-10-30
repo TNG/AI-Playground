@@ -182,7 +182,8 @@
     ; --- AI Playground: all-users shared/per-user resources choice ---
     ; Only all-users installs get a machine-wide config; a per-user
     ; (CurrentUser) install keeps the default per-user paths and writes nothing
-    ; here. The choice is stored in HKLM (standard users cannot write it) — not
+    ; here. It cannot clear a key left by an earlier all-users install either,
+    ; so installDir records which install the config belongs to. The choice is stored in HKLM (standard users cannot write it) — not
     ; under %PUBLIC%, where any account can create a file. See
     ; electron/kernel/installConfig.ts.
     ;   $R0 = %PUBLIC%  $R1 = legacy config dir  $R2 = shared resources base
@@ -310,6 +311,7 @@
         ClearErrors
         WriteRegStr HKLM "Software\AI Playground" "modelFolderMode" "shared"
         WriteRegStr HKLM "Software\AI Playground" "sharedResourcesDir" "$R2"
+        WriteRegStr HKLM "Software\AI Playground" "installDir" "$INSTDIR"
         ${if} ${errors}
           DetailPrint "Failed to write HKLM\Software\AI Playground."
           IfSilent +2
@@ -319,6 +321,7 @@
       ${else}
         ClearErrors
         WriteRegStr HKLM "Software\AI Playground" "modelFolderMode" "per-user"
+        WriteRegStr HKLM "Software\AI Playground" "installDir" "$INSTDIR"
         ${if} ${errors}
           DetailPrint "Failed to write HKLM\Software\AI Playground."
           IfSilent +2

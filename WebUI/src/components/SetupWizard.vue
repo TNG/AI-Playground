@@ -742,7 +742,11 @@ const demoModeRow = computed<SetupWizardRowView>(() => {
     displayName: t('SETUP_WIZARD_DEMO_MODE'),
     infoTooltip: t('SETUP_WIZARD_DEMO_MODE_INFO'),
     statusColor: mapStatusToColor(enabled ? 'notYetStarted' : 'notInstalled'),
-    statusText: enabled ? t('SETUP_WIZARD_DEMO_MODE_PENDING') : t('SETUP_WIZARD_DEMO_MODE_OFF'),
+    statusText: !enabled
+      ? t('SETUP_WIZARD_DEMO_MODE_OFF')
+      : wizard.demoModePolicyPresent && !wizard.demoModeChanged
+        ? t('DEMO_MODE_SET_BY_ADMIN')
+        : t('SETUP_WIZARD_DEMO_MODE_PENDING'),
     versionDisplay: '',
     enabled,
     toggleTooltip: enabled

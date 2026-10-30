@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "展示模式設定",
   "DEMO_MODE_SETUP_INTRO": "在展示模式下，訪客無法變更設定或開啟此精靈；若一段時間無人使用，應用程式可以自行重設。只有展示密碼才能退出展示模式。",
   "DEMO_MODE_SETUP_STORED_USER": "儲存在您自己的設定中：僅對您生效。",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "儲存到這台電腦：對所有使用者生效。儲存時需要系統管理員核准。",
+  "DEMO_MODE_SET_BY_ADMIN": "由您的系統管理員設定",
   "DEMO_MODE_SETUP_PASSCODE": "展示密碼",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "確認展示密碼",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "留空則保留目前的密碼",

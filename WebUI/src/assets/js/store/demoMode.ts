@@ -128,12 +128,16 @@ export const useDemoMode = defineStore('demoMode', () => {
   const resetInSeconds = ref<null | number>(null)
   const passcode = ref('')
   const hasPasscode = computed(() => passcode.value.length > 0)
+  const source = ref<DemoModeSettings['source']>('user')
+  const sharedInstall = ref(false)
 
   function applyDemoSettingsPayload(res: DemoModeSettings) {
     enabled.value = res.isDemoModeEnabled
     profile.value = res.profile ?? null
     resetInSeconds.value = res.demoModeResetInSeconds
     passcode.value = res.demoModePasscode ?? ''
+    source.value = res.source
+    sharedInstall.value = res.sharedInstall
 
     const dotButtons =
       (profile.value?.notificationDotButtons as DemoButtonId[]) ?? FALLBACK_NOTIFICATION_DOT_BUTTONS
@@ -289,6 +293,8 @@ export const useDemoMode = defineStore('demoMode', () => {
     saveConfig,
     restartIntoDemoMode,
     hasPasscode,
+    source,
+    sharedInstall,
     resetInSeconds,
     cancelReset,
     resetDemo,

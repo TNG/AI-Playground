@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDemoModeConfig } from '../../kernel/demoModeConfig'
+import type { ElevatedRunResult, RegistryValueChange } from '../../adapters/elevatedRegistry'
 import { LocalSettingsSchema, type LocalSettings } from '../../kernel/localSettings'
 
 function userSettings(overrides: Partial<LocalSettings> = {}): LocalSettings {
@@ -184,11 +185,11 @@ describe('enterDemoMode', () => {
 describe('saveDemoConfig', () => {
   const hashed = 'pbkdf2$600000$c2FsdA==$aGFzaA=='
 
-  it('writes Demo Mode, the hashed passcode and the Reset Timeout to the user file', () => {
+  it('writes Demo Mode, the hashed passcode and the Reset Timeout to the user file', async () => {
     const settings = userSettings()
     const { config, written } = setup(settings)
 
-    const result = config.saveDemoConfig({
+    const result = await config.saveDemoConfig({
       isDemoModeEnabled: true,
       demoModePasscode: hashed,
       demoModeResetInSeconds: 300,
@@ -210,11 +211,11 @@ describe('saveDemoConfig', () => {
     })
   })
 
-  it('is refused while Demo Mode is active and writes nothing', () => {
+  it('is refused while Demo Mode is active and writes nothing', async () => {
     const settings = userSettings({ isDemoModeEnabled: true, demoModePasscode: 'old' })
     const { config, writeUserSettings } = setup(settings)
 
-    const result = config.saveDemoConfig({
+    const result = await config.saveDemoConfig({
       isDemoModeEnabled: false,
       demoModePasscode: hashed,
       demoModeResetInSeconds: null,
@@ -225,22 +226,25 @@ describe('saveDemoConfig', () => {
     expect(settings).toMatchObject({ isDemoModeEnabled: true, demoModePasscode: 'old' })
   })
 
-  it('refuses to turn Demo Mode on without a passcode', () => {
+  it('refuses to turn Demo Mode on without a passcode', async () => {
     const settings = userSettings()
     const { config, writeUserSettings } = setup(settings)
 
-    const result = config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModeResetInSeconds: null,
+    })
 
     expect(result).toMatchObject({ success: false })
     expect(writeUserSettings).not.toHaveBeenCalled()
     expect(settings.isDemoModeEnabled).toBe(false)
   })
 
-  it('keeps the stored passcode when none is given', () => {
+  it('keeps the stored passcode when none is given', async () => {
     const settings = userSettings({ demoModePasscode: hashed, demoModeResetInSeconds: 60 })
     const { config, written } = setup(settings)
 
-    const result = config.saveDemoConfig({
+    const result = await config.saveDemoConfig({
       isDemoModeEnabled: true,
       demoModePasscode: undefined,
       demoModeResetInSeconds: null,
@@ -260,24 +264,28 @@ describe('saveDemoConfig', () => {
     ['a plain-text passcode', { demoModePasscode: 'secret', demoModeResetInSeconds: null }],
     ['a zero Reset Timeout', { demoModePasscode: hashed, demoModeResetInSeconds: 0 }],
     ['a fractional Reset Timeout', { demoModePasscode: hashed, demoModeResetInSeconds: 1.5 }],
-  ])('refuses %s', (_label, values) => {
+    [
+      'a passcode that is not a hash',
+      { demoModePasscode: 'pbkdf2$1$a" & calc & "$b', demoModeResetInSeconds: null },
+    ],
+  ])('refuses %s', async (_label, values) => {
     const settings = userSettings()
     const { config, writeUserSettings } = setup(settings)
 
-    const result = config.saveDemoConfig({ isDemoModeEnabled: true, ...values })
+    const result = await config.saveDemoConfig({ isDemoModeEnabled: true, ...values })
 
     expect(result).toMatchObject({ success: false })
     expect(writeUserSettings).not.toHaveBeenCalled()
   })
 
-  it('reports a failed write and leaves the live settings as they were', () => {
+  it('reports a failed write and leaves the live settings as they were', async () => {
     const settings = userSettings({ demoModeResetInSeconds: 60 })
     const { config, writeUserSettings, onDemoModeChanged } = setup(settings)
     writeUserSettings.mockImplementation(() => {
       throw new Error('read-only')
     })
 
-    const result = config.saveDemoConfig({
+    const result = await config.saveDemoConfig({
       isDemoModeEnabled: true,
       demoModePasscode: hashed,
       demoModeResetInSeconds: 300,
@@ -289,39 +297,18 @@ describe('saveDemoConfig', () => {
     expect(onDemoModeChanged).not.toHaveBeenCalled()
   })
 
-  it('writes the user’s own values, never the Demo Policy’s', () => {
-    const settings = userSettings({ demoModePasscode: hashed, demoModeResetInSeconds: 60 })
-    const { config, written } = setup(settings)
-    config.resolveIntoSettings({ registryStdout: demoPolicy })
-    config.leaveDemoMode()
-
-    const result = config.saveDemoConfig({
-      isDemoModeEnabled: false,
-      demoModeResetInSeconds: 30,
-    })
-
-    expect(result).toEqual({ success: true })
-    expect(written).toEqual([
-      expect.objectContaining({
-        isDemoModeEnabled: false,
-        demoModePasscode: hashed,
-        demoModeResetInSeconds: 30,
-      }),
-    ])
-  })
-
-  it('announces a change of Demo Mode, and only a change', () => {
+  it('announces a change of Demo Mode, and only a change', async () => {
     const settings = userSettings()
     const { config, onDemoModeChanged } = setup(settings)
 
-    config.saveDemoConfig({
+    await config.saveDemoConfig({
       isDemoModeEnabled: false,
       demoModePasscode: hashed,
       demoModeResetInSeconds: null,
     })
     expect(onDemoModeChanged).not.toHaveBeenCalled()
 
-    config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
+    await config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
     expect(onDemoModeChanged).toHaveBeenCalledExactlyOnceWith(true)
   })
 })
@@ -436,5 +423,224 @@ describe('without a Demo Policy', () => {
     } finally {
       Object.defineProperty(process, 'platform', { value: platform, configurable: true })
     }
+  })
+})
+
+describe('saveDemoConfig on a Shared Install', () => {
+  const hashed = 'pbkdf2$600000$c2FsdA==$aGFzaA=='
+
+  function sharedInstall(
+    machineValues: Record<string, string | number>,
+    own: Partial<LocalSettings> = {},
+  ) {
+    const machine = new Map<string, string | number>([
+      ['modelFolderMode', 'shared'],
+      ...Object.entries(machineValues),
+    ])
+    const registryStdout = () =>
+      registry(
+        ...[...machine].map(([name, value]) =>
+          typeof value === 'number'
+            ? `    ${name}    REG_DWORD    0x${value.toString(16)}`
+            : `    ${name}    REG_SZ    ${value}`,
+        ),
+      )
+    const runs: RegistryValueChange[][] = []
+    let outcome: ElevatedRunResult = { ok: true }
+    const runElevated = vi.fn(async (changes: RegistryValueChange[]) => {
+      runs.push(changes)
+      if (!outcome.ok) return outcome
+      for (const change of changes) {
+        if (change.action === 'delete') machine.delete(change.name)
+        else machine.set(change.name, change.data)
+      }
+      return outcome
+    })
+    const settings = userSettings(own)
+    const written: LocalSettings[] = []
+    const writeUserSettings = vi.fn((s: LocalSettings) => {
+      written.push(structuredClone(s))
+    })
+    const onDemoModeChanged = vi.fn()
+    const config = createDemoModeConfig({
+      settings: () => settings,
+      writeUserSettings,
+      onDemoModeChanged,
+      runElevated,
+      readProbe: () => ({ registryStdout: registryStdout() }),
+    })
+    config.resolveIntoSettings()
+    return {
+      config,
+      settings,
+      machine,
+      runs,
+      written,
+      writeUserSettings,
+      onDemoModeChanged,
+      failWith: (result: ElevatedRunResult) => {
+        outcome = result
+      },
+    }
+  }
+
+  it('writes the Demo Policy, enabling it last, and never the user file', async () => {
+    const { config, runs, writeUserSettings } = sharedInstall({})
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(runs).toEqual([
+      [
+        { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
+        { action: 'set', name: 'demoModeResetInSeconds', type: 'REG_DWORD', data: 300 },
+        { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
+      ],
+    ])
+    expect(writeUserSettings).not.toHaveBeenCalled()
+  })
+
+  it('makes the new policy live and announces Demo Mode', async () => {
+    const { config, settings, onDemoModeChanged } = sharedInstall({}, { demoModePasscode: 'mine' })
+
+    await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+    })
+
+    expect(config.currentDemoConfig()).toEqual({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+      source: 'policy',
+      sharedInstall: true,
+    })
+    expect(config.withUserDemoValues(settings)).toMatchObject({ demoModePasscode: 'mine' })
+    expect(onDemoModeChanged).toHaveBeenCalledExactlyOnceWith(true)
+  })
+
+  it('removes a Reset Timeout that was cleared', async () => {
+    const { config, runs } = sharedInstall({
+      isDemoModeEnabled: 1,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 60,
+    })
+    config.leaveDemoMode()
+
+    await config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
+
+    expect(runs).toEqual([
+      [
+        { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
+        { action: 'delete', name: 'demoModeResetInSeconds' },
+        { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
+      ],
+    ])
+  })
+
+  it('turns the policy off by deleting all three values, Demo Mode first', async () => {
+    const { config, runs, machine, settings } = sharedInstall(
+      { isDemoModeEnabled: 1, demoModePasscode: hashed, demoModeResetInSeconds: 60 },
+      { demoModeResetInSeconds: 30 },
+    )
+    config.leaveDemoMode()
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: false,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(runs).toEqual([
+      [
+        { action: 'delete', name: 'isDemoModeEnabled' },
+        { action: 'delete', name: 'demoModePasscode' },
+        { action: 'delete', name: 'demoModeResetInSeconds' },
+      ],
+    ])
+    expect([...machine.keys()]).toEqual(['modelFolderMode'])
+    expect(config.currentDemoConfig()).toMatchObject({ source: 'user', sharedInstall: true })
+    expect(settings.demoModeResetInSeconds).toBe(30)
+  })
+
+  it("keeps the policy's passcode when none is given, not the user's", async () => {
+    const { config, runs } = sharedInstall(
+      { isDemoModeEnabled: 1, demoModePasscode: hashed },
+      { demoModePasscode: 'pbkdf2$1$dXNlcg==$dXNlcg==' },
+    )
+    config.leaveDemoMode()
+
+    await config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
+
+    expect(runs[0][0]).toEqual({
+      action: 'set',
+      name: 'demoModePasscode',
+      type: 'REG_SZ',
+      data: hashed,
+    })
+  })
+
+  it('refuses to turn the policy on without a passcode of its own', async () => {
+    const { config, runs } = sharedInstall({}, { demoModePasscode: hashed })
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toMatchObject({ success: false })
+    expect(runs).toEqual([])
+  })
+
+  it('changes nothing when the administrator prompt is cancelled', async () => {
+    const { config, machine, settings, onDemoModeChanged, failWith } = sharedInstall({})
+    failWith({ ok: false, cancelled: true, error: 'The operation was canceled by the user.' })
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: expect.stringMatching(/cancelled/i),
+    })
+    expect([...machine.keys()]).toEqual(['modelFolderMode'])
+    expect(settings).toMatchObject({ isDemoModeEnabled: false, demoModeResetInSeconds: null })
+    expect(config.currentDemoConfig()).toMatchObject({ source: 'user' })
+    expect(onDemoModeChanged).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed write and keeps the live state', async () => {
+    const { config, onDemoModeChanged, failWith } = sharedInstall({})
+    failWith({ ok: false, cancelled: false, error: 'reg.exe exited with code 1' })
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toEqual({ success: false, error: 'reg.exe exited with code 1' })
+    expect(config.currentDemoConfig()).toMatchObject({ isDemoModeEnabled: false, source: 'user' })
+    expect(onDemoModeChanged).not.toHaveBeenCalled()
+  })
+
+  it('is refused while the policy keeps Demo Mode active', async () => {
+    const { config, runs } = sharedInstall({ isDemoModeEnabled: 1, demoModePasscode: hashed })
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: false,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toMatchObject({ success: false })
+    expect(runs).toEqual([])
   })
 })

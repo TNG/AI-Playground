@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "Configuración del modo demo",
   "DEMO_MODE_SETUP_INTRO": "En modo demo los visitantes no pueden cambiar la configuración ni abrir este asistente, y la aplicación puede restablecerse cuando nadie la ha usado durante un tiempo. Solo el código de demo permite salir del modo demo.",
   "DEMO_MODE_SETUP_STORED_USER": "Guardado en tu propia configuración: solo se aplica a ti.",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "Guardado para este equipo: se aplica a todos los usuarios. Para guardar se pide la aprobación de un administrador.",
+  "DEMO_MODE_SET_BY_ADMIN": "Establecido por tu administrador",
   "DEMO_MODE_SETUP_PASSCODE": "Código de demo",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "Confirmar código de demo",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "Déjalo en blanco para conservar el código actual",

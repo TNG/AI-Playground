@@ -469,6 +469,8 @@
   "DEMO_MODE_SETUP_TITLE": "Thiết lập chế độ demo",
   "DEMO_MODE_SETUP_INTRO": "Trong chế độ demo, khách không thể thay đổi cài đặt hoặc mở trình hướng dẫn này, và ứng dụng có thể tự đặt lại khi không ai sử dụng trong một lúc. Chỉ mã demo mới thoát được chế độ demo.",
   "DEMO_MODE_SETUP_STORED_USER": "Được lưu trong cài đặt của riêng bạn: chỉ áp dụng cho bạn.",
+  "DEMO_MODE_SETUP_STORED_MACHINE": "Được lưu cho máy tính này: áp dụng cho tất cả người dùng. Việc lưu cần quản trị viên phê duyệt.",
+  "DEMO_MODE_SET_BY_ADMIN": "Do quản trị viên của bạn thiết lập",
   "DEMO_MODE_SETUP_PASSCODE": "Mã demo",
   "DEMO_MODE_SETUP_PASSCODE_CONFIRM": "Xác nhận mã demo",
   "DEMO_MODE_SETUP_PASSCODE_KEEP": "Để trống để giữ mã hiện tại",

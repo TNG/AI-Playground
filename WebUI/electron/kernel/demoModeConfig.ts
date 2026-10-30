@@ -1,7 +1,12 @@
 import z from 'zod'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { DemoConfigUpdateSchema, type DemoConfigUpdate } from '@/types/demoModeIpc'
-import { parseRegistryValues, readInstallRegistryStdout } from './installConfig'
+import {
+  runElevatedRegistryChanges,
+  type ElevatedRegistryRunner,
+  type RegistryValueChange,
+} from '../adapters/elevatedRegistry'
+import { INSTALL_CONFIG_KEY, parseRegistryValues, readInstallRegistryStdout } from './installConfig'
 import type { LocalSettings } from './localSettings'
 
 export type DemoModeValues = Pick<
@@ -34,6 +39,9 @@ export type DemoModeConfigDeps = {
   /** Writes the user's own settings file; throws when it cannot. */
   writeUserSettings: (settings: LocalSettings) => void
   onDemoModeChanged: (enabled: boolean) => void
+  /** Writes the Demo Policy behind a UAC prompt; production runs `reg.exe` elevated. */
+  runElevated?: ElevatedRegistryRunner
+  readProbe?: () => DemoConfigProbe
 }
 
 const productionProbe = (): DemoConfigProbe => ({
@@ -54,6 +62,30 @@ function parseDemoPolicy(registryStdout: string | null): DemoModeValues | null {
   }
 }
 
+/** Ordered so an interrupted write never leaves a policy enabled with stale values. */
+function demoPolicyChanges(values: DemoModeValues): RegistryValueChange[] {
+  if (!values.isDemoModeEnabled) {
+    return DEMO_MODE_KEYS.map((name) => ({ action: 'delete', name }))
+  }
+  return [
+    {
+      action: 'set',
+      name: 'demoModePasscode',
+      type: 'REG_SZ',
+      data: values.demoModePasscode ?? '',
+    },
+    values.demoModeResetInSeconds
+      ? {
+          action: 'set',
+          name: 'demoModeResetInSeconds',
+          type: 'REG_DWORD',
+          data: values.demoModeResetInSeconds,
+        }
+      : { action: 'delete', name: 'demoModeResetInSeconds' },
+    { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
+  ]
+}
+
 function demoValuesOf(settings: LocalSettings): DemoModeValues {
   return {
     isDemoModeEnabled: settings.isDemoModeEnabled,
@@ -63,6 +95,10 @@ function demoValuesOf(settings: LocalSettings): DemoModeValues {
 }
 
 export function createDemoModeConfig(deps: DemoModeConfigDeps) {
+  const readProbe = deps.readProbe ?? productionProbe
+  const runElevated =
+    deps.runElevated ??
+    ((changes: RegistryValueChange[]) => runElevatedRegistryChanges(INSTALL_CONFIG_KEY, changes))
   // Set only while a Demo Policy is in effect: the live settings then carry the policy's values.
   let userOwnValues: DemoModeValues | null = null
   let resolved: Pick<EffectiveDemoConfig, 'source' | 'sharedInstall'> = {
@@ -72,9 +108,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
 
   const ownValues = () => userOwnValues ?? demoValuesOf(deps.settings())
 
-  function readEffectiveDemoConfig(
-    probe: DemoConfigProbe = productionProbe(),
-  ): EffectiveDemoConfig {
+  function readEffectiveDemoConfig(probe: DemoConfigProbe = readProbe()): EffectiveDemoConfig {
     const sharedInstall = probe.registryStdout !== null
     const policy = parseDemoPolicy(probe.registryStdout)
     if (policy) return { ...policy, source: 'policy', sharedInstall }
@@ -102,7 +136,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     return { success: true }
   }
 
-  function saveDemoConfig(input: DemoConfigUpdate): IpcMutationResult {
+  async function saveDemoConfig(input: DemoConfigUpdate): Promise<IpcMutationResult> {
     const s = deps.settings()
     if (s.isDemoModeEnabled) {
       return { success: false, error: 'Leave Demo Mode before changing its settings' }
@@ -110,21 +144,33 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     const parsed = DemoConfigUpdateSchema.safeParse(input)
     if (!parsed.success) return { success: false, error: z.prettifyError(parsed.error) }
     const update = parsed.data
+    const policy = resolved.sharedInstall ? parseDemoPolicy(readProbe().registryStdout) : null
     const next: DemoModeValues = {
       isDemoModeEnabled: update.isDemoModeEnabled,
-      demoModePasscode: update.demoModePasscode ?? ownValues().demoModePasscode,
+      demoModePasscode:
+        update.demoModePasscode ??
+        (resolved.sharedInstall ? policy?.demoModePasscode : ownValues().demoModePasscode),
       demoModeResetInSeconds: update.demoModeResetInSeconds,
     }
     if (next.isDemoModeEnabled && !next.demoModePasscode) {
       return { success: false, error: 'Demo Mode needs a Demo Passcode' }
     }
-    try {
-      deps.writeUserSettings({ ...withUserDemoValues(s), ...next })
-    } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    if (resolved.sharedInstall) {
+      const result = await runElevated(demoPolicyChanges(next))
+      if (!result.ok) {
+        const error = result.cancelled
+          ? 'Administrator approval was cancelled; the Demo Policy is unchanged'
+          : result.error
+        return { success: false, error }
+      }
+    } else {
+      try {
+        deps.writeUserSettings({ ...withUserDemoValues(s), ...next })
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
+      Object.assign(s, next)
     }
-    if (userOwnValues) userOwnValues = next
-    else Object.assign(s, next)
     if (resolveIntoSettings().isDemoModeEnabled) deps.onDemoModeChanged(true)
     return { success: true }
   }

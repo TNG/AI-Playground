@@ -17,10 +17,11 @@ const { buildCoreInvokeRegistry } = await import('../../kernel/registries/core')
 
 function setup(initial: Partial<LocalSettings>) {
   const settings = LocalSettingsSchema.parse(initial)
+  const onDemoModeChanged = vi.fn()
   const demoModeConfig = createDemoModeConfig({
     settings: () => settings,
     writeUserSettings: vi.fn(),
-    onDemoModeChanged: vi.fn(),
+    onDemoModeChanged,
   })
   const persistLocalSettingsToDisk = vi.fn()
   const registry = buildCoreInvokeRegistry({
@@ -33,7 +34,13 @@ function setup(initial: Partial<LocalSettings>) {
   } as never)
   const updateLocalSettings = (updates: Partial<LocalSettings>) =>
     registry.updateLocalSettings({} as never, updates)
-  return { settings, demoModeConfig, persistLocalSettingsToDisk, updateLocalSettings }
+  return {
+    settings,
+    demoModeConfig,
+    onDemoModeChanged,
+    persistLocalSettingsToDisk,
+    updateLocalSettings,
+  }
 }
 
 const inDemoMode = {
@@ -79,12 +86,34 @@ describe('updateLocalSettings while Demo Mode is active', () => {
 })
 
 describe('updateLocalSettings outside Demo Mode', () => {
-  it('accepts the demo keys after Demo Mode was left', () => {
-    const { settings, demoModeConfig, updateLocalSettings } = setup(inDemoMode)
+  it.each([
+    { isDemoModeEnabled: true },
+    { demoModePasscode: 'changed' },
+    { demoModeResetInSeconds: 600 },
+  ])('still refuses %o: the demoMode rows own those keys', (updates) => {
+    const {
+      settings,
+      demoModeConfig,
+      onDemoModeChanged,
+      persistLocalSettingsToDisk,
+      updateLocalSettings,
+    } = setup(inDemoMode)
     demoModeConfig.leaveDemoMode()
+    onDemoModeChanged.mockClear()
 
-    expect(updateLocalSettings({ demoModeResetInSeconds: 600 })).toEqual({ success: true })
+    expect(updateLocalSettings(updates)).toMatchObject({ success: false })
 
-    expect(settings.demoModeResetInSeconds).toBe(600)
+    expect(settings).toMatchObject({ ...inDemoMode, isDemoModeEnabled: false })
+    expect(persistLocalSettingsToDisk).not.toHaveBeenCalled()
+    expect(onDemoModeChanged).not.toHaveBeenCalled()
+  })
+
+  it('applies other settings', () => {
+    const { settings, updateLocalSettings } = setup({})
+
+    expect(updateLocalSettings({ huggingfaceEndpoint: 'https://hf.example' })).toEqual({
+      success: true,
+    })
+    expect(settings.huggingfaceEndpoint).toBe('https://hf.example')
   })
 })

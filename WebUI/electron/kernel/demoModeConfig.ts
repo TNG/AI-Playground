@@ -188,9 +188,8 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     return effective
   }
 
-  /** Demo Mode settings can only change after leaving Demo Mode with the passcode. */
-  function refusesSettingsUpdate(updates: Partial<LocalSettings>): boolean {
-    return deps.settings().isDemoModeEnabled && DEMO_MODE_KEYS.some((key) => key in updates)
+  function touchesDemoModeKeys(updates: Partial<LocalSettings>): boolean {
+    return DEMO_MODE_KEYS.some((key) => key in updates)
   }
 
   /** The live state, including a session-only Leave or Enter under a policy. */
@@ -200,7 +199,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
 
   return {
     readEffectiveDemoConfig,
-    refusesSettingsUpdate,
+    touchesDemoModeKeys,
     resolveIntoSettings,
     currentDemoConfig,
     withUserDemoValues,

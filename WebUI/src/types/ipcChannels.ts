@@ -22,7 +22,7 @@ import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
 import type { LlamaCppVramInputs } from '../lib/vram/types'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
-import type { DemoConfigUpdate } from './demoModeIpc'
+import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
@@ -679,7 +679,7 @@ export const CHANNELS = {
   },
   /**
    * Merge updates into the machine-level settings.json and persist it. Refuses the three Demo Mode
-   * keys while Demo Mode is active.
+   * keys, which only the `demoMode:*` rows change.
    */
   updateLocalSettings: {
     kind: 'invoke',
@@ -1422,7 +1422,7 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [DemoConfigUpdate],
-    result: null as unknown as IpcMutationResult,
+    result: null as unknown as DemoConfigSaveResult,
   },
   /** Restart the app so a newly enabled Demo Mode starts as on any Demo Mode launch. */
   'demoMode:restart': {

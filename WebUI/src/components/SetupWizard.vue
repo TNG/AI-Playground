@@ -467,6 +467,7 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { useProductMode } from '@/assets/js/store/productMode'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -495,6 +496,7 @@ import DemoModeSetupPage from '@/components/DemoModeSetupPage.vue'
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
 const cloudMode = useCloudMode()
+const demoMode = useDemoMode()
 const globalSetup = useGlobalSetup()
 const i18n = useI18N()
 const languages = i18n.state
@@ -744,7 +746,7 @@ const demoModeRow = computed<SetupWizardRowView>(() => {
     statusColor: mapStatusToColor(enabled ? 'notYetStarted' : 'notInstalled'),
     statusText: !enabled
       ? t('SETUP_WIZARD_DEMO_MODE_OFF')
-      : wizard.demoModePolicyPresent && !wizard.demoModeChanged
+      : demoMode.policyPresent && !wizard.demoModeChanged
         ? t('DEMO_MODE_SET_BY_ADMIN')
         : t('SETUP_WIZARD_DEMO_MODE_PENDING'),
     versionDisplay: '',

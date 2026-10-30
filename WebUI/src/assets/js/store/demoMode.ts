@@ -4,8 +4,9 @@ import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 import { createAppError } from '@/assets/js/errors/appError'
-import { verifyDemoPasscode } from '@/lib/demoPasscode'
+import { isHashedDemoPasscode, verifyDemoPasscode } from '@/lib/demoPasscode'
 import type { DemoConfigUpdate } from '@/types/demoModeIpc'
+import type { IpcFail, IpcOk } from '@/types/ipcChannels'
 
 export type DemoButtonId =
   | 'mode-button-chat'
@@ -52,6 +53,11 @@ function createInitialVisitedState(
     }
   }
   return state
+}
+
+export type DemoModeSetup = {
+  enabled: boolean
+  resetInSeconds: number | null
 }
 
 type ExplicitDefaultsState = 'idle' | 'applying' | 'applied'
@@ -130,6 +136,23 @@ export const useDemoMode = defineStore('demoMode', () => {
   const hasPasscode = computed(() => passcode.value.length > 0)
   const source = ref<DemoModeSettings['source']>('user')
   const sharedInstall = ref(false)
+  const policyPresent = computed(() => source.value === 'policy')
+  // On a Shared Install the Setup Wizard row edits the Demo Policy, so the user's own values do not show.
+  const savedSetup = computed<DemoModeSetup>(() => {
+    if (!sharedInstall.value)
+      return { enabled: enabled.value, resetInSeconds: resetInSeconds.value }
+    return policyPresent.value
+      ? { enabled: true, resetInSeconds: resetInSeconds.value }
+      : { enabled: false, resetInSeconds: null }
+  })
+  const policyPasscodeUnhashed = computed(
+    () => policyPresent.value && hasPasscode.value && !isHashedDemoPasscode(passcode.value),
+  )
+  const savedPasscodeKeepable = computed(() => {
+    if (!hasPasscode.value) return false
+    if (!sharedInstall.value) return true
+    return policyPresent.value && !policyPasscodeUnhashed.value
+  })
 
   function applyDemoSettingsPayload(res: DemoModeSettings) {
     enabled.value = res.isDemoModeEnabled
@@ -233,43 +256,50 @@ export const useDemoMode = defineStore('demoMode', () => {
     return verifyDemoPasscode(input, passcode.value)
   }
 
+  async function callDemoModeRow<Ok extends IpcOk>(
+    call: () => Promise<Ok | IpcFail>,
+    code: string,
+    userMessageKey: string,
+  ): Promise<Ok | null> {
+    const result = await call().catch((error: unknown): IpcFail => ({
+      success: false,
+      error: String(error),
+    }))
+    if (result.success) return result
+    errors.report(
+      createAppError({
+        category: 'setup',
+        code,
+        userMessage: i18n.state[userMessageKey],
+        technicalMessage: result.error,
+        surface: 'toast',
+      }),
+    )
+    return null
+  }
+
   async function setEnabled(value: boolean) {
-    const result = await (
-      value ? window.electronAPI.demoMode.enter() : window.electronAPI.demoMode.leave()
-    ).catch((error: unknown) => ({ success: false as const, error: String(error) }))
-    if (!result.success) {
-      errors.report(
-        createAppError({
-          category: 'setup',
-          code: value ? 'demo-mode/enter-failed' : 'demo-mode/leave-failed',
-          userMessage: value ? 'Could not enter Demo Mode.' : 'Could not leave Demo Mode.',
-          technicalMessage: result.error,
-          surface: 'toast',
-        }),
-      )
-      return
-    }
+    const result = await callDemoModeRow(
+      value ? window.electronAPI.demoMode.enter : window.electronAPI.demoMode.leave,
+      value ? 'demo-mode/enter-failed' : 'demo-mode/leave-failed',
+      value ? 'DEMO_MODE_ENTER_FAILED' : 'DEMO_MODE_LEAVE_FAILED',
+    )
+    if (!result) return
     enabled.value = value
     setTimeout(() => location.reload(), 1000)
   }
 
-  async function saveConfig(update: DemoConfigUpdate): Promise<boolean> {
-    const result = await window.electronAPI.demoMode
-      .save(update)
-      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
-    if (!result.success) {
-      errors.report(
-        createAppError({
-          category: 'setup',
-          code: 'demo-mode/save-failed',
-          userMessage: i18n.state.DEMO_MODE_SAVE_FAILED ?? 'Could not save the Demo Mode settings.',
-          technicalMessage: result.error,
-          surface: 'toast',
-        }),
-      )
-      return false
-    }
-    return true
+  /** Null when the save failed (already reported). */
+  async function saveConfig(
+    update: DemoConfigUpdate,
+  ): Promise<{ enteredDemoMode: boolean } | null> {
+    const result = await callDemoModeRow(
+      () => window.electronAPI.demoMode.save(update),
+      'demo-mode/save-failed',
+      'DEMO_MODE_SAVE_FAILED',
+    )
+    if (result && !result.enteredDemoMode) await refreshFromMainConfig()
+    return result
   }
 
   function restartIntoDemoMode() {
@@ -295,6 +325,10 @@ export const useDemoMode = defineStore('demoMode', () => {
     hasPasscode,
     source,
     sharedInstall,
+    policyPresent,
+    savedSetup,
+    policyPasscodeUnhashed,
+    savedPasscodeKeepable,
     resetInSeconds,
     cancelReset,
     resetDemo,

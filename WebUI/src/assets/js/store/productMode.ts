@@ -1,8 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { useErrors } from './errors'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 
 export const useProductMode = defineStore('productMode', () => {
-  const errors = useErrors()
   const productMode = ref<ProductMode | null>(null)
   const hardwareRecommendation = ref<HardwareRecommendationResult | null>(null)
   const isNvidiaModeAvailable = computed(
@@ -22,15 +21,7 @@ export const useProductMode = defineStore('productMode', () => {
 
   async function syncToMain() {
     if (productMode.value) {
-      const result = await window.electronAPI.updateLocalSettings({
-        productMode: productMode.value,
-      })
-      if (!result.success) {
-        errors.report(new Error(result.error), {
-          category: 'validation',
-          code: 'settings/update-failed',
-        })
-      }
+      await updateLocalSettingsReported({ productMode: productMode.value })
     }
   }
 

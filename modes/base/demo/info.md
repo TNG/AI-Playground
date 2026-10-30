@@ -1,7 +1,61 @@
-This folder contains the presets to be used during demo mode.
-Demo mode can be activated by `isDemoModeEnabled: true` in `settings.json`.
+This folder contains the presets used in **Demo Mode**. The presets of the product mode's own
+`modes/<productMode>/demo` folder are layered over them by name.
 
-The demo presets folder can be configured via `demoModePresetsDir` (defaults to `presets_demo`).
+## Settings
+
+Demo Mode is configured by three keys in `settings.json` (`LocalSettingsSchema` in
+`WebUI/electron/kernel/localSettings.ts`):
+
+| Key                      | Type           | Description                                                                                          |
+| ------------------------ | -------------- | ---------------------------------------------------------------------------------------------------- |
+| `isDemoModeEnabled`      | boolean        | Turns Demo Mode on. Without the key, Demo Mode is off.                                               |
+| `demoModePasscode`       | string         | The **Demo Passcode** staff enter to leave Demo Mode. Plain text.                                    |
+| `demoModeResetInSeconds` | number \| null | The **Demo Reset Timeout** in seconds. `null` (the default without the key) means no **Demo Reset**. |
+
+## Installer
+
+The Windows installer writes all three keys into the installed `resources\settings.json` on every
+install, per-user and all-users alike, and keeps every other key in the file. The work is done by
+`WebUI/build/demo-mode-settings.ps1`, run from `WebUI/build/installer.nsh`.
+
+An interactive install shows a Demo Mode page after the Shared resources page: an "Enable Demo
+Mode" checkbox, the Demo Passcode and the Demo Reset Timeout in whole minutes, where empty or 0
+means no Demo Reset. Next is blocked while the box is ticked and the passcode is empty or the
+timeout is not a whole number of minutes. The installer never writes an empty Demo Passcode: with
+the box unticked and the field cleared, it writes `0451`.
+
+The values start from the defaults (Demo Mode on, Demo Passcode `0451`, a 5-minute Demo Reset
+Timeout). Each later source overrides the one before it:
+
+1. the defaults;
+2. the previous install's `resources\settings.json`, so an upgrade keeps the values on the device,
+   hand-edited ones included (a timeout in seconds is rounded up to whole minutes). A file without
+   `demoModePasscode` comes from a release before the Demo Mode page, which shipped
+   `isDemoModeEnabled: false`; it counts as never configured and reads as the defaults;
+3. the installer parameters below.
+
+The result prefills the page, or is written directly by a silent install (`/S`).
+
+| Parameter              | Effect                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `/DEMO=0` \| `/DEMO=1` | Turns Demo Mode off or on.                                                                        |
+| `/DEMOPASSCODE=<text>` | Sets the Demo Passcode. An empty value is ignored.                                                |
+| `/DEMORESET=<minutes>` | Sets the Demo Reset Timeout. Empty or `0` turns Demo Reset off; an invalid value gives 5 minutes. |
+
+An invalid `/DEMORESET` gives 5 minutes even on an upgrade, rather than keeping the installed
+timeout.
+
+How an install mode picks the file up:
+
+- **Per-user install:** it is the app's only `settings.json`.
+- **All-users install:** the installer's values are the machine default, so every account starts
+  with them. Each account gets its own copy, so leaving Demo Mode on one account leaves the others
+  in Demo Mode.
+- **Upgrade:** an account's own choice, including having left Demo Mode, is reset to the
+  installer's values. On an all-users install with shared resources, an account that already has
+  its own copy keeps it, so a reinstall with different values does not reach that account.
+
+## Presets
 
 The logic is intentionally kept simple, no deepmerging from multiple places or similar:
 
@@ -26,7 +80,7 @@ Typical things to change for demo mode:
 
 ## `_profile.json` — Demo Profile Descriptor
 
-Each demo presets folder can contain a `_profile.json` file that configures the demo
+Each product mode's demo folder can contain a `_profile.json` file that configures the demo
 mode identity for that product variant (trade show, essentials, etc.).
 
 If `_profile.json` is missing, the app falls back to hardcoded defaults built into the
@@ -47,13 +101,12 @@ source code. Existing deployments without the file continue to work identically.
 
 ### Creating a new profile for a different product variant
 
-1. Create a new presets folder (e.g. `external/presets_essentials/`)
+1. Create the product mode's demo folder (e.g. `modes/essentials/demo/`)
 2. Copy or create the preset JSON files you want available in that variant
 3. Create a `_profile.json` with the fields above, referencing only the presets and
    modes that apply to your variant
 4. If your variant uses an input image, place it in the same folder and reference it
    by filename in `inputImage`
-5. Set `demoModePresetsDir` in `settings.json` to your folder name (e.g. `"presets_essentials"`)
 
 Example for a chat-only "essentials" variant:
 
@@ -73,6 +126,10 @@ Example for a chat-only "essentials" variant:
     }
   ],
   "enabledModes": ["chat"],
-  "notificationDotButtons": ["mode-button-chat", "app-settings-button", "plus-icon"]
+  "notificationDotButtons": [
+    "mode-button-chat",
+    "app-settings-button",
+    "plus-icon"
+  ]
 }
 ```

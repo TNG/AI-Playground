@@ -916,12 +916,13 @@ before the kernel move or as a small fix.
 
 There are three places a switch can live, and which one it is decides who can flip it.
 
-**`settings.json` (`LocalSettingsSchema` in `electron/main.ts`)** is machine-level: hand-edited,
-read by the main process, survives a renderer storage wipe. It keeps the things a deployment
-decides — demo mode + passcode, `languageOverride`, `productMode`, `disabledBackends`, device
-preferences, backend launch flags + version pins, `huggingfaceEndpoint` — plus
-**`showDebugSettingsInUI`**, which is the only gate on the debug controls below. A build that
-does not set it looks exactly as it always did.
+**`settings.json` (`LocalSettingsSchema` in `electron/kernel/localSettings.ts`)** is machine-level:
+hand-edited, read by the main process, survives a renderer storage wipe. It keeps the things a
+deployment decides — Demo Mode, Demo Passcode and Demo Reset Timeout, `languageOverride`,
+`productMode`, `disabledBackends`, device preferences, backend launch flags + version pins,
+`huggingfaceEndpoint` — plus **`showDebugSettingsInUI`**, which is the only gate on the debug
+controls below. A build that does not set it looks exactly as it always did. The Windows
+installer writes the three Demo Mode keys on every install (`modes/base/demo/info.md`).
 
 **Renderer persistence (Pinia)** is per-user and needs no file: Cloud Mode enablement and the
 stores not yet on `preferences.json` (step 8 moved theme, `developerSettings`, model favorites,

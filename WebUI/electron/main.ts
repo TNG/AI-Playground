@@ -632,7 +632,7 @@ function writeUserSettingsFile(toWrite: LocalSettings): void {
 
 function persistLocalSettingsToDisk(): void {
   try {
-    writeUserSettingsFile(settings)
+    writeUserSettingsFile(demoModeConfig.withUserDemoValues(settings))
   } catch (e) {
     appLogger.error(`failed to persist local settings: ${e}`, 'electron-backend')
   }

@@ -717,7 +717,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   function persistDisabledBackends() {
     window.electronAPI
       .updateLocalSettings({ disabledBackends: [...disabledBackends.value] })
-      .catch((e: unknown) => console.warn(`Failed to persist disabled components: ${e}`))
+      .then((result) => {
+        if (!result.success) throw new Error(result.error)
+      })
+      .catch((e: unknown) =>
+        errors.report(e, { category: 'setup', code: 'settings/update-failed', surface: 'silent' }),
+      )
   }
 
   function seedInstallSelection() {
@@ -818,6 +823,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openWizard() {
+    if (demoMode.enabled) return
     await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
@@ -963,7 +969,13 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       // toRaw: strip the Vue reactive proxy so the object survives Electron's
       // structured-clone IPC ("An object could not be cloned" otherwise).
       const preferredDevice = toRaw(pendingPreferredDevice.value)
-      await window.electronAPI.updateLocalSettings({ preferredDevice })
+      const result = await window.electronAPI.updateLocalSettings({ preferredDevice })
+      if (!result.success) {
+        errors.report(new Error(result.error), {
+          category: 'setup',
+          code: 'settings/update-failed',
+        })
+      }
       // Optionally push the chosen default onto every preset that already has
       // its own device pick, discarding the prior per-preset selections.
       if (overrideExistingDeviceSelection.value) {

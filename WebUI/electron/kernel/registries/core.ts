@@ -191,7 +191,14 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       return LocalSettingsSchema.parse(deps.settings)
     },
 
-    updateLocalSettings: (_event, updates: Partial<LocalSettings>) => {
+    updateLocalSettings: (_event, updates: Partial<LocalSettings>): IpcMutationResult => {
+      if (deps.demoModeConfig.refusesSettingsUpdate(updates)) {
+        deps.appLogger.warn(
+          `Refused a Demo Mode settings change while Demo Mode is active: ${Object.keys(updates).join(', ')}`,
+          'demo-mode',
+        )
+        return { success: false, error: 'Demo Mode settings cannot be changed in Demo Mode' }
+      }
       Object.assign(deps.settings, updates)
       // Any of these can change which preset files the catalog reads or injects.
       if (
@@ -554,7 +561,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 
     /** To check whether demo mode is enabled or not for AIPG */
     getDemoModeSettings: () => {
-      return { ...deps.demoModeConfig.readEffectiveDemoConfig(), profile: deps.getDemoProfile() }
+      return { ...deps.demoModeConfig.currentDemoConfig(), profile: deps.getDemoProfile() }
     },
 
     showOpenDialog: async (event, options) => {

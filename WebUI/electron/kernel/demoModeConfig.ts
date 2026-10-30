@@ -1,5 +1,6 @@
 import z from 'zod'
 import type { IpcMutationResult } from '@/types/ipcChannels'
+import type { DemoConfigSaveResult } from '@/types/demoModeIpc'
 import { DemoConfigUpdateSchema, type DemoConfigUpdate } from '@/types/demoModeIpc'
 import { isHashedDemoPasscode } from '@/lib/demoPasscode'
 import {
@@ -150,7 +151,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     return { success: true }
   }
 
-  async function saveDemoConfig(input: DemoConfigUpdate): Promise<IpcMutationResult> {
+  async function saveDemoConfig(input: DemoConfigUpdate): Promise<DemoConfigSaveResult> {
     const s = deps.settings()
     if (s.isDemoModeEnabled) return ipcFail('Leave Demo Mode before changing its settings')
     const parsed = DemoConfigUpdateSchema.safeParse(input)
@@ -195,8 +196,13 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
       }
       Object.assign(s, next)
     }
-    if (resolveIntoSettings().isDemoModeEnabled) deps.onDemoModeChanged(true)
-    return { success: true }
+    const policyWasInEffect = resolved.source === 'policy'
+    const effective = resolveIntoSettings()
+    // Editing a policy that was left for this session keeps the session-only Leave.
+    if (policyWasInEffect && effective.source === 'policy') s.isDemoModeEnabled = false
+    const enteredDemoMode = s.isDemoModeEnabled
+    if (enteredDemoMode) deps.onDemoModeChanged(true)
+    return { success: true, enteredDemoMode }
   }
 
   /** At settings load: makes the live settings carry the effective values. */

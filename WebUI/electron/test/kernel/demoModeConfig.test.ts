@@ -195,7 +195,7 @@ describe('saveDemoConfig', () => {
       demoModeResetInSeconds: 300,
     })
 
-    expect(result).toEqual({ success: true })
+    expect(result).toEqual({ success: true, enteredDemoMode: true })
     expect(written).toEqual([
       expect.objectContaining({
         isDemoModeEnabled: true,
@@ -250,7 +250,7 @@ describe('saveDemoConfig', () => {
       demoModeResetInSeconds: null,
     })
 
-    expect(result).toEqual({ success: true })
+    expect(result).toEqual({ success: true, enteredDemoMode: true })
     expect(written).toEqual([
       expect.objectContaining({
         isDemoModeEnabled: true,
@@ -269,7 +269,7 @@ describe('saveDemoConfig', () => {
       demoModeResetInSeconds: 120,
     })
 
-    expect(result).toEqual({ success: true })
+    expect(result).toEqual({ success: true, enteredDemoMode: true })
     expect(written).toEqual([
       expect.objectContaining({ isDemoModeEnabled: true, demoModePasscode: 'secret' }),
     ])
@@ -513,7 +513,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       demoModeResetInSeconds: 300,
     })
 
-    expect(result).toEqual({ success: true })
+    expect(result).toEqual({ success: true, enteredDemoMode: true })
     expect(runs).toEqual([
       [
         { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
@@ -606,6 +606,47 @@ describe('saveDemoConfig on a Shared Install', () => {
     ])
   })
 
+  it('keeps a session-only Leave when only the Reset Timeout of the policy changes', async () => {
+    const { config, settings, onDemoModeChanged } = sharedInstall({
+      isDemoModeEnabled: 1,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 60,
+    })
+    config.leaveDemoMode()
+    onDemoModeChanged.mockClear()
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModeResetInSeconds: 600,
+    })
+
+    expect(result).toEqual({ success: true, enteredDemoMode: false })
+    expect(config.currentDemoConfig()).toMatchObject({
+      isDemoModeEnabled: false,
+      demoModeResetInSeconds: 600,
+      source: 'policy',
+    })
+    expect(settings.isDemoModeEnabled).toBe(false)
+    expect(onDemoModeChanged).not.toHaveBeenCalled()
+  })
+
+  it("enters Demo Mode when removing the policy hands over to the user's own Demo Mode", async () => {
+    const { config, onDemoModeChanged } = sharedInstall(
+      { isDemoModeEnabled: 1, demoModePasscode: hashed },
+      { isDemoModeEnabled: true, demoModePasscode: 'mine' },
+    )
+    config.leaveDemoMode()
+
+    const result = await config.saveDemoConfig({
+      isDemoModeEnabled: false,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toEqual({ success: true, enteredDemoMode: true })
+    expect(config.currentDemoConfig()).toMatchObject({ isDemoModeEnabled: true, source: 'user' })
+    expect(onDemoModeChanged).toHaveBeenLastCalledWith(true)
+  })
+
   it('removes a Reset Timeout that was cleared', async () => {
     const { config, runs } = sharedInstall({
       isDemoModeEnabled: 1,
@@ -637,7 +678,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       demoModeResetInSeconds: null,
     })
 
-    expect(result).toEqual({ success: true })
+    expect(result).toEqual({ success: true, enteredDemoMode: false })
     expect(runs).toEqual([
       [
         { action: 'delete', name: 'isDemoModeEnabled' },

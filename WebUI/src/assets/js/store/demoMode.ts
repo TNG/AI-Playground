@@ -6,7 +6,7 @@ import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 import { createAppError } from '@/assets/js/errors/appError'
 import { isHashedDemoPasscode, verifyDemoPasscode } from '@/lib/demoPasscode'
 import type { DemoConfigUpdate } from '@/types/demoModeIpc'
-import type { IpcMutationResult } from '@/types/ipcChannels'
+import type { IpcFail, IpcOk } from '@/types/ipcChannels'
 
 export type DemoButtonId =
   | 'mode-button-chat'
@@ -256,16 +256,16 @@ export const useDemoMode = defineStore('demoMode', () => {
     return verifyDemoPasscode(input, passcode.value)
   }
 
-  async function callDemoModeRow(
-    call: () => Promise<IpcMutationResult>,
+  async function callDemoModeRow<Ok extends IpcOk>(
+    call: () => Promise<Ok | IpcFail>,
     code: string,
     userMessageKey: string,
-  ): Promise<boolean> {
-    const result = await call().catch((error: unknown) => ({
-      success: false as const,
+  ): Promise<Ok | null> {
+    const result = await call().catch((error: unknown): IpcFail => ({
+      success: false,
       error: String(error),
     }))
-    if (result.success) return true
+    if (result.success) return result
     errors.report(
       createAppError({
         category: 'setup',
@@ -275,26 +275,31 @@ export const useDemoMode = defineStore('demoMode', () => {
         surface: 'toast',
       }),
     )
-    return false
+    return null
   }
 
   async function setEnabled(value: boolean) {
-    const done = await callDemoModeRow(
+    const result = await callDemoModeRow(
       value ? window.electronAPI.demoMode.enter : window.electronAPI.demoMode.leave,
       value ? 'demo-mode/enter-failed' : 'demo-mode/leave-failed',
       value ? 'DEMO_MODE_ENTER_FAILED' : 'DEMO_MODE_LEAVE_FAILED',
     )
-    if (!done) return
+    if (!result) return
     enabled.value = value
     setTimeout(() => location.reload(), 1000)
   }
 
-  function saveConfig(update: DemoConfigUpdate): Promise<boolean> {
-    return callDemoModeRow(
+  /** Null when the save failed (already reported). */
+  async function saveConfig(
+    update: DemoConfigUpdate,
+  ): Promise<{ enteredDemoMode: boolean } | null> {
+    const result = await callDemoModeRow(
       () => window.electronAPI.demoMode.save(update),
       'demo-mode/save-failed',
       'DEMO_MODE_SAVE_FAILED',
     )
+    if (result && !result.enteredDemoMode) await refreshFromMainConfig()
+    return result
   }
 
   function restartIntoDemoMode() {

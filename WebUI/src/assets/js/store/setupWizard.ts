@@ -21,6 +21,7 @@ import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDefaults'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { extractMessage } from '../errors/appError'
 import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
@@ -705,14 +706,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   function persistDisabledBackends() {
-    window.electronAPI
-      .updateLocalSettings({ disabledBackends: [...disabledBackends.value] })
-      .then((result) => {
-        if (!result.success) throw new Error(result.error)
-      })
-      .catch((e: unknown) =>
-        errors.report(e, { category: 'setup', code: 'settings/update-failed', surface: 'silent' }),
-      )
+    void updateLocalSettingsReported({ disabledBackends: [...disabledBackends.value] }, 'silent')
   }
 
   function seedInstallSelection() {
@@ -959,13 +953,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       // toRaw: strip the Vue reactive proxy so the object survives Electron's
       // structured-clone IPC ("An object could not be cloned" otherwise).
       const preferredDevice = toRaw(pendingPreferredDevice.value)
-      const result = await window.electronAPI.updateLocalSettings({ preferredDevice })
-      if (!result.success) {
-        errors.report(new Error(result.error), {
-          category: 'setup',
-          code: 'settings/update-failed',
-        })
-      }
+      await updateLocalSettingsReported({ preferredDevice })
       // Optionally push the chosen default onto every preset that already has
       // its own device pick, discarding the prior per-preset selections.
       if (overrideExistingDeviceSelection.value) {

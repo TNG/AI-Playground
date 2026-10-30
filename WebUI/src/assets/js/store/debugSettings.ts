@@ -1,6 +1,6 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref } from 'vue'
-import { useErrors } from './errors'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 
 // Machine-level debug controls. Their values live in settings.json (main reads
 // them), but the *controls* only appear when that file also sets
@@ -37,7 +37,6 @@ export function developerMode(): boolean {
 }
 
 export const useDebugSettings = defineStore('debugSettings', () => {
-  const errors = useErrors()
   const visible = ref(debugSettingsVisible())
   const oemVendorOverride = ref<string | null>(snapshot?.oemVendorOverride ?? null)
   const phisonSsdDetected = ref(snapshot?.PhisonSSDdetected === true)
@@ -45,30 +44,20 @@ export const useDebugSettings = defineStore('debugSettings', () => {
   // Edited as a comma-separated list; stored as an array.
   const openvinoImageGenDevices = ref((snapshot?.openvinoImageGenDevices ?? []).join(', '))
 
-  async function save(updates: Partial<LocalSettings>) {
-    const result = await window.electronAPI.updateLocalSettings(updates)
-    if (!result.success) {
-      errors.report(new Error(result.error), {
-        category: 'validation',
-        code: 'settings/update-failed',
-      })
-    }
-  }
-
   async function setOemVendorOverride(value: string | null) {
     oemVendorOverride.value = value
-    await save({ oemVendorOverride: value })
+    await updateLocalSettingsReported({ oemVendorOverride: value })
   }
 
   async function setPhisonSsdDetected(value: boolean) {
     phisonSsdDetected.value = value
-    await save({ PhisonSSDdetected: value })
+    await updateLocalSettingsReported({ PhisonSSDdetected: value })
   }
 
   async function saveRemoteRepository() {
     const value = remoteRepository.value.trim()
     if (!value) return
-    await save({ remoteRepository: value })
+    await updateLocalSettingsReported({ remoteRepository: value })
   }
 
   async function saveOpenvinoImageGenDevices() {
@@ -77,7 +66,7 @@ export const useDebugSettings = defineStore('debugSettings', () => {
       .map((d) => d.trim())
       .filter((d) => d.length > 0)
     if (value.length === 0) return
-    await save({ openvinoImageGenDevices: value })
+    await updateLocalSettingsReported({ openvinoImageGenDevices: value })
   }
 
   return {

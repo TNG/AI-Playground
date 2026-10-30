@@ -1749,7 +1749,15 @@ function initEventHandle() {
   registerInvokeHandlers(
     buildSafeStorageRegistry({ settings, persistLocalSettingsToDisk, appLogger }),
   )
-  registerInvokeHandlers(buildDemoModeRegistry({ demoModeConfig }))
+  registerInvokeHandlers(
+    buildDemoModeRegistry({
+      demoModeConfig,
+      relaunchApp: () => {
+        app.relaunch()
+        app.quit()
+      },
+    }),
+  )
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────
   // The renderer ships fully-resolved runs; the runner owns readiness,

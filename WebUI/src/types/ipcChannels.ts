@@ -22,6 +22,7 @@ import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
 import type { LlamaCppVramInputs } from '../lib/vram/types'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
+import type { DemoConfigUpdate } from './demoModeIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
@@ -1415,6 +1416,20 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
     result: null as unknown as IpcMutationResult,
+  },
+  /** Save the Setup Wizard's Demo Mode settings; refused while Demo Mode is active. */
+  'demoMode:save': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [DemoConfigUpdate],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Restart the app so a newly enabled Demo Mode starts as on any Demo Mode launch. */
+  'demoMode:restart': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
   },
   /** Opt into obfuscated-on-disk secrets where no OS keyring is available. */
   'safeStorage:enablePlainTextEncryption': {

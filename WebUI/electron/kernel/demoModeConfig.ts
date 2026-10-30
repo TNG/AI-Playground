@@ -1,4 +1,6 @@
+import z from 'zod'
 import type { IpcMutationResult } from '@/types/ipcChannels'
+import { DemoConfigUpdateSchema, type DemoConfigUpdate } from '@/types/demoModeIpc'
 import { parseRegistryValues, readInstallRegistryStdout } from './installConfig'
 import type { LocalSettings } from './localSettings'
 
@@ -100,6 +102,33 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     return { success: true }
   }
 
+  function saveDemoConfig(input: DemoConfigUpdate): IpcMutationResult {
+    const s = deps.settings()
+    if (s.isDemoModeEnabled) {
+      return { success: false, error: 'Leave Demo Mode before changing its settings' }
+    }
+    const parsed = DemoConfigUpdateSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: z.prettifyError(parsed.error) }
+    const update = parsed.data
+    const next: DemoModeValues = {
+      isDemoModeEnabled: update.isDemoModeEnabled,
+      demoModePasscode: update.demoModePasscode ?? ownValues().demoModePasscode,
+      demoModeResetInSeconds: update.demoModeResetInSeconds,
+    }
+    if (next.isDemoModeEnabled && !next.demoModePasscode) {
+      return { success: false, error: 'Demo Mode needs a Demo Passcode' }
+    }
+    try {
+      deps.writeUserSettings({ ...withUserDemoValues(s), ...next })
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+    if (userOwnValues) userOwnValues = next
+    else Object.assign(s, next)
+    if (resolveIntoSettings().isDemoModeEnabled) deps.onDemoModeChanged(true)
+    return { success: true }
+  }
+
   /** At settings load: makes the live settings carry the effective values. */
   function resolveIntoSettings(probe?: DemoConfigProbe): EffectiveDemoConfig {
     const own = ownValues()
@@ -131,6 +160,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     withUserDemoValues,
     leaveDemoMode: () => setDemoMode(false),
     enterDemoMode: () => setDemoMode(true),
+    saveDemoConfig,
   }
 }
 

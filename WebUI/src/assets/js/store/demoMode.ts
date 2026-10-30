@@ -1,9 +1,11 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useErrors } from './errors'
+import { useI18N } from './i18n'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 import { createAppError } from '@/assets/js/errors/appError'
 import { verifyDemoPasscode } from '@/lib/demoPasscode'
+import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 
 export type DemoButtonId =
   | 'mode-button-chat'
@@ -65,6 +67,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   // English-only. Demo mode targets trade-show kiosks where English is the expected language.
   // Existing DEMO_* keys in en-US.json are legacy and unused by the current driver.js tour.
   const errors = useErrors()
+  const i18n = useI18N()
   const enabled = ref(false)
   const profile = ref<DemoProfile | null>(null)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
@@ -246,6 +249,29 @@ export const useDemoMode = defineStore('demoMode', () => {
     setTimeout(() => location.reload(), 1000)
   }
 
+  async function saveConfig(update: DemoConfigUpdate): Promise<boolean> {
+    const result = await window.electronAPI.demoMode
+      .save(update)
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+    if (!result.success) {
+      errors.report(
+        createAppError({
+          category: 'setup',
+          code: 'demo-mode/save-failed',
+          userMessage: i18n.state.DEMO_MODE_SAVE_FAILED ?? 'Could not save the Demo Mode settings.',
+          technicalMessage: result.error,
+          surface: 'toast',
+        }),
+      )
+      return false
+    }
+    return true
+  }
+
+  function restartIntoDemoMode() {
+    return window.electronAPI.demoMode.restart()
+  }
+
   return {
     enabled,
     profile,
@@ -260,6 +286,10 @@ export const useDemoMode = defineStore('demoMode', () => {
     applyExplicitDefaults,
     verifyPasscode,
     setEnabled,
+    saveConfig,
+    restartIntoDemoMode,
+    hasPasscode,
+    resetInSeconds,
     cancelReset,
     resetDemo,
     refreshFromMainConfig,

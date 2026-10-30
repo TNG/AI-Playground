@@ -73,6 +73,8 @@ export type KernelInvokeName = Extract<MainInvokeChannelName, `kernel:${string}`
 export type KernelSendName = Extract<MainSendChannelName, `kernel:${string}`>
 export type CameraCaptureInvokeName = Extract<MainInvokeChannelName, `cameraCapture:${string}`>
 export type CameraCaptureSendName = Extract<MainSendChannelName, `cameraCapture:${string}`>
+export type DemoModeInvokeName = Extract<MainInvokeChannelName, `demoMode:${string}`>
+export type DemoModeSendName = Extract<MainSendChannelName, `demoMode:${string}`>
 
 /** The core registry's names (batch D): every main channel no prefix domain claims. */
 export type CoreInvokeName = Exclude<
@@ -96,6 +98,7 @@ export type CoreInvokeName = Exclude<
   | LifecycleInvokeName
   | KernelInvokeName
   | CameraCaptureInvokeName
+  | DemoModeInvokeName
 >
 
 export type CoreSendName = Exclude<
@@ -119,6 +122,7 @@ export type CoreSendName = Exclude<
   | LifecycleSendName
   | KernelSendName
   | CameraCaptureSendName
+  | DemoModeSendName
 >
 
 export function registerInvokeHandlers<Names extends InvokeChannelName>(

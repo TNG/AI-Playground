@@ -12,7 +12,7 @@ import { backendToService } from './textInference'
 import { usePresetSwitching } from './presetSwitching'
 import { useSpeechToText } from './speechToText'
 import { useTextToSpeech } from './textToSpeech'
-import { useDemoMode } from './demoMode'
+import { useDemoMode, type DemoModeSetup } from './demoMode'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
@@ -113,11 +113,7 @@ const stepDisplayNames: Record<string, string> = {
   'install comfyUI manager': 'Installing ComfyUI Manager...',
 }
 
-type DemoModeDraft = {
-  enabled: boolean
-  passcodeHash?: string
-  resetInSeconds: number | null
-}
+type DemoModeDraft = DemoModeSetup & { passcodeHash?: string }
 
 export const useSetupWizard = defineStore('setupWizard', () => {
   const backendServices = useBackendServices()
@@ -144,22 +140,10 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const demoModeDraft = ref<DemoModeDraft | null>(null)
   const demoModeSetupEnabling = ref(false)
   const demoModeRestartPending = ref(false)
-  // On a Shared Install the row edits the Demo Policy, so the user's own values do not show.
-  const demoModePolicyPresent = computed(() => demoMode.source === 'policy')
-  const demoModeSaved = computed<DemoModeDraft>(() => {
-    if (!demoMode.sharedInstall) {
-      return { enabled: demoMode.enabled, resetInSeconds: demoMode.resetInSeconds }
-    }
-    return demoModePolicyPresent.value
-      ? { enabled: true, resetInSeconds: demoMode.resetInSeconds }
-      : { enabled: false, resetInSeconds: null }
-  })
-  const demoModeView = computed<DemoModeDraft>(() => demoModeDraft.value ?? demoModeSaved.value)
+  const demoModeView = computed<DemoModeDraft>(() => demoModeDraft.value ?? demoMode.savedSetup)
   const demoModeChanged = computed(() => demoModeDraft.value !== null)
   const demoModeHasPasscode = computed(
-    () =>
-      !!demoModeDraft.value?.passcodeHash ||
-      (demoMode.hasPasscode && (!demoMode.sharedInstall || demoModePolicyPresent.value)),
+    () => !!demoModeDraft.value?.passcodeHash || demoMode.savedPasscodeKeepable,
   )
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
@@ -1278,7 +1262,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     finishCloudModeSetup,
     demoModeView,
     demoModeChanged,
-    demoModePolicyPresent,
     demoModeHasPasscode,
     demoModeSetupEnabling,
     toggleDemoMode,

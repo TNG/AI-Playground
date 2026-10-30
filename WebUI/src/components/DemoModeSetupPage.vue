@@ -15,7 +15,7 @@
             : t('DEMO_MODE_SETUP_STORED_USER')
         }}
       </p>
-      <p v-if="wizard.demoModePolicyPresent" class="text-xs font-medium">
+      <p v-if="demoMode.policyPresent" class="text-xs font-medium">
         {{ t('DEMO_MODE_SET_BY_ADMIN') }}
       </p>
 
@@ -42,7 +42,11 @@
           {{ t('DEMO_MODE_SETUP_PASSCODE_MISMATCH') }}
         </span>
         <span v-else-if="passcodeMissing" role="alert" class="text-xs text-destructive">
-          {{ t('DEMO_MODE_SETUP_PASSCODE_REQUIRED') }}
+          {{
+            demoMode.policyPasscodeUnhashed
+              ? t('DEMO_MODE_SETUP_PASSCODE_UNHASHED')
+              : t('DEMO_MODE_SETUP_PASSCODE_REQUIRED')
+          }}
         </span>
       </div>
 

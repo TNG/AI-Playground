@@ -1,14 +1,10 @@
 import { z } from 'zod'
-
-const BASE64 = '[A-Za-z0-9+/]+={0,2}'
+import { HASHED_DEMO_PASSCODE } from '../lib/demoPasscode'
 
 /** What the Setup Wizard saves; an omitted passcode keeps the stored one. */
 export const DemoConfigUpdateSchema = z.object({
   isDemoModeEnabled: z.boolean(),
-  demoModePasscode: z
-    .string()
-    .regex(new RegExp(`^pbkdf2\\$[1-9]\\d{0,7}\\$${BASE64}\\$${BASE64}$`))
-    .optional(),
+  demoModePasscode: z.string().regex(HASHED_DEMO_PASSCODE).optional(),
   demoModeResetInSeconds: z.number().int().min(1).nullable(),
 })
 export type DemoConfigUpdate = z.infer<typeof DemoConfigUpdateSchema>

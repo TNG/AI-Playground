@@ -1399,6 +1399,20 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as boolean,
   },
+  /** Leave Demo Mode; the renderer reloads after success. */
+  'demoMode:leave': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Enter Demo Mode; the renderer reloads after success. */
+  'demoMode:enter': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
   /** Opt into obfuscated-on-disk secrets where no OS keyring is available. */
   'safeStorage:enablePlainTextEncryption': {
     kind: 'invoke',

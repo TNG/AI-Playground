@@ -26,6 +26,7 @@ import type {
   SendHandlerMap,
 } from '../ipcRegistries'
 import type { PathsManager } from '../pathsManager'
+import type { DemoModeConfig } from '../demoModeConfig'
 import type { LocalSettings, ProductMode, resolveProductMode } from '../localSettings'
 import type { appLoggerInstance } from '../../observability/logger'
 import type {
@@ -105,6 +106,7 @@ export type CoreDeps = {
   getServiceRegistry: () => ApiServiceRegistryImpl | null
   getLangchainChild: () => UtilityProcess | null
   getDemoProfile: () => DemoProfile | null
+  demoModeConfig: DemoModeConfig
   setDemoProfile: (profile: DemoProfile | null) => void
   settings: LocalSettings
   persistLocalSettingsToDisk: () => void
@@ -552,12 +554,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 
     /** To check whether demo mode is enabled or not for AIPG */
     getDemoModeSettings: () => {
-      return {
-        isDemoModeEnabled: deps.settings.isDemoModeEnabled,
-        demoModeResetInSeconds: deps.settings.demoModeResetInSeconds,
-        demoModePasscode: deps.settings.demoModePasscode,
-        profile: deps.getDemoProfile(),
-      }
+      return { ...deps.demoModeConfig.readEffectiveDemoConfig(), profile: deps.getDemoProfile() }
     },
 
     showOpenDialog: async (event, options) => {

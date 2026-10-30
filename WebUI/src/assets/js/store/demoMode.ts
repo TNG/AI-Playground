@@ -1,7 +1,9 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { verifyDemoPasscode } from '@/lib/demoPasscode'
+import { useErrors } from './errors'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
+import { createAppError } from '@/assets/js/errors/appError'
+import { verifyDemoPasscode } from '@/lib/demoPasscode'
 
 export type DemoButtonId =
   | 'mode-button-chat'
@@ -62,6 +64,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   // NOTE: Demo mode UI strings (tour text, sample prompts, dialog labels) are intentionally
   // English-only. Demo mode targets trade-show kiosks where English is the expected language.
   // Existing DEMO_* keys in en-US.json are legacy and unused by the current driver.js tour.
+  const errors = useErrors()
   const enabled = ref(false)
   const profile = ref<DemoProfile | null>(null)
   const explicitDefaultsState = ref<ExplicitDefaultsState>('idle')
@@ -224,17 +227,23 @@ export const useDemoMode = defineStore('demoMode', () => {
   }
 
   async function setEnabled(value: boolean) {
-    try {
-      const result = await window.electronAPI.updateLocalSettings({ isDemoModeEnabled: value })
-      if (result.success) {
-        enabled.value = value
-        setTimeout(() => location.reload(), 1000)
-      } else {
-        console.error('Failed to update demo mode setting')
-      }
-    } catch (error) {
-      console.error('Failed to toggle demo mode:', error)
+    const result = await (
+      value ? window.electronAPI.demoMode.enter() : window.electronAPI.demoMode.leave()
+    ).catch((error: unknown) => ({ success: false as const, error: String(error) }))
+    if (!result.success) {
+      errors.report(
+        createAppError({
+          category: 'setup',
+          code: value ? 'demo-mode/enter-failed' : 'demo-mode/leave-failed',
+          userMessage: value ? 'Could not enter Demo Mode.' : 'Could not leave Demo Mode.',
+          technicalMessage: result.error,
+          surface: 'toast',
+        }),
+      )
+      return
     }
+    enabled.value = value
+    setTimeout(() => location.reload(), 1000)
   }
 
   return {

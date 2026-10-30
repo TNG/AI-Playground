@@ -169,6 +169,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showModelInFolder: (modelPath: string) => invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),
+  demoMode: {
+    leave: () => invoke('demoMode:leave'),
+    enter: () => invoke('demoMode:enter'),
+  },
   safeStorage: {
     isEncryptionAvailable: () => invoke('safeStorage:isEncryptionAvailable'),
     enablePlainTextEncryption: () => invoke('safeStorage:enablePlainTextEncryption'),

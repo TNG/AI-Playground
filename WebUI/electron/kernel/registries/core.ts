@@ -561,7 +561,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 
     /** To check whether demo mode is enabled or not for AIPG */
     getDemoModeSettings: () => {
-      return { ...deps.demoModeConfig.readEffectiveDemoConfig(), profile: deps.getDemoProfile() }
+      return { ...deps.demoModeConfig.currentDemoConfig(), profile: deps.getDemoProfile() }
     },
 
     showOpenDialog: async (event, options) => {

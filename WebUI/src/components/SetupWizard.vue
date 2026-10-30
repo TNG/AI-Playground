@@ -14,6 +14,8 @@
       @done="wizard.finishCloudModeSetup()"
     />
 
+    <DemoModeSetupPage v-else-if="wizard.wizardPage === 'demoModeSetup'" />
+
     <template v-else>
       <div class="px-12 py-5 max-w-5xl w-5xl">
         <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">
@@ -284,6 +286,24 @@
                     </SettingsMenu>
                   </template>
                 </SetupWizardRow>
+
+                <SetupWizardRow
+                  :row="demoModeRow"
+                  compact
+                  @toggle="(v) => wizard.toggleDemoMode(v)"
+                >
+                  <template #options>
+                    <SettingsMenu
+                      v-model:open="demoModeMenuOpen"
+                      :label="demoModeRow.displayName"
+                      :title="t('SETUP_WIZARD_DEMO_MODE_OPTIONS')"
+                    >
+                      <DropdownMenuItem @select="openDemoModeSetup">{{
+                        languages.COM_GO_TO_SETUP || 'Setup'
+                      }}</DropdownMenuItem>
+                    </SettingsMenu>
+                  </template>
+                </SetupWizardRow>
               </SetupWizardGroup>
 
               <!-- Inference engines and everything not grouped above. -->
@@ -447,6 +467,7 @@ import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { useProductMode } from '@/assets/js/store/productMode'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -470,10 +491,12 @@ import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
 import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
+import DemoModeSetupPage from '@/components/DemoModeSetupPage.vue'
 
 const wizard = useSetupWizard()
 const productModeStore = useProductMode()
 const cloudMode = useCloudMode()
+const demoMode = useDemoMode()
 const globalSetup = useGlobalSetup()
 const i18n = useI18N()
 const languages = i18n.state
@@ -712,6 +735,32 @@ const cloudMenuOpen = ref(false)
 function openCloudSetup() {
   cloudMenuOpen.value = false
   void wizard.openCloudModeSetup()
+}
+
+// Kept out of the group's master switch: Demo Mode needs a passcode and locks the app.
+const demoModeRow = computed<SetupWizardRowView>(() => {
+  const enabled = wizard.demoModeView.enabled
+  return {
+    displayName: t('SETUP_WIZARD_DEMO_MODE'),
+    infoTooltip: t('SETUP_WIZARD_DEMO_MODE_INFO'),
+    statusColor: mapStatusToColor(enabled ? 'notYetStarted' : 'notInstalled'),
+    statusText: !enabled
+      ? t('SETUP_WIZARD_DEMO_MODE_OFF')
+      : demoMode.policyPresent && !wizard.demoModeChanged
+        ? t('DEMO_MODE_SET_BY_ADMIN')
+        : t('SETUP_WIZARD_DEMO_MODE_PENDING'),
+    versionDisplay: '',
+    enabled,
+    toggleTooltip: enabled
+      ? t('SETUP_WIZARD_DEMO_MODE_TOGGLE_OFF')
+      : t('SETUP_WIZARD_DEMO_MODE_TOGGLE_ON'),
+  }
+})
+
+const demoModeMenuOpen = ref(false)
+function openDemoModeSetup() {
+  demoModeMenuOpen.value = false
+  wizard.openDemoModeSetup()
 }
 
 function openDebug() {

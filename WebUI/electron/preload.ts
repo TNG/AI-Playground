@@ -16,6 +16,7 @@ import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ComputeSnapshot } from '@/types/computeMetrics'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
+import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
@@ -169,6 +170,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showModelInFolder: (modelPath: string) => invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),
+  demoMode: {
+    leave: () => invoke('demoMode:leave'),
+    enter: () => invoke('demoMode:enter'),
+    save: (update: DemoConfigUpdate) => invoke('demoMode:save', update),
+    restart: () => invoke('demoMode:restart'),
+  },
   safeStorage: {
     isEncryptionAvailable: () => invoke('safeStorage:isEncryptionAvailable'),
     enablePlainTextEncryption: () => invoke('safeStorage:enablePlainTextEncryption'),

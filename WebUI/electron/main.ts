@@ -34,7 +34,6 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { randomUUID } from 'node:crypto'
 import { PathsManager } from './kernel/pathsManager'
 import {
   LocalSettingsSchema,
@@ -246,6 +245,8 @@ import { buildMediaItemsRegistry } from './kernel/registries/mediaItems'
 import { buildPreferencesRegistry } from './kernel/registries/preferences'
 import { buildRagDocumentsRegistry } from './kernel/registries/ragDocuments'
 import { buildSafeStorageRegistry } from './kernel/registries/safeStorage'
+import { buildDemoModeRegistry } from './kernel/registries/demoMode'
+import { createDemoModeConfig } from './kernel/demoModeConfig'
 import {
   buildScreenshotRegistry,
   buildScreenshotSendRegistry,
@@ -327,7 +328,8 @@ import {
   openScreenCaptureSettings,
 } from './adapters/hardware/screenCapture.ts'
 import { packagedResourcesRoot, writableConfigRoot } from './kernel/aipgRoot.ts'
-import { loadDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
+import { loadDemoProfile, loadModeDemoProfile, type DemoProfile } from './persist/demoProfile.ts'
+import { writeLocalSettingsFile } from './persist/localSettingsFile'
 import {
   classifyDetectedDevices,
   detectGpuHardwareDevices,
@@ -610,23 +612,23 @@ function getWritableSettingsPath(): string {
 }
 
 function persistLocalSettingsToDisk(): void {
-  const settingPath = getWritableSettingsPath()
-  const parsed = LocalSettingsSchema.parse(settings)
-  const serialized = JSON.stringify(parsed, null, 2)
-  const tmpPath = `${settingPath}.${randomUUID()}.tmp`
   try {
-    fs.mkdirSync(path.dirname(settingPath), { recursive: true })
-    fs.writeFileSync(tmpPath, serialized, { encoding: 'utf8' })
-    fs.renameSync(tmpPath, settingPath)
+    writeLocalSettingsFile(getWritableSettingsPath(), demoModeConfig.toUserSettingsFile(settings))
   } catch (e) {
-    try {
-      fs.unlinkSync(tmpPath)
-    } catch {
-      // ignore cleanup failure
-    }
     appLogger.error(`failed to persist local settings: ${e}`, 'electron-backend')
   }
 }
+
+const demoModeConfig = createDemoModeConfig({
+  settings: () => settings,
+  writeUserSettings: (toWrite) => writeLocalSettingsFile(getWritableSettingsPath(), toWrite),
+  onDemoModeChanged: (enabled) => {
+    invalidatePresetCatalog()
+    if (enabled) {
+      demoProfile = loadModeDemoProfile(modesDir, resolveProductMode(settings), appLogger)
+    }
+  },
+})
 
 // Let backend services persist the settings they auto-populate (e.g. the default
 // device chosen after install) without importing main.ts's private writer.
@@ -711,16 +713,11 @@ async function loadSettings() {
     }
   }
 
+  demoModeConfig.applyEffectiveDemoConfig()
   appLogger.info(`settings loaded: ${JSON.stringify({ settings })}`, 'electron-backend')
 
   if (settings.isDemoModeEnabled) {
-    const modeDemoDir = getModeDemoDir(settings)
-    const baseDemoDir = path.join(modesDir, 'base', 'demo')
-    try {
-      demoProfile = loadDemoProfile(modeDemoDir, baseDemoDir, appLogger)
-    } catch (e) {
-      appLogger.error(`Failed to load demo profile: ${e}`, 'demo-profile')
-    }
+    demoProfile = loadModeDemoProfile(modesDir, resolveProductMode(settings), appLogger)
   }
 
   return settings
@@ -1657,6 +1654,7 @@ function initEventHandle() {
     getServiceRegistry: () => serviceRegistry,
     getLangchainChild: () => langchainChild,
     getDemoProfile: () => demoProfile,
+    demoModeConfig,
     setDemoProfile: (profile) => {
       demoProfile = profile
     },
@@ -1725,6 +1723,15 @@ function initEventHandle() {
 
   registerInvokeHandlers(
     buildSafeStorageRegistry({ settings, persistLocalSettingsToDisk, appLogger }),
+  )
+  registerInvokeHandlers(
+    buildDemoModeRegistry({
+      demoModeConfig,
+      relaunchApp: () => {
+        app.relaunch()
+        app.quit()
+      },
+    }),
   )
 
   // ── Artifact runner IPC (architecture-target §4.1 step 5) ─────────────────

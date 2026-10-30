@@ -19,7 +19,7 @@
       </div>
       <DialogFooter>
         <Button variant="ghost" @click="open = false">Cancel</Button>
-        <Button @click="confirmPasscode">Confirm</Button>
+        <Button :disabled="verifying" @click="confirmPasscode">Confirm</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -39,7 +39,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 
 const { verify } = defineProps<{
-  verify: (input: string) => boolean
+  verify: (input: string) => Promise<boolean>
 }>()
 
 const emit = defineEmits<{
@@ -49,6 +49,7 @@ const emit = defineEmits<{
 const open = defineModel<boolean>('open', { required: true })
 const passcodeInput = ref('')
 const passcodeError = ref(false)
+const verifying = ref(false)
 
 watch(open, (isOpen) => {
   if (isOpen) {
@@ -57,8 +58,11 @@ watch(open, (isOpen) => {
   }
 })
 
-function confirmPasscode() {
-  if (verify(passcodeInput.value)) {
+async function confirmPasscode() {
+  if (verifying.value) return
+  verifying.value = true
+  const ok = await verify(passcodeInput.value).finally(() => (verifying.value = false))
+  if (ok) {
     open.value = false
     emit('confirmed')
   } else {

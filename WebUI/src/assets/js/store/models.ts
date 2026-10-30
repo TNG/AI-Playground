@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { LlmBackend } from './textInference'
 import { useBackendServices } from './backendServices'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { useModelPreferences } from './modelPreferences'
 import { developerMode } from './debugSettings'
 import { pathKeyForCatalogModel } from '../models/library'
@@ -512,7 +513,7 @@ export const useModels = defineStore(
      */
     async function updateHfEndpoint(endpoint: string): Promise<void> {
       hfEndpoint.value = endpoint
-      await window.electronAPI.updateLocalSettings({ huggingfaceEndpoint: endpoint })
+      await updateLocalSettingsReported({ huggingfaceEndpoint: endpoint })
     }
 
     /**

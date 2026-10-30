@@ -1,5 +1,6 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref } from 'vue'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 
 // Machine-level debug controls. Their values live in settings.json (main reads
 // them), but the *controls* only appear when that file also sets
@@ -45,18 +46,18 @@ export const useDebugSettings = defineStore('debugSettings', () => {
 
   async function setOemVendorOverride(value: string | null) {
     oemVendorOverride.value = value
-    await window.electronAPI.updateLocalSettings({ oemVendorOverride: value })
+    await updateLocalSettingsReported({ oemVendorOverride: value })
   }
 
   async function setPhisonSsdDetected(value: boolean) {
     phisonSsdDetected.value = value
-    await window.electronAPI.updateLocalSettings({ PhisonSSDdetected: value })
+    await updateLocalSettingsReported({ PhisonSSDdetected: value })
   }
 
   async function saveRemoteRepository() {
     const value = remoteRepository.value.trim()
     if (!value) return
-    await window.electronAPI.updateLocalSettings({ remoteRepository: value })
+    await updateLocalSettingsReported({ remoteRepository: value })
   }
 
   async function saveOpenvinoImageGenDevices() {
@@ -65,7 +66,7 @@ export const useDebugSettings = defineStore('debugSettings', () => {
       .map((d) => d.trim())
       .filter((d) => d.length > 0)
     if (value.length === 0) return
-    await window.electronAPI.updateLocalSettings({ openvinoImageGenDevices: value })
+    await updateLocalSettingsReported({ openvinoImageGenDevices: value })
   }
 
   return {

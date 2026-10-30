@@ -4,6 +4,7 @@ import {
   isTrustedOwnerSid,
   normalizeLocalAbsolutePath,
   parseInstallRegistry,
+  parseRegistryValues,
   readInstallConfig,
   type InstallConfigProbe,
 } from '../../kernel/installConfig.ts'
@@ -95,6 +96,26 @@ describe('parseInstallRegistry', () => {
       modelFolderMode: 'shared',
       sharedResourcesDir: 'D:\\AI Playground',
     })
+  })
+})
+
+describe('parseRegistryValues', () => {
+  it('reads string values as text and DWORD values as numbers', () => {
+    const stdout = [
+      'HKEY_LOCAL_MACHINE\\SOFTWARE\\AI Playground',
+      '    modelFolderMode    REG_SZ    shared',
+      '    isDemoModeEnabled    REG_DWORD    0x1',
+      '    demoModeResetInSeconds    REG_DWORD    0x12c',
+      '',
+    ].join('\r\n')
+
+    expect(parseRegistryValues(stdout)).toEqual(
+      new Map<string, string | number>([
+        ['modelFolderMode', 'shared'],
+        ['isDemoModeEnabled', 1],
+        ['demoModeResetInSeconds', 300],
+      ]),
+    )
   })
 })
 

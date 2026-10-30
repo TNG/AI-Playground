@@ -12,7 +12,7 @@ import { backendToService } from './textInference'
 import { usePresetSwitching } from './presetSwitching'
 import { useSpeechToText } from './speechToText'
 import { useTextToSpeech } from './textToSpeech'
-import { useDemoMode } from './demoMode'
+import { useDemoMode, type DemoModeSetup } from './demoMode'
 import { useHomeAgent } from './homeAgent'
 import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
@@ -21,6 +21,7 @@ import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDefaults'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 import { extractMessage } from '../errors/appError'
 import type { ErrorDetails } from '../../../../electron/adapters/backends/service'
 
@@ -113,6 +114,8 @@ const stepDisplayNames: Record<string, string> = {
   'install comfyUI manager': 'Installing ComfyUI Manager...',
 }
 
+type DemoModeDraft = DemoModeSetup & { passcodeHash?: string }
+
 export const useSetupWizard = defineStore('setupWizard', () => {
   const backendServices = useBackendServices()
   const productModeStore = useProductMode()
@@ -131,8 +134,17 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const installSelection = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
-  const wizardPage = ref<'main' | 'homeAgentSetup' | 'cloudModeSetup'>('main')
+  const wizardPage = ref<'main' | 'homeAgentSetup' | 'cloudModeSetup' | 'demoModeSetup'>('main')
   const homeAgentSetupOrigin = ref<'install' | 'edit'>('install')
+
+  // Staged until Continue; null means "as currently saved".
+  const demoModeDraft = ref<DemoModeDraft | null>(null)
+  const demoModeSetupEnabling = ref(false)
+  const demoModeView = computed<DemoModeDraft>(() => demoModeDraft.value ?? demoMode.savedSetup)
+  const demoModeChanged = computed(() => demoModeDraft.value !== null)
+  const demoModeHasPasscode = computed(
+    () => !!demoModeDraft.value?.passcodeHash || demoMode.savedPasscodeKeepable,
+  )
 
   const wizardActivity = ref(new Map<BackendServiceName, string>())
 
@@ -694,9 +706,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   function persistDisabledBackends() {
-    window.electronAPI
-      .updateLocalSettings({ disabledBackends: [...disabledBackends.value] })
-      .catch((e: unknown) => console.warn(`Failed to persist disabled components: ${e}`))
+    void updateLocalSettingsReported({ disabledBackends: [...disabledBackends.value] }, 'silent')
   }
 
   function seedInstallSelection() {
@@ -797,6 +807,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   }
 
   async function openWizard() {
+    if (demoMode.enabled) return
     await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
       await productModeStore.detectRecommendation()
@@ -810,6 +821,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     overrideExistingDeviceSelection.value = false
     seedInstallSelection()
     wizardDirty.value = false
+    demoModeDraft.value = null
     wizardPage.value = 'main'
     globalSetup.loadingState = 'setupWizard'
   }
@@ -941,7 +953,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       // toRaw: strip the Vue reactive proxy so the object survives Electron's
       // structured-clone IPC ("An object could not be cloned" otherwise).
       const preferredDevice = toRaw(pendingPreferredDevice.value)
-      await window.electronAPI.updateLocalSettings({ preferredDevice })
+      await updateLocalSettingsReported({ preferredDevice })
       // Optionally push the chosen default onto every preset that already has
       // its own device pick, discarding the prior per-preset selections.
       if (overrideExistingDeviceSelection.value) {
@@ -1002,7 +1014,33 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       }
     }
 
+    await closeWizard()
+  }
+
+  /**
+   * Every way out of the wizard ends here: the Demo Mode draft is saved last, after any detour
+   * through Home Agent setup, and entering Demo Mode restarts the app instead of closing.
+   */
+  async function closeWizard() {
+    const draft = demoModeDraft.value
+    if (draft) {
+      const saved = await demoMode.saveConfig({
+        isDemoModeEnabled: draft.enabled,
+        demoModePasscode: draft.passcodeHash,
+        demoModeResetInSeconds: draft.resetInSeconds,
+      })
+      if (!saved) return
+      demoModeDraft.value = null
+      if (saved.enteredDemoMode) {
+        await demoMode.restartIntoDemoMode()
+        return
+      }
+    }
     await dismiss()
+    // Reset the wizard page after the wizard is hidden (dismiss set loadingState
+    // to 'running') so a setup page unmounts and its local UI state starts fresh
+    // on the next open. The outer wizard uses v-show, so it would stay mounted.
+    wizardPage.value = 'main'
     await syncPresetsForCurrentProductMode()
   }
 
@@ -1101,21 +1139,6 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     textToSpeech.initialize()
   }
 
-  /**
-   * Finish the Home Agent setup step and close the wizard. Mirrors the normal
-   * install path which calls `dismiss()` followed by `syncPresetsForCurrentProductMode()`,
-   * so leaving the wizard via Home Agent setup also refreshes preset state.
-   */
-  async function finishHomeAgentSetup() {
-    await dismiss()
-    // Reset the wizard page after the wizard is hidden (dismiss set loadingState
-    // to 'running') so HomeAgentSetupPage unmounts and its local UI state
-    // (active tab, Reconfigure expansion) starts fresh on the next open. The
-    // outer wizard uses v-show, so without this the page would stay mounted.
-    wizardPage.value = 'main'
-    await syncPresetsForCurrentProductMode()
-  }
-
   /** Open the Cloud Mode provider setup screen. Frontend-only — no backend
    *  install is involved, so this just swaps the wizard page. */
   async function openCloudModeSetup() {
@@ -1124,12 +1147,33 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     globalSetup.loadingState = 'setupWizard'
   }
 
-  /** Finish Cloud Mode setup and close the wizard, mirroring the Home Agent
-   *  finish path so preset state is refreshed on exit. */
-  async function finishCloudModeSetup() {
-    await dismiss()
+  function toggleDemoMode(value: boolean) {
+    if (value && !demoModeHasPasscode.value) {
+      openDemoModeSetup(true)
+      return
+    }
+    demoModeDraft.value = { ...demoModeView.value, enabled: value }
+  }
+
+  function openDemoModeSetup(enabling = false) {
+    demoModeSetupEnabling.value = enabling
+    wizardPage.value = 'demoModeSetup'
+  }
+
+  function applyDemoModeSetup(values: { passcodeHash?: string; resetInSeconds: number | null }) {
+    const current = demoModeView.value
+    demoModeDraft.value = {
+      enabled: current.enabled || demoModeSetupEnabling.value,
+      passcodeHash: values.passcodeHash ?? current.passcodeHash,
+      resetInSeconds: values.resetInSeconds,
+    }
+    demoModeSetupEnabling.value = false
     wizardPage.value = 'main'
-    await syncPresetsForCurrentProductMode()
+  }
+
+  function cancelDemoModeSetup() {
+    demoModeSetupEnabling.value = false
+    wizardPage.value = 'main'
   }
 
   function showErrorModal(serviceName: BackendServiceName) {
@@ -1176,9 +1220,17 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     phisonAidaptivRow,
     commitAndInstall,
     dismiss,
-    finishHomeAgentSetup,
+    finishHomeAgentSetup: closeWizard,
     openCloudModeSetup,
-    finishCloudModeSetup,
+    finishCloudModeSetup: closeWizard,
+    demoModeView,
+    demoModeChanged,
+    demoModeHasPasscode,
+    demoModeSetupEnabling,
+    toggleDemoMode,
+    openDemoModeSetup,
+    applyDemoModeSetup,
+    cancelDemoModeSetup,
     installBackend,
     repairBackend,
     restartBackend,

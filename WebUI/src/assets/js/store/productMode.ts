@@ -1,4 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
+import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
 
 export const useProductMode = defineStore('productMode', () => {
   const productMode = ref<ProductMode | null>(null)
@@ -20,7 +21,7 @@ export const useProductMode = defineStore('productMode', () => {
 
   async function syncToMain() {
     if (productMode.value) {
-      await window.electronAPI.updateLocalSettings({ productMode: productMode.value })
+      await updateLocalSettingsReported({ productMode: productMode.value })
     }
   }
 

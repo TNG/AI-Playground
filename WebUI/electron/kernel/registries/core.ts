@@ -26,6 +26,7 @@ import type {
   SendHandlerMap,
 } from '../ipcRegistries'
 import type { PathsManager } from '../pathsManager'
+import type { DemoModeConfig } from '../demoModeConfig'
 import type { LocalSettings, ProductMode, resolveProductMode } from '../localSettings'
 import type { appLoggerInstance } from '../../observability/logger'
 import type {
@@ -105,6 +106,7 @@ export type CoreDeps = {
   getServiceRegistry: () => ApiServiceRegistryImpl | null
   getLangchainChild: () => UtilityProcess | null
   getDemoProfile: () => DemoProfile | null
+  demoModeConfig: DemoModeConfig
   setDemoProfile: (profile: DemoProfile | null) => void
   settings: LocalSettings
   persistLocalSettingsToDisk: () => void
@@ -189,20 +191,21 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       return LocalSettingsSchema.parse(deps.settings)
     },
 
-    updateLocalSettings: (_event, updates: Partial<LocalSettings>) => {
+    updateLocalSettings: (_event, updates: Partial<LocalSettings>): IpcMutationResult => {
+      // The demoMode:* rows own these keys: they know about the Demo Policy and Demo Mode's lock.
+      if (deps.demoModeConfig.touchesDemoModeKeys(updates)) {
+        deps.appLogger.warn(
+          `Refused a Demo Mode settings change via updateLocalSettings: ${Object.keys(updates).join(', ')}`,
+          'demo-mode',
+        )
+        return { success: false, error: 'Demo Mode settings are changed through demoMode:* only' }
+      }
       Object.assign(deps.settings, updates)
       // Any of these can change which preset files the catalog reads or injects.
-      if (
-        'productMode' in updates ||
-        'isDemoModeEnabled' in updates ||
-        'showDebugSettingsInUI' in updates
-      ) {
+      if ('productMode' in updates || 'showDebugSettingsInUI' in updates) {
         deps.invalidatePresetCatalog()
       }
-      const shouldReloadDemoProfile =
-        deps.settings.isDemoModeEnabled &&
-        ('productMode' in updates || 'isDemoModeEnabled' in updates)
-      if (shouldReloadDemoProfile) {
+      if (deps.settings.isDemoModeEnabled && 'productMode' in updates) {
         const modeDemoDir = deps.getModeDemoDir(deps.settings)
         const baseDemoDir = path.join(deps.modesDir, 'base', 'demo')
         try {
@@ -552,12 +555,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
 
     /** To check whether demo mode is enabled or not for AIPG */
     getDemoModeSettings: () => {
-      return {
-        isDemoModeEnabled: deps.settings.isDemoModeEnabled,
-        demoModeResetInSeconds: deps.settings.demoModeResetInSeconds,
-        demoModePasscode: deps.settings.demoModePasscode,
-        profile: deps.getDemoProfile(),
-      }
+      return { ...deps.demoModeConfig.currentDemoConfig(), profile: deps.getDemoProfile() }
     },
 
     showOpenDialog: async (event, options) => {

@@ -181,6 +181,151 @@ describe('enterDemoMode', () => {
   })
 })
 
+describe('saveDemoConfig', () => {
+  const hashed = 'pbkdf2$600000$c2FsdA==$aGFzaA=='
+
+  it('writes Demo Mode, the hashed passcode and the Reset Timeout to the user file', () => {
+    const settings = userSettings()
+    const { config, written } = setup(settings)
+
+    const result = config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(written).toEqual([
+      expect.objectContaining({
+        isDemoModeEnabled: true,
+        demoModePasscode: hashed,
+        demoModeResetInSeconds: 300,
+      }),
+    ])
+    expect(config.readEffectiveDemoConfig()).toMatchObject({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+      source: 'user',
+    })
+  })
+
+  it('is refused while Demo Mode is active and writes nothing', () => {
+    const settings = userSettings({ isDemoModeEnabled: true, demoModePasscode: 'old' })
+    const { config, writeUserSettings } = setup(settings)
+
+    const result = config.saveDemoConfig({
+      isDemoModeEnabled: false,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toMatchObject({ success: false, error: expect.stringMatching(/Demo Mode/) })
+    expect(writeUserSettings).not.toHaveBeenCalled()
+    expect(settings).toMatchObject({ isDemoModeEnabled: true, demoModePasscode: 'old' })
+  })
+
+  it('refuses to turn Demo Mode on without a passcode', () => {
+    const settings = userSettings()
+    const { config, writeUserSettings } = setup(settings)
+
+    const result = config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
+
+    expect(result).toMatchObject({ success: false })
+    expect(writeUserSettings).not.toHaveBeenCalled()
+    expect(settings.isDemoModeEnabled).toBe(false)
+  })
+
+  it('keeps the stored passcode when none is given', () => {
+    const settings = userSettings({ demoModePasscode: hashed, demoModeResetInSeconds: 60 })
+    const { config, written } = setup(settings)
+
+    const result = config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: undefined,
+      demoModeResetInSeconds: null,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(written).toEqual([
+      expect.objectContaining({
+        isDemoModeEnabled: true,
+        demoModePasscode: hashed,
+        demoModeResetInSeconds: null,
+      }),
+    ])
+  })
+
+  it.each([
+    ['a plain-text passcode', { demoModePasscode: 'secret', demoModeResetInSeconds: null }],
+    ['a zero Reset Timeout', { demoModePasscode: hashed, demoModeResetInSeconds: 0 }],
+    ['a fractional Reset Timeout', { demoModePasscode: hashed, demoModeResetInSeconds: 1.5 }],
+  ])('refuses %s', (_label, values) => {
+    const settings = userSettings()
+    const { config, writeUserSettings } = setup(settings)
+
+    const result = config.saveDemoConfig({ isDemoModeEnabled: true, ...values })
+
+    expect(result).toMatchObject({ success: false })
+    expect(writeUserSettings).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed write and leaves the live settings as they were', () => {
+    const settings = userSettings({ demoModeResetInSeconds: 60 })
+    const { config, writeUserSettings, onDemoModeChanged } = setup(settings)
+    writeUserSettings.mockImplementation(() => {
+      throw new Error('read-only')
+    })
+
+    const result = config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: 300,
+    })
+
+    expect(result).toEqual({ success: false, error: 'read-only' })
+    expect(settings).toMatchObject({ isDemoModeEnabled: false, demoModeResetInSeconds: 60 })
+    expect(settings.demoModePasscode).toBeUndefined()
+    expect(onDemoModeChanged).not.toHaveBeenCalled()
+  })
+
+  it('writes the user’s own values, never the Demo Policy’s', () => {
+    const settings = userSettings({ demoModePasscode: hashed, demoModeResetInSeconds: 60 })
+    const { config, written } = setup(settings)
+    config.resolveIntoSettings({ registryStdout: demoPolicy })
+    config.leaveDemoMode()
+
+    const result = config.saveDemoConfig({
+      isDemoModeEnabled: false,
+      demoModeResetInSeconds: 30,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(written).toEqual([
+      expect.objectContaining({
+        isDemoModeEnabled: false,
+        demoModePasscode: hashed,
+        demoModeResetInSeconds: 30,
+      }),
+    ])
+  })
+
+  it('announces a change of Demo Mode, and only a change', () => {
+    const settings = userSettings()
+    const { config, onDemoModeChanged } = setup(settings)
+
+    config.saveDemoConfig({
+      isDemoModeEnabled: false,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+    })
+    expect(onDemoModeChanged).not.toHaveBeenCalled()
+
+    config.saveDemoConfig({ isDemoModeEnabled: true, demoModeResetInSeconds: null })
+    expect(onDemoModeChanged).toHaveBeenCalledExactlyOnceWith(true)
+  })
+})
+
 describe('under a Demo Policy', () => {
   const ownValues = {
     isDemoModeEnabled: false,

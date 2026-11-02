@@ -1,4 +1,5 @@
 import type { NotificationTemplates } from '@/types/notificationsIpc'
+import { fillTemplate } from './fillTemplate'
 
 export type LabelTask = {
   name: string
@@ -6,10 +7,6 @@ export type LabelTask = {
 }
 
 type LabelTemplates = Pick<NotificationTemplates, 'sessionLabel' | 'taskLabel' | 'untitled'>
-
-export function fillTemplate(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (token, key: string) => values[key] ?? token)
-}
 
 /** A Task run reads "Task" (step 2/3); any other session its quoted title. */
 export function notificationSessionLabel(

@@ -67,14 +67,11 @@ import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useTaskModelWarnings } from '@/assets/js/taskModelWarnings'
 import * as toast from '@/assets/js/toast'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const i18n = useI18N().state
-
-function fill(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (token, key) => (key in values ? values[key] : token))
-}
 
 const loaded = computed(() => agentTasks.openSessionTask)
 /** Under a preset saved from an Agent, Save updates that Agent and nothing else. */
@@ -97,7 +94,7 @@ const dirty = computed(() => !loaded.value || setupChanged.value || renamed.valu
 const newCopyName = computed(() =>
   renamed.value || !loaded.value
     ? name.value
-    : fill(i18n.AGENT_AGENTS_COPY_NAME, { name: loaded.value.name }),
+    : fillTemplate(i18n.AGENT_AGENTS_COPY_NAME, { name: loaded.value.name }),
 )
 
 function blockerTextFor(candidate: string): string {
@@ -150,7 +147,7 @@ async function save({ kind, name: chosen }: PendingSave): Promise<void> {
           : await agentTasks.saveAgent(chosen)
     if (!result.ok) return
     name.value = result.task.name
-    toast.success(fill(i18n.AGENT_AGENTS_SAVED, { name: result.task.name }))
+    toast.success(fillTemplate(i18n.AGENT_AGENTS_SAVED, { name: result.task.name }))
   } finally {
     saving.value = false
   }

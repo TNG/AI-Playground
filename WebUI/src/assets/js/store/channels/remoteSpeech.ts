@@ -1,6 +1,6 @@
 import { answerRouterCopy } from '@/lib/answerRouterWording'
 import { markdownToSpeechText } from '@/lib/markdownToSpeech'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { ChannelAdapter } from './adapter'
 import type { VoiceAnswerPreparation } from './answerRouter'
 import type { InboundMeta, RemoteAudio } from './types'

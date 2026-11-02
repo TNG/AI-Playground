@@ -3,7 +3,8 @@ import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/typ
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
-import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
+import { notificationSessionLabel } from '@/lib/notificationLabel'
 import {
   answerGesture,
   GESTURE_WORDING,

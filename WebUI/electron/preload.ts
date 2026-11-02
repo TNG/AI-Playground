@@ -243,6 +243,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => invoke('permissions:list'),
     grant: (key: string, origin: PermissionGrantOrigin) => invoke('permissions:grant', key, origin),
     revoke: (key: string) => invoke('permissions:revoke', key),
+    restore: (previous: PermissionGrant) => invoke('permissions:restore', cloneForIpc(previous)),
     migrate: (incoming: Record<string, PermissionGrant>) =>
       invoke('permissions:migrate', cloneForIpc(incoming)),
     respond: (payload: PermissionsPromptResponse) => invoke('permissions:respond', payload),

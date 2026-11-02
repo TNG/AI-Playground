@@ -1,5 +1,6 @@
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
+import { usePermissionGrants } from '@/assets/js/store/permissionGrants'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { deserializeAppError } from '@/assets/js/errors/appError'
 import {
@@ -11,8 +12,9 @@ import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 /**
  * Projects kernel ledger events (step 14) onto the renderer sinks:
  * `activity` → activities store, `error` → errors store, `stored` of the
- * live inference profile → textInference. Renderer-local `begin` / `report`
- * stay for work that has not moved yet.
+ * live inference profile → textInference, `stored` of the grants file →
+ * permission grants (a "remember" ticked on a prompt is written in main).
+ * Renderer-local `begin` / `report` stay for work that has not moved yet.
  */
 
 let projection: KernelProjection | null = null
@@ -22,8 +24,9 @@ export function startKernelLedgerProjection(): void {
   const activities = useActivities()
   const errors = useErrors()
   const textInference = useTextInference()
+  const permissionGrants = usePermissionGrants()
   projection = connectKernelEventStream(
-    (event) => applyLedgerEvent(activities, errors, textInference, event),
+    (event) => applyLedgerEvent(activities, errors, textInference, permissionGrants, event),
     (snapshot) => installKernelLedgerSnapshot(snapshot, activities, textInference),
   )
 }
@@ -57,6 +60,7 @@ function applyLedgerEvent(
   activities: ReturnType<typeof useActivities>,
   errors: ReturnType<typeof useErrors>,
   textInference: ReturnType<typeof useTextInference>,
+  permissionGrants: ReturnType<typeof usePermissionGrants>,
   event: KernelEvent,
 ): void {
   if (event.type === 'activity') {
@@ -90,5 +94,9 @@ function applyLedgerEvent(
   }
   if (event.type === 'stored' && event.kind === 'inference-profile') {
     textInference.applyInferenceProfile(event.inferenceProfile ?? null)
+    return
+  }
+  if (event.type === 'stored' && event.kind === 'grants') {
+    void permissionGrants.refresh()
   }
 }

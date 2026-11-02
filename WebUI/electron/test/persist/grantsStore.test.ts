@@ -21,6 +21,7 @@ const {
   listPermissionGrants,
   migratePermissionGrants,
   resetPermissionGrantsForTest,
+  restorePermissionGrant,
   revokePermissionGrant,
   setPermissionGrantsDeps,
   wipeDemoPermissionGrants,
@@ -52,6 +53,13 @@ describe('permission grants store', () => {
     await grantPermission('vram-warning:LTX-Video', 'remember')
     await revokePermissionGrant('vram-warning:LTX-Video')
     expect(await hasPermissionGrant('vram-warning:LTX-Video')).toBe(false)
+  })
+
+  it('restores a grant with its original date, over a later grant of the same key', async () => {
+    const original = { key: 'vram-warning:LTX-Video', origin: 'remember' as const, createdAt: 5 }
+    await grantPermission(original.key, 'remember')
+    await restorePermissionGrant(original)
+    expect(await listPermissionGrants()).toEqual([original])
   })
 
   it('migrates leftover keys without overwriting an existing grant', async () => {

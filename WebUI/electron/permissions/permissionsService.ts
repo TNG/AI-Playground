@@ -9,6 +9,7 @@ import {
   hasPermissionGrant,
   listPermissionGrants,
   migratePermissionGrants,
+  restorePermissionGrant,
   revokePermissionGrant,
 } from '../persist/grantsStore'
 import { requestPermissionsPrompt } from './promptAdapter'
@@ -111,6 +112,10 @@ export async function grant(key: string, origin: PermissionGrantOrigin): Promise
 
 export async function revoke(key: string): Promise<void> {
   return revokePermissionGrant(key)
+}
+
+export async function restore(previous: PermissionGrant): Promise<PermissionGrant> {
+  return restorePermissionGrant(previous)
 }
 
 export async function migrateGrants(incoming: Record<string, PermissionGrant>): Promise<number> {

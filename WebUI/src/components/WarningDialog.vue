@@ -10,16 +10,21 @@
         :class="{ 'animate-scale-in': animate }"
       >
         <p v-html="warningMessage"></p>
-        <div v-if="warningDontShowAgainKey" class="flex items-center gap-2 self-start">
-          <input
-            id="warning-dont-show-again"
-            v-model="dontShowAgainChecked"
-            type="checkbox"
-            class="rounded border-border"
-          />
-          <label for="warning-dont-show-again" class="text-sm cursor-pointer">
-            {{ i18nState.COM_DO_NOT_SHOW_AGAIN }}
-          </label>
+        <div v-if="warningDontShowAgainKey" class="flex flex-col gap-1 self-start">
+          <div class="flex items-center gap-2">
+            <input
+              id="warning-dont-show-again"
+              v-model="dontShowAgainChecked"
+              type="checkbox"
+              class="rounded border-border"
+            />
+            <label for="warning-dont-show-again" class="text-sm cursor-pointer">
+              {{ i18nState.COM_DO_NOT_SHOW_AGAIN }}
+            </label>
+          </div>
+          <p v-if="dontShowAgainChecked" class="text-xs text-muted-foreground pl-6">
+            {{ i18nState.COM_DO_NOT_SHOW_AGAIN_UNDO_HINT }}
+          </p>
         </div>
         <div class="flex justify-center items-center gap-9">
           <button @click="cancelConfirm" class="bg-muted text-foreground py-1 px-4 rounded">

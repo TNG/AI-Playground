@@ -503,6 +503,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
+  /** Put a revoked grant back exactly as it was (Settings → Permissions undo). */
+  'permissions:restore': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [PermissionGrant],
+    result: null as unknown as { success: true; grant: PermissionGrant } | IpcFail,
+  },
   /** One-shot upload of the legacy persisted grants. */
   'permissions:migrate': {
     kind: 'invoke',

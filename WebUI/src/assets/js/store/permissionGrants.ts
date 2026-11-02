@@ -8,6 +8,8 @@ import {
   type PermissionGrant,
   type PermissionGrantOrigin,
 } from '@/types/permissionsIpc'
+import type { IpcFail, IpcOk } from '@/types/ipcChannels'
+import { extractMessage } from '@/assets/js/errors/appError'
 
 /**
  * Renderer projection of the kernel permission-grants file (step 13). Mutations
@@ -20,6 +22,23 @@ export { REMOTE_DOWNLOAD_GRANT, VRAM_WARNING_GRANT_PREFIX, vramWarningGrantKey }
 export type { PermissionGrant, PermissionGrantOrigin }
 
 const LEGACY_PERSIST_KEY = 'permissionGrants'
+
+export type GrantBatchResult = {
+  done: PermissionGrant[]
+  failed: PermissionGrant[]
+  error?: string
+}
+
+function withKey(
+  map: Record<string, PermissionGrant>,
+  key: string,
+  value: PermissionGrant | undefined,
+): Record<string, PermissionGrant> {
+  const next = { ...map }
+  if (value) next[key] = value
+  else delete next[key]
+  return next
+}
 
 function importLegacyMemoryAlerts(): Record<string, PermissionGrant> {
   const imported: Record<string, PermissionGrant> = {}
@@ -95,30 +114,67 @@ export const usePermissionGrants = defineStore('permissionGrants', () => {
     await refresh()
   }
 
-  function grant(key: string, origin: PermissionGrantOrigin): void {
-    grants.value = {
-      ...grants.value,
-      [key]: { key, origin, createdAt: Date.now() },
+  /** A failed write rolls back only its own key, so overlapping writes and refreshes survive. */
+  async function writeKey(
+    key: string,
+    value: PermissionGrant | undefined,
+    write: (() => Promise<IpcOk | IpcFail>) | undefined,
+  ): Promise<IpcOk | IpcFail> {
+    const previous = grants.value[key]
+    grants.value = withKey(grants.value, key, value)
+    if (!write) return { success: true }
+    const result = await write().catch((e: unknown) => ({
+      success: false as const,
+      error: extractMessage(e),
+    }))
+    if (!result.success) grants.value = withKey(grants.value, key, previous)
+    return result
+  }
+
+  function grant(key: string, origin: PermissionGrantOrigin): Promise<IpcOk | IpcFail> {
+    const api = window.electronAPI?.permissions
+    return writeKey(
+      key,
+      { key, origin, createdAt: Date.now() },
+      api?.grant && (() => api.grant(key, origin)),
+    )
+  }
+
+  function restore(previous: PermissionGrant): Promise<IpcOk | IpcFail> {
+    const api = window.electronAPI?.permissions
+    return writeKey(previous.key, previous, api?.restore && (() => api.restore(previous)))
+  }
+
+  function revoke(key: string): Promise<IpcOk | IpcFail> {
+    const api = window.electronAPI?.permissions
+    return writeKey(key, undefined, api?.revoke && (() => api.revoke(key)))
+  }
+
+  async function eachGrant(
+    targets: PermissionGrant[],
+    write: (grant: PermissionGrant) => Promise<IpcOk | IpcFail>,
+  ): Promise<GrantBatchResult> {
+    const batch: GrantBatchResult = { done: [], failed: [] }
+    for (const target of targets) {
+      const result = await write(target)
+      if (result.success) batch.done.push(target)
+      else {
+        batch.failed.push(target)
+        batch.error ??= result.error
+      }
     }
-    const api = window.electronAPI?.permissions
-    if (!api?.grant) return
-    void api.grant(key, origin).then((result) => {
-      if (result.success) void refresh()
-    })
+    return batch
   }
 
-  function revoke(key: string): void {
-    const next = { ...grants.value }
-    delete next[key]
-    grants.value = next
-    const api = window.electronAPI?.permissions
-    if (!api?.revoke) return
-    void api.revoke(key).then((result) => {
-      if (result.success) void refresh()
-    })
+  function revokeAll(targets: PermissionGrant[]): Promise<GrantBatchResult> {
+    return eachGrant(targets, (target) => revoke(target.key))
   }
 
-  return { grants, list, has, grant, revoke, init }
+  function restoreAll(targets: PermissionGrant[]): Promise<GrantBatchResult> {
+    return eachGrant(targets, restore)
+  }
+
+  return { grants, list, has, grant, restore, restoreAll, revoke, revokeAll, refresh, init }
 })
 
 if (import.meta.hot) {

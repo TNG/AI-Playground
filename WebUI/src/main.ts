@@ -22,6 +22,7 @@ import { initLaminarTelemetry } from './lib/laminarTelemetry'
 import { initDebugSettings } from './assets/js/store/debugSettings'
 import { startMediaRequestBridge } from './assets/js/artifact/mediaRequestBridge'
 import { startChatAskBridge } from './assets/js/chat/chatAskBridge'
+import { startCloseAskBridge } from './assets/js/lifecycle/closeAskBridge'
 import { startPermissionsAdapter } from './assets/js/permissions/permissionsAdapter'
 import { startModelDownloader } from './lib/modelDownloaderWiring'
 import { usePermissionGrants } from './assets/js/store/permissionGrants'
@@ -83,6 +84,7 @@ startMediaRequestBridge()
 // genuinely the window's: the speech engine (and its download prompt),
 // Chromium's audio decoder, and the Home Agent confirmation card.
 startChatAskBridge()
+startCloseAskBridge()
 startModelDownloader()
 startPermissionsAdapter()
 

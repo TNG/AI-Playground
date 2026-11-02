@@ -19,6 +19,7 @@ import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { McpServerConfig } from '@/types/mcpIpc'
 import type { PauseReason } from '@/types/kernelEvents'
+import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
@@ -121,9 +122,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showSaveDialog: (options: SaveDialogOptions) => invoke('showSaveDialog', options),
   showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
   miniWindow: () => send('miniWindow'),
-  exitApp: () => send('exitApp'),
-  tasksKeepAlive: () => invoke('tasksKeepAlive'),
-  hideMainWindow: () => send('hideMainWindow'),
   getInitialPage: () => invoke('getInitialPage'),
   getDemoModeSettings: () => invoke('getDemoModeSettings'),
   showOpenDialog: (options: OpenDialogOptions) => invoke('showOpenDialog', options),
@@ -201,7 +199,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onKernelEvent: (callback: (event: import('../src/types/kernelEvents').KernelEvent) => void) =>
     listen('kernel:event', callback),
   getKernelSnapshot: () => invoke('kernel:getSnapshot'),
-  setLifecycleBusy: (busy: boolean) => send('lifecycle:busy', busy),
+  reportInFlightWork: (work: InFlightWorkItem[]) => send('lifecycle:reportWork', work),
+  requestAppClose: () => send('lifecycle:requestClose'),
+  lifecycle: {
+    onAskClose: (callback: (payload: CloseAskPayload) => void) =>
+      onPush('lifecycle:askClose', callback),
+    onCloseQuestionChanged: (callback: (payload: CloseAskPayload) => void) =>
+      onPush('lifecycle:closeQuestionChanged', callback),
+    onHoldSchedules: (callback: (held: boolean) => void) =>
+      onPush('lifecycle:holdSchedules', callback),
+    answerClose: (payload: CloseAnswerPayload) => send('lifecycle:answerClose', payload),
+    bridgeReady: () => send('lifecycle:bridgeReady'),
+  },
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
     onRaw('show-toast', callback),
   ensureBackendReadiness: (

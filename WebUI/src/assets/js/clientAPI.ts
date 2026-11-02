@@ -7,10 +7,6 @@ export function minimizedWin() {
   window.electronAPI.miniWindow()
 }
 
-export function exitApp() {
-  window.electronAPI.exitApp()
-}
-
 export function setWinSize(width: number, height: number) {
   return window.electronAPI.setWinSize(width, height)
 }

@@ -33,10 +33,10 @@ describe('channel manifest bridge-path derivation', () => {
   })
 
   it('places a flat-flagged namespaced channel at the top level', () => {
-    expectTypeOf<ElectronApi['setLifecycleBusy']>().toEqualTypeOf<
-      BridgeMemberFor<'lifecycle:busy'>
+    expectTypeOf<ElectronApi['reportInFlightWork']>().toEqualTypeOf<
+      BridgeMemberFor<'lifecycle:reportWork'>
     >()
-    expectTypeOf<ElectronApi>().not.toHaveProperty('lifecycle')
+    expectTypeOf<NamespaceBridge<'lifecycle'>>().not.toHaveProperty('reportWork')
   })
 
   it('keeps a dot-less member override a leaf rename inside its own group', () => {
@@ -139,7 +139,7 @@ describe('channel manifest bridge-path uniqueness', () => {
     expect(pathOf('saveHomeAgentDocument')).toEqual(['homeAgent', 'saveDocument'])
     expect(pathOf('channel:saveConfig')).toEqual(['homeAgent', 'channel', 'saveConfig'])
     expect(pathOf('homeAgent:localWeb:getUrls')).toEqual(['homeAgent', 'localWeb', 'getUrls'])
-    expect(pathOf('lifecycle:busy')).toEqual(['setLifecycleBusy'])
+    expect(pathOf('lifecycle:reportWork')).toEqual(['reportInFlightWork'])
     expect(pathOf('agentMode:toolResult')).toEqual(['agentMode', 'submitToolResult'])
     expect(pathOf('webBrowser:stateChanged')).toEqual(['webBrowser', 'onStateChanged'])
     expect(pathOf('kernel:getSnapshot')).toEqual(['getKernelSnapshot'])

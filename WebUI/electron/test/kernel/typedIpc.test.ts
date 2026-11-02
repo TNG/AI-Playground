@@ -43,9 +43,9 @@ describe('typed IPC registration', () => {
 
   it('typedOn registers the listener under the exact channel name via ipcMain.on', () => {
     const listener = vi.fn()
-    typedOn('lifecycle:busy', listener)
+    typedOn('lifecycle:reportWork', listener)
     expect(on).toHaveBeenCalledTimes(1)
-    expect(on.mock.calls[0][0]).toBe('lifecycle:busy')
+    expect(on.mock.calls[0][0]).toBe('lifecycle:reportWork')
     expect(on.mock.calls[0][1]).toBe(listener)
   })
 

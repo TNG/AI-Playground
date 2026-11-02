@@ -72,6 +72,8 @@ import {
   type TurnPause,
 } from '../kernel/orchestrator'
 import { saveChatTurnConversation } from '../persist/conversationFiles'
+import { titleFromMessages } from '@/lib/conversationTitle'
+import type { OpenChatTurn } from '@/types/lifecycleIpc'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { emitFailure } from '../kernel/kernelBus'
 
@@ -736,6 +738,8 @@ type ActiveChatTurn = {
   turnId: string
   conversationKey: string
   controller: AbortController
+  homeAgent: boolean
+  title?: string
 }
 
 const activeTurns = new Map<string, ActiveChatTurn>()
@@ -749,6 +753,14 @@ export function anyChatTurnActive(): boolean {
   return activeTurns.size > 0
 }
 
+export function openChatTurns(): OpenChatTurn[] {
+  return [...activeTurns.values()].map(({ conversationKey, homeAgent, title }) => ({
+    conversationKey,
+    homeAgent,
+    title,
+  }))
+}
+
 export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
   const req = ChatTurnRequestSchema.parse(request) as ChatTurnRequest
   if (activeTurns.has(req.conversationKey)) {
@@ -759,6 +771,8 @@ export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
     turnId,
     conversationKey: req.conversationKey,
     controller: new AbortController(),
+    homeAgent: req.persist?.meta?.kind === 'homeAgent' || req.homeAgentDiagnostics === true,
+    title: titleFromMessages(req.messages),
   }
   activeTurns.set(req.conversationKey, turn)
   beginChatTurnSnapshot(req.conversationKey, turnId)

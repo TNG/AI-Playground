@@ -60,6 +60,9 @@
           </p>
         </div>
         <p role="status" class="text-sm text-muted-foreground">{{ preview }}</p>
+        <p class="text-sm text-muted-foreground">
+          {{ i18n.AGENT_TASK_SCHEDULE_ONLY_WHILE_OPEN }}
+        </p>
         <template v-if="active && task">
           <p class="text-sm text-muted-foreground">
             {{ i18n.AGENT_TASK_SCHEDULE_PAUSES_FOR_MODELS }}

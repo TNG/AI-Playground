@@ -45,6 +45,8 @@ export const ArtifactRunRequestSchema = z.object({
 
 export type ArtifactRunRequest = z.infer<typeof ArtifactRunRequestSchema>
 
+export type ArtifactRunMode = ArtifactRunRequest['mode']
+
 /** How a submitted run settled — the `artifact:run` invoke's reply. */
 export type ArtifactRunResult = {
   state: 'completed' | 'failed' | 'cancelled'

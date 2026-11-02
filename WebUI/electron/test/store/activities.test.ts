@@ -7,7 +7,7 @@ describe('chatActivity', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     globalThis.window = {
-      electronAPI: { setLifecycleBusy: () => {} },
+      electronAPI: {},
     } as unknown as Window & typeof globalThis
   })
 

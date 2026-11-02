@@ -1,6 +1,9 @@
 <template>
   <div class="px-12 py-5 max-w-5xl w-5xl">
     <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Home Agent Setup</h1>
+    <p class="text-center text-sm text-muted-foreground">
+      {{ i18n.HOME_AGENT_ONLY_WHILE_OPEN }}
+    </p>
 
     <p
       v-if="!homeAgent.masterEnabled && anyEnabled"

@@ -1,19 +1,27 @@
+import type { WebContents } from 'electron'
+import type { CloseAnswerPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { LifecycleSendName, SendHandlerMap } from '../ipcRegistries'
 
-/**
- * The renderer's busy flag lands in main-owned close-policy state; the setter
- * keeps the module-level variable in main.ts.
- */
 export type LifecycleDeps = {
-  setRendererBusy: (busy: boolean) => void
+  setRendererWork: (work: InFlightWorkItem[]) => void
+  requestClose: () => void
+  answerClose: (payload: CloseAnswerPayload) => void
+  closeBridgeReady: (sender: WebContents) => void
 }
 
 export function buildLifecycleSendRegistry(deps: LifecycleDeps) {
-  // The renderer reports whether it has tracked work in flight; an input to
-  // the main-owned close policy (see createWindow's 'close' handler).
   return {
-    'lifecycle:busy': (_event, busy) => {
-      deps.setRendererBusy(busy === true)
+    'lifecycle:reportWork': (_event, work) => {
+      deps.setRendererWork(Array.isArray(work) ? work : [])
+    },
+    'lifecycle:requestClose': () => {
+      deps.requestClose()
+    },
+    'lifecycle:answerClose': (_event, payload) => {
+      deps.answerClose(payload)
+    },
+    'lifecycle:bridgeReady': (event) => {
+      deps.closeBridgeReady(event.sender)
     },
   } satisfies SendHandlerMap<LifecycleSendName>
 }

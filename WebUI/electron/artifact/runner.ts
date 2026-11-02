@@ -29,7 +29,7 @@ import {
 } from '../kernel/kernelBus'
 import type { ArtifactPhase, ArtifactRunOwner, ArtifactRunTag } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
-import type { ArtifactRunResult } from '@/types/artifactIpc'
+import type { ArtifactRunMode, ArtifactRunResult } from '@/types/artifactIpc'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import {
   findKeysByClassType,
@@ -87,7 +87,7 @@ export type ArtifactRunParams = {
 /** One resolved run, as shipped by a renderer driver or built for an in-process tool. */
 export type ArtifactRunPayload = {
   runId: string
-  mode: 'imageGen' | 'imageEdit' | 'video'
+  mode: ArtifactRunMode
   preset: ComfyUiPreset
   params: ArtifactRunParams
   inputs: ArtifactRunInput[]

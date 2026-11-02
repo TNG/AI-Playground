@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import { appLoggerInstance } from '../observability/logger'
 import { getAgentTasksDemoFile, getAgentTasksFile } from './userDataPaths.ts'
 import { AgentTaskSchema, AgentTasksFileSchema, type AgentTask } from '@/types/agentTaskIpc'
+import type { ShutdownCause } from '../kernel/shutdown'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 
 /**
@@ -28,22 +29,12 @@ const { serialize, clear: clearChains } = makeWriteChains()
 
 const FILE_CHAIN = 'file'
 
+// Set once a Quit has settled the Task Runs: the window, still alive during teardown,
+// must not write a run back in flight or call the turn it saw aborted a failure.
+let runsSealedByQuit = false
+
 function tasksFile(): string {
   return agentTaskFilesDeps?.isDemoMode() ? getAgentTasksDemoFile() : getAgentTasksFile()
-}
-
-/**
- * OS close hides the window while this is true. Demo schedules never count, and
- * an unreadable file must not trap the app open.
- */
-export async function agentTasksKeepAppAlive(): Promise<boolean> {
-  if (agentTaskFilesDeps?.isDemoMode()) return false
-  try {
-    const tasks = await readAgentTasks()
-    return tasks.some((task) => task.schedule?.enabled === true || task.activeRun !== undefined)
-  } catch {
-    return false
-  }
 }
 
 /** Every saved Task; an absent file is none, an unreadable one throws. */
@@ -62,6 +53,16 @@ async function writeTasks(tasks: AgentTask[]): Promise<void> {
   await atomicWriteJson(tasksFile(), { schemaVersion: 1, tasks })
 }
 
+/** After a Quit, a saved Task keeps the run state on disk; everything else is the window's. */
+function withoutRunChanges(task: AgentTask, stored: AgentTask | undefined): AgentTask {
+  const { activeRun: _activeRun, lastOutcome: _lastOutcome, ...rest } = task
+  return {
+    ...rest,
+    ...(stored?.activeRun ? { activeRun: stored.activeRun } : {}),
+    ...(stored?.lastOutcome ? { lastOutcome: stored.lastOutcome } : {}),
+  }
+}
+
 /** Insert a Task, or replace the one with the same id where it stands. */
 export async function saveAgentTask(payload: unknown): Promise<void> {
   const parsed = AgentTaskSchema.safeParse(payload)
@@ -70,8 +71,9 @@ export async function saveAgentTask(payload: unknown): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
     const tasks = await readAgentTasks()
     const index = tasks.findIndex((entry) => entry.id === task.id)
-    if (index >= 0) tasks[index] = task
-    else tasks.push(task)
+    const next = runsSealedByQuit ? withoutRunChanges(task, tasks[index]) : task
+    if (index >= 0) tasks[index] = next
+    else tasks.push(next)
     await writeTasks(tasks)
   })
 }
@@ -86,6 +88,36 @@ export async function deleteAgentTask(id: unknown): Promise<void> {
   })
 }
 
+/**
+ * A user's Quit ends every Task Run still marked in flight, so each is recorded as
+ * stopped. Any other cause leaves the marker for the next launch to call failed / app-closed.
+ */
+export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> {
+  if (cause !== 'quit') return
+  return serialize(FILE_CHAIN, async () => {
+    const tasks = await readAgentTasks()
+    const at = Date.now()
+    let settled = 0
+    const next = tasks.map((task): AgentTask => {
+      if (!task.activeRun) return task
+      settled++
+      const { activeRun, ...rest } = task
+      return {
+        ...rest,
+        lastOutcome: {
+          kind: 'stopped',
+          at,
+          sessionId: activeRun.sessionId,
+          stepIndex: activeRun.stepIndex,
+          stepCount: activeRun.stepCount,
+        },
+      }
+    })
+    if (settled > 0) await writeTasks(next)
+    runsSealedByQuit = true
+  })
+}
+
 /** §6.1: demo Tasks are session-scoped; wipe on exit (and on boot, for a crash tail). */
 export async function wipeDemoAgentTasks(): Promise<void> {
   try {
@@ -97,5 +129,6 @@ export async function wipeDemoAgentTasks(): Promise<void> {
 
 export function resetAgentTaskFilesForTest(): void {
   agentTaskFilesDeps = null
+  runsSealedByQuit = false
   clearChains()
 }

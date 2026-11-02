@@ -537,6 +537,10 @@ export function hasOpenAgentTurn(): boolean {
   return agentTurns.size > 0
 }
 
+export function openAgentTurnSessionIds(): string[] {
+  return [...agentTurns.keys()]
+}
+
 /**
  * Hard reset: discard the live session AND its persisted pointer, and tear down
  * the workspace runtime (preview server + browser) so the next turn starts a

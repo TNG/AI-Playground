@@ -138,6 +138,23 @@ export async function launchElectronApp(): Promise<ElectronApplication> {
   throw lastError
 }
 
+/**
+ * Quits through the real shutdown. Work still in flight makes the app ask before quitting, so
+ * answer Quit the way a user would; with nothing in flight it just quits.
+ */
+async function closeApp(app: ElectronApplication): Promise<void> {
+  const window = await getMainWindow(app).catch(() => undefined)
+  const closed = app.close()
+  if (window) {
+    void window
+      .getByRole('alertdialog')
+      .getByRole('button', { name: 'Quit', exact: true })
+      .click({ timeout: 60_000 })
+      .catch(() => {})
+  }
+  await closed
+}
+
 type E2EFixtures = {
   electronApp: ElectronApplication
   window: Page
@@ -149,7 +166,7 @@ export const test = base.extend<E2EFixtures>({
   electronApp: async ({}, use) => {
     const app = await launchElectronApp()
     await use(app)
-    await app.close()
+    await closeApp(app)
   },
 
   window: async ({ electronApp }, use) => {

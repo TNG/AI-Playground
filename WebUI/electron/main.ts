@@ -23,6 +23,7 @@ import {
   BrowserWindow,
   dialog,
   net,
+  powerMonitor,
   protocol,
   safeStorage,
   screen,
@@ -105,8 +106,8 @@ import {
 import {
   cancelAgentTurn,
   deleteAgentSession,
-  isAgentTurnActive,
   listAgentCapabilities,
+  openAgentTurnSessionIds,
   resetAgentSession,
   setAgentModeMainWindow,
   shutdownAgentMode,
@@ -116,7 +117,16 @@ import {
 import { getKernelSnapshot, onKernelEvent, setKernelEventWindow } from './kernel/kernelBus'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { typedSend } from './kernel/typedIpc'
-import { bindRendererBusyReset, resolveClosePolicy } from './kernel/windowLifecycle'
+import { bindRendererWorkReset, createCloseCoordinator } from './kernel/closeCoordinator'
+import {
+  askWindowToClose,
+  handleCloseAnswer,
+  handleCloseBridgeReady,
+  holdSchedules,
+  refreshWhileAsking,
+  showRefreshedCloseQuestion,
+} from './kernel/closeAsk'
+import { createInFlightWork } from './kernel/inFlightWork'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -149,7 +159,8 @@ import {
   awaitChatWindow,
   cancelArtifactRun,
   cancelAllArtifactRuns,
-  artifactWorkOpen,
+  openArtifactRuns,
+  openTextRequests,
   setOrchestratorDeps,
   submitArtifactRun,
 } from './kernel/orchestrator'
@@ -203,8 +214,8 @@ import {
 } from './permissions/permissionsService'
 import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './persist/grantsStore'
 import {
-  anyChatTurnActive,
   cancelChatTurn,
+  openChatTurns,
   resumeChatTurn,
   setChatEngineDeps,
   submitChatTurn,
@@ -262,6 +273,7 @@ import {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
   migrateLegacyAgentSessions,
+  readAgentSessionTitle,
   saveAgentSession,
   saveAgentSessionActiveId,
   setAgentSessionFileDeps,
@@ -292,11 +304,11 @@ import {
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
 import {
-  agentTasksKeepAppAlive,
   deleteAgentTask,
   readAgentTasks,
   saveAgentTask,
   setAgentTaskFilesDeps,
+  settleTaskRunsOnQuit,
   wipeDemoAgentTasks,
 } from './persist/agentTaskFiles'
 
@@ -337,7 +349,7 @@ import {
   getXpuSmiExePath,
 } from './adapters/hardware/hardwareDiscovery.ts'
 import { registerSettingsPersist } from './adapters/hardware/defaultDeviceSelection.ts'
-import { appShutdown } from './kernel/shutdown.ts'
+import { appShutdown, type ShutdownCause } from './kernel/shutdown.ts'
 import {
   handleChatTelemetryEvent,
   initLaminarTracing,
@@ -465,15 +477,35 @@ const appLogger = appLoggerInstance
 let win: BrowserWindow | null
 let serviceRegistry: ApiServiceRegistryImpl | null = null
 
-// The renderer's half of the hidden-window close policy: true while it has
-// tracked activities in flight (a chat turn, a generation — see the activities
-// sink). Pushed over `lifecycle:busy` whenever it flips.
-let rendererBusy = false
+// Set once the user (or the OS) has decided to quit; later closes and `before-quit` pass through.
+let quitCause: ShutdownCause | null = null
 
-function isHomeAgentRunning(): boolean {
-  const service = serviceRegistry?.getService('home-agent-backend')
-  return service?.get_info().status === 'running'
+function quitApp(): void {
+  quitCause ??= 'quit'
+  app.quit()
 }
+
+const inFlightWork = createInFlightWork({
+  openAgentTurnSessionIds,
+  readAgentSessionTitle,
+  openChatTurns,
+  openTextRequests,
+  openArtifactRuns,
+  readAgentTasks,
+})
+
+const closeCoordinator = createCloseCoordinator({
+  listInFlightWork: inFlightWork.list,
+  askWindow: (question) => askWindowToClose(win, question),
+  showRefreshedQuestion: showRefreshedCloseQuestion,
+  whileAsking: refreshWhileAsking,
+  quit: () => {
+    destroyWebBrowser()
+    quitApp()
+  },
+  suspendSchedules: () => holdSchedules(win, true),
+  resumeSchedules: () => holdSchedules(win, false),
+})
 
 function cloudProviderKeyPath(providerId: string): string {
   return path.join(app.getPath('userData'), `cloud-provider-${providerId}.json`)
@@ -742,9 +774,7 @@ async function createWindow() {
   setWebBrowserMainWindow(win)
   setAgentModeMainWindow(win)
   setKernelEventWindow(win)
-  bindRendererBusyReset(win.webContents, (busy) => {
-    rendererBusy = busy
-  })
+  bindRendererWorkReset(win.webContents, inFlightWork.setRendererWork)
   // The renderer that was asked a media request cannot answer from a new
   // window; settle its pendings so waiters fail instead of hanging. The same
   // holds for a chat tool execution the old renderer was told to run. Artifact
@@ -759,50 +789,10 @@ async function createWindow() {
     cancelAllArtifactRuns('The app window was replaced')
   })
   for (const runKey of activeMediaAgentRunKeys()) cancelMediaAgentRun(runKey)
-  // The file read is async, so the first close is always deferred. A later
-  // close with this set is the real one (macOS, after the policy says quit).
-  let allowWindowClose = false
-  let closeDecision: Promise<void> | null = null
   win.on('close', (event) => {
-    if (allowWindowClose) return
+    if (quitCause) return
     event.preventDefault()
-    if (closeDecision) return
-    // Main owns the hide/reopen/quit policy (architecture-target §5.1), never
-    // the renderer. A hidden window is reopened by relaunching (second-instance)
-    // or dock activation. `tasksKeepAlive` is the tasks file, not a renderer flag.
-    closeDecision = (async () => {
-      const tasksKeepAlive = await agentTasksKeepAppAlive()
-      if (!win || win.isDestroyed()) return
-      const decision = resolveClosePolicy({
-        homeAgentRunning: isHomeAgentRunning(),
-        rendererBusy,
-        agentTurnActive: isAgentTurnActive(),
-        chatTurnActive: anyChatTurnActive(),
-        artifactWorkOpen: artifactWorkOpen(),
-        tasksKeepAlive,
-      })
-      if (decision === 'hide') {
-        win.hide()
-        return
-      }
-      // Tear down the headless web-browser window so the app can quit cleanly.
-      destroyWebBrowser()
-      // Quit from the main window's own close rather than waiting for
-      // `window-all-closed`, which Electron only emits once EVERY window is
-      // destroyed. Hidden helper windows (agent browser sessions, an image
-      // preview) used to swallow that event, and with it the whole teardown: the
-      // backends kept running and the single-instance lock stayed held, so the
-      // next launch was refused. macOS keeps the app alive by convention, so
-      // there the backends are freed in `window-all-closed` instead.
-      if (process.platform !== 'darwin') {
-        app.quit()
-        return
-      }
-      allowWindowClose = true
-      win.close()
-    })().finally(() => {
-      closeDecision = null
-    })
+    void closeCoordinator.requestClose()
   })
 
   // Windows log-off / shutdown / restart. The session cannot be stopped and the
@@ -810,7 +800,8 @@ async function createWindow() {
   // teardown beats leaving the backends behind.
   win.on('session-end', () => {
     appLogger.info('Windows session ending, stopping backends', 'electron-backend')
-    void appShutdown.shutdown(3000)
+    quitCause = 'session-end'
+    void appShutdown.shutdown('session-end', 3000)
   })
 
   // [HA-DIAG] Temporary: surface renderer `[HA-DIAG]` perf logs in the main
@@ -1144,6 +1135,8 @@ setRagAccess({
 // Everything the app spawns, torn down in dependency order: the agent first,
 // because its extensions flush state on shutdown (persistent memory writes what
 // it learned) and may still call into MCP, the services and the browser.
+// Before the agent, whose aborted turns the window would otherwise record as failed.
+appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
 appShutdown.register({ name: 'MCP servers', run: () => stopAllMcpServers() })
 appShutdown.register({ name: 'backend services', run: () => serviceRegistry?.stopAllServices() })
@@ -1196,7 +1189,12 @@ appShutdown.register({
 // outlive us, and Electron would otherwise exit while they are still stopping.
 app.on('before-quit', (event) => {
   event.preventDefault()
-  void appShutdown.shutdown().finally(() => {
+  // Cmd+Q and the menu's Quit land here first; they ask like any other close.
+  if (!quitCause) {
+    void closeCoordinator.requestClose()
+    return
+  }
+  void appShutdown.shutdown(quitCause).finally(() => {
     if (singleInstanceLock) {
       app.releaseSingleInstanceLock()
     }
@@ -1213,31 +1211,25 @@ app.on('before-quit', (event) => {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.on(signal, () => {
     appLogger.info(`Received ${signal}, stopping backends`, 'electron-backend')
-    void appShutdown.shutdown().finally(() => app.exit(0))
+    void appShutdown.shutdown('signal').finally(() => app.exit(0))
   })
 }
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q — so free the backends here instead of quitting.
-app.on('window-all-closed', async () => {
-  if (process.platform === 'darwin') {
-    await appShutdown.shutdown()
-    return
-  }
+// macOS and Linux logout / shutdown: the OS must not be blocked by the close question.
+app.whenReady().then(() => {
+  powerMonitor.on('shutdown', () => {
+    quitCause = 'session-end'
+  })
+})
+
+app.on('window-all-closed', () => {
   win = null
-  app.quit()
+  quitApp()
 })
 
 app.on('activate', () => {
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow().then(loadAppWindow)
-  } else if (win && !win.isDestroyed() && !win.isVisible()) {
-    // Hidden by the close-while-headless policy: dock activation reopens it.
-    win.show()
-    win.focus()
   }
 })
 
@@ -1246,19 +1238,10 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
     if (win.isMinimized()) {
       win.restore()
     }
-    // A hidden window (closed while headless work was in flight — see the
-    // close handler in createWindow) is reopened here: a relaunch means the
-    // user wants the UI back, not a second copy.
-    if (!win.isVisible()) win.show()
     win.focus()
     return
   }
-  // We hold the single-instance lock with no window to show, so the user's
-  // relaunch is refused and nothing appears. Re-creating the window here would
-  // not help: the services captured the old one (`readonly win` in service.ts)
-  // and would keep sending status updates to dead webContents. Closing the main
-  // window now always quits (see createWindow), so this should be unreachable —
-  // log it, because it means something held the quit back.
+  // Holding the lock with no window means something held the quit back; log it.
   appLogger.warn(
     `Second instance requested while holding the lock without a window (shutting down: ${appShutdown.isShuttingDown()})`,
     'electron-backend',
@@ -1621,13 +1604,12 @@ function initEventHandle() {
   // ── Cloud Mode provider API keys ────────────────────────────────────────
   registerInvokeHandlers(buildCloudProviderRegistry({ cloudProviderKeyPath, readCloudProviderKey }))
 
-  // The renderer reports whether it has tracked work in flight; an input to
-  // the main-owned close policy (see createWindow's 'close' handler).
   registerSendHandlers(
     buildLifecycleSendRegistry({
-      setRendererBusy: (busy) => {
-        rendererBusy = busy
-      },
+      setRendererWork: inFlightWork.setRendererWork,
+      requestClose: () => void closeCoordinator.requestClose(),
+      answerClose: handleCloseAnswer,
+      closeBridgeReady: handleCloseBridgeReady,
     }),
   )
 
@@ -1730,7 +1712,7 @@ function initEventHandle() {
       demoModeConfig,
       relaunchApp: () => {
         app.relaunch()
-        app.quit()
+        quitApp()
       },
     }),
   )

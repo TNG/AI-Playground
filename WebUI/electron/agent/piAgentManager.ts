@@ -9,6 +9,7 @@ import {
   cancelAgentTurn,
   deleteAgentSession,
   hasOpenAgentTurn,
+  openAgentTurnSessionIds,
   resetAgentSession,
   shutdownAgentMode,
   startAgentTurn,
@@ -49,10 +50,12 @@ export function setAgentModeMainWindow(win: BrowserWindow): void {
   setToolBridgeWindow(win)
 }
 
-/** Whether main holds an agent turn open — input to the hidden-window close policy. */
+/** Whether main holds an agent turn open. */
 export function isAgentTurnActive(): boolean {
   return hasOpenAgentTurn()
 }
+
+export { openAgentTurnSessionIds }
 
 /**
  * What the agent could do in a session built right now, for the settings UI.

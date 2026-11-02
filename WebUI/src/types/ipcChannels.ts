@@ -25,6 +25,7 @@ import type { ConversationBootstrap, ConversationSaveRequest } from './conversat
 import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
+import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from './mediaRequests'
 import type {
@@ -68,7 +69,7 @@ export type SendRow<A extends readonly unknown[] = readonly unknown[]> = {
   kind: 'send'
   owner: IpcOwner
   args: A
-  /** `true` to place a namespaced channel's member at the top level (flat), like `lifecycle:busy`. */
+  /** `true` to place a namespaced channel's member at the top level (flat), like `lifecycle:reportWork`. */
   flat?: boolean
   member?: string
 }
@@ -1192,28 +1193,6 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as const,
   },
-  /** Quit the app outright (reaches the gated teardown in `before-quit`). */
-  exitApp: {
-    kind: 'send',
-    owner: 'main',
-    args: [] as const,
-  },
-  /**
-   * Whether a saved task should keep the app alive: an enabled schedule or a run
-   * marker in `agent-tasks.json`. Demo mode and an unreadable file are false.
-   */
-  tasksKeepAlive: {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as const,
-    result: false as boolean,
-  },
-  /** Hide the main window without quitting. */
-  hideMainWindow: {
-    kind: 'send',
-    owner: 'main',
-    args: [] as const,
-  },
   /** Save a generated image to a file the user picks in a save dialog. */
   saveImage: {
     kind: 'send',
@@ -1250,13 +1229,51 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
   },
-  /** The renderer's busy flag for the close policy; fire-and-forget. */
-  'lifecycle:busy': {
+  /** The In-flight Work only the window knows (Prompt Runs, Task Runs); replaces the last report. */
+  'lifecycle:reportWork': {
     kind: 'send',
     owner: 'main',
-    args: [] as unknown as readonly [boolean],
+    args: [] as unknown as readonly [InFlightWorkItem[]],
     flat: true as const,
-    member: 'setLifecycleBusy' as const,
+    member: 'reportInFlightWork' as const,
+  },
+  /** The in-app close button: main's close coordinator decides whether to quit or ask. */
+  'lifecycle:requestClose': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+    flat: true as const,
+    member: 'requestAppClose' as const,
+  },
+  /** Main asks the window whether to quit while In-flight Work runs. */
+  'lifecycle:askClose': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as CloseAskPayload,
+  },
+  /** The open close question's refreshed In-flight Work; it stays open even when empty. */
+  'lifecycle:closeQuestionChanged': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as CloseAskPayload,
+  },
+  /** `true` while the close question is open: no Schedule starts a Task Run. */
+  'lifecycle:holdSchedules': {
+    kind: 'push',
+    owner: 'main',
+    payload: null as unknown as boolean,
+  },
+  /** The window's close bridge is listening; a reloaded window gets the open close question again. */
+  'lifecycle:bridgeReady': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as const,
+  },
+  /** The user's answer to `lifecycle:askClose`, keyed by requestId. */
+  'lifecycle:answerClose': {
+    kind: 'send',
+    owner: 'main',
+    args: [] as unknown as readonly [CloseAnswerPayload],
   },
   /** The primary display's new work-area size, right after it changed. */
   'display-metrics-changed': {
@@ -1908,7 +1925,7 @@ type ChannelLeaf<S extends string> = S extends `${string}:${infer Leaf}` ? Chann
 // the channel's own namespace segments plus its member name; a row overrides
 // the placement with a dotted `member` ('homeAgent.channel.send' — the whole
 // path) or `flat: true` (a namespaced channel whose member sits at the top
-// level, like `lifecycle:busy`).
+// level, like `lifecycle:reportWork`).
 
 /** Split a dotted member path into its segments. */
 type SplitDots<S extends string> = S extends `${infer Head}.${infer Rest}`

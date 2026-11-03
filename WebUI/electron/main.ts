@@ -234,6 +234,16 @@ import {
   wipeDemoConversations,
 } from './persist/conversationFiles'
 import { buildConversationsRegistry } from './kernel/registries/conversations'
+import { buildSessionsRegistry } from './kernel/registries/sessions'
+import {
+  createSession,
+  deleteSession,
+  listSessions,
+  openSession,
+  renameSession,
+  setSessionDeps,
+  wipeDemoSessions,
+} from './session/sessions'
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
@@ -1154,6 +1164,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
+appShutdown.register({ name: 'demo sessions', run: () => wipeDemoSessions() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo agent tasks', run: () => wipeDemoAgentTasks() })
@@ -1264,6 +1275,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
+  wireSessions(settings)
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
   wireAgentTasks(settings)
@@ -1284,6 +1296,12 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
 function wireConversations(settings: LocalSettings): void {
   setConversationFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoConversations()
+}
+
+/** Same demo discipline for Sessions (ADR-0003). */
+function wireSessions(settings: LocalSettings): void {
+  setSessionDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoSessions()
 }
 
 /** Same demo discipline for agent-session records (step 8, §6.1). */
@@ -1768,6 +1786,16 @@ function initEventHandle() {
       cancelChatTurn,
       handleChatAnswer,
       summarizeConversationText,
+    }),
+  )
+
+  registerInvokeHandlers(
+    buildSessionsRegistry({
+      listSessions,
+      createSession,
+      openSession,
+      renameSession,
+      deleteSession,
     }),
   )
 

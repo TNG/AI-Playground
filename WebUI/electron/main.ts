@@ -253,6 +253,7 @@ import {
   newestArtifact,
 } from './session/sessionArtifacts'
 import { cleanUpHarnessSessionsOnDelete, harnessSessionFor } from './session/sessionHarness'
+import { deleteTasksWithSession, taskRunHarnessFor } from './session/sessionTaskRuns'
 import { upsertTimelineMessages } from './session/sessionTimeline'
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
@@ -1321,6 +1322,7 @@ function wireSessions(settings: LocalSettings): void {
     await deleteAgentSessionRecord(harnessSessionId)
     await deleteAgentSession(harnessSessionId)
   })
+  deleteTasksWithSession()
   setAppMediaPathResolver(getLocalPathFromAipgMediaUrl)
 }
 
@@ -1820,6 +1822,7 @@ function initEventHandle() {
       renameSession,
       deleteSession,
       harnessSessionFor,
+      taskRunHarnessFor,
       upsertTimelineMessages,
       saveChatTranscript,
       recordAudioTurn,

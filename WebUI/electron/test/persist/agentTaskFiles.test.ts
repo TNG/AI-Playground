@@ -22,6 +22,7 @@ vi.mock('../../observability/logger', () => ({
 
 const {
   deleteAgentTask,
+  deleteAgentTasksOfSession,
   readAgentTasks,
   resetAgentTaskFilesForTest,
   saveAgentTask,
@@ -33,7 +34,7 @@ function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   return {
     id,
     name: `Task ${id}`,
-    workspaceDir: '/work/project',
+    sessionRef: 'session-1',
     settingsTemplate: { backend: 'llamaCPP', model: 'Qwen-9B', capabilities: ['files'] },
     steps: [
       { id: 's1', prompt: 'first' },
@@ -145,6 +146,28 @@ describe('the kernel Tasks file', () => {
     expect(read).toEqual(task('a'))
     expect(read).not.toHaveProperty('schedule')
     expect(read).not.toHaveProperty('nextRunAt')
+  })
+
+  it('reads a Task saved before Tasks belonged to a Session, and keeps it on an upsert', async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const old = { ...legacy, workspaceDir: '/work/project' }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    await saveAgentTask(task('new'))
+
+    expect(await readAgentTasks()).toEqual([old, task('new')])
+  })
+
+  it("deletes a Session's Tasks and leaves every other one", async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    await saveAgentTask(task('a'))
+    await saveAgentTask(task('b', { sessionRef: 'session-2' }))
+    await saveAgentTask(task('c'))
+    await saveAgentTask(legacy)
+
+    await deleteAgentTasksOfSession('session-1')
+
+    expect(await readAgentTasks()).toEqual([task('b', { sessionRef: 'session-2' }), legacy])
   })
 
   it('deletes one Task and keeps the others', async () => {

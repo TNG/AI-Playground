@@ -118,6 +118,16 @@ export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> 
   })
 }
 
+/** A deleted Session takes its Tasks with it. */
+export async function deleteAgentTasksOfSession(sessionRef: string): Promise<void> {
+  return serialize(FILE_CHAIN, async () => {
+    const tasks = await readAgentTasks()
+    const remaining = tasks.filter((entry) => entry.sessionRef !== sessionRef)
+    if (remaining.length === tasks.length) return
+    await writeTasks(remaining)
+  })
+}
+
 /** §6.1: demo Tasks are session-scoped; wipe on exit (and on boot, for a crash tail). */
 export async function wipeDemoAgentTasks(): Promise<void> {
   try {

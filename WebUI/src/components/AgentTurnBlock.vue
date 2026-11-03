@@ -85,7 +85,7 @@ import {
 } from '@/lib/agentTranscript'
 import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import {
   ArrowPathIcon,
   ClockIcon,

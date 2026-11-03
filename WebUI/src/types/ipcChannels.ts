@@ -36,7 +36,12 @@ import type {
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
-import type { AudioTurnRequest, SessionDocument, SessionSummary } from './sessionIpc'
+import type {
+  AudioTurnRequest,
+  SessionArtifact,
+  SessionDocument,
+  SessionSummary,
+} from './sessionIpc'
 import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
 import type { ChannelMessageOwner, NotificationConfig } from './notificationsIpc'
@@ -216,12 +221,12 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
-  /** One Session's row plus its display timeline. */
+  /** One Session's row plus its display timeline, and the artifact URLs whose file is gone. */
   'sessions:open': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
-    result: null as unknown as IpcOkWith<{ session: SessionDocument }>,
+    result: null as unknown as IpcOkWith<{ session: SessionDocument; missingFiles: string[] }>,
   },
   /** Give a Session a user-chosen title. */
   'sessions:rename': {
@@ -243,6 +248,20 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [AudioTurnRequest],
     result: null as unknown as IpcOkWith<{ session: SessionDocument }>,
+  },
+  /** The gallery: every Session's artifacts whose file still exists, newest first. */
+  'sessions:listArtifacts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ artifacts: SessionArtifact[] }>,
+  },
+  /** Delete one artifact's file (session id, path in the Session Folder); its History Entry stays. */
+  'sessions:deleteArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
   },
   /** A Session's Session Settings, every preset's at once (ADR-0004). */
   'sessions:readSettings': {

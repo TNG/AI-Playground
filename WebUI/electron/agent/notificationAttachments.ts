@@ -1,13 +1,20 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import { CHANNEL_MEDIA_EXTENSIONS, channelMediaKind } from '@/lib/channelMediaKind'
+import {
+  CHANNEL_MEDIA_EXTENSIONS,
+  channelMediaKind,
+  type ChannelMediaKind,
+} from '@/lib/channelMediaKind'
+import type { Render3dThumbnailResult } from '@/types/chatRequests'
+import { askRenderer } from '../chat/chatAsk.ts'
+import { appLoggerInstance } from '../observability/logger.ts'
 
-export type AttachmentKind = 'photo' | 'video' | 'voice'
-
-export type ChannelMedia = { kind: AttachmentKind; base64: string; filename: string }
-
-export const ATTACHMENT_KINDS: readonly AttachmentKind[] = ['photo', 'video', 'voice']
+export type ChannelMedia = {
+  kind: Exclude<ChannelMediaKind, 'model3d'> | 'document'
+  base64: string
+  filename: string
+}
 
 const MB = 1024 * 1024
 
@@ -19,10 +26,43 @@ const UPLOAD_LIMIT_BYTES: Record<ChannelKind, number> = {
   discord: 10 * MB,
 }
 
+const KIND_LABELS: Partial<Record<ChannelMediaKind, string>> = { model3d: '3D model' }
+
 export function allowedAttachmentExtensions(): string {
-  return ATTACHMENT_KINDS.map(
-    (kind) => `${kind}: ${CHANNEL_MEDIA_EXTENSIONS[kind].join(', ')}`,
-  ).join('; ')
+  return Object.entries(CHANNEL_MEDIA_EXTENSIONS)
+    .map(
+      ([kind, extensions]) =>
+        `${KIND_LABELS[kind as ChannelMediaKind] ?? kind}: ${extensions.join(', ')}`,
+    )
+    .join('; ')
+}
+
+/** A channel photo of a `.glb`, rendered by the window like the Chat turn's, named `<model>.jpg`. */
+async function model3dScreenshot(model: Buffer, filename: string): Promise<ChannelMedia> {
+  const { base64 } = await askRenderer<Render3dThumbnailResult>({
+    kind: 'render-3d-thumbnail',
+    modelBase64: model.toString('base64'),
+  })
+  const name = `${path.basename(filename, path.extname(filename))}.jpg`
+  return { kind: 'photo', base64, filename: name }
+}
+
+/** What a file is sent to a channel as; a 3D model goes as its screenshot, then the file as a document. */
+export async function channelMediaOf(file: string): Promise<ChannelMedia[]> {
+  const kind = channelMediaKind(file)
+  if (!kind) return []
+  const bytes = await fs.readFile(file)
+  const base64 = bytes.toString('base64')
+  const filename = path.basename(file)
+  if (kind !== 'model3d') return [{ kind, base64, filename }]
+  const document: ChannelMedia = { kind: 'document', base64, filename }
+  try {
+    return [await model3dScreenshot(bytes, filename), document]
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    appLoggerInstance.warn(`3D screenshot not rendered: ${reason}`, 'notifier')
+    return [document]
+  }
 }
 
 function isInside(root: string, candidate: string): boolean {
@@ -34,7 +74,7 @@ async function realPath(file: string): Promise<string | null> {
   return fs.realpath(file).catch(() => null)
 }
 
-type Checked = { file: string; kind: AttachmentKind } | { problem: string }
+type Checked = { file: string } | { problem: string }
 
 async function check(workspaceDir: string, ref: string, channel: ChannelKind): Promise<Checked> {
   const kind = channelMediaKind(ref)
@@ -47,11 +87,12 @@ async function check(workspaceDir: string, ref: string, channel: ChannelKind): P
   if (!isInside(root, real)) return { problem: 'outside the workspace' }
   const stat = await fs.stat(real)
   if (!stat.isFile()) return { problem: 'file not found' }
+  // The platform refuses an oversized 3D file at send time; its screenshot still goes.
   const limit = UPLOAD_LIMIT_BYTES[channel]
-  if (stat.size > limit) {
+  if (kind !== 'model3d' && stat.size > limit) {
     return { problem: `larger than the ${limit / MB} MB ${channel} allows` }
   }
-  return { file: real, kind }
+  return { file: real }
 }
 
 /** Nothing is read until every attachment passes its checks. */
@@ -70,11 +111,7 @@ export async function readAttachments(
     }
   }
   const media = await Promise.all(
-    checked.map(async (result) => {
-      const { file, kind } = result as { file: string; kind: AttachmentKind }
-      const base64 = (await fs.readFile(file)).toString('base64')
-      return { kind, base64, filename: path.basename(file) }
-    }),
+    checked.map((result) => channelMediaOf((result as { file: string }).file)),
   )
-  return { media }
+  return { media: media.flat() }
 }

@@ -5,7 +5,9 @@ import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { NotificationRoute } from '@/types/notificationsIpc'
+import type { ChatAskPayload } from '@/types/chatRequests'
 import type { ChannelMedia, ChannelSendOutcome } from '../../agent/notifier'
+import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.
@@ -112,6 +114,8 @@ let sent: Array<{
 let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
 /** Refs handed out one per send before falling back to `channelResult`. */
 let refs: string[] = []
+let refusedFiles: string[] = []
+let thumbnail: FakeThumbnail = { base64: 'anBlZw==' }
 
 function route(next: NotificationRoute, realShellSessions: string[] = []): void {
   notifier.setNotificationConfig({
@@ -153,10 +157,16 @@ beforeAll(async () => {
     notifyHomeAgentUpstreamReady: () => {},
   })
   const bridge = await import('../../artifact/rendererBridge')
+  const chatAsk = await import('../../chat/chatAsk')
   const fakeWindow = {
     isDestroyed: () => false,
     webContents: {
       send: (channel: string, payload: unknown) => {
+        const ask = payload as ChatAskPayload
+        if (channel === 'chat:ask' && ask.kind === 'render-3d-thumbnail') {
+          queueMicrotask(() => chatAsk.handleChatAnswer(thumbnailAnswer(ask.requestId, thumbnail)))
+          return
+        }
         if (channel !== 'artifact:request') return
         const { requestId } = payload as { requestId: string }
         queueMicrotask(() => bridge.handleMediaResponse({ requestId, result: { models: [] } }))
@@ -169,6 +179,8 @@ beforeAll(async () => {
     typing: async () => ({ success: true }),
     send: async (kind, message) => {
       sent.push({ kind, ...message })
+      if (refusedFiles.includes(message.media?.filename ?? ''))
+        return { success: false, error: 'too large' }
       const ref = refs.shift()
       return ref ? { success: true, ref } : channelResult
     },
@@ -187,6 +199,8 @@ beforeEach(() => {
   sent = []
   channelResult = { success: true, ref: '42' }
   refs = []
+  refusedFiles = []
+  thumbnail = { base64: 'anBlZw==' }
   route({ homeAgentEnabled: true, notificationChannel: 'telegram' })
   workspace = fs.mkdtempSync(path.join(tempRoot, 'ws-'))
 })
@@ -385,15 +399,100 @@ describe('notify_user attachments', () => {
   }, 30000)
 
   it('sends nothing for an unsupported file and names it, why, and what is allowed', async () => {
-    attach('generated/model.glb')
-    notifyArgs = { message: SUMMARY, attachments: ['generated/model.glb'] }
-    await runTurn('aipg-agent-notify-glb')
+    attach('generated/model.obj')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/model.obj'] }
+    await runTurn('aipg-agent-notify-obj')
     expect(sent).toEqual([])
     const result = toolResultText()
-    expect(result).toContain('generated/model.glb')
+    expect(result).toContain('generated/model.obj')
     expect(result).toContain('unsupported file type')
     expect(result).toContain('png, jpg, jpeg, webp')
     expect(result).toContain('mp4, webm')
+    expect(result).toContain('glb')
+  }, 30000)
+
+  it('sends an attached 3D model as its screenshot captioned with the text, then the file', async () => {
+    attach('generated/ship.glb', 'glb bytes')
+    notifyArgs = { message: SUMMARY, attachments: ['generated/ship.glb'] }
+    await runTurn('aipg-agent-notify-glb')
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: caption,
+        media: { kind: 'photo', base64: 'anBlZw==', filename: 'ship.jpg' },
+      },
+      {
+        kind: 'telegram',
+        text: '',
+        media: {
+          kind: 'document',
+          base64: Buffer.from('glb bytes').toString('base64'),
+          filename: 'ship.glb',
+        },
+      },
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('sends a 3D model among other attachments in the order the agent listed them', async () => {
+    attach('generated/cover.png')
+    attach('generated/ship.glb')
+    attach('generated/clip.mp4')
+    notifyArgs = {
+      message: SUMMARY,
+      attachments: ['generated/cover.png', 'generated/ship.glb', 'generated/clip.mp4'],
+    }
+    await runTurn('aipg-agent-notify-glb-mixed')
+    expect(sent.map(({ text, media }) => [text, media?.kind, media?.filename])).toEqual([
+      [caption, 'photo', 'cover.png'],
+      ['', 'photo', 'ship.jpg'],
+      ['', 'document', 'ship.glb'],
+      ['', 'video', 'clip.mp4'],
+    ])
+  }, 30000)
+
+  it('sends the text alone first when a 3D model without a screenshot comes first', async () => {
+    attach('generated/ship.glb')
+    thumbnail = { error: 'model load timed out' }
+    notifyArgs = { message: SUMMARY, attachments: ['generated/ship.glb'] }
+    await runTurn('aipg-agent-notify-glb-unrendered')
+    expect(sent.map(({ text, media }) => [text, media?.kind, media?.filename])).toEqual([
+      [caption, undefined, undefined],
+      ['', 'document', 'ship.glb'],
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('delivers the text and screenshot of a 3D model too large for the channel and says the file was not sent', async () => {
+    const file = path.join(workspace, 'generated', 'huge.glb')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, '')
+    fs.truncateSync(file, 50 * 1024 * 1024 + 1)
+    refusedFiles = ['huge.glb']
+    notifyArgs = { message: SUMMARY, attachments: ['generated/huge.glb'] }
+    await runTurn('aipg-agent-notify-glb-huge')
+    expect(sent.map(({ text, media }) => [text, media?.kind, media?.filename])).toEqual([
+      [caption, 'photo', 'huge.jpg'],
+      ['', 'document', 'huge.glb'],
+    ])
+    expect(toolResultText()).toBe('delivered (3D file not sent: huge.glb: too large)')
+  }, 30000)
+
+  it('names every 3D file the channel refused in one Notification', async () => {
+    attach('generated/ship.glb')
+    attach('generated/rover.glb')
+    refusedFiles = ['ship.glb', 'rover.glb']
+    notifyArgs = { message: SUMMARY, attachments: ['generated/ship.glb', 'generated/rover.glb'] }
+    await runTurn('aipg-agent-notify-glb-refused')
+    expect(sent.map(({ text, media }) => [text, media?.kind, media?.filename])).toEqual([
+      [caption, 'photo', 'ship.jpg'],
+      ['', 'document', 'ship.glb'],
+      ['', 'photo', 'rover.jpg'],
+      ['', 'document', 'rover.glb'],
+    ])
+    expect(toolResultText()).toBe(
+      'delivered (3D file not sent: ship.glb: too large; rover.glb: too large)',
+    )
   }, 30000)
 
   it('sends nothing for a missing file and names it', async () => {
@@ -431,6 +530,8 @@ describe('notify_user attachments', () => {
     expect(description).toContain('png, jpg, jpeg, webp')
     expect(description).toContain('mp4, webm')
     expect(description).toContain('wav, mp3, ogg')
+    expect(description).toContain('3D model: glb')
+    expect(description).toMatch(/picture of it plus the file/i)
     expect(description).toMatch(/not sent unless/i)
   }, 30000)
 

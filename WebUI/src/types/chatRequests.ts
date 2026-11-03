@@ -9,7 +9,8 @@ import type { LlmBackend } from '@/assets/js/store/textInference'
  * back: the speech engine seam (`speechIO`), where a missing voice model opens
  * the download prompt; Chromium's audio decoder, which turns a non-WAV
  * attachment into something an STT server takes; the Home Agent confirmation
- * card; and writing an approved settings change into the live stores.
+ * card; writing an approved settings change into the live stores; and a
+ * screenshot of a 3D model for a channel, which needs a WebGL `<model-viewer>`.
  *
  * The wire shape is `artifact:request`'s: main sends, the current window
  * replies by `requestId`, and `{ progress: true }` reports a phase without
@@ -58,6 +59,11 @@ export type ChatAskBody =
       summaryMarkdown: string
     }
   | { kind: 'home-agent-apply'; targetBackend: LlmBackend; changes: ConfigChange[] }
+  /** The `.glb` travels as bytes: a workspace file is under no root the window can load. */
+  | { kind: 'render-3d-thumbnail'; modelBase64: string }
+
+/** A rendered 3D screenshot: JPEG bytes, base64 without a data-URI prefix. */
+export type Render3dThumbnailResult = { base64: string; mime: 'image/jpeg' }
 
 export type ChatAskPayload = ChatAskBody & { requestId: string }
 

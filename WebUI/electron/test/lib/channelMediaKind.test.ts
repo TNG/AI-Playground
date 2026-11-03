@@ -12,11 +12,12 @@ describe('channelMediaKind', () => {
     ['cover.webp', 'photo'],
     ['clip.mp4', 'video'],
     ['clip.webm', 'video'],
+    ['ship.glb', 'model3d'],
   ])('classifies %s as %s', (file, kind) => {
     expect(channelMediaKind(file)).toBe(kind)
   })
 
-  it.each(['spin.gif', 'model.glb', 'notes.pdf', 'readme.txt', 'game.html', 'noextension'])(
+  it.each(['spin.gif', 'scene.gltf', 'notes.pdf', 'readme.txt', 'game.html', 'noextension'])(
     'refuses %s',
     (file) => {
       expect(channelMediaKind(file)).toBeNull()
@@ -34,7 +35,7 @@ describe('channelMediaKind', () => {
     expect(channelMediaKind('C:\\work\\generated\\cover.jpg')).toBe('photo')
     expect(channelMediaKind('aipg-media://outputs/clip.mp4')).toBe('video')
     expect(channelMediaKind('aipg-media://outputs/cover.png?v=2')).toBe('photo')
-    expect(channelMediaKind('aipg-media://outputs/model.glb')).toBeNull()
+    expect(channelMediaKind('aipg-media://outputs/model.glb')).toBe('model3d')
   })
 
   it('classifies a one-folder relative path by its file name, not as a mime type', () => {
@@ -52,11 +53,12 @@ describe('channelMediaKind', () => {
     ['image/webp', 'photo'],
     ['video/mp4', 'video'],
     ['video/webm', 'video'],
+    ['model/gltf-binary', 'model3d'],
   ])('classifies mime type %s as %s', (mime, kind) => {
     expect(channelMediaKind(mime)).toBe(kind)
   })
 
-  it.each(['image/gif', 'model/gltf-binary', 'application/pdf', 'text/plain'])(
+  it.each(['image/gif', 'model/gltf+json', 'application/pdf', 'text/plain'])(
     'refuses mime type %s',
     (mime) => {
       expect(channelMediaKind(mime)).toBeNull()

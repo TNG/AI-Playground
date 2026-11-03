@@ -298,13 +298,14 @@ class LocalWebChannel(ChannelBase):
     def send_document(self, payload: dict) -> SendResult:
         # Offered as a download link (the browser can't preview arbitrary files).
         base64_data = payload.get("base64") or payload.get("document") or ""
-        return self._broadcast(
+        return self._send_with_id(
             "document",
             {
                 "base64": base64_data,
                 "filename": payload.get("filename", "file"),
                 "caption": payload.get("caption", ""),
             },
+            payload,
         )
 
     def send_typing(self, payload: dict) -> SendResult:

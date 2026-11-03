@@ -11,7 +11,9 @@ import skyboxImage from '@/assets/image/qwantani_moonrise_puresky_8k.jpg'
  * directly, exactly like `Model3DViewer.vue`. model-viewer derives the loader
  * from the `.glb` extension and the `aipg-media://` protocol is fetch-able in
  * the renderer, so no base64/data-URI conversion is needed (a `data:` URI
- * without an extension makes the loader hang).
+ * without an extension makes the loader hang). The Agent path hands it a
+ * `blob:` URL of a `model/gltf-binary` blob instead, which loads because the
+ * glTF loader sniffs the binary `glTF` magic in the fetched bytes.
  *
  * The same `skybox-image` as `Model3DViewer.vue` is used so the thumbnail is
  * lit and framed exactly like the in-app preview (clean sky backdrop) instead

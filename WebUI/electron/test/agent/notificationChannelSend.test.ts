@@ -195,6 +195,31 @@ describe('a Notification handed to the Home Agent channel', () => {
     ])
   })
 
+  it('sends a document as a file under its own name, still under the message it answers', async () => {
+    const { send, calls } = recorder()
+    const media = { kind: 'document', base64: 'GLB', filename: 'ship.glb' } as const
+    await send('telegram', { text: '', replyTo: '77', media })
+    await send('slack', { text: 'header', replyTo: '77', media })
+    await send('local-web', { text: '', media })
+    expect(calls).toEqual([
+      {
+        kind: 'telegram',
+        action: 'document',
+        payload: { document: 'GLB', caption: '', filename: 'ship.glb', reply_to_message_id: '77' },
+      },
+      {
+        kind: 'slack',
+        action: 'document',
+        payload: { document: 'GLB', caption: 'header', filename: 'ship.glb', thread_ts: '77' },
+      },
+      {
+        kind: 'local-web',
+        action: 'document',
+        payload: { document: 'GLB', caption: '', filename: 'ship.glb' },
+      },
+    ])
+  })
+
   it('passes a failed send on', async () => {
     const { send } = homeAgentNotificationChannel(async () => ({
       success: false,

@@ -144,6 +144,8 @@
   "ARTIFACT_DELETE_TITLE": "Diese Datei löschen?",
   "ARTIFACT_DELETE_BODY": "Die Datei wird von der Festplatte entfernt. Ihr Schritt bleibt in der Sitzung und zeigt die Datei als gelöscht an.",
   "ARTIFACT_ACTIONS": "Dateiaktionen",
+  "ARTIFACT_ACTION_FAILED": "{action} fehlgeschlagen: {error}",
+  "SESSION_AUDIO_LOAD_FAILED": "Dieser Clip konnte nicht geladen werden",
   "SESSION_FILE_DELETED": "Datei gelöscht",
   "COM_POST_TO_ENHANCE_PROCESS": "An Verbesserungsprozess senden",
   "COM_POST_TO_IMAGE_EDIT": "An Image-Edit-Modus senden",

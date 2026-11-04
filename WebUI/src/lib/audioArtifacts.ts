@@ -1,14 +1,13 @@
 import { generatedMediaOf, toolPartNameOf } from '@/lib/agentTranscript'
-import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
 import type { AudioPhase } from '@/lib/turnTypes'
-import type { ArtifactAction } from '@/lib/turnArtifacts'
+import { artifactActions, type ArtifactAction, type ArtifactState } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { AudioTurnData } from '@/types/sessionTimeline'
 
 export type AudioArtifact = {
   id: string
   mediaType: 'audio'
-  state: AudioArtifactState
+  state: ArtifactState
   url?: string
   /** An older clip outside the Session Folder: its file in the app's audio folder. */
   filePath?: string
@@ -18,11 +17,9 @@ export type AudioArtifact = {
   reason?: string
 }
 
-export type AudioArtifactState = 'running' | 'done' | 'deleted' | 'failed' | 'cancelled'
-
 function clip(
   id: string,
-  state: AudioArtifactState,
+  state: ArtifactState,
   extra: Partial<Omit<AudioArtifact, 'id' | 'state' | 'mediaType'>> = {},
 ): AudioArtifact {
   return { id, mediaType: 'audio', state, actions: [], ...extra }
@@ -30,11 +27,7 @@ function clip(
 
 function savedClip(id: string, url: string, deletedUrls: readonly string[]): AudioArtifact {
   if (deletedUrls.includes(url)) return clip(id, 'deleted', { url })
-  return clip(id, 'done', { url, actions: actionsFor(url) })
-}
-
-function actionsFor(url: string): ArtifactAction[] {
-  return ['download', 'openFolder', ...(sessionMediaPathOf(url) ? (['delete'] as const) : [])]
+  return clip(id, 'done', { url, actions: artifactActions('audio', url) })
 }
 
 export function audioTurnArtifacts(
@@ -101,7 +94,7 @@ function settledToolClip(
       clip(id, 'done', {
         filePath: agentClip.savedFilePath,
         workspacePath: agentClip.workspacePath,
-        actions: ['download', 'openFolder'],
+        actions: artifactActions('audio', agentClip.savedFilePath ?? ''),
       }),
     ]
   }
@@ -111,7 +104,10 @@ function settledToolClip(
   if (output.audioUrl) return [savedClip(id, output.audioUrl, deletedUrls)]
   if (output.savedFilePath) {
     return [
-      clip(id, 'done', { filePath: output.savedFilePath, actions: ['download', 'openFolder'] }),
+      clip(id, 'done', {
+        filePath: output.savedFilePath,
+        actions: artifactActions('audio', output.savedFilePath),
+      }),
     ]
   }
   return output.audioDataUri ? [clip(id, 'done', { url: output.audioDataUri })] : []

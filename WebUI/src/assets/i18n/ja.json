@@ -144,6 +144,8 @@
   "ARTIFACT_DELETE_TITLE": "このファイルを削除しますか?",
   "ARTIFACT_DELETE_BODY": "ファイルはディスクから削除されます。そのターンはセッションに残り、ファイルは削除済みとして表示されます。",
   "ARTIFACT_ACTIONS": "ファイル操作",
+  "ARTIFACT_ACTION_FAILED": "{action}に失敗しました: {error}",
+  "SESSION_AUDIO_LOAD_FAILED": "このクリップを読み込めませんでした",
   "SESSION_FILE_DELETED": "ファイルは削除されました",
   "COM_POST_TO_ENHANCE_PROCESS": "強化処理へ送る",
   "COM_POST_TO_IMAGE_EDIT": "Image Edit モードへ送る",

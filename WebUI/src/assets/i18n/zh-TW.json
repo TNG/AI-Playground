@@ -144,6 +144,8 @@
   "ARTIFACT_DELETE_TITLE": "要刪除此檔案嗎？",
   "ARTIFACT_DELETE_BODY": "檔案將從磁碟中移除。其所在的回合仍保留在工作階段中，並顯示該檔案已刪除。",
   "ARTIFACT_ACTIONS": "檔案操作",
+  "ARTIFACT_ACTION_FAILED": "{action}失敗：{error}",
+  "SESSION_AUDIO_LOAD_FAILED": "無法載入此音訊片段",
   "SESSION_FILE_DELETED": "檔案已刪除",
   "COM_POST_TO_ENHANCE_PROCESS": "傳送至增強處理",
   "COM_POST_TO_IMAGE_EDIT": "傳送至 Image Edit 模式",

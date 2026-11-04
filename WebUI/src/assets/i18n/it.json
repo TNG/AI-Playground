@@ -144,6 +144,8 @@
   "ARTIFACT_DELETE_TITLE": "Eliminare questo file?",
   "ARTIFACT_DELETE_BODY": "Il file viene rimosso dal disco. Il suo turno resta nella sessione e mostra il file come eliminato.",
   "ARTIFACT_ACTIONS": "Azioni sul file",
+  "ARTIFACT_ACTION_FAILED": "{action} non riuscito: {error}",
+  "SESSION_AUDIO_LOAD_FAILED": "Impossibile caricare questa clip",
   "SESSION_FILE_DELETED": "File eliminato",
   "COM_POST_TO_ENHANCE_PROCESS": "Invia al processo di miglioramento",
   "COM_POST_TO_IMAGE_EDIT": "Invia alla modalità Image Edit",

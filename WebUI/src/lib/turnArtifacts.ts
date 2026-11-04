@@ -47,11 +47,14 @@ export function mediaUrlOf(item: MediaItem): string {
   return item.imageUrl
 }
 
-function actionsFor(item: MediaItem, url: string): ArtifactAction[] {
-  const image = item.type === 'image'
+/** Delete only offers itself for a file in the Session Folder. */
+export function artifactActions(
+  mediaType: MediaItem['type'] | 'audio',
+  url: string,
+): ArtifactAction[] {
+  const image = mediaType === 'image'
   return [
-    'info',
-    'zoom',
+    ...(mediaType === 'audio' ? [] : (['info', 'zoom'] as const)),
     ...(image ? (['copy'] as const) : []),
     'download',
     'openFolder',
@@ -101,7 +104,7 @@ export function turnArtifact(
   if (isInFlight(item) || !hasDisplayableMedia(item)) {
     return { ...base, state: 'running', actions: [], ...live }
   }
-  return { ...base, state: 'done', actions: actionsFor(item, url) }
+  return { ...base, state: 'done', actions: artifactActions(item.type, url) }
 }
 
 function shown(item: MediaItem): boolean {

@@ -74,49 +74,21 @@
       :progress="artifact.progress"
     />
 
-    <TooltipProvider :delay-duration="200">
-      <div
-        v-if="toolbarActions.length > 0"
-        role="toolbar"
-        :aria-label="languages.ARTIFACT_ACTIONS"
-        class="absolute top-2 right-2 flex max-w-[calc(100%-1rem)] flex-wrap justify-end gap-1 rounded-md bg-background/80 p-1 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-      >
-        <Tooltip v-for="action in toolbarActions" :key="action.id">
-          <TooltipTrigger as-child>
-            <button
-              type="button"
-              class="flex size-7 items-center justify-center rounded-sm text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary"
-              :aria-label="action.label"
-              @click="emit('action', action.id)"
-            >
-              <component :is="action.icon" class="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{{ action.label }}</TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
+    <ArtifactToolbar
+      :actions="artifact.actions"
+      class="absolute top-2 right-2 max-w-[calc(100%-1rem)] flex-wrap justify-end rounded-md bg-background/80 p-1 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      @action="(action) => emit('action', action)"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type Component, type StyleValue } from 'vue'
-import {
-  ArrowDownTrayIcon,
-  DocumentDuplicateIcon,
-  ExclamationTriangleIcon,
-  FilmIcon,
-  FolderOpenIcon,
-  InformationCircleIcon,
-  MagnifyingGlassPlusIcon,
-  NoSymbolIcon,
-  PencilSquareIcon,
-  TrashIcon,
-} from '@heroicons/vue/24/outline'
+import { computed, ref, watch, type StyleValue } from 'vue'
+import { ExclamationTriangleIcon, NoSymbolIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import ArtifactProgress from '@/components/ArtifactProgress.vue'
+import ArtifactToolbar from '@/components/ArtifactToolbar.vue'
 import Model3DViewer from '@/components/Model3DViewer.vue'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   artifactFrameSize,
   type ArtifactAction,
@@ -172,21 +144,6 @@ const frameStyle = computed<StyleValue>(() => {
     width: `min(100%, ${size.width}px, calc(${MAX_HEIGHT} * ${ratio}))`,
   }
 })
-
-const ACTIONS: Record<ArtifactAction, { icon: Component; label: () => string }> = {
-  info: { icon: InformationCircleIcon, label: () => languages.COM_OPEN_PARAMS },
-  zoom: { icon: MagnifyingGlassPlusIcon, label: () => languages.COM_ZOOM_IN },
-  copy: { icon: DocumentDuplicateIcon, label: () => languages.COM_COPY },
-  download: { icon: ArrowDownTrayIcon, label: () => languages.COM_DOWNLOAD },
-  openFolder: { icon: FolderOpenIcon, label: () => languages.COM_OPEN_LOCATION },
-  sendToEdit: { icon: PencilSquareIcon, label: () => languages.COM_POST_TO_IMAGE_EDIT },
-  sendToVideo: { icon: FilmIcon, label: () => languages.COM_POST_TO_VIDEO },
-  delete: { icon: TrashIcon, label: () => languages.ARTIFACT_DELETE },
-}
-
-const toolbarActions = computed(() =>
-  props.artifact.actions.map((id) => ({ id, icon: ACTIONS[id].icon, label: ACTIONS[id].label() })),
-)
 
 function drag(event: Event) {
   event.preventDefault()

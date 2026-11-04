@@ -28,7 +28,6 @@
 
 <script setup lang="ts">
 import { computed, ref, type StyleValue } from 'vue'
-import { useErrors } from '@/assets/js/store/errors'
 import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
@@ -44,12 +43,13 @@ import {
   type ArtifactAction,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
+import { useArtifactActions } from '@/lib/useArtifactActions'
 import { useArtifactBreakout } from '@/lib/useArtifactBreakout'
 
 const props = defineProps<{ artifacts: TurnArtifact[] }>()
 
 const languages = useI18N().state
-const errors = useErrors()
+const { reportFailure } = useArtifactActions()
 const gallery = useGallery()
 const imageGeneration = useImageGenerationPresets()
 const promptStore = usePromptStore()
@@ -98,7 +98,7 @@ async function runAction(action: ArtifactAction, artifact: TurnArtifact) {
         return
     }
   } catch (error) {
-    errors.report(error, { code: `artifact/${action}-failed`, surface: 'toast' })
+    reportFailure(action, error)
   }
 }
 

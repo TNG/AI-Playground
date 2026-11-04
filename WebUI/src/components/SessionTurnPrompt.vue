@@ -96,7 +96,7 @@ import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/notificationLabel'
-import type { TurnPrompt } from '@/lib/sessionTimeline'
+import type { TurnPrompt } from '@/lib/turnTypes'
 
 /** The user bubble of a Turn, whichever preset ran it: the prompt, Copy and what it started from. */
 defineProps<{

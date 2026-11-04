@@ -1,13 +1,5 @@
 import type { UIMessage } from 'ai'
-import type {
-  AgentTurnTag,
-  AudioTurnData,
-  MediaTurnData,
-  TaskRunTag,
-  TimelineMessage,
-  TimelinePart,
-} from '@/types/sessionTimeline'
-import type { ComfyDynamicInputWithCurrent, GenerationSettings } from '@/types/mediaItem'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 import {
   compactionOutputOf,
   generatedMediaOf,
@@ -17,19 +9,13 @@ import {
   toolActionLabel,
   toolPartNameOf,
 } from '@/lib/agentTranscript'
-import {
-  artifactPhaseLabel,
-  isTerminalPhase,
-  type ArtifactPhaseLabels,
-} from '@/lib/artifactRunProjection'
-import type { ArtifactPhase } from '@/types/kernelEvents'
+import { isTerminalPhase, type ArtifactRunsState } from '@/lib/artifactRunProjection'
+import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/lib/audioArtifacts'
+import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
+import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
-import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
-import type { ChannelKind } from '@/assets/js/store/channels/types'
-import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
-import type { ArtifactRunsState } from '@/lib/artifactRunProjection'
 import {
   generationFailure,
   oneLine,
@@ -40,218 +26,40 @@ import {
   toolCallFailureRecord,
   toolCallResultFailure,
   turnArtifacts,
-  type ArtifactProgress,
   type GenerationFailure,
-  type ArtifactSize,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
-import {
-  audioTurnArtifacts,
-  pendingAudioArtifacts,
-  ttsToolArtifacts,
-  type AudioArtifact,
-} from '@/lib/audioArtifacts'
-
-export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
-export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
-
-/** Which preset ran a Turn: its kind and name, with the model or engine for the tooltip. */
-export type TurnHint = { kind: TurnHintKind; icon: TurnHintIcon; preset: string; detail?: string }
-
-/** One part of a chat or agent answer, by its place in the message. */
-export type AnswerPartRef = { messageId: string; index: number }
-
-type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction'
-
-export type TurnDetailPart =
-  | ({ kind: AnswerDetailKind } & AnswerPartRef)
-  | { kind: 'workspace-path'; path: string }
-  | {
-      kind: 'workflow'
-      variant?: string
-      settings: GenerationSettings
-      inputs: ComfyDynamicInputWithCurrent[]
-    }
-
-/** A generation that ended before it produced anything, said in one line where its card would be. */
-export type TurnFailurePart = { kind: 'failure' } & GenerationFailure & Partial<AnswerPartRef>
-
-export type TurnResultPart =
-  | ({ kind: 'prose' | 'artifact' } & AnswerPartRef)
-  | TurnFailurePart
-  | { kind: 'media' }
-  | { kind: 'audio' }
-
-export type ArtifactKind = 'image' | 'video' | 'model3d' | 'audio'
-
-/** What the collapsed Turn Details header sums up; absent parts are left out. */
-export type TurnSummary =
-  | {
-      kind: 'activity'
-      reasoningMs?: number
-      tools?: number
-      artifacts?: Partial<Record<ArtifactKind, number>>
-    }
-  | {
-      kind: 'workflow'
-      preset: string
-      width?: number
-      height?: number
-      seed?: number
-      durationMs?: number
-    }
-  | { kind: 'speech'; preset: string; engine?: string }
-
-export type AudioPhase = 'loading-model' | 'generating' | 'transcribing'
-
-/** What a running Turn is doing right now, said by its Turn Details header in place of the summary. */
-export type TurnLiveStatus =
-  | { kind: 'reasoning' }
-  | { kind: 'writing' }
-  | { kind: 'working' }
-  | { kind: 'queued' }
-  | { kind: 'tool'; name: string; label?: string; progress?: number }
-  /** A status worded where it was raised (backend prep, RAG, browsing). */
-  | { kind: 'activity'; label: string; progress?: number; browsing?: boolean }
-  | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
-  | { kind: 'audio'; phase: AudioPhase }
-
-/** How a Turn reached its Result, in the order it happened, behind one disclosure. */
-export type TurnDetails = {
-  parts: TurnDetailPart[]
-  summary: TurnSummary
-  /** Set only while the Turn runs. */
-  live?: TurnLiveStatus
-  /** Every error of the Turn in full: a failed generation's, the run's own. */
-  error?: string
-  /** One line under the header, for an error the Result does not already say. */
-  errorLine?: string
-}
-/** The user bubble: what was asked, and what it was asked about. */
-export type TurnPrompt = {
-  text: string
-  /** Shown in place of a prompt left empty: the preset that ran. */
-  placeholder?: string
-  inputImageUrl?: string
-  audio?: { url: string; name?: string }[]
-  /** The chat platform an agent prompt arrived from. */
-  origin?: ChannelKind
-}
-
-export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'delete'
-
-export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
-
-/** The actions that apply to a Turn, and what it cost where that is known. */
-export type TurnFooter = {
-  actions: TurnFooterAction[]
-  /** What Copy and Speak take. */
-  text: string
-  /** The chat answer Speak, Regenerate and Delete act on. */
-  messageId?: string
-  metrics?: TurnMetrics
-  /** What Regenerate submits for a ComfyUI Turn. */
-  rerun?: MediaRerun
-}
-
-/** A ComfyUI Turn's preset, variant, settings and inputs as recorded, with a new seed. */
-export type MediaRerun = {
-  mode: MediaTurnData['mode']
-  workflow: string
-  variant?: string
-  prompt: string
-  negativePrompt?: string
-  params: {
-    seed: -1
-    width?: number
-    height?: number
-    inferenceSteps?: number
-    batchSize?: number
-  }
-  /** Workflow input values keyed `<nodeTitle>.<nodeInput>`. */
-  inputs: Record<string, unknown>
-  /** The image the rerun starts from, for its Turn's user bubble. */
-  inputImageUrl?: string
-}
-
-/**
- * One prompt and what it produced. `SessionTurn.vue` lays every kind out the same way —
- * prompt, hint, Turn Details, Result, footer — and the fields of each kind fill those slots.
- */
-type TurnOf<K extends string, Body> = {
-  kind: K
-  id: string
-  hint: TurnHint
-  details: TurnDetails
-  /** Prose and artifacts in the order they were produced. */
-  result: TurnResultPart[]
-  footer: TurnFooter
-} & Body
-
-/** A chat or agent Turn opened by an answer has no prompt. */
-export type ChatTurn = TurnOf<
-  'chat',
-  {
-    prompt?: TurnPrompt
-    answers: UIMessage[]
-    artifacts: TurnArtifact[]
-    audioArtifacts: AudioArtifact[]
-    /** The conversation a tool's question to the user is filed under, while the Turn runs. */
-    questionKey?: string
-  }
->
-
-export type AgentTurn = TurnOf<
-  'agent',
-  {
-    presetName: string
-    harnessSessionId: string
-    prompt?: TurnPrompt
-    answers: UIMessage[]
-    /** What its settled media tool calls produced. */
-    artifacts: TurnArtifact[]
-    audioArtifacts: AudioArtifact[]
-    taskRun?: TaskRunTag
-    /** The answer is streaming right now. */
-    streaming?: boolean
-    /** The prompt waits in the Turn Queue. */
-    queued?: boolean
-    /** The prompt never ran (the app closed first). */
-    notRun?: boolean
-    canResend?: boolean
-    /** The conversation a tool's question to the user is filed under. */
-    questionKey?: string
-    /** An answer for a chat platform, held until the user lets it go. */
-    heldAnswer?: { channel: ChannelKind }
-  }
->
-
-export type MediaTurn = TurnOf<
-  'media',
-  { prompt: TurnPrompt; createdAt: number; media: MediaTurnData; artifacts: TurnArtifact[] }
->
-
-export type AudioTurn = TurnOf<
-  'audio',
-  { prompt: TurnPrompt; createdAt: number; audio: AudioTurnData; audioArtifacts: AudioArtifact[] }
->
-
-/** A saved message that answers no prompt the timeline knows. */
-export type MessageTurn = { kind: 'message'; id: string; message: TimelineMessage }
-
-export type TimelineTurn = ChatTurn | AgentTurn | MediaTurn | AudioTurn | MessageTurn
-
-/** A scheduled run of an Agent: a collapsible container of its Turns. */
-export type TaskRunItem = {
-  kind: 'task-run'
-  id: string
-  harnessSessionId: string
-  taskRun: TaskRunTag
-  turns: AgentTurn[]
-  /** The Turns with a Result, which still shows while the run is collapsed. */
-  resultTurns: AgentTurn[]
-  live: boolean
-}
+import { agentFooter, audioFooter, chatAnswerFooter, noFooter } from '@/lib/turnFooter'
+import { modelDisplayName } from '@/lib/turnText'
+import type {
+  AnswerDetailKind,
+  ArtifactKind,
+  LiveAgentTurn,
+  LiveChatStatus,
+  LiveTurns,
+  MediaStepStatus,
+  PendingAudio,
+  PendingMedia,
+  SessionTimelineItem,
+  TimelineEntry,
+  TimelineFiles,
+  TimelineTurn,
+  TurnDetailPart,
+  TurnDetails,
+  TurnHint,
+  TurnLiveStatus,
+  TurnPrompt,
+  TurnResultPart,
+  TurnSummary,
+} from '@/lib/turnTypes'
+import type { GenerationSettings } from '@/types/mediaItem'
+import type {
+  AgentTurnTag,
+  AudioTurnData,
+  MediaTurnData,
+  TimelineMessage,
+  TimelinePart,
+} from '@/types/sessionTimeline'
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -295,21 +103,6 @@ function promptOf(message: TimelineMessage): string {
 function agentTagOf(value: unknown): AgentTurnTag | null {
   const tag = (value as { metadata?: { agentTurn?: AgentTurnTag } } | null)?.metadata?.agentTurn
   return tag && typeof tag.harnessSessionId === 'string' ? tag : null
-}
-
-/** A Harness Session's live transcript, streamed into the timeline. */
-export type LiveAgentTurn = {
-  tag: AgentTurnTag
-  messages: readonly { id: string }[]
-  live: boolean
-  queuedMessageId?: string
-  notRunMessageId?: string
-  canResend?: boolean
-  /** The Harness Session open in Agent Mode, the one that can ask the user a question. */
-  open?: boolean
-  heldAnswer?: { channel: ChannelKind }
-  /** Why its last turn failed. */
-  error?: string
 }
 
 /**
@@ -359,64 +152,6 @@ function withLiveChatTurn(
   })
   return [...merged, ...tagged.values()]
 }
-
-/** What the timeline needs of a ComfyUI run still in flight. */
-export type PendingMedia = {
-  runId: string
-  preset: string
-  mode: MediaTurnData['mode']
-  prompt?: string
-  inputImageUrl?: string
-  /** What was asked for, so placeholders hold the result's box before the run registers items. */
-  size?: ArtifactSize
-  batchSize?: number
-}
-
-/** What the timeline needs of an audio turn still running. */
-export type PendingAudio = {
-  kind: AudioTurnData['kind']
-  preset: string
-  prompt?: string
-  phase?: AudioPhase
-}
-
-/** What the Session's chat turn is doing, when one runs. */
-export type LiveChatStatus = {
-  running: boolean
-  activity?: { label: string; progress?: number; browsing?: boolean } | null
-  questionKey?: string
-}
-
-/** The step a media specialist is on, by the tool call that delegated to it. */
-export type MediaStepStatus = { label: string; progress?: number }
-
-/** Everything of the open Session still in flight, whichever preset or mode started it. */
-export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
-  /** The Session's chat transcript as the chat store holds it, streaming turn included. */
-  chat?: readonly { id: string }[]
-  /** Each Harness Session of the Session that is open or running a turn (Task Runs too). */
-  agents?: readonly LiveAgentTurn[]
-  chatStatus?: LiveChatStatus
-  media?: M | null
-  mediaSteps?: Readonly<Record<string, MediaStepStatus>>
-  audio?: A | null
-  /** Artifact runs in flight or recently settled, whichever surface started them. */
-  artifactRuns?: ArtifactRunsState
-}
-
-/** What the timeline lays out top to bottom: Turns, and Task Runs holding theirs. */
-export type TimelineEntry = TimelineTurn | TaskRunItem
-
-/** What the Session Folder says about the timeline's files. */
-export type TimelineFiles = {
-  /** Main-file URLs whose file is gone. */
-  deletedUrls?: readonly string[]
-}
-
-export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
-  | TimelineEntry
-  | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M; artifacts: TurnArtifact[] }>
-  | TurnOf<'pending-audio', { prompt: TurnPrompt; pending: A; audioArtifacts: AudioArtifact[] }>
 
 /**
  * The one main-area timeline of a Session: its saved turns with every live turn laid
@@ -494,53 +229,6 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   return items
 }
 
-const IMAGE_INPUT_TYPES = new Set(['image', 'inpaintMask', 'outpaintCanvas'])
-
-/** Nothing to rerun when the run recorded no settings or lost an input image it needed. */
-export function mediaRerun(media: MediaTurnData, promptText: string): MediaRerun | null {
-  const item = media.items[0]
-  if (!item?.settings) return null
-  const settings = item.settings
-  let fallbackSource = item.sourceImageUrl
-  let inputImageUrl: string | undefined
-  const inputs: Record<string, unknown> = {}
-  for (const input of item.dynamicSettings ?? []) {
-    let current: unknown = input.current
-    if (IMAGE_INPUT_TYPES.has(input.type) && !current && input.optional !== true) {
-      if (input.type !== 'image' || !fallbackSource) return null
-      current = fallbackSource
-      fallbackSource = undefined
-    }
-    if (input.type === 'image' && current && !inputImageUrl) inputImageUrl = String(current)
-    inputs[`${input.nodeTitle}.${input.nodeInput}`] = current
-  }
-  const [resolutionWidth, resolutionHeight] =
-    typeof settings.resolution === 'string' ? settings.resolution.split('x').map(Number) : []
-  const params = Object.fromEntries(
-    Object.entries({
-      seed: -1,
-      inferenceSteps: settings.inferenceSteps,
-      width: settings.width ?? resolutionWidth,
-      height: settings.height ?? resolutionHeight,
-      batchSize: settings.batchSize,
-    }).filter(([, value]) => typeof value === 'number' && !Number.isNaN(value)),
-  ) as MediaRerun['params']
-  return {
-    mode: media.mode,
-    workflow: media.preset,
-    ...(media.variant ? { variant: media.variant } : {}),
-    prompt: settings.prompt ?? promptText,
-    ...(settings.negativePrompt !== undefined ? { negativePrompt: settings.negativePrompt } : {}),
-    params,
-    inputs,
-    ...(media.mode !== 'imageGen' && inputImageUrl ? { inputImageUrl } : {}),
-  }
-}
-
-function noFooter(): TurnFooter {
-  return { actions: [], text: '' }
-}
-
 function textPrompt(
   text: string,
   preset: string,
@@ -576,48 +264,6 @@ function mediaInputImage(media: MediaTurnData): string | undefined {
   )
   const url = input ? String(input.current) : item?.sourceImageUrl
   return url || undefined
-}
-
-function answersText(answers: UIMessage[]): string {
-  return answers.map(messageText).filter(Boolean).join('\n\n')
-}
-
-function agentFooter(answers: UIMessage[]): TurnFooter {
-  const text = answersText(answers)
-  return { actions: text ? ['copy'] : [], text }
-}
-
-/** Regenerate redoes only the newest answer of a conversation, so only `last` offers it. */
-export function chatAnswerFooter(answers: UIMessage[], last = false): TurnFooter {
-  const answer = answers.at(-1)
-  if (!answer || !answers.some(messageHasVisibleContent)) return noFooter()
-  const text = answersText(answers)
-  const actions: TurnFooterAction[] = [
-    ...(text ? (['copy', 'speak'] as const) : []),
-    ...(last ? (['regenerate'] as const) : []),
-    'delete',
-  ]
-  const metadata = answer.metadata as AipgMetadata | undefined
-  const metrics = metadata?.timings
-    ? {
-        timings: metadata.timings,
-        ...(metadata.compute ? { compute: metadata.compute } : {}),
-        ...(metadata.energy ? { energy: metadata.energy } : {}),
-      }
-    : undefined
-  return { actions, text, messageId: answer.id, ...(metrics ? { metrics } : {}) }
-}
-
-function audioFooter(audio: AudioTurnData): TurnFooter {
-  const text = audio.kind === 'stt' ? (audio.transcript ?? '') : ''
-  return { actions: text ? ['copy'] : [], text }
-}
-
-/** A model id as people know it: a GGUF file's name without its folder and extension. */
-export function modelDisplayName(model: string): string {
-  return model.endsWith('.gguf')
-    ? (model.split('/').at(-1)?.slice(0, -'.gguf'.length) ?? model)
-    : model
 }
 
 function metadataOf(message: UIMessage | undefined): { model?: unknown; preset?: unknown } {
@@ -845,108 +491,6 @@ function audioDetails(audio: PendingAudio & Partial<AudioTurnData>): TurnDetails
       ...(audio.engine ? { engine: audio.engine } : {}),
     },
     ...(audio.status === 'failed' && audio.error ? { error: audio.error } : {}),
-  }
-}
-
-/** Words for the Turn Details summary; `{count}`, `{duration}` and `{seed}` are filled in. */
-export type TurnSummaryLabels = {
-  reasoned: string
-  reasonedUntimed: string
-  tool: string
-  tools: string
-  image: string
-  images: string
-  video: string
-  videos: string
-  model3d: string
-  models3d: string
-  audio: string
-  audios: string
-  seed: string
-}
-
-export function formatTurnDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}m ${seconds - minutes * 60}s`
-}
-
-const ARTIFACT_LABELS: Record<ArtifactKind, [keyof TurnSummaryLabels, keyof TurnSummaryLabels]> = {
-  image: ['image', 'images'],
-  video: ['video', 'videos'],
-  model3d: ['model3d', 'models3d'],
-  audio: ['audio', 'audios'],
-}
-
-function counted(count: number, [one, many]: [string, string]): string {
-  return count === 1 ? one : many.replace('{count}', String(count))
-}
-
-/** The collapsed header's one line: the parts present, joined by " · ". */
-export function turnDetailsSummaryText(summary: TurnSummary, labels: TurnSummaryLabels): string {
-  const clauses: string[] = []
-  if (summary.kind === 'activity') {
-    if (summary.reasoningMs !== undefined) {
-      clauses.push(
-        summary.reasoningMs > 0
-          ? labels.reasoned.replace('{duration}', formatTurnDuration(summary.reasoningMs))
-          : labels.reasonedUntimed,
-      )
-    }
-    if (summary.tools) clauses.push(counted(summary.tools, [labels.tool, labels.tools]))
-    for (const [kind, keys] of Object.entries(ARTIFACT_LABELS) as [
-      ArtifactKind,
-      [keyof TurnSummaryLabels, keyof TurnSummaryLabels],
-    ][]) {
-      const count = summary.artifacts?.[kind]
-      if (count) clauses.push(counted(count, [labels[keys[0]], labels[keys[1]]]))
-    }
-  } else if (summary.kind === 'workflow') {
-    clauses.push(summary.preset)
-    if (summary.width && summary.height) clauses.push(`${summary.width}×${summary.height}`)
-    if (summary.seed !== undefined)
-      clauses.push(labels.seed.replace('{seed}', String(summary.seed)))
-    if (summary.durationMs !== undefined) clauses.push(formatTurnDuration(summary.durationMs))
-  } else {
-    clauses.push(summary.preset)
-    if (summary.engine) clauses.push(summary.engine)
-  }
-  return clauses.join(' · ')
-}
-
-/** Words for the live status line; `{tool}` is filled in. */
-export type TurnLiveLabels = {
-  reasoning: string
-  writing: string
-  working: string
-  runningTool: string
-  queued: string
-  audioLoading: string
-  audioGenerating: string
-  audioTranscribing: string
-  artifact: ArtifactPhaseLabels
-}
-
-export function turnLiveText(live: TurnLiveStatus, labels: TurnLiveLabels): string {
-  switch (live.kind) {
-    case 'reasoning':
-      return labels.reasoning
-    case 'writing':
-      return labels.writing
-    case 'working':
-      return labels.working
-    case 'queued':
-      return labels.queued
-    case 'tool':
-      return live.label ?? labels.runningTool.replace('{tool}', live.name)
-    case 'activity':
-      return live.label
-    case 'artifact':
-      return artifactPhaseLabel(live.phase, live.progress, labels.artifact) ?? labels.working
-    case 'audio':
-      if (live.phase === 'loading-model') return labels.audioLoading
-      return live.phase === 'transcribing' ? labels.audioTranscribing : labels.audioGenerating
   }
 }
 

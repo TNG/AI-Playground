@@ -48,11 +48,8 @@ import GameBar from '@/components/GameBar.vue'
 import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { sessionChatKey } from '@/lib/sessionChat'
-import {
-  sessionTimelineItems,
-  type LiveChatStatus,
-  type MediaStepStatus,
-} from '@/lib/sessionTimeline'
+import { sessionTimelineItems } from '@/lib/sessionTimeline'
+import type { LiveChatStatus, MediaStepStatus } from '@/lib/turnTypes'
 import { useStickToBottom } from '@/lib/useStickToBottom'
 
 /**

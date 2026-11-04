@@ -22,12 +22,8 @@ import { computed } from 'vue'
 import { ArrowPathIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { fillTemplate } from '@/lib/notificationLabel'
-import {
-  turnDetailsSummaryText,
-  turnLiveText,
-  type TurnLiveStatus,
-  type TurnSummary,
-} from '@/lib/sessionTimeline'
+import { turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
+import type { TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 
 /** The Turn Details toggle: what the Turn is doing while it runs, then what is inside it. */
 const props = defineProps<{ summary: TurnSummary; live?: TurnLiveStatus; open: boolean }>()

@@ -53,7 +53,9 @@ import ChatMessageParts from '@/components/ChatMessageParts.vue'
 import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
-import { chatAnswerFooter, messagePrompt, modelDisplayName } from '@/lib/sessionTimeline'
+import { messagePrompt } from '@/lib/sessionTimeline'
+import { chatAnswerFooter } from '@/lib/turnFooter'
+import { modelDisplayName } from '@/lib/turnText'
 
 /**
  * One message of a Session, chat or agent, live or settled: the same bubbles

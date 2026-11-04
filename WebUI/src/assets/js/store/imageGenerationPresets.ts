@@ -41,7 +41,7 @@ import {
   type ArtifactRequest,
   type ArtifactResult,
 } from '../artifact/runArtifact'
-import type { MediaRerun } from '@/lib/sessionTimeline'
+import type { MediaRerun } from '@/lib/turnTypes'
 import type { Preset } from './presets'
 import {
   getDemoModeInputImage,

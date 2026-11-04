@@ -62,7 +62,7 @@ import {
 } from '@/types/agentCapabilities'
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
-import type { LiveAgentTurn } from '@/lib/sessionTimeline'
+import type { LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
 import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {

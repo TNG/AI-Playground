@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ArtifactRunsState, ArtifactRunView } from '@/lib/artifactRunProjection'
-import {
-  sessionTimelineItems,
-  timelineTurns,
-  turnDetailsSummaryText,
-  turnLiveText,
-  withLiveAgentTurn,
-  type SessionTimelineItem,
-  type TurnDetails,
-  type TurnResultPart,
-} from '@/lib/sessionTimeline'
+import { sessionTimelineItems, timelineTurns, withLiveAgentTurn } from '@/lib/sessionTimeline'
+import { turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
+import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
 import { artifactGrid, type TurnArtifact } from '@/lib/turnArtifacts'
 import type { ArtifactRunOwner } from '@/types/kernelEvents'

@@ -145,7 +145,7 @@ import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
-import type { SessionTimelineItem, TurnFailurePart } from '@/lib/sessionTimeline'
+import type { SessionTimelineItem, TurnFailurePart } from '@/lib/turnTypes'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
 /** One entry of the Session timeline: a Turn, settled or running, or a Task Run of Turns. */

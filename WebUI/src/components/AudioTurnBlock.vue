@@ -20,7 +20,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
 import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
-import type { AudioPhase } from '@/lib/sessionTimeline'
+import type { AudioPhase } from '@/lib/turnTypes'
 import type { AudioTurnData, MediaTurnStatus } from '@/types/sessionTimeline'
 
 /**

@@ -1,6 +1,6 @@
 import { generatedMediaOf, toolPartNameOf } from '@/lib/agentTranscript'
 import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
-import type { AudioPhase } from '@/lib/sessionTimeline'
+import type { AudioPhase } from '@/lib/turnTypes'
 import type { ArtifactAction } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { AudioTurnData } from '@/types/sessionTimeline'

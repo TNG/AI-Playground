@@ -54,7 +54,7 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import { useWebBrowser } from '@/assets/js/store/webBrowser'
 import TurnDetailsHeader from '@/components/TurnDetailsHeader.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import type { TurnDetails } from '@/lib/sessionTimeline'
+import type { TurnDetails } from '@/lib/turnTypes'
 
 /**
  * How a Turn reached its Result, collapsed under one line until the user opens it.

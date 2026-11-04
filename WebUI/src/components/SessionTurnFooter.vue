@@ -94,7 +94,7 @@ import {
 import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib/chatEnergy'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
-import type { MediaRerun, TurnFooter } from '@/lib/sessionTimeline'
+import type { MediaRerun, TurnFooter } from '@/lib/turnTypes'
 
 /** The actions that apply to a Turn, and its metrics where it has them. */
 const props = defineProps<{ footer: TurnFooter }>()

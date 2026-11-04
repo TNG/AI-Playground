@@ -35,7 +35,6 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { fillTemplate } from '@/lib/notificationLabel'
 
-/** An agent answer held for a chat platform until the user lets it go or discards it. */
 const props = defineProps<{ channel: ChannelKind }>()
 
 const emit = defineEmits<{ discard: [] }>()

@@ -41,7 +41,6 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { TaskRunTag } from '@/types/sessionTimeline'
 
-/** One Task Run in the Session timeline under its Task's name; collapsed, its Turns' Results. */
 const props = defineProps<{ taskRun: TaskRunTag }>()
 
 const i18nStore = useI18N()

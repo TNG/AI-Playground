@@ -23,7 +23,6 @@ export type ArtifactSize = { width: number; height: number }
 
 export type ArtifactProgress = { current: number; max: number }
 
-/** One image, video or 3D model a Turn shows, with what the card offers to do with it. */
 export type TurnArtifact = {
   id: string
   mediaType: MediaItem['type']
@@ -31,16 +30,13 @@ export type TurnArtifact = {
   url: string
   item: MediaItem
   actions: ArtifactAction[]
-  /** The width and height the generation asked for: the box its placeholder and result take. */
+  /** The requested size: the box both the placeholder and the result take. */
   size?: ArtifactSize
-  /** Where a running artifact's generation is; absent once it settled. */
   phase?: ArtifactPhase
   progress?: ArtifactProgress
-  /** Why a failed artifact failed, in one line. */
   reason?: string
 }
 
-/** A generation that ended without its result, and why in one line. */
 export type GenerationFailure = { state: 'failed' | 'cancelled'; reason?: string }
 
 type LiveState = { phase: ArtifactPhase; progress?: ArtifactProgress }
@@ -71,7 +67,6 @@ function requestedSize(item: MediaItem): ArtifactSize | undefined {
     : undefined
 }
 
-/** The first line of an error, which is all a card or a Result has room for. */
 export function oneLine(text: string | undefined): string | undefined {
   const line = text
     ?.split('\n')
@@ -113,10 +108,7 @@ function shown(item: MediaItem): boolean {
   return isInFlight(item) || hasDisplayableMedia(item)
 }
 
-/**
- * The card's artifacts: items in flight or with media, and the failed or stopped slots that
- * are only recorded for a run that had started generating.
- */
+/** Failed or stopped slots are only recorded for a run that had started generating. */
 export function turnArtifacts(
   items: readonly MediaItem[],
   deletedUrls: readonly string[],
@@ -127,10 +119,7 @@ export function turnArtifacts(
     .map((item) => turnArtifact(item, deletedUrls, undefined, error))
 }
 
-/**
- * A run's artifacts; an item waiting behind a sibling that generates shows as queued. A run
- * that settled before generating anything keeps no slot: its Turn says why in one line.
- */
+/** A run that settled before generating keeps no slot: its Turn says why in one line. */
 export function runArtifacts(
   runs: readonly ArtifactRunView[],
   deletedUrls: readonly string[],
@@ -149,14 +138,12 @@ export function runArtifacts(
   })
 }
 
-/** Why a run settled before generating anything; null for one that started or did not fail. */
 export function runFailure(run: ArtifactRunView | undefined): GenerationFailure | null {
   if (!run || run.started) return null
   if (run.phase !== 'failed' && run.phase !== 'cancelled') return null
   return generationFailure({ state: run.phase, error: run.error })
 }
 
-/** Placeholders for a ComfyUI run the runner has not registered yet. */
 export function placeholderArtifacts(
   runId: string,
   mode: MediaItem['mode'],
@@ -264,7 +251,6 @@ function settledMedia(part: unknown, call: MediaToolCall): MediaItem[] {
   ]
 }
 
-/** What a settled chat or Agent Preset media tool call produced, and the slots that failed. */
 export function toolPartMedia(part: unknown): MediaItem[] {
   const call = mediaToolCall(part)
   if (call?.state !== 'settled') return []
@@ -290,7 +276,6 @@ export function toolCallFailureRecord(part: unknown): GenerationFailureRecord | 
   return call.pi?.details.failure ?? failureRecordOf(call.record)
 }
 
-/** While it runs, the runs the call owns (directly or via the media specialist); then its output. */
 export function toolCallArtifacts(
   part: unknown,
   artifactRuns: ArtifactRunsState | undefined,
@@ -303,7 +288,6 @@ export function toolCallArtifacts(
   return turnArtifacts(toolPartMedia(part), deletedUrls, toolCallFailureRecord(part)?.error)
 }
 
-/** The one-line failure in place of a card; null when a failed or cancelled card says it. */
 export function toolCallResultFailure(part: unknown): GenerationFailure | null {
   const record = toolCallFailureRecord(part)
   if (!record || toolPartMedia(part).some(isUnfinished)) return null
@@ -315,7 +299,6 @@ const ARTIFACT_GRID_MIN_CELL_PX = 240
 
 export type ArtifactGrid = { columns: number; maxWidth?: number }
 
-/** A batch in balanced rows that fit `width`, never wider than its artifacts asked to be. */
 export function artifactGrid(
   artifacts: readonly Pick<TurnArtifact, 'size'>[],
   width: number,

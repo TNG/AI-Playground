@@ -1,14 +1,10 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref, type StyleValue } from 'vue'
 
-/** Marks the box a Result's artifacts may widen to: its content box, inside its padding. */
 export const ARTIFACT_BREAKOUT_ATTRIBUTE = 'data-artifact-breakout'
 
 type Breakout = { offset?: number; width: number }
 
-/**
- * Lets a block nested in the reading column span the nearest breakout box, and reports the
- * width it then has. Without such a box it keeps its own place and width.
- */
+/** Without a breakout box above it the block keeps its own place and width. */
 export function useArtifactBreakout(anchor: Ref<HTMLElement | null>) {
   const box = ref<Breakout | null>(null)
   let observer: ResizeObserver | undefined

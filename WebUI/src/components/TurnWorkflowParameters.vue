@@ -22,7 +22,6 @@ import { generationSettingLabelKeys } from '@/lib/generationSettingLabels'
 import { getTranslationLabel } from '@/lib/utils'
 import type { ComfyDynamicInputWithCurrent, GenerationSettings } from '@/types/mediaItem'
 
-/** A ComfyUI Turn's variant and workflow parameters, as Turn Details lists them. */
 const props = defineProps<{
   variant?: string
   settings: GenerationSettings

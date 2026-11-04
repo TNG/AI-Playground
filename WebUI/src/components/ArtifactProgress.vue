@@ -26,7 +26,6 @@ import { artifactPhaseLabel } from '@/lib/artifactRunProjection'
 import type { ArtifactProgress } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 
-/** The one in-card progress overlay: phase label, a slim bar and n/m. */
 const props = defineProps<{ phase?: ArtifactPhase; progress?: ArtifactProgress }>()
 
 const languages = useI18N().state

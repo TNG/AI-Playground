@@ -118,7 +118,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { ArtifactAction, TurnArtifact } from '@/lib/turnArtifacts'
 import { hasDisplayableMedia, is3D, isVideo } from '@/types/mediaItem'
 
-/** One image, video or 3D model in its frame, with its progress and its actions. */
 const props = defineProps<{ artifact: TurnArtifact }>()
 
 const emit = defineEmits<{ action: [action: ArtifactAction] }>()

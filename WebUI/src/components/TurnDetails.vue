@@ -56,10 +56,6 @@ import TurnDetailsHeader from '@/components/TurnDetailsHeader.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { TurnDetails } from '@/lib/turnTypes'
 
-/**
- * How a Turn reached its Result, collapsed under one line until the user opens it.
- * While the Turn runs that line is its only status; `status` holds what waits on the user.
- */
 defineProps<{ details: TurnDetails }>()
 
 const textInference = useTextInference()

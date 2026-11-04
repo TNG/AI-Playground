@@ -47,7 +47,6 @@ export async function moveIntoSessionFiles(
   return `${SESSION_FILES_DIR}/${name}`
 }
 
-/** Copies a regular file into the Session's `files/` under a free name; its Session-relative path. */
 export async function copyIntoSessionFiles(
   sessionId: string,
   source: string,

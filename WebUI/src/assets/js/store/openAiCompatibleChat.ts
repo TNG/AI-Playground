@@ -187,7 +187,6 @@ export const useOpenAiCompatibleChat = defineStore(
       promptSentKeys.value = sent ? { ...rest, [key]: true } : rest
     }
 
-    /** The newest prompt of this conversation is being answered, whether or not it is active. */
     function answeringIn(key: string): boolean {
       if (promptSentKeys.value[key]) return true
       const status = chats[key]?.status

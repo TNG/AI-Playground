@@ -25,7 +25,6 @@ import { fillTemplate } from '@/lib/notificationLabel'
 import { turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 
-/** The Turn Details toggle: what the Turn is doing while it runs, then what is inside it. */
 const props = defineProps<{ summary: TurnSummary; live?: TurnLiveStatus; open: boolean }>()
 
 const languages = useI18N().state

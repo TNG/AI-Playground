@@ -475,7 +475,6 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     inputs[index].current.value = imageUrl
   }
 
-  /** The image the active preset starts from, for its Turn's user bubble. */
   function inputImageUrl(): string | undefined {
     const input = comfyInputs.value.find(
       (candidate) => candidate.type === 'image' && candidate.current.value,
@@ -1150,7 +1149,6 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     )
   }
 
-  /** Reruns a ComfyUI Turn as recorded, with a new seed, as a new Turn. */
   function regenerate(rerun: MediaRerun): Promise<ArtifactResult | undefined> {
     const { inputImageUrl: turnInputImageUrl, ...request } = rerun
     return runPanelTurn({ kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request }, turnInputImageUrl)

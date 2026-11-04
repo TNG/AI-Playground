@@ -46,7 +46,6 @@ import {
 } from '@/lib/turnArtifacts'
 import { useArtifactBreakout } from '@/lib/useArtifactBreakout'
 
-/** A Result's images, videos and 3D models: one card each, a batch as a grid, wider than the text. */
 const props = defineProps<{ artifacts: TurnArtifact[] }>()
 
 const languages = useI18N().state

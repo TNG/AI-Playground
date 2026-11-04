@@ -68,7 +68,6 @@ export type StreamTranslatorOptions = {
   onToolProgress?: (update: { toolCallId: string; toolName: string; text: string }) => void
   /** Clock for reasoning durations; injectable so tests can pin them. */
   now?: () => number
-  /** The model answering, stamped on the answer's metadata. */
   model?: string
 }
 

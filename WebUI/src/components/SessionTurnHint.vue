@@ -31,7 +31,6 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { TurnHint, TurnHintIcon } from '@/lib/turnTypes'
 
-/** Which preset ran a Turn: small and muted, with the model or engine on hover. */
 const props = defineProps<{ hint: TurnHint }>()
 
 const languages = useI18N().state

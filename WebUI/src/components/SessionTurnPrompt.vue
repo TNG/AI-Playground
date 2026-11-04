@@ -98,12 +98,9 @@ import { copyToClipboard } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/notificationLabel'
 import type { TurnPrompt } from '@/lib/turnTypes'
 
-/** The user bubble of a Turn, whichever preset ran it: the prompt, Copy and what it started from. */
 defineProps<{
   prompt: TurnPrompt
-  /** Agent: the prompt waits in the Turn Queue. */
   queued?: boolean
-  /** Agent: the prompt never ran. */
   notRun?: boolean
   canResend?: boolean
 }>()

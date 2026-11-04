@@ -8,12 +8,9 @@
 import type { UIDataTypes, UIMessagePart, UITools, UIMessage } from 'ai'
 import AgentMessagePart from '@/components/AgentMessagePart.vue'
 
-/** An agent reply's parts: text, reasoning, tool cards and the media they made. */
 const props = defineProps<{
   message: UIMessage
-  /** Which side of the Turn this renders: a media tool's card is the Result, the rest Turn Details. */
   section?: 'details' | 'result'
-  /** The parts to render; all of them when absent. */
   indexes?: readonly number[]
 }>()
 

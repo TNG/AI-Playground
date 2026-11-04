@@ -97,7 +97,6 @@ import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps<{
   part: UIMessagePart<UIDataTypes, UITools>
-  /** Which side of the Turn this renders: a media tool's card is the Result, the rest Turn Details. */
   section?: 'details' | 'result'
 }>()
 

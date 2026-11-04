@@ -1,7 +1,6 @@
 import { artifactPhaseLabel, type ArtifactPhaseLabels } from '@/lib/artifactRunProjection'
 import type { ArtifactKind, TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 
-/** A model id as people know it: a GGUF file's name without its folder and extension. */
 export function modelDisplayName(model: string): string {
   return model.endsWith('.gguf')
     ? (model.split('/').at(-1)?.slice(0, -'.gguf'.length) ?? model)
@@ -43,7 +42,6 @@ function counted(count: number, [one, many]: [string, string]): string {
   return count === 1 ? one : many.replace('{count}', String(count))
 }
 
-/** The collapsed header's one line: the parts present, joined by " · ". */
 export function turnDetailsSummaryText(summary: TurnSummary, labels: TurnSummaryLabels): string {
   const clauses: string[] = []
   if (summary.kind === 'activity') {

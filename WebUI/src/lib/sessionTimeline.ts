@@ -75,7 +75,6 @@ function isTimelineMessage(value: unknown): value is TimelineMessage {
   return isMessageShaped(value)
 }
 
-/** Agent and chat turns are stored as the UI messages their engines produced. */
 function isUIMessage(value: unknown): value is UIMessage {
   return isMessageShaped(value)
 }
@@ -105,11 +104,7 @@ function agentTagOf(value: unknown): AgentTurnTag | null {
   return tag && typeof tag.harnessSessionId === 'string' ? tag : null
 }
 
-/**
- * Lays the open Harness Session's live transcript over the saved timeline: a message
- * the Session already holds shows its streaming copy in place, the rest of the
- * running turn follows at the end.
- */
+/** A live copy replaces its saved message in place; unsaved live messages follow at the end. */
 export function withLiveAgentTurn(
   timeline: readonly unknown[],
   tag: AgentTurnTag,
@@ -153,11 +148,6 @@ function withLiveChatTurn(
   return [...merged, ...tagged.values()]
 }
 
-/**
- * The one main-area timeline of a Session: its saved turns with every live turn laid
- * over them — a live copy replaces its saved message in place, what is not saved yet
- * follows at the end — so what is on screen never depends on the active mode.
- */
 export function sessionTimelineItems<M extends PendingMedia, A extends PendingAudio>(
   timeline: readonly unknown[],
   live: LiveTurns<M, A>,
@@ -314,7 +304,7 @@ function audioHint(audio: PendingAudio & { engine?: string }): TurnHint {
   }
 }
 
-/** Chat and agent answers arrive after their Turn is opened, so hint, parts and footer are read last. */
+/** Answers arrive after their Turn opens, so hint, sections and footer are read last. */
 function withAnswers(turns: TimelineTurn[], prompts: Map<string, UIMessage>): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat') {
@@ -402,7 +392,6 @@ function workspacePathsOf(part: unknown): string[] {
   )
 }
 
-/** Splits a chat or agent Turn's answers into Turn Details and the Result, each in order. */
 function answerSections(
   engine: 'chat' | 'agent',
   answers: UIMessage[],
@@ -494,7 +483,6 @@ function audioDetails(audio: PendingAudio & Partial<AudioTurnData>): TurnDetails
   }
 }
 
-/** What the newest part of a running answer says the Turn is doing; null between parts. */
 function partsLiveStatus(
   engine: 'chat' | 'agent',
   answers: UIMessage[],
@@ -609,7 +597,6 @@ function withArtifacts(
   return turns
 }
 
-/** A ComfyUI run that ended with no card saying so says why in one line. */
 function mediaFailure(media: MediaTurnData, artifacts: TurnArtifact[]): GenerationFailure | null {
   if (media.status === 'completed') return null
   if (artifacts.some((artifact) => artifact.state === 'failed' || artifact.state === 'cancelled')) {
@@ -618,7 +605,6 @@ function mediaFailure(media: MediaTurnData, artifacts: TurnArtifact[]): Generati
   return generationFailure({ state: media.status, error: media.error })
 }
 
-/** Folds each Task Run's consecutive Turns into its container. */
 function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
   const entries: TimelineEntry[] = []
   for (const turn of turns) {
@@ -647,11 +633,6 @@ function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
   return entries
 }
 
-/**
- * One Turn per prompt: a chat or agent prompt with the answers that followed it, a
- * ComfyUI or audio prompt with its result card; a Task Run holds its Turns. Anything
- * else stays a plain message.
- */
 export function timelineTurns(
   timeline: readonly unknown[],
   files: TimelineFiles = {},

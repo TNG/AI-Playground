@@ -23,10 +23,6 @@ import type { AudioArtifact } from '@/lib/audioArtifacts'
 import type { AudioPhase } from '@/lib/turnTypes'
 import type { AudioTurnData, MediaTurnStatus } from '@/types/sessionTimeline'
 
-/**
- * The Result of an audio Turn: a Text-to-Speech clip's card, or a Speech-to-Text transcript.
- * A transcription still running has no Result yet; its Turn Details header says how far it is.
- */
 defineProps<{
   kind: AudioTurnData['kind']
   artifacts: AudioArtifact[]

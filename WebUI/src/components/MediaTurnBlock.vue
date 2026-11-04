@@ -11,10 +11,8 @@ import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import type { GenerationFailure, TurnArtifact } from '@/lib/turnArtifacts'
 
-/** The Result of a ComfyUI Turn, settled or still running. */
 defineProps<{
   artifacts: TurnArtifact[]
-  /** The run ended before it generated anything. */
   failure?: GenerationFailure
 }>()
 </script>

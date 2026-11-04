@@ -75,7 +75,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { AudioArtifact } from '@/lib/audioArtifacts'
 import type { ArtifactAction } from '@/lib/turnArtifacts'
 
-/** The one audio card: every speech clip a Turn shows, whoever made it. */
 const props = defineProps<{ artifact: AudioArtifact }>()
 
 const languages = useI18N().state

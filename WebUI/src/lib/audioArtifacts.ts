@@ -5,21 +5,16 @@ import type { ArtifactAction } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { AudioTurnData } from '@/types/sessionTimeline'
 
-/** One generated speech clip a Turn shows, with what its card offers to do with it. */
 export type AudioArtifact = {
   id: string
   mediaType: 'audio'
   state: AudioArtifactState
-  /** The Session-Folder file the player streams. */
   url?: string
   /** An older clip outside the Session Folder: its file in the app's audio folder. */
   filePath?: string
-  /** Where an agent's clip sits in its workspace. */
   workspacePath?: string
   actions: ArtifactAction[]
-  /** Where a running clip's generation is, in the phases every artifact card shows. */
   phase?: ArtifactPhase
-  /** Why a failed clip was not made. */
   reason?: string
 }
 
@@ -42,7 +37,6 @@ function actionsFor(url: string): ArtifactAction[] {
   return ['download', 'openFolder', ...(sessionMediaPathOf(url) ? (['delete'] as const) : [])]
 }
 
-/** A Text-to-Speech Turn's clip; a Speech-to-Text Turn's Result is its transcript. */
 export function audioTurnArtifacts(
   id: string,
   audio: AudioTurnData,
@@ -56,7 +50,6 @@ export function audioTurnArtifacts(
   return audio.audioUrl ? [savedClip(id, audio.audioUrl, deletedUrls)] : []
 }
 
-/** The clip a Text-to-Speech Turn still running is making. */
 export function pendingAudioArtifacts(
   id: string,
   kind: AudioTurnData['kind'],
@@ -123,7 +116,6 @@ function settledToolClip(
   return []
 }
 
-/** A chat or agent Text-to-Speech tool call's clip, running, settled or failed. */
 export function ttsToolArtifacts(part: unknown, deletedUrls: readonly string[]): AudioArtifact[] {
   if (toolPartNameOf(part) !== TTS_TOOL && !generatedMediaOf(part)?.audio) return []
   const tool = part as ToolPart

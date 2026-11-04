@@ -74,7 +74,6 @@ function generatedAudioPath(
   return { fullPath: path.join(dir, name), relativePath: path.posix.join('generated', name) }
 }
 
-/** The clip's Session-Folder URL: a game's copy, or the clip itself when the workspace is `files/`. */
 function sessionClipUrl(
   host: CapabilityHost,
   relativePath: string,

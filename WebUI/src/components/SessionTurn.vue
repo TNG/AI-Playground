@@ -24,7 +24,6 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import SessionTurnHint from '@/components/SessionTurnHint.vue'
 import type { TurnHint } from '@/lib/turnTypes'
 
-/** Every Turn of a Session in one shape: prompt, hint, Turn Details, Result, footer. */
 defineProps<{ hint: TurnHint; resultOnly?: boolean }>()
 
 const textInference = useTextInference()

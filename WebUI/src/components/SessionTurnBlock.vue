@@ -148,13 +148,10 @@ import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import type { SessionTimelineItem, TurnFailurePart } from '@/lib/turnTypes'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
-/** One entry of the Session timeline: a Turn, settled or running, or a Task Run of Turns. */
 const props = defineProps<{
   item: SessionTimelineItem<PendingMediaTurn, PendingAudioTurn>
-  /** The newest message of the Session's live chat transcript. */
   lastChatMessageId?: string
   chatKey: string
-  /** Only the Result, as a collapsed Task Run shows its Turns. */
   resultOnly?: boolean
 }>()
 
@@ -171,7 +168,6 @@ const footerShown = computed(() => {
   return footer.actions.length > 0 || (textInference.metricsEnabled && !!footer.metrics)
 })
 
-/** The conversation whose tool is asking the user something in this Turn right now. */
 const question = computed(() => {
   const key =
     props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.questionKey : undefined

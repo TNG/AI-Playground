@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "Usuń plik",
   "ARTIFACT_DELETE_TITLE": "Usunąć ten plik?",
   "ARTIFACT_DELETE_BODY": "Plik zostanie usunięty z dysku. Jego tura pozostaje w sesji i pokazuje plik jako usunięty.",
+  "ARTIFACT_ACTIONS": "Akcje pliku",
   "SESSION_FILE_DELETED": "Plik usunięty",
   "COM_POST_TO_ENHANCE_PROCESS": "Wyślij do ulepszania",
   "COM_POST_TO_IMAGE_EDIT": "Wyślij do trybu Image Edit",

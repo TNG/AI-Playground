@@ -11,6 +11,7 @@ import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
+import { toolPartMedia, turnArtifacts, type TurnArtifact } from '@/lib/turnArtifacts'
 
 export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
 export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
@@ -55,7 +56,10 @@ type TurnOf<K extends string, Body> = {
 } & Body
 
 /** A chat or agent Turn opened by an answer has no prompt. */
-export type ChatTurn = TurnOf<'chat', { prompt?: TurnPrompt; answers: UIMessage[] }>
+export type ChatTurn = TurnOf<
+  'chat',
+  { prompt?: TurnPrompt; answers: UIMessage[]; artifacts: TurnArtifact[] }
+>
 
 export type AgentTurn = TurnOf<
   'agent',
@@ -64,6 +68,8 @@ export type AgentTurn = TurnOf<
     harnessSessionId: string
     prompt?: TurnPrompt
     answers: UIMessage[]
+    /** What its settled media tool calls produced. */
+    artifacts: TurnArtifact[]
     taskRun?: TaskRunTag
     /** The answer is streaming right now. */
     streaming?: boolean
@@ -77,7 +83,7 @@ export type AgentTurn = TurnOf<
 
 export type MediaTurn = TurnOf<
   'media',
-  { prompt: TurnPrompt; createdAt: number; media: MediaTurnData }
+  { prompt: TurnPrompt; createdAt: number; media: MediaTurnData; artifacts: TurnArtifact[] }
 >
 
 export type AudioTurn = TurnOf<
@@ -227,6 +233,12 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
 /** What the timeline lays out top to bottom: Turns, and Task Runs holding theirs. */
 export type TimelineEntry = TimelineTurn | TaskRunItem
 
+/** What the Session Folder says about the timeline's files. */
+export type TimelineFiles = {
+  /** Main-file URLs whose file is gone. */
+  deletedUrls?: readonly string[]
+}
+
 export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
   | TimelineEntry
   | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M }>
@@ -240,12 +252,13 @@ export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
 export function sessionTimelineItems<M extends PendingMedia, A extends PendingAudio>(
   timeline: readonly unknown[],
   live: LiveTurns<M, A>,
+  files: TimelineFiles = {},
 ): SessionTimelineItem<M, A>[] {
   let merged = withLiveChatTurn(timeline, live.chat ?? [])
   for (const agent of live.agents ?? []) {
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
-  const turns = timelineTurns(merged)
+  const turns = timelineTurns(merged, files)
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
@@ -440,6 +453,17 @@ function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): voi
   if (run?.kind === 'task-run') run.live = agent.live
 }
 
+function withArtifacts(turns: TimelineTurn[], deletedUrls: readonly string[]): TimelineTurn[] {
+  for (const turn of turns) {
+    if (turn.kind === 'chat' || turn.kind === 'agent') {
+      const items = turn.answers.flatMap((answer) => answer.parts.flatMap(toolPartMedia))
+      turn.artifacts = turnArtifacts(items, deletedUrls)
+    }
+    if (turn.kind === 'media') turn.artifacts = turnArtifacts(turn.media.items, deletedUrls)
+  }
+  return turns
+}
+
 /** Folds each Task Run's consecutive Turns into its container. */
 function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
   const entries: TimelineEntry[] = []
@@ -470,7 +494,10 @@ function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
  * ComfyUI or audio prompt with its result card; a Task Run holds its Turns. Anything
  * else stays a plain message.
  */
-export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
+export function timelineTurns(
+  timeline: readonly unknown[],
+  files: TimelineFiles = {},
+): TimelineEntry[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
   const prompts = new Map<string, UIMessage>()
@@ -494,6 +521,7 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
           footer: noFooter(),
           presetName: tag.presetName,
           harnessSessionId: tag.harnessSessionId,
+          artifacts: [],
           ...(message.role === 'user'
             ? { prompt: messagePrompt(message), answers: [] }
             : { answers: [message] }),
@@ -515,6 +543,7 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
         id: message.id,
         hint: chatHint(undefined, []),
         footer: noFooter(),
+        artifacts: [],
         ...(prompted ? { prompt: messagePrompt(message), answers: [] } : { answers: [message] }),
       })
       continue
@@ -549,11 +578,12 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
         }),
         createdAt: message.createdAt,
         media,
+        artifacts: [],
       })
       i++
       continue
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return withTaskRuns(withAnswers(turns, prompts))
+  return withTaskRuns(withArtifacts(withAnswers(turns, prompts), files.deletedUrls ?? []))
 }

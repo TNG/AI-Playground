@@ -27,12 +27,9 @@
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
     <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     <ChatWorkflowResult
-      :images="mediaToolImages"
+      :artifacts="mediaToolArtifacts"
       :phase="mediaToolPhase"
       :progress="mediaLive.progress"
-      hide-mode-switch
-      :file-handlers="workspaceFileHandlers"
-      :deleted-urls="sessions.openDeletedFiles"
     />
   </div>
   <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
@@ -77,7 +74,6 @@ import { useErrors } from '@/assets/js/store/errors'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgTools } from '@/assets/js/tools/tools'
-import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
@@ -96,7 +92,7 @@ import type {
   AgentMediaItem,
   AgentSpeechClip,
 } from '@/types/agentMediaDetails'
-import type { MediaFileHandlers } from '@/types/mediaItem'
+import { turnArtifacts } from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -166,8 +162,8 @@ const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 
 const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
 
-const mediaToolImages = computed<MediaItem[]>(() =>
-  transcriptMediaItems(props.part, mediaLive.value.items),
+const mediaToolArtifacts = computed(() =>
+  turnArtifacts(transcriptMediaItems(props.part, mediaLive.value.items), sessions.openDeletedFiles),
 )
 
 const mediaToolPhase = computed(() => {
@@ -192,13 +188,6 @@ function workspaceCaption(workspacePath: string | undefined): string | undefined
   return workspacePath
     ? i18nState.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', workspacePath)
     : undefined
-}
-
-const workspaceFileHandlers: MediaFileHandlers = {
-  open: (item) => fileAction(item, 'open'),
-  reveal: (item) => fileAction(item, 'reveal'),
-  drag: (item) => fileAction(item, 'drag'),
-  caption: (item) => workspaceCaption((item as AgentMediaItem).workspacePath),
 }
 
 watch(

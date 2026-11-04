@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "ลบไฟล์",
   "ARTIFACT_DELETE_TITLE": "ลบไฟล์นี้หรือไม่",
   "ARTIFACT_DELETE_BODY": "ไฟล์จะถูกลบออกจากดิสก์ รอบของไฟล์ยังคงอยู่ในเซสชันและแสดงว่าไฟล์ถูกลบแล้ว",
+  "ARTIFACT_ACTIONS": "การดำเนินการกับไฟล์",
   "SESSION_FILE_DELETED": "ลบไฟล์แล้ว",
   "COM_POST_TO_ENHANCE_PROCESS": "ส่งไปยังกระบวนการปรับปรุง",
   "COM_POST_TO_IMAGE_EDIT": "ส่งไปยังโหมด Image Edit",

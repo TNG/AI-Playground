@@ -748,3 +748,123 @@ describe('the footer of every Turn', () => {
     expect(items.map(actionsOf)).toEqual([[], [], [], []])
   })
 })
+
+describe('artifacts on every Turn', () => {
+  const sessionUrl = (name: string) => `aipg-media://sessions/s1/files/${name}`
+  const image = (id: string) => ({
+    id,
+    type: 'image',
+    state: 'done',
+    mode: 'imageGen',
+    imageUrl: sessionUrl(`${id}.png`),
+    settings: {},
+  })
+  const chatTurnWith = (item: object) => [
+    chatMessage('u1', 'user', 'draw a castle'),
+    {
+      id: 'a1',
+      role: 'assistant',
+      metadata: { chatTurn: true },
+      parts: [
+        {
+          type: 'tool-comfyUI',
+          toolCallId: 't1',
+          state: 'output-available',
+          input: { workflow: 'Draft', prompt: 'a castle' },
+          output: { images: [item] },
+        },
+      ],
+    },
+  ]
+  const agentTurnWith = (item: object) => [
+    agentMessage('u2', 'user', 'draw a castle'),
+    {
+      id: 'a2',
+      role: 'assistant',
+      metadata: { agentTurn },
+      parts: [
+        {
+          type: 'dynamic-tool',
+          toolName: 'generateImage',
+          toolCallId: 't2',
+          state: 'output-available',
+          input: { prompt: 'a castle' },
+          output: {
+            content: [],
+            details: { items: [{ ...item, workspacePath: 'generated/a.png' }] },
+          },
+        },
+      ],
+    },
+  ]
+  const mediaTurnWith = (item: object) => [
+    mediaPrompt,
+    {
+      ...mediaCard,
+      parts: [{ type: 'data-media', data: { ...mediaCard.parts[0].data, items: [item] } }],
+    },
+  ]
+  const everySurface = (item: object) => [
+    chatTurnWith(item),
+    agentTurnWith(item),
+    mediaTurnWith(item),
+  ]
+  const artifactsOf = (timeline: unknown[], deletedUrls: string[] = []) =>
+    sessionTimelineItems(timeline, {}, { deletedUrls }).flatMap((turn) =>
+      'artifacts' in turn ? turn.artifacts : [],
+    )
+
+  it('offers the same actions on an image a chat tool, an Agent Preset or a ComfyUI preset made', () => {
+    for (const timeline of everySurface(image('i1'))) {
+      const [artifact] = artifactsOf(timeline)
+      expect(artifact).toMatchObject({ mediaType: 'image', state: 'done' })
+      expect(artifact.actions).toEqual([
+        'info',
+        'zoom',
+        'copy',
+        'download',
+        'openFolder',
+        'sendToEdit',
+        'sendToVideo',
+        'delete',
+      ])
+    }
+  })
+
+  it('shows a deleted file as deleted on every kind of Turn, offering only its Info', () => {
+    for (const timeline of everySurface(image('gone'))) {
+      const [artifact] = artifactsOf(timeline, [sessionUrl('gone.png')])
+      expect(artifact).toMatchObject({ state: 'deleted', actions: ['info'] })
+    }
+  })
+
+  it('offers no Copy and no Send to Edit or Video on a video or 3D model', () => {
+    const video = { ...image('v1'), type: 'video', videoUrl: sessionUrl('v1.mp4') }
+    const model = { ...image('m1'), type: 'model3d', model3dUrl: sessionUrl('m1.glb') }
+    for (const item of [video, model]) {
+      for (const timeline of everySurface(item)) {
+        expect(artifactsOf(timeline)[0].actions).toEqual([
+          'info',
+          'zoom',
+          'download',
+          'openFolder',
+          'delete',
+        ])
+      }
+    }
+  })
+
+  it('offers Delete only for a file in the Session Folder', () => {
+    const outside = { ...image('o1'), imageUrl: 'aipg-media://media/o1.png' }
+    for (const timeline of everySurface(outside)) {
+      expect(artifactsOf(timeline)[0].actions).not.toContain('delete')
+    }
+  })
+
+  it('leaves out the empty slot of a failed item', () => {
+    const failed = { ...image('f1'), state: 'failed', imageUrl: '' }
+    for (const timeline of everySurface(failed)) {
+      expect(artifactsOf(timeline)).toEqual([])
+    }
+  })
+})

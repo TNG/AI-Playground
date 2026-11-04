@@ -17,7 +17,7 @@ import z from 'zod'
 import { LocalSettingsSchema } from '../localSettings'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
-import { revealFileInFolder, startFileDrag } from '../../adapters/osFileActions.ts'
+import { revealFileInFolder, saveFileCopy, startFileDrag } from '../../adapters/osFileActions.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -1548,6 +1548,17 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
           'electron-backend',
         )
         return undefined
+      }
+    },
+
+    saveMediaCopy: async (event, url) => {
+      try {
+        const filePath = getAssetPathFromUrl(url, deps)
+        if (!filePath) throw new Error(`Not a media file: ${url}`)
+        await saveFileCopy(event.sender, filePath)
+        return { success: true }
+      } catch (error) {
+        return ipcFail(error)
       }
     },
 

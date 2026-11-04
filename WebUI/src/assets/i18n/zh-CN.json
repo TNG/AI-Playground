@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "删除文件",
   "ARTIFACT_DELETE_TITLE": "删除此文件？",
   "ARTIFACT_DELETE_BODY": "文件将从磁盘中删除。其所在的轮次仍保留在会话中，并显示该文件已删除。",
+  "ARTIFACT_ACTIONS": "文件操作",
   "SESSION_FILE_DELETED": "文件已删除",
   "COM_POST_TO_ENHANCE_PROCESS": "发送至增强处理",
   "COM_POST_TO_IMAGE_EDIT": "发送至 Image Edit 模式",

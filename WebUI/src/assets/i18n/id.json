@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "Hapus file",
   "ARTIFACT_DELETE_TITLE": "Hapus file ini?",
   "ARTIFACT_DELETE_BODY": "File dihapus dari disk. Gilirannya tetap ada di Sesi dan menampilkan file sebagai terhapus.",
+  "ARTIFACT_ACTIONS": "Tindakan file",
   "SESSION_FILE_DELETED": "File dihapus",
   "COM_POST_TO_ENHANCE_PROCESS": "Kirim ke Proses Peningkatan",
   "COM_POST_TO_IMAGE_EDIT": "Kirim ke Mode Image Edit",

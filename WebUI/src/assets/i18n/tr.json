@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "Dosyayı sil",
   "ARTIFACT_DELETE_TITLE": "Bu dosya silinsin mi?",
   "ARTIFACT_DELETE_BODY": "Dosya diskten kaldırılır. Ait olduğu adım oturumda kalır ve dosyayı silinmiş olarak gösterir.",
+  "ARTIFACT_ACTIONS": "Dosya işlemleri",
   "SESSION_FILE_DELETED": "Dosya silindi",
   "COM_POST_TO_ENHANCE_PROCESS": "İyileştirme İşlemine Gönder",
   "COM_POST_TO_IMAGE_EDIT": "Image Edit Moduna Gönder",

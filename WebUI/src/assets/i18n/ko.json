@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "파일 삭제",
   "ARTIFACT_DELETE_TITLE": "이 파일을 삭제할까요?",
   "ARTIFACT_DELETE_BODY": "파일이 디스크에서 삭제됩니다. 해당 턴은 세션에 남아 파일이 삭제되었다고 표시됩니다.",
+  "ARTIFACT_ACTIONS": "파일 작업",
   "SESSION_FILE_DELETED": "파일이 삭제됨",
   "COM_POST_TO_ENHANCE_PROCESS": "향상 처리로 보내기",
   "COM_POST_TO_IMAGE_EDIT": "Image Edit 모드로 보내기",

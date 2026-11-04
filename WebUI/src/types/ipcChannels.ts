@@ -1355,6 +1355,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [SaveDialogOptions],
     result: null as unknown as SaveDialogResult | undefined,
   },
+  /** Save a copy of a media URL's file where the user picks; cancelling is not a failure. */
+  saveMediaCopy: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** The OS message box over the caller's window; `response` is the button index. */
   showMessageBox: {
     kind: 'invoke',

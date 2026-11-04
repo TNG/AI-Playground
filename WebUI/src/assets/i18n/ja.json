@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "ファイルを削除",
   "ARTIFACT_DELETE_TITLE": "このファイルを削除しますか?",
   "ARTIFACT_DELETE_BODY": "ファイルはディスクから削除されます。そのターンはセッションに残り、ファイルは削除済みとして表示されます。",
+  "ARTIFACT_ACTIONS": "ファイル操作",
   "SESSION_FILE_DELETED": "ファイルは削除されました",
   "COM_POST_TO_ENHANCE_PROCESS": "強化処理へ送る",
   "COM_POST_TO_IMAGE_EDIT": "Image Edit モードへ送る",

@@ -190,8 +190,8 @@ import { useActivities } from '@/assets/js/store/activities'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useI18N } from '@/assets/js/store/i18n'
-import { type MediaItem } from '@/assets/js/store/imageGenerationPresets'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
+import { useSessions } from '@/assets/js/store/sessions'
 import { useTextInference } from '@/assets/js/store/textInference'
 import ChatActivityIndicator from '@/components/ChatActivityIndicator.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
@@ -212,6 +212,7 @@ import {
   isChatWebBrowseToolPart,
 } from '@/lib/chatToolParts'
 import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
+import { toolPartMedia, turnArtifacts, type TurnArtifact } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */
@@ -226,6 +227,7 @@ const props = defineProps<{
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const textInference = useTextInference()
 const artifactRuns = useArtifactRuns()
+const sessions = useSessions()
 const activities = useActivities()
 const confirmations = useConfirmations()
 const languages = useI18N().state
@@ -251,26 +253,23 @@ function toolInputRecord(part: { input?: unknown }): Record<string, unknown> {
 }
 
 type ToolMediaCard = {
-  images: MediaItem[]
+  artifacts: TurnArtifact[]
   phase?: ArtifactPhase
   progress?: { current: number; max: number }
 }
 
-// Live runs the tool call owns (directly, or through the media specialist),
-// falling back to the settled tool output once the runs have aged out or the
-// page was reloaded.
+// The settled tool output names the files in the Session Folder; until then the
+// runs the call owns (directly, or through the media specialist) show progress.
 function toolMediaCard(part: ToolUIPart<AipgTools> | DynamicToolUIPart): ToolMediaCard {
-  if (!isChatMediaToolPart(part)) return { images: [] }
+  if (!isChatMediaToolPart(part)) return { artifacts: [] }
   const live = artifactRuns.viewFor(part.toolCallId)
   const settled = part.state === 'output-available' || part.state === 'output-error'
-  const phase = settled ? undefined : live.phase
-  if (live.items.length > 0) return { images: live.items, phase, progress: live.progress }
-  const output = part.state === 'output-available' ? (part.output as { images?: unknown[] }) : null
-  const images = (output?.images ?? []).map((img) => ({
-    ...(img as MediaItem),
-    state: 'done' as const,
-  }))
-  return { images, phase, progress: live.progress }
+  const items = settled ? toolPartMedia(part) : live.items
+  return {
+    artifacts: turnArtifacts(items, sessions.openDeletedFiles),
+    phase: settled ? undefined : live.phase,
+    progress: live.progress,
+  }
 }
 
 function messageHasLiveMedia(message: { parts?: unknown[] }): boolean {

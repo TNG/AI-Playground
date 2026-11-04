@@ -127,6 +127,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWinSize: () => invoke('getWinSize'),
   setWinSize: (width: number, height: number) => invoke('setWinSize', width, height),
   showSaveDialog: (options: SaveDialogOptions) => invoke('showSaveDialog', options),
+  saveMediaCopy: (url: string) => invoke('saveMediaCopy', url),
   showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
   miniWindow: () => send('miniWindow'),
   getInitialPage: () => invoke('getInitialPage'),

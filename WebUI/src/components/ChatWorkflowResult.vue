@@ -1,40 +1,43 @@
 <template>
-  <div v-if="processing || currentImage" class="flex flex-col gap-3">
+  <div v-if="processing || currentArtifact" class="flex flex-col gap-3">
     <!-- Horizontal Thumbnail Gallery -->
-    <div v-if="imagesWithPreview.length > 1" class="flex gap-2 overflow-x-auto pb-2">
+    <div v-if="artifacts.length > 1" class="flex gap-2 overflow-x-auto pb-2">
       <div
-        v-for="image in imagesWithPreview"
-        :key="image.id"
+        v-for="artifact in artifacts"
+        :key="artifact.id"
         class="flex-shrink-0 cursor-pointer relative border-3 shadow-foreground/40 shadow-md transition-colors rounded-sm overflow-hidden"
-        :class="selectedImageId === image.id ? 'border-primary' : 'border-transparent'"
-        @click="selectedImageId = image.id"
+        :class="selectedId === artifact.id ? 'border-primary' : 'border-transparent'"
+        @click="selectedId = artifact.id"
         style="width: 80px; height: 60px"
       >
         <div
           class="relative w-full h-full flex items-center justify-center bg-background"
-          draggable="true"
-          @dragstart="(e) => dragImage(image)(e)"
+          :draggable="artifact.state === 'done'"
+          @dragstart="(e) => dragArtifact(e, artifact)"
         >
           <div
-            v-if="isDeleted(image)"
+            v-if="artifact.state === 'deleted'"
             class="w-full h-full bg-muted"
             :aria-label="languages.SESSION_FILE_DELETED"
           ></div>
           <video
-            v-else-if="isVideo(image)"
-            :src="image.videoUrl"
+            v-else-if="isVideo(artifact.item)"
+            :src="artifact.item.videoUrl"
             class="w-full h-full object-cover"
           />
-          <Model3DViewer v-else-if="is3D(image)" :src="image.model3dUrl" class="w-full h-full" />
+          <Model3DViewer
+            v-else-if="is3D(artifact.item)"
+            :src="artifact.item.model3dUrl"
+            class="w-full h-full"
+          />
           <img
-            v-else-if="image.type === 'image'"
-            :src="image.imageUrl"
+            v-else-if="artifact.item.type === 'image' && hasDisplayableMedia(artifact.item)"
+            :src="artifact.item.imageUrl"
             class="w-full h-full object-cover"
           />
 
-          <!-- State indicator overlay -->
           <div
-            v-if="image.state === 'generating' || image.state === 'queued'"
+            v-if="artifact.state === 'running'"
             class="absolute inset-0 bg-background/60 flex items-center justify-center"
           >
             <span class="svg-icon i-loading w-4 h-4 animate-spin"></span>
@@ -43,31 +46,24 @@
       </div>
     </div>
 
-    <!-- Main Image Display -->
     <div class="flex justify-center items-center relative">
-      <div class="relative bg-accent rounded-lg min-w-[400px] min-h-[300px]">
-        <!-- Media content -->
+      <div class="group relative bg-accent rounded-lg min-w-[400px] min-h-[300px]">
         <div
-          v-show="images.length > 0 && currentImage"
+          v-if="currentArtifact"
           class="flex justify-center items-center"
-          :draggable="currentImage && !is3D(currentImage) ? true : false"
-          @dragstart="(e) => dragImage(currentImage)(e)"
+          :draggable="currentArtifact.state === 'done' && !is3D(currentArtifact.item)"
+          @dragstart="(e) => currentArtifact && dragArtifact(e, currentArtifact)"
         >
           <div
-            v-if="currentImage && isDeleted(currentImage)"
+            v-if="currentArtifact.state === 'deleted'"
             role="status"
             class="flex items-center justify-center w-[400px] h-[300px] text-muted-foreground"
           >
             {{ languages.SESSION_FILE_DELETED }}
           </div>
-          <!-- Placeholder for queued/generating images without preview (exclude stopped) -->
           <div
             v-else-if="
-              currentImage &&
-              currentImage.type === 'image' &&
-              currentImage.state !== 'stopped' &&
-              (currentImage.state === 'queued' || currentImage.state === 'generating') &&
-              !hasValidImageUrl(currentImage)
+              currentArtifact.item.type === 'image' && !hasDisplayableMedia(currentArtifact.item)
             "
             class="flex items-center justify-center bg-gradient-to-br from-accent/30 to-muted/20 w-[400px] h-[300px] rounded-sm"
           >
@@ -76,29 +72,30 @@
             </div>
           </div>
           <img
-            v-else-if="
-              currentImage && currentImage.type === 'image' && hasValidImageUrl(currentImage)
-            "
+            v-else-if="currentArtifact.item.type === 'image'"
             alt="Generated result"
             class="object-contain shadow-black/40 shadow-md rounded-sm border-3 border-background"
-            :src="currentImage.imageUrl"
+            :src="currentArtifact.url"
           />
           <video
-            v-else-if="currentImage && isVideo(currentImage)"
-            :src="currentImage?.videoUrl as string"
+            v-else-if="isVideo(currentArtifact.item)"
+            :src="currentArtifact.url"
             aria-label="Generated result"
             class="object-contain p-2"
             controlsList="nodownload nofullscreen noremoteplayback"
             controls
           />
-          <!-- model-viewer sizes to 100% of its parent, so give it an explicit
-               box here (the chat container only defines min dimensions). -->
-          <div v-else-if="currentImage && is3D(currentImage)" class="w-[400px] h-[400px]">
-            <Model3DViewer :src="currentImage?.model3dUrl as string" />
+          <!-- model-viewer sizes to 100% of its parent, so it needs an explicit box. -->
+          <div
+            v-else-if="is3D(currentArtifact.item)"
+            class="w-[400px] h-[400px]"
+            role="img"
+            aria-label="Generated 3D model"
+          >
+            <Model3DViewer :src="currentArtifact.url" />
           </div>
         </div>
 
-        <!-- Progress overlay (absolutely positioned over the content) -->
         <div
           v-show="processing"
           class="absolute inset-0 flex justify-center items-center rounded-lg"
@@ -107,81 +104,36 @@
           <ImageGenerationProgress v-else :step-text="phaseLabel" />
         </div>
 
-        <!-- Action buttons (absolutely positioned on the right side) -->
-        <div
-          v-show="currentImage && (!(currentImage?.state === 'generating') || !processing)"
-          class="absolute top-1/2 -translate-y-1/2 -right-8 flex flex-col items-center justify-center gap-2"
-        >
-          <IconButton
-            v-if="
-              !hideModeSwitch &&
-              currentImage &&
-              currentImage.state !== 'generating' &&
-              !isDeleted(currentImage)
-            "
-            icon="i-transfer"
-            :tooltip="languages.COM_POST_TO_IMAGE_EDIT"
-            @click="postImageToMode(currentImage, 'imageEdit')"
-          />
-          <IconButton
-            v-if="
-              !hideModeSwitch &&
-              currentImage &&
-              currentImage.state !== 'generating' &&
-              !is3D(currentImage) &&
-              !isDeleted(currentImage)
-            "
-            icon="i-video"
-            :tooltip="languages.COM_POST_TO_VIDEO"
-            @click="postImageToMode(currentImage, 'video')"
-          />
-          <IconButton
-            v-show="currentImage && !(currentImage?.state === 'generating')"
-            icon="i-info"
-            :tooltip="languages.COM_OPEN_PARAMS"
-            @click="showParamsDialog"
-          />
-          <IconButton
-            v-if="currentImage && currentImage.state !== 'generating' && !isDeleted(currentImage)"
-            icon="i-zoom-in"
-            :tooltip="languages.COM_ZOOM_IN"
-            @click="openImage(currentImage)"
-          />
-          <IconButton
-            v-if="currentImage && currentImage.state !== 'generating' && !isDeleted(currentImage)"
-            icon="i-copy"
-            :tooltip="languages.COM_COPY"
-            @click="copyImage(currentImage)"
-          />
-          <IconButton
-            v-if="currentImage && currentImage.state !== 'generating' && !isDeleted(currentImage)"
-            icon="i-folder"
-            :tooltip="languages.COM_OPEN_LOCATION"
-            @click="openImageInFolder(currentImage)"
-          />
-          <IconButton
-            v-if="
-              deletable &&
-              currentImage &&
-              currentImage.state !== 'generating' &&
-              !isDeleted(currentImage)
-            "
-            icon="i-delete"
-            :tooltip="languages.ARTIFACT_DELETE"
-            @click="confirmingDelete = getMediaUrl(currentImage)"
-          />
-        </div>
+        <TooltipProvider :delay-duration="200">
+          <div
+            v-if="currentArtifact && toolbarActions.length > 0"
+            role="toolbar"
+            :aria-label="languages.ARTIFACT_ACTIONS"
+            class="absolute top-2 right-2 flex gap-1 rounded-md bg-background/80 p-1 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          >
+            <Tooltip v-for="action in toolbarActions" :key="action.id">
+              <TooltipTrigger as-child>
+                <button
+                  type="button"
+                  class="flex size-7 items-center justify-center rounded-sm text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary"
+                  :aria-label="action.label"
+                  @click="runAction(action.id, currentArtifact)"
+                >
+                  <component :is="action.icon" class="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{{ action.label }}</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
       <info-table
         v-show="showInfoParams"
-        :generationParameters="currentImage?.settings ?? {}"
-        :dynamicInputs="currentImage?.dynamicSettings as any"
+        :generationParameters="currentArtifact?.item.settings ?? {}"
+        :dynamicInputs="currentArtifact?.item.dynamicSettings as any"
         @close="showInfoParams = false"
       ></info-table>
     </div>
-    <p v-if="currentCaption" class="text-xs text-muted-foreground break-all">
-      {{ currentCaption }}
-    </p>
     <DeleteArtifactDialog
       :open="confirmingDelete !== null"
       @update:open="(open) => !open && (confirmingDelete = null)"
@@ -191,156 +143,133 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
+import {
+  ArrowDownTrayIcon,
+  DocumentDuplicateIcon,
+  FilmIcon,
+  FolderOpenIcon,
+  InformationCircleIcon,
+  MagnifyingGlassPlusIcon,
+  PencilSquareIcon,
+  TrashIcon,
+} from '@heroicons/vue/24/outline'
+import { useErrors } from '@/assets/js/store/errors'
+import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
+import { usePromptStore } from '@/assets/js/store/promptArea'
+import DeleteArtifactDialog from '@/components/DeleteArtifactDialog.vue'
+import ImageGenerationProgress from '@/components/ImageGenerationProgress.vue'
+import InfoTable from '@/components/InfoTable.vue'
+import LoadingBar from '@/components/LoadingBar.vue'
+import Model3DViewer from '@/components/Model3DViewer.vue'
+import { Spinner } from '@/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import * as toast from '@/assets/js/toast'
 import * as util from '@/assets/js/util'
-import LoadingBar from './LoadingBar.vue'
-import InfoTable from '@/components/InfoTable.vue'
-import ImageGenerationProgress from '@/components/ImageGenerationProgress.vue'
-import { Spinner } from '@/components/ui/spinner'
-import type { MediaFileHandlers } from '@/types/mediaItem'
-import {
-  MediaItem,
-  isVideo,
-  is3D,
-  useImageGenerationPresets,
-} from '@/assets/js/store/imageGenerationPresets'
-import { usePromptStore } from '@/assets/js/store/promptArea'
-import Model3DViewer from '@/components/Model3DViewer.vue'
-import IconButton from '@/components/ui/IconButton.vue'
-import DeleteArtifactDialog from '@/components/DeleteArtifactDialog.vue'
 import { artifactPhaseLabel, isTerminalPhase } from '@/lib/artifactRunProjection'
+import type { ArtifactAction, TurnArtifact } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
+import { hasDisplayableMedia, is3D, isVideo } from '@/types/mediaItem'
 
+/** The one artifact card: every image, video and 3D model a Turn shows, whoever made it. */
 const props = defineProps<{
-  images: MediaItem[]
-  /** Phase of the owning tool's run in flight; absent once nothing is running. */
+  artifacts: TurnArtifact[]
+  /** Phase of the owning run in flight; absent once nothing is running. */
   phase?: ArtifactPhase
   progress?: { current: number; max: number }
-  /** Hides Send to Image Edit / Send to Video. */
-  hideModeSwitch?: boolean
-  fileHandlers?: MediaFileHandlers
-  /** Main-file URLs whose file is gone; their item shows as deleted. */
-  deletedUrls?: readonly string[]
-  /** Offers deleting the item's file. */
-  deletable?: boolean
 }>()
-const emit = defineEmits<{ deleteFile: [url: string] }>()
-const i18nState = useI18N().state
-const languages = i18nState
+
+const languages = useI18N().state
+const errors = useErrors()
+const gallery = useGallery()
 const imageGeneration = useImageGenerationPresets()
 const promptStore = usePromptStore()
 const showInfoParams = ref(false)
 const confirmingDelete = ref<string | null>(null)
-
-function isDeleted(image: MediaItem): boolean {
-  return !!props.deletedUrls?.includes(getMediaUrl(image))
-}
-
-function confirmDelete() {
-  if (confirmingDelete.value) emit('deleteFile', confirmingDelete.value)
-  confirmingDelete.value = null
-}
+const selectedId = ref<string | null>(null)
 
 const processing = computed(() => !!props.phase && !isTerminalPhase(props.phase))
 const phaseLabel = computed(
-  () => artifactPhaseLabel(props.phase, props.progress, i18nState) ?? i18nState.COM_GENERATING,
+  () => artifactPhaseLabel(props.phase, props.progress, languages) ?? languages.COM_GENERATING,
 )
 
-// Check if imageUrl is the transparent placeholder
-const isPlaceholderUrl = (url: string | undefined): boolean => {
-  if (!url || url.trim() === '') return true
-  const placeholderUrl =
-    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E'
-  return url === placeholderUrl
-}
-
-const hasValidImageUrl = (image: MediaItem | null): boolean => {
-  if (!image || image.type !== 'image') return false
-  return !isPlaceholderUrl(image.imageUrl)
-}
-
-// Local state for selected image
-const selectedImageId = ref<string | null>(null)
-
-// Filter images to only show those with valid URLs
-const imagesWithPreview = computed(() => {
-  return props.images.filter((img) => {
-    if (img.type === 'image') return img.imageUrl && img.imageUrl.trim() !== ''
-    if (img.type === 'video') return img.videoUrl && img.videoUrl.trim() !== ''
-    if (img.type === 'model3d') return img.model3dUrl && img.model3dUrl.trim() !== ''
-    return false
-  })
-})
-
-// Watch images to auto-select the last one when new images arrive
 watch(
-  () => imagesWithPreview.value,
-  (images) => {
-    if (images.length > 0) {
-      // Select the last image (most recent) if none selected or selected image is not in list
-      const lastImage = images[images.length - 1]
-      if (!selectedImageId.value || !images.find((img) => img.id === selectedImageId.value)) {
-        selectedImageId.value = lastImage.id
-      }
-    } else {
-      selectedImageId.value = null
-    }
+  () => props.artifacts.map((artifact) => artifact.id),
+  (ids) => {
+    if (!selectedId.value || !ids.includes(selectedId.value)) selectedId.value = ids.at(-1) ?? null
   },
   { immediate: true },
 )
 
-const currentImage = computed<MediaItem | null>(() => {
-  if (!selectedImageId.value) return null
-  return imagesWithPreview.value.find((image) => image.id === selectedImageId.value) ?? null
-})
-
-const currentCaption = computed(() =>
-  currentImage.value ? props.fileHandlers?.caption(currentImage.value) : undefined,
+const currentArtifact = computed(
+  () => props.artifacts.find((artifact) => artifact.id === selectedId.value) ?? null,
 )
 
-const dragImage = (item: MediaItem | null) => (event: Event) => {
-  if (!item) return
-  event.preventDefault()
-  if (props.fileHandlers) return props.fileHandlers.drag(item)
-  const url = getMediaUrl(item)
-  window.electronAPI.startDrag(url)
+const ACTIONS: Record<ArtifactAction, { icon: Component; label: () => string }> = {
+  info: { icon: InformationCircleIcon, label: () => languages.COM_OPEN_PARAMS },
+  zoom: { icon: MagnifyingGlassPlusIcon, label: () => languages.COM_ZOOM_IN },
+  copy: { icon: DocumentDuplicateIcon, label: () => languages.COM_COPY },
+  download: { icon: ArrowDownTrayIcon, label: () => languages.COM_DOWNLOAD },
+  openFolder: { icon: FolderOpenIcon, label: () => languages.COM_OPEN_LOCATION },
+  sendToEdit: { icon: PencilSquareIcon, label: () => languages.COM_POST_TO_IMAGE_EDIT },
+  sendToVideo: { icon: FilmIcon, label: () => languages.COM_POST_TO_VIDEO },
+  delete: { icon: TrashIcon, label: () => languages.ARTIFACT_DELETE },
 }
 
-function showParamsDialog() {
-  showInfoParams.value = true
-  console.log(currentImage.value?.settings)
+const toolbarActions = computed(() =>
+  (processing.value ? [] : (currentArtifact.value?.actions ?? [])).map((id) => ({
+    id,
+    icon: ACTIONS[id].icon,
+    label: ACTIONS[id].label(),
+  })),
+)
+
+async function runAction(action: ArtifactAction, artifact: TurnArtifact) {
+  try {
+    switch (action) {
+      case 'info':
+        showInfoParams.value = true
+        return
+      case 'zoom':
+        return window.electronAPI.openImageWithSystem(artifact.url)
+      case 'copy':
+        await util.copyImage(artifact.url)
+        return toast.success(languages.COM_COPY_SUCCESS_TIP)
+      case 'download': {
+        const result = await window.electronAPI.saveMediaCopy(artifact.url)
+        if (!result.success) throw new Error(result.error)
+        return
+      }
+      case 'openFolder':
+        return window.electronAPI.openImageInFolder(artifact.url)
+      case 'sendToEdit':
+        return await sendToMode(artifact, 'imageEdit')
+      case 'sendToVideo':
+        return await sendToMode(artifact, 'video')
+      case 'delete':
+        confirmingDelete.value = artifact.url
+        return
+    }
+  } catch (error) {
+    errors.report(error, { code: `artifact/${action}-failed`, surface: 'toast' })
+  }
 }
 
-async function postImageToMode(image: MediaItem, mode: WorkflowModeType) {
-  await imageGeneration.copyImageAsInputForMode(image, mode)
+async function sendToMode(artifact: TurnArtifact, mode: WorkflowModeType) {
+  await imageGeneration.copyImageAsInputForMode(artifact.item, mode)
   promptStore.setCurrentMode(mode)
 }
 
-function openImage(image: MediaItem) {
-  if (props.fileHandlers) return props.fileHandlers.open(image)
-  window.electronAPI.openImageWithSystem(getMediaUrl(image))
+async function confirmDelete() {
+  const url = confirmingDelete.value
+  confirmingDelete.value = null
+  if (url) await gallery.removeByUrl(url)
 }
 
-function copyImage(image: MediaItem) {
-  util.copyImage(getMediaUrl(image))
-  toast.success(i18nState.COM_COPY_SUCCESS_TIP)
-}
-
-function openImageInFolder(image: MediaItem) {
-  if (props.fileHandlers) return props.fileHandlers.reveal(image)
-  window.electronAPI.openImageInFolder(getMediaUrl(image))
-}
-
-function getMediaUrl(image: MediaItem) {
-  switch (image.type) {
-    case 'video':
-      return image.videoUrl
-    case 'model3d':
-      return image.model3dUrl
-    case 'image':
-      return image.imageUrl
-  }
+function dragArtifact(event: Event, artifact: TurnArtifact) {
+  event.preventDefault()
+  if (artifact.state === 'done') window.electronAPI.startDrag(artifact.url)
 }
 </script>

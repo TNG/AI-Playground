@@ -46,17 +46,13 @@
       />
       <MediaTurnBlock
         v-if="item.kind === 'media'"
-        :mode="item.media.mode"
-        :items="item.media.items"
+        :artifacts="item.artifacts"
         :status="item.media.status"
         :error="item.media.error"
-        :deleted-urls="sessions.openDeletedFiles"
-        @delete-file="(url) => gallery.removeByUrl(url)"
       />
       <MediaTurnBlock
         v-else-if="item.kind === 'pending-media'"
-        :mode="item.pending.mode"
-        :items="artifactRuns.state.runs[item.pending.runId]?.items ?? []"
+        :artifacts="turnArtifacts(artifactRuns.state.runs[item.pending.runId]?.items ?? [], [])"
         :phase="artifactRuns.state.runs[item.pending.runId]?.phase ?? 'queued'"
         :progress="artifactRuns.state.runs[item.pending.runId]?.progress"
       />
@@ -84,7 +80,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
-import { useGallery } from '@/assets/js/store/gallery'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import { useSessions, type PendingMediaTurn } from '@/assets/js/store/sessions'
 import { useTextInference } from '@/assets/js/store/textInference'
@@ -96,6 +91,7 @@ import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
 import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import type { SessionTimelineItem } from '@/lib/sessionTimeline'
+import { turnArtifacts } from '@/lib/turnArtifacts'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
 /** One entry of the Session timeline: a Turn, settled or running, or a Task Run of Turns. */
@@ -109,7 +105,6 @@ const props = defineProps<{
 const emit = defineEmits<{ resend: [] }>()
 
 const sessions = useSessions()
-const gallery = useGallery()
 const artifactRuns = useArtifactRuns()
 const textInference = useTextInference()
 

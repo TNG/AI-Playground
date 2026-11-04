@@ -91,12 +91,16 @@ const agentLive = computed(() =>
 )
 
 const items = computed(() =>
-  sessionTimelineItems(sessions.openTimeline, {
-    chat: chatLive.value,
-    agents: agentLive.value,
-    media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
-    audio: sessionAudio.pendingTurn,
-  }),
+  sessionTimelineItems(
+    sessions.openTimeline,
+    {
+      chat: chatLive.value,
+      agents: agentLive.value,
+      media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
+      audio: sessionAudio.pendingTurn,
+    },
+    { deletedUrls: sessions.openDeletedFiles },
+  ),
 )
 
 const lastChatMessageId = computed(() => chatLive.value.at(-1)?.id)

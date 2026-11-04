@@ -99,6 +99,7 @@
   "ARTIFACT_DELETE": "Xóa tệp",
   "ARTIFACT_DELETE_TITLE": "Xóa tệp này?",
   "ARTIFACT_DELETE_BODY": "Tệp sẽ bị xóa khỏi ổ đĩa. Lượt của nó vẫn ở lại trong phiên và hiển thị tệp là đã xóa.",
+  "ARTIFACT_ACTIONS": "Thao tác tệp",
   "SESSION_FILE_DELETED": "Tệp đã bị xóa",
   "COM_POST_TO_ENHANCE_PROCESS": "Chuyển sang xử lý nâng cao",
   "COM_POST_TO_IMAGE_EDIT": "Chuyển sang chế độ Image Edit",

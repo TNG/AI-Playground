@@ -213,9 +213,14 @@ import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
 import { describeNextRun } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
 
-const { load = true, saveAsPreset = true } = defineProps<{
+const {
+  load = true,
+  saveAsPreset = true,
+  presetAgentOnly = false,
+} = defineProps<{
   load?: boolean
   saveAsPreset?: boolean
+  presetAgentOnly?: boolean
 }>()
 
 const agentMode = useAgentMode()
@@ -237,8 +242,14 @@ const renameValue = ref('')
 const confirmDeleteId = ref<string | null>(null)
 const saving = ref(false)
 
+const listedTasks = computed(() => {
+  if (!presetAgentOnly) return agentTasks.sessionTasks
+  const agent = agentTasks.presetAgent
+  return agent ? [agent] : []
+})
+
 const rows = computed(() =>
-  agentTasks.sessionTasks.map((task) => {
+  listedTasks.value.map((task) => {
     const state = agentTasks.taskState(task.id)
     const run = 'running' in state ? state.running : undefined
     const outcome = 'idle' in state ? state.idle : undefined

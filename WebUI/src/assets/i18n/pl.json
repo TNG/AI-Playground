@@ -662,8 +662,6 @@
   "HOME_AGENT_NOTIFICATION_ANSWERABLE_BUTTON": "Agenci mogą pisać do Ciebie na tym kanale. Aby odpowiedzieć agentowi, stuknij 💬 Odpowiedz. Zwykłe wiadomości trafiają do Home Agent.",
   "HOME_AGENT_AUTO_NOTIFY": "Powiadom mnie, gdy uruchomienie agenta w tle się nie powiedzie lub będzie mnie potrzebować",
   "HOME_AGENT_ONLY_WHILE_OPEN": "Home Agent odpowiada tylko wtedy, gdy AI Playground jest otwarty (może być zminimalizowany).",
-  "AGENT_SAVE_AS_DEFAULT": "Zapisz jako domyślne",
-  "AGENT_RESET_TO_DEFAULT": "Przywróć domyślne",
   "AGENT_SAVED_AS_DEFAULT": "Zapisano jako domyślne dla nowych sesji Agent Maker",
   "AGENT_RESET_TO_DEFAULT_DONE": "Przywrócono domyślne ustawienia tej sesji",
   "SESSION_SETTINGS_SAVED_AS_DEFAULT": "Zapisano jako domyślne dla nowych sesji",

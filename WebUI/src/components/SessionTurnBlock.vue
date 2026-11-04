@@ -83,12 +83,7 @@
         :status="item.media.status"
         :error="item.media.error"
       />
-      <MediaTurnBlock
-        v-else-if="item.kind === 'pending-media'"
-        :artifacts="turnArtifacts(artifactRuns.state.runs[item.pending.runId]?.items ?? [], [])"
-        :phase="artifactRuns.state.runs[item.pending.runId]?.phase ?? 'queued'"
-        :progress="artifactRuns.state.runs[item.pending.runId]?.progress"
-      />
+      <MediaTurnBlock v-else-if="item.kind === 'pending-media'" :artifacts="item.artifacts" />
       <AudioTurnBlock
         v-else-if="item.kind === 'audio'"
         :kind="item.audio.kind"
@@ -113,7 +108,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { UIMessage } from 'ai'
-import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
@@ -131,7 +125,6 @@ import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import type { SessionTimelineItem } from '@/lib/sessionTimeline'
-import { turnArtifacts } from '@/lib/turnArtifacts'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
 /** One entry of the Session timeline: a Turn, settled or running, or a Task Run of Turns. */
@@ -145,7 +138,6 @@ const props = defineProps<{
 const emit = defineEmits<{ resend: [] }>()
 
 const sessions = useSessions()
-const artifactRuns = useArtifactRuns()
 const textInference = useTextInference()
 const languages = useI18N().state
 

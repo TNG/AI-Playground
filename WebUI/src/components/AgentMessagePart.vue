@@ -28,12 +28,7 @@
       <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
       <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     </template>
-    <ChatWorkflowResult
-      v-if="section !== 'details'"
-      :artifacts="mediaToolArtifacts"
-      :phase="mediaToolPhase"
-      :progress="mediaLive.progress"
-    />
+    <ChatWorkflowResult v-if="section !== 'details'" :artifacts="mediaToolArtifacts" />
   </div>
   <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
   <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
@@ -92,14 +87,13 @@ import {
   generatedMediaOf,
   mediaFileRefOf,
   mediaToolNameOf,
-  transcriptMediaItems,
 } from '@/lib/agentTranscript'
 import type {
   AgentMediaFileAction,
   AgentMediaItem,
   AgentSpeechClip,
 } from '@/types/agentMediaDetails'
-import { turnArtifacts } from '@/lib/turnArtifacts'
+import { toolCallArtifacts } from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -170,18 +164,9 @@ const generatedMedia = computed(() => generatedMediaOf(props.part))
 /** Step lines from a finished result, for runs no longer in the store. */
 const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 
-const mediaLive = computed(() => artifactRuns.viewFor(toolPart.value.toolCallId))
-
 const mediaToolArtifacts = computed(() =>
-  turnArtifacts(transcriptMediaItems(props.part, mediaLive.value.items), sessions.openDeletedFiles),
+  toolCallArtifacts(props.part, artifactRuns.state, sessions.openDeletedFiles),
 )
-
-const mediaToolPhase = computed(() => {
-  const state = toolPart.value.state
-  return state === 'output-available' || state === 'output-error'
-    ? undefined
-    : mediaLive.value.phase
-})
 
 // The card shows the app copy; what the user opens or takes away is the agent's working file.
 async function fileAction(target: AgentMediaItem | AgentSpeechClip, action: AgentMediaFileAction) {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ArtifactRunsState, ArtifactRunView } from '@/lib/artifactRunProjection'
 import {
   sessionTimelineItems,
   timelineTurns,
@@ -7,6 +8,9 @@ import {
   type TurnDetails,
   type TurnResultPart,
 } from '@/lib/sessionTimeline'
+import type { TurnArtifact } from '@/lib/turnArtifacts'
+import type { ArtifactRunOwner } from '@/types/kernelEvents'
+import type { MediaItem } from '@/types/mediaItem'
 
 const agentTurn = { presetName: 'Agent', harnessSessionId: 'aipg-agent-1' }
 
@@ -1335,5 +1339,128 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     )
 
     expect(footerOf(items[0])).toMatchObject({ rerun: { inputs: { 'Style.image': '' } } })
+  })
+})
+
+describe('a running artifact on every Turn', () => {
+  const queued = (id: string, width: number, height: number) => ({
+    id,
+    type: 'image' as const,
+    state: 'queued' as const,
+    mode: 'imageGen' as const,
+    imageUrl: '',
+    settings: { width, height },
+  })
+  const run = (runId: string, owner: ArtifactRunOwner, items: MediaItem[]): ArtifactRunView => ({
+    runId,
+    owner,
+    phase: 'running',
+    progress: { current: 3, max: 8 },
+    items,
+    order: 0,
+  })
+  const runningTool = (type: string, toolCallId: string, extra: object = {}) => ({
+    type,
+    toolCallId,
+    state: 'input-available',
+    input: { prompt: 'a castle' },
+    ...extra,
+  })
+  const chatTurn = [
+    chatMessage('u1', 'user', 'draw a castle'),
+    {
+      id: 'a1',
+      role: 'assistant',
+      metadata: { chatTurn: true },
+      parts: [runningTool('tool-comfyUI', 't1')],
+    },
+  ]
+  const agentTurnRunning = [
+    agentMessage('u2', 'user', 'draw a castle'),
+    {
+      id: 'a2',
+      role: 'assistant',
+      metadata: { agentTurn },
+      parts: [runningTool('dynamic-tool', 't2', { toolName: 'generateImage' })],
+    },
+  ]
+  const artifactRuns: ArtifactRunsState = {
+    nextOrder: 3,
+    runs: {
+      rc: run('rc', { kind: 'tool', toolCallId: 't1' }, [queued('ci', 1024, 768)]),
+      ra: run('ra', { kind: 'tool', toolCallId: 't2' }, [queued('ai', 1024, 768)]),
+      rp: run('rp', { kind: 'panel' }, [queued('pi', 1024, 768)]),
+    },
+  }
+  const pending = { runId: 'rp', prompt: 'a castle', preset: 'Draft', mode: 'imageGen' as const }
+  const artifactsIn = (items: { kind: string }[]) =>
+    items.flatMap((turn) => ('artifacts' in turn ? (turn.artifacts as TurnArtifact[]) : []))
+
+  it('carries its requested size, phase and progress on chat, Agent Preset and ComfyUI Turns', () => {
+    const surfaces: [unknown[], typeof pending | null][] = [
+      [chatTurn, null],
+      [agentTurnRunning, null],
+      [[], pending],
+    ]
+    for (const [timeline, media] of surfaces) {
+      const [artifact] = artifactsIn(sessionTimelineItems(timeline, { media, artifactRuns }))
+      expect(artifact).toMatchObject({
+        state: 'running',
+        size: { width: 1024, height: 768 },
+        phase: 'running',
+        progress: { current: 3, max: 8 },
+        actions: [],
+      })
+    }
+  })
+
+  it('shows a waiting item of a batch as queued while its sibling generates', () => {
+    const batch: ArtifactRunsState = {
+      nextOrder: 1,
+      runs: {
+        rp: run('rp', { kind: 'panel' }, [
+          { ...queued('p1', 512, 512), state: 'generating' },
+          queued('p2', 512, 512),
+        ]),
+      },
+    }
+    const artifacts = artifactsIn(sessionTimelineItems([], { media: pending, artifactRuns: batch }))
+    expect(artifacts.map((artifact) => [artifact.phase, artifact.progress])).toEqual([
+      ['running', { current: 3, max: 8 }],
+      ['queued', undefined],
+    ])
+  })
+
+  it('reserves the requested size of a ComfyUI run before the runner has started it', () => {
+    const media = {
+      ...pending,
+      runId: 'not-yet',
+      size: { width: 832, height: 1216 },
+      batchSize: 2,
+    }
+    const artifacts = artifactsIn(sessionTimelineItems([], { media, artifactRuns }))
+    expect(artifacts).toHaveLength(2)
+    for (const artifact of artifacts) {
+      expect(artifact).toMatchObject({
+        state: 'running',
+        size: { width: 832, height: 1216 },
+        phase: 'queued',
+      })
+    }
+  })
+
+  it('keeps the requested size once the artifact is done, so it takes the same box', () => {
+    const done = {
+      ...queued('d1', 1024, 768),
+      state: 'done',
+      imageUrl: 'aipg-media://sessions/s1/files/d1.png',
+    }
+    const card = {
+      ...mediaCard,
+      parts: [{ type: 'data-media', data: { ...mediaCard.parts[0].data, items: [done] } }],
+    }
+    const [artifact] = artifactsIn(sessionTimelineItems([mediaPrompt, card], {}))
+    expect(artifact).toMatchObject({ state: 'done', size: { width: 1024, height: 768 } })
+    expect(artifact).not.toHaveProperty('phase')
   })
 })

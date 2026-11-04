@@ -1,5 +1,5 @@
 <template>
-  <div v-if="processing || currentArtifact" class="flex flex-col gap-3">
+  <div v-if="currentArtifact" class="flex w-full flex-col gap-3">
     <!-- Horizontal Thumbnail Gallery -->
     <div v-if="artifacts.length > 1" class="flex gap-2 overflow-x-auto pb-2">
       <div
@@ -46,67 +46,61 @@
       </div>
     </div>
 
-    <div class="flex justify-center items-center relative">
-      <div class="group relative bg-accent rounded-lg min-w-[400px] min-h-[300px]">
+    <div class="flex w-full justify-center items-center relative">
+      <div
+        class="group relative flex max-w-full items-center justify-center rounded-lg bg-accent"
+        :style="frameStyle"
+      >
         <div
-          v-if="currentArtifact"
-          class="flex justify-center items-center"
-          :draggable="currentArtifact.state === 'done' && !is3D(currentArtifact.item)"
-          @dragstart="(e) => currentArtifact && dragArtifact(e, currentArtifact)"
+          v-if="currentArtifact.state === 'deleted'"
+          role="status"
+          class="flex size-full min-h-24 items-center justify-center p-4 text-muted-foreground"
         >
-          <div
-            v-if="currentArtifact.state === 'deleted'"
-            role="status"
-            class="flex items-center justify-center w-[400px] h-[300px] text-muted-foreground"
-          >
-            {{ languages.SESSION_FILE_DELETED }}
-          </div>
-          <div
-            v-else-if="
-              currentArtifact.item.type === 'image' && !hasDisplayableMedia(currentArtifact.item)
-            "
-            class="flex items-center justify-center bg-gradient-to-br from-accent/30 to-muted/20 w-[400px] h-[300px] rounded-sm"
-          >
-            <div class="flex flex-col items-center justify-center gap-4">
-              <Spinner class="w-16 h-16 text-primary/40" />
-            </div>
-          </div>
-          <img
-            v-else-if="currentArtifact.item.type === 'image'"
-            alt="Generated result"
-            class="object-contain shadow-black/40 shadow-md rounded-sm border-3 border-background"
-            :src="currentArtifact.url"
-          />
-          <video
-            v-else-if="isVideo(currentArtifact.item)"
-            :src="currentArtifact.url"
-            aria-label="Generated result"
-            class="object-contain p-2"
-            controlsList="nodownload nofullscreen noremoteplayback"
-            controls
-          />
-          <!-- model-viewer sizes to 100% of its parent, so it needs an explicit box. -->
-          <div
-            v-else-if="is3D(currentArtifact.item)"
-            class="w-[400px] h-[400px]"
-            role="img"
-            aria-label="Generated 3D model"
-          >
-            <Model3DViewer :src="currentArtifact.url" />
-          </div>
+          {{ languages.SESSION_FILE_DELETED }}
+        </div>
+        <div
+          v-else-if="!hasDisplayableMedia(currentArtifact.item)"
+          class="size-full min-h-24 rounded-lg bg-gradient-to-br from-accent/30 to-muted/20"
+        ></div>
+        <img
+          v-else-if="currentArtifact.item.type === 'image'"
+          alt="Generated result"
+          class="block max-w-full object-contain rounded-lg"
+          :class="currentArtifact.size ? 'max-h-full' : 'max-h-[70vh]'"
+          :src="currentArtifact.url"
+          :draggable="currentArtifact.state === 'done'"
+          @dragstart="(e) => currentArtifact && dragArtifact(e, currentArtifact)"
+        />
+        <video
+          v-else-if="isVideo(currentArtifact.item)"
+          :src="currentArtifact.url"
+          aria-label="Generated result"
+          class="block max-w-full object-contain rounded-lg"
+          :class="currentArtifact.size ? 'max-h-full' : 'max-h-[70vh]'"
+          controlsList="nodownload nofullscreen noremoteplayback"
+          controls
+          :draggable="currentArtifact.state === 'done'"
+          @dragstart="(e) => currentArtifact && dragArtifact(e, currentArtifact)"
+        />
+        <!-- model-viewer sizes to 100% of its parent, so it needs an explicit box. -->
+        <div
+          v-else-if="is3D(currentArtifact.item)"
+          class="size-full"
+          role="img"
+          aria-label="Generated 3D model"
+        >
+          <Model3DViewer :src="currentArtifact.url" />
         </div>
 
-        <div
-          v-show="processing"
-          class="absolute inset-0 flex justify-center items-center rounded-lg"
-        >
-          <loading-bar v-if="phase !== 'running'" :text="phaseLabel" class="w-3/4"></loading-bar>
-          <ImageGenerationProgress v-else :step-text="phaseLabel" />
-        </div>
+        <ArtifactProgress
+          v-if="currentArtifact.state === 'running'"
+          :phase="currentArtifact.phase"
+          :progress="currentArtifact.progress"
+        />
 
         <TooltipProvider :delay-duration="200">
           <div
-            v-if="currentArtifact && toolbarActions.length > 0"
+            v-if="toolbarActions.length > 0"
             role="toolbar"
             :aria-label="languages.ARTIFACT_ACTIONS"
             class="absolute top-2 right-2 flex gap-1 rounded-md bg-background/80 p-1 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
@@ -143,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, ref, watch, type Component, type StyleValue } from 'vue'
 import {
   ArrowDownTrayIcon,
   DocumentDuplicateIcon,
@@ -159,27 +153,18 @@ import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 import { usePromptStore } from '@/assets/js/store/promptArea'
+import ArtifactProgress from '@/components/ArtifactProgress.vue'
 import DeleteArtifactDialog from '@/components/DeleteArtifactDialog.vue'
-import ImageGenerationProgress from '@/components/ImageGenerationProgress.vue'
 import InfoTable from '@/components/InfoTable.vue'
-import LoadingBar from '@/components/LoadingBar.vue'
 import Model3DViewer from '@/components/Model3DViewer.vue'
-import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import * as toast from '@/assets/js/toast'
 import * as util from '@/assets/js/util'
-import { artifactPhaseLabel, isTerminalPhase } from '@/lib/artifactRunProjection'
 import type { ArtifactAction, TurnArtifact } from '@/lib/turnArtifacts'
-import type { ArtifactPhase } from '@/types/kernelEvents'
 import { hasDisplayableMedia, is3D, isVideo } from '@/types/mediaItem'
 
 /** The one artifact card: every image, video and 3D model a Turn shows, whoever made it. */
-const props = defineProps<{
-  artifacts: TurnArtifact[]
-  /** Phase of the owning run in flight; absent once nothing is running. */
-  phase?: ArtifactPhase
-  progress?: { current: number; max: number }
-}>()
+const props = defineProps<{ artifacts: TurnArtifact[] }>()
 
 const languages = useI18N().state
 const errors = useErrors()
@@ -189,11 +174,6 @@ const promptStore = usePromptStore()
 const showInfoParams = ref(false)
 const confirmingDelete = ref<string | null>(null)
 const selectedId = ref<string | null>(null)
-
-const processing = computed(() => !!props.phase && !isTerminalPhase(props.phase))
-const phaseLabel = computed(
-  () => artifactPhaseLabel(props.phase, props.progress, languages) ?? languages.COM_GENERATING,
-)
 
 watch(
   () => props.artifacts.map((artifact) => artifact.id),
@@ -207,6 +187,21 @@ const currentArtifact = computed(
   () => props.artifacts.find((artifact) => artifact.id === selectedId.value) ?? null,
 )
 
+/** Never wider than asked for, never taller than 70% of the window, in the requested aspect. */
+const MAX_HEIGHT = '70vh'
+const frameStyle = computed<StyleValue>(() => {
+  const artifact = currentArtifact.value
+  if (!artifact) return {}
+  const needsBox = is3D(artifact.item) || !hasDisplayableMedia(artifact.item)
+  const size = artifact.size ?? (needsBox ? { width: 512, height: 512 } : undefined)
+  if (!size) return { maxHeight: MAX_HEIGHT }
+  const ratio = size.width / size.height
+  return {
+    aspectRatio: `${size.width} / ${size.height}`,
+    width: `min(100%, ${size.width}px, calc(${MAX_HEIGHT} * ${ratio}))`,
+  }
+})
+
 const ACTIONS: Record<ArtifactAction, { icon: Component; label: () => string }> = {
   info: { icon: InformationCircleIcon, label: () => languages.COM_OPEN_PARAMS },
   zoom: { icon: MagnifyingGlassPlusIcon, label: () => languages.COM_ZOOM_IN },
@@ -219,7 +214,7 @@ const ACTIONS: Record<ArtifactAction, { icon: Component; label: () => string }> 
 }
 
 const toolbarActions = computed(() =>
-  (processing.value ? [] : (currentArtifact.value?.actions ?? [])).map((id) => ({
+  (currentArtifact.value?.actions ?? []).map((id) => ({
     id,
     icon: ACTIONS[id].icon,
     label: ACTIONS[id].label(),

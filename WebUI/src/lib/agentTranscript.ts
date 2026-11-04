@@ -80,13 +80,6 @@ export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
   return { items, steps }
 }
 
-/** The result's media, or — only while the call runs — what its live run has so far. */
-export function transcriptMediaItems(part: unknown, live: MediaItem[]): MediaItem[] {
-  const state = shapeOf(part).state
-  if (state === 'input-streaming' || state === 'input-available') return live
-  return generatedMediaOf(part)?.items ?? []
-}
-
 function isFinishedMedia(item: unknown): item is MediaItem {
   if (typeof item !== 'object' || item === null) return false
   const media = item as MediaItem

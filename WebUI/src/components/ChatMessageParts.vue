@@ -221,8 +221,7 @@ import {
   isChatWebBrowseToolPart,
 } from '@/lib/chatToolParts'
 import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
-import { toolPartMedia, turnArtifacts, type TurnArtifact } from '@/lib/turnArtifacts'
-import type { ArtifactPhase } from '@/types/kernelEvents'
+import { toolCallArtifacts } from '@/lib/turnArtifacts'
 
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */
 const props = defineProps<{
@@ -269,24 +268,8 @@ function toolInputRecord(part: { input?: unknown }): Record<string, unknown> {
     : {}
 }
 
-type ToolMediaCard = {
-  artifacts: TurnArtifact[]
-  phase?: ArtifactPhase
-  progress?: { current: number; max: number }
-}
-
-// The settled tool output names the files in the Session Folder; until then the
-// runs the call owns (directly, or through the media specialist) show progress.
-function toolMediaCard(part: ToolUIPart<AipgTools> | DynamicToolUIPart): ToolMediaCard {
-  if (!isChatMediaToolPart(part)) return { artifacts: [] }
-  const live = artifactRuns.viewFor(part.toolCallId)
-  const settled = part.state === 'output-available' || part.state === 'output-error'
-  const items = settled ? toolPartMedia(part) : live.items
-  return {
-    artifacts: turnArtifacts(items, sessions.openDeletedFiles),
-    phase: settled ? undefined : live.phase,
-    progress: live.progress,
-  }
+function toolMediaCard(part: ToolUIPart<AipgTools> | DynamicToolUIPart) {
+  return { artifacts: toolCallArtifacts(part, artifactRuns.state, sessions.openDeletedFiles) }
 }
 
 function messageHasLiveMedia(message: { parts?: unknown[] }): boolean {

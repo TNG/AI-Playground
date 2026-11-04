@@ -47,6 +47,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useActivities } from '@/assets/js/store/activities'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -73,6 +74,7 @@ const sessions = useSessions()
 const chat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const sessionAudio = useSessionAudio()
+const artifactRuns = useArtifactRuns()
 const promptStore = usePromptStore()
 const activities = useActivities()
 const confirmations = useConfirmations()
@@ -98,6 +100,7 @@ const items = computed(() =>
       agents: agentLive.value,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
       audio: sessionAudio.pendingTurn,
+      artifactRuns: artifactRuns.state,
     },
     { deletedUrls: sessions.openDeletedFiles },
   ),

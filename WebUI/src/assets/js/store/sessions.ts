@@ -24,6 +24,8 @@ export type PendingMediaTurn = {
   prompt: string
   inputImageUrl?: string
   createdAt: number
+  size?: { width: number; height: number }
+  batchSize?: number
 }
 
 type IpcResult<T> = ({ success: true } & T) | { success: false; error: string }

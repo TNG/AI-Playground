@@ -21,7 +21,15 @@ import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
-import { toolPartMedia, turnArtifacts, type TurnArtifact } from '@/lib/turnArtifacts'
+import type { ArtifactRunsState } from '@/lib/artifactRunProjection'
+import {
+  placeholderArtifacts,
+  runArtifacts,
+  toolCallArtifacts,
+  turnArtifacts,
+  type ArtifactSize,
+  type TurnArtifact,
+} from '@/lib/turnArtifacts'
 
 export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
 export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
@@ -290,6 +298,9 @@ export type PendingMedia = {
   mode: MediaTurnData['mode']
   prompt?: string
   inputImageUrl?: string
+  /** What was asked for, so placeholders hold the result's box before the run registers items. */
+  size?: ArtifactSize
+  batchSize?: number
 }
 
 /** What the timeline needs of an audio turn still running. */
@@ -303,6 +314,8 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   agents?: readonly LiveAgentTurn[]
   media?: M | null
   audio?: A | null
+  /** Artifact runs in flight or recently settled, whichever surface started them. */
+  artifactRuns?: ArtifactRunsState
 }
 
 /** What the timeline lays out top to bottom: Turns, and Task Runs holding theirs. */
@@ -316,7 +329,7 @@ export type TimelineFiles = {
 
 export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
   | TimelineEntry
-  | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M }>
+  | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M; artifacts: TurnArtifact[] }>
   | TurnOf<'pending-audio', { prompt: TurnPrompt; pending: A }>
 
 /**
@@ -333,7 +346,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   for (const agent of live.agents ?? []) {
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
-  const turns = timelineTurns(merged, files)
+  const turns = timelineTurns(merged, files, live.artifactRuns)
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
@@ -349,6 +362,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       }),
       footer: noFooter(),
       pending: media,
+      artifacts: pendingMediaArtifacts(media, live.artifactRuns, files.deletedUrls ?? []),
     })
   }
   if (live.audio) {
@@ -801,11 +815,26 @@ function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): voi
   if (run?.kind === 'task-run') run.live = agent.live
 }
 
-function withArtifacts(turns: TimelineTurn[], deletedUrls: readonly string[]): TimelineTurn[] {
+function pendingMediaArtifacts(
+  media: PendingMedia,
+  artifactRuns: ArtifactRunsState | undefined,
+  deletedUrls: readonly string[],
+): TurnArtifact[] {
+  const run = artifactRuns?.runs[media.runId]
+  if (run) return runArtifacts([run], deletedUrls)
+  return placeholderArtifacts(media.runId, media.mode, media.size, media.batchSize ?? 1)
+}
+
+function withArtifacts(
+  turns: TimelineTurn[],
+  deletedUrls: readonly string[],
+  artifactRuns: ArtifactRunsState | undefined,
+): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat' || turn.kind === 'agent') {
-      const items = turn.answers.flatMap((answer) => answer.parts.flatMap(toolPartMedia))
-      turn.artifacts = turnArtifacts(items, deletedUrls)
+      turn.artifacts = turn.answers.flatMap((answer) =>
+        answer.parts.flatMap((part) => toolCallArtifacts(part, artifactRuns, deletedUrls)),
+      )
     }
     if (turn.kind === 'media') turn.artifacts = turnArtifacts(turn.media.items, deletedUrls)
   }
@@ -845,6 +874,7 @@ function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
 export function timelineTurns(
   timeline: readonly unknown[],
   files: TimelineFiles = {},
+  artifactRuns?: ArtifactRunsState,
 ): TimelineEntry[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
@@ -941,5 +971,7 @@ export function timelineTurns(
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return withTaskRuns(withArtifacts(withAnswers(turns, prompts), files.deletedUrls ?? []))
+  return withTaskRuns(
+    withArtifacts(withAnswers(turns, prompts), files.deletedUrls ?? [], artifactRuns),
+  )
 }

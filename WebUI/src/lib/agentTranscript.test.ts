@@ -3,7 +3,6 @@ import {
   compactionOutputOf,
   generatedMediaOf,
   mediaFileRefOf,
-  transcriptMediaItems,
   mediaToolNameOf,
   toolPartNameOf,
   busyLabelOf,
@@ -223,37 +222,6 @@ describe('generatedMediaOf (speech)', () => {
     expect(generatedMediaOf({ ...tool('synthesizeTextToSpeech', 'output-error') })).toBeUndefined()
     const noCopy = { details: { audio: { workspacePath: 'generated/speech.wav' } } }
     expect(generatedMediaOf(speechPart(noCopy))).toBeUndefined()
-  })
-})
-
-describe('transcriptMediaItems', () => {
-  const finished = {
-    id: 'a',
-    type: 'image',
-    imageUrl: 'aipg-media://a.png',
-    mode: 'imageGen',
-    settings: {},
-    state: 'done',
-  }
-  const live = [{ ...finished, id: 'live', state: 'generating' }] as never[]
-
-  function part(state: string, output?: unknown) {
-    return { ...tool('generateImage', state), output }
-  }
-
-  it('shows the finished items from the result', () => {
-    const done = part('output-available', { content: [], details: { items: [finished] } })
-    expect(transcriptMediaItems(done, live).map((item) => item.id)).toEqual(['a'])
-  })
-
-  it('shows what the run has so far while the tool is running', () => {
-    expect(transcriptMediaItems(part('input-available'), live)).toBe(live)
-    expect(transcriptMediaItems(part('input-streaming'), live)).toBe(live)
-  })
-
-  it('shows no media for a failed call or a finished one without items', () => {
-    expect(transcriptMediaItems({ ...part('output-error'), errorText: 'boom' }, live)).toEqual([])
-    expect(transcriptMediaItems(part('output-available', { content: [] }), live)).toEqual([])
   })
 })
 

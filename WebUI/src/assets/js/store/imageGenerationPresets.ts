@@ -35,7 +35,13 @@ import { referenceSlotToFill } from '@/lib/referenceImageFit'
 import { defaultReferenceSlots } from '@/lib/sessionDefaultInputs'
 import { withTraceSpan } from '@/lib/laminarSpans'
 import { turnQueuedLabel } from '@/lib/queueActivityProjection'
-import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
+import {
+  runArtifact,
+  type ArtifactKind,
+  type ArtifactRequest,
+  type ArtifactResult,
+} from '../artifact/runArtifact'
+import type { MediaRerun } from '@/lib/sessionTimeline'
 import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
@@ -1124,6 +1130,37 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       return
     }
 
+    return runPanelTurn(
+      {
+        kind: MODE_TO_ARTIFACT_KIND[mode],
+        workflow: preset.name,
+        variant: presetsStore.activeVariantName[preset.name] || undefined,
+        mode,
+        prompt: prompt.value,
+        negativePrompt: negativePrompt.value,
+        params: {
+          seed: seed.value,
+          width: width.value,
+          height: height.value,
+          inferenceSteps: inferenceSteps.value,
+          batchSize: batchSize.value,
+        },
+      },
+      mode === 'imageGen' ? undefined : inputImageUrl(),
+    )
+  }
+
+  /** Reruns a ComfyUI Turn as recorded, with a new seed, as a new Turn. */
+  function regenerate(rerun: MediaRerun): Promise<ArtifactResult | undefined> {
+    const { inputImageUrl: turnInputImageUrl, ...request } = rerun
+    return runPanelTurn({ kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request }, turnInputImageUrl)
+  }
+
+  async function runPanelTurn(
+    request: ArtifactRequest & { mode: WorkflowModeType },
+    turnInputImageUrl: string | undefined,
+  ): Promise<ArtifactResult | undefined> {
+    const mode = request.mode
     lastError.value = null
     // Drop abandoned placeholders from a previous cancelled/failed run
     generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')
@@ -1145,33 +1182,20 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       sessions.beginMediaTurn(sessionId, {
         runId,
         mode,
-        preset: preset.name,
-        prompt: prompt.value,
-        inputImageUrl: mode === 'imageGen' ? undefined : inputImageUrl(),
+        preset: request.workflow,
+        prompt: request.prompt ?? '',
+        inputImageUrl: turnInputImageUrl,
         createdAt: Date.now(),
       })
     }
     // UI runs are top-level: no parent activity (the runner resets the stale
     // tool-parented value the previous chat run may have left behind).
     try {
-      return await runArtifact(
-        {
-          kind: MODE_TO_ARTIFACT_KIND[mode],
-          workflow: preset.name,
-          variant: presetsStore.activeVariantName[preset.name] || undefined,
-          mode,
-          prompt: prompt.value,
-          negativePrompt: negativePrompt.value,
-          params: {
-            seed: seed.value,
-            width: width.value,
-            height: height.value,
-            inferenceSteps: inferenceSteps.value,
-            batchSize: batchSize.value,
-          },
-        },
-        { abortSignal: abort.signal, sessionId: sessionId ?? undefined, runId },
-      )
+      return await runArtifact(request, {
+        abortSignal: abort.signal,
+        sessionId: sessionId ?? undefined,
+        runId,
+      })
     } finally {
       if (sessionId) sessions.endMediaTurn(sessionId, runId)
       if (panelAbort === abort) panelAbort = null
@@ -1288,6 +1312,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     trackArtifactRun,
     untrackArtifactRun,
     generate,
+    regenerate,
     stopGeneration,
     deleteImage,
     deleteAllImages,

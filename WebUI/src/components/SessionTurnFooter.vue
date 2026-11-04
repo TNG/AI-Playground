@@ -31,8 +31,8 @@
         <button
           v-else-if="action === 'regenerate'"
           class="flex items-end"
-          :disabled="openAiCompatibleChat.processing"
-          :class="{ 'opacity-50 cursor-not-allowed': openAiCompatibleChat.processing }"
+          :disabled="regenerateBlocked"
+          :class="{ 'opacity-50 cursor-not-allowed': regenerateBlocked }"
           @click="regenerate"
         >
           <span class="svg-icon i-refresh w-4 h-4" aria-hidden="true"></span>
@@ -79,6 +79,9 @@
 import { computed } from 'vue'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
+import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
+import { useErrors } from '@/assets/js/store/errors'
+import { isCancellation } from '@/assets/js/errors/appError'
 import { useTextInference } from '@/assets/js/store/textInference'
 import {
   isSpeaking,
@@ -91,12 +94,14 @@ import {
 import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib/chatEnergy'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
-import type { TurnFooter } from '@/lib/sessionTimeline'
+import type { MediaRerun, TurnFooter } from '@/lib/sessionTimeline'
 
 /** The actions that apply to a Turn, and its metrics where it has them. */
 const props = defineProps<{ footer: TurnFooter }>()
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
+const imageGeneration = useImageGenerationPresets()
+const errors = useErrors()
 const textInference = useTextInference()
 const languages = useI18N().state
 
@@ -104,7 +109,12 @@ const shownActions = computed(() =>
   props.footer.actions.filter((action) => action !== 'speak' || speakRepliesAvailable()),
 )
 const metricsShown = computed(() => textInference.metricsEnabled)
-const newestAnswer = computed(() => props.footer.actions.includes('regenerate'))
+const newestAnswer = computed(
+  () => props.footer.actions.includes('regenerate') && !props.footer.rerun,
+)
+const regenerateBlocked = computed(
+  () => openAiCompatibleChat.processing || (!!props.footer.rerun && imageGeneration.processing),
+)
 const conversationEnergy = computed(() =>
   estimateConversationEnergy(openAiCompatibleChat.messages ?? []),
 )
@@ -132,8 +142,23 @@ function toggleSpeak() {
   void speak({ text: props.footer.text, messageId })
 }
 
+async function rerunMedia(rerun: MediaRerun) {
+  try {
+    await imageGeneration.regenerate(rerun)
+  } catch (error) {
+    imageGeneration.processing = false
+    if (isCancellation(error)) return
+    errors.report(error, {
+      category: 'generation',
+      code: 'generation/submit-failed',
+      userMessage: languages.SESSION_IMAGE_GENERATION_FAILED,
+    })
+  }
+}
+
 function regenerate() {
-  if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
+  if (props.footer.rerun) void rerunMedia(props.footer.rerun)
+  else if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
 }
 
 function remove() {

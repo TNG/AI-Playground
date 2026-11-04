@@ -868,3 +868,166 @@ describe('artifacts on every Turn', () => {
     }
   })
 })
+
+describe('Regenerate on the last ComfyUI Turn', () => {
+  const sourceInput = {
+    label: 'Image',
+    nodeTitle: 'Load Image',
+    nodeInput: 'image',
+    type: 'image',
+    defaultValue: '',
+  }
+  const strengthInput = {
+    label: 'Strength',
+    nodeTitle: 'Sampler',
+    nodeInput: 'denoise',
+    type: 'number',
+    defaultValue: 1,
+  }
+  const editItem = (image: string, extra: object = {}) => ({
+    id: 'i1',
+    state: 'done',
+    mode: 'imageEdit',
+    type: 'image',
+    imageUrl: 'aipg-media://sessions/s1/files/out.png',
+    settings: {
+      preset: 'Edit',
+      variant: 'Fast',
+      prompt: 'make it blue',
+      negativePrompt: 'blurry',
+      seed: 42,
+      inferenceSteps: 8,
+      width: 768,
+      height: 512,
+      batchSize: 2,
+    },
+    dynamicSettings: [
+      { ...strengthInput, current: 0.6 },
+      { ...sourceInput, current: image },
+    ],
+    ...extra,
+  })
+  const comfyTurn = (id: string, data: object) => [
+    { ...mediaPrompt, id: `p-${id}`, parts: [{ type: 'text', text: 'make it blue' }] },
+    {
+      ...mediaCard,
+      id,
+      parts: [
+        {
+          type: 'data-media',
+          data: {
+            runId: `r-${id}`,
+            mode: 'imageEdit',
+            preset: 'Edit',
+            variant: 'Fast',
+            status: 'completed',
+            items: [editItem('aipg-media://sessions/s1/files/in.png')],
+            ...data,
+          },
+        },
+      ],
+    },
+  ]
+  const footerOf = (item: unknown) =>
+    (item as { footer: { actions: string[]; rerun?: unknown } }).footer
+
+  it("reruns the last ComfyUI Turn's preset, variant, settings and inputs with a new seed", () => {
+    const items = sessionTimelineItems(comfyTurn('c1', {}), {})
+
+    expect(footerOf(items[0])).toEqual({
+      actions: ['regenerate'],
+      text: '',
+      rerun: {
+        mode: 'imageEdit',
+        workflow: 'Edit',
+        variant: 'Fast',
+        prompt: 'make it blue',
+        negativePrompt: 'blurry',
+        params: { seed: -1, inferenceSteps: 8, width: 768, height: 512, batchSize: 2 },
+        inputs: {
+          'Sampler.denoise': 0.6,
+          'Load Image.image': 'aipg-media://sessions/s1/files/in.png',
+        },
+        inputImageUrl: 'aipg-media://sessions/s1/files/in.png',
+      },
+    })
+  })
+
+  it('offers Regenerate on the last ComfyUI Turn only', () => {
+    const items = sessionTimelineItems([...comfyTurn('c1', {}), ...comfyTurn('c2', {})], {})
+
+    expect(items.map((item) => footerOf(item).actions)).toEqual([[], ['regenerate']])
+  })
+
+  it('offers no Regenerate on a ComfyUI Turn that another Turn followed', () => {
+    const items = sessionTimelineItems(
+      [
+        ...comfyTurn('c1', {}),
+        chatMessage('u1', 'user', 'hi'),
+        chatMessage('a1', 'assistant', 'yo'),
+      ],
+      {},
+    )
+
+    expect(footerOf(items[0]).actions).toEqual([])
+  })
+
+  it('offers no Regenerate while another ComfyUI run is in flight', () => {
+    const items = sessionTimelineItems(comfyTurn('c1', {}), {
+      media: { runId: 'r9', prompt: 'again', preset: 'Edit', mode: 'imageEdit' as const },
+    })
+
+    expect(footerOf(items[0]).actions).toEqual([])
+  })
+
+  it('offers Regenerate on a failed run that recorded its settings', () => {
+    const items = sessionTimelineItems(
+      comfyTurn('c1', {
+        status: 'failed',
+        error: 'out of memory',
+        items: [editItem('aipg-media://sessions/s1/files/in.png', { state: 'failed' })],
+      }),
+      {},
+    )
+
+    expect(footerOf(items[0]).actions).toEqual(['regenerate'])
+  })
+
+  it('offers no Regenerate on a run that recorded no settings', () => {
+    const items = sessionTimelineItems(comfyTurn('c1', { status: 'failed', items: [] }), {})
+
+    expect(footerOf(items[0]).actions).toEqual([])
+  })
+
+  it('reruns with the recorded source image when the Session could not keep the input', () => {
+    const items = sessionTimelineItems(
+      comfyTurn('c1', {
+        items: [editItem('', { sourceImageUrl: 'aipg-media://sessions/s1/files/src.png' })],
+      }),
+      {},
+    )
+
+    expect(footerOf(items[0])).toMatchObject({
+      rerun: { inputs: { 'Load Image.image': 'aipg-media://sessions/s1/files/src.png' } },
+    })
+  })
+
+  it('offers no Regenerate when the input image is lost', () => {
+    const items = sessionTimelineItems(comfyTurn('c1', { items: [editItem('')] }), {})
+
+    expect(footerOf(items[0]).actions).toEqual([])
+  })
+
+  it('keeps an optional input image left empty', () => {
+    const optional = { ...sourceInput, nodeTitle: 'Style', optional: true, current: '' }
+    const item = editItem('aipg-media://sessions/s1/files/in.png')
+    const items = sessionTimelineItems(
+      comfyTurn('c1', {
+        items: [{ ...item, dynamicSettings: [...item.dynamicSettings, optional] }],
+      }),
+      {},
+    )
+
+    expect(footerOf(items[0])).toMatchObject({ rerun: { inputs: { 'Style.image': '' } } })
+  })
+})

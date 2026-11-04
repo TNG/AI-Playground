@@ -1186,8 +1186,11 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
         prompt: request.prompt ?? '',
         inputImageUrl: turnInputImageUrl,
         createdAt: Date.now(),
-        size: { width: width.value, height: height.value },
-        batchSize: batchSize.value,
+        size:
+          request.params?.width && request.params.height
+            ? { width: request.params.width, height: request.params.height }
+            : undefined,
+        batchSize: request.params?.batchSize,
       })
     }
     // UI runs are top-level: no parent activity (the runner resets the stale

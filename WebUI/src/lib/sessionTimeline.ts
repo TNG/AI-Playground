@@ -9,22 +9,56 @@ import type {
 } from '@/types/sessionTimeline'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
 
-/** What the Session timeline renders, one block per turn; a Task Run is an agent block. */
-export type TimelineTurn =
-  | { kind: 'media'; id: string; prompt: string; createdAt: number; media: MediaTurnData }
-  | { kind: 'audio'; id: string; prompt: string; createdAt: number; audio: AudioTurnData }
-  | { kind: 'message'; id: string; message: TimelineMessage }
-  | {
-      kind: 'agent'
-      id: string
-      presetName: string
-      harnessSessionId: string
-      messages: UIMessage[]
-      taskRun?: TaskRunTag
-      /** Set on the last block of a Harness Session that is open or running. */
-      live?: LiveAgentTurn
-    }
-  | { kind: 'chat'; id: string; messages: UIMessage[] }
+export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
+export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
+
+/** Which preset ran a Turn: its kind and name, with the model or engine for the tooltip. */
+export type TurnHint = { kind: TurnHintKind; icon: TurnHintIcon; preset: string; detail?: string }
+
+/**
+ * One prompt and what it produced. `SessionTurn.vue` lays every kind out the same way —
+ * prompt, hint, Turn Details, Result, footer — and the fields of each kind fill those slots.
+ */
+type TurnOf<K extends string, Body> = { kind: K; id: string; hint: TurnHint } & Body
+
+export type ChatTurn = TurnOf<'chat', { prompt?: UIMessage; answers: UIMessage[] }>
+
+export type AgentTurn = TurnOf<
+  'agent',
+  {
+    presetName: string
+    harnessSessionId: string
+    prompt?: UIMessage
+    answers: UIMessage[]
+    taskRun?: TaskRunTag
+    /** The answer is streaming right now. */
+    streaming?: boolean
+    /** The prompt waits in the Turn Queue. */
+    queued?: boolean
+    /** The prompt never ran (the app closed first). */
+    notRun?: boolean
+    canResend?: boolean
+  }
+>
+
+export type MediaTurn = TurnOf<'media', { prompt: string; createdAt: number; media: MediaTurnData }>
+
+export type AudioTurn = TurnOf<'audio', { prompt: string; createdAt: number; audio: AudioTurnData }>
+
+/** A saved message that answers no prompt the timeline knows. */
+export type MessageTurn = { kind: 'message'; id: string; message: TimelineMessage }
+
+export type TimelineTurn = ChatTurn | AgentTurn | MediaTurn | AudioTurn | MessageTurn
+
+/** A scheduled run of an Agent: a collapsible container of its Turns. */
+export type TaskRunItem = {
+  kind: 'task-run'
+  id: string
+  harnessSessionId: string
+  taskRun: TaskRunTag
+  turns: AgentTurn[]
+  live: boolean
+}
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -128,8 +162,14 @@ function withLiveChatTurn(
   return [...merged, ...tagged.values()]
 }
 
+/** What the timeline needs of a ComfyUI run still in flight. */
+export type PendingMedia = { runId: string; preset: string; mode: MediaTurnData['mode'] }
+
+/** What the timeline needs of an audio turn still running. */
+export type PendingAudio = { kind: AudioTurnData['kind']; preset: string }
+
 /** Everything of the open Session still in flight, whichever preset or mode started it. */
-export type LiveTurns<M extends { runId: string }, A> = {
+export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   /** The Session's chat transcript as the chat store holds it, streaming turn included. */
   chat?: readonly { id: string }[]
   /** Each Harness Session of the Session that is open or running a turn (Task Runs too). */
@@ -138,17 +178,18 @@ export type LiveTurns<M extends { runId: string }, A> = {
   audio?: A | null
 }
 
-export type SessionTimelineItem<M = unknown, A = unknown> =
-  | TimelineTurn
-  | { kind: 'pending-media'; id: string; pending: M }
-  | { kind: 'pending-audio'; id: string; pending: A }
+/** What the timeline lays out top to bottom: Turns, and Task Runs holding theirs. */
+export type TimelineEntry = TimelineTurn | TaskRunItem
+
+export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
+  TimelineEntry | TurnOf<'pending-media', { pending: M }> | TurnOf<'pending-audio', { pending: A }>
 
 /**
  * The one main-area timeline of a Session: its saved turns with every live turn laid
  * over them — a live copy replaces its saved message in place, what is not saved yet
  * follows at the end — so what is on screen never depends on the active mode.
  */
-export function sessionTimelineItems<M extends { runId: string }, A>(
+export function sessionTimelineItems<M extends PendingMedia, A extends PendingAudio>(
   timeline: readonly unknown[],
   live: LiveTurns<M, A>,
 ): SessionTimelineItem<M, A>[] {
@@ -157,27 +198,136 @@ export function sessionTimelineItems<M extends { runId: string }, A>(
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
   const turns = timelineTurns(merged)
-  for (const agent of live.agents ?? []) {
-    const block = turns.findLast(
-      (turn) => turn.kind === 'agent' && turn.harnessSessionId === agent.tag.harnessSessionId,
-    )
-    if (block?.kind === 'agent') block.live = agent
-  }
+  for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
-    items.push({ kind: 'pending-media', id: media.runId, pending: media })
+    items.push({ kind: 'pending-media', id: media.runId, hint: mediaHint(media), pending: media })
   }
-  if (live.audio) items.push({ kind: 'pending-audio', id: 'pending-audio', pending: live.audio })
+  if (live.audio) {
+    const audio = live.audio
+    items.push({
+      kind: 'pending-audio',
+      id: 'pending-audio',
+      hint: audioHint(audio),
+      pending: audio,
+    })
+  }
   return items
 }
 
+/** A model id as people know it: a GGUF file's name without its folder and extension. */
+export function modelDisplayName(model: string): string {
+  return model.endsWith('.gguf')
+    ? (model.split('/').at(-1)?.slice(0, -'.gguf'.length) ?? model)
+    : model
+}
+
+function metadataOf(message: UIMessage | undefined): { model?: unknown; preset?: unknown } {
+  return (message?.metadata as { model?: unknown; preset?: unknown } | undefined) ?? {}
+}
+
+function stampedString(messages: (UIMessage | undefined)[], key: 'model' | 'preset') {
+  for (const message of messages) {
+    const value = metadataOf(message)[key]
+    if (typeof value === 'string' && value) return value
+  }
+  return undefined
+}
+
+function chatHint(prompt: UIMessage | undefined, answers: UIMessage[]): TurnHint {
+  const model = stampedString([...answers, prompt], 'model')
+  const preset = stampedString([...answers, prompt], 'preset')
+  const detail = model ? modelDisplayName(model) : undefined
+  if (preset) return { kind: 'chat', icon: 'chat', preset, ...(detail ? { detail } : {}) }
+  return { kind: 'chat', icon: 'chat', preset: detail ?? 'Chat' }
+}
+
+function agentHint(presetName: string, answers: UIMessage[]): TurnHint {
+  const model = stampedString(answers, 'model')
+  return {
+    kind: 'agent',
+    icon: 'agent',
+    preset: presetName,
+    ...(model ? { detail: modelDisplayName(model) } : {}),
+  }
+}
+
+function mediaHint(media: PendingMedia & { variant?: string }): TurnHint {
+  return {
+    kind: 'workflow',
+    icon: media.mode === 'video' ? 'video' : 'image',
+    preset: media.preset,
+    ...(media.variant ? { detail: media.variant } : {}),
+  }
+}
+
+function audioHint(audio: PendingAudio & { engine?: string }): TurnHint {
+  return {
+    kind: 'speech',
+    icon: audio.kind,
+    preset: audio.preset,
+    ...(audio.engine ? { detail: audio.engine } : {}),
+  }
+}
+
+/** Chat and agent answers arrive after their Turn is opened, so their hint is read last. */
+function withMessageHints(turns: TimelineTurn[]): TimelineTurn[] {
+  for (const turn of turns) {
+    if (turn.kind === 'chat') turn.hint = chatHint(turn.prompt, turn.answers)
+    if (turn.kind === 'agent') turn.hint = agentHint(turn.presetName, turn.answers)
+  }
+  return turns
+}
+
+function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): void {
+  const id = agent.tag.harnessSessionId
+  const turns = entries.flatMap((entry) => {
+    if (entry.kind === 'task-run') return entry.harnessSessionId === id ? entry.turns : []
+    return entry.kind === 'agent' && entry.harnessSessionId === id ? [entry] : []
+  })
+  const last = turns.at(-1)
+  for (const turn of turns) {
+    turn.streaming = agent.live && turn === last
+    turn.queued = !!turn.prompt && turn.prompt.id === agent.queuedMessageId
+    turn.notRun = !!turn.prompt && turn.prompt.id === agent.notRunMessageId
+    turn.canResend = !!agent.canResend && turn.notRun && turn === last
+  }
+  const run = entries.find((entry) => entry.kind === 'task-run' && entry.harnessSessionId === id)
+  if (run?.kind === 'task-run') run.live = agent.live
+}
+
+/** Folds each Task Run's consecutive Turns into its container. */
+function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = []
+  for (const turn of turns) {
+    if (turn.kind !== 'agent' || !turn.taskRun) {
+      entries.push(turn)
+      continue
+    }
+    const last = entries.at(-1)
+    if (last?.kind === 'task-run' && last.harnessSessionId === turn.harnessSessionId) {
+      last.turns.push(turn)
+      continue
+    }
+    entries.push({
+      kind: 'task-run',
+      id: `task-run-${turn.id}`,
+      harnessSessionId: turn.harnessSessionId,
+      taskRun: turn.taskRun,
+      turns: [turn],
+      live: false,
+    })
+  }
+  return entries
+}
+
 /**
- * Pairs each prompt with the result card that answered it, and keeps a run of
- * one Harness Session's messages together as one agent block; anything else
- * stays a plain message.
+ * One Turn per prompt: a chat or agent prompt with the answers that followed it, a
+ * ComfyUI or audio prompt with its result card; a Task Run holds its Turns. Anything
+ * else stays a plain message.
  */
-export function timelineTurns(timeline: readonly unknown[]): TimelineTurn[] {
+export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
   for (let i = 0; i < messages.length; i++) {
@@ -185,15 +335,20 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineTurn[] {
     const tag = agentTagOf(message)
     if (tag && isUIMessage(message)) {
       const last = turns.at(-1)
-      if (last?.kind === 'agent' && last.harnessSessionId === tag.harnessSessionId) {
-        last.messages.push(message)
+      if (
+        message.role === 'assistant' &&
+        last?.kind === 'agent' &&
+        last.harnessSessionId === tag.harnessSessionId
+      ) {
+        last.answers.push(message)
       } else {
         turns.push({
           kind: 'agent',
           id: message.id,
+          hint: agentHint(tag.presetName, []),
           presetName: tag.presetName,
           harnessSessionId: tag.harnessSessionId,
-          messages: [message],
+          ...(message.role === 'user' ? { prompt: message, answers: [] } : { answers: [message] }),
           ...(tag.taskRun ? { taskRun: tag.taskRun } : {}),
         })
       }
@@ -201,8 +356,17 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineTurn[] {
     }
     if (asChatTranscriptMessage(message) && isUIMessage(message)) {
       const last = turns.at(-1)
-      if (last?.kind === 'chat') last.messages.push(message)
-      else turns.push({ kind: 'chat', id: message.id, messages: [message] })
+      if (message.role === 'assistant' && last?.kind === 'chat') {
+        last.answers.push(message)
+        continue
+      }
+      const prompted = message.role === 'user'
+      turns.push({
+        kind: 'chat',
+        id: message.id,
+        hint: chatHint(undefined, []),
+        ...(prompted ? { prompt: message, answers: [] } : { answers: [message] }),
+      })
       continue
     }
     const next = messages[i + 1]
@@ -213,6 +377,7 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineTurn[] {
       turns.push({
         kind: 'audio',
         id: answer.id,
+        hint: audioHint(audio),
         prompt: promptOf(message),
         createdAt: message.createdAt,
         audio,
@@ -224,6 +389,7 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineTurn[] {
       turns.push({
         kind: 'media',
         id: next.id,
+        hint: mediaHint(media),
         prompt: promptOf(message),
         createdAt: message.createdAt,
         media,
@@ -233,5 +399,5 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineTurn[] {
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return turns
+  return withTaskRuns(withMessageHints(turns))
 }

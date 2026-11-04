@@ -403,6 +403,7 @@ export async function startAgentTurn(
     : null
   const translator = createStreamTranslator({
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
+    model: config.readiness?.llmModelName ?? config.modelConfig.model,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },

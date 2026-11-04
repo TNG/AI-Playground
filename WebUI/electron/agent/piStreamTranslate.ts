@@ -68,6 +68,8 @@ export type StreamTranslatorOptions = {
   onToolProgress?: (update: { toolCallId: string; toolName: string; text: string }) => void
   /** Clock for reasoning durations; injectable so tests can pin them. */
   now?: () => number
+  /** The model answering, stamped on the answer's metadata. */
+  model?: string
 }
 
 export type StreamTranslator = {
@@ -165,7 +167,11 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
   function ensureStarted(): void {
     if (started) return
     started = true
-    emit({ type: 'start' })
+    emit(
+      options.model
+        ? { type: 'start', messageMetadata: { model: options.model } }
+        : { type: 'start' },
+    )
   }
 
   function ensureStep(): void {

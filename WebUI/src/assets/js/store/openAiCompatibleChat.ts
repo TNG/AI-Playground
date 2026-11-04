@@ -77,6 +77,8 @@ const LlamaCppRawValueTimingsSchema = z.object({
 
 export type AipgMetadata = {
   model?: string
+  /** The preset that ran the turn, for the Session timeline's hint. */
+  preset?: string
   timestamp?: number
   conversationTitle?: string
   timings?: z.infer<typeof LlamaCppRawValueTimingsSchema>
@@ -782,6 +784,7 @@ export const useOpenAiCompatibleChat = defineStore(
               files: effectiveFiles,
               metadata: {
                 model: textInference.activeModel,
+                ...(presets.activePresetName ? { preset: presets.activePresetName } : {}),
                 timestamp: Date.now(),
               },
             },

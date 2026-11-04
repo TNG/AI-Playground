@@ -1305,6 +1305,7 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
 
           return {
             model: config.modelId,
+            ...(request.presetName ? { preset: request.presetName } : {}),
             timestamp: Date.now(),
             timings,
             compute,

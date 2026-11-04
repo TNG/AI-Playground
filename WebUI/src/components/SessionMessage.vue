@@ -58,7 +58,10 @@
       </div>
     </template>
   </SessionUserBubble>
-  <SessionAssistantBubble v-else-if="message.role === 'assistant'" :label="modelLabel">
+  <SessionAssistantBubble
+    v-else-if="message.role === 'assistant'"
+    :label="unlabelled ? undefined : modelLabel"
+  >
     <template v-if="engine === 'chat' && ragSource" #badges>
       <button
         class="bg-primary text-foreground font-sans rounded-md px-1 py-1 flex items-center gap-1"
@@ -102,6 +105,7 @@ import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard, messageText } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { modelDisplayName } from '@/lib/sessionTimeline'
 import {
   ArrowPathIcon,
   ClockIcon,
@@ -125,6 +129,8 @@ const props = defineProps<{
   queued?: boolean
   notRun?: boolean
   canResend?: boolean
+  /** The Turn's hint already names the model, so the answer does not. */
+  unlabelled?: boolean
 }>()
 
 const emit = defineEmits<{ resend: [] }>()
@@ -140,8 +146,7 @@ const origin = computed(() => (props.message.metadata as AgentMessageMetadata | 
 
 const modelLabel = computed(() => {
   const model = chatMessage.value.metadata?.model
-  if (!model) return undefined
-  return model.endsWith('.gguf') ? (model.split('/').at(-1)?.split('.gguf')[0] ?? model) : model
+  return model ? modelDisplayName(model) : undefined
 })
 
 type FilePart = { type: string; mediaType?: string; url?: string; filename?: string }

@@ -179,30 +179,72 @@ export function placeholderArtifacts(
   )
 }
 
-type ToolOutput = {
+type MediaToolRecord = {
   images?: unknown
   unfinished?: unknown
   success?: unknown
   state?: unknown
   error?: unknown
   message?: unknown
-  details?: { items?: unknown; failure?: GenerationFailureRecord }
-  content?: unknown
 }
 
-function isMediaToolPart(part: unknown): boolean {
-  return isChatMediaToolPart(part) || !!mediaToolNameOf(part)
+type PiToolDetails = { items?: unknown; failure?: GenerationFailureRecord }
+
+type MediaToolCall = {
+  state: 'running' | 'settled' | 'failed' | 'other'
+  toolCallId?: string
+  prompt?: string
+  errorText?: string
+  record?: MediaToolRecord
+  // Pi answers `{ content, details }` with its record as JSON text; chat tools answer the record.
+  pi?: { details: PiToolDetails }
 }
 
-function settledOutput(part: unknown): ToolOutput | null {
-  const { state, output } = part as { state?: unknown; output?: unknown }
-  if (state !== 'output-available' || typeof output !== 'object' || output === null) return null
-  return output as ToolOutput
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
 }
 
-/** Pi answers `{ content, details }`; chat tools answer their record itself. */
-function isAgentOutput(output: ToolOutput): boolean {
-  return 'details' in output || 'content' in output
+function jsonTextOf(content: unknown): MediaToolRecord | undefined {
+  const entry = (Array.isArray(content) ? content : [])
+    .map(recordOf)
+    .find((candidate) => candidate?.type === 'text')
+  if (typeof entry?.text !== 'string') return undefined
+  try {
+    return recordOf(JSON.parse(entry.text)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function callState(state: unknown): MediaToolCall['state'] {
+  if (state === 'input-streaming' || state === 'input-available') return 'running'
+  if (state === 'output-available') return 'settled'
+  return state === 'output-error' ? 'failed' : 'other'
+}
+
+function mediaToolCall(part: unknown): MediaToolCall | null {
+  if (!isChatMediaToolPart(part) && !mediaToolNameOf(part)) return null
+  const fields = recordOf(part) ?? {}
+  const prompt = recordOf(fields.input)?.prompt
+  const call: MediaToolCall = {
+    state: callState(fields.state),
+    ...(typeof fields.toolCallId === 'string' ? { toolCallId: fields.toolCallId } : {}),
+    ...(typeof prompt === 'string' && prompt ? { prompt } : {}),
+    ...(typeof fields.errorText === 'string' && fields.errorText
+      ? { errorText: fields.errorText }
+      : {}),
+  }
+  const output = recordOf(fields.output)
+  if (call.state !== 'settled' || !output) return call
+  if (!('details' in output) && !('content' in output)) return { ...call, record: output }
+  const record = jsonTextOf(output.content)
+  return {
+    ...call,
+    ...(record ? { record } : {}),
+    pi: { details: (recordOf(output.details) ?? {}) as PiToolDetails },
+  }
 }
 
 function unfinishedOf(value: unknown): MediaItem[] {
@@ -211,24 +253,27 @@ function unfinishedOf(value: unknown): MediaItem[] {
   )
 }
 
-/** What a settled chat or Agent Preset media tool call produced, and the slots that failed. */
-export function toolPartMedia(part: unknown): MediaItem[] {
-  if (!isMediaToolPart(part)) return []
-  const output = settledOutput(part)
-  if (!output) return []
-  if (isAgentOutput(output)) {
-    return [...(generatedMediaOf(part)?.items ?? []), ...unfinishedOf(output.details?.items)]
+function settledMedia(part: unknown, call: MediaToolCall): MediaItem[] {
+  if (call.pi) {
+    return [...(generatedMediaOf(part)?.items ?? []), ...unfinishedOf(call.pi.details.items)]
   }
-  const images = Array.isArray(output.images) ? (output.images as MediaItem[]) : []
+  const images = Array.isArray(call.record?.images) ? (call.record.images as MediaItem[]) : []
   return [
     ...images.map((image) => ({ ...image, state: 'done' as const })),
-    ...unfinishedOf(output.unfinished),
+    ...unfinishedOf(call.record?.unfinished),
   ]
+}
+
+/** What a settled chat or Agent Preset media tool call produced, and the slots that failed. */
+export function toolPartMedia(part: unknown): MediaItem[] {
+  const call = mediaToolCall(part)
+  if (call?.state !== 'settled') return []
+  return settledMedia(part, call)
 }
 
 const CANCELLED_MESSAGE = 'Generation cancelled.'
 
-function failureRecordOf(record: ToolOutput | null | undefined): GenerationFailureRecord | null {
+function failureRecordOf(record: MediaToolRecord | undefined): GenerationFailureRecord | null {
   if (!record || record.success !== false) return null
   const message = typeof record.message === 'string' ? record.message : undefined
   if (record.state === 'cancelled' || message === CANCELLED_MESSAGE) return { state: 'cancelled' }
@@ -236,62 +281,29 @@ function failureRecordOf(record: ToolOutput | null | undefined): GenerationFailu
   return { state: 'failed', ...(error ? { error } : {}) }
 }
 
-function jsonTextOf(content: unknown): ToolOutput | null {
-  const entry = (Array.isArray(content) ? content : []).find(
-    (candidate) => (candidate as { type?: unknown } | null)?.type === 'text',
-  ) as { text?: unknown } | undefined
-  if (typeof entry?.text !== 'string') return null
-  try {
-    const parsed: unknown = JSON.parse(entry.text)
-    return typeof parsed === 'object' && parsed !== null ? (parsed as ToolOutput) : null
-  } catch {
-    return null
-  }
-}
-
-/** How a settled media tool call failed or was cancelled, with its full error; null if not. */
 export function toolCallFailureRecord(part: unknown): GenerationFailureRecord | null {
-  if (!isMediaToolPart(part)) return null
-  const { state, errorText } = part as { state?: unknown; errorText?: unknown }
-  if (state === 'output-error') {
-    return typeof errorText === 'string' && errorText
-      ? { state: 'failed', error: errorText }
-      : { state: 'failed' }
+  const call = mediaToolCall(part)
+  if (call?.state === 'failed') {
+    return { state: 'failed', ...(call.errorText ? { error: call.errorText } : {}) }
   }
-  const output = settledOutput(part)
-  if (!output) return null
-  if (!isAgentOutput(output)) return failureRecordOf(output)
-  return output.details?.failure ?? failureRecordOf(jsonTextOf(output.content))
+  if (call?.state !== 'settled') return null
+  return call.pi?.details.failure ?? failureRecordOf(call.record)
 }
 
-function isRunningMediaTool(part: unknown): part is { toolCallId: string } {
-  const { state, toolCallId } = part as { state?: unknown; toolCallId?: unknown }
-  return (
-    (state === 'input-streaming' || state === 'input-available') &&
-    typeof toolCallId === 'string' &&
-    isMediaToolPart(part)
-  )
-}
-
-/**
- * A chat or Agent Preset media tool call's artifacts: while it runs, the runs it owns
- * (directly or through the media specialist); once settled, the files its output names.
- */
+/** While it runs, the runs the call owns (directly or via the media specialist); then its output. */
 export function toolCallArtifacts(
   part: unknown,
   artifactRuns: ArtifactRunsState | undefined,
   deletedUrls: readonly string[],
 ): TurnArtifact[] {
-  if (isRunningMediaTool(part)) {
-    return artifactRuns ? runArtifacts(runsOwnedBy(artifactRuns, part.toolCallId), deletedUrls) : []
+  const call = mediaToolCall(part)
+  if (call?.state === 'running' && call.toolCallId) {
+    return artifactRuns ? runArtifacts(runsOwnedBy(artifactRuns, call.toolCallId), deletedUrls) : []
   }
   return turnArtifacts(toolPartMedia(part), deletedUrls, toolCallFailureRecord(part)?.error)
 }
 
-/**
- * What a media tool call's Result says in one line in place of a card: why it failed, or that
- * it was cancelled, before generating anything. Null when it did not, or a card says so.
- */
+/** The one-line failure in place of a card; null when a failed or cancelled card says it. */
 export function toolCallResultFailure(part: unknown): GenerationFailure | null {
   const record = toolCallFailureRecord(part)
   if (!record || toolPartMedia(part).some(isUnfinished)) return null

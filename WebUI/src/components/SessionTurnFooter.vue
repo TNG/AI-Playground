@@ -145,7 +145,6 @@ async function rerunMedia(rerun: MediaRerun) {
   try {
     await imageGeneration.regenerate(rerun)
   } catch (error) {
-    imageGeneration.processing = false
     if (isCancellation(error)) return
     errors.report(error, {
       category: 'generation',

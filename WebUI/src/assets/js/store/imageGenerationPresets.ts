@@ -1174,26 +1174,27 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
 
     const abort = new AbortController()
     panelAbort = abort
-    const sessionId = await sessions.ensureOpenSession()
     const runId = crypto.randomUUID()
-    if (sessionId) {
-      sessions.beginMediaTurn(sessionId, {
-        runId,
-        mode,
-        preset: request.workflow,
-        prompt: request.prompt ?? '',
-        inputImageUrl: turnInputImageUrl,
-        createdAt: Date.now(),
-        size:
-          request.params?.width && request.params.height
-            ? { width: request.params.width, height: request.params.height }
-            : undefined,
-        batchSize: request.params?.batchSize,
-      })
-    }
+    let sessionId: string | null = null
     // UI runs are top-level: no parent activity (the runner resets the stale
     // tool-parented value the previous chat run may have left behind).
     try {
+      sessionId = await sessions.ensureOpenSession()
+      if (sessionId) {
+        sessions.beginMediaTurn(sessionId, {
+          runId,
+          mode,
+          preset: request.workflow,
+          prompt: request.prompt ?? '',
+          inputImageUrl: turnInputImageUrl,
+          createdAt: Date.now(),
+          size:
+            request.params?.width && request.params.height
+              ? { width: request.params.width, height: request.params.height }
+              : undefined,
+          batchSize: request.params?.batchSize,
+        })
+      }
       return await runArtifact(request, {
         abortSignal: abort.signal,
         sessionId: sessionId ?? undefined,

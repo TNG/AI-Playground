@@ -87,15 +87,15 @@
       <AudioTurnBlock
         v-else-if="item.kind === 'audio'"
         :kind="item.audio.kind"
-        :audio-url="item.audio.audioUrl"
+        :artifacts="item.audioArtifacts"
         :transcript="item.audio.transcript"
         :status="item.audio.status"
         :error="item.audio.error"
-        :file-deleted="audioFileDeleted"
       />
       <AudioTurnBlock
         v-else-if="item.kind === 'pending-audio'"
         :kind="item.pending.kind"
+        :artifacts="item.audioArtifacts"
         :phase="item.pending.phase"
       />
     </template>
@@ -111,7 +111,7 @@ import type { UIMessage } from 'ai'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
-import { useSessions, type PendingMediaTurn } from '@/assets/js/store/sessions'
+import type { PendingMediaTurn } from '@/assets/js/store/sessions'
 import AgentMessageParts from '@/components/AgentMessageParts.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
@@ -137,7 +137,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{ resend: [] }>()
 
-const sessions = useSessions()
 const textInference = useTextInference()
 const languages = useI18N().state
 
@@ -146,13 +145,6 @@ const footerShown = computed(() => {
   const footer = props.item.footer
   return footer.actions.length > 0 || (textInference.metricsEnabled && !!footer.metrics)
 })
-
-const audioFileDeleted = computed(
-  () =>
-    props.item.kind === 'audio' &&
-    !!props.item.audio.audioUrl &&
-    sessions.isFileDeleted(props.item.audio.audioUrl),
-)
 
 function answersOf(): UIMessage[] {
   return props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.answers : []

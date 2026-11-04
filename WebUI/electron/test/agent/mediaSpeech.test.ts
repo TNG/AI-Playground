@@ -156,6 +156,30 @@ describe('mediaSpeech (agent speech tools)', () => {
     expect(fs.readFileSync(audio!.savedFilePath, 'utf8')).toBe('riff')
   })
 
+  it("names the clip's Session-Folder copy, so its card opens the Session Folder", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-files-'))
+    const game = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { sessionRef: 's1', workspace: 'game', filesDir },
+    })
+    const folder = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { sessionRef: 's2', workspace: 'files' },
+    })
+
+    const fromGame = await game.execute('c1', { text: 'hi' }, new AbortController().signal)
+    const fromFolder = await folder.execute('c2', { text: 'hi' }, new AbortController().signal)
+
+    expect(detailsOf(fromGame)?.audio?.url).toBe('aipg-media://sessions/s1/files/speech.wav')
+    expect(detailsOf(fromFolder)?.audio?.url).toBe(
+      'aipg-media://sessions/s2/files/generated/speech_1.wav',
+    )
+  })
+
   it('gives a failed synthesis no details', async () => {
     askRendererMock.mockRejectedValueOnce(new Error('no voice model'))
     const tool = await buildTool(SYNTHESIZE_SPEC)

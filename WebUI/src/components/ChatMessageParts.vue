@@ -154,15 +154,11 @@
           <template
             v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'synthesizeTextToSpeech'"
           >
-            <div>
-              <ChatTtsToolResult
-                v-if="part.state === 'output-available'"
-                :output="(part as any).output"
-              />
-              <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-                <span class="text-muted-foreground">Synthesizing speech…</span>
-              </div>
-            </div>
+            <AudioArtifactCard
+              v-for="artifact in ttsToolArtifacts(part, sessions.openDeletedFiles)"
+              :key="artifact.id"
+              :artifact="artifact"
+            />
           </template>
           <template v-else-if="isWebBrowsePart(part)">
             <ChatWebBrowseDisplay
@@ -202,12 +198,12 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useTextInference } from '@/assets/js/store/textInference'
+import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
 import ChatActivityIndicator from '@/components/ChatActivityIndicator.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import ChatMcpToolDisplay from '@/components/ChatMcpToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
-import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
 import ChatWebBrowseDisplay, { type WebBrowseEntry } from '@/components/ChatWebBrowseDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -221,6 +217,7 @@ import {
   isChatWebBrowseToolPart,
 } from '@/lib/chatToolParts'
 import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
+import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { toolCallArtifacts } from '@/lib/turnArtifacts'
 
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */

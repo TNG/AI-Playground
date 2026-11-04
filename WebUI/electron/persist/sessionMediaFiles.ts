@@ -47,6 +47,18 @@ export async function moveIntoSessionFiles(
   return `${SESSION_FILES_DIR}/${name}`
 }
 
+/** Copies a regular file into the Session's `files/` under a free name; its Session-relative path. */
+export async function copyIntoSessionFiles(
+  sessionId: string,
+  source: string,
+): Promise<string | null> {
+  if (!(await fs.stat(source)).isFile()) return null
+  const filesDir = await ensureSessionFilesDir(sessionId)
+  const name = await freeName(filesDir, path.basename(source))
+  await fs.copyFile(source, path.join(filesDir, name))
+  return `${SESSION_FILES_DIR}/${name}`
+}
+
 /** Writes new bytes into the Session's `files/` under a free name; its Session-relative path. */
 export async function writeNewSessionFile(
   sessionId: string,

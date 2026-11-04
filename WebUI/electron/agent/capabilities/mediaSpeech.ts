@@ -8,6 +8,7 @@ import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
 import { freeName } from '../../persist/sessionMediaFiles.ts'
 import { noteGeneratedMedia } from '../generatedMedia.ts'
 import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
+import { sessionMediaUrl } from '@/lib/comfyWorkflow'
 import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
 import { NOTIFY_USER_TOOL } from './notify.ts'
@@ -73,6 +74,20 @@ function generatedAudioPath(
   return { fullPath: path.join(dir, name), relativePath: path.posix.join('generated', name) }
 }
 
+/** The clip's Session-Folder URL: a game's copy, or the clip itself when the workspace is `files/`. */
+function sessionClipUrl(
+  host: CapabilityHost,
+  relativePath: string,
+  sessionCopies: string[],
+): string | undefined {
+  const target = host.sessionMedia
+  if (!target) return undefined
+  if (target.workspace === 'files')
+    return sessionMediaUrl(target.sessionRef, `files/${relativePath}`)
+  const copy = sessionCopies[0]
+  return copy ? sessionMediaUrl(target.sessionRef, `files/${path.basename(copy)}`) : undefined
+}
+
 /** A game's clip also lands in its Session's `files/`, which is what the Session shows. */
 async function copyIntoSession(host: CapabilityHost, fullPath: string): Promise<string[]> {
   if (host.sessionMedia?.workspace !== 'game') return []
@@ -130,7 +145,9 @@ async function synthesize(
       CLIP_EXT_BY_MIME[clip.mediaType] ?? '.wav',
     )
     await fs.promises.writeFile(fullPath, Buffer.from(clip.audioBase64, 'base64'))
-    noteGeneratedMedia(host.workspaceDir, [relativePath], await copyIntoSession(host, fullPath))
+    const sessionCopies = await copyIntoSession(host, fullPath)
+    noteGeneratedMedia(host.workspaceDir, [relativePath], sessionCopies)
+    const url = sessionClipUrl(host, relativePath, sessionCopies)
     const appCopyPath = await saveGeneratedAudioFile(
       clip.audioBase64,
       buildTtsAudioFileName({
@@ -151,7 +168,14 @@ async function synthesize(
         speaker: clip.voice,
         ...(clip.engine === 'qwen3' ? { language: clip.language, mode: clip.mode } : {}),
       },
-      details: { audio: { savedFilePath: appCopyPath, workspacePath: relativePath, message } },
+      details: {
+        audio: {
+          savedFilePath: appCopyPath,
+          workspacePath: relativePath,
+          message,
+          ...(url ? { url } : {}),
+        },
+      },
     }
   } catch (error) {
     return { output: failure(error) }

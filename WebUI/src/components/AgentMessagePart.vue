@@ -30,20 +30,20 @@
     </template>
     <ChatWorkflowResult v-if="section !== 'details'" :artifacts="mediaToolArtifacts" />
   </div>
-  <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
-  <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
+  <div v-else-if="audioArtifacts.length > 0" class="flex flex-col gap-2">
     <ChatToolDisplay
       v-if="section !== 'result'"
       :part="toolPart"
       :state="toolPart.state"
       :input="toolPart.input"
     />
-    <ChatTtsToolResult
-      v-if="section !== 'details'"
-      :output="generatedMedia.audio"
-      :download="() => fileAction(generatedMedia!.audio!, 'saveAs')"
-      :reveal="() => fileAction(generatedMedia!.audio!, 'reveal')"
-    />
+    <template v-if="section !== 'details'">
+      <AudioArtifactCard
+        v-for="artifact in audioArtifacts"
+        :key="artifact.id"
+        :artifact="artifact"
+      />
+    </template>
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
     <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
@@ -73,26 +73,16 @@ import type { DynamicToolUIPart, ToolUIPart } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
-import { useErrors } from '@/assets/js/store/errors'
 import { useSessions } from '@/assets/js/store/sessions'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
-import ChatTtsToolResult from '@/components/ChatTtsToolResult.vue'
+import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
-import {
-  compactionOutputOf,
-  generatedMediaOf,
-  mediaFileRefOf,
-  mediaToolNameOf,
-} from '@/lib/agentTranscript'
-import type {
-  AgentMediaFileAction,
-  AgentMediaItem,
-  AgentSpeechClip,
-} from '@/types/agentMediaDetails'
+import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { toolCallArtifacts } from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
@@ -110,7 +100,6 @@ const props = defineProps<{
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
-const errors = useErrors()
 const sessions = useSessions()
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
@@ -168,16 +157,7 @@ const mediaToolArtifacts = computed(() =>
   toolCallArtifacts(props.part, artifactRuns.state, sessions.openDeletedFiles),
 )
 
-// The card shows the app copy; what the user opens or takes away is the agent's working file.
-async function fileAction(target: AgentMediaItem | AgentSpeechClip, action: AgentMediaFileAction) {
-  try {
-    const ref = mediaFileRefOf(agentMode.openSessionId, target)
-    const result = await window.electronAPI.agentMode.mediaFileAction(ref, action)
-    if (!result.success) throw new Error(result.error)
-  } catch (error) {
-    errors.report(error)
-  }
-}
+const audioArtifacts = computed(() => ttsToolArtifacts(props.part, sessions.openDeletedFiles))
 
 watch(
   () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,

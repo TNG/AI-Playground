@@ -8,6 +8,7 @@ import {
   type TurnDetails,
   type TurnResultPart,
 } from '@/lib/sessionTimeline'
+import type { AudioArtifact } from '@/lib/audioArtifacts'
 import type { TurnArtifact } from '@/lib/turnArtifacts'
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
@@ -1462,5 +1463,199 @@ describe('a running artifact on every Turn', () => {
     const [artifact] = artifactsIn(sessionTimelineItems([mediaPrompt, card], {}))
     expect(artifact).toMatchObject({ state: 'done', size: { width: 1024, height: 768 } })
     expect(artifact).not.toHaveProperty('phase')
+  })
+})
+
+describe('one audio card', () => {
+  const clipUrl = 'aipg-media://sessions/s1/files/clip.wav'
+  const ttsTurn = (audio: object) => [
+    user('u1', 'Read this'),
+    {
+      id: 'a1',
+      role: 'assistant',
+      createdAt: 2,
+      parts: [
+        {
+          type: 'data-audio',
+          data: { kind: 'tts', preset: 'Text to Speech', status: 'completed', ...audio },
+        },
+      ],
+    },
+  ]
+  const audioArtifactsOf = (items: unknown[]) =>
+    items.flatMap((item) =>
+      item && typeof item === 'object' && 'audioArtifacts' in item
+        ? (item.audioArtifacts as AudioArtifact[])
+        : [],
+    )
+  const audioIn = (timeline: unknown[], deletedUrls: string[] = []) =>
+    audioArtifactsOf(sessionTimelineItems(timeline, {}, { deletedUrls }))
+
+  it('offers Download, Open folder and Delete on a Text-to-Speech clip in the Session Folder', () => {
+    expect(audioIn(ttsTurn({ audioUrl: clipUrl }))).toEqual([
+      {
+        id: 'a1',
+        mediaType: 'audio',
+        state: 'done',
+        url: clipUrl,
+        actions: ['download', 'openFolder', 'delete'],
+      },
+    ])
+  })
+
+  const chatTts = (state: string, output?: object, extra: object = {}) => [
+    chatMessage('u2', 'user', 'say hi'),
+    {
+      id: 'a2',
+      role: 'assistant',
+      metadata: { chatTurn: true },
+      parts: [
+        {
+          type: 'tool-synthesizeTextToSpeech',
+          toolCallId: 't1',
+          state,
+          input: { text: 'hi' },
+          ...(output ? { output } : {}),
+          ...extra,
+        },
+      ],
+    },
+  ]
+  const agentTts = (audio: object) => [
+    agentMessage('u3', 'user', 'say hi'),
+    {
+      id: 'a3',
+      role: 'assistant',
+      metadata: { agentTurn },
+      parts: [
+        {
+          type: 'dynamic-tool',
+          toolName: 'synthesizeTextToSpeech',
+          toolCallId: 't2',
+          state: 'output-available',
+          input: { text: 'hi' },
+          output: { content: [], details: { audio } },
+        },
+      ],
+    },
+  ]
+  const withoutId = ({ id: _id, ...rest }: AudioArtifact) => rest
+
+  it('shows the same card for an audio Turn and a chat or agent Text-to-Speech result', () => {
+    const fromTurn = audioIn(ttsTurn({ audioUrl: clipUrl })).map(withoutId)
+    const fromChat = audioIn(
+      chatTts('output-available', {
+        ok: true,
+        message: 'Synthesized speech.',
+        savedFilePath: '/audio/clip.wav',
+        audioUrl: clipUrl,
+      }),
+    ).map(withoutId)
+    const fromAgent = audioIn(
+      agentTts({
+        savedFilePath: '/audio/clip.wav',
+        workspacePath: 'generated/clip.wav',
+        url: clipUrl,
+      }),
+    ).map(withoutId)
+
+    expect(fromChat).toEqual(fromTurn)
+    expect(fromAgent).toEqual(fromTurn)
+  })
+
+  it('shows a Text-to-Speech tool call running, failed or erroring in the same card states', () => {
+    expect(audioIn(chatTts('input-available'))).toEqual([
+      { id: 't1', mediaType: 'audio', state: 'running', phase: 'running', actions: [] },
+    ])
+    expect(audioIn(chatTts('output-available', { ok: false, message: 'No voice' }))).toEqual([
+      { id: 't1', mediaType: 'audio', state: 'failed', reason: 'No voice', actions: [] },
+    ])
+    expect(
+      audioIn(chatTts('output-error', undefined, { errorText: 'engine crashed' })),
+    ).toMatchObject([{ state: 'failed', reason: 'engine crashed' }])
+  })
+
+  it("puts an agent's Text-to-Speech call in the Result while it runs", () => {
+    const [, answer] = agentTts({})
+    const running = {
+      ...answer,
+      parts: [{ ...answer.parts[0], state: 'input-available', output: undefined }],
+    }
+    const [turn] = sessionTimelineItems([agentMessage('u3', 'user', 'say hi'), running], {})
+    expect(turn).toMatchObject({
+      result: [{ kind: 'artifact', messageId: 'a3', index: 0 }],
+      audioArtifacts: [{ state: 'running', phase: 'running' }],
+    })
+  })
+
+  it('keeps Download and Open folder on an older clip saved outside the Session Folder', () => {
+    expect(
+      audioIn(chatTts('output-available', { ok: true, savedFilePath: '/audio/old.wav' })),
+    ).toEqual([
+      {
+        id: 't1',
+        mediaType: 'audio',
+        state: 'done',
+        filePath: '/audio/old.wav',
+        actions: ['download', 'openFolder'],
+      },
+    ])
+  })
+
+  it('shows a deleted clip as deleted, with nothing left to do with it', () => {
+    expect(audioIn(ttsTurn({ audioUrl: clipUrl }), [clipUrl])).toMatchObject([
+      { state: 'deleted', url: clipUrl, actions: [] },
+    ])
+  })
+
+  it('settles a failed or cancelled Text-to-Speech Turn into a card with its reason', () => {
+    expect(audioIn(ttsTurn({ status: 'failed', error: 'voice not found' }))).toEqual([
+      { id: 'a1', mediaType: 'audio', state: 'failed', reason: 'voice not found', actions: [] },
+    ])
+    expect(audioIn(ttsTurn({ status: 'cancelled' }))).toEqual([
+      { id: 'a1', mediaType: 'audio', state: 'cancelled', actions: [] },
+    ])
+  })
+
+  it('shows a Text-to-Speech clip still being made with the shared in-card progress', () => {
+    const running = (phase: 'loading-model' | 'generating') =>
+      audioArtifactsOf(
+        sessionTimelineItems([], {
+          audio: { kind: 'tts', prompt: 'hi', preset: 'Text to Speech', phase },
+        }),
+      )
+    expect(running('loading-model')).toEqual([
+      {
+        id: 'pending-audio',
+        mediaType: 'audio',
+        state: 'running',
+        phase: 'loading-model',
+        actions: [],
+      },
+    ])
+    expect(running('generating')).toMatchObject([{ state: 'running', phase: 'running' }])
+  })
+
+  it('gives a speech-to-text Turn its source audio in the bubble and its transcript as the Result', () => {
+    const stt = {
+      kind: 'stt',
+      preset: 'Speech to Text',
+      status: 'completed',
+      audioUrl: clipUrl,
+      transcript: 'hello there',
+    }
+    const [turn] = sessionTimelineItems(
+      [
+        user('u1', ''),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: stt }] },
+      ],
+      {},
+    )
+    expect(turn).toMatchObject({
+      prompt: { audio: [{ url: clipUrl }] },
+      result: [{ kind: 'audio' }],
+      audioArtifacts: [],
+      footer: { actions: ['copy'], text: 'hello there' },
+    })
   })
 })

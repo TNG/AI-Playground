@@ -14,6 +14,8 @@ export type AgentSpeechClip = {
   savedFilePath: string
   workspacePath: string
   message?: string
+  /** The Session-Folder copy, when the session has one. */
+  url?: string
 }
 
 /** A generated file in an agent session; `appCopy` is its `aipg-media://` URL or app audio path. */

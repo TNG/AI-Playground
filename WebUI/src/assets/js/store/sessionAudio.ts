@@ -15,8 +15,7 @@ import { bytesToBase64 } from '@/lib/synthesizeSpeech'
 import { formatTtsAudioTimestamp } from '@/lib/ttsAudioFileName'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { AudioTurnRequest } from '@/types/sessionIpc'
-
-export type AudioTurnPhase = 'loading-model' | 'generating' | 'transcribing'
+import type { AudioTurnPhase } from '@/lib/audioArtifacts'
 
 /** A Text-to-Speech / Speech-to-Text turn still running in a Session. */
 export type PendingAudioTurn = {

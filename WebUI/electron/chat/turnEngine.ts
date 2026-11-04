@@ -594,7 +594,12 @@ type BuildToolSetOptions = {
   session?: { id: string; adoptToolMedia: (output: unknown) => Promise<unknown> }
 }
 
-const SESSION_MEDIA_TOOLS = new Set(['media', 'comfyUI', 'comfyUiImageEdit'])
+const SESSION_MEDIA_TOOLS = new Set([
+  'media',
+  'comfyUI',
+  'comfyUiImageEdit',
+  'synthesizeTextToSpeech',
+])
 
 async function dispatchChatTool(
   spec: ChatToolSpec,

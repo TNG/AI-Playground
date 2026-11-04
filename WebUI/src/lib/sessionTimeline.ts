@@ -30,6 +30,13 @@ import {
   type ArtifactSize,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
+import {
+  audioTurnArtifacts,
+  pendingAudioArtifacts,
+  ttsToolArtifacts,
+  type AudioArtifact,
+  type AudioTurnPhase,
+} from '@/lib/audioArtifacts'
 
 export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
 export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
@@ -141,7 +148,12 @@ type TurnOf<K extends string, Body> = {
 /** A chat or agent Turn opened by an answer has no prompt. */
 export type ChatTurn = TurnOf<
   'chat',
-  { prompt?: TurnPrompt; answers: UIMessage[]; artifacts: TurnArtifact[] }
+  {
+    prompt?: TurnPrompt
+    answers: UIMessage[]
+    artifacts: TurnArtifact[]
+    audioArtifacts: AudioArtifact[]
+  }
 >
 
 export type AgentTurn = TurnOf<
@@ -153,6 +165,7 @@ export type AgentTurn = TurnOf<
     answers: UIMessage[]
     /** What its settled media tool calls produced. */
     artifacts: TurnArtifact[]
+    audioArtifacts: AudioArtifact[]
     taskRun?: TaskRunTag
     /** The answer is streaming right now. */
     streaming?: boolean
@@ -171,7 +184,7 @@ export type MediaTurn = TurnOf<
 
 export type AudioTurn = TurnOf<
   'audio',
-  { prompt: TurnPrompt; createdAt: number; audio: AudioTurnData }
+  { prompt: TurnPrompt; createdAt: number; audio: AudioTurnData; audioArtifacts: AudioArtifact[] }
 >
 
 /** A saved message that answers no prompt the timeline knows. */
@@ -304,7 +317,12 @@ export type PendingMedia = {
 }
 
 /** What the timeline needs of an audio turn still running. */
-export type PendingAudio = { kind: AudioTurnData['kind']; preset: string; prompt?: string }
+export type PendingAudio = {
+  kind: AudioTurnData['kind']
+  preset: string
+  prompt?: string
+  phase?: AudioTurnPhase
+}
 
 /** Everything of the open Session still in flight, whichever preset or mode started it. */
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
@@ -330,7 +348,7 @@ export type TimelineFiles = {
 export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
   | TimelineEntry
   | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M; artifacts: TurnArtifact[] }>
-  | TurnOf<'pending-audio', { prompt: TurnPrompt; pending: A }>
+  | TurnOf<'pending-audio', { prompt: TurnPrompt; pending: A; audioArtifacts: AudioArtifact[] }>
 
 /**
  * The one main-area timeline of a Session: its saved turns with every live turn laid
@@ -376,6 +394,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       prompt: textPrompt(audio.prompt ?? '', audio.preset),
       footer: noFooter(),
       pending: audio,
+      audioArtifacts: pendingAudioArtifacts('pending-audio', audio.kind, audio.phase),
     })
   }
   const last = items.at(-1)
@@ -604,7 +623,7 @@ function agentPlacement(part: unknown): PartPlacement {
   if (toolPartNameOf(part) === undefined) return {}
   if (compactionOutputOf(part)) return { details: 'compaction' }
   if (mediaToolNameOf(part)) return { details: 'generation', result: true }
-  if (generatedMediaOf(part)?.audio) return { details: 'tool', result: true }
+  if (ttsToolArtifacts(part, []).length > 0) return { details: 'tool', result: true }
   return { details: 'tool' }
 }
 
@@ -835,8 +854,13 @@ function withArtifacts(
       turn.artifacts = turn.answers.flatMap((answer) =>
         answer.parts.flatMap((part) => toolCallArtifacts(part, artifactRuns, deletedUrls)),
       )
+      turn.audioArtifacts = turn.answers.flatMap((answer) =>
+        answer.parts.flatMap((part) => ttsToolArtifacts(part, deletedUrls)),
+      )
     }
     if (turn.kind === 'media') turn.artifacts = turnArtifacts(turn.media.items, deletedUrls)
+    if (turn.kind === 'audio')
+      turn.audioArtifacts = audioTurnArtifacts(turn.id, turn.audio, deletedUrls)
   }
   return turns
 }
@@ -902,6 +926,7 @@ export function timelineTurns(
           presetName: tag.presetName,
           harnessSessionId: tag.harnessSessionId,
           artifacts: [],
+          audioArtifacts: [],
           ...(message.role === 'user'
             ? { prompt: messagePrompt(message), answers: [] }
             : { answers: [message] }),
@@ -926,6 +951,7 @@ export function timelineTurns(
         result: [],
         footer: noFooter(),
         artifacts: [],
+        audioArtifacts: [],
         ...(prompted ? { prompt: messagePrompt(message), answers: [] } : { answers: [message] }),
       })
       continue
@@ -947,6 +973,7 @@ export function timelineTurns(
         }),
         createdAt: message.createdAt,
         audio,
+        audioArtifacts: [],
       })
       i++
       continue

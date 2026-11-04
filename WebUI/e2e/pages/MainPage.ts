@@ -63,9 +63,9 @@ export class MainPage {
   }
 
   /**
-   * The <audio> player rendered by ChatTtsToolResult in the last assistant turn. It
+   * The <audio> player of the audio card (AudioArtifactCard) in the last assistant turn. It
    * appears only once synthesis succeeds AND the saved WAV has been loaded into a
-   * playback source (before that the bubble shows "Loading audio…"), so its presence
+   * playback source (before that the card shows a placeholder), so its presence
    * is a strong success signal for a Text-to-Speech turn.
    */
   get ttsAudioPlayer(): Locator {
@@ -383,7 +383,7 @@ export class MainPage {
 
   /**
    * Wait for a Text-to-Speech turn to finish and render a playable audio result.
-   * The synthesizeTextToSpeech tool emits a ChatTtsToolResult bubble with an
+   * The synthesizeTextToSpeech tool emits an AudioArtifactCard with an
    * `<audio controls>` element once the WAV is produced and loaded.
    */
   async waitForTtsAudio(timeout: number = MainPage.TEXT_TIMEOUT): Promise<void> {

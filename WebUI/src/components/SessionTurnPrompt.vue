@@ -32,7 +32,7 @@
       class="flex items-center gap-3 text-xs text-muted-foreground"
     >
       <button v-if="prompt.text" class="flex items-center gap-1" @click="copyText(prompt.text)">
-        <span class="svg-icon i-copy w-4 h-4" aria-hidden="true"></span>
+        <DocumentDuplicateIcon class="size-4" aria-hidden="true" />
         <span>{{ languages.COM_COPY }}</span>
       </button>
       <span
@@ -84,6 +84,7 @@
 import {
   ArrowPathIcon,
   ClockIcon,
+  DocumentDuplicateIcon,
   DevicePhoneMobileIcon,
   ExclamationCircleIcon,
 } from '@heroicons/vue/24/outline'

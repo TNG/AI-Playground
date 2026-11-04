@@ -2,81 +2,53 @@
   <div class="flex flex-col gap-1">
     <div v-if="shownActions.length" class="flex gap-3 items-center text-muted-foreground">
       <template v-for="action in shownActions" :key="action">
-        <button v-if="action === 'copy'" class="flex items-end" @click="copyText">
-          <span class="svg-icon i-copy w-4 h-4" aria-hidden="true"></span>
+        <button v-if="action === 'copy'" class="flex items-center" @click="copyText">
+          <DocumentDuplicateIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_COPY }}</span>
         </button>
         <button
           v-else-if="action === 'speak'"
-          class="flex items-end"
+          class="flex items-center"
           :disabled="speakBlocked"
           :class="{ 'opacity-50 cursor-not-allowed': speakBlocked }"
           @click="toggleSpeak"
         >
-          <span
-            v-if="startingSpeech"
-            class="svg-icon i-loading w-4 h-4 animate-spin"
-            aria-hidden="true"
-          ></span>
-          <span
-            v-else
-            class="svg-icon w-4 h-4"
-            :class="speakingThis ? 'i-stop' : 'i-speaker'"
-            aria-hidden="true"
-          ></span>
-          <span class="text-xs ml-1">{{
-            startingSpeech ? 'Starting…' : speakingThis && isSpeaking ? 'Stop' : 'Speak'
-          }}</span>
+          <ArrowPathIcon v-if="startingSpeech" class="size-4 animate-spin" aria-hidden="true" />
+          <StopIcon v-else-if="speakingThis" class="size-4" aria-hidden="true" />
+          <SpeakerWaveIcon v-else class="size-4" aria-hidden="true" />
+          <span class="text-xs ml-1">{{ speakLabel }}</span>
         </button>
         <button
           v-else-if="action === 'regenerate'"
-          class="flex items-end"
+          class="flex items-center"
           :disabled="regenerateBlocked"
           :class="{ 'opacity-50 cursor-not-allowed': regenerateBlocked }"
           @click="regenerate"
         >
-          <span class="svg-icon i-refresh w-4 h-4" aria-hidden="true"></span>
+          <ArrowPathIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_REGENERATE }}</span>
         </button>
-        <button v-else-if="action === 'delete'" class="flex items-end" @click="remove">
-          <span class="svg-icon i-delete w-4 h-4" aria-hidden="true"></span>
+        <button v-else-if="action === 'delete'" class="flex items-center" @click="remove">
+          <TrashIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_DELETE }}</span>
         </button>
       </template>
     </div>
-    <div v-if="metricsShown && footer.metrics?.timings" class="text-xs text-muted-foreground">
-      <span class="mr-2">{{ footer.metrics.timings.predicted_n }} Tokens</span>
-      <span class="mr-2">⋅</span>
-      <span class="mr-2"
-        >{{ footer.metrics.timings.predicted_per_second.toFixed(2) }} Tokens/s</span
-      >
-      <span class="mr-2">⋅</span>
-      <span class="mr-2">1st Token Time: {{ footer.metrics.timings.prompt_ms.toFixed(2) }}ms</span>
-      <template v-if="footer.metrics.compute?.gpuMemPeakMiB != null">
-        <span class="mr-2">⋅</span>
-        <span class="mr-2">{{ formatMib(footer.metrics.compute.gpuMemPeakMiB) }} vRAM peak</span>
-      </template>
-      <template v-else-if="footer.metrics.compute?.hostMemPeakMiB != null">
-        <span class="mr-2">⋅</span>
-        <span class="mr-2">{{ formatMib(footer.metrics.compute.hostMemPeakMiB) }} RAM peak</span>
-      </template>
-      <template v-if="CHAT_ENERGY_ESTIMATES_ENABLED && footer.metrics.energy?.wattHours != null">
-        <span class="mr-2">⋅</span>
-        <span class="mr-2">{{ formatEnergyWh(footer.metrics.energy.wattHours) }} GPU energy</span>
-      </template>
-      <template v-if="CHAT_ENERGY_ESTIMATES_ENABLED && newestAnswer && conversationEnergy">
-        <span class="mr-2">⋅</span>
-        <span class="mr-2"
-          >est. {{ formatUsd(conversationEnergy.costPerMillionOutputTokensUsd) }} / 1M output tokens
-          @ $0.35/kWh</span
-        >
-      </template>
+    <div v-if="metricsShown && metricLines.length" class="text-xs text-muted-foreground">
+      {{ metricLines.join(' ⋅ ') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import {
+  ArrowPathIcon,
+  DocumentDuplicateIcon,
+  SpeakerWaveIcon,
+  StopIcon,
+  TrashIcon,
+} from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
@@ -94,6 +66,7 @@ import {
 import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib/chatEnergy'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
+import { fillTemplate } from '@/lib/notificationLabel'
 import type { MediaRerun, TurnFooter } from '@/lib/turnTypes'
 
 const props = defineProps<{ footer: TurnFooter }>()
@@ -125,6 +98,45 @@ const startingSpeech = computed(
 const speakBlocked = computed(
   () => openAiCompatibleChat.processing || (preparingSpeech.value && !speakingThis.value),
 )
+
+const speakLabel = computed(() => {
+  if (startingSpeech.value) return languages.SESSION_TURN_SPEECH_STARTING
+  return speakingThis.value && isSpeaking.value ? languages.COM_STOP : languages.SESSION_TURN_SPEAK
+})
+
+const metricLines = computed(() => {
+  const metrics = props.footer.metrics
+  const timings = metrics?.timings
+  if (!timings) return []
+  const lines = [
+    fillTemplate(languages.SESSION_TURN_METRIC_TOKENS, { count: String(timings.predicted_n) }),
+    fillTemplate(languages.SESSION_TURN_METRIC_TOKENS_PER_SECOND, {
+      rate: timings.predicted_per_second.toFixed(2),
+    }),
+    fillTemplate(languages.SESSION_TURN_METRIC_FIRST_TOKEN, { ms: timings.prompt_ms.toFixed(2) }),
+  ]
+  const gpuPeak = metrics.compute?.gpuMemPeakMiB
+  const hostPeak = metrics.compute?.hostMemPeakMiB
+  if (gpuPeak != null) {
+    lines.push(fillTemplate(languages.SESSION_TURN_METRIC_VRAM_PEAK, { size: formatMib(gpuPeak) }))
+  } else if (hostPeak != null) {
+    lines.push(fillTemplate(languages.SESSION_TURN_METRIC_RAM_PEAK, { size: formatMib(hostPeak) }))
+  }
+  const wattHours = metrics.energy?.wattHours
+  if (CHAT_ENERGY_ESTIMATES_ENABLED && wattHours != null) {
+    lines.push(
+      fillTemplate(languages.SESSION_TURN_METRIC_GPU_ENERGY, { energy: formatEnergyWh(wattHours) }),
+    )
+  }
+  if (CHAT_ENERGY_ESTIMATES_ENABLED && newestAnswer.value && conversationEnergy.value) {
+    lines.push(
+      fillTemplate(languages.SESSION_TURN_METRIC_COST_ESTIMATE, {
+        cost: formatUsd(conversationEnergy.value.costPerMillionOutputTokensUsd),
+      }),
+    )
+  }
+  return lines
+})
 
 function copyText() {
   copyToClipboard(props.footer.text, languages.COM_COPY_SUCCESS_TIP)

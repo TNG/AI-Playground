@@ -299,6 +299,16 @@ export function toolCallResultFailure(part: unknown): GenerationFailure | null {
   return generationFailure(record)
 }
 
+/** Once loaded, the media's own size caps the box and sets its aspect, so it is never upscaled. */
+export function artifactFrameSize(
+  requested: ArtifactSize | undefined,
+  natural: ArtifactSize | undefined,
+): ArtifactSize | undefined {
+  if (!natural) return requested
+  const width = Math.min(natural.width, requested?.width ?? natural.width)
+  return { width, height: Math.round((width * natural.height) / natural.width) }
+}
+
 export const ARTIFACT_GRID_GAP_PX = 12
 const ARTIFACT_GRID_MIN_CELL_PX = 240
 

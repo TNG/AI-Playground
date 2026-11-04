@@ -4,7 +4,7 @@ import { sessionTimelineItems, timelineTurns, withLiveAgentTurn } from '@/lib/se
 import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
-import { artifactGrid, type TurnArtifact } from '@/lib/turnArtifacts'
+import { artifactFrameSize, artifactGrid, type TurnArtifact } from '@/lib/turnArtifacts'
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 
@@ -2325,5 +2325,36 @@ describe('the grid a Result lays its artifacts out in', () => {
 
   it('leaves the grid uncapped when an artifact has no requested size', () => {
     expect(artifactGrid([sized(512, 512), {}], 2400).maxWidth).toBeUndefined()
+  })
+})
+
+describe('the box an artifact card takes', () => {
+  it('reserves the requested size while the media is not loaded yet', () => {
+    expect(artifactFrameSize({ width: 1024, height: 768 }, undefined)).toEqual({
+      width: 1024,
+      height: 768,
+    })
+  })
+
+  it('never upscales a result smaller than what was asked for, and keeps its own aspect', () => {
+    expect(artifactFrameSize({ width: 1024, height: 1024 }, { width: 512, height: 256 })).toEqual({
+      width: 512,
+      height: 256,
+    })
+  })
+
+  it('caps at the requested width when the media is larger, in the media aspect', () => {
+    expect(artifactFrameSize({ width: 512, height: 512 }, { width: 1024, height: 768 })).toEqual({
+      width: 512,
+      height: 384,
+    })
+  })
+
+  it('takes the natural size when nothing was requested', () => {
+    expect(artifactFrameSize(undefined, { width: 300, height: 200 })).toEqual({
+      width: 300,
+      height: 200,
+    })
+    expect(artifactFrameSize(undefined, undefined)).toBeUndefined()
   })
 })

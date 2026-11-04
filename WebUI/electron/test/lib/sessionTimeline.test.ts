@@ -1177,6 +1177,39 @@ describe('artifacts on every Turn', () => {
       'artifacts' in turn ? turn.artifacts : [],
     )
 
+  it("puts the prompt the model wrote into the card's Info, for chat and Agent Preset tools", () => {
+    const prompts = [chatTurnWith(image('c1')), agentTurnWith(image('g1'))].map((timeline) =>
+      artifactsOf(timeline).map((artifact) => artifact.item.settings?.prompt),
+    )
+
+    expect(prompts).toEqual([['a castle'], ['a castle']])
+  })
+
+  it("keeps the prompt the media specialist wrote for each of its generations in the card's Info", () => {
+    const specialistImage = { ...image('m1'), settings: { prompt: 'a moonlit castle' } }
+    const mediaToolTurn = (type: string, output: object) => [
+      chatMessage('u1', 'user', 'draw a castle'),
+      {
+        id: 'a1',
+        role: 'assistant',
+        metadata: { chatTurn: true },
+        parts: [
+          {
+            type,
+            toolName: 'media',
+            toolCallId: 't1',
+            state: 'output-available',
+            input: { request: 'a castle at night' },
+            output,
+          },
+        ],
+      },
+    ]
+
+    const chat = artifactsOf(mediaToolTurn('tool-media', { images: [specialistImage] }))
+    expect(chat.map((artifact) => artifact.item.settings?.prompt)).toEqual(['a moonlit castle'])
+  })
+
   it('offers the same actions on an image a chat tool, an Agent Preset or a ComfyUI preset made', () => {
     for (const timeline of everySurface(image('i1'))) {
       const [artifact] = artifactsOf(timeline)

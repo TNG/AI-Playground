@@ -254,7 +254,12 @@ function settledMedia(part: unknown, call: MediaToolCall): MediaItem[] {
 export function toolPartMedia(part: unknown): MediaItem[] {
   const call = mediaToolCall(part)
   if (call?.state !== 'settled') return []
-  return settledMedia(part, call)
+  const items = settledMedia(part, call)
+  const prompt = call.prompt
+  if (!prompt) return items
+  return items.map((item) =>
+    item.settings?.prompt ? item : { ...item, settings: { ...item.settings, prompt } },
+  )
 }
 
 const CANCELLED_MESSAGE = 'Generation cancelled.'

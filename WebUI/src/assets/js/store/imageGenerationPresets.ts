@@ -469,6 +469,14 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     inputs[index].current.value = imageUrl
   }
 
+  /** The image the active preset starts from, for its Turn's user bubble. */
+  function inputImageUrl(): string | undefined {
+    const input = comfyInputs.value.find(
+      (candidate) => candidate.type === 'image' && candidate.current.value,
+    )
+    return input ? String(input.current.value) : undefined
+  }
+
   /** The mode whose default image input the active preset takes; image generation takes none. */
   const defaultImageInputMode = computed<'imageEdit' | 'video' | null>(() => {
     const category = activePreset.value?.category
@@ -1139,6 +1147,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
         mode,
         preset: preset.name,
         prompt: prompt.value,
+        inputImageUrl: mode === 'imageGen' ? undefined : inputImageUrl(),
         createdAt: Date.now(),
       })
     }

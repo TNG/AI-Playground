@@ -22,6 +22,7 @@ export type PendingMediaTurn = {
   mode: MediaTurnData['mode']
   preset: string
   prompt: string
+  inputImageUrl?: string
   createdAt: number
 }
 

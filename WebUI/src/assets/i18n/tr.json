@@ -82,6 +82,8 @@
   "SESSION_TURN_HINT_VIDEO": "Video iş akışı",
   "SESSION_TURN_HINT_TTS": "Metinden sese",
   "SESSION_TURN_HINT_STT": "Sesten metne",
+  "SESSION_TURN_INPUT_IMAGE": "Giriş görseli",
+  "SESSION_TURN_INPUT_AUDIO": "Giriş sesi",
   "SESSION_AUDIO_LOADING_VOICE": "Ses modeli yükleniyor…",
   "SESSION_AUDIO_GENERATING": "Ses oluşturuluyor…",
   "SESSION_AUDIO_TRANSCRIBING": "Ses yazıya dökülüyor…",

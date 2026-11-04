@@ -82,6 +82,8 @@
   "SESSION_TURN_HINT_VIDEO": "Przepływ wideo",
   "SESSION_TURN_HINT_TTS": "Tekst na mowę",
   "SESSION_TURN_HINT_STT": "Mowa na tekst",
+  "SESSION_TURN_INPUT_IMAGE": "Obraz wejściowy",
+  "SESSION_TURN_INPUT_AUDIO": "Dźwięk wejściowy",
   "SESSION_AUDIO_LOADING_VOICE": "Wczytywanie modelu głosu…",
   "SESSION_AUDIO_GENERATING": "Generowanie dźwięku…",
   "SESSION_AUDIO_TRANSCRIBING": "Transkrypcja dźwięku…",

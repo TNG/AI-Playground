@@ -82,6 +82,8 @@
   "SESSION_TURN_HINT_VIDEO": "เวิร์กโฟลว์วิดีโอ",
   "SESSION_TURN_HINT_TTS": "แปลงข้อความเป็นเสียง",
   "SESSION_TURN_HINT_STT": "แปลงเสียงเป็นข้อความ",
+  "SESSION_TURN_INPUT_IMAGE": "รูปภาพต้นฉบับ",
+  "SESSION_TURN_INPUT_AUDIO": "เสียงต้นฉบับ",
   "SESSION_AUDIO_LOADING_VOICE": "กำลังโหลดโมเดลเสียง…",
   "SESSION_AUDIO_GENERATING": "กำลังสร้างเสียง…",
   "SESSION_AUDIO_TRANSCRIBING": "กำลังถอดเสียง…",

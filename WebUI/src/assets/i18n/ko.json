@@ -82,6 +82,8 @@
   "SESSION_TURN_HINT_VIDEO": "동영상 워크플로",
   "SESSION_TURN_HINT_TTS": "텍스트 음성 변환",
   "SESSION_TURN_HINT_STT": "음성 텍스트 변환",
+  "SESSION_TURN_INPUT_IMAGE": "입력 이미지",
+  "SESSION_TURN_INPUT_AUDIO": "입력 오디오",
   "SESSION_AUDIO_LOADING_VOICE": "음성 모델을 불러오는 중…",
   "SESSION_AUDIO_GENERATING": "오디오를 생성하는 중…",
   "SESSION_AUDIO_TRANSCRIBING": "오디오를 받아쓰는 중…",

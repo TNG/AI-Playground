@@ -7,6 +7,9 @@ import type {
   TimelineMessage,
   TimelinePart,
 } from '@/types/sessionTimeline'
+import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
+import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
 
 export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
@@ -15,20 +18,51 @@ export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
 /** Which preset ran a Turn: its kind and name, with the model or engine for the tooltip. */
 export type TurnHint = { kind: TurnHintKind; icon: TurnHintIcon; preset: string; detail?: string }
 
+/** The user bubble: what was asked, and what it was asked about. */
+export type TurnPrompt = {
+  text: string
+  /** Shown in place of a prompt left empty: the preset that ran. */
+  placeholder?: string
+  inputImageUrl?: string
+  audio?: { url: string; name?: string }[]
+  /** The chat platform an agent prompt arrived from. */
+  origin?: ChannelKind
+}
+
+export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'delete'
+
+export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
+
+/** The actions that apply to a Turn, and what it cost where that is known. */
+export type TurnFooter = {
+  actions: TurnFooterAction[]
+  /** What Copy and Speak take. */
+  text: string
+  /** The chat answer Speak, Regenerate and Delete act on. */
+  messageId?: string
+  metrics?: TurnMetrics
+}
+
 /**
  * One prompt and what it produced. `SessionTurn.vue` lays every kind out the same way —
  * prompt, hint, Turn Details, Result, footer — and the fields of each kind fill those slots.
  */
-type TurnOf<K extends string, Body> = { kind: K; id: string; hint: TurnHint } & Body
+type TurnOf<K extends string, Body> = {
+  kind: K
+  id: string
+  hint: TurnHint
+  footer: TurnFooter
+} & Body
 
-export type ChatTurn = TurnOf<'chat', { prompt?: UIMessage; answers: UIMessage[] }>
+/** A chat or agent Turn opened by an answer has no prompt. */
+export type ChatTurn = TurnOf<'chat', { prompt?: TurnPrompt; answers: UIMessage[] }>
 
 export type AgentTurn = TurnOf<
   'agent',
   {
     presetName: string
     harnessSessionId: string
-    prompt?: UIMessage
+    prompt?: TurnPrompt
     answers: UIMessage[]
     taskRun?: TaskRunTag
     /** The answer is streaming right now. */
@@ -41,9 +75,15 @@ export type AgentTurn = TurnOf<
   }
 >
 
-export type MediaTurn = TurnOf<'media', { prompt: string; createdAt: number; media: MediaTurnData }>
+export type MediaTurn = TurnOf<
+  'media',
+  { prompt: TurnPrompt; createdAt: number; media: MediaTurnData }
+>
 
-export type AudioTurn = TurnOf<'audio', { prompt: string; createdAt: number; audio: AudioTurnData }>
+export type AudioTurn = TurnOf<
+  'audio',
+  { prompt: TurnPrompt; createdAt: number; audio: AudioTurnData }
+>
 
 /** A saved message that answers no prompt the timeline knows. */
 export type MessageTurn = { kind: 'message'; id: string; message: TimelineMessage }
@@ -163,10 +203,16 @@ function withLiveChatTurn(
 }
 
 /** What the timeline needs of a ComfyUI run still in flight. */
-export type PendingMedia = { runId: string; preset: string; mode: MediaTurnData['mode'] }
+export type PendingMedia = {
+  runId: string
+  preset: string
+  mode: MediaTurnData['mode']
+  prompt?: string
+  inputImageUrl?: string
+}
 
 /** What the timeline needs of an audio turn still running. */
-export type PendingAudio = { kind: AudioTurnData['kind']; preset: string }
+export type PendingAudio = { kind: AudioTurnData['kind']; preset: string; prompt?: string }
 
 /** Everything of the open Session still in flight, whichever preset or mode started it. */
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
@@ -182,7 +228,9 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
 export type TimelineEntry = TimelineTurn | TaskRunItem
 
 export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
-  TimelineEntry | TurnOf<'pending-media', { pending: M }> | TurnOf<'pending-audio', { pending: A }>
+  | TimelineEntry
+  | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M }>
+  | TurnOf<'pending-audio', { prompt: TurnPrompt; pending: A }>
 
 /**
  * The one main-area timeline of a Session: its saved turns with every live turn laid
@@ -202,7 +250,16 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
-    items.push({ kind: 'pending-media', id: media.runId, hint: mediaHint(media), pending: media })
+    items.push({
+      kind: 'pending-media',
+      id: media.runId,
+      hint: mediaHint(media),
+      prompt: textPrompt(media.prompt ?? '', media.preset, {
+        inputImageUrl: media.inputImageUrl || undefined,
+      }),
+      footer: noFooter(),
+      pending: media,
+    })
   }
   if (live.audio) {
     const audio = live.audio
@@ -210,10 +267,90 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       kind: 'pending-audio',
       id: 'pending-audio',
       hint: audioHint(audio),
+      prompt: textPrompt(audio.prompt ?? '', audio.preset),
+      footer: noFooter(),
       pending: audio,
     })
   }
+  const last = items.at(-1)
+  if (last?.kind === 'chat') last.footer = chatAnswerFooter(last.answers, true)
   return items
+}
+
+function noFooter(): TurnFooter {
+  return { actions: [], text: '' }
+}
+
+function textPrompt(
+  text: string,
+  preset: string,
+  extra: Omit<TurnPrompt, 'text' | 'placeholder'> = {},
+): TurnPrompt {
+  const defined = Object.entries(extra).filter(([, value]) => value !== undefined)
+  return { text, ...(text ? {} : { placeholder: preset }), ...Object.fromEntries(defined) }
+}
+
+type FilePart = { type: string; mediaType?: string; url?: string; filename?: string }
+
+export function messagePrompt(message: UIMessage): TurnPrompt {
+  const files = (message.parts as FilePart[]).filter((part) => part.type === 'file' && part.url)
+  const image = files.findLast((part) => part.mediaType?.startsWith('image/'))?.url
+  const audio = files
+    .filter((part) => part.mediaType?.startsWith('audio/'))
+    .map((part) => ({ url: part.url!, ...(part.filename ? { name: part.filename } : {}) }))
+  const origin = (message.metadata as { origin?: ChannelKind } | undefined)?.origin
+  return {
+    text: messageText(message),
+    ...(image ? { inputImageUrl: image } : {}),
+    ...(audio.length ? { audio } : {}),
+    ...(origin ? { origin } : {}),
+  }
+}
+
+/** Panel Image Edit and Video runs take their source through the workflow's image input. */
+function mediaInputImage(media: MediaTurnData): string | undefined {
+  if (media.mode === 'imageGen') return undefined
+  const item = media.items[0]
+  const input = item?.dynamicSettings?.find(
+    (setting) => setting.type === 'image' && setting.current,
+  )
+  const url = input ? String(input.current) : item?.sourceImageUrl
+  return url || undefined
+}
+
+function answersText(answers: UIMessage[]): string {
+  return answers.map(messageText).filter(Boolean).join('\n\n')
+}
+
+function agentFooter(answers: UIMessage[]): TurnFooter {
+  const text = answersText(answers)
+  return { actions: text ? ['copy'] : [], text }
+}
+
+/** Regenerate redoes only the newest answer of a conversation, so only `last` offers it. */
+export function chatAnswerFooter(answers: UIMessage[], last = false): TurnFooter {
+  const answer = answers.at(-1)
+  if (!answer || !answers.some(messageHasVisibleContent)) return noFooter()
+  const text = answersText(answers)
+  const actions: TurnFooterAction[] = [
+    ...(text ? (['copy', 'speak'] as const) : []),
+    ...(last ? (['regenerate'] as const) : []),
+    'delete',
+  ]
+  const metadata = answer.metadata as AipgMetadata | undefined
+  const metrics = metadata?.timings
+    ? {
+        timings: metadata.timings,
+        ...(metadata.compute ? { compute: metadata.compute } : {}),
+        ...(metadata.energy ? { energy: metadata.energy } : {}),
+      }
+    : undefined
+  return { actions, text, messageId: answer.id, ...(metrics ? { metrics } : {}) }
+}
+
+function audioFooter(audio: AudioTurnData): TurnFooter {
+  const text = audio.kind === 'stt' ? (audio.transcript ?? '') : ''
+  return { actions: text ? ['copy'] : [], text }
 }
 
 /** A model id as people know it: a GGUF file's name without its folder and extension. */
@@ -271,11 +408,17 @@ function audioHint(audio: PendingAudio & { engine?: string }): TurnHint {
   }
 }
 
-/** Chat and agent answers arrive after their Turn is opened, so their hint is read last. */
-function withMessageHints(turns: TimelineTurn[]): TimelineTurn[] {
+/** Chat and agent answers arrive after their Turn is opened, so hint and footer are read last. */
+function withAnswers(turns: TimelineTurn[], prompts: Map<string, UIMessage>): TimelineTurn[] {
   for (const turn of turns) {
-    if (turn.kind === 'chat') turn.hint = chatHint(turn.prompt, turn.answers)
-    if (turn.kind === 'agent') turn.hint = agentHint(turn.presetName, turn.answers)
+    if (turn.kind === 'chat') {
+      turn.hint = chatHint(prompts.get(turn.id), turn.answers)
+      turn.footer = chatAnswerFooter(turn.answers)
+    }
+    if (turn.kind === 'agent') {
+      turn.hint = agentHint(turn.presetName, turn.answers)
+      turn.footer = agentFooter(turn.answers)
+    }
   }
   return turns
 }
@@ -289,8 +432,8 @@ function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): voi
   const last = turns.at(-1)
   for (const turn of turns) {
     turn.streaming = agent.live && turn === last
-    turn.queued = !!turn.prompt && turn.prompt.id === agent.queuedMessageId
-    turn.notRun = !!turn.prompt && turn.prompt.id === agent.notRunMessageId
+    turn.queued = !!turn.prompt && turn.id === agent.queuedMessageId
+    turn.notRun = !!turn.prompt && turn.id === agent.notRunMessageId
     turn.canResend = !!agent.canResend && turn.notRun && turn === last
   }
   const run = entries.find((entry) => entry.kind === 'task-run' && entry.harnessSessionId === id)
@@ -330,6 +473,7 @@ function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
 export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
+  const prompts = new Map<string, UIMessage>()
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     const tag = agentTagOf(message)
@@ -342,13 +486,17 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
       ) {
         last.answers.push(message)
       } else {
+        if (message.role === 'user') prompts.set(message.id, message)
         turns.push({
           kind: 'agent',
           id: message.id,
           hint: agentHint(tag.presetName, []),
+          footer: noFooter(),
           presetName: tag.presetName,
           harnessSessionId: tag.harnessSessionId,
-          ...(message.role === 'user' ? { prompt: message, answers: [] } : { answers: [message] }),
+          ...(message.role === 'user'
+            ? { prompt: messagePrompt(message), answers: [] }
+            : { answers: [message] }),
           ...(tag.taskRun ? { taskRun: tag.taskRun } : {}),
         })
       }
@@ -361,11 +509,13 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
         continue
       }
       const prompted = message.role === 'user'
+      if (prompted) prompts.set(message.id, message)
       turns.push({
         kind: 'chat',
         id: message.id,
         hint: chatHint(undefined, []),
-        ...(prompted ? { prompt: message, answers: [] } : { answers: [message] }),
+        footer: noFooter(),
+        ...(prompted ? { prompt: messagePrompt(message), answers: [] } : { answers: [message] }),
       })
       continue
     }
@@ -378,7 +528,10 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
         kind: 'audio',
         id: answer.id,
         hint: audioHint(audio),
-        prompt: promptOf(message),
+        footer: audioFooter(audio),
+        prompt: textPrompt(promptOf(message), audio.preset, {
+          audio: audio.kind === 'stt' && audio.audioUrl ? [{ url: audio.audioUrl }] : undefined,
+        }),
         createdAt: message.createdAt,
         audio,
       })
@@ -390,7 +543,10 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
         kind: 'media',
         id: next.id,
         hint: mediaHint(media),
-        prompt: promptOf(message),
+        footer: noFooter(),
+        prompt: textPrompt(promptOf(message), media.preset, {
+          inputImageUrl: mediaInputImage(media),
+        }),
         createdAt: message.createdAt,
         media,
       })
@@ -399,5 +555,5 @@ export function timelineTurns(timeline: readonly unknown[]): TimelineEntry[] {
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return withTaskRuns(withMessageHints(turns))
+  return withTaskRuns(withAnswers(turns, prompts))
 }

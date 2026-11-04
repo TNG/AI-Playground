@@ -16,42 +16,14 @@
     {{ plainText(item.message) }}
   </div>
   <SessionTurn v-else :hint="item.hint">
-    <template #prompt>
-      <SessionMessage
-        v-if="item.kind === 'chat' && item.prompt"
-        :message="item.prompt"
-        engine="chat"
-        :last="item.prompt.id === lastChatMessageId"
-        :conversation-key="chatKey"
-      />
-      <SessionMessage
-        v-else-if="item.kind === 'agent' && item.prompt"
-        :message="item.prompt"
-        engine="agent"
-        :queued="item.queued"
-        :not-run="item.notRun"
-        :can-resend="item.canResend"
+    <template v-if="item.prompt" #prompt>
+      <SessionTurnPrompt
+        :prompt="item.prompt"
+        :queued="item.kind === 'agent' && item.queued"
+        :not-run="item.kind === 'agent' && item.notRun"
+        :can-resend="item.kind === 'agent' && item.canResend"
         @resend="emit('resend')"
       />
-      <SessionUserBubble v-else-if="item.kind === 'media' || item.kind === 'pending-media'">
-        <p v-if="mediaPrompt" class="whitespace-pre-wrap">{{ mediaPrompt }}</p>
-        <p v-else class="text-muted-foreground italic">{{ item.hint.preset }}</p>
-      </SessionUserBubble>
-      <SessionUserBubble v-else-if="item.kind === 'audio' || item.kind === 'pending-audio'">
-        <p class="whitespace-pre-wrap">{{ audioPrompt || item.hint.preset }}</p>
-        <template v-if="item.kind === 'audio' && item.audio.kind === 'stt'">
-          <p v-if="audioFileDeleted" class="text-sm text-muted-foreground">
-            {{ languages.SESSION_FILE_DELETED }}
-          </p>
-          <audio
-            v-else-if="item.audio.audioUrl"
-            controls
-            class="w-full max-w-md"
-            :src="item.audio.audioUrl"
-            :aria-label="item.prompt"
-          />
-        </template>
-      </SessionUserBubble>
     </template>
     <template #result>
       <SessionMessage
@@ -60,6 +32,7 @@
         :message="answer"
         engine="chat"
         unlabelled
+        footerless
         :last="answer.id === lastChatMessageId"
         :conversation-key="chatKey"
       />
@@ -102,6 +75,9 @@
         :phase="item.pending.phase"
       />
     </template>
+    <template v-if="footerShown" #footer>
+      <SessionTurnFooter :footer="item.footer" />
+    </template>
   </SessionTurn>
 </template>
 
@@ -109,14 +85,15 @@
 import { computed } from 'vue'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useGallery } from '@/assets/js/store/gallery'
-import { useI18N } from '@/assets/js/store/i18n'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import { useSessions, type PendingMediaTurn } from '@/assets/js/store/sessions'
+import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
 import MediaTurnBlock from '@/components/MediaTurnBlock.vue'
 import SessionMessage from '@/components/SessionMessage.vue'
 import SessionTurn from '@/components/SessionTurn.vue'
-import SessionUserBubble from '@/components/SessionUserBubble.vue'
+import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
+import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
 import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import type { SessionTimelineItem } from '@/lib/sessionTimeline'
 import type { TimelineMessage } from '@/types/sessionTimeline'
@@ -134,18 +111,12 @@ const emit = defineEmits<{ resend: [] }>()
 const sessions = useSessions()
 const gallery = useGallery()
 const artifactRuns = useArtifactRuns()
-const languages = useI18N().state
+const textInference = useTextInference()
 
-const mediaPrompt = computed(() => {
-  if (props.item.kind === 'media') return props.item.prompt
-  if (props.item.kind === 'pending-media') return props.item.pending.prompt
-  return ''
-})
-
-const audioPrompt = computed(() => {
-  if (props.item.kind === 'audio') return props.item.prompt
-  if (props.item.kind === 'pending-audio') return props.item.pending.prompt
-  return ''
+const footerShown = computed(() => {
+  if (props.item.kind === 'task-run' || props.item.kind === 'message') return false
+  const footer = props.item.footer
+  return footer.actions.length > 0 || (textInference.metricsEnabled && !!footer.metrics)
 })
 
 const audioFileDeleted = computed(

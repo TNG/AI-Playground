@@ -37,8 +37,8 @@ describe('Session timeline turns', () => {
     ])
 
     expect(turns.map((turn) => turn.kind)).toEqual(['media', 'agent', 'agent'])
-    expect(turns[1]).toMatchObject({ prompt: { id: 'u1' }, answers: [{ id: 'a1' }] })
-    expect(turns[2]).toMatchObject({ prompt: { id: 'u2' }, answers: [{ id: 'a2' }] })
+    expect(turns[1]).toMatchObject({ id: 'u1', answers: [{ id: 'a1' }] })
+    expect(turns[2]).toMatchObject({ id: 'u2', answers: [{ id: 'a2' }] })
   })
 
   it('starts a new agent block after a turn of another preset', () => {
@@ -100,7 +100,7 @@ describe('Task Runs in the timeline', () => {
     })
     expect(
       run.kind === 'task-run' &&
-        run.turns.map((turn) => [turn.prompt?.id, ...turn.answers.map((m) => m.id)]),
+        run.turns.map((turn) => [turn.id, ...turn.answers.map((m) => m.id)]),
     ).toEqual([
       ['r1', 'r2'],
       ['r3', 'r4'],
@@ -124,7 +124,7 @@ describe('chat turns in the timeline', () => {
     expect(turns.map((turn) => turn.kind)).toEqual(['chat', 'media', 'chat', 'chat'])
     expect(
       turns.map((turn) =>
-        turn.kind === 'chat' ? [turn.prompt?.id, ...turn.answers.map((m) => m.id)] : null,
+        turn.kind === 'chat' ? [turn.id, ...turn.answers.map((m) => m.id)] : null,
       ),
     ).toEqual([['u1', 'a1'], null, ['u2', 'a2'], ['u3', 'a3']])
   })
@@ -139,7 +139,7 @@ describe('timelineTurns', () => {
     ])
 
     expect(turns).toMatchObject([
-      { kind: 'audio', id: 'a1', prompt: 'Read this', createdAt: 1, audio },
+      { kind: 'audio', id: 'a1', prompt: { text: 'Read this' }, createdAt: 1, audio },
     ])
   })
 
@@ -174,8 +174,8 @@ describe('the live agent turn in the Session timeline', () => {
 
     const turns = timelineTurns(timeline)
     expect(turns).toMatchObject([
-      { kind: 'agent', prompt: { id: 'u1' }, answers: [{ id: 'a1' }] },
-      { kind: 'agent', prompt: { id: 'u2' }, answers: [{ id: 'a2' }] },
+      { kind: 'agent', id: 'u1', answers: [{ id: 'a1' }] },
+      { kind: 'agent', id: 'u2', answers: [{ id: 'a2' }] },
     ])
   })
 
@@ -188,7 +188,7 @@ describe('the live agent turn in the Session timeline', () => {
 
     const turns = timelineTurns(timeline)
     expect(turns.map((turn) => turn.kind)).toEqual(['media', 'agent'])
-    expect(turns[1]).toMatchObject({ prompt: { id: 'u2' }, answers: [{ id: 'a2' }] })
+    expect(turns[1]).toMatchObject({ id: 'u2', answers: [{ id: 'a2' }] })
   })
 
   it('leaves the timeline as it is with nothing live', () => {
@@ -229,7 +229,7 @@ describe('the one Session timeline with every live turn in it', () => {
 
     expect(kinds(items)).toEqual(['media', 'chat'])
     const chat = items[1]
-    expect(chat).toMatchObject({ kind: 'chat', prompt: { id: 'u1' }, answers: [{ id: 'a1' }] })
+    expect(chat).toMatchObject({ kind: 'chat', id: 'u1', answers: [{ id: 'a1' }] })
   })
 
   it('shows the live copy of a saved chat message in place, once', () => {
@@ -246,7 +246,7 @@ describe('the one Session timeline with every live turn in it', () => {
     expect(kinds(items)).toEqual(['chat', 'media'])
     const chat = items[0]
     expect(chat).toMatchObject({
-      prompt: { parts: [{ type: 'text', text: 'hi' }] },
+      prompt: { text: 'hi' },
       answers: [{ parts: [{ type: 'text', text: 'hello there' }] }],
     })
   })
@@ -272,8 +272,8 @@ describe('the one Session timeline with every live turn in it', () => {
     const items = sessionTimelineItems([mediaPrompt, mediaCard], { agents: [running] })
 
     expect(kinds(items)).toEqual(['media', 'agent', 'agent'])
-    expect(items[1]).toMatchObject({ prompt: { id: 'u8' }, streaming: false })
-    expect(items[2]).toMatchObject({ prompt: { id: 'u9' }, streaming: true })
+    expect(items[1]).toMatchObject({ id: 'u8', streaming: false })
+    expect(items[2]).toMatchObject({ id: 'u9', streaming: true })
   })
 
   it('shows a queued agent prompt as its own Turn after the answered one', () => {
@@ -293,8 +293,8 @@ describe('the one Session timeline with every live turn in it', () => {
     })
 
     expect(items).toMatchObject([
-      { kind: 'agent', prompt: { id: 'u1' }, answers: [{ id: 'a1' }], queued: false },
-      { kind: 'agent', prompt: { id: 'u2' }, answers: [], queued: true },
+      { kind: 'agent', id: 'u1', answers: [{ id: 'a1' }], queued: false },
+      { kind: 'agent', id: 'u2', answers: [], queued: true },
     ])
   })
 
@@ -317,7 +317,7 @@ describe('the one Session timeline with every live turn in it', () => {
 
     expect(items).toMatchObject([
       { notRun: false, canResend: false },
-      { prompt: { id: 'u2' }, notRun: true, canResend: true },
+      { id: 'u2', notRun: true, canResend: true },
     ])
   })
 
@@ -491,5 +491,260 @@ describe('the hint on every Turn', () => {
       { kind: 'pending-media', hint: { kind: 'workflow', icon: 'video', preset: 'Wan' } },
       { kind: 'pending-audio', hint: { kind: 'speech', icon: 'stt', preset: 'Speech to Text' } },
     ])
+  })
+})
+
+describe('the user bubble of every Turn', () => {
+  const mediaTurn = (mode: string, prompt: string, items: object[]) => [
+    { ...mediaPrompt, parts: prompt ? [{ type: 'text', text: prompt }] : [] },
+    {
+      ...mediaCard,
+      parts: [
+        {
+          type: 'data-media',
+          data: { runId: 'r1', mode, preset: 'Wan', status: 'completed', items },
+        },
+      ],
+    },
+  ]
+  const editedItem = (current: string) => ({
+    id: 'i1',
+    state: 'done',
+    mode: 'imageEdit',
+    imageUrl: 'aipg-media://sessions/s1/files/out.png',
+    settings: {},
+    dynamicSettings: [
+      { label: 'Strength', type: 'number', current: 0.5 },
+      { label: 'Image', type: 'image', current },
+    ],
+  })
+
+  it('shows a ComfyUI prompt like a chat prompt', () => {
+    const [turn] = timelineTurns([mediaPrompt, mediaCard])
+
+    expect(turn).toMatchObject({ prompt: { text: 'a castle' } })
+    expect(turn.kind === 'media' && turn.prompt.inputImageUrl).toBeUndefined()
+  })
+
+  it('shows the input image of an Image Edit Turn', () => {
+    const [turn] = timelineTurns(
+      mediaTurn('imageEdit', 'make it blue', [editedItem('aipg-media://sessions/s1/files/in.png')]),
+    )
+
+    expect(turn).toMatchObject({
+      prompt: { text: 'make it blue', inputImageUrl: 'aipg-media://sessions/s1/files/in.png' },
+    })
+  })
+
+  it('shows the input image of a Video Turn', () => {
+    const [turn] = timelineTurns(
+      mediaTurn('video', 'pan left', [
+        { ...editedItem('aipg-media://media/in.png'), mode: 'video' },
+      ]),
+    )
+
+    expect(turn).toMatchObject({ prompt: { inputImageUrl: 'aipg-media://media/in.png' } })
+  })
+
+  it('shows no input image when the Session could not keep it', () => {
+    const [turn] = timelineTurns(mediaTurn('imageEdit', 'make it blue', [editedItem('')]))
+
+    expect(turn.kind === 'media' && turn.prompt.inputImageUrl).toBeUndefined()
+  })
+
+  it('names the preset in place of a ComfyUI prompt that was left empty', () => {
+    const [turn] = timelineTurns(mediaTurn('imageEdit', '', []))
+
+    expect(turn).toMatchObject({ prompt: { text: '', placeholder: 'Wan' } })
+  })
+
+  it('shows the input image of a ComfyUI run still in flight', () => {
+    const items = sessionTimelineItems([], {
+      media: {
+        runId: 'r2',
+        prompt: '',
+        preset: 'Wan',
+        mode: 'video' as const,
+        inputImageUrl: 'aipg-media://media/in.png',
+      },
+    })
+
+    expect(items).toMatchObject([
+      {
+        kind: 'pending-media',
+        prompt: { text: '', placeholder: 'Wan', inputImageUrl: 'aipg-media://media/in.png' },
+      },
+    ])
+  })
+
+  it("shows a chat prompt's text and its attached image", () => {
+    const [turn] = timelineTurns([
+      {
+        ...chatMessage('u1', 'user', 'what is this?'),
+        parts: [
+          { type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,AAA' },
+          { type: 'text', text: 'what is this?' },
+        ],
+      },
+    ])
+
+    expect(turn).toMatchObject({
+      prompt: { text: 'what is this?', inputImageUrl: 'data:image/png;base64,AAA' },
+    })
+  })
+
+  it('shows an agent prompt with the channel it came from', () => {
+    const [turn] = timelineTurns([
+      { ...agentMessage('u1', 'user', 'hi'), metadata: { agentTurn, origin: 'telegram' } },
+    ])
+
+    expect(turn).toMatchObject({ prompt: { text: 'hi', origin: 'telegram' } })
+  })
+
+  it('shows the source audio of a speech-to-text Turn, named by its preset', () => {
+    const stt = { kind: 'stt', preset: 'Speech to Text', status: 'completed', audioUrl: 'clip' }
+    const [turn] = timelineTurns([
+      { ...user('u1', ''), parts: [] },
+      { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: stt }] },
+    ])
+
+    expect(turn).toMatchObject({
+      prompt: { text: '', placeholder: 'Speech to Text', audio: [{ url: 'clip' }] },
+    })
+  })
+})
+
+describe('the footer of every Turn', () => {
+  const actionsOf = (item: unknown) => (item as { footer: { actions: string[] } }).footer.actions
+  const timings = { predicted_n: 12, predicted_per_second: 30, prompt_ms: 40 }
+  const pendingMedia = {
+    runId: 'r2',
+    prompt: 'a dragon',
+    preset: 'Draft',
+    mode: 'imageGen' as const,
+  }
+
+  it('offers Copy, Speak, Regenerate and Delete on the last chat Turn', () => {
+    const items = sessionTimelineItems(
+      [chatMessage('u1', 'user', 'hi'), chatMessage('a1', 'assistant', 'hello')],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'speak', 'regenerate', 'delete'],
+        text: 'hello',
+        messageId: 'a1',
+      },
+    })
+  })
+
+  it('offers Regenerate on the last chat Turn only', () => {
+    const items = sessionTimelineItems(
+      [
+        chatMessage('u1', 'user', 'hi'),
+        chatMessage('a1', 'assistant', 'hello'),
+        chatMessage('u2', 'user', 'again'),
+        chatMessage('a2', 'assistant', 'hello again'),
+      ],
+      {},
+    )
+
+    expect(items.map(actionsOf)).toEqual([
+      ['copy', 'speak', 'delete'],
+      ['copy', 'speak', 'regenerate', 'delete'],
+    ])
+  })
+
+  it('offers no Regenerate on a chat Turn that another Turn followed', () => {
+    const items = sessionTimelineItems(
+      [chatMessage('u1', 'user', 'hi'), chatMessage('a1', 'assistant', 'hello')],
+      { media: pendingMedia },
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+  })
+
+  it('offers nothing on a chat prompt still waiting for its answer', () => {
+    const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {})
+
+    expect(actionsOf(items[0])).toEqual([])
+  })
+
+  it('offers nothing on a chat answer that has shown nothing yet', () => {
+    const answer = { id: 'a1', role: 'assistant', parts: [] }
+    const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {
+      chat: [chatMessage('u1', 'user', 'hi'), answer],
+    })
+
+    expect(actionsOf(items[0])).toEqual([])
+  })
+
+  it('offers Delete without Copy on a chat answer that only called a tool', () => {
+    const tool = { type: 'tool-comfyUI', toolCallId: 't1', state: 'input-available', input: {} }
+    const answer = { id: 'a1', role: 'assistant', parts: [tool] }
+    const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {
+      chat: [chatMessage('u1', 'user', 'hi'), answer],
+    })
+
+    expect(actionsOf(items[0])).toEqual(['regenerate', 'delete'])
+  })
+
+  it("carries a chat answer's metrics", () => {
+    const answer = {
+      ...chatMessage('a1', 'assistant', 'hello'),
+      metadata: { chatTurn: true, timings },
+    }
+    const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi'), answer], {})
+
+    expect(items[0]).toMatchObject({ footer: { metrics: { timings } } })
+  })
+
+  it('offers only Copy on an Agent Preset Turn, without metrics', () => {
+    const answer = {
+      ...agentMessage('a1', 'assistant', 'built it'),
+      metadata: { agentTurn, timings },
+    }
+    const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game'), answer], {})
+
+    expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'built it' } })
+    expect(items[0]).not.toHaveProperty('footer.metrics')
+  })
+
+  it('offers nothing on an Agent Preset Turn with no text yet', () => {
+    const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game')], {})
+
+    expect(actionsOf(items[0])).toEqual([])
+  })
+
+  it('offers Copy of the transcript on a speech-to-text Turn', () => {
+    const stt = { kind: 'stt', preset: 'Speech to Text', status: 'completed', transcript: 'hello' }
+    const items = sessionTimelineItems(
+      [
+        user('u1', ''),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: stt }] },
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'hello' } })
+  })
+
+  it('offers nothing on ComfyUI, text-to-speech and running Turns, which have no text', () => {
+    const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
+    const items = sessionTimelineItems(
+      [
+        mediaPrompt,
+        mediaCard,
+        user('u1', 'Read this'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: tts }] },
+      ],
+      {
+        media: pendingMedia,
+        audio: { kind: 'tts' as const, prompt: 'hi', preset: 'Text to Speech' },
+      },
+    )
+
+    expect(items.map(actionsOf)).toEqual([[], [], [], []])
   })
 })

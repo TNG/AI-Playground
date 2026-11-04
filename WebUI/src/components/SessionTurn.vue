@@ -9,7 +9,10 @@
     </div>
     <slot name="details" />
     <slot name="result" />
-    <slot name="footer" />
+    <div v-if="$slots.footer" class="-mt-3 flex items-start gap-3">
+      <span :class="textInference.iconSizeClass" class="shrink-0" aria-hidden="true" />
+      <slot name="footer" />
+    </div>
   </div>
 </template>
 

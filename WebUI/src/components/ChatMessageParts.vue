@@ -56,7 +56,13 @@
                 ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
               >
             </div>
-            <ChatWorkflowResult v-if="section !== 'details'" v-bind="toolMediaCard(part)" />
+            <template v-if="section !== 'details'">
+              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <TurnFailureLine
+                v-if="toolCallResultFailure(part)"
+                :failure="toolCallResultFailure(part)!"
+              />
+            </template>
           </template>
           <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUiImageEdit'">
             <div v-if="section !== 'result'">
@@ -73,7 +79,13 @@
                 ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
               >
             </div>
-            <ChatWorkflowResult v-if="section !== 'details'" v-bind="toolMediaCard(part)" />
+            <template v-if="section !== 'details'">
+              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <TurnFailureLine
+                v-if="toolCallResultFailure(part)"
+                :failure="toolCallResultFailure(part)!"
+              />
+            </template>
           </template>
           <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'media'">
             <div v-if="section !== 'result'">
@@ -91,13 +103,11 @@
               />
             </div>
             <div v-if="section !== 'details'">
-              <div
-                v-if="part.state === 'output-available' && (part as any).output?.success === false"
-                class="mt-2 text-sm text-destructive"
-              >
-                {{ (part as any).output?.message ?? 'Media generation failed.' }}
-              </div>
               <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <TurnFailureLine
+                v-if="toolCallResultFailure(part)"
+                :failure="toolCallResultFailure(part)!"
+              />
             </div>
           </template>
           <template
@@ -206,6 +216,7 @@ import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatWebBrowseDisplay, { type WebBrowseEntry } from '@/components/ChatWebBrowseDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { aipgTools, type AipgTools } from '@/assets/js/tools/tools'
@@ -218,7 +229,7 @@ import {
 } from '@/lib/chatToolParts'
 import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
-import { toolCallArtifacts } from '@/lib/turnArtifacts'
+import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
 
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */
 const props = defineProps<{

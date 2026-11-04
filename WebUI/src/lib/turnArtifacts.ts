@@ -7,12 +7,17 @@ import {
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
 import type { ArtifactPhase } from '@/types/kernelEvents'
-import { hasDisplayableMedia, isInFlight, type MediaItem } from '@/types/mediaItem'
+import {
+  hasDisplayableMedia,
+  isInFlight,
+  type GenerationFailureRecord,
+  type MediaItem,
+} from '@/types/mediaItem'
 
 export type ArtifactAction =
   'info' | 'zoom' | 'copy' | 'download' | 'openFolder' | 'sendToEdit' | 'sendToVideo' | 'delete'
 
-export type ArtifactState = 'running' | 'done' | 'deleted'
+export type ArtifactState = 'running' | 'done' | 'deleted' | 'failed' | 'cancelled'
 
 export type ArtifactSize = { width: number; height: number }
 
@@ -31,7 +36,12 @@ export type TurnArtifact = {
   /** Where a running artifact's generation is; absent once it settled. */
   phase?: ArtifactPhase
   progress?: ArtifactProgress
+  /** Why a failed artifact failed, in one line. */
+  reason?: string
 }
+
+/** A generation that ended without its result, and why in one line. */
+export type GenerationFailure = { state: 'failed' | 'cancelled'; reason?: string }
 
 type LiveState = { phase: ArtifactPhase; progress?: ArtifactProgress }
 
@@ -61,14 +71,37 @@ function requestedSize(item: MediaItem): ArtifactSize | undefined {
     : undefined
 }
 
+/** The first line of an error, which is all a card or a Result has room for. */
+export function oneLine(text: string | undefined): string | undefined {
+  const line = text
+    ?.split('\n')
+    .map((part) => part.trim())
+    .find(Boolean)
+  return line || undefined
+}
+
+export function generationFailure(record: GenerationFailureRecord): GenerationFailure {
+  const reason = record.state === 'failed' ? oneLine(record.error) : undefined
+  return { state: record.state, ...(reason ? { reason } : {}) }
+}
+
+function isUnfinished(item: MediaItem): boolean {
+  return item.state === 'failed' || item.state === 'stopped'
+}
+
 export function turnArtifact(
   item: MediaItem,
   deletedUrls: readonly string[],
   live?: LiveState,
+  error?: string,
 ): TurnArtifact {
   const url = mediaUrlOf(item)
   const size = requestedSize(item)
   const base = { id: item.id, mediaType: item.type, url, item, ...(size ? { size } : {}) }
+  if (isUnfinished(item)) {
+    const state = item.state === 'stopped' ? 'cancelled' : 'failed'
+    return { ...base, ...generationFailure({ state, error }), actions: ['info'] }
+  }
   if (deletedUrls.includes(url)) return { ...base, state: 'deleted', actions: ['info'] }
   if (isInFlight(item) || !hasDisplayableMedia(item)) {
     return { ...base, state: 'running', actions: [], ...live }
@@ -80,29 +113,47 @@ function shown(item: MediaItem): boolean {
   return isInFlight(item) || hasDisplayableMedia(item)
 }
 
-/** The card's artifacts: items in flight or with media; a failed or stopped empty slot is none. */
+/**
+ * The card's artifacts: items in flight or with media, and the failed or stopped slots that
+ * are only recorded for a run that had started generating.
+ */
 export function turnArtifacts(
   items: readonly MediaItem[],
   deletedUrls: readonly string[],
+  error?: string,
 ): TurnArtifact[] {
-  return items.filter(shown).map((item) => turnArtifact(item, deletedUrls))
+  return items
+    .filter((item) => shown(item) || isUnfinished(item))
+    .map((item) => turnArtifact(item, deletedUrls, undefined, error))
 }
 
-/** A run's artifacts; an item waiting behind a sibling that generates shows as queued. */
+/**
+ * A run's artifacts; an item waiting behind a sibling that generates shows as queued. A run
+ * that settled before generating anything keeps no slot: its Turn says why in one line.
+ */
 export function runArtifacts(
   runs: readonly ArtifactRunView[],
   deletedUrls: readonly string[],
 ): TurnArtifact[] {
   return runs.flatMap((run) => {
     const siblingGenerates = run.items.some((item) => item.state === 'generating')
-    return run.items.filter(shown).map((item) => {
-      const waits = item.state === 'queued' && siblingGenerates
-      const live: LiveState = waits
-        ? { phase: 'queued' }
-        : { phase: run.phase, ...(run.progress ? { progress: run.progress } : {}) }
-      return turnArtifact(item, deletedUrls, live)
-    })
+    return run.items
+      .filter((item) => (isUnfinished(item) ? !!run.started : shown(item)))
+      .map((item) => {
+        const waits = item.state === 'queued' && siblingGenerates
+        const live: LiveState = waits
+          ? { phase: 'queued' }
+          : { phase: run.phase, ...(run.progress ? { progress: run.progress } : {}) }
+        return turnArtifact(item, deletedUrls, live, run.error)
+      })
   })
+}
+
+/** Why a run settled before generating anything; null for one that started or did not fail. */
+export function runFailure(run: ArtifactRunView | undefined): GenerationFailure | null {
+  if (!run || run.started) return null
+  if (run.phase !== 'failed' && run.phase !== 'cancelled') return null
+  return generationFailure({ state: run.phase, error: run.error })
 }
 
 /** Placeholders for a ComfyUI run the runner has not registered yet. */
@@ -128,14 +179,89 @@ export function placeholderArtifacts(
   )
 }
 
-/** What a settled chat or Agent Preset media tool call produced. */
+type ToolOutput = {
+  images?: unknown
+  unfinished?: unknown
+  success?: unknown
+  state?: unknown
+  error?: unknown
+  message?: unknown
+  details?: { items?: unknown; failure?: GenerationFailureRecord }
+  content?: unknown
+}
+
+function isMediaToolPart(part: unknown): boolean {
+  return isChatMediaToolPart(part) || !!mediaToolNameOf(part)
+}
+
+function settledOutput(part: unknown): ToolOutput | null {
+  const { state, output } = part as { state?: unknown; output?: unknown }
+  if (state !== 'output-available' || typeof output !== 'object' || output === null) return null
+  return output as ToolOutput
+}
+
+/** Pi answers `{ content, details }`; chat tools answer their record itself. */
+function isAgentOutput(output: ToolOutput): boolean {
+  return 'details' in output || 'content' in output
+}
+
+function unfinishedOf(value: unknown): MediaItem[] {
+  return (Array.isArray(value) ? (value as MediaItem[]) : []).filter(
+    (item) => typeof item === 'object' && item !== null && isUnfinished(item),
+  )
+}
+
+/** What a settled chat or Agent Preset media tool call produced, and the slots that failed. */
 export function toolPartMedia(part: unknown): MediaItem[] {
-  const agentItems = generatedMediaOf(part)?.items
-  if (agentItems?.length) return agentItems
-  const { state, output } = part as { state?: unknown; output?: { images?: unknown } }
-  if (state !== 'output-available' || !isChatMediaToolPart(part)) return []
-  const images = Array.isArray(output?.images) ? (output.images as MediaItem[]) : []
-  return images.map((image) => ({ ...image, state: 'done' as const }))
+  if (!isMediaToolPart(part)) return []
+  const output = settledOutput(part)
+  if (!output) return []
+  if (isAgentOutput(output)) {
+    return [...(generatedMediaOf(part)?.items ?? []), ...unfinishedOf(output.details?.items)]
+  }
+  const images = Array.isArray(output.images) ? (output.images as MediaItem[]) : []
+  return [
+    ...images.map((image) => ({ ...image, state: 'done' as const })),
+    ...unfinishedOf(output.unfinished),
+  ]
+}
+
+const CANCELLED_MESSAGE = 'Generation cancelled.'
+
+function failureRecordOf(record: ToolOutput | null | undefined): GenerationFailureRecord | null {
+  if (!record || record.success !== false) return null
+  const message = typeof record.message === 'string' ? record.message : undefined
+  if (record.state === 'cancelled' || message === CANCELLED_MESSAGE) return { state: 'cancelled' }
+  const error = typeof record.error === 'string' ? record.error : message
+  return { state: 'failed', ...(error ? { error } : {}) }
+}
+
+function jsonTextOf(content: unknown): ToolOutput | null {
+  const entry = (Array.isArray(content) ? content : []).find(
+    (candidate) => (candidate as { type?: unknown } | null)?.type === 'text',
+  ) as { text?: unknown } | undefined
+  if (typeof entry?.text !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(entry.text)
+    return typeof parsed === 'object' && parsed !== null ? (parsed as ToolOutput) : null
+  } catch {
+    return null
+  }
+}
+
+/** How a settled media tool call failed or was cancelled, with its full error; null if not. */
+export function toolCallFailureRecord(part: unknown): GenerationFailureRecord | null {
+  if (!isMediaToolPart(part)) return null
+  const { state, errorText } = part as { state?: unknown; errorText?: unknown }
+  if (state === 'output-error') {
+    return typeof errorText === 'string' && errorText
+      ? { state: 'failed', error: errorText }
+      : { state: 'failed' }
+  }
+  const output = settledOutput(part)
+  if (!output) return null
+  if (!isAgentOutput(output)) return failureRecordOf(output)
+  return output.details?.failure ?? failureRecordOf(jsonTextOf(output.content))
 }
 
 function isRunningMediaTool(part: unknown): part is { toolCallId: string } {
@@ -143,7 +269,7 @@ function isRunningMediaTool(part: unknown): part is { toolCallId: string } {
   return (
     (state === 'input-streaming' || state === 'input-available') &&
     typeof toolCallId === 'string' &&
-    (isChatMediaToolPart(part) || !!mediaToolNameOf(part))
+    isMediaToolPart(part)
   )
 }
 
@@ -159,7 +285,17 @@ export function toolCallArtifacts(
   if (isRunningMediaTool(part)) {
     return artifactRuns ? runArtifacts(runsOwnedBy(artifactRuns, part.toolCallId), deletedUrls) : []
   }
-  return turnArtifacts(toolPartMedia(part), deletedUrls)
+  return turnArtifacts(toolPartMedia(part), deletedUrls, toolCallFailureRecord(part)?.error)
+}
+
+/**
+ * What a media tool call's Result says in one line in place of a card: why it failed, or that
+ * it was cancelled, before generating anything. Null when it did not, or a card says so.
+ */
+export function toolCallResultFailure(part: unknown): GenerationFailure | null {
+  const record = toolCallFailureRecord(part)
+  if (!record || toolPartMedia(part).some(isUnfinished)) return null
+  return generationFailure(record)
 }
 
 export const ARTIFACT_GRID_GAP_PX = 12

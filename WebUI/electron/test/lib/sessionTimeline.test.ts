@@ -6,6 +6,7 @@ import {
   turnDetailsSummaryText,
   turnLiveText,
   withLiveAgentTurn,
+  type SessionTimelineItem,
   type TurnDetails,
   type TurnResultPart,
 } from '@/lib/sessionTimeline'
@@ -1208,13 +1209,6 @@ describe('artifacts on every Turn', () => {
       expect(artifactsOf(timeline)[0].actions).not.toContain('delete')
     }
   })
-
-  it('leaves out the empty slot of a failed item', () => {
-    const failed = { ...image('f1'), state: 'failed', imageUrl: '' }
-    for (const timeline of everySurface(failed)) {
-      expect(artifactsOf(timeline)).toEqual([])
-    }
-  })
 })
 
 describe('the live status line of a running Turn', () => {
@@ -1410,6 +1404,7 @@ describe('the live status line of a running Turn', () => {
       questionKey: 'aipg-agent-1',
     })
     expect(detailsOf(items[1]).error).toBe('backend died')
+    expect(detailsOf(items[1]).errorLine).toBe('backend died')
     expect(detailsOf(items[1]).live).toBeUndefined()
   })
 
@@ -1769,6 +1764,288 @@ describe('a running artifact on every Turn', () => {
     const [artifact] = artifactsIn(sessionTimelineItems([mediaPrompt, card], {}))
     expect(artifact).toMatchObject({ state: 'done', size: { width: 1024, height: 768 } })
     expect(artifact).not.toHaveProperty('phase')
+  })
+})
+
+describe('failed and cancelled artifacts on every Turn', () => {
+  const slot = (id: string, state: 'failed' | 'stopped') => ({
+    id,
+    type: 'image',
+    state,
+    mode: 'imageGen',
+    imageUrl: '',
+    settings: { width: 1024, height: 768 },
+  })
+  const fullError = 'CUDA out of memory\nTried to allocate 2 GiB'
+  const chatToolTurn = (output: object, toolState = 'output-available') => [
+    chatMessage('u1', 'user', 'draw a castle'),
+    {
+      id: 'a1',
+      role: 'assistant',
+      metadata: { chatTurn: true },
+      parts: [
+        {
+          type: 'tool-comfyUI',
+          toolCallId: 't1',
+          state: toolState,
+          input: { workflow: 'Draft', prompt: 'a castle' },
+          output,
+        },
+      ],
+    },
+  ]
+  const agentToolTurn = (output: object, toolState = 'output-available', extra: object = {}) => [
+    agentMessage('u2', 'user', 'draw a castle'),
+    {
+      id: 'a2',
+      role: 'assistant',
+      metadata: { agentTurn },
+      parts: [
+        {
+          type: 'dynamic-tool',
+          toolName: 'generateImage',
+          toolCallId: 't2',
+          state: toolState,
+          input: { prompt: 'a castle' },
+          output,
+          ...extra,
+        },
+      ],
+    },
+  ]
+  const mediaTurn = (status: 'failed' | 'cancelled', items: object[], error?: string) => [
+    mediaPrompt,
+    {
+      ...mediaCard,
+      parts: [
+        {
+          type: 'data-media',
+          data: { ...mediaCard.parts[0].data, status, ...(error ? { error } : {}), items },
+        },
+      ],
+    },
+  ]
+  const chatFailure = (state: 'failed' | 'cancelled', unfinished: object[]) => ({
+    success: false,
+    state,
+    message:
+      state === 'cancelled' ? 'Generation cancelled.' : `ComfyUI generation failed: ${fullError}`,
+    ...(state === 'failed' ? { error: fullError } : {}),
+    images: [],
+    unfinished,
+  })
+  const agentFailure = (state: 'failed' | 'cancelled', items: object[]) => ({
+    content: [{ type: 'text', text: '{"success":false}' }],
+    details: { items, failure: { state, ...(state === 'failed' ? { error: fullError } : {}) } },
+  })
+  const turnOf = (items: unknown[]) => items[0] as SessionTimelineItem
+  const itemsOf = (timeline: unknown[], live = {}) => sessionTimelineItems(timeline, live)
+  const artifactsOf = (item: SessionTimelineItem) =>
+    'artifacts' in item ? (item.artifacts as TurnArtifact[]) : []
+  const resultOf = (item: SessionTimelineItem) => ('result' in item ? item.result : [])
+  const errorOf = (item: SessionTimelineItem) => ('details' in item ? item.details.error : '')
+
+  it('settles a failed generation into a card of its size with a one-line reason', () => {
+    const surfaces = [
+      chatToolTurn(chatFailure('failed', [slot('f1', 'failed')])),
+      agentToolTurn(agentFailure('failed', [slot('f1', 'failed')])),
+      mediaTurn('failed', [slot('f1', 'failed')], fullError),
+    ]
+    for (const timeline of surfaces) {
+      const turn = turnOf(itemsOf(timeline))
+      expect(artifactsOf(turn)).toEqual([
+        expect.objectContaining({
+          state: 'failed',
+          size: { width: 1024, height: 768 },
+          reason: 'CUDA out of memory',
+          actions: ['info'],
+        }),
+      ])
+      expect(errorOf(turn)).toBe(fullError)
+      expect(resultOf(turn).some((part) => part.kind === 'failure')).toBe(false)
+    }
+  })
+
+  it('settles a cancelled generation into a card of its size saying it was cancelled', () => {
+    const surfaces = [
+      chatToolTurn(chatFailure('cancelled', [slot('s1', 'stopped')])),
+      agentToolTurn(agentFailure('cancelled', [slot('s1', 'stopped')])),
+      mediaTurn('cancelled', [slot('s1', 'stopped')], 'Generation cancelled.'),
+    ]
+    for (const timeline of surfaces) {
+      const turn = turnOf(itemsOf(timeline))
+      const [artifact] = artifactsOf(turn)
+      expect(artifact).toMatchObject({ state: 'cancelled', size: { width: 1024, height: 768 } })
+      expect(artifact).not.toHaveProperty('reason')
+      expect(errorOf(turn)).toBeFalsy()
+      expect(resultOf(turn).some((part) => part.kind === 'failure')).toBe(false)
+    }
+  })
+
+  it('keeps the finished items of a batch beside the one that failed', () => {
+    const done = {
+      ...slot('d1', 'failed'),
+      state: 'done',
+      imageUrl: 'aipg-media://sessions/s1/files/d1.png',
+    }
+    const turn = turnOf(itemsOf(mediaTurn('failed', [done, slot('f2', 'failed')], fullError)))
+    expect(artifactsOf(turn).map((artifact) => artifact.state)).toEqual(['done', 'failed'])
+  })
+
+  it('fails the placeholder of a run that failed while generating, on every surface', () => {
+    const failedRun = (runId: string, owner: ArtifactRunOwner): ArtifactRunView => ({
+      runId,
+      owner,
+      phase: 'failed',
+      error: fullError,
+      started: true,
+      items: [slot(`${runId}-1`, 'failed') as MediaItem],
+      order: 0,
+    })
+    const artifactRuns: ArtifactRunsState = {
+      nextOrder: 3,
+      runs: {
+        rc: failedRun('rc', { kind: 'tool', toolCallId: 't1' }),
+        ra: failedRun('ra', { kind: 'tool', toolCallId: 't2' }),
+        rp: failedRun('rp', { kind: 'panel' }),
+      },
+    }
+    const pending = { runId: 'rp', prompt: 'a castle', preset: 'Draft', mode: 'imageGen' as const }
+    const surfaces: [unknown[], typeof pending | null][] = [
+      [chatToolTurn({}, 'input-available'), null],
+      [agentToolTurn({}, 'input-available'), null],
+      [[], pending],
+    ]
+    for (const [timeline, media] of surfaces) {
+      const [artifact] = artifactsOf(turnOf(itemsOf(timeline, { media, artifactRuns })))
+      expect(artifact).toMatchObject({
+        state: 'failed',
+        size: { width: 1024, height: 768 },
+        reason: 'CUDA out of memory',
+      })
+    }
+  })
+
+  it('says in one line why a Turn failed before it generated anything', () => {
+    const backendError = 'ComfyUI did not start\nexit code 1'
+    const chat = turnOf(
+      itemsOf(
+        chatToolTurn({
+          success: false,
+          state: 'failed',
+          message: `ComfyUI generation failed: ${backendError}`,
+          error: backendError,
+          images: [],
+        }),
+      ),
+    )
+    const agent = turnOf(
+      itemsOf(
+        agentToolTurn({
+          content: [],
+          details: { failure: { state: 'failed', error: backendError } },
+        }),
+      ),
+    )
+    const media = turnOf(itemsOf(mediaTurn('failed', [], backendError)))
+    for (const turn of [chat, agent, media]) {
+      expect(artifactsOf(turn)).toEqual([])
+      expect(resultOf(turn).filter((part) => part.kind === 'failure')).toEqual([
+        expect.objectContaining({ state: 'failed', reason: 'ComfyUI did not start' }),
+      ])
+      expect(errorOf(turn)).toBe(backendError)
+    }
+  })
+
+  it("keeps a failed generation's error out of the line under the header, which its Result says", () => {
+    const timeline = agentToolTurn({
+      content: [],
+      details: { failure: { state: 'failed', error: 'ComfyUI did not start' } },
+    })
+    const alone = turnOf(itemsOf(timeline))
+    const withRunError = turnOf(
+      itemsOf(timeline, {
+        agents: [{ tag: agentTurn, messages: [], live: false, error: 'backend died' }],
+      }),
+    )
+    expect('details' in alone && alone.details.errorLine).toBeFalsy()
+    expect('details' in withRunError && withRunError.details).toMatchObject({
+      error: 'ComfyUI did not start\n\nbackend died',
+      errorLine: 'backend died',
+    })
+  })
+
+  it('says a media tool failed when it threw instead of answering', () => {
+    const turn = turnOf(
+      itemsOf(agentToolTurn({}, 'output-error', { errorText: 'Download declined' })),
+    )
+    expect(resultOf(turn)).toEqual([
+      { kind: 'failure', messageId: 'a2', index: 0, state: 'failed', reason: 'Download declined' },
+    ])
+    expect(errorOf(turn)).toBe('Download declined')
+  })
+
+  it('reads the failure of a media tool saved before failures were recorded', () => {
+    const agent = turnOf(
+      itemsOf(
+        agentToolTurn({
+          content: [
+            {
+              type: 'text',
+              text: '{"success":false,"message":"Generation cancelled.","images":[]}',
+            },
+          ],
+        }),
+      ),
+    )
+    const chat = turnOf(
+      itemsOf(
+        chatToolTurn({ success: false, message: 'ComfyUI generation failed: boom', images: [] }),
+      ),
+    )
+    expect(resultOf(agent)).toEqual([
+      { kind: 'failure', messageId: 'a2', index: 0, state: 'cancelled' },
+    ])
+    expect(resultOf(chat)).toEqual([
+      {
+        kind: 'failure',
+        messageId: 'a1',
+        index: 0,
+        state: 'failed',
+        reason: 'ComfyUI generation failed: boom',
+      },
+    ])
+  })
+
+  it('says a ComfyUI Turn was cancelled before it generated anything', () => {
+    const turn = turnOf(itemsOf(mediaTurn('cancelled', [], 'Generation cancelled.')))
+    expect(resultOf(turn)).toEqual([{ kind: 'media' }, { kind: 'failure', state: 'cancelled' }])
+    expect(errorOf(turn)).toBeFalsy()
+  })
+
+  it('says why a ComfyUI run in flight failed before it generated anything', () => {
+    const artifactRuns: ArtifactRunsState = {
+      nextOrder: 1,
+      runs: {
+        rp: {
+          runId: 'rp',
+          owner: { kind: 'panel' },
+          phase: 'failed',
+          error: 'Download declined',
+          items: [slot('p1', 'failed') as MediaItem],
+          order: 0,
+        },
+      },
+    }
+    const media = { runId: 'rp', prompt: 'a castle', preset: 'Draft', mode: 'imageGen' as const }
+    const turn = turnOf(itemsOf([], { media, artifactRuns }))
+    expect(artifactsOf(turn)).toEqual([])
+    expect('details' in turn && turn.details.live).toBeUndefined()
+    expect(errorOf(turn)).toBe('Download declined')
+    expect(resultOf(turn)).toEqual([
+      { kind: 'media' },
+      { kind: 'failure', state: 'failed', reason: 'Download declined' },
+    ])
   })
 })
 

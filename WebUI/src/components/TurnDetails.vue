@@ -26,10 +26,10 @@
         </button>
       </div>
       <div
-        v-if="errorLine && details.error && !details.live && !open"
+        v-if="details.errorLine && !details.live && !open"
         class="truncate text-sm text-destructive"
       >
-        {{ details.error }}
+        {{ details.errorLine }}
       </div>
       <slot name="status" />
       <CollapsibleContent>
@@ -60,11 +60,7 @@ import type { TurnDetails } from '@/lib/sessionTimeline'
  * How a Turn reached its Result, collapsed under one line until the user opens it.
  * While the Turn runs that line is its only status; `status` holds what waits on the user.
  */
-defineProps<{
-  details: TurnDetails
-  /** Shows the error under the header too, for a Turn whose Result does not say it failed. */
-  errorLine?: boolean
-}>()
+defineProps<{ details: TurnDetails }>()
 
 const textInference = useTextInference()
 const webBrowser = useWebBrowser()

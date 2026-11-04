@@ -28,7 +28,10 @@
       <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
       <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     </template>
-    <ChatWorkflowResult v-if="section !== 'details'" :artifacts="mediaToolArtifacts" />
+    <template v-if="section !== 'details'">
+      <ChatWorkflowResult :artifacts="mediaToolArtifacts" />
+      <TurnFailureLine v-if="mediaToolFailure" :failure="mediaToolFailure" />
+    </template>
   </div>
   <div v-else-if="audioArtifacts.length > 0" class="flex flex-col gap-2">
     <ChatToolDisplay
@@ -80,10 +83,11 @@ import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
+import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
-import { toolCallArtifacts } from '@/lib/turnArtifacts'
+import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -156,6 +160,8 @@ const mediaToolSteps = computed(() => generatedMedia.value?.steps)
 const mediaToolArtifacts = computed(() =>
   toolCallArtifacts(props.part, artifactRuns.state, sessions.openDeletedFiles),
 )
+
+const mediaToolFailure = computed(() => toolCallResultFailure(props.part))
 
 const audioArtifacts = computed(() => ttsToolArtifacts(props.part, sessions.openDeletedFiles))
 

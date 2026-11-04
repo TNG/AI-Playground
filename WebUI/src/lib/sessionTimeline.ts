@@ -17,7 +17,11 @@ import {
   toolActionLabel,
   toolPartNameOf,
 } from '@/lib/agentTranscript'
-import { artifactPhaseLabel, type ArtifactPhaseLabels } from '@/lib/artifactRunProjection'
+import {
+  artifactPhaseLabel,
+  isTerminalPhase,
+  type ArtifactPhaseLabels,
+} from '@/lib/artifactRunProjection'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
@@ -27,11 +31,17 @@ import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
 import type { ArtifactRunsState } from '@/lib/artifactRunProjection'
 import {
+  generationFailure,
+  oneLine,
   placeholderArtifacts,
   runArtifacts,
+  runFailure,
   toolCallArtifacts,
+  toolCallFailureRecord,
+  toolCallResultFailure,
   turnArtifacts,
   type ArtifactProgress,
+  type GenerationFailure,
   type ArtifactSize,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
@@ -63,8 +73,14 @@ export type TurnDetailPart =
       inputs: ComfyDynamicInputWithCurrent[]
     }
 
+/** A generation that ended before it produced anything, said in one line where its card would be. */
+export type TurnFailurePart = { kind: 'failure' } & GenerationFailure & Partial<AnswerPartRef>
+
 export type TurnResultPart =
-  ({ kind: 'prose' | 'artifact' } & AnswerPartRef) | { kind: 'media' } | { kind: 'audio' }
+  | ({ kind: 'prose' | 'artifact' } & AnswerPartRef)
+  | TurnFailurePart
+  | { kind: 'media' }
+  | { kind: 'audio' }
 
 export type ArtifactKind = 'image' | 'video' | 'model3d' | 'audio'
 
@@ -106,7 +122,10 @@ export type TurnDetails = {
   summary: TurnSummary
   /** Set only while the Turn runs. */
   live?: TurnLiveStatus
+  /** Every error of the Turn in full: a failed generation's, the run's own. */
   error?: string
+  /** One line under the header, for an error the Result does not already say. */
+  errorLine?: string
 }
 /** The user bubble: what was asked, and what it was asked about. */
 export type TurnPrompt = {
@@ -421,6 +440,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
     const run = live.artifactRuns?.runs[media.runId]
+    const failure = runFailure(run)
     items.push({
       kind: 'pending-media',
       id: media.runId,
@@ -428,13 +448,18 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       details: {
         parts: [],
         summary: { kind: 'workflow', preset: media.preset },
-        live: {
-          kind: 'artifact',
-          phase: run?.phase ?? 'queued',
-          ...(run?.progress ? { progress: run.progress } : {}),
-        },
+        ...(run && isTerminalPhase(run.phase)
+          ? {}
+          : {
+              live: {
+                kind: 'artifact' as const,
+                phase: run?.phase ?? 'queued',
+                ...(run?.progress ? { progress: run.progress } : {}),
+              },
+            }),
+        ...(run?.phase === 'failed' && run.error ? { error: run.error } : {}),
       },
-      result: [{ kind: 'media' }],
+      result: [{ kind: 'media' }, ...(failure ? [{ kind: 'failure' as const, ...failure }] : [])],
       prompt: textPrompt(media.prompt ?? '', media.preset, {
         inputImageUrl: media.inputImageUrl || undefined,
       }),
@@ -739,6 +764,7 @@ function answerSections(
   const parts: TurnDetailPart[] = []
   const result: TurnResultPart[] = []
   const allParts: unknown[] = []
+  const errors: string[] = []
   let tools = 0
   const artifacts: Partial<Record<ArtifactKind, number>> = {}
   for (const answer of answers) {
@@ -753,8 +779,12 @@ function answerSections(
         }
       }
       if (placement.result) {
-        result.push({ kind: shapeOf(part).type === 'text' ? 'prose' : 'artifact', ...ref })
+        const failure = toolCallResultFailure(part)
+        if (failure) result.push({ kind: 'failure', ...ref, ...failure })
+        else result.push({ kind: shapeOf(part).type === 'text' ? 'prose' : 'artifact', ...ref })
       }
+      const error = toolCallFailureRecord(part)?.error
+      if (error) errors.push(error)
       if (toolPartNameOf(part) !== undefined && !compactionOutputOf(part)) tools++
       for (const kind of artifactKindsOf(engine, part)) artifacts[kind] = (artifacts[kind] ?? 0) + 1
     })
@@ -763,7 +793,12 @@ function answerSections(
   if (allParts.some(isReasoningPart)) summary.reasoningMs = reasoningElapsedMsFromParts(allParts)
   if (tools > 0) summary.tools = tools
   if (Object.keys(artifacts).length > 0) summary.artifacts = artifacts
-  return { details: { parts, summary }, result }
+  const error = joinErrors(errors)
+  return { details: { parts, summary, ...(error ? { error } : {}) }, result }
+}
+
+function joinErrors(errors: (string | undefined)[]): string | undefined {
+  return [...new Set(errors.filter(Boolean))].join('\n\n') || undefined
 }
 
 function settingsWithoutPrompt(settings: GenerationSettings | undefined): GenerationSettings {
@@ -980,10 +1015,13 @@ function markLiveAgentTurns(
       : last.queued
         ? { kind: 'queued' }
         : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
+    const error = joinErrors([last.details.error, agent.error])
+    const errorLine = oneLine(agent.error)
     last.details = {
       ...last.details,
       ...(live ? { live } : {}),
-      ...(agent.error ? { error: agent.error } : {}),
+      ...(error ? { error } : {}),
+      ...(errorLine ? { errorLine } : {}),
     }
     if (agent.open) last.questionKey = id
     if (agent.heldAnswer) last.heldAnswer = agent.heldAnswer
@@ -1016,11 +1054,24 @@ function withArtifacts(
         answer.parts.flatMap((part) => ttsToolArtifacts(part, deletedUrls)),
       )
     }
-    if (turn.kind === 'media') turn.artifacts = turnArtifacts(turn.media.items, deletedUrls)
+    if (turn.kind === 'media') {
+      turn.artifacts = turnArtifacts(turn.media.items, deletedUrls, turn.media.error)
+      const failure = mediaFailure(turn.media, turn.artifacts)
+      if (failure) turn.result = [...turn.result, { kind: 'failure', ...failure }]
+    }
     if (turn.kind === 'audio')
       turn.audioArtifacts = audioTurnArtifacts(turn.id, turn.audio, deletedUrls)
   }
   return turns
+}
+
+/** A ComfyUI run that ended with no card saying so says why in one line. */
+function mediaFailure(media: MediaTurnData, artifacts: TurnArtifact[]): GenerationFailure | null {
+  if (media.status === 'completed') return null
+  if (artifacts.some((artifact) => artifact.state === 'failed' || artifact.state === 'cancelled')) {
+    return null
+  }
+  return generationFailure({ state: media.status, error: media.error })
 }
 
 /** Folds each Task Run's consecutive Turns into its container. */

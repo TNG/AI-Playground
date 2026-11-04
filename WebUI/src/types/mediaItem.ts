@@ -39,6 +39,9 @@ export type ComfyDynamicInputWithCurrent = ComfyInput & { current: string | numb
 
 export type MediaItemState = 'queued' | 'generating' | 'done' | 'stopped' | 'failed'
 
+/** How a generation ended that did not complete, with its full error when it failed. */
+export type GenerationFailureRecord = { state: 'failed' | 'cancelled'; error?: string }
+
 /** A media item that has not reached a terminal state yet. */
 export const isInFlight = (item: MediaItem): boolean =>
   item.state === 'queued' || item.state === 'generating'

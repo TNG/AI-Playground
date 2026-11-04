@@ -24,6 +24,8 @@ export type MediaTurn = {
   durationMs?: number
   /** The run's finished items, still pointing at ComfyUI's output directory. */
   items: MediaItem[]
+  /** Slots a failed or cancelled run left without a result; kept so the card keeps their box. */
+  unfinished?: MediaItem[]
   /** Resolves an `aipg-media://` URL to the file it names, or null when it names none. */
   localPathOf: (url: string) => string | null
 }
@@ -127,7 +129,7 @@ export async function recordMediaTurn(turn: MediaTurn): Promise<MediaItem[]> {
             status: turn.status,
             error: turn.error,
             durationMs: turn.durationMs,
-            items,
+            items: [...items, ...(turn.unfinished ?? []).map(withoutInlineImages)],
           },
         },
       ],

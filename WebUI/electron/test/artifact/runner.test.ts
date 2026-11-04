@@ -362,6 +362,32 @@ describe('artifact runner', () => {
     expect(recordMediaTurn.mock.calls[0][0]).toMatchObject({ status: 'failed', items: [] })
   })
 
+  it('keeps the slots of a run that failed while generating, and none of one that never began', async () => {
+    setArtifactRunnerDeps(deps())
+    const early = payload({ sessionId: 'session-1' })
+    const earlyRun = submitArtifactRun({ ...early, items: itemsFor(early), origin: 'renderer' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(2))
+    socketHandlers!.onJson({
+      type: 'execution_error',
+      data: { exception_type: 'RuntimeError', exception_message: 'boom', node_id: '2' },
+    })
+    expect((await earlyRun).unfinished).toBeUndefined()
+
+    const late = payload({ runId: 'run-2', sessionId: 'session-1' })
+    const lateRun = submitArtifactRun({ ...late, items: itemsFor(late), origin: 'renderer' })
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(4))
+    socketHandlers!.onJson({ type: 'progress', data: { value: 1, max: 8 } })
+    socketHandlers!.onJson({
+      type: 'execution_error',
+      data: { exception_type: 'RuntimeError', exception_message: 'boom', node_id: '2' },
+    })
+    const result = await lateRun
+    expect(result.unfinished?.map((item) => [item.state, item.settings.width])).toEqual(
+      itemsFor(late).map((item) => ['failed', item.settings.width]),
+    )
+    expect(recordMediaTurn.mock.calls[1][0]).toMatchObject({ unfinished: result.unfinished })
+  })
+
   it('leaves agent runs out of the Session History', async () => {
     setArtifactRunnerDeps(deps())
     const request = payload({

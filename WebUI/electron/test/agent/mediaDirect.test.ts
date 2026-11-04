@@ -466,7 +466,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output.details.items).toMatchObject([{ type: 'image', imageUrl: 'test://item-0.png' }])
   })
 
-  it('carries no media for a failed run', async () => {
+  it('carries no media for a failed run, only why it failed', async () => {
     submitArtifactRunMock.mockResolvedValueOnce({ state: 'failed', items: [], error: 'boom' })
     const tool = await buildTool(GENERATE_SPEC)
     const output = (await tool.execute(
@@ -474,11 +474,11 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       { prompt: 'x' },
       new AbortController().signal,
     )) as { details: unknown }
-    expect(output.details).toBeUndefined()
+    expect(output.details).toEqual({ items: [], failure: { state: 'failed', error: 'boom' } })
   })
 
   it.each(['failed', 'cancelled'] as const)(
-    'shows no media for a %s run even when it returned items',
+    'keeps the finished items of a %s run beside how it ended',
     async (state) => {
       submitArtifactRunMock.mockImplementationOnce(async (payload) => ({
         ...completedResult(payload as Record<string, unknown>),
@@ -490,8 +490,9 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
         'call-1',
         { prompt: 'x' },
         new AbortController().signal,
-      )) as { details: unknown }
-      expect(output.details).toBeUndefined()
+      )) as { details: { items: { state: string }[]; failure: { state: string } } }
+      expect(output.details.items.map((item) => item.state)).toEqual(['done'])
+      expect(output.details.failure.state).toBe(state)
     },
   )
 

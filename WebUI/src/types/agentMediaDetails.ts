@@ -1,10 +1,12 @@
-import type { MediaItem } from './mediaItem'
+import type { GenerationFailureRecord, MediaItem } from './mediaItem'
 
 /** A media tool's Pi `details`: saved with the session record, so it outlives the live run. */
 export type AgentMediaDetails = {
+  /** Finished items, and the failed or stopped slots of a run that had started generating. */
   items?: AgentMediaItem[]
   steps?: string[]
   audio?: AgentSpeechClip
+  failure?: GenerationFailureRecord
 }
 
 /** `workspacePath` is relative to the workspace; the item's own URL is the app copy. */

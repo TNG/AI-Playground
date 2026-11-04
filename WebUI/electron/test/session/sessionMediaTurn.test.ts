@@ -139,6 +139,34 @@ describe('a media turn in a Session', () => {
     ])
   })
 
+  it('keeps the slots a failed run left after its done items, as no artifact', async () => {
+    const { id } = await createSession()
+    const failed = {
+      ...doneImage(''),
+      id: 'slot-2',
+      state: 'failed',
+      settings: { width: 1024, height: 768 },
+      dynamicSettings: [{ nodeTitle: 'Load Image', current: 'data:image/png;base64,AAAA' }],
+    } as unknown as MediaItem
+
+    await recordMediaTurn(
+      turn(id, [doneImage(await comfyOutput('one.png'))], {
+        status: 'failed',
+        error: 'out of memory',
+        unfinished: [failed],
+      }),
+    )
+
+    const { timeline } = await openSession(id)
+    const data = (timeline[1] as { parts: { data: { items: MediaItem[] } }[] }).parts[0].data
+    expect(data.items.map((item) => item.state)).toEqual(['done', 'failed'])
+    expect(data.items[1]).toMatchObject({
+      settings: { width: 1024, height: 768 },
+      dynamicSettings: [{ current: '' }],
+    })
+    expect((await readHistoryEntries(id))[0].artifacts).toHaveLength(1)
+  })
+
   it('never overwrites an artifact already in the Session Folder', async () => {
     const { id } = await createSession()
     await recordMediaTurn(turn(id, [doneImage(await comfyOutput('out.png'))]))

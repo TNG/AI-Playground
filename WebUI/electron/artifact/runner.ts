@@ -192,6 +192,8 @@ type ActiveRun = {
   clientId: string
   comfyBaseUrl: string | null
   startedAt: number
+  /** An item began generating; a run failing before that keeps none of its slots. */
+  generationStarted: boolean
 }
 
 let activeRun: ActiveRun | null = null
@@ -290,6 +292,7 @@ function emitItem(run: ActiveRun, item: MediaItem): void {
   const index = run.items.findIndex((existing) => existing.id === item.id)
   if (index === -1) run.items.push(item)
   else run.items[index] = item
+  if (item.state === 'generating' || item.state === 'done') run.generationStarted = true
   emitArtifactItem(artifactRunTag(run.payload), item)
 }
 
@@ -331,6 +334,14 @@ function doneItems(run: ActiveRun): MediaItem[] {
   return run.items.filter(isDoneWithMedia)
 }
 
+/** The slots a run that had started generating left without a result, without their preview. */
+function unfinishedItems(run: ActiveRun, state: 'failed' | 'stopped'): MediaItem[] | undefined {
+  if (!run.generationStarted) return undefined
+  return run.items
+    .filter((item) => !isDoneWithMedia(item))
+    .map((item) => ({ ...item, state, type: 'image', imageUrl: '' }) as MediaItem)
+}
+
 function settleItems(run: ActiveRun, state: 'failed' | 'stopped'): void {
   for (const item of run.items) {
     if (item.state === 'queued' || item.state === 'generating') {
@@ -357,6 +368,7 @@ async function settleIntoSession(
       error: result.error,
       durationMs: Date.now() - run.startedAt,
       items: result.items,
+      unfinished: result.unfinished,
       localPathOf: (url) => runnerDeps?.localPathOf?.(url) ?? null,
     })
     for (const item of items) emitItem(run, item)
@@ -422,7 +434,12 @@ function failRun(run: ActiveRun, message: string, interrupt: boolean): void {
     void clearQueue(baseUrl, clientDeps()).catch(() => {})
   }
   settleItems(run, 'failed')
-  finish(run, { state: 'failed', items: doneItems(run), error: message })
+  finish(run, {
+    state: 'failed',
+    items: doneItems(run),
+    unfinished: unfinishedItems(run, 'failed'),
+    error: message,
+  })
 }
 
 function cancelRun(run: ActiveRun): void {
@@ -433,13 +450,23 @@ function cancelRun(run: ActiveRun): void {
     void clearQueue(baseUrl, clientDeps()).catch(() => {})
   }
   settleItems(run, 'stopped')
-  finish(run, { state: 'cancelled', items: doneItems(run), error: 'Generation cancelled.' })
+  finish(run, {
+    state: 'cancelled',
+    items: doneItems(run),
+    unfinished: unfinishedItems(run, 'stopped'),
+    error: 'Generation cancelled.',
+  })
 }
 
 function checkCompletion(run: ActiveRun): void {
   if (run.settled) return
   if (run.items.some((item) => item.state === 'failed')) {
-    finish(run, { state: 'failed', items: doneItems(run), error: 'Generation failed' })
+    finish(run, {
+      state: 'failed',
+      items: doneItems(run),
+      unfinished: unfinishedItems(run, 'failed'),
+      error: 'Generation failed',
+    })
     return
   }
   const completed = doneItems(run)
@@ -504,6 +531,7 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     clientId: `aipg-artifact-${payload.runId}`,
     comfyBaseUrl: null,
     startedAt: Date.now(),
+    generationStarted: false,
   }
   activeRun = run
 

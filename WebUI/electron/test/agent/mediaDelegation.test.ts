@@ -189,7 +189,7 @@ describe('mediaDelegation (in-process media tool)', () => {
     actual.setAppMediaPathResolver(null)
   })
 
-  it('keeps the step lines of a run that produced nothing', async () => {
+  it('keeps the step lines and the failure of a run that produced nothing', async () => {
     runMediaAgentInMainMock.mockResolvedValueOnce({
       text: '',
       steps: [
@@ -212,7 +212,11 @@ describe('mediaDelegation (in-process media tool)', () => {
       details?: unknown
     }
 
-    expect(result.details).toEqual({ items: [], steps: ['comfyUI (W1): failed — oom'] })
+    expect(result.details).toEqual({
+      items: [],
+      steps: ['comfyUI (W1): failed — oom'],
+      failure: { state: 'failed', error: 'oom' },
+    })
   })
 
   it('resolves a workspace source path to a data URI before the specialist run', async () => {

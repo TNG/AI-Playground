@@ -36,7 +36,7 @@
       />
     </template>
     <template #details>
-      <TurnDetails :details="item.details" :error-line="item.kind === 'agent'">
+      <TurnDetails :details="item.details">
         <template v-if="question || heldAnswer" #status>
           <ChatConfirmation v-if="question" :conversation-key="question" />
           <TurnHeldAnswer
@@ -97,12 +97,10 @@
         />
       </template>
       <MediaTurnBlock
-        v-if="item.kind === 'media'"
+        v-if="item.kind === 'media' || item.kind === 'pending-media'"
         :artifacts="item.artifacts"
-        :status="item.media.status"
-        :error="item.media.error"
+        :failure="mediaFailure"
       />
-      <MediaTurnBlock v-else-if="item.kind === 'pending-media'" :artifacts="item.artifacts" />
       <AudioTurnBlock
         v-else-if="item.kind === 'audio'"
         :kind="item.audio.kind"
@@ -147,7 +145,7 @@ import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
-import type { SessionTimelineItem } from '@/lib/sessionTimeline'
+import type { SessionTimelineItem, TurnFailurePart } from '@/lib/sessionTimeline'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
 /** One entry of the Session timeline: a Turn, settled or running, or a Task Run of Turns. */
@@ -193,9 +191,16 @@ function answerOf(messageId: string): UIMessage | undefined {
 function resultIndexes(messageId: string): number[] {
   if (props.item.kind === 'task-run' || props.item.kind === 'message') return []
   return props.item.result.flatMap((part) =>
-    'messageId' in part && part.messageId === messageId ? [part.index] : [],
+    'messageId' in part && part.messageId === messageId && part.index !== undefined
+      ? [part.index]
+      : [],
   )
 }
+
+const mediaFailure = computed(() => {
+  if (props.item.kind !== 'media' && props.item.kind !== 'pending-media') return undefined
+  return props.item.result.find((part): part is TurnFailurePart => part.kind === 'failure')
+})
 
 function plainText(message: TimelineMessage): string {
   return message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n')

@@ -45,27 +45,59 @@ export function mediaToolResult(
   steps?: string[],
 ): AgentToolResult<AgentMediaDetails | undefined> {
   const items = generatedItemsOf(value)
-  const details = items.length > 0 || steps ? { items, ...(steps ? { steps } : {}) } : undefined
+  const failure = failureOf(value)
+  const details =
+    items.length > 0 || steps || failure
+      ? { items, ...(steps ? { steps } : {}), ...(failure ? { failure } : {}) }
+      : undefined
   return { ...jsonResult(value), details }
 }
 
-// A failed or cancelled run still lists its items, but none of them finished.
+type MediaToolRecord = {
+  images?: unknown
+  unfinished?: unknown
+  success?: unknown
+  state?: unknown
+  error?: unknown
+  message?: unknown
+  savedFiles?: unknown
+}
+
+function objectsOf(value: unknown): Record<string, unknown>[] {
+  return (Array.isArray(value) ? value : []).filter(
+    (item): item is Record<string, unknown> => typeof item === 'object' && item !== null,
+  )
+}
+
+// A failed or cancelled run lists only its finished items; its other slots come as `unfinished`.
 function generatedItemsOf(value: unknown): AgentMediaItem[] {
-  const record = value as { images?: unknown; success?: unknown; savedFiles?: unknown } | null
-  if (record?.success === false || !Array.isArray(record?.images)) return []
-  const savedFiles = Array.isArray(record.savedFiles) ? record.savedFiles : []
-  return record.images
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => {
-      const saved = workspacePaths.get(item)
-      return {
-        mode: 'imageGen',
-        settings: {},
-        ...item,
-        state: 'done',
-        ...(saved && savedFiles.includes(saved) ? { workspacePath: saved } : {}),
-      } as AgentMediaItem
-    })
+  const record = value as MediaToolRecord | null
+  const savedFiles = Array.isArray(record?.savedFiles) ? record.savedFiles : []
+  const done = objectsOf(record?.images).map((item) => {
+    const saved = workspacePaths.get(item)
+    return {
+      mode: 'imageGen',
+      settings: {},
+      ...item,
+      state: 'done',
+      ...(saved && savedFiles.includes(saved) ? { workspacePath: saved } : {}),
+    } as AgentMediaItem
+  })
+  const unfinished = objectsOf(record?.unfinished).map(
+    (item) => ({ mode: 'imageGen', settings: {}, ...item }) as AgentMediaItem,
+  )
+  return [...done, ...unfinished]
+}
+
+function failureOf(value: unknown): AgentMediaDetails['failure'] {
+  const record = value as MediaToolRecord | null
+  if (record?.success !== false) return undefined
+  const message = typeof record.message === 'string' ? record.message : undefined
+  if (record.state === 'cancelled' || message === 'Generation cancelled.') {
+    return { state: 'cancelled' }
+  }
+  const error = typeof record.error === 'string' ? record.error : message
+  return { state: 'failed', ...(error ? { error } : {}) }
 }
 
 function mediaUrlOf(item: Record<string, unknown>): unknown {

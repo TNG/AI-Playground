@@ -11,6 +11,28 @@
       {{ languages.SESSION_FILE_DELETED }}
     </div>
     <div
+      v-else-if="unfinished"
+      role="status"
+      class="flex size-full min-h-24 min-w-0 flex-col items-center justify-center gap-1 p-4 text-center text-sm"
+    >
+      <component
+        :is="artifact.state === 'failed' ? ExclamationTriangleIcon : NoSymbolIcon"
+        class="size-6"
+        :class="artifact.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'"
+        aria-hidden="true"
+      />
+      <p :class="artifact.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'">
+        {{
+          artifact.state === 'failed'
+            ? languages.COM_GENERATE_FAILED
+            : languages.SESSION_TURN_CANCELLED
+        }}
+      </p>
+      <p v-if="artifact.reason" class="w-full truncate text-xs text-muted-foreground">
+        {{ artifact.reason }}
+      </p>
+    </div>
+    <div
       v-else-if="!hasDisplayableMedia(artifact.item)"
       class="size-full min-h-24 rounded-lg bg-gradient-to-br from-accent/30 to-muted/20"
     ></div>
@@ -80,10 +102,12 @@ import { computed, type Component, type StyleValue } from 'vue'
 import {
   ArrowDownTrayIcon,
   DocumentDuplicateIcon,
+  ExclamationTriangleIcon,
   FilmIcon,
   FolderOpenIcon,
   InformationCircleIcon,
   MagnifyingGlassPlusIcon,
+  NoSymbolIcon,
   PencilSquareIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
@@ -101,11 +125,15 @@ const emit = defineEmits<{ action: [action: ArtifactAction] }>()
 
 const languages = useI18N().state
 
+const unfinished = computed(
+  () => props.artifact.state === 'failed' || props.artifact.state === 'cancelled',
+)
+
 /** Never wider than asked for, never taller than 70% of the window, in the requested aspect. */
 const MAX_HEIGHT = '70vh'
 const frameStyle = computed<StyleValue>(() => {
   const artifact = props.artifact
-  const needsBox = is3D(artifact.item) || !hasDisplayableMedia(artifact.item)
+  const needsBox = is3D(artifact.item) || !hasDisplayableMedia(artifact.item) || unfinished.value
   const size = artifact.size ?? (needsBox ? { width: 512, height: 512 } : undefined)
   if (!size) return { maxHeight: MAX_HEIGHT }
   const ratio = size.width / size.height

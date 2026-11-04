@@ -29,6 +29,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { fillTemplate } from '@/lib/notificationLabel'
 import type { TurnHint, TurnHintIcon } from '@/lib/turnTypes'
 
 const props = defineProps<{ hint: TurnHint }>()
@@ -64,10 +65,10 @@ const tooltip = computed(() =>
 
 const accessibleName = computed(() =>
   [
-    languages.SESSION_TURN_HINT_LABEL.replace('{kind}', kindLabel.value).replace(
-      '{preset}',
-      props.hint.preset,
-    ),
+    fillTemplate(languages.SESSION_TURN_HINT_LABEL, {
+      kind: kindLabel.value,
+      preset: props.hint.preset,
+    }),
     props.hint.detail,
   ]
     .filter(Boolean)

@@ -47,7 +47,7 @@
         </template>
         <template v-for="(part, index) in item.details.parts" :key="index">
           <p v-if="part.kind === 'workspace-path'" class="text-xs text-muted-foreground break-all">
-            {{ languages.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', part.path) }}
+            {{ fillTemplate(languages.AGENT_MEDIA_IN_WORKSPACE, { path: part.path }) }}
           </p>
           <TurnWorkflowParameters
             v-else-if="part.kind === 'workflow'"
@@ -150,6 +150,7 @@ import TurnDetails from '@/components/TurnDetails.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
+import { fillTemplate } from '@/lib/notificationLabel'
 import type { SessionTimelineItem, TurnFailurePart } from '@/lib/turnTypes'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 

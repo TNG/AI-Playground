@@ -1,14 +1,8 @@
 <template>
-  <div
-    v-if="details.parts.length > 0 || details.error || details.live || $slots.status"
-    class="flex items-start gap-3"
-  >
+  <div v-if="turnDetailsShown(details) || $slots.status" class="flex items-start gap-3">
     <span :class="textInference.iconSizeClass" class="shrink-0" aria-hidden="true" />
     <Collapsible v-model:open="open" class="flex min-w-0 flex-1 flex-col gap-2">
-      <div
-        v-if="details.parts.length > 0 || details.error || details.live"
-        class="flex min-w-0 items-center gap-2"
-      >
+      <div v-if="turnDetailsShown(details)" class="flex min-w-0 items-center gap-2">
         <CollapsibleTrigger as-child>
           <TurnDetailsHeader :summary="details.summary" :live="details.live" :open="open" />
         </CollapsibleTrigger>
@@ -54,6 +48,7 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import { useWebBrowser } from '@/assets/js/store/webBrowser'
 import TurnDetailsHeader from '@/components/TurnDetailsHeader.vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { turnDetailsShown } from '@/lib/turnText'
 import type { TurnDetails } from '@/lib/turnTypes'
 
 defineProps<{ details: TurnDetails }>()

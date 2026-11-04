@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ArtifactRunsState, ArtifactRunView } from '@/lib/artifactRunProjection'
 import { sessionTimelineItems, timelineTurns, withLiveAgentTurn } from '@/lib/sessionTimeline'
-import { turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
+import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
 import { artifactGrid, type TurnArtifact } from '@/lib/turnArtifacts'
@@ -691,6 +691,27 @@ describe('Turn Details and the Result', () => {
 
     expect(detailsOf(turn)).toEqual({ parts: [], summary: { kind: 'activity' } })
     expect(resultOf(turn)).toEqual([{ kind: 'prose', messageId: 'a1', index: 0 }])
+    expect(turnDetailsShown(detailsOf(turn)!)).toBe(false)
+  })
+
+  it('shows Turn Details for a Turn whose only content is its summary', () => {
+    const [turn] = timelineTurns([
+      user('u1', 'Read this'),
+      {
+        id: 'a1',
+        role: 'assistant',
+        createdAt: 2,
+        parts: [
+          {
+            type: 'data-audio',
+            data: { kind: 'tts', preset: 'Text to Speech', status: 'completed', engine: 'Kokoro' },
+          },
+        ],
+      },
+    ])
+
+    expect(turnDetailsShown(detailsOf(turn)!)).toBe(true)
+    expect(turnDetailsShown(detailsOf(chatTurn([reasoning(2000), text('hi')]))!)).toBe(true)
   })
 
   it('says a Turn reasoned even when its transcript predates reasoning times', () => {

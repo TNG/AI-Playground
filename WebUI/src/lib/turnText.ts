@@ -1,5 +1,5 @@
 import { artifactPhaseLabel, type ArtifactPhaseLabels } from '@/lib/artifactRunProjection'
-import type { ArtifactKind, TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
+import type { ArtifactKind, TurnDetails, TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 
 export function modelDisplayName(model: string): string {
   return model.endsWith('.gguf')
@@ -40,6 +40,21 @@ const ARTIFACT_LABELS: Record<ArtifactKind, [keyof TurnSummaryLabels, keyof Turn
 
 function counted(count: number, [one, many]: [string, string]): string {
   return count === 1 ? one : many.replace('{count}', String(count))
+}
+
+function hasSummary(summary: TurnSummary): boolean {
+  if (summary.kind !== 'activity') return !!summary.preset
+  return (
+    summary.reasoningMs !== undefined ||
+    !!summary.tools ||
+    Object.values(summary.artifacts ?? {}).some((count) => !!count)
+  )
+}
+
+export function turnDetailsShown(details: TurnDetails): boolean {
+  return (
+    details.parts.length > 0 || !!details.error || !!details.live || hasSummary(details.summary)
+  )
 }
 
 export function turnDetailsSummaryText(summary: TurnSummary, labels: TurnSummaryLabels): string {

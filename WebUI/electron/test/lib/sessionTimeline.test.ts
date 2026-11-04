@@ -2232,6 +2232,13 @@ describe('one audio card', () => {
     ])
   })
 
+  it('plays an older chat clip that only kept its audio inline, with no file to act on', () => {
+    const dataUri = 'data:audio/wav;base64,UklGRg=='
+    expect(
+      audioIn(chatTts('output-available', { ok: true, message: 'Done.', audioDataUri: dataUri })),
+    ).toEqual([{ id: 't1', mediaType: 'audio', state: 'done', url: dataUri, actions: [] }])
+  })
+
   it('shows a deleted clip as deleted, with nothing left to do with it', () => {
     expect(audioIn(ttsTurn({ audioUrl: clipUrl }), [clipUrl])).toMatchObject([
       { state: 'deleted', url: clipUrl, actions: [] },

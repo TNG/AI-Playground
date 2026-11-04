@@ -73,6 +73,7 @@ type ChatTtsOutput = {
   message?: string
   savedFilePath?: string
   audioUrl?: string
+  audioDataUri?: string
 }
 
 /** Pi reports a tool's result as JSON text; a failed synthesis says why there. */
@@ -113,7 +114,7 @@ function settledToolClip(
       clip(id, 'done', { filePath: output.savedFilePath, actions: ['download', 'openFolder'] }),
     ]
   }
-  return []
+  return output.audioDataUri ? [clip(id, 'done', { url: output.audioDataUri })] : []
 }
 
 export function ttsToolArtifacts(part: unknown, deletedUrls: readonly string[]): AudioArtifact[] {

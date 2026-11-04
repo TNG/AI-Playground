@@ -21,6 +21,9 @@
         <span class="ml-auto flex-none text-xs text-muted-foreground">{{ time }}</span>
       </button>
     </CollapsibleTrigger>
+    <div v-if="!open && $slots.collapsed" class="flex flex-col gap-6 px-3 pb-3">
+      <slot name="collapsed" />
+    </div>
     <CollapsibleContent class="flex flex-col gap-6 px-3 pb-3">
       <slot />
     </CollapsibleContent>
@@ -34,7 +37,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { TaskRunTag } from '@/types/sessionTimeline'
 
-/** One Task Run in the Session timeline: its Turns, folded under its Task's name and start time. */
+/** One Task Run in the Session timeline under its Task's name; collapsed, its Turns' Results. */
 const props = defineProps<{ taskRun: TaskRunTag }>()
 
 const i18nStore = useI18N()

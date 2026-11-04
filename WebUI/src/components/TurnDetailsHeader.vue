@@ -9,23 +9,54 @@
       :class="{ 'rotate-90': open }"
       aria-hidden="true"
     />
+    <ArrowPathIcon v-if="live" class="size-3.5 flex-none animate-spin" aria-hidden="true" />
     <span class="truncate">{{ text }}</span>
+    <span v-if="percent !== undefined" class="flex-none tabular-nums opacity-70">
+      {{ percent }}%
+    </span>
   </button>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ChevronRightIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { fillTemplate } from '@/lib/notificationLabel'
-import { turnDetailsSummaryText, type TurnSummary } from '@/lib/sessionTimeline'
+import {
+  turnDetailsSummaryText,
+  turnLiveText,
+  type TurnLiveStatus,
+  type TurnSummary,
+} from '@/lib/sessionTimeline'
 
-/** The Turn Details toggle: one line saying what is inside it. */
-const props = defineProps<{ summary: TurnSummary; open: boolean }>()
+/** The Turn Details toggle: what the Turn is doing while it runs, then what is inside it. */
+const props = defineProps<{ summary: TurnSummary; live?: TurnLiveStatus; open: boolean }>()
 
 const languages = useI18N().state
 
-const text = computed(() => summaryText.value || languages.SESSION_TURN_DETAILS)
+const text = computed(() => liveText.value ?? (summaryText.value || languages.SESSION_TURN_DETAILS))
+
+const percent = computed(() => {
+  const live = props.live
+  if (!live || !('progress' in live) || typeof live.progress !== 'number') return undefined
+  return Math.round(live.progress * 100)
+})
+
+const liveText = computed(() =>
+  props.live
+    ? turnLiveText(props.live, {
+        reasoning: languages.SESSION_TURN_LIVE_REASONING,
+        writing: languages.SESSION_TURN_LIVE_WRITING,
+        working: languages.SESSION_TURN_LIVE_WORKING,
+        runningTool: languages.COM_ACTIVITY_RUNNING_TOOL,
+        queued: languages.AGENT_TURN_QUEUED_DETAIL,
+        audioLoading: languages.SESSION_AUDIO_LOADING_VOICE,
+        audioGenerating: languages.SESSION_AUDIO_GENERATING,
+        audioTranscribing: languages.SESSION_AUDIO_TRANSCRIBING,
+        artifact: languages,
+      })
+    : undefined,
+)
 
 const summaryText = computed(() =>
   turnDetailsSummaryText(props.summary, {

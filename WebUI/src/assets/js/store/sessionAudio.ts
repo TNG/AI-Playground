@@ -15,7 +15,7 @@ import { bytesToBase64 } from '@/lib/synthesizeSpeech'
 import { formatTtsAudioTimestamp } from '@/lib/ttsAudioFileName'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { AudioTurnRequest } from '@/types/sessionIpc'
-import type { AudioTurnPhase } from '@/lib/audioArtifacts'
+import type { AudioPhase } from '@/lib/sessionTimeline'
 
 /** A Text-to-Speech / Speech-to-Text turn still running in a Session. */
 export type PendingAudioTurn = {
@@ -23,7 +23,7 @@ export type PendingAudioTurn = {
   preset: string
   prompt: string
   createdAt: number
-  phase: AudioTurnPhase
+  phase: AudioPhase
 }
 
 const NO_SPEECH = "Couldn't make out any speech in that audio."
@@ -62,7 +62,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
   )
   const processing = computed(() => pendingTurn.value !== null)
 
-  function setPhase(sessionId: string, phase: AudioTurnPhase): void {
+  function setPhase(sessionId: string, phase: AudioPhase): void {
     const turn = pendingTurns.value[sessionId]
     if (turn) pendingTurns.value = { ...pendingTurns.value, [sessionId]: { ...turn, phase } }
   }

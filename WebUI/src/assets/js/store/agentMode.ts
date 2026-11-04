@@ -1135,6 +1135,11 @@ export const useAgentMode = defineStore(
               : undefined,
           notRunMessageId: notRunMessages.value[id],
           canResend: canResendNotRun.value,
+          open: true,
+          ...(heldAnswers.value[id]
+            ? { heldAnswer: { channel: heldAnswers.value[id].channel } }
+            : {}),
+          ...(chat.value.error ? { error: chat.value.error.message } : {}),
         })
       }
       return live

@@ -1,5 +1,8 @@
 <template>
-  <div class="flex flex-col gap-6">
+  <div v-if="resultOnly" class="flex flex-col gap-6">
+    <slot name="result" />
+  </div>
+  <div v-else class="flex flex-col gap-6">
     <slot name="prompt" />
     <div class="-mb-3 flex items-center gap-3">
       <span :class="textInference.iconSizeClass" class="shrink-0" aria-hidden="true" />
@@ -22,7 +25,7 @@ import SessionTurnHint from '@/components/SessionTurnHint.vue'
 import type { TurnHint } from '@/lib/sessionTimeline'
 
 /** Every Turn of a Session in one shape: prompt, hint, Turn Details, Result, footer. */
-defineProps<{ hint: TurnHint }>()
+defineProps<{ hint: TurnHint; resultOnly?: boolean }>()
 
 const textInference = useTextInference()
 </script>

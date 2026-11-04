@@ -7,6 +7,16 @@
       :last-chat-message-id="lastChatMessageId"
       :chat-key="chatKey"
     />
+    <template v-if="item.resultTurns.length > 0" #collapsed>
+      <SessionTurnBlock
+        v-for="turn in item.resultTurns"
+        :key="turn.id"
+        :item="turn"
+        :last-chat-message-id="lastChatMessageId"
+        :chat-key="chatKey"
+        result-only
+      />
+    </template>
   </TaskRunBlock>
   <div
     v-else-if="item.kind === 'message'"
@@ -15,7 +25,7 @@
   >
     {{ plainText(item.message) }}
   </div>
-  <SessionTurn v-else :hint="item.hint">
+  <SessionTurn v-else :hint="item.hint" :result-only="resultOnly">
     <template v-if="item.prompt" #prompt>
       <SessionTurnPrompt
         :prompt="item.prompt"
@@ -26,7 +36,15 @@
       />
     </template>
     <template #details>
-      <TurnDetails :details="item.details">
+      <TurnDetails :details="item.details" :error-line="item.kind === 'agent'">
+        <template v-if="question || heldAnswer" #status>
+          <ChatConfirmation v-if="question" :conversation-key="question" />
+          <TurnHeldAnswer
+            v-if="heldAnswer && item.kind === 'agent'"
+            :channel="heldAnswer.channel"
+            @discard="agentMode.discardHeldAnswer(item.harnessSessionId)"
+          />
+        </template>
         <template v-for="(part, index) in item.details.parts" :key="index">
           <p v-if="part.kind === 'workspace-path'" class="text-xs text-muted-foreground break-all">
             {{ languages.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', part.path) }}
@@ -57,17 +75,18 @@
       </TurnDetails>
     </template>
     <template #result>
-      <SessionMessage
-        v-for="answer in item.kind === 'chat' ? item.answers : []"
-        :key="answer.id"
-        :message="answer"
-        engine="chat"
-        unlabelled
-        :result-only="resultIndexes(answer.id)"
-        footerless
-        :last="answer.id === lastChatMessageId"
-        :conversation-key="chatKey"
-      />
+      <template v-for="answer in item.kind === 'chat' ? item.answers : []" :key="answer.id">
+        <SessionMessage
+          v-if="resultIndexes(answer.id).length > 0"
+          :message="answer"
+          engine="chat"
+          unlabelled
+          :result-only="resultIndexes(answer.id)"
+          footerless
+          :last="answer.id === lastChatMessageId"
+          :conversation-key="chatKey"
+        />
+      </template>
       <template v-for="answer in item.kind === 'agent' ? item.answers : []" :key="answer.id">
         <SessionMessage
           v-if="resultIndexes(answer.id).length > 0"
@@ -108,6 +127,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { UIMessage } from 'ai'
+import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
@@ -115,6 +136,7 @@ import type { PendingMediaTurn } from '@/assets/js/store/sessions'
 import AgentMessageParts from '@/components/AgentMessageParts.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
+import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import ChatMessageParts from '@/components/ChatMessageParts.vue'
 import MediaTurnBlock from '@/components/MediaTurnBlock.vue'
 import SessionMessage from '@/components/SessionMessage.vue'
@@ -123,6 +145,7 @@ import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
 import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
+import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import type { SessionTimelineItem } from '@/lib/sessionTimeline'
 import type { TimelineMessage } from '@/types/sessionTimeline'
@@ -133,11 +156,15 @@ const props = defineProps<{
   /** The newest message of the Session's live chat transcript. */
   lastChatMessageId?: string
   chatKey: string
+  /** Only the Result, as a collapsed Task Run shows its Turns. */
+  resultOnly?: boolean
 }>()
 
 const emit = defineEmits<{ resend: [] }>()
 
 const textInference = useTextInference()
+const agentMode = useAgentMode()
+const confirmations = useConfirmations()
 const languages = useI18N().state
 
 const footerShown = computed(() => {
@@ -145,6 +172,15 @@ const footerShown = computed(() => {
   const footer = props.item.footer
   return footer.actions.length > 0 || (textInference.metricsEnabled && !!footer.metrics)
 })
+
+/** The conversation whose tool is asking the user something in this Turn right now. */
+const question = computed(() => {
+  const key =
+    props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.questionKey : undefined
+  return key && confirmations.forConversation(key) ? key : undefined
+})
+
+const heldAnswer = computed(() => (props.item.kind === 'agent' ? props.item.heldAnswer : undefined))
 
 function answersOf(): UIMessage[] {
   return props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.answers : []

@@ -179,6 +179,21 @@ export const useOpenAiCompatibleChat = defineStore(
       return status === 'submitted' || status === 'streaming'
     })
 
+    // Conversations whose running turn has put its prompt in the transcript. Until then the
+    // newest message belongs to an earlier, settled turn.
+    const promptSentKeys = ref<Record<string, true>>({})
+    function markPromptSent(key: string, sent: boolean): void {
+      const { [key]: _previous, ...rest } = promptSentKeys.value
+      promptSentKeys.value = sent ? { ...rest, [key]: true } : rest
+    }
+
+    /** The newest prompt of this conversation is being answered, whether or not it is active. */
+    function answeringIn(key: string): boolean {
+      if (promptSentKeys.value[key]) return true
+      const status = chats[key]?.status
+      return status === 'submitted' || status === 'streaming'
+    }
+
     // Safety net: when the active turn ends (completes, is stopped, or errors
     // before onFinish), clear any lingering chat-scoped inference/tools activities
     // so the status line can't get stuck (mirrors the generation watchdog).
@@ -777,6 +792,7 @@ export const useOpenAiCompatibleChat = defineStore(
           fileInput.value = []
         }
         const turnExtras = await buildTurnExtras(targetKey, question, true)
+        markPromptSent(targetKey, true)
         try {
           await chat.sendMessage(
             {
@@ -822,6 +838,7 @@ export const useOpenAiCompatibleChat = defineStore(
         conversations.applyConversationMessages(chat.messages, targetKey)
       } finally {
         computeMetrics.endTurn()
+        markPromptSent(targetKey, false)
         unmarkGenerating(targetKey)
       }
     }
@@ -943,6 +960,7 @@ export const useOpenAiCompatibleChat = defineStore(
       summarizeMessages,
       stop,
       processing,
+      answeringIn,
       reasoningInProgress,
       reasoningStartedAt,
       removeMessage,

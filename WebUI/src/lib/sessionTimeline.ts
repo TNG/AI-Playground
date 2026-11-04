@@ -13,8 +13,12 @@ import {
   generatedMediaOf,
   isReasoningPart,
   mediaToolNameOf,
+  objectInputOf,
+  toolActionLabel,
   toolPartNameOf,
 } from '@/lib/agentTranscript'
+import { artifactPhaseLabel, type ArtifactPhaseLabels } from '@/lib/artifactRunProjection'
+import type { ArtifactPhase } from '@/types/kernelEvents'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
@@ -27,6 +31,7 @@ import {
   runArtifacts,
   toolCallArtifacts,
   turnArtifacts,
+  type ArtifactProgress,
   type ArtifactSize,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
@@ -35,7 +40,6 @@ import {
   pendingAudioArtifacts,
   ttsToolArtifacts,
   type AudioArtifact,
-  type AudioTurnPhase,
 } from '@/lib/audioArtifacts'
 
 export type TurnHintKind = 'chat' | 'agent' | 'workflow' | 'speech'
@@ -82,8 +86,28 @@ export type TurnSummary =
     }
   | { kind: 'speech'; preset: string; engine?: string }
 
+export type AudioPhase = 'loading-model' | 'generating' | 'transcribing'
+
+/** What a running Turn is doing right now, said by its Turn Details header in place of the summary. */
+export type TurnLiveStatus =
+  | { kind: 'reasoning' }
+  | { kind: 'writing' }
+  | { kind: 'working' }
+  | { kind: 'queued' }
+  | { kind: 'tool'; name: string; label?: string; progress?: number }
+  /** A status worded where it was raised (backend prep, RAG, browsing). */
+  | { kind: 'activity'; label: string; progress?: number; browsing?: boolean }
+  | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
+  | { kind: 'audio'; phase: AudioPhase }
+
 /** How a Turn reached its Result, in the order it happened, behind one disclosure. */
-export type TurnDetails = { parts: TurnDetailPart[]; summary: TurnSummary; error?: string }
+export type TurnDetails = {
+  parts: TurnDetailPart[]
+  summary: TurnSummary
+  /** Set only while the Turn runs. */
+  live?: TurnLiveStatus
+  error?: string
+}
 /** The user bubble: what was asked, and what it was asked about. */
 export type TurnPrompt = {
   text: string
@@ -153,6 +177,8 @@ export type ChatTurn = TurnOf<
     answers: UIMessage[]
     artifacts: TurnArtifact[]
     audioArtifacts: AudioArtifact[]
+    /** The conversation a tool's question to the user is filed under, while the Turn runs. */
+    questionKey?: string
   }
 >
 
@@ -174,6 +200,10 @@ export type AgentTurn = TurnOf<
     /** The prompt never ran (the app closed first). */
     notRun?: boolean
     canResend?: boolean
+    /** The conversation a tool's question to the user is filed under. */
+    questionKey?: string
+    /** An answer for a chat platform, held until the user lets it go. */
+    heldAnswer?: { channel: ChannelKind }
   }
 >
 
@@ -199,6 +229,8 @@ export type TaskRunItem = {
   harnessSessionId: string
   taskRun: TaskRunTag
   turns: AgentTurn[]
+  /** The Turns with a Result, which still shows while the run is collapsed. */
+  resultTurns: AgentTurn[]
   live: boolean
 }
 
@@ -254,6 +286,11 @@ export type LiveAgentTurn = {
   queuedMessageId?: string
   notRunMessageId?: string
   canResend?: boolean
+  /** The Harness Session open in Agent Mode, the one that can ask the user a question. */
+  open?: boolean
+  heldAnswer?: { channel: ChannelKind }
+  /** Why its last turn failed. */
+  error?: string
 }
 
 /**
@@ -321,8 +358,18 @@ export type PendingAudio = {
   kind: AudioTurnData['kind']
   preset: string
   prompt?: string
-  phase?: AudioTurnPhase
+  phase?: AudioPhase
 }
+
+/** What the Session's chat turn is doing, when one runs. */
+export type LiveChatStatus = {
+  running: boolean
+  activity?: { label: string; progress?: number; browsing?: boolean } | null
+  questionKey?: string
+}
+
+/** The step a media specialist is on, by the tool call that delegated to it. */
+export type MediaStepStatus = { label: string; progress?: number }
 
 /** Everything of the open Session still in flight, whichever preset or mode started it. */
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
@@ -330,7 +377,9 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   chat?: readonly { id: string }[]
   /** Each Harness Session of the Session that is open or running a turn (Task Runs too). */
   agents?: readonly LiveAgentTurn[]
+  chatStatus?: LiveChatStatus
   media?: M | null
+  mediaSteps?: Readonly<Record<string, MediaStepStatus>>
   audio?: A | null
   /** Artifact runs in flight or recently settled, whichever surface started them. */
   artifactRuns?: ArtifactRunsState
@@ -365,15 +414,26 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
   const turns = timelineTurns(merged, files, live.artifactRuns)
-  for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent)
+  const mediaSteps = live.mediaSteps ?? {}
+  for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
+  markLiveChatTurn(turns, live.chatStatus, mediaSteps)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
   if (media && !turns.some((turn) => turn.kind === 'media' && turn.media.runId === media.runId)) {
+    const run = live.artifactRuns?.runs[media.runId]
     items.push({
       kind: 'pending-media',
       id: media.runId,
       hint: mediaHint(media),
-      details: { parts: [], summary: { kind: 'workflow', preset: media.preset } },
+      details: {
+        parts: [],
+        summary: { kind: 'workflow', preset: media.preset },
+        live: {
+          kind: 'artifact',
+          phase: run?.phase ?? 'queued',
+          ...(run?.progress ? { progress: run.progress } : {}),
+        },
+      },
       result: [{ kind: 'media' }],
       prompt: textPrompt(media.prompt ?? '', media.preset, {
         inputImageUrl: media.inputImageUrl || undefined,
@@ -389,7 +449,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       kind: 'pending-audio',
       id: 'pending-audio',
       hint: audioHint(audio),
-      details: audioDetails(audio),
+      details: {
+        ...audioDetails(audio),
+        live: { kind: 'audio', phase: audio.phase ?? 'generating' },
+      },
       result: [{ kind: 'audio' }],
       prompt: textPrompt(audio.prompt ?? '', audio.preset),
       footer: noFooter(),
@@ -817,7 +880,88 @@ export function turnDetailsSummaryText(summary: TurnSummary, labels: TurnSummary
   return clauses.join(' · ')
 }
 
-function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): void {
+/** Words for the live status line; `{tool}` is filled in. */
+export type TurnLiveLabels = {
+  reasoning: string
+  writing: string
+  working: string
+  runningTool: string
+  queued: string
+  audioLoading: string
+  audioGenerating: string
+  audioTranscribing: string
+  artifact: ArtifactPhaseLabels
+}
+
+export function turnLiveText(live: TurnLiveStatus, labels: TurnLiveLabels): string {
+  switch (live.kind) {
+    case 'reasoning':
+      return labels.reasoning
+    case 'writing':
+      return labels.writing
+    case 'working':
+      return labels.working
+    case 'queued':
+      return labels.queued
+    case 'tool':
+      return live.label ?? labels.runningTool.replace('{tool}', live.name)
+    case 'activity':
+      return live.label
+    case 'artifact':
+      return artifactPhaseLabel(live.phase, live.progress, labels.artifact) ?? labels.working
+    case 'audio':
+      if (live.phase === 'loading-model') return labels.audioLoading
+      return live.phase === 'transcribing' ? labels.audioTranscribing : labels.audioGenerating
+  }
+}
+
+/** What the newest part of a running answer says the Turn is doing; null between parts. */
+function partsLiveStatus(
+  engine: 'chat' | 'agent',
+  answers: UIMessage[],
+  mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+): TurnLiveStatus | null {
+  const part = answers.at(-1)?.parts.at(-1)
+  if (!part) return null
+  const shape = shapeOf(part) as PartShape & { toolCallId?: unknown }
+  if (isReasoningPart(part)) return shape.state === 'done' ? null : { kind: 'reasoning' }
+  if (shape.type === 'text') return shape.state === 'streaming' ? { kind: 'writing' } : null
+  const name = toolPartNameOf(part)
+  if (!name || (shape.state !== 'input-streaming' && shape.state !== 'input-available')) {
+    return null
+  }
+  const step = typeof shape.toolCallId === 'string' ? mediaSteps[shape.toolCallId] : undefined
+  const label =
+    step?.label ?? (engine === 'agent' ? toolActionLabel(name, objectInputOf(part)) : undefined)
+  return {
+    kind: 'tool',
+    name,
+    ...(label ? { label } : {}),
+    ...(step?.progress !== undefined ? { progress: step.progress } : {}),
+  }
+}
+
+function markLiveChatTurn(
+  entries: TimelineEntry[],
+  status: LiveChatStatus | undefined,
+  mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+): void {
+  if (!status?.running) return
+  const turn = entries.findLast((entry) => entry.kind === 'chat')
+  if (turn?.kind !== 'chat') return
+  const fromParts = partsLiveStatus('chat', turn.answers, mediaSteps)
+  const live: TurnLiveStatus = (fromParts?.kind === 'tool' && fromParts.label ? fromParts : null) ??
+    (status.activity ? { kind: 'activity', ...status.activity } : null) ??
+    fromParts ?? { kind: 'working' }
+  turn.details = { ...turn.details, live }
+  if (status.questionKey) turn.questionKey = status.questionKey
+}
+
+function markLiveAgentTurns(
+  entries: TimelineEntry[],
+  agent: LiveAgentTurn,
+  mediaSteps: Readonly<Record<string, MediaStepStatus>>,
+): void {
   const id = agent.tag.harnessSessionId
   const turns = entries.flatMap((entry) => {
     if (entry.kind === 'task-run') return entry.harnessSessionId === id ? entry.turns : []
@@ -829,6 +973,20 @@ function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): voi
     turn.queued = !!turn.prompt && turn.id === agent.queuedMessageId
     turn.notRun = !!turn.prompt && turn.id === agent.notRunMessageId
     turn.canResend = !!agent.canResend && turn.notRun && turn === last
+  }
+  if (last) {
+    const live: TurnLiveStatus | null = !agent.live
+      ? null
+      : last.queued
+        ? { kind: 'queued' }
+        : (partsLiveStatus('agent', last.answers, mediaSteps) ?? { kind: 'working' })
+    last.details = {
+      ...last.details,
+      ...(live ? { live } : {}),
+      ...(agent.error ? { error: agent.error } : {}),
+    }
+    if (agent.open) last.questionKey = id
+    if (agent.heldAnswer) last.heldAnswer = agent.heldAnswer
   }
   const run = entries.find((entry) => entry.kind === 'task-run' && entry.harnessSessionId === id)
   if (run?.kind === 'task-run') run.live = agent.live
@@ -884,8 +1042,12 @@ function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
       harnessSessionId: turn.harnessSessionId,
       taskRun: turn.taskRun,
       turns: [turn],
+      resultTurns: [],
       live: false,
     })
+  }
+  for (const entry of entries) {
+    if (entry.kind === 'task-run') entry.resultTurns = entry.turns.filter((t) => t.result.length)
   }
   return entries
 }

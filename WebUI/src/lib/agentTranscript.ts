@@ -112,14 +112,14 @@ function truncate(value: unknown, max = 48): string {
   return value.length > max ? `${value.slice(0, max)}…` : value
 }
 
-function objectInputOf(part: unknown): Record<string, unknown> | undefined {
+export function objectInputOf(part: unknown): Record<string, unknown> | undefined {
   const input = shapeOf(part).input
   if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
   return input as Record<string, unknown>
 }
 
-/** One-line label for a tool that is currently running. */
-export function toolActionLabel(name: string, input?: Record<string, unknown>): string {
+/** What a running agent tool is doing, where there is more to say than its name. */
+export function toolActionLabel(name: string, input?: Record<string, unknown>): string | undefined {
   const filePath = truncate(input?.file_path)
   switch (name) {
     case 'read':
@@ -144,41 +144,9 @@ export function toolActionLabel(name: string, input?: Record<string, unknown>): 
       return 'Snapshotting page…'
     case 'evaluate_script':
       return 'Running script in page…'
-    case 'generateImage':
-      return 'Generating image…'
-    case 'editImage':
-      return 'Editing image…'
-    case 'media':
-      return 'Creating media…'
     default:
-      return `Running ${name}…`
+      return undefined
   }
-}
-
-/**
- * What the Agent Mode status line should say for this message's parts.
- * A finished tool means the model is deciding its next step.
- */
-export function busyLabelOf(
-  parts: readonly unknown[],
-  mediaStepLabel?: (toolCallId: string) => string | undefined,
-): string {
-  const lastPart = parts.at(-1)
-  if (!lastPart) return 'Agent is working…'
-  const shape = shapeOf(lastPart)
-  if (isReasoningPart(lastPart) && shape.state !== 'done') return 'Thinking…'
-  if (shape.type === 'text' && shape.state === 'streaming') return 'Writing response…'
-  const toolName = toolPartNameOf(lastPart)
-  if (!toolName) return 'Agent is working…'
-  if (shape.state === 'input-streaming' || shape.state === 'input-available') {
-    const toolCallId = typeof shape.toolCallId === 'string' ? shape.toolCallId : undefined
-    if (toolCallId && mediaStepLabel) {
-      const media = mediaStepLabel(toolCallId)
-      if (media) return media
-    }
-    return toolActionLabel(toolName, objectInputOf(lastPart))
-  }
-  return 'Thinking…'
 }
 
 type MessageShape = { parts?: readonly unknown[] }

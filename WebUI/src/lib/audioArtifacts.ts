@@ -1,5 +1,6 @@
 import { generatedMediaOf, toolPartNameOf } from '@/lib/agentTranscript'
 import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
+import type { AudioPhase } from '@/lib/sessionTimeline'
 import type { ArtifactAction } from '@/lib/turnArtifacts'
 import type { ArtifactPhase } from '@/types/kernelEvents'
 import type { AudioTurnData } from '@/types/sessionTimeline'
@@ -23,9 +24,6 @@ export type AudioArtifact = {
 }
 
 export type AudioArtifactState = 'running' | 'done' | 'deleted' | 'failed' | 'cancelled'
-
-/** How far a running audio Turn is. */
-export type AudioTurnPhase = 'loading-model' | 'generating' | 'transcribing'
 
 function clip(
   id: string,
@@ -62,7 +60,7 @@ export function audioTurnArtifacts(
 export function pendingAudioArtifacts(
   id: string,
   kind: AudioTurnData['kind'],
-  phase: AudioTurnPhase | undefined,
+  phase: AudioPhase | undefined,
 ): AudioArtifact[] {
   if (kind !== 'tts') return []
   return [clip(id, 'running', { phase: phase === 'loading-model' ? 'loading-model' : 'running' })]

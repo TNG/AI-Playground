@@ -4,6 +4,7 @@ import {
   sessionTimelineItems,
   timelineTurns,
   turnDetailsSummaryText,
+  turnLiveText,
   withLiveAgentTurn,
   type TurnDetails,
   type TurnResultPart,
@@ -116,6 +117,42 @@ describe('Task Runs in the timeline', () => {
     ).toEqual([
       ['r1', 'r2'],
       ['r3', 'r4'],
+    ])
+  })
+
+  it("shows the Results of a collapsed run's Turns: its artifacts and prose, not how it got there", () => {
+    const [run] = timelineTurns([
+      runMessage('r1', 'user'),
+      {
+        id: 'r2',
+        role: 'assistant',
+        metadata: { agentTurn: taskRunTag },
+        parts: [
+          { type: 'reasoning', text: 'plan the image', state: 'done' },
+          {
+            type: 'dynamic-tool',
+            toolName: 'generateImage',
+            toolCallId: 't1',
+            state: 'output-available',
+            input: { prompt: 'sunrise' },
+            output: { content: [], details: { items: [] } },
+          },
+          { type: 'text', text: 'Here is your sunrise.' },
+        ],
+      },
+      runMessage('r3', 'user'),
+    ])
+
+    expect(
+      run.kind === 'task-run' && run.resultTurns.map((turn) => [turn.id, turn.result]),
+    ).toEqual([
+      [
+        'r1',
+        [
+          { kind: 'artifact', messageId: 'r2', index: 1 },
+          { kind: 'prose', messageId: 'r2', index: 2 },
+        ],
+      ],
     ])
   })
 })
@@ -1177,6 +1214,275 @@ describe('artifacts on every Turn', () => {
     for (const timeline of everySurface(failed)) {
       expect(artifactsOf(timeline)).toEqual([])
     }
+  })
+})
+
+describe('the live status line of a running Turn', () => {
+  const labels = {
+    reasoning: 'Reasoning…',
+    writing: 'Writing…',
+    working: 'Working…',
+    runningTool: 'Running {tool}…',
+    queued: 'Waiting for the running turn to finish…',
+    audioLoading: 'Loading voice…',
+    audioGenerating: 'Generating speech…',
+    audioTranscribing: 'Transcribing…',
+    artifact: {
+      COM_GENERATION_QUEUED: 'Queued',
+      COM_STARTING_BACKEND: 'Starting image backend',
+      COM_INSTALL_WORKFLOW_COMPONENTS: 'Installing',
+      COM_LOADING_WORKFLOW_COMPONENTS: 'Loading components',
+      COM_LOADING_MODEL: 'Loading model…',
+      COM_GENERATING: 'Generating',
+    },
+  }
+  const detailsOf = (item: object | undefined) => (item as { details: TurnDetails }).details
+  const liveTextOf = (item: object | undefined) => {
+    const live = detailsOf(item).live
+    return live ? turnLiveText(live, labels) : undefined
+  }
+  const streamingReasoning = { type: 'reasoning', text: 'hmm', state: 'streaming' }
+  const runningTool = (name: string, input: object = {}) => ({
+    type: 'dynamic-tool',
+    toolName: name,
+    toolCallId: `call-${name}`,
+    state: 'input-available',
+    input,
+  })
+  const chatAnswer = (parts: object[]) => ({
+    id: 'a1',
+    role: 'assistant',
+    parts,
+    metadata: { chatTurn: true },
+  })
+  const agentAnswer = (parts: object[]) => ({
+    id: 'a1',
+    role: 'assistant',
+    parts,
+    metadata: { agentTurn },
+  })
+  const liveAgent = (messages: object[], extra: object = {}) => ({
+    tag: agentTurn,
+    messages: messages as { id: string }[],
+    live: true,
+    ...extra,
+  })
+
+  it('shows what a chat Turn waits on before its answer exists', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi')],
+      chatStatus: {
+        running: true,
+        activity: { label: 'Loading model…', progress: 0.4 },
+        questionKey: 'session:s1',
+      },
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({
+      kind: 'activity',
+      label: 'Loading model…',
+      progress: 0.4,
+    })
+    expect(liveTextOf(items[0])).toBe('Loading model…')
+    expect(items[0]).toMatchObject({ questionKey: 'session:s1' })
+  })
+
+  it('says a chat Turn is reasoning while its reasoning streams', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([streamingReasoning])],
+      chatStatus: { running: true },
+    })
+
+    expect(liveTextOf(items[0])).toBe('Reasoning…')
+  })
+
+  it('names the tool a chat Turn is running', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([runningTool('searchWeb')])],
+      chatStatus: { running: true },
+    })
+
+    expect(liveTextOf(items[0])).toBe('Running searchWeb…')
+  })
+
+  it("prefers the media specialist's current step over the chat activity", () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([runningTool('media')])],
+      chatStatus: { running: true, activity: { label: 'Creating media…' } },
+      mediaSteps: { 'call-media': { label: 'Generating 2/8', progress: 0.25 } },
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({
+      kind: 'tool',
+      name: 'media',
+      label: 'Generating 2/8',
+      progress: 0.25,
+    })
+  })
+
+  it('switches a chat Turn to its summary once it settles', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hello' }])],
+      chatStatus: { running: false, questionKey: 'session:s1' },
+    })
+
+    expect(detailsOf(items[0]).live).toBeUndefined()
+    expect(items[0]).not.toHaveProperty('questionKey')
+  })
+
+  it('shows the live status on the running chat Turn only', () => {
+    const items = sessionTimelineItems(
+      [chatMessage('u0', 'user', 'old'), chatMessage('a0', 'assistant', 'done')],
+      { chat: [chatMessage('u1', 'user', 'hi')], chatStatus: { running: true } },
+    )
+
+    expect(detailsOf(items[0]).live).toBeUndefined()
+    expect(liveTextOf(items[1])).toBe('Working…')
+  })
+
+  it('names the file an Agent Preset Turn is reading', () => {
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([
+          agentMessage('u1', 'user', 'fix it'),
+          agentAnswer([runningTool('read', { file_path: 'game.js' })]),
+        ]),
+      ],
+    })
+
+    expect(liveTextOf(items[0])).toBe('Reading game.js…')
+  })
+
+  it('says an Agent Preset Turn runs generateImage', () => {
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([
+          agentMessage('u1', 'user', 'draw'),
+          agentAnswer([runningTool('generateImage')]),
+        ]),
+      ],
+    })
+
+    expect(liveTextOf(items[0])).toBe('Running generateImage…')
+  })
+
+  it('says an Agent Preset Turn is working between tool calls', () => {
+    const done = { ...runningTool('bash'), state: 'output-available', output: {} }
+    const items = sessionTimelineItems([], {
+      agents: [liveAgent([agentMessage('u1', 'user', 'go'), agentAnswer([done])])],
+    })
+
+    expect(liveTextOf(items[0])).toBe('Working…')
+  })
+
+  it('says a queued Agent Preset Turn waits for the running one', () => {
+    const items = sessionTimelineItems([], {
+      agents: [liveAgent([agentMessage('u1', 'user', 'go')], { queuedMessageId: 'u1' })],
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'queued' })
+    expect(liveTextOf(items[0])).toBe('Waiting for the running turn to finish…')
+  })
+
+  it("puts an agent's question, held answer and error in its last Turn", () => {
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent(
+          [
+            agentMessage('u1', 'user', 'one'),
+            agentMessage('a1', 'assistant', 'ok'),
+            agentMessage('u2', 'user', 'two'),
+          ],
+          {
+            live: false,
+            open: true,
+            heldAnswer: { channel: 'telegram' },
+            error: 'backend died',
+          },
+        ),
+      ],
+    })
+
+    expect(items[0]).not.toHaveProperty('heldAnswer')
+    expect(detailsOf(items[0]).error).toBeUndefined()
+    expect(items[1]).toMatchObject({
+      heldAnswer: { channel: 'telegram' },
+      questionKey: 'aipg-agent-1',
+    })
+    expect(detailsOf(items[1]).error).toBe('backend died')
+    expect(detailsOf(items[1]).live).toBeUndefined()
+  })
+
+  it('switches an Agent Preset Turn to its summary once it settles', () => {
+    const items = sessionTimelineItems([], {
+      agents: [
+        liveAgent([agentMessage('u1', 'user', 'go'), agentAnswer([streamingReasoning])], {
+          live: false,
+        }),
+      ],
+    })
+
+    expect(detailsOf(items[0]).live).toBeUndefined()
+  })
+
+  it('shows the phase of a ComfyUI run in flight', () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+      artifactRuns: {
+        runs: {
+          r2: {
+            runId: 'r2',
+            phase: 'running' as const,
+            progress: { current: 3, max: 20 },
+            items: [],
+            order: 0,
+          },
+        },
+        nextOrder: 1,
+      },
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({
+      kind: 'artifact',
+      phase: 'running',
+      progress: { current: 3, max: 20 },
+    })
+    expect(liveTextOf(items[0])).toBe('Generating 3/20')
+  })
+
+  it('says a ComfyUI run is queued before its run is known', () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' as const },
+    })
+
+    expect(liveTextOf(items[0])).toBe('Queued')
+  })
+
+  it('switches a ComfyUI Turn to its summary once it settles', () => {
+    const items = sessionTimelineItems([mediaPrompt, mediaCard], {
+      media: { runId: 'r1', prompt: 'a castle', preset: 'Draft', mode: 'imageGen' as const },
+      artifactRuns: {
+        runs: { r1: { runId: 'r1', phase: 'running' as const, items: [], order: 0 } },
+        nextOrder: 1,
+      },
+    })
+
+    expect(items).toHaveLength(1)
+    expect(detailsOf(items[0]).live).toBeUndefined()
+  })
+
+  it('shows the phase of an audio Turn in flight', () => {
+    const items = sessionTimelineItems([], {
+      audio: {
+        kind: 'tts' as const,
+        prompt: 'hi',
+        preset: 'Text to Speech',
+        phase: 'generating' as const,
+      },
+    })
+
+    expect(detailsOf(items[0]).live).toEqual({ kind: 'audio', phase: 'generating' })
+    expect(liveTextOf(items[0])).toBe('Generating speech…')
   })
 })
 

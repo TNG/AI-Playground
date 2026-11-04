@@ -176,13 +176,13 @@
       </template>
     </template>
 
-    <!-- Hidden while media is generating: its card shows that inline. -->
+    <!-- In a Session timeline both live in the Turn; this is the Home Agent thread view. -->
     <ChatActivityIndicator
-      v-if="section !== 'details' && last && hasActivity && !messageHasLiveMedia(message)"
+      v-if="!section && last && hasActivity && !messageHasLiveMedia(message)"
       :conversation-key="conversationKey"
     />
     <ChatConfirmation
-      v-if="section !== 'details' && last && hasConfirmation"
+      v-if="!section && last && hasConfirmation"
       :conversation-key="conversationKey"
     />
   </div>
@@ -223,7 +223,7 @@ import { toolCallArtifacts } from '@/lib/turnArtifacts'
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */
 const props = defineProps<{
   message: AipgUiMessage
-  /** The newest message of the live conversation: it hosts the turn's live status. */
+  /** The newest message of the live conversation: outside a Session it hosts the turn's live status. */
   last?: boolean
   conversationKey: string
   showRagSource?: boolean

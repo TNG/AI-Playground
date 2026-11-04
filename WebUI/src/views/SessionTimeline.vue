@@ -21,24 +21,6 @@
         :chat-key="chatKey"
         @resend="agentMode.resendNotRun()"
       />
-      <!-- The chat turn's status before its answer bubble exists (backend and model prep). -->
-      <ChatActivityIndicator
-        v-if="chatActivity && !chatAnswerShown"
-        :conversation-key="chatKey"
-        with-avatar
-      />
-      <ChatConfirmation
-        v-if="chatConfirmation && !chatAnswerShown"
-        :conversation-key="chatKey"
-        with-avatar
-      />
-    </div>
-    <div
-      v-if="showsAgentStatus"
-      class="w-full max-w-4xl mx-auto flex flex-col gap-4"
-      :class="{ 'mt-4': items.length }"
-    >
-      <AgentTurnStatus />
     </div>
   </div>
 </template>
@@ -51,19 +33,21 @@ import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useSessions } from '@/assets/js/store/sessions'
 import AgentEmptyState from '@/components/AgentEmptyState.vue'
-import AgentTurnStatus from '@/components/AgentTurnStatus.vue'
-import ChatActivityIndicator from '@/components/ChatActivityIndicator.vue'
-import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import GameBar from '@/components/GameBar.vue'
 import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { sessionChatKey } from '@/lib/sessionChat'
-import { sessionTimelineItems } from '@/lib/sessionTimeline'
+import {
+  sessionTimelineItems,
+  type LiveChatStatus,
+  type MediaStepStatus,
+} from '@/lib/sessionTimeline'
 import { useStickToBottom } from '@/lib/useStickToBottom'
 
 /**
@@ -74,11 +58,12 @@ const sessions = useSessions()
 const chat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const sessionAudio = useSessionAudio()
-const artifactRuns = useArtifactRuns()
 const promptStore = usePromptStore()
 const activities = useActivities()
 const confirmations = useConfirmations()
 const conversations = useConversations()
+const artifactRuns = useArtifactRuns()
+const mediaRuns = useMediaAgentRuns()
 const languages = useI18N().state
 const panel = ref<HTMLElement | null>(null)
 
@@ -92,13 +77,46 @@ const agentLive = computed(() =>
   sessions.openSessionId ? agentMode.liveTurnsIn(sessions.openSessionId) : [],
 )
 
+const chatActivity = computed(() => activities.chatActivity(chatKey.value, ['generation']))
+const chatConfirmation = computed(() => confirmations.forConversation(chatKey.value) !== null)
+const chatBusy = computed(() => !!chatActivity.value || chatConfirmation.value)
+
+const chatStatus = computed<LiveChatStatus>(() => {
+  const activity = chatActivity.value
+  return {
+    running: chatConfirmation.value || chat.answeringIn(chatKey.value),
+    activity: activity && {
+      label: activity.label,
+      ...(activity.progress !== undefined ? { progress: activity.progress } : {}),
+      ...(activity.category === 'browsing' ? { browsing: true } : {}),
+    },
+    questionKey: chatKey.value,
+  }
+})
+
+const mediaSteps = computed(() =>
+  Object.fromEntries(
+    mediaRuns.runs.flatMap((run) => {
+      const step = run.steps.findLast((candidate) => candidate.state === 'running')
+      if (!step) return []
+      const status: MediaStepStatus = {
+        label: step.label,
+        ...(step.progress !== undefined ? { progress: step.progress } : {}),
+      }
+      return [[run.id, status]]
+    }),
+  ),
+)
+
 const items = computed(() =>
   sessionTimelineItems(
     sessions.openTimeline,
     {
       chat: chatLive.value,
+      chatStatus: chatStatus.value,
       agents: agentLive.value,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
+      mediaSteps: mediaSteps.value,
       audio: sessionAudio.pendingTurn,
       artifactRuns: artifactRuns.state,
     },
@@ -107,19 +125,9 @@ const items = computed(() =>
 )
 
 const lastChatMessageId = computed(() => chatLive.value.at(-1)?.id)
-const chatAnswerShown = computed(() => chatLive.value.at(-1)?.role === 'assistant')
-const chatActivity = computed(() => activities.chatActivity(chatKey.value, ['generation']) !== null)
-const chatConfirmation = computed(() => confirmations.forConversation(chatKey.value) !== null)
-const chatBusy = computed(() => chatActivity.value || chatConfirmation.value)
 
 const inAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
-const openHarnessInSession = computed(() =>
-  agentLive.value.some((turn) => turn.tag.harnessSessionId === agentMode.openSessionId),
-)
 const showsGameBar = computed(() => inAgentMode.value && agentMode.agentWorkspaceKind === 'games')
-const showsAgentStatus = computed(
-  () => openHarnessInSession.value && (inAgentMode.value || agentMode.processing),
-)
 
 const { showScrollButton, scrollToBottom } = useStickToBottom(panel)
 

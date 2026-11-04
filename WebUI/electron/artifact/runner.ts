@@ -191,6 +191,7 @@ type ActiveRun = {
   /** ComfyUI client id for this run — unique so leftover WS frames cannot mix. */
   clientId: string
   comfyBaseUrl: string | null
+  startedAt: number
 }
 
 let activeRun: ActiveRun | null = null
@@ -354,6 +355,7 @@ async function settleIntoSession(
       prompt: run.payload.params.prompt,
       status: result.state,
       error: result.error,
+      durationMs: Date.now() - run.startedAt,
       items: result.items,
       localPathOf: (url) => runnerDeps?.localPathOf?.(url) ?? null,
     })
@@ -501,6 +503,7 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     phase: 'queued',
     clientId: `aipg-artifact-${payload.runId}`,
     comfyBaseUrl: null,
+    startedAt: Date.now(),
   }
   activeRun = run
 

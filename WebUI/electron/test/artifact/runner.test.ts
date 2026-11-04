@@ -329,6 +329,7 @@ describe('artifact runner', () => {
       variant: 'Fast',
       prompt: 'a cat',
       status: 'completed',
+      durationMs: expect.any(Number),
       items: [
         expect.objectContaining({ imageUrl: 'aipg-media://media/out0.png?v=item-0' }),
         expect.objectContaining({ imageUrl: 'aipg-media://media/out1.png?v=item-1' }),

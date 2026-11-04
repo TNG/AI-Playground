@@ -21,6 +21,7 @@ export type MediaTurn = {
   prompt: string
   status: MediaTurnStatus
   error?: string
+  durationMs?: number
   /** The run's finished items, still pointing at ComfyUI's output directory. */
   items: MediaItem[]
   /** Resolves an `aipg-media://` URL to the file it names, or null when it names none. */
@@ -125,6 +126,7 @@ export async function recordMediaTurn(turn: MediaTurn): Promise<MediaItem[]> {
             variant: turn.variant,
             status: turn.status,
             error: turn.error,
+            durationMs: turn.durationMs,
             items,
           },
         },

@@ -15,6 +15,8 @@ export type MediaTurnData = {
   variant?: string
   status: MediaTurnStatus
   error?: string
+  /** How long the run took; absent on turns recorded before it was. */
+  durationMs?: number
   items: MediaItem[]
 }
 

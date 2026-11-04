@@ -24,9 +24,12 @@
   <!-- Media delegation tool: the nested specialist runs in main; live steps
        reach mediaAgentRuns via kernel events (keyed by toolCallId). -->
   <div v-else-if="mediaToolNameOf(part)" class="flex flex-col gap-2">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
-    <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
+    <template v-if="section !== 'result'">
+      <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+      <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
+    </template>
     <ChatWorkflowResult
+      v-if="section !== 'details'"
       :artifacts="mediaToolArtifacts"
       :phase="mediaToolPhase"
       :progress="mediaLive.progress"
@@ -34,10 +37,15 @@
   </div>
   <!-- Chat's audio player reads the app-folder copy, never the workspace. -->
   <div v-else-if="generatedMedia?.audio" class="flex flex-col gap-2">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatToolDisplay
+      v-if="section !== 'result'"
+      :part="toolPart"
+      :state="toolPart.state"
+      :input="toolPart.input"
+    />
     <ChatTtsToolResult
+      v-if="section !== 'details'"
       :output="generatedMedia.audio"
-      :caption="workspaceCaption(generatedMedia.audio.workspacePath)"
       :download="() => fileAction(generatedMedia!.audio!, 'saveAs')"
       :reveal="() => fileAction(generatedMedia!.audio!, 'reveal')"
     />
@@ -72,7 +80,6 @@ import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useErrors } from '@/assets/js/store/errors'
 import { useSessions } from '@/assets/js/store/sessions'
-import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
@@ -100,14 +107,17 @@ import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 // compaction notice, or a tool call — with whatever the call produced under it
 // (streamed output, browser screenshots, generated media).
 
-const props = defineProps<{ part: UIMessagePart<UIDataTypes, UITools> }>()
+const props = defineProps<{
+  part: UIMessagePart<UIDataTypes, UITools>
+  /** Which side of the Turn this renders: a media tool's card is the Result, the rest Turn Details. */
+  section?: 'details' | 'result'
+}>()
 
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
 const errors = useErrors()
 const sessions = useSessions()
-const i18nState = useI18N().state
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.
@@ -184,16 +194,10 @@ async function fileAction(target: AgentMediaItem | AgentSpeechClip, action: Agen
   }
 }
 
-function workspaceCaption(workspacePath: string | undefined): string | undefined {
-  return workspacePath
-    ? i18nState.AGENT_MEDIA_IN_WORKSPACE.replace('{path}', workspacePath)
-    : undefined
-}
-
 watch(
   () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,
   ([isMedia, id, state]) => {
-    if (!isMedia) return
+    if (!isMedia || props.section === 'details') return
     if (state === 'output-available' && toolPart.value.output != null) {
       mediaRuns.endRun(id, 'done')
     }

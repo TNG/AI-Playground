@@ -29,10 +29,17 @@
         :last="last"
         :conversation-key="conversationKey ?? ''"
         :show-rag-source="showRagSource"
+        :section="resultOnly ? 'result' : undefined"
+        :indexes="resultOnly"
       />
       <SessionTurnFooter v-if="!footerless" :footer="chatAnswerFooter([message], last)" />
     </template>
-    <AgentMessageParts v-else :message="message" :live="live" />
+    <AgentMessageParts
+      v-else
+      :message="message"
+      :section="resultOnly ? 'result' : undefined"
+      :indexes="resultOnly"
+    />
   </SessionAssistantBubble>
 </template>
 
@@ -59,13 +66,13 @@ const props = defineProps<{
   last?: boolean
   /** Chat: the conversation the message belongs to, for its live status. */
   conversationKey?: string
-  /** Agent: the message is being produced right now. */
-  live?: boolean
   queued?: boolean
   notRun?: boolean
   canResend?: boolean
   /** The Turn's hint already names the model, so the answer does not. */
   unlabelled?: boolean
+  /** In a Turn: the parts of this answer that belong to its Result; the rest is in Turn Details. */
+  resultOnly?: readonly number[]
   /** The Turn's footer carries the answer's actions. */
   footerless?: boolean
 }>()

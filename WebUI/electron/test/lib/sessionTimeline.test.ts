@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { sessionTimelineItems, timelineTurns, withLiveAgentTurn } from '@/lib/sessionTimeline'
+import {
+  sessionTimelineItems,
+  timelineTurns,
+  turnDetailsSummaryText,
+  withLiveAgentTurn,
+  type TurnDetails,
+  type TurnResultPart,
+} from '@/lib/sessionTimeline'
 
 const agentTurn = { presetName: 'Agent', harnessSessionId: 'aipg-agent-1' }
 
@@ -490,6 +497,305 @@ describe('the hint on every Turn', () => {
     expect(items).toMatchObject([
       { kind: 'pending-media', hint: { kind: 'workflow', icon: 'video', preset: 'Wan' } },
       { kind: 'pending-audio', hint: { kind: 'speech', icon: 'stt', preset: 'Speech to Text' } },
+    ])
+  })
+})
+
+const labels = {
+  reasoned: 'Reasoned {duration}',
+  reasonedUntimed: 'Reasoned',
+  tool: '1 tool',
+  tools: '{count} tools',
+  image: '1 image',
+  images: '{count} images',
+  video: '1 video',
+  videos: '{count} videos',
+  model3d: '1 3D model',
+  models3d: '{count} 3D models',
+  audio: '1 audio clip',
+  audios: '{count} audio clips',
+  seed: 'seed {seed}',
+}
+
+describe('Turn Details and the Result', () => {
+  const reasoning = (ms: number) => ({
+    type: 'reasoning',
+    text: 'thinking',
+    state: 'done',
+    providerMetadata: { aipg: { reasoningStarted: 1000, reasoningFinished: 1000 + ms } },
+  })
+  const text = (value: string) => ({ type: 'text', text: value })
+  const image = (url: string, extra: object = {}) => ({
+    id: url,
+    type: 'image',
+    state: 'done',
+    imageUrl: url,
+    ...extra,
+  })
+  const chatImageTool = (id: string, url: string) => ({
+    type: 'tool-comfyUI',
+    toolCallId: id,
+    state: 'output-available',
+    input: { workflow: 'Flux Schnell', prompt: 'a red ship' },
+    output: { images: [image(url)] },
+  })
+  const agentImageTool = (id: string, url: string, workspacePath?: string) => ({
+    type: 'dynamic-tool',
+    toolName: 'generateImage',
+    toolCallId: id,
+    state: 'output-available',
+    input: { prompt: 'a red ship' },
+    output: { details: { items: [image(url, workspacePath ? { workspacePath } : {})] } },
+  })
+  const tool = (name: string) => ({
+    type: 'dynamic-tool',
+    toolName: name,
+    toolCallId: `call-${name}`,
+    state: 'output-available',
+    input: {},
+    output: {},
+  })
+  const chatTurn = (parts: object[]) =>
+    timelineTurns([
+      chatMessage('u1', 'user', 'draw a ship'),
+      { id: 'a1', role: 'assistant', parts, metadata: { chatTurn: true } },
+    ])[0]
+  const agentTurnWith = (parts: object[]) =>
+    timelineTurns([
+      agentMessage('u1', 'user', 'draw a ship'),
+      { id: 'a1', role: 'assistant', parts, metadata: { agentTurn } },
+    ])[0]
+  const detailsOf = (turn: object) => (turn as { details?: TurnDetails }).details
+  const resultOf = (turn: object) => (turn as { result?: TurnResultPart[] }).result
+  const summaryTextOf = (turn: { kind: string }) =>
+    turnDetailsSummaryText(detailsOf(turn)!.summary, labels)
+
+  it("puts a chat Turn's reasoning and tool calls in Turn Details, its prose and images in the Result", () => {
+    const turn = chatTurn([
+      reasoning(41000),
+      text('here is the ship'),
+      chatImageTool('t1', 'ship.png'),
+      text('and the rock'),
+      chatImageTool('t2', 'rock.png'),
+      { ...tool('searchWeb'), type: 'tool-searchWeb' },
+    ])
+
+    expect(detailsOf(turn)?.parts).toEqual([
+      { kind: 'reasoning', messageId: 'a1', index: 0 },
+      { kind: 'generation', messageId: 'a1', index: 2 },
+      { kind: 'generation', messageId: 'a1', index: 4 },
+      { kind: 'tool', messageId: 'a1', index: 5 },
+    ])
+    expect(resultOf(turn)).toEqual([
+      { kind: 'prose', messageId: 'a1', index: 1 },
+      { kind: 'artifact', messageId: 'a1', index: 2 },
+      { kind: 'prose', messageId: 'a1', index: 3 },
+      { kind: 'artifact', messageId: 'a1', index: 4 },
+    ])
+  })
+
+  it('gives a chat image and an Agent Preset image the same Result', () => {
+    const chat = chatTurn([text('here it is'), chatImageTool('t1', 'ship.png')])
+    const agent = agentTurnWith([text('here it is'), agentImageTool('t1', 'ship.png')])
+
+    expect(resultOf(chat)).toEqual(resultOf(agent))
+    expect(summaryTextOf(chat)).toBe(summaryTextOf(agent))
+  })
+
+  it("puts an agent's compaction notices, tool calls and game workspace path in Turn Details", () => {
+    const turn = agentTurnWith([
+      { type: 'step-start' },
+      reasoning(2000),
+      tool('compaction'),
+      tool('read'),
+      agentImageTool('t1', 'ship.png', 'generated/ship.png'),
+      text('done'),
+    ])
+
+    expect(detailsOf(turn)?.parts).toEqual([
+      { kind: 'reasoning', messageId: 'a1', index: 1 },
+      { kind: 'compaction', messageId: 'a1', index: 2 },
+      { kind: 'tool', messageId: 'a1', index: 3 },
+      { kind: 'generation', messageId: 'a1', index: 4 },
+      { kind: 'workspace-path', path: 'generated/ship.png' },
+    ])
+    expect(resultOf(turn)).toEqual([
+      { kind: 'artifact', messageId: 'a1', index: 4 },
+      { kind: 'prose', messageId: 'a1', index: 5 },
+    ])
+  })
+
+  it('sums up a chat Turn by its reasoning time, tools and images', () => {
+    const turn = chatTurn([
+      reasoning(30000),
+      chatImageTool('t1', 'ship.png'),
+      reasoning(11000),
+      chatImageTool('t2', 'rock.png'),
+      text('done'),
+    ])
+
+    expect(detailsOf(turn)?.summary).toEqual({
+      kind: 'activity',
+      reasoningMs: 41000,
+      tools: 2,
+      artifacts: { image: 2 },
+    })
+    expect(summaryTextOf(turn)).toBe('Reasoned 41s · 2 tools · 2 images')
+  })
+
+  it('leaves out of the summary what a Turn did not do', () => {
+    const turn = agentTurnWith([tool('read'), text('done')])
+
+    expect(detailsOf(turn)?.summary).toEqual({ kind: 'activity', tools: 1 })
+    expect(summaryTextOf(turn)).toBe('1 tool')
+  })
+
+  it('has nothing in Turn Details for a plain chat answer', () => {
+    const turn = chatTurn([text('hello')])
+
+    expect(detailsOf(turn)).toEqual({ parts: [], summary: { kind: 'activity' } })
+    expect(resultOf(turn)).toEqual([{ kind: 'prose', messageId: 'a1', index: 0 }])
+  })
+
+  it('says a Turn reasoned even when its transcript predates reasoning times', () => {
+    const turn = chatTurn([{ type: 'reasoning', text: 'hmm', state: 'done' }, text('hi')])
+
+    expect(summaryTextOf(turn)).toBe('Reasoned')
+  })
+
+  it("puts a ComfyUI Turn's variant and workflow parameters in Turn Details, summed up by preset, size, seed and duration", () => {
+    const settings = {
+      preset: 'Flux Schnell',
+      variant: 'Fast',
+      prompt: 'a castle',
+      seed: 42,
+      width: 1024,
+      height: 1024,
+    }
+    const inputs = [
+      { label: 'Guidance', nodeTitle: 'g', nodeInput: 'v', type: 'number', current: 3.5 },
+    ]
+    const [turn] = timelineTurns([
+      mediaPrompt,
+      {
+        ...mediaCard,
+        parts: [
+          {
+            type: 'data-media',
+            data: {
+              runId: 'r1',
+              mode: 'imageGen',
+              preset: 'Flux Schnell',
+              variant: 'Fast',
+              status: 'completed',
+              durationMs: 18200,
+              items: [image('castle.png', { settings, dynamicSettings: inputs })],
+            },
+          },
+        ],
+      },
+    ])
+
+    expect(detailsOf(turn)?.parts).toEqual([
+      {
+        kind: 'workflow',
+        variant: 'Fast',
+        settings: { seed: 42, width: 1024, height: 1024 },
+        inputs,
+      },
+    ])
+    expect(resultOf(turn)).toEqual([{ kind: 'media' }])
+    expect(detailsOf(turn)?.summary).toEqual({
+      kind: 'workflow',
+      preset: 'Flux Schnell',
+      width: 1024,
+      height: 1024,
+      seed: 42,
+      durationMs: 18200,
+    })
+    expect(summaryTextOf(turn)).toBe('Flux Schnell · 1024×1024 · seed 42 · 18s')
+  })
+
+  it('keeps the full error of a failed ComfyUI Turn in Turn Details', () => {
+    const [turn] = timelineTurns([
+      mediaPrompt,
+      {
+        ...mediaCard,
+        parts: [
+          {
+            type: 'data-media',
+            data: {
+              runId: 'r1',
+              mode: 'video',
+              preset: 'Wan',
+              status: 'failed',
+              error: 'out of memory',
+              items: [],
+            },
+          },
+        ],
+      },
+    ])
+
+    expect(detailsOf(turn)).toEqual({
+      parts: [],
+      summary: { kind: 'workflow', preset: 'Wan' },
+      error: 'out of memory',
+    })
+    expect(summaryTextOf(turn)).toBe('Wan')
+  })
+
+  it('sums up an audio Turn by its preset and engine, with the audio in the Result', () => {
+    const [turn] = timelineTurns([
+      user('u1', 'Read this'),
+      {
+        id: 'a1',
+        role: 'assistant',
+        createdAt: 2,
+        parts: [
+          {
+            type: 'data-audio',
+            data: { kind: 'tts', preset: 'Text to Speech', status: 'completed', engine: 'Kokoro' },
+          },
+        ],
+      },
+    ])
+
+    expect(resultOf(turn)).toEqual([{ kind: 'audio' }])
+    expect(detailsOf(turn)).toEqual({
+      parts: [],
+      summary: { kind: 'speech', preset: 'Text to Speech', engine: 'Kokoro' },
+    })
+    expect(summaryTextOf(turn)).toBe('Text to Speech · Kokoro')
+  })
+
+  it("shows an agent's speech clip in the Result and its tool call in Turn Details", () => {
+    const speak = {
+      ...tool('speak'),
+      output: { details: { audio: { savedFilePath: '/a/clip.wav', message: 'ok' } } },
+    }
+    const turn = agentTurnWith([speak])
+
+    expect(detailsOf(turn)?.parts).toEqual([{ kind: 'tool', messageId: 'a1', index: 0 }])
+    expect(resultOf(turn)).toEqual([{ kind: 'artifact', messageId: 'a1', index: 0 }])
+    expect(summaryTextOf(turn)).toBe('1 tool · 1 audio clip')
+  })
+
+  it('gives Turns still running a Turn Details and Result of their own', () => {
+    const items = sessionTimelineItems([], {
+      media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' },
+      audio: { kind: 'stt', prompt: '', preset: 'Speech to Text' },
+    })
+
+    expect(items).toMatchObject([
+      {
+        details: { parts: [], summary: { kind: 'workflow', preset: 'Wan' } },
+        result: [{ kind: 'media' }],
+      },
+      {
+        details: { parts: [], summary: { kind: 'speech', preset: 'Speech to Text' } },
+        result: [{ kind: 'audio' }],
+      },
     ])
   })
 })

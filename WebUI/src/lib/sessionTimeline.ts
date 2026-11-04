@@ -7,6 +7,16 @@ import type {
   TimelineMessage,
   TimelinePart,
 } from '@/types/sessionTimeline'
+import type { ComfyDynamicInputWithCurrent, GenerationSettings } from '@/types/mediaItem'
+import {
+  compactionOutputOf,
+  generatedMediaOf,
+  isReasoningPart,
+  mediaToolNameOf,
+  toolPartNameOf,
+} from '@/lib/agentTranscript'
+import { isChatMediaToolPart } from '@/lib/chatToolParts'
+import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
@@ -19,6 +29,46 @@ export type TurnHintIcon = 'chat' | 'agent' | 'image' | 'video' | 'tts' | 'stt'
 /** Which preset ran a Turn: its kind and name, with the model or engine for the tooltip. */
 export type TurnHint = { kind: TurnHintKind; icon: TurnHintIcon; preset: string; detail?: string }
 
+/** One part of a chat or agent answer, by its place in the message. */
+export type AnswerPartRef = { messageId: string; index: number }
+
+type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction'
+
+export type TurnDetailPart =
+  | ({ kind: AnswerDetailKind } & AnswerPartRef)
+  | { kind: 'workspace-path'; path: string }
+  | {
+      kind: 'workflow'
+      variant?: string
+      settings: GenerationSettings
+      inputs: ComfyDynamicInputWithCurrent[]
+    }
+
+export type TurnResultPart =
+  ({ kind: 'prose' | 'artifact' } & AnswerPartRef) | { kind: 'media' } | { kind: 'audio' }
+
+export type ArtifactKind = 'image' | 'video' | 'model3d' | 'audio'
+
+/** What the collapsed Turn Details header sums up; absent parts are left out. */
+export type TurnSummary =
+  | {
+      kind: 'activity'
+      reasoningMs?: number
+      tools?: number
+      artifacts?: Partial<Record<ArtifactKind, number>>
+    }
+  | {
+      kind: 'workflow'
+      preset: string
+      width?: number
+      height?: number
+      seed?: number
+      durationMs?: number
+    }
+  | { kind: 'speech'; preset: string; engine?: string }
+
+/** How a Turn reached its Result, in the order it happened, behind one disclosure. */
+export type TurnDetails = { parts: TurnDetailPart[]; summary: TurnSummary; error?: string }
 /** The user bubble: what was asked, and what it was asked about. */
 export type TurnPrompt = {
   text: string
@@ -74,6 +124,9 @@ type TurnOf<K extends string, Body> = {
   kind: K
   id: string
   hint: TurnHint
+  details: TurnDetails
+  /** Prose and artifacts in the order they were produced. */
+  result: TurnResultPart[]
   footer: TurnFooter
 } & Body
 
@@ -289,6 +342,8 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       kind: 'pending-media',
       id: media.runId,
       hint: mediaHint(media),
+      details: { parts: [], summary: { kind: 'workflow', preset: media.preset } },
+      result: [{ kind: 'media' }],
       prompt: textPrompt(media.prompt ?? '', media.preset, {
         inputImageUrl: media.inputImageUrl || undefined,
       }),
@@ -302,6 +357,8 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       kind: 'pending-audio',
       id: 'pending-audio',
       hint: audioHint(audio),
+      details: audioDetails(audio),
+      result: [{ kind: 'audio' }],
       prompt: textPrompt(audio.prompt ?? '', audio.preset),
       footer: noFooter(),
       pending: audio,
@@ -490,7 +547,7 @@ function audioHint(audio: PendingAudio & { engine?: string }): TurnHint {
   }
 }
 
-/** Chat and agent answers arrive after their Turn is opened, so hint and footer are read last. */
+/** Chat and agent answers arrive after their Turn is opened, so hint, parts and footer are read last. */
 function withAnswers(turns: TimelineTurn[], prompts: Map<string, UIMessage>): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat') {
@@ -501,8 +558,230 @@ function withAnswers(turns: TimelineTurn[], prompts: Map<string, UIMessage>): Ti
       turn.hint = agentHint(turn.presetName, turn.answers)
       turn.footer = agentFooter(turn.answers)
     }
+    if (turn.kind === 'chat' || turn.kind === 'agent') {
+      Object.assign(turn, answerSections(turn.kind, turn.answers))
+    }
   }
   return turns
+}
+
+const EMPTY_DETAILS: TurnDetails = { parts: [], summary: { kind: 'activity' } }
+
+type PartShape = { type?: unknown; state?: unknown; output?: unknown }
+
+function shapeOf(part: unknown): PartShape {
+  return typeof part === 'object' && part !== null ? (part as PartShape) : {}
+}
+
+/** Chat tools whose output is something the user asked for rather than a step toward it. */
+const CHAT_RESULT_TOOL_NAMES = new Set(['visualizeObjectDetections', 'synthesizeTextToSpeech'])
+
+type PartPlacement = { details?: AnswerDetailKind; result?: boolean }
+
+function chatPlacement(part: unknown): PartPlacement {
+  const name = toolPartNameOf(part)
+  if (name === undefined) return {}
+  if (isChatMediaToolPart(part)) return { details: 'generation', result: true }
+  if (CHAT_RESULT_TOOL_NAMES.has(name)) return { result: true }
+  return { details: 'tool' }
+}
+
+function agentPlacement(part: unknown): PartPlacement {
+  if (toolPartNameOf(part) === undefined) return {}
+  if (compactionOutputOf(part)) return { details: 'compaction' }
+  if (mediaToolNameOf(part)) return { details: 'generation', result: true }
+  if (generatedMediaOf(part)?.audio) return { details: 'tool', result: true }
+  return { details: 'tool' }
+}
+
+function placementOf(engine: 'chat' | 'agent', part: unknown): PartPlacement {
+  if (isReasoningPart(part)) return { details: 'reasoning' }
+  if (shapeOf(part).type === 'text') return { result: true }
+  return engine === 'chat' ? chatPlacement(part) : agentPlacement(part)
+}
+
+function artifactKindsOf(engine: 'chat' | 'agent', part: unknown): ArtifactKind[] {
+  const { state, output } = shapeOf(part)
+  if (state !== 'output-available') return []
+  if (engine === 'agent') {
+    const media = generatedMediaOf(part)
+    return [
+      ...(media?.items ?? []).map((item) => item.type),
+      ...(media?.audio ? ['audio' as const] : []),
+    ]
+  }
+  const record = (output ?? {}) as {
+    images?: unknown
+    savedFilePath?: unknown
+    annotatedImageUrl?: unknown
+  }
+  if (isChatMediaToolPart(part)) {
+    return (Array.isArray(record.images) ? record.images : []).flatMap((item) => {
+      const type = (item as { type?: unknown } | null)?.type
+      return type === 'image' || type === 'video' || type === 'model3d' ? [type] : []
+    })
+  }
+  const name = toolPartNameOf(part)
+  if (name === 'synthesizeTextToSpeech' && record.savedFilePath) return ['audio']
+  if (name === 'visualizeObjectDetections' && record.annotatedImageUrl) return ['image']
+  return []
+}
+
+function workspacePathsOf(part: unknown): string[] {
+  const media = generatedMediaOf(part)
+  if (!media) return []
+  return [...media.items, ...(media.audio ? [media.audio] : [])].flatMap((target) =>
+    typeof target.workspacePath === 'string' && target.workspacePath ? [target.workspacePath] : [],
+  )
+}
+
+/** Splits a chat or agent Turn's answers into Turn Details and the Result, each in order. */
+function answerSections(
+  engine: 'chat' | 'agent',
+  answers: UIMessage[],
+): { details: TurnDetails; result: TurnResultPart[] } {
+  const parts: TurnDetailPart[] = []
+  const result: TurnResultPart[] = []
+  const allParts: unknown[] = []
+  let tools = 0
+  const artifacts: Partial<Record<ArtifactKind, number>> = {}
+  for (const answer of answers) {
+    answer.parts.forEach((part, index) => {
+      allParts.push(part)
+      const ref = { messageId: answer.id, index }
+      const placement = placementOf(engine, part)
+      if (placement.details) {
+        parts.push({ kind: placement.details, ...ref })
+        if (engine === 'agent') {
+          for (const path of workspacePathsOf(part)) parts.push({ kind: 'workspace-path', path })
+        }
+      }
+      if (placement.result) {
+        result.push({ kind: shapeOf(part).type === 'text' ? 'prose' : 'artifact', ...ref })
+      }
+      if (toolPartNameOf(part) !== undefined && !compactionOutputOf(part)) tools++
+      for (const kind of artifactKindsOf(engine, part)) artifacts[kind] = (artifacts[kind] ?? 0) + 1
+    })
+  }
+  const summary: TurnSummary = { kind: 'activity' }
+  if (allParts.some(isReasoningPart)) summary.reasoningMs = reasoningElapsedMsFromParts(allParts)
+  if (tools > 0) summary.tools = tools
+  if (Object.keys(artifacts).length > 0) summary.artifacts = artifacts
+  return { details: { parts, summary }, result }
+}
+
+function settingsWithoutPrompt(settings: GenerationSettings | undefined): GenerationSettings {
+  const { preset: _preset, variant: _variant, prompt: _prompt, ...rest } = settings ?? {}
+  return Object.fromEntries(
+    Object.entries(rest).filter(([, value]) => value !== undefined && value !== ''),
+  ) as GenerationSettings
+}
+
+function mediaDetails(media: MediaTurnData): TurnDetails {
+  const first = media.items[0]
+  const settings = first?.settings
+  const parts: TurnDetailPart[] =
+    first || media.variant
+      ? [
+          {
+            kind: 'workflow',
+            ...(media.variant ? { variant: media.variant } : {}),
+            settings: settingsWithoutPrompt(settings),
+            inputs: (first?.dynamicSettings ?? []).filter((input) => input.current !== ''),
+          },
+        ]
+      : []
+  const summary: TurnSummary = { kind: 'workflow', preset: media.preset }
+  if (settings?.width && settings.height) {
+    summary.width = settings.width
+    summary.height = settings.height
+  }
+  if (typeof settings?.seed === 'number' && settings.seed >= 0) summary.seed = settings.seed
+  if (media.durationMs !== undefined) summary.durationMs = media.durationMs
+  return {
+    parts,
+    summary,
+    ...(media.status === 'failed' && media.error ? { error: media.error } : {}),
+  }
+}
+
+function audioDetails(audio: PendingAudio & Partial<AudioTurnData>): TurnDetails {
+  return {
+    parts: [],
+    summary: {
+      kind: 'speech',
+      preset: audio.preset,
+      ...(audio.engine ? { engine: audio.engine } : {}),
+    },
+    ...(audio.status === 'failed' && audio.error ? { error: audio.error } : {}),
+  }
+}
+
+/** Words for the Turn Details summary; `{count}`, `{duration}` and `{seed}` are filled in. */
+export type TurnSummaryLabels = {
+  reasoned: string
+  reasonedUntimed: string
+  tool: string
+  tools: string
+  image: string
+  images: string
+  video: string
+  videos: string
+  model3d: string
+  models3d: string
+  audio: string
+  audios: string
+  seed: string
+}
+
+export function formatTurnDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${seconds - minutes * 60}s`
+}
+
+const ARTIFACT_LABELS: Record<ArtifactKind, [keyof TurnSummaryLabels, keyof TurnSummaryLabels]> = {
+  image: ['image', 'images'],
+  video: ['video', 'videos'],
+  model3d: ['model3d', 'models3d'],
+  audio: ['audio', 'audios'],
+}
+
+function counted(count: number, [one, many]: [string, string]): string {
+  return count === 1 ? one : many.replace('{count}', String(count))
+}
+
+/** The collapsed header's one line: the parts present, joined by " · ". */
+export function turnDetailsSummaryText(summary: TurnSummary, labels: TurnSummaryLabels): string {
+  const clauses: string[] = []
+  if (summary.kind === 'activity') {
+    if (summary.reasoningMs !== undefined) {
+      clauses.push(
+        summary.reasoningMs > 0
+          ? labels.reasoned.replace('{duration}', formatTurnDuration(summary.reasoningMs))
+          : labels.reasonedUntimed,
+      )
+    }
+    if (summary.tools) clauses.push(counted(summary.tools, [labels.tool, labels.tools]))
+    for (const [kind, keys] of Object.entries(ARTIFACT_LABELS) as [
+      ArtifactKind,
+      [keyof TurnSummaryLabels, keyof TurnSummaryLabels],
+    ][]) {
+      const count = summary.artifacts?.[kind]
+      if (count) clauses.push(counted(count, [labels[keys[0]], labels[keys[1]]]))
+    }
+  } else if (summary.kind === 'workflow') {
+    clauses.push(summary.preset)
+    if (summary.width && summary.height) clauses.push(`${summary.width}×${summary.height}`)
+    if (summary.seed !== undefined)
+      clauses.push(labels.seed.replace('{seed}', String(summary.seed)))
+    if (summary.durationMs !== undefined) clauses.push(formatTurnDuration(summary.durationMs))
+  } else {
+    clauses.push(summary.preset)
+    if (summary.engine) clauses.push(summary.engine)
+  }
+  return clauses.join(' · ')
 }
 
 function markLiveAgentTurns(entries: TimelineEntry[], agent: LiveAgentTurn): void {
@@ -587,6 +866,8 @@ export function timelineTurns(
           kind: 'agent',
           id: message.id,
           hint: agentHint(tag.presetName, []),
+          details: EMPTY_DETAILS,
+          result: [],
           footer: noFooter(),
           presetName: tag.presetName,
           harnessSessionId: tag.harnessSessionId,
@@ -611,6 +892,8 @@ export function timelineTurns(
         kind: 'chat',
         id: message.id,
         hint: chatHint(undefined, []),
+        details: EMPTY_DETAILS,
+        result: [],
         footer: noFooter(),
         artifacts: [],
         ...(prompted ? { prompt: messagePrompt(message), answers: [] } : { answers: [message] }),
@@ -626,6 +909,8 @@ export function timelineTurns(
         kind: 'audio',
         id: answer.id,
         hint: audioHint(audio),
+        details: audioDetails(audio),
+        result: [{ kind: 'audio' }],
         footer: audioFooter(audio),
         prompt: textPrompt(promptOf(message), audio.preset, {
           audio: audio.kind === 'stt' && audio.audioUrl ? [{ url: audio.audioUrl }] : undefined,
@@ -641,6 +926,8 @@ export function timelineTurns(
         kind: 'media',
         id: next.id,
         hint: mediaHint(media),
+        details: mediaDetails(media),
+        result: [{ kind: 'media' }],
         footer: noFooter(),
         prompt: textPrompt(promptOf(message), media.preset, {
           inputImageUrl: mediaInputImage(media),

@@ -1,6 +1,6 @@
 <template>
   <div
-    v-if="showRagSource && ragSource"
+    v-if="section !== 'details' && showRagSource && ragSource"
     class="my-2 text-muted-foreground border-l-2 border-primary pl-2 flex flex-row gap-1"
     :class="textInference.fontSizeClass"
   >
@@ -12,174 +12,183 @@
       v-for="(part, partIndex) in message.parts"
       :key="`${message.id}-${part.type}-${partIndex}`"
     >
-      <!-- Reasoning part. A turn can carry several reasoning parts
+      <template v-if="shows(partIndex)">
+        <!-- Reasoning part. A turn can carry several reasoning parts
          (one per agentic step, and some backends resend cumulative
          reasoning), which otherwise renders as several "Reasoned
          for…" blocks. Aggregate them into a single block rendered at
          the position of the first reasoning part (mirrors the
          web-browse aggregation below). -->
-      <ChatReasoningDisplay
-        v-if="part.type === 'reasoning' && isFirstReasoningPart(message, partIndex)"
-        :text="mergedReasoningText(message)"
-        :startedAt="reasoningStartedAtFor(message)"
-        :finishedAt="reasoningFinishedAtFor(message)"
-        :streaming="last && openAiCompatibleChat.reasoningInProgress"
-        :liveStartedAt="openAiCompatibleChat.reasoningStartedAt"
-        :onCopy="copyText"
-      />
-
-      <!-- Text part -->
-      <template v-else-if="part.type === 'text'">
-        <MarkdownRenderer
-          role="region"
-          aria-label="Assistant reply"
-          :content="stripInlineMedia((part as any).text ?? '')"
-          :on-copy="copyText"
+        <ChatReasoningDisplay
+          v-if="part.type === 'reasoning' && isFirstReasoningPart(message, partIndex)"
+          :text="mergedReasoningText(message)"
+          :startedAt="reasoningStartedAtFor(message)"
+          :finishedAt="reasoningFinishedAtFor(message)"
+          :streaming="last && openAiCompatibleChat.reasoningInProgress"
+          :liveStartedAt="openAiCompatibleChat.reasoningStartedAt"
+          :onCopy="copyText"
         />
-      </template>
 
-      <!-- Tool parts -->
-      <template v-else-if="isToolUIPart(part)">
-        <template v-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUI'">
-          <div>
-            <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow"
-              >Generating…</span
-            >
-            <span v-else
-              >Generating using the preset
-              <b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b></span
-            >
-            <br />
-            <br />
-            <span
-              ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
-            >
-            <ChatWorkflowResult v-bind="toolMediaCard(part)" />
-          </div>
-        </template>
-        <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUiImageEdit'">
-          <div>
-            <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow"
-              >Editing…</span
-            >
-            <span v-else
-              >Editing using the preset
-              <b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b></span
-            >
-            <br />
-            <br />
-            <span
-              ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
-            >
-            <ChatWorkflowResult v-bind="toolMediaCard(part)" />
-          </div>
-        </template>
-        <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'media'">
-          <div>
-            <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).request"
-              >Creating media…</span
-            >
-            <span v-else>
-              Creating media:
-              <em>{{ toolInputRecord(part).request ?? '' }}</em>
-            </span>
-            <MediaAgentTimeline
-              class="mt-2"
-              :tool-call-id="(part as any).toolCallId"
-              :fallback-steps="(part as any).output?.steps"
-            />
-            <div
-              v-if="part.state === 'output-available' && (part as any).output?.success === false"
-              class="mt-2 text-sm text-destructive"
-            >
-              {{ (part as any).output?.message ?? 'Media generation failed.' }}
-            </div>
-            <ChatWorkflowResult v-bind="toolMediaCard(part)" />
-          </div>
-        </template>
-        <template
-          v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'visualizeObjectDetections'"
-        >
-          <div>
-            <div
-              v-if="part.state === 'output-available' && (part as any).output?.annotatedImageUrl"
-            >
-              <img
-                :src="(part as any).output.annotatedImageUrl"
-                alt="Annotated image with object detections"
-                class="max-w-full rounded-md border-2 border-border"
-              />
-            </div>
-            <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-              <span class="text-muted-foreground">Visualizing object detections...</span>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'captureScreenshot'">
-          <div>
-            <div v-if="part.state === 'output-available' && (part as any).output?.dataUri">
-              <span class="text-muted-foreground">
-                Captured screenshot of
-                <b>{{ (part as any).output?.windowName ?? 'window' }}</b>
-              </span>
-              <img
-                :src="(part as any).output.dataUri"
-                :alt="`Screenshot of ${(part as any).output?.windowName ?? 'window'}`"
-                class="mt-2 max-w-full rounded-md border-2 border-border"
-              />
-            </div>
-            <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-              <span class="text-muted-foreground">Capturing screenshot...</span>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'screenshotWebPage'">
-          <div>
-            <div v-if="part.state === 'output-available' && (part as any).output?.dataUri">
-              <span class="text-muted-foreground">Captured web page</span>
-              <img
-                :src="(part as any).output.dataUri"
-                alt="Screenshot of the web page"
-                class="mt-2 max-w-full rounded-md border-2 border-border"
-              />
-            </div>
-            <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-              <span class="text-muted-foreground">Capturing web page...</span>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'synthesizeTextToSpeech'">
-          <div>
-            <ChatTtsToolResult
-              v-if="part.state === 'output-available'"
-              :output="(part as any).output"
-            />
-            <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-              <span class="text-muted-foreground">Synthesizing speech…</span>
-            </div>
-          </div>
-        </template>
-        <template v-else-if="isWebBrowsePart(part)">
-          <ChatWebBrowseDisplay
-            v-if="isFirstWebBrowsePart(message, partIndex)"
-            :entries="webBrowseEntriesFor(message)"
+        <!-- Text part -->
+        <template v-else-if="part.type === 'text'">
+          <MarkdownRenderer
+            role="region"
+            aria-label="Assistant reply"
+            :content="stripInlineMedia((part as any).text ?? '')"
+            :on-copy="copyText"
           />
         </template>
-        <template v-else-if="isMcpTool(part)">
-          <ChatMcpToolDisplay :part="part" :state="part.state" />
-        </template>
-        <template v-else>
-          <ChatToolDisplay :part="part" :state="part.state" :input="part.input" />
+
+        <!-- Tool parts -->
+        <template v-else-if="isToolUIPart(part)">
+          <template v-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUI'">
+            <div v-if="section !== 'result'">
+              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow"
+                >Generating…</span
+              >
+              <span v-else
+                >Generating using the preset
+                <b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b></span
+              >
+              <br />
+              <br />
+              <span
+                ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
+              >
+            </div>
+            <ChatWorkflowResult v-if="section !== 'details'" v-bind="toolMediaCard(part)" />
+          </template>
+          <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUiImageEdit'">
+            <div v-if="section !== 'result'">
+              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow"
+                >Editing…</span
+              >
+              <span v-else
+                >Editing using the preset
+                <b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b></span
+              >
+              <br />
+              <br />
+              <span
+                ><em>{{ toolInputRecord(part).prompt ?? '' }}</em></span
+              >
+            </div>
+            <ChatWorkflowResult v-if="section !== 'details'" v-bind="toolMediaCard(part)" />
+          </template>
+          <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'media'">
+            <div v-if="section !== 'result'">
+              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).request"
+                >Creating media…</span
+              >
+              <span v-else>
+                Creating media:
+                <em>{{ toolInputRecord(part).request ?? '' }}</em>
+              </span>
+              <MediaAgentTimeline
+                class="mt-2"
+                :tool-call-id="(part as any).toolCallId"
+                :fallback-steps="(part as any).output?.steps"
+              />
+            </div>
+            <div v-if="section !== 'details'">
+              <div
+                v-if="part.state === 'output-available' && (part as any).output?.success === false"
+                class="mt-2 text-sm text-destructive"
+              >
+                {{ (part as any).output?.message ?? 'Media generation failed.' }}
+              </div>
+              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+            </div>
+          </template>
+          <template
+            v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'visualizeObjectDetections'"
+          >
+            <div>
+              <div
+                v-if="part.state === 'output-available' && (part as any).output?.annotatedImageUrl"
+              >
+                <img
+                  :src="(part as any).output.annotatedImageUrl"
+                  alt="Annotated image with object detections"
+                  class="max-w-full rounded-md border-2 border-border"
+                />
+              </div>
+              <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
+                <span class="text-muted-foreground">Visualizing object detections...</span>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'captureScreenshot'">
+            <div>
+              <div v-if="part.state === 'output-available' && (part as any).output?.dataUri">
+                <span class="text-muted-foreground">
+                  Captured screenshot of
+                  <b>{{ (part as any).output?.windowName ?? 'window' }}</b>
+                </span>
+                <img
+                  :src="(part as any).output.dataUri"
+                  :alt="`Screenshot of ${(part as any).output?.windowName ?? 'window'}`"
+                  class="mt-2 max-w-full rounded-md border-2 border-border"
+                />
+              </div>
+              <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
+                <span class="text-muted-foreground">Capturing screenshot...</span>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'screenshotWebPage'">
+            <div>
+              <div v-if="part.state === 'output-available' && (part as any).output?.dataUri">
+                <span class="text-muted-foreground">Captured web page</span>
+                <img
+                  :src="(part as any).output.dataUri"
+                  alt="Screenshot of the web page"
+                  class="mt-2 max-w-full rounded-md border-2 border-border"
+                />
+              </div>
+              <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
+                <span class="text-muted-foreground">Capturing web page...</span>
+              </div>
+            </div>
+          </template>
+          <template
+            v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'synthesizeTextToSpeech'"
+          >
+            <div>
+              <ChatTtsToolResult
+                v-if="part.state === 'output-available'"
+                :output="(part as any).output"
+              />
+              <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
+                <span class="text-muted-foreground">Synthesizing speech…</span>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="isWebBrowsePart(part)">
+            <ChatWebBrowseDisplay
+              v-if="isFirstWebBrowsePart(message, partIndex)"
+              :entries="webBrowseEntriesFor(message)"
+            />
+          </template>
+          <template v-else-if="isMcpTool(part)">
+            <ChatMcpToolDisplay :part="part" :state="part.state" />
+          </template>
+          <template v-else>
+            <ChatToolDisplay :part="part" :state="part.state" :input="part.input" />
+          </template>
         </template>
       </template>
     </template>
 
     <!-- Hidden while media is generating: its card shows that inline. -->
     <ChatActivityIndicator
-      v-if="last && hasActivity && !messageHasLiveMedia(message)"
+      v-if="section !== 'details' && last && hasActivity && !messageHasLiveMedia(message)"
       :conversation-key="conversationKey"
     />
-    <ChatConfirmation v-if="last && hasConfirmation" :conversation-key="conversationKey" />
+    <ChatConfirmation
+      v-if="section !== 'details' && last && hasConfirmation"
+      :conversation-key="conversationKey"
+    />
   </div>
 </template>
 
@@ -222,6 +231,10 @@ const props = defineProps<{
   last?: boolean
   conversationKey: string
   showRagSource?: boolean
+  /** Which side of the Turn this renders: a media tool's card is the Result, the rest Turn Details. */
+  section?: 'details' | 'result'
+  /** The parts to render; all of them when absent. */
+  indexes?: readonly number[]
 }>()
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
@@ -241,6 +254,10 @@ const hasActivity = computed(
 const hasConfirmation = computed(
   () => confirmations.forConversation(props.conversationKey) !== null,
 )
+
+function shows(partIndex: number): boolean {
+  return !props.indexes || props.indexes.includes(partIndex)
+}
 
 function copyText(text: string) {
   copyToClipboard(text, languages.COM_COPY_SUCCESS_TIP)

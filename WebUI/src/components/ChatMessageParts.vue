@@ -43,12 +43,13 @@
         <template v-else-if="isToolUIPart(part)">
           <template v-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUI'">
             <div v-if="section !== 'result'">
-              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow"
-                >Generating…</span
-              >
+              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow">{{
+                languages.CHAT_TOOL_GENERATING
+              }}</span>
               <span v-else
-                >Generating using the preset
-                <b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b></span
+                >{{ around(languages.CHAT_TOOL_GENERATING_WITH_PRESET, 'preset')[0]
+                }}<b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b
+                >{{ around(languages.CHAT_TOOL_GENERATING_WITH_PRESET, 'preset')[1] }}</span
               >
               <br />
               <br />
@@ -66,12 +67,13 @@
           </template>
           <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'comfyUiImageEdit'">
             <div v-if="section !== 'result'">
-              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow"
-                >Editing…</span
-              >
+              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).workflow">{{
+                languages.CHAT_TOOL_EDITING
+              }}</span>
               <span v-else
-                >Editing using the preset
-                <b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b></span
+                >{{ around(languages.CHAT_TOOL_EDITING_WITH_PRESET, 'preset')[0]
+                }}<b>{{ toolInputRecord(part).workflow ?? 'unknown' }}</b
+                >{{ around(languages.CHAT_TOOL_EDITING_WITH_PRESET, 'preset')[1] }}</span
               >
               <br />
               <br />
@@ -89,11 +91,11 @@
           </template>
           <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'media'">
             <div v-if="section !== 'result'">
-              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).request"
-                >Creating media…</span
-              >
+              <span v-if="part.state === 'input-streaming' && !toolInputRecord(part).request">{{
+                languages.CHAT_TOOL_CREATING_MEDIA
+              }}</span>
               <span v-else>
-                Creating media:
+                {{ languages.CHAT_TOOL_CREATING_MEDIA_FOR }}
                 <em>{{ toolInputRecord(part).request ?? '' }}</em>
               </span>
               <MediaAgentTimeline
@@ -119,45 +121,58 @@
               >
                 <img
                   :src="(part as any).output.annotatedImageUrl"
-                  alt="Annotated image with object detections"
+                  :alt="languages.CHAT_TOOL_DETECTIONS_ALT"
                   class="max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-                <span class="text-muted-foreground">Visualizing object detections...</span>
+                <span class="text-muted-foreground">{{
+                  languages.CHAT_TOOL_VISUALIZING_DETECTIONS
+                }}</span>
               </div>
             </div>
           </template>
           <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'captureScreenshot'">
             <div>
               <div v-if="part.state === 'output-available' && (part as any).output?.dataUri">
-                <span class="text-muted-foreground">
-                  Captured screenshot of
-                  <b>{{ (part as any).output?.windowName ?? 'window' }}</b>
-                </span>
+                <span class="text-muted-foreground"
+                  >{{ around(languages.CHAT_TOOL_CAPTURED_WINDOW, 'window')[0]
+                  }}<b>{{ (part as any).output?.windowName ?? 'window' }}</b
+                  >{{ around(languages.CHAT_TOOL_CAPTURED_WINDOW, 'window')[1] }}</span
+                >
                 <img
                   :src="(part as any).output.dataUri"
-                  :alt="`Screenshot of ${(part as any).output?.windowName ?? 'window'}`"
+                  :alt="
+                    fillTemplate(languages.CHAT_TOOL_WINDOW_ALT, {
+                      window: (part as any).output?.windowName ?? 'window',
+                    })
+                  "
                   class="mt-2 max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-                <span class="text-muted-foreground">Capturing screenshot...</span>
+                <span class="text-muted-foreground">{{
+                  languages.CHAT_TOOL_CAPTURING_SCREENSHOT
+                }}</span>
               </div>
             </div>
           </template>
           <template v-else-if="isAipgTool(part) && toolPartNameOf(part) === 'screenshotWebPage'">
             <div>
               <div v-if="part.state === 'output-available' && (part as any).output?.dataUri">
-                <span class="text-muted-foreground">Captured web page</span>
+                <span class="text-muted-foreground">{{
+                  languages.CHAT_TOOL_CAPTURED_WEB_PAGE
+                }}</span>
                 <img
                   :src="(part as any).output.dataUri"
-                  alt="Screenshot of the web page"
+                  :alt="languages.CHAT_TOOL_WEB_PAGE_ALT"
                   class="mt-2 max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
-                <span class="text-muted-foreground">Capturing web page...</span>
+                <span class="text-muted-foreground">{{
+                  languages.CHAT_TOOL_CAPTURING_WEB_PAGE
+                }}</span>
               </div>
             </div>
           </template>
@@ -228,6 +243,7 @@ import {
   isChatWebBrowseToolPart,
 } from '@/lib/chatToolParts'
 import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
+import { fillTemplate } from '@/lib/notificationLabel'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
 
@@ -261,6 +277,11 @@ const hasActivity = computed(
 const hasConfirmation = computed(
   () => confirmations.forConversation(props.conversationKey) !== null,
 )
+
+function around(template: string, placeholder: string): [string, string] {
+  const [before, after = ''] = template.split(`{${placeholder}}`)
+  return [before, after]
+}
 
 function shows(partIndex: number): boolean {
   return !props.indexes || props.indexes.includes(partIndex)

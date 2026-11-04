@@ -29,7 +29,7 @@
             <img
               v-if="item.type === 'image'"
               :src="item.imageUrl"
-              alt="Generated result"
+              :alt="languages.MEDIA_AGENT_RESULT_THUMBNAIL"
               class="size-12 rounded border border-border object-cover"
             />
             <video
@@ -73,6 +73,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useMediaAgentRuns, type MediaRunStep } from '@/assets/js/store/mediaAgentRuns'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 
@@ -84,6 +85,7 @@ const props = defineProps<{
 }>()
 
 const mediaRuns = useMediaAgentRuns()
+const languages = useI18N().state
 
 const run = computed(() => mediaRuns.run(props.toolCallId))
 

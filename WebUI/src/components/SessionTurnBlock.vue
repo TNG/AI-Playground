@@ -87,6 +87,9 @@
           :conversation-key="chatKey"
         />
       </template>
+      <SessionAssistantBubble v-if="item.kind === 'chat' && chatFailure">
+        <TurnFailureLine :failure="chatFailure" />
+      </SessionAssistantBubble>
       <template v-for="answer in item.kind === 'agent' ? item.answers : []" :key="answer.id">
         <SessionMessage
           v-if="resultIndexes(answer.id).length > 0"
@@ -137,12 +140,14 @@ import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import ChatMessageParts from '@/components/ChatMessageParts.vue'
 import MediaTurnBlock from '@/components/MediaTurnBlock.vue'
+import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import SessionMessage from '@/components/SessionMessage.vue'
 import SessionTurn from '@/components/SessionTurn.vue'
 import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
 import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
+import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import type { SessionTimelineItem, TurnFailurePart } from '@/lib/turnTypes'
@@ -196,6 +201,13 @@ function resultIndexes(messageId: string): number[] {
 const mediaFailure = computed(() => {
   if (props.item.kind !== 'media' && props.item.kind !== 'pending-media') return undefined
   return props.item.result.find((part): part is TurnFailurePart => part.kind === 'failure')
+})
+
+const chatFailure = computed(() => {
+  if (props.item.kind !== 'chat') return undefined
+  return props.item.result.find(
+    (part): part is TurnFailurePart => part.kind === 'failure' && part.messageId === undefined,
+  )
 })
 
 function plainText(message: TimelineMessage): string {

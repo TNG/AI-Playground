@@ -21,6 +21,7 @@ import { useTextInference } from './textInference'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import { usePresets } from './presets'
 import { sessionIdOfChatKey } from '@/lib/sessionChat'
+import { messageHasVisibleContent } from '@/lib/chatMessageText'
 import { sanitizeBulkyToolOutputs } from '@/lib/toolMessageSanitize'
 import { restoreMissingHistory } from '@/lib/threadHistoryMerge'
 import { useErrors } from './errors'
@@ -572,6 +573,11 @@ export const useOpenAiCompatibleChat = defineStore(
         onError: (error) => {
           if (manuallyStopped.value) return
           const isActiveDesktop = conversationKey === conversations.activeKey
+          const newest = chat.messages.at(-1)
+          // The Session timeline says it in the Turn, which still has nothing else to show.
+          const shownInTurn =
+            !!sessionIdOfChatKey(conversationKey) &&
+            (newest?.role !== 'assistant' || !messageHasVisibleContent(newest))
           const detail = extractMessage(error)
           const hint = inferenceFailureHint(detail)
           turnErrors.set(
@@ -582,7 +588,7 @@ export const useOpenAiCompatibleChat = defineStore(
               userMessage: hint
                 ? `Generation failed: ${detail}. ${hint}`
                 : `Generation failed: ${detail}`,
-              surface: isActiveDesktop ? 'toast' : 'silent',
+              surface: isActiveDesktop && !shownInTurn ? 'toast' : 'silent',
               context: { conversationKey },
             }),
           )
@@ -936,6 +942,10 @@ export const useOpenAiCompatibleChat = defineStore(
 
     const error = computed(() => chats[conversations.activeKey]?.error?.message)
 
+    function turnErrorIn(key: string): string | undefined {
+      return chats[key]?.error?.message
+    }
+
     // Read-and-clear the last failure for a conversation. Used by background
     // callers (Home Agent channels) to relay a turn's error to the remote user,
     // since stream failures are reported silently and never thrown.
@@ -965,6 +975,7 @@ export const useOpenAiCompatibleChat = defineStore(
       removeMessage,
       regenerate,
       error,
+      turnErrorIn,
       consumeTurnError,
     }
   },

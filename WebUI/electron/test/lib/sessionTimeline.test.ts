@@ -1371,6 +1371,29 @@ describe('the live status line of a running Turn', () => {
     expect(items[0]).not.toHaveProperty('questionKey')
   })
 
+  it('says in its Result why a chat Turn failed before it produced anything', () => {
+    const error = 'HTTP 500: the model crashed\n  at llama-server'
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi')],
+      chatStatus: { running: false, error },
+    })
+
+    expect(items[0]).toMatchObject({
+      result: [{ kind: 'failure', state: 'failed', reason: 'HTTP 500: the model crashed' }],
+      details: { error },
+    })
+    expect(detailsOf(items[0]).live).toBeUndefined()
+  })
+
+  it('leaves the Result of a chat Turn that answered before failing to its answer', () => {
+    const items = sessionTimelineItems([], {
+      chat: [chatMessage('u1', 'user', 'hi'), chatAnswer([{ type: 'text', text: 'hel' }])],
+      chatStatus: { running: false, error: 'connection reset' },
+    })
+
+    expect(items[0]).toMatchObject({ result: [{ kind: 'prose', messageId: 'a1', index: 0 }] })
+  })
+
   it('shows the live status on the running chat Turn only', () => {
     const items = sessionTimelineItems(
       [chatMessage('u0', 'user', 'old'), chatMessage('a0', 'assistant', 'done')],

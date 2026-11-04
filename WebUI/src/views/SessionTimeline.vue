@@ -93,6 +93,7 @@ const chatStatus = computed<LiveChatStatus>(() => {
       ...(activity.category === 'browsing' ? { browsing: true } : {}),
     },
     questionKey: chatKey.value,
+    error: chat.turnErrorIn(chatKey.value),
   }
 })
 

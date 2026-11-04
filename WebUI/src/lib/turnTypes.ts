@@ -221,6 +221,8 @@ export type LiveChatStatus = {
   running: boolean
   activity?: { label: string; progress?: number; browsing?: boolean } | null
   questionKey?: string
+  /** Why the newest chat turn failed, until the next one starts. */
+  error?: string
 }
 
 export type MediaStepStatus = { label: string; progress?: number }

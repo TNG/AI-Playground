@@ -1,6 +1,11 @@
 <template>
   <ScrollToBottomButton v-if="showScrollButton" @click="scrollToBottom()" />
-  <div id="chatPanel" ref="panel" class="flex-1 overflow-y-auto px-4 py-6 flex flex-col relative">
+  <div
+    id="chatPanel"
+    ref="panel"
+    data-artifact-breakout
+    class="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 flex flex-col relative"
+  >
     <!-- Game Agent works on one game at a time, and what to do with that game
          belongs next to it, reachable once the timeline has scrolled past it. -->
     <div v-if="showsGameBar" class="sticky top-0 z-5 flex justify-end pl-32 pr-32">
@@ -12,7 +17,7 @@
         {{ languages.SESSION_TIMELINE_EMPTY }}
       </div>
     </template>
-    <div v-else class="w-full max-w-4xl mx-auto flex flex-col gap-6">
+    <div v-else class="w-full flex flex-col gap-6">
       <SessionTurnBlock
         v-for="item in items"
         :key="item.id"

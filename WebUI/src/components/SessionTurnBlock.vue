@@ -20,8 +20,8 @@
   </TaskRunBlock>
   <div
     v-else-if="item.kind === 'message'"
-    class="text-sm text-muted-foreground whitespace-pre-wrap"
-    :class="item.message.role === 'user' ? 'self-end' : 'self-start'"
+    class="mx-auto w-full max-w-3xl text-sm text-muted-foreground whitespace-pre-wrap"
+    :class="{ 'text-right': item.message.role === 'user' }"
   >
     {{ plainText(item.message) }}
   </div>

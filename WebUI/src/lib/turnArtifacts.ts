@@ -161,3 +161,24 @@ export function toolCallArtifacts(
   }
   return turnArtifacts(toolPartMedia(part), deletedUrls)
 }
+
+export const ARTIFACT_GRID_GAP_PX = 12
+const ARTIFACT_GRID_MIN_CELL_PX = 240
+
+export type ArtifactGrid = { columns: number; maxWidth?: number }
+
+/** A batch in balanced rows that fit `width`, never wider than its artifacts asked to be. */
+export function artifactGrid(
+  artifacts: readonly Pick<TurnArtifact, 'size'>[],
+  width: number,
+): ArtifactGrid {
+  const count = Math.max(artifacts.length, 1)
+  const fit = Math.floor(
+    (width + ARTIFACT_GRID_GAP_PX) / (ARTIFACT_GRID_MIN_CELL_PX + ARTIFACT_GRID_GAP_PX),
+  )
+  const rows = Math.ceil(count / Math.min(Math.max(fit, 1), count))
+  const columns = Math.ceil(count / rows)
+  const widths = artifacts.flatMap((artifact) => (artifact.size ? [artifact.size.width] : []))
+  if (widths.length === 0 || widths.length < artifacts.length) return { columns }
+  return { columns, maxWidth: columns * Math.max(...widths) + (columns - 1) * ARTIFACT_GRID_GAP_PX }
+}

@@ -1,8 +1,8 @@
 <template>
-  <div v-if="resultOnly" class="flex flex-col gap-6">
+  <div v-if="resultOnly" class="mx-auto flex w-full max-w-3xl flex-col gap-6">
     <slot name="result" />
   </div>
-  <div v-else class="flex flex-col gap-6">
+  <div v-else class="mx-auto flex w-full max-w-3xl flex-col gap-6">
     <slot name="prompt" />
     <div class="-mb-3 flex items-center gap-3">
       <span :class="textInference.iconSizeClass" class="shrink-0" aria-hidden="true" />

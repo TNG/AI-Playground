@@ -10,7 +10,7 @@ import {
   type TurnResultPart,
 } from '@/lib/sessionTimeline'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
-import type { TurnArtifact } from '@/lib/turnArtifacts'
+import { artifactGrid, type TurnArtifact } from '@/lib/turnArtifacts'
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 
@@ -1963,5 +1963,36 @@ describe('one audio card', () => {
       audioArtifacts: [],
       footer: { actions: ['copy'], text: 'hello there' },
     })
+  })
+})
+
+describe('the grid a Result lays its artifacts out in', () => {
+  const sized = (width: number, height: number) => ({ size: { width, height } })
+
+  it('lays a batch of 4 out side by side when the width fits them', () => {
+    expect(artifactGrid(Array(4).fill(sized(1024, 1024)), 1600).columns).toBe(4)
+  })
+
+  it('balances a batch that does not fit one row instead of leaving one alone', () => {
+    expect(artifactGrid(Array(4).fill(sized(1024, 1024)), 900).columns).toBe(2)
+    expect(artifactGrid(Array(5).fill(sized(1024, 1024)), 1100).columns).toBe(3)
+  })
+
+  it('stacks the batch in a narrow window', () => {
+    expect(artifactGrid(Array(4).fill(sized(1024, 1024)), 360).columns).toBe(1)
+  })
+
+  it('never makes more columns than there are artifacts', () => {
+    expect(artifactGrid([sized(512, 512)], 2400).columns).toBe(1)
+    expect(artifactGrid([], 2400).columns).toBe(1)
+  })
+
+  it('caps the grid at the width the artifacts asked for, so it never upscales them', () => {
+    expect(artifactGrid(Array(2).fill(sized(512, 512)), 2400).maxWidth).toBe(2 * 512 + 12)
+    expect(artifactGrid([sized(512, 512), sized(768, 512)], 2400).maxWidth).toBe(2 * 768 + 12)
+  })
+
+  it('leaves the grid uncapped when an artifact has no requested size', () => {
+    expect(artifactGrid([sized(512, 512), {}], 2400).maxWidth).toBeUndefined()
   })
 })

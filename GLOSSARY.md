@@ -104,5 +104,11 @@ _Avoid_: preset settings, global settings
 
 **Machine Settings**:
 Settings that apply to every Session on this machine at once — device, backend install, speech
-engine and voice, developer toggles. Changing one changes it for every Session.
-_Avoid_: global settings, app settings
+engine and voice. Changing one changes it for every Session.
+_Avoid_: global settings
+
+**App Settings**:
+Preferences about the app itself rather than about how any preset runs — language, prompt bar
+style, HuggingFace access, Permissions, developer toggles. Opened from the header, never from
+inside a Session.
+_Avoid_: global settings, preferences

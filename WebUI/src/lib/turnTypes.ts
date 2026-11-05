@@ -80,10 +80,14 @@ export type TurnLiveStatus =
   | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
   | { kind: 'audio'; phase: AudioPhase }
 
+export type RunProgress = { step: number; count: number }
+
 export type TurnDetails = {
   parts: TurnDetailPart[]
   summary: TurnSummary
   live?: TurnLiveStatus
+  /** Which Step of an Agent Run, or a Run steps run, is under way. */
+  progress?: RunProgress
   error?: string
   /** One line under the header, for an error the Result does not already say. */
   errorLine?: string
@@ -232,8 +236,8 @@ export type MediaStepStatus = { label: string; progress?: number }
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   chat?: readonly { id: string }[]
   agents?: readonly LiveAgentTurn[]
-  /** Runs still in flight, including between two Steps: their run keys. */
-  agentRunsInFlight?: readonly string[]
+  /** Runs still in flight, including between two Steps, by run key. */
+  agentRunsInFlight?: Readonly<Record<string, RunProgress>>
   chatStatus?: LiveChatStatus
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>

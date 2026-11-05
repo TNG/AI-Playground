@@ -23,9 +23,14 @@ import { ArrowPathIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
-import type { TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
+import type { RunProgress, TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 
-const props = defineProps<{ summary: TurnSummary; live?: TurnLiveStatus; open: boolean }>()
+const props = defineProps<{
+  summary: TurnSummary
+  live?: TurnLiveStatus
+  progress?: RunProgress
+  open: boolean
+}>()
 
 const languages = useI18N().state
 
@@ -37,7 +42,18 @@ const percent = computed(() => {
   return Math.round(live.progress * 100)
 })
 
-const liveText = computed(() =>
+const liveText = computed(() => {
+  const status = liveStatusText.value
+  const progress = props.progress
+  if (!status || !progress) return status
+  const step = fillTemplate(languages.SESSION_TURN_LIVE_STEP, {
+    step: String(progress.step),
+    count: String(progress.count),
+  })
+  return `${step} · ${status}`
+})
+
+const liveStatusText = computed(() =>
   props.live
     ? turnLiveText(props.live, {
         reasoning: languages.SESSION_TURN_LIVE_REASONING,

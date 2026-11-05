@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "Denkt nach…",
   "SESSION_TURN_LIVE_WRITING": "Schreibt…",
   "SESSION_TURN_LIVE_WORKING": "Arbeitet…",
+  "SESSION_TURN_LIVE_STEP": "Schritt {step} von {count}",
   "SESSION_TURN_SHOW_BROWSER": "Browserfenster anzeigen",
   "SESSION_TURN_HIDE_BROWSER": "Browserfenster ausblenden",
   "SESSION_TURN_INPUT_IMAGE": "Eingabebild",

@@ -1701,7 +1701,7 @@ describe('running Steps from the prompt bar', () => {
     void tasks.runSteps('Intel news')
     await turnIdOf(0)
     const runId = tasks.promptRunOf('session-open')!.tag.runId
-    expect(tasks.runsInFlight).toContain(runId)
+    expect(tasks.runsInFlight[runId]).toEqual({ step: 1, count: 2 })
     await finishTurn(0)
     await turnIdOf(1)
     await finishTurn(1)
@@ -1711,7 +1711,7 @@ describe('running Steps from the prompt bar', () => {
       .filter((message) => message.role === 'user')
       .map((message) => (message.metadata as { agentRun?: { runId: string } })?.agentRun?.runId)
     expect(marks).toEqual([undefined, runId, runId])
-    expect(tasks.runsInFlight).not.toContain(runId)
+    expect(tasks.runsInFlight).not.toHaveProperty(runId)
   })
 
   it('starts the Steps in a new session when the Open Session is a draft', async () => {

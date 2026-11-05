@@ -12,9 +12,9 @@ function answersText(answers: UIMessage[]): string {
   return answers.map(messageText).filter(Boolean).join('\n\n')
 }
 
-export function agentFooter(answers: UIMessage[]): TurnFooter {
-  const text = answersText(answers)
-  return { actions: text ? ['copy'] : [], text }
+/** An agent Turn's Copy takes its answer, not the text it wrote between tool calls. */
+export function agentFooter(answerText: string): TurnFooter {
+  return { actions: answerText ? ['copy'] : [], text: answerText }
 }
 
 /** Regenerate redoes only the newest answer of a conversation, so only `last` offers it. */

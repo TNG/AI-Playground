@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "Bernalar…",
   "SESSION_TURN_LIVE_WRITING": "Menulis…",
   "SESSION_TURN_LIVE_WORKING": "Bekerja…",
+  "SESSION_TURN_LIVE_STEP": "Langkah {step} dari {count}",
   "SESSION_TURN_SHOW_BROWSER": "Tampilkan jendela browser",
   "SESSION_TURN_HIDE_BROWSER": "Sembunyikan jendela browser",
   "SESSION_TURN_INPUT_IMAGE": "Gambar masukan",

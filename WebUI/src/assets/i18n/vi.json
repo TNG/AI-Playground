@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "Đang suy luận…",
   "SESSION_TURN_LIVE_WRITING": "Đang viết…",
   "SESSION_TURN_LIVE_WORKING": "Đang xử lý…",
+  "SESSION_TURN_LIVE_STEP": "Bước {step}/{count}",
   "SESSION_TURN_SHOW_BROWSER": "Hiện cửa sổ trình duyệt",
   "SESSION_TURN_HIDE_BROWSER": "Ẩn cửa sổ trình duyệt",
   "SESSION_TURN_INPUT_IMAGE": "Hình ảnh đầu vào",

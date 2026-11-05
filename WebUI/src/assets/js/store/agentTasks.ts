@@ -6,6 +6,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionTurn } from '@/types/sessionIpc'
 import type { PromptRunTag } from '@/types/sessionTimeline'
+import type { RunProgress } from '@/lib/turnTypes'
 import type {
   AgentSessionSchedule,
   AgentTask,
@@ -200,10 +201,20 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
   /** The runs in flight, including between two Steps, by the key the timeline groups them by. */
-  const runsInFlight = computed(() => [
-    ...Object.keys(runs.value),
-    ...Object.values(promptRuns.value).map((run) => run.tag.runId),
-  ])
+  const runsInFlight = computed<Record<string, RunProgress>>(() => ({
+    ...Object.fromEntries(
+      Object.entries(runs.value).map(([id, run]) => [
+        id,
+        { step: run.stepIndex, count: run.stepCount },
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.values(promptRuns.value).map((run) => [
+        run.tag.runId,
+        { step: run.stepIndex, count: run.stepCount },
+      ]),
+    ),
+  }))
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(

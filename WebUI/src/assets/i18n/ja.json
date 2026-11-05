@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "推論中…",
   "SESSION_TURN_LIVE_WRITING": "作成中…",
   "SESSION_TURN_LIVE_WORKING": "処理中…",
+  "SESSION_TURN_LIVE_STEP": "ステップ {step}/{count}",
   "SESSION_TURN_SHOW_BROWSER": "ブラウザーウィンドウを表示",
   "SESSION_TURN_HIDE_BROWSER": "ブラウザーウィンドウを隠す",
   "SESSION_TURN_INPUT_IMAGE": "入力画像",

@@ -179,7 +179,9 @@ describe('an Agent Run in the timeline', () => {
   })
 
   it('keeps every Step in its details and stays live between two Steps of a run in flight', () => {
-    const [turn] = sessionTimelineItems(twoSteps, { agentRunsInFlight: ['aipg-agent-run'] })
+    const [turn] = sessionTimelineItems(twoSteps, {
+      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
+    })
 
     expect(turn.kind === 'agent' && turn.result).toEqual([
       { kind: 'artifact', messageId: 'a1', index: 1 },
@@ -198,12 +200,30 @@ describe('an Agent Run in the timeline', () => {
       { type: 'text', text: 'Here is', state: 'streaming' },
     ])
     const [turn] = sessionTimelineItems([twoSteps[0], streaming], {
-      agentRunsInFlight: ['aipg-agent-run'],
+      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
       agents: [{ tag: runTag, messages: [], live: true }],
     })
 
     expect(turn.kind === 'agent' && turn.result.some((part) => part.kind === 'prose')).toBe(false)
     expect(turn).toMatchObject({ streaming: true, details: { live: { kind: 'writing' } } })
+  })
+
+  it('says which Step of how many it is on while in flight', () => {
+    const [turn] = sessionTimelineItems(twoSteps, {
+      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
+    })
+
+    expect(turn).toMatchObject({ details: { progress: { step: 2, count: 3 } } })
+  })
+
+  it('offers no Copy while in flight, and Copy of its answer alone once it ended', () => {
+    const [running] = sessionTimelineItems(twoSteps, {
+      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
+    })
+    const [ended] = sessionTimelineItems(twoSteps, {})
+
+    expect(running).toMatchObject({ footer: { actions: [] } })
+    expect(ended).toMatchObject({ footer: { actions: ['copy'], text: 'Dawn over the hills.' } })
   })
 
   it('shows why a failed run ended beside the Artifacts it already made', () => {
@@ -280,7 +300,9 @@ describe('Run steps in the open Agent Maker conversation', () => {
   })
 
   it('keeps its text in the details while it is in flight', () => {
-    const items = sessionTimelineItems(conversation.slice(0, 6), { agentRunsInFlight: ['p1'] })
+    const items = sessionTimelineItems(conversation.slice(0, 6), {
+      agentRunsInFlight: { p1: { step: 2, count: 2 } },
+    })
 
     expect(items[1].kind === 'agent' && items[1].result).toEqual([])
     expect(items[1]).toMatchObject({ streaming: true, details: { live: { kind: 'working' } } })
@@ -1235,6 +1257,31 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'built it' } })
     expect(items[0]).not.toHaveProperty('footer.metrics')
+  })
+
+  it('offers no Copy on an Agent Preset Turn still streaming its answer', () => {
+    const items = sessionTimelineItems(
+      [agentMessage('u1', 'user', 'make a game'), agentMessage('a1', 'assistant', 'built')],
+      { agents: [{ tag: agentTurn, messages: [], live: true }] },
+    )
+
+    expect(actionsOf(items[0])).toEqual([])
+  })
+
+  it('copies the text an Agent Preset Turn answers with, leaving out its tool calls', () => {
+    const answer = {
+      ...agentMessage('a1', 'assistant', ''),
+      parts: [
+        { type: 'text', text: 'Let me look.' },
+        { type: 'dynamic-tool', toolName: 'read', toolCallId: 't1', state: 'output-available' },
+        { type: 'text', text: 'built it' },
+      ],
+    }
+    const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game'), answer], {})
+
+    expect(items[0]).toMatchObject({
+      footer: { actions: ['copy'], text: 'Let me look.\n\nbuilt it' },
+    })
   })
 
   it('offers nothing on an Agent Preset Turn with no text yet', () => {

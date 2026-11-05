@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "Akıl yürütülüyor…",
   "SESSION_TURN_LIVE_WRITING": "Yazılıyor…",
   "SESSION_TURN_LIVE_WORKING": "Çalışılıyor…",
+  "SESSION_TURN_LIVE_STEP": "Adım {step}/{count}",
   "SESSION_TURN_SHOW_BROWSER": "Tarayıcı penceresini göster",
   "SESSION_TURN_HIDE_BROWSER": "Tarayıcı penceresini gizle",
   "SESSION_TURN_INPUT_IMAGE": "Giriş görseli",

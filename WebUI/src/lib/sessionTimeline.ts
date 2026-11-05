@@ -53,6 +53,7 @@ import type {
   TurnPrompt,
   TurnResultPart,
   TurnSummary,
+  RunProgress,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
 import type {
@@ -175,11 +176,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   for (const agent of live.agents ?? []) {
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
-  const inFlight = new Set(live.agentRunsInFlight ?? [])
+  const inFlight = new Map(Object.entries(live.agentRunsInFlight ?? {}))
   const turns = timelineTurns(merged, files, live.artifactRuns, inFlight)
   const mediaSteps = live.mediaSteps ?? {}
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
-  markRunsBetweenSteps(turns, inFlight)
+  markRunsInFlight(turns, inFlight)
+  for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
   markLiveChatTurn(turns, live.chatStatus, mediaSteps)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
@@ -329,7 +331,7 @@ function withAnswers(
   turns: TimelineTurn[],
   prompts: Map<string, UIMessage>,
   runs: Map<string, AgentRun>,
-  inFlight: ReadonlySet<string>,
+  inFlight: ReadonlyMap<string, RunProgress>,
 ): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat') {
@@ -338,15 +340,26 @@ function withAnswers(
     }
     if (turn.kind === 'agent') {
       turn.hint = agentHint(turn.prompt?.agentRun?.name ?? turn.presetName, turn.answers)
-      turn.footer = agentFooter(turn.answers)
     }
     const run = turn.kind === 'agent' && turn.runKey ? runs.get(turn.runKey) : undefined
     if (run) Object.assign(turn, runSections(run, inFlight.has(run.key)))
     else if (turn.kind === 'chat' || turn.kind === 'agent') {
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
+    if (turn.kind === 'agent') turn.footer = agentFooter(resultText(turn))
   }
   return turns
+}
+
+function resultText(turn: AgentTurn): string {
+  const answers = new Map(turn.answers.map((answer) => [answer.id, answer]))
+  return turn.result
+    .flatMap((part) => {
+      if (part.kind !== 'prose') return []
+      const text = (answers.get(part.messageId)?.parts[part.index] as { text?: unknown })?.text
+      return typeof text === 'string' && text.trim() ? [text.trim()] : []
+    })
+    .join('\n\n')
 }
 
 /** An Agent Run's answer is the text its last Step wrote after its last tool call. */
@@ -641,13 +654,12 @@ function markLiveAgentTurns(
 }
 
 /** Between two Steps no turn is streaming, but the run is still going. */
-function markRunsBetweenSteps(turns: TimelineTurn[], inFlight: ReadonlySet<string>): void {
+function markRunsInFlight(turns: TimelineTurn[], inFlight: ReadonlyMap<string, RunProgress>): void {
   for (const turn of turns) {
-    if (turn.kind !== 'agent' || !turn.runKey || !inFlight.has(turn.runKey) || turn.streaming) {
-      continue
-    }
+    const progress = turn.kind === 'agent' && turn.runKey ? inFlight.get(turn.runKey) : undefined
+    if (turn.kind !== 'agent' || !progress) continue
     turn.streaming = true
-    turn.details = { ...turn.details, live: turn.details.live ?? { kind: 'working' } }
+    turn.details = { ...turn.details, live: turn.details.live ?? { kind: 'working' }, progress }
   }
 }
 
@@ -698,7 +710,7 @@ export function timelineTurns(
   timeline: readonly unknown[],
   files: TimelineFiles = {},
   artifactRuns?: ArtifactRunsState,
-  inFlight: ReadonlySet<string> = new Set(),
+  inFlight: ReadonlyMap<string, RunProgress> = new Map(),
 ): TimelineTurn[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []

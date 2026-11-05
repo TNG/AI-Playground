@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "추론 중…",
   "SESSION_TURN_LIVE_WRITING": "작성 중…",
   "SESSION_TURN_LIVE_WORKING": "작업 중…",
+  "SESSION_TURN_LIVE_STEP": "{count}단계 중 {step}단계",
   "SESSION_TURN_SHOW_BROWSER": "브라우저 창 표시",
   "SESSION_TURN_HIDE_BROWSER": "브라우저 창 숨기기",
   "SESSION_TURN_INPUT_IMAGE": "입력 이미지",

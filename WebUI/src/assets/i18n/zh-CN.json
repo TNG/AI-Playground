@@ -108,6 +108,7 @@
   "SESSION_TURN_LIVE_REASONING": "推理中…",
   "SESSION_TURN_LIVE_WRITING": "正在撰写…",
   "SESSION_TURN_LIVE_WORKING": "处理中…",
+  "SESSION_TURN_LIVE_STEP": "第 {step} 步，共 {count} 步",
   "SESSION_TURN_SHOW_BROWSER": "显示浏览器窗口",
   "SESSION_TURN_HIDE_BROWSER": "隐藏浏览器窗口",
   "SESSION_TURN_INPUT_IMAGE": "输入图像",

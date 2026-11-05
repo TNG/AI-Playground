@@ -526,10 +526,6 @@ function getRagIconClass(type: ValidFileExtension): string {
   }
 }
 
-const emits = defineEmits<{
-  (e: 'autoHideFooter'): void
-}>()
-
 const attachmentPreview = computed(() =>
   openAiCompatibleChat.fileInput.map((part, id) => ({ id, url: part.url, part })),
 )
@@ -722,7 +718,6 @@ function handleSubmitPromptClick() {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
     return
   }
-  emits('autoHideFooter')
   sessionSettings.markSent()
   promptStore.submitPrompt(prompt.value)
 }
@@ -739,7 +734,6 @@ const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
 
 async function handleRunStepsClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
-  emits('autoHideFooter')
   promptStore.promptSubmitted = true
   const text = prompt.value
   await afterAgentRun(() => void agentTasks.runSteps(text), text)

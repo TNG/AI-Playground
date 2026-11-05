@@ -11,6 +11,10 @@ export class AppShellPage {
     return this.page.getByRole('button', { name: 'App Settings' })
   }
 
+  get footer(): Locator {
+    return this.page.getByRole('contentinfo')
+  }
+
   get setupWizardButton(): Locator {
     return this.page.getByRole('button', { name: 'Setup Wizard' })
   }

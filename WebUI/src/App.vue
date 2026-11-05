@@ -190,15 +190,7 @@
       <template #viewport>
         <Chat v-if="showsThreadView" ref="threadView" />
         <SessionTimeline v-else ref="timelineView" />
-        <PromptArea @auto-hide-footer="handleAutoHideFooter" />
-        <div v-if="!footerExpanded" class="fixed bottom-4 right-4 z-5 flex items-center gap-3">
-          <button
-            @click="footerExpanded = !footerExpanded"
-            class="text-foreground/30 hover:text-foreground/80 text-xs uppercase tracking-wider transition-colors"
-          >
-            SHOW FOOTER
-          </button>
-        </div>
+        <PromptArea />
       </template>
       <template #inferencing>
         <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="inferencing" />
@@ -235,70 +227,37 @@
   </main>
 
   <footer
-    class="flex-none px-4 flex flex-col justify-between items-center select-none transition-all duration-300"
+    class="flex-none px-4 py-1 flex justify-end items-center gap-4 text-xs text-muted-foreground select-none"
     :class="{
       'bg-black/50': theme.active === 'lnl',
       'bg-black/80': theme.active === 'bmg',
       'border-t border-border': theme.active === 'dark',
     }"
   >
-    <div v-if="footerExpanded" class="w-full relative flex items-center justify-center pb-1">
-      <button
-        @click="footerExpanded = !footerExpanded"
-        class="text-foreground/30 hover:text-foreground/80 text-xs uppercase tracking-wider transition-colors"
-      >
-        HIDE FOOTER
-      </button>
-    </div>
-    <div v-show="footerExpanded" class="w-full flex justify-between items-center pb-2">
-      <div>
-        <p>
-          Al Playground from Intel Corporation
-          <a href="https://github.com/intel/ai-playground" target="_blank" class="text-primary"
-            >https://github.com/intel/ai-playground</a
+    <a :href="userGuideUrl" target="_blank" class="hover:text-foreground">{{
+      languages.FOOTER_USER_GUIDE
+    }}</a>
+    <a :href="noticesUrl" target="_blank" class="hover:text-foreground">{{
+      languages.FOOTER_NOTICES
+    }}</a>
+    <a :href="licenseUrl" target="_blank" class="hover:text-foreground">{{
+      languages.FOOTER_LICENSES
+    }}</a>
+    <TooltipProvider v-if="buildIdentity.length > 0" :delay-duration="200">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <span class="underline decoration-dotted underline-offset-2 cursor-help"
+            >v{{ productVersion }}</span
           >
-        </p>
-        <p>
-          AI Playground version:
-          <TooltipProvider v-if="buildIdentity.length > 0" :delay-duration="200">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <span class="underline decoration-dotted underline-offset-2 cursor-help"
-                  >v{{ productVersion }}</span
-                >
-              </TooltipTrigger>
-              <TooltipContent side="top" class="text-xs">
-                <span
-                  v-for="line in buildIdentity"
-                  :key="line.label"
-                  class="block whitespace-nowrap"
-                  >{{ line.label }}: {{ line.value }}</span
-                >
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <span v-else>v{{ productVersion }}</span>
-          <a :href="userGuideUrl" target="_blank" class="text-primary"> User Guide</a>
-
-          <a :href="noticesUrl" target="_blank" class="text-primary">
-            | Important Notices and Disclaimers</a
+        </TooltipTrigger>
+        <TooltipContent side="top" class="text-xs">
+          <span v-for="line in buildIdentity" :key="line.label" class="block whitespace-nowrap"
+            >{{ line.label }}: {{ line.value }}</span
           >
-
-          <a :href="licenseUrl" target="_blank" class="text-primary"> | Licenses</a>
-        </p>
-      </div>
-      <div v-if="theme.active === 'lnl'" class="flex gap-2 items-center">
-        <p class="text-muted-foreground text-lg mr-2">Powered by</p>
-        <img class="size-20" src="@/assets/image/core_ultra_badge.png" />
-        <img class="size-20" src="@/assets/image/arc_graphics_badge.png" />
-      </div>
-      <div v-if="theme.active === 'bmg'" class="flex gap-2 items-center">
-        <p class="text-muted-foreground text-lg mr-2">Powered by</p>
-        <img class="size-20" src="@/assets/image/arc_graphics_badge.png" />
-      </div>
-      <img v-if="theme.active === 'light'" class="h-8" src="@/assets/svg/intel-dark.svg" />
-      <img v-else-if="theme.active === 'dark'" class="h-8" src="@/assets/svg/intel.svg" />
-    </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+    <span v-else>v{{ productVersion }}</span>
   </footer>
   <!-- Outside the running-only main: Home Agent setup lives in the wizard. -->
   <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
@@ -398,7 +357,6 @@ useModePromptHandlers({
 })
 
 const isOpen = ref(false)
-const footerExpanded = ref(true)
 const showAppSettings = ref(false)
 const fullscreen = ref(false)
 
@@ -513,10 +471,6 @@ function closeWindow() {
 
 function openDevTools() {
   window.electronAPI.openDevTools()
-}
-
-function handleAutoHideFooter() {
-  footerExpanded.value = false
 }
 
 function openAppSettings() {

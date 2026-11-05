@@ -161,7 +161,7 @@ vi.mock('@/assets/js/store/errors', () => ({
 
 const turnConfig = vi.hoisted(() => ({
   build: null as ((sessionId: string) => unknown) | null,
-  lastInput: null as { planningThinkingOnly?: boolean } | null,
+  lastInput: null as { planningThinkingOnly?: boolean; mountedFolders?: unknown[] } | null,
 }))
 
 vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
@@ -457,6 +457,64 @@ describe('Agent Session Settings', () => {
     const config = turnConfig.build?.(store.openSessionId) as unknown as { capabilities: string[] }
     expect(config.capabilities).toContain('mcp:blender')
     expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
+  })
+
+  describe('Mounted Folders', () => {
+    const notes = { hostPath: '/Users/ada/notes', access: 'read-only' as const }
+
+    it('keeps a Mounted Folder in the session it was added to', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes])
+      await store.generate('first')
+      const first = store.openSessionId
+
+      await store.newSession()
+      expect(store.mountedFolders).toEqual([])
+
+      await store.switchSession(first)
+      expect(store.mountedFolders).toEqual([notes])
+      expect(savedSettings(first)?.mountedFolders).toEqual([notes])
+    })
+
+    it('sends each folder with its sandbox name on a turn', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes, { hostPath: '/Volumes/usb/notes' }])
+
+      turnConfig.build?.(store.openSessionId)
+      expect(turnConfig.lastInput?.mountedFolders).toEqual([
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/notes', name: 'notes-2', access: 'read-only' },
+      ])
+    })
+
+    it('starts a Draft Session with the Default Settings’ folders', async () => {
+      chat.state.settingsPerPreset.Agent = {
+        ...chat.state.settingsPerPreset.Agent,
+        agentMountedFolders: [notes],
+      }
+      const store = await startedStore()
+
+      expect(store.mountedFolders).toEqual([notes])
+    })
+
+    it('saves the folders as the defaults', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes])
+      store.saveAsDefault()
+
+      expect(chat.state.settingsPerPreset.Agent.agentMountedFolders).toEqual([notes])
+    })
+
+    it('offers none to Game Agent', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes])
+      await presetSwitchingMock.switchPreset('Game Agent')
+
+      expect(store.mountedFoldersSupported).toBe(false)
+      expect(store.mountedFolders).toEqual([])
+      turnConfig.build?.(store.openSessionId)
+      expect(turnConfig.lastInput?.mountedFolders ?? []).toEqual([])
+    })
   })
 
   it('moves the global defaults into the Default Settings once', async () => {

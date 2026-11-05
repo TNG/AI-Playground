@@ -68,6 +68,17 @@
         </p>
       </section>
 
+      <section v-if="binding.mountedFoldersSupported" class="flex flex-col gap-2">
+        <SettingsHeading>{{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS }}</SettingsHeading>
+        <p class="text-xs text-muted-foreground">
+          {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_HINT }}
+        </p>
+        <MountedFolderList
+          :model-value="binding.mountedFolders"
+          @update:model-value="binding.setMountedFolders"
+        />
+      </section>
+
       <section class="flex flex-col gap-3">
         <SettingsHeading>{{ languages.AGENT_SETTINGS_CAPABILITIES }}</SettingsHeading>
         <p class="text-xs text-muted-foreground">
@@ -161,6 +172,7 @@ import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
 import AgentMcpServerChecklist from '@/components/AgentMcpServerChecklist.vue'
 import AgentPresetDefaultsActions from '@/components/AgentPresetDefaultsActions.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
+import MountedFolderList from '@/components/MountedFolderList.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import SettingsRow from '@/components/SettingsRow.vue'

@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "Die echte System-Shell in diesem Ordner verwenden",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "Standardmäßig aus: Der Agent erhält eine emulierte Shell ohne Netzwerk und ohne Paketmanager, und sein Dateizugriff kann den Arbeitsordner nicht verlassen. Wenn du dies aktivierst, erhält er eine echte Shell mit node, npm, python und Netzwerkzugriff, sodass er Abhängigkeiten installieren und Builds ausführen kann.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "Befehle laufen auf deinem Rechner mit den Rechten deines Benutzers und können auf das Netzwerk zugreifen. Schreibzugriffe bleiben auf den Arbeitsordner beschränkt, aber ein Befehl kann alles tun, was du in einem Terminal tun könntest. Dies gilt nur für {folder} — wenn du einen anderen Ordner wählst, wird wieder die abgeschirmte Shell verwendet.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Wähle zuerst einen Arbeitsordner."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Wähle zuerst einen Arbeitsordner.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "Eingebundene Ordner",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Ordner von deinem Rechner, die der Agent unter /mnt/<name> lesen kann. Neue Dateien landen weiterhin im Ordner dieser Session.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Keine eingebundenen Ordner.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Ordner hinzufügen",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Ordner entfernen",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} entfernen",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Schreibgeschützt"
 }

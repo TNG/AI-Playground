@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "이 폴더에서 실제 시스템 셸 사용",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "기본값은 꺼짐: 에이전트는 네트워크와 패키지 관리자가 없는 에뮬레이션 셸을 사용하며 파일 접근은 작업 폴더를 벗어날 수 없습니다. 켜면 node, npm, python과 네트워크 접근이 가능한 실제 셸을 사용해 종속성을 설치하고 빌드를 실행할 수 있습니다.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "명령은 사용자 권한으로 이 컴퓨터에서 실행되며 네트워크에 접근할 수 있습니다. 파일 쓰기는 여전히 작업 폴더로 제한되지만, 명령은 터미널에서 할 수 있는 모든 작업을 할 수 있습니다. 이 설정은 {folder}에만 적용되며 다른 폴더를 선택하면 샌드박스 셸로 돌아갑니다.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "먼저 작업 폴더를 선택하세요."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "먼저 작업 폴더를 선택하세요.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "마운트된 폴더",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "에이전트가 /mnt/<name>에서 읽을 수 있는 이 컴퓨터의 폴더입니다. 새 파일은 계속 이 세션의 폴더에 저장됩니다.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "마운트된 폴더가 없습니다.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "폴더 추가",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "폴더 제거",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} 제거",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "읽기 전용"
 }

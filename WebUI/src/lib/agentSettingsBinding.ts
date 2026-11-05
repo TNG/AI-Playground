@@ -1,6 +1,7 @@
 import type { LlmBackend, LlmModel } from '@/assets/js/store/textInference'
 import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import type { SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
+import type { MountedFolder } from '@/types/agentSessionIpc'
 
 export type AgentSettingsChoice = { label: string; value: string; active: boolean }
 
@@ -23,6 +24,9 @@ export type AgentSettingsBinding = {
   capabilities: string[]
   setCapabilities: (ids: string[]) => void
   capabilityCatalog: AgentCapabilityInfo[]
+  mountedFoldersSupported: boolean
+  mountedFolders: MountedFolder[]
+  setMountedFolders: (folders: MountedFolder[]) => void
   embeddingModelName: string
   embeddingModelItems: AgentSettingsChoice[]
   setEmbeddingModel: (modelName: string) => void

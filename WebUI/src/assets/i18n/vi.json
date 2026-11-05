@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "Dùng shell hệ thống thật trong thư mục này",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "Tắt theo mặc định: tác tử dùng shell giả lập không có mạng và không có trình quản lý gói, và quyền truy cập tệp không thể ra ngoài thư mục làm việc. Bật tùy chọn này sẽ cho tác tử một shell thật với node, npm, python và truy cập mạng, để có thể cài đặt phụ thuộc và chạy bản dựng.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "Các lệnh chạy trên máy của bạn với quyền của người dùng và có thể truy cập mạng. Việc ghi tệp vẫn giới hạn trong thư mục làm việc, nhưng một lệnh có thể làm mọi thứ bạn làm được trong terminal. Điều này chỉ áp dụng cho {folder} — chọn thư mục khác sẽ quay lại shell được cách ly.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Hãy chọn thư mục làm việc trước."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Hãy chọn thư mục làm việc trước.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "Thư mục gắn kết",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Các thư mục trên máy của bạn mà tác tử có thể đọc tại /mnt/<name>. Tệp mới vẫn được lưu trong thư mục của Phiên này.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Không có thư mục gắn kết.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Thêm thư mục",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Gỡ thư mục",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Gỡ {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Chỉ đọc"
 }

@@ -17,6 +17,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { resolveMountedFolders } from '@/lib/mountedFolders'
 import {
   makeFileBackedPreference,
   type FileBackedPreferencesApi,
@@ -26,12 +27,14 @@ import {
   type AgentSessionBootstrap,
   type AgentSessionSettings,
   type AgentTaskStep,
+  type MountedFolder,
   type LegacyAgentSessionState,
   type AgentRunTag,
 } from '@/types/agentSessionIpc'
 import {
   type BagDerivedSetting,
   DEFAULT_CAPABILITIES_KEY,
+  DEFAULT_MOUNTED_FOLDERS_KEY,
   DEFAULT_PLANNING_THINKING_ONLY_KEY,
   fillMissingSessionSettings,
   keepUneditedSettings,
@@ -380,7 +383,11 @@ export const useAgentMode = defineStore(
       return true
     }
 
-    type AgentDefaults = { capabilities: string[]; planningThinkingOnly: boolean }
+    type AgentDefaults = {
+      capabilities: string[]
+      planningThinkingOnly: boolean
+      mountedFolders?: MountedFolder[]
+    }
 
     /**
      * The capability and planning half of the Agent preset's Default Settings. Until the
@@ -390,7 +397,11 @@ export const useAgentMode = defineStore(
       const bag = textInference.settingsPerPreset?.[AGENT_PRESET] ?? {}
       const capabilities = bag[DEFAULT_CAPABILITIES_KEY]
       const planning = bag[DEFAULT_PLANNING_THINKING_ONLY_KEY]
+      const mountedFolders = bag[DEFAULT_MOUNTED_FOLDERS_KEY]
       return {
+        ...(Array.isArray(mountedFolders)
+          ? { mountedFolders: (mountedFolders as MountedFolder[]).map((folder) => ({ ...folder })) }
+          : {}),
         capabilities: Array.isArray(capabilities)
           ? [...(capabilities as string[])]
           : [...defaultCapabilities.value],
@@ -460,6 +471,7 @@ export const useAgentMode = defineStore(
           ...sessionSettingsToBag(settings, base, textInference.embeddingBackend),
           [DEFAULT_CAPABILITIES_KEY]: [...capabilities.value],
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: effectivePlanningThinkingOnly.value,
+          [DEFAULT_MOUNTED_FOLDERS_KEY]: cloneForIpc(mountedFolders.value),
         },
       }
     }
@@ -571,6 +583,19 @@ export const useAgentMode = defineStore(
       return capabilities.value.includes(id)
     }
 
+    /** Only the folder-picking Agent preset and the Agents saved from it reach folders beyond their own. */
+    const mountedFoldersSupported = computed(() => sessionScoped.value)
+
+    const mountedFolders = computed<MountedFolder[]>(() =>
+      sessionScoped.value
+        ? (openSettings.value?.mountedFolders ?? readAgentDefaults().mountedFolders ?? [])
+        : [],
+    )
+
+    function setMountedFolders(next: MountedFolder[]): void {
+      if (sessionScoped.value) updateOpenSettings({ mountedFolders: next })
+    }
+
     const planningPhaseSupported = computed(() =>
       capabilities.value.some((id) => PLANNING_PHASE_CAPABILITY_IDS.includes(id)),
     )
@@ -618,7 +643,7 @@ export const useAgentMode = defineStore(
       sessionCapabilities.value = null
       defaultCapabilities.value = [...DEFAULT_CAPABILITIES]
       if (sessionScoped.value) {
-        updateOpenSettings(migrateAgentDefaults())
+        updateOpenSettings({ mountedFolders: [], ...migrateAgentDefaults() })
         return
       }
       const session = sessions.value[openSessionId.value]
@@ -953,6 +978,7 @@ export const useAgentMode = defineStore(
         ),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
+        mountedFolders: resolveMountedFolders(mountedFolders.value),
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
@@ -976,6 +1002,7 @@ export const useAgentMode = defineStore(
         ),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
+        mountedFolders: resolveMountedFolders(settings.mountedFolders ?? []),
         planningThinkingOnly:
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,
@@ -2148,6 +2175,9 @@ export const useAgentMode = defineStore(
       planningPhaseSupported,
       setCapabilityEnabled,
       setCapabilities,
+      mountedFoldersSupported,
+      mountedFolders,
+      setMountedFolders,
       resetPresetSettings,
       migrateMcpServerIds,
       adoptWebCapability,

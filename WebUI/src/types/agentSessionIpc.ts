@@ -9,6 +9,17 @@ import { llmBackendTypes } from './shared'
  * same record; `messages` travels as an opaque array both ways.
  */
 
+export const MountedFolderAccessSchema = z.enum(['read-only', 'read-write'])
+export type MountedFolderAccess = z.infer<typeof MountedFolderAccessSchema>
+
+/** A folder on the user's machine the agent sees at `/mnt/<name>`; read-only unless stated. */
+export const MountedFolderSchema = z.object({
+  hostPath: z.string().min(1),
+  name: z.string().optional(),
+  access: MountedFolderAccessSchema.optional(),
+})
+export type MountedFolder = z.infer<typeof MountedFolderSchema>
+
 /**
  * An Agent Session's own model and capability choices. Every field is optional so a
  * file written before a field existed still parses; the store fills gaps from the
@@ -30,6 +41,7 @@ export const AgentSessionSettingsSchema = z.object({
   builtinToolEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolPresetEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolDefaultPresets: z.record(z.string(), z.string()).optional(),
+  mountedFolders: z.array(MountedFolderSchema).optional(),
 })
 export type AgentSessionSettings = z.infer<typeof AgentSessionSettingsSchema>
 

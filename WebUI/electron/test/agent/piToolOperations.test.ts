@@ -410,6 +410,101 @@ describe('sandboxed access', () => {
   })
 })
 
+describe('a read-only Mounted Folder, sandboxed', () => {
+  let access: AgentToolAccess
+  let notesDir: string
+  let noteFile: string
+
+  beforeEach(async () => {
+    notesDir = path.join(path.dirname(workspace), 'notes')
+    fs.mkdirSync(path.join(notesDir, 'journal'), { recursive: true })
+    noteFile = path.join(notesDir, 'journal/monday.md')
+    fs.writeFileSync(noteFile, 'remember the milk\n')
+    access = await createAgentToolAccess({
+      ...accessOptions(false),
+      mountedFolders: [{ hostPath: notesDir, name: 'notes', access: 'read-only' }],
+    })
+  })
+
+  afterEach(async () => {
+    await access.dispose()
+  })
+
+  it('reads a real file at /mnt/<name>', async () => {
+    const read = await invoke(toolOf(access, 'read'), { path: '/mnt/notes/journal/monday.md' })
+
+    expect(resultText(read)).toContain('remember the milk')
+  })
+
+  it('lists, finds and greps inside the mount', async () => {
+    const listed = resultText(await invoke(toolOf(access, 'ls'), { path: '/mnt/notes' }))
+    expect(listed).toContain('journal')
+
+    const found = resultText(
+      await invoke(toolOf(access, 'find'), { pattern: '**/*.md', path: '/mnt/notes' }),
+    )
+    expect(found).toContain('journal/monday.md')
+
+    const grepped = resultText(
+      await invoke(toolOf(access, 'grep'), { pattern: 'milk', path: '/mnt/notes' }),
+    )
+    expect(grepped).toBe('/mnt/notes/journal/monday.md:1:remember the milk')
+
+    const shell = resultText(await invoke(toolOf(access, 'bash'), { command: 'ls /mnt/notes' }))
+    expect(shell).toContain('journal')
+  })
+
+  it('keeps the mount out of a find or grep in the workspace', async () => {
+    fs.writeFileSync(path.join(workspace, 'todo.md'), 'milk\n')
+
+    const found = resultText(await invoke(toolOf(access, 'find'), { pattern: '**/*.md' }))
+    expect(found).toBe('todo.md')
+
+    const grepped = resultText(await invoke(toolOf(access, 'grep'), { pattern: 'milk' }))
+    expect(grepped).toBe('todo.md:1:milk')
+  })
+
+  it('refuses write, edit and mkdir there and leaves the host file alone', async () => {
+    await expect(
+      invoke(toolOf(access, 'write'), { path: '/mnt/notes/journal/monday.md', content: 'x' }),
+    ).rejects.toThrow()
+    await expect(
+      invoke(toolOf(access, 'edit'), {
+        path: '/mnt/notes/journal/monday.md',
+        edits: [{ oldText: 'milk', newText: 'beer' }],
+      }),
+    ).rejects.toThrow()
+    await expect(
+      invoke(toolOf(access, 'write'), { path: '/mnt/notes/new/file.md', content: 'x' }),
+    ).rejects.toThrow()
+    for (const command of [
+      'echo x > /mnt/notes/journal/monday.md',
+      'mkdir /mnt/notes/made',
+      'rm -rf /mnt/notes/journal',
+    ]) {
+      await invoke(toolOf(access, 'bash'), { command }).catch(() => undefined)
+    }
+
+    expect(fs.readFileSync(noteFile, 'utf8')).toBe('remember the milk\n')
+    expect(fs.readdirSync(notesDir)).toEqual(['journal'])
+  })
+
+  it('cannot leave the mount through .. or a symlink', async () => {
+    fs.symlinkSync(outsideDir, path.join(notesDir, 'escape'))
+
+    await expect(
+      invoke(toolOf(access, 'read'), { path: '/mnt/notes/../../outside/secret.txt' }),
+    ).rejects.toThrow()
+    await expect(
+      invoke(toolOf(access, 'read'), { path: '/mnt/notes/escape/secret.txt' }),
+    ).rejects.toThrow()
+    const shell = resultText(
+      await invoke(toolOf(access, 'bash'), { command: 'cat /mnt/notes/escape/secret.txt' }),
+    )
+    expect(shell).not.toContain('top secret')
+  })
+})
+
 describe('host-shell access', () => {
   let access: AgentToolAccess
 

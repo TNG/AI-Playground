@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "Używaj prawdziwej powłoki systemowej w tym folderze",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "Domyślnie wyłączone: agent dostaje emulowaną powłokę bez sieci i menedżerów pakietów, a jego dostęp do plików nie może wyjść poza folder roboczy. Włączenie daje mu prawdziwą powłokę z node, npm, python i dostępem do sieci, dzięki czemu może instalować zależności i uruchamiać kompilacje.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "Polecenia działają na twoim komputerze z uprawnieniami twojego użytkownika i mają dostęp do sieci. Zapisy plików są nadal ograniczone do folderu roboczego, ale polecenie może zrobić wszystko, co ty w terminalu. Dotyczy to tylko {folder} — wybranie innego folderu przywraca izolowaną powłokę.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Najpierw wybierz folder roboczy."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Najpierw wybierz folder roboczy.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "Zamontowane foldery",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Foldery z Twojego komputera, które agent może czytać w /mnt/<name>. Nowe pliki nadal trafiają do folderu tej sesji.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Brak zamontowanych folderów.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Dodaj folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Usuń folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Usuń {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Tylko do odczytu"
 }

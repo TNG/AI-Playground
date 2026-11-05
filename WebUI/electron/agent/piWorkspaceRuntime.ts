@@ -4,6 +4,7 @@ import http from 'node:http'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { closeBrowserSession } from './agentBrowser.ts'
 import { injectProbe, PROBE_PATH, PROBE_SCRIPT } from './previewProbe.ts'
+import { MOUNTED_FOLDERS_ROOT, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 // ── Workspace runtime: localhost preview server ──────────────────────────────
 //
@@ -253,6 +254,7 @@ export type WorkspaceInstructionsOptions = {
   baseUrl: string | null
   /** Whether the shell is the real host shell rather than the emulated one. */
   unsandboxed: boolean
+  mountedFolders?: ResolvedMountedFolder[]
 }
 
 /**
@@ -262,7 +264,7 @@ export type WorkspaceInstructionsOptions = {
  * re-asserted with the live preview port whenever the session is rebuilt.
  */
 export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions): string {
-  const { cwd, workspaceDir, baseUrl, unsandboxed } = options
+  const { cwd, workspaceDir, baseUrl, unsandboxed, mountedFolders = [] } = options
   const lines = ['You are working inside a project workspace.']
   lines.push(
     unsandboxed
@@ -287,6 +289,20 @@ export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions
     lines.push(
       '- Nothing in that shell reaches the internet: there is no curl or wget. Read web pages' +
         ' with the browser tool instead.',
+    )
+  }
+  if (mountedFolders.length > 0) {
+    lines.push('- The user also gave you these Mounted Folders:')
+    for (const folder of mountedFolders) {
+      lines.push(
+        unsandboxed
+          ? `  - ${folder.hostPath} (${folder.access})`
+          : `  - ${path.posix.join(MOUNTED_FOLDERS_ROOT, folder.name)} (${folder.access}) is ` +
+              `${folder.hostPath} on the host`,
+      )
+    }
+    lines.push(
+      '- New files belong in your working directory unless the user asks for them elsewhere.',
     )
   }
   if (baseUrl) {

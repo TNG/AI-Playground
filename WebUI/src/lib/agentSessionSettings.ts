@@ -25,6 +25,7 @@ export function presetNameUsesSessionSettings(name: string | undefined): boolean
  */
 export const DEFAULT_CAPABILITIES_KEY = 'agentCapabilities'
 export const DEFAULT_PLANNING_THINKING_ONLY_KEY = 'agentPlanningThinkingOnly'
+export const DEFAULT_MOUNTED_FOLDERS_KEY = 'agentMountedFolders'
 
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
 const SESSION_OWNED_KEYS = [

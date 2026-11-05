@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "Usa la vera shell di sistema in questa cartella",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "Disattivato per impostazione predefinita: l’agente usa una shell emulata senza rete e senza gestori di pacchetti, e l’accesso ai file non può uscire dalla cartella di lavoro. Attivandolo ottiene una shell reale con node, npm, python e accesso alla rete, così può installare dipendenze ed eseguire build.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "I comandi vengono eseguiti sul tuo computer con i permessi del tuo utente e possono accedere alla rete. Le scritture dei file restano limitate alla cartella di lavoro, ma un comando può fare tutto ciò che faresti in un terminale. Vale solo per {folder}: scegliendo un’altra cartella si torna alla shell isolata.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Seleziona prima una cartella di lavoro."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Seleziona prima una cartella di lavoro.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "Cartelle montate",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Cartelle del tuo computer che l’agente può leggere in /mnt/<name>. I nuovi file finiscono comunque nella cartella di questa sessione.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Nessuna cartella montata.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Aggiungi cartella",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Rimuovi cartella",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Rimuovi {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Sola lettura"
 }

@@ -15,6 +15,7 @@ import type {
 import { appLoggerInstance } from '../observability/logger.ts'
 import { loadJustBash, loadPi, type JustBashModule, type PiModule } from './piRuntime.ts'
 import type { AgentSkill } from './piCustomTools.ts'
+import { MOUNTED_FOLDERS_ROOT, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 // ── Agent Mode file/shell access ─────────────────────────────────────────────
 //
@@ -24,7 +25,8 @@ import type { AgentSkill } from './piCustomTools.ts'
 //
 //  - sandboxed (default): every operation is served by a just-bash sandbox
 //    whose virtual filesystem mounts ONLY the user-selected workspace folder
-//    (real files, read-write) at `/workspace`. The emulated shell has no
+//    (real files, read-write) at `/workspace`, plus the user's Mounted Folders
+//    at `/mnt/<name>`. The emulated shell has no
 //    script interpreters (python3, js-exec) and no host process ever spawns,
 //    so nothing outside the workspace is reachable — by construction, not by
 //    path checking.
@@ -85,6 +87,8 @@ export type AgentToolAccessOptions = {
    * output is a fixed set of files. Any path when absent.
    */
   writableFiles?: string[]
+  /** Folders beside the workspace, each realpathed, seen at `/mnt/<name>` in the sandbox. */
+  mountedFolders?: ResolvedMountedFolder[]
 }
 
 function containedIn(root: string, candidate: string): boolean {
@@ -504,13 +508,17 @@ const sandboxGrepSchema = Type.Object({
  * replacement walks the mounted workspace instead, which is the only thing the
  * sandbox is allowed to see.
  */
-function createSandboxGrepTool(pi: PiModule, vfs: IFileSystem): ToolDefinition {
+function createSandboxGrepTool(
+  pi: PiModule,
+  vfs: IFileSystem,
+  searchRoots: string[],
+): ToolDefinition {
   return pi.defineTool({
     name: 'grep',
     label: 'grep',
     description:
       'Search file contents for a pattern. Returns matching lines with file paths and line ' +
-      'numbers. Searches the workspace only.',
+      `numbers. Searches ${searchRoots.join(' and ')} only.`,
     promptSnippet: 'Search file contents by regex',
     parameters: sandboxGrepSchema,
     execute: async (_toolCallId, params) => {
@@ -518,7 +526,7 @@ function createSandboxGrepTool(pi: PiModule, vfs: IFileSystem): ToolDefinition {
         SANDBOX_WORKDIR,
         toSandboxPath(params.path ?? SANDBOX_WORKDIR),
       )
-      assertInsideSandboxRoots([SANDBOX_WORKDIR], searchRoot, 'search')
+      assertInsideSandboxRoots(searchRoots, searchRoot, 'search')
       const limit = params.limit ?? SANDBOX_GREP_LIMIT
       const expression = new RegExp(
         params.literal ? params.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : params.pattern,
@@ -536,7 +544,9 @@ function createSandboxGrepTool(pi: PiModule, vfs: IFileSystem): ToolDefinition {
         } catch {
           continue
         }
-        const relative = path.posix.relative(SANDBOX_WORKDIR, filePath) || filePath
+        const relative = insideSandboxRoot(SANDBOX_WORKDIR, filePath)
+          ? path.posix.relative(SANDBOX_WORKDIR, filePath) || filePath
+          : filePath
         for (const [index, line] of content.split('\n').entries()) {
           if (!expression.test(line)) continue
           if (lines.length >= limit) {
@@ -601,6 +611,15 @@ function createSandboxAccess(
     SANDBOX_SKILLS_DIR,
     new justBash.InMemoryFs(Object.fromEntries(skills.map((s) => [s.relativePath, s.content]))),
   )
+  const mountPoints = (options.mountedFolders ?? []).map((folder) => {
+    const mountPoint = path.posix.join(MOUNTED_FOLDERS_ROOT, folder.name)
+    // The overlay's own mount point is where paths below it start once MountableFs strips its prefix.
+    vfs.mount(
+      mountPoint,
+      new justBash.OverlayFs({ root: folder.hostPath, mountPoint: '/', readOnly: true }),
+    )
+    return mountPoint
+  })
   const bashEnv = new justBash.Bash({
     fs: vfs,
     cwd: SANDBOX_WORKDIR,
@@ -639,7 +658,7 @@ function createSandboxAccess(
       pi.createWriteToolDefinition(SANDBOX_WORKDIR, { operations: operations.write }),
       pi.createEditToolDefinition(SANDBOX_WORKDIR, { operations: operations.edit }),
       pi.createBashToolDefinition(SANDBOX_WORKDIR, { operations: bash }),
-      createSandboxGrepTool(pi, vfs),
+      createSandboxGrepTool(pi, vfs, [SANDBOX_WORKDIR, ...mountPoints]),
       pi.createFindToolDefinition(SANDBOX_WORKDIR, { operations: operations.find }),
       pi.createLsToolDefinition(SANDBOX_WORKDIR, { operations: operations.ls }),
     ] as ToolDefinition[],

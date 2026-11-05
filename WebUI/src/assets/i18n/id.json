@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "Gunakan shell sistem yang sebenarnya di folder ini",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "Mati secara default: agen mendapat shell emulasi tanpa jaringan dan tanpa pengelola paket, dan akses filenya tidak dapat keluar dari folder kerja. Mengaktifkannya memberi shell sungguhan dengan node, npm, python, dan akses jaringan, sehingga agen dapat memasang dependensi dan menjalankan build.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "Perintah berjalan di komputer Anda dengan izin pengguna Anda dan dapat mengakses jaringan. Penulisan file tetap terbatas pada folder kerja, tetapi sebuah perintah dapat melakukan apa pun yang bisa Anda lakukan di terminal. Ini hanya berlaku untuk {folder} — memilih folder lain kembali ke shell yang terisolasi.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Pilih folder kerja terlebih dahulu."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Pilih folder kerja terlebih dahulu.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "Folder Terpasang",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Folder dari komputer Anda yang dapat dibaca agen di /mnt/<name>. File baru tetap disimpan di folder Sesi ini.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Tidak ada Folder Terpasang.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Tambah folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Hapus folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Hapus {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Hanya baca"
 }

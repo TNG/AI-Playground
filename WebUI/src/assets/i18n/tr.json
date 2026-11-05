@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "Bu klasörde gerçek sistem kabuğunu kullan",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "Varsayılan olarak kapalı: ajan ağ erişimi ve paket yöneticisi olmayan öykünülmüş bir kabuk kullanır ve dosya erişimi çalışma klasörünün dışına çıkamaz. Açıldığında node, npm, python ve ağ erişimi olan gerçek bir kabuk alır; böylece bağımlılıkları kurabilir ve derlemeleri çalıştırabilir.",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "Komutlar bilgisayarında kullanıcının izinleriyle çalışır ve ağa erişebilir. Dosya yazma işlemleri hâlâ çalışma klasörüyle sınırlıdır, ancak bir komut terminalde yapabileceğin her şeyi yapabilir. Bu yalnızca {folder} için geçerlidir — başka bir klasör seçmek yalıtılmış kabuğa geri döner.",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Önce bir çalışma klasörü seç."
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Önce bir çalışma klasörü seç.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "Bağlı Klasörler",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Aracının /mnt/<name> altında okuyabildiği, bilgisayarınızdaki klasörler. Yeni dosyalar yine bu oturumun klasörüne kaydedilir.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Bağlı klasör yok.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Klasör ekle",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Klasörü kaldır",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} kaldır",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Salt okunur"
 }

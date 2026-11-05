@@ -1078,5 +1078,12 @@
   "AGENT_SETTINGS_REAL_SHELL": "ใช้เชลล์ระบบจริงในโฟลเดอร์นี้",
   "AGENT_SETTINGS_REAL_SHELL_HINT": "ปิดไว้โดยค่าเริ่มต้น: เอเจนต์จะได้เชลล์จำลองที่ไม่มีเครือข่ายและไม่มีตัวจัดการแพ็กเกจ และการเข้าถึงไฟล์ไม่สามารถออกนอกโฟลเดอร์ทำงานได้ การเปิดตัวเลือกนี้จะให้เชลล์จริงที่มี node, npm, python และการเข้าถึงเครือข่าย เพื่อให้ติดตั้งแพ็กเกจที่ต้องใช้และรันบิลด์ได้",
   "AGENT_SETTINGS_REAL_SHELL_WARNING": "คำสั่งจะทำงานบนเครื่องของคุณด้วยสิทธิ์ของผู้ใช้คุณและเข้าถึงเครือข่ายได้ การเขียนไฟล์ยังคงจำกัดอยู่ในโฟลเดอร์ทำงาน แต่คำสั่งสามารถทำได้ทุกอย่างที่คุณทำได้ในเทอร์มินัล ใช้กับ {folder} เท่านั้น — การเลือกโฟลเดอร์อื่นจะกลับไปใช้เชลล์แบบแซนด์บ็อกซ์",
-  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "เลือกโฟลเดอร์ทำงานก่อน"
+  "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "เลือกโฟลเดอร์ทำงานก่อน",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS": "โฟลเดอร์ที่เมานต์",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "โฟลเดอร์ในเครื่องของคุณที่เอเจนต์อ่านได้ที่ /mnt/<name> ไฟล์ใหม่ยังคงถูกบันทึกในโฟลเดอร์ของเซสชันนี้",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "ไม่มีโฟลเดอร์ที่เมานต์",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "เพิ่มโฟลเดอร์",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "ลบโฟลเดอร์",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "ลบ {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "อ่านอย่างเดียว"
 }

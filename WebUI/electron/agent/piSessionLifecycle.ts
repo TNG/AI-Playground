@@ -16,6 +16,7 @@ import {
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
 import { enabledCapabilityIds } from '@/types/agentCapabilities'
+import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { createAgentToolAccess } from './piToolOperations.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
@@ -68,6 +69,7 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     config.instructions ?? '',
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
+    config.mountedFolders ?? [],
     config.planningThinkingOnly ?? false,
     // The rag tool is frozen on the host at session build, so a different
     // embedding model or backend has to rebuild.
@@ -153,6 +155,10 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const workspaceDir = fs.realpathSync(path.resolve(config.workspaceDir))
   const sessionId = config.sessionId
   const unsandboxed = config.unsandboxed === true
+  const mountedFolders = resolveMountedFolders(config.mountedFolders ?? []).map((folder) => ({
+    ...folder,
+    hostPath: fs.realpathSync(path.resolve(folder.hostPath)),
+  }))
   setLastSessionId(sessionId)
 
   const pi = await loadPi()
@@ -222,6 +228,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     unsandboxed,
     skillsDir,
     skills,
+    mountedFolders,
     ...(capabilities.ownSession
       ? {
           baseTools: capabilities.ownSession.baseTools,
@@ -242,6 +249,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     workspaceDir,
     baseUrl: runtime.baseUrl,
     unsandboxed,
+    mountedFolders,
   })
 
   const sessionFilePath = loadSessionFilePath(sessionId, workspaceDir)

@@ -308,6 +308,62 @@ describe('session reuse', () => {
     expect(disposed).toHaveLength(1)
   })
 
+  describe('Mounted Folders', () => {
+    const mountOf = (hostPath: string) => ({
+      hostPath,
+      name: path.basename(hostPath),
+      access: 'read-only' as const,
+    })
+
+    it('rebuilds when the list changes, keeping the conversation', async () => {
+      const manager = await loadManager()
+      await manager.startAgentTurn('t1', 'first', configFor())
+      await manager.startAgentTurn(
+        't2',
+        'second',
+        configFor({ mountedFolders: [mountOf(workspaceB)] }),
+      )
+
+      expect(createAgentSession).toHaveBeenCalledTimes(2)
+      expect(disposed).toHaveLength(1)
+      expect(openSession).toHaveBeenLastCalledWith(sessionFiles[0], expect.anything(), workspaceA)
+    })
+
+    it('reuses the session while the list is unchanged', async () => {
+      const manager = await loadManager()
+      const config = configFor({ mountedFolders: [mountOf(workspaceB)] })
+      await manager.startAgentTurn('t1', 'first', config)
+      await manager.startAgentTurn(
+        't2',
+        'second',
+        configFor({ mountedFolders: [mountOf(workspaceB)] }),
+      )
+
+      expect(createAgentSession).toHaveBeenCalledTimes(1)
+    })
+
+    it('mounts each folder by its real path and lists it in the prompt', async () => {
+      const linked = path.join(path.dirname(workspaceB), 'linked-notes')
+      fs.symlinkSync(workspaceB, linked)
+      const manager = await loadManager()
+      await manager.startAgentTurn(
+        't1',
+        'first',
+        configFor({ mountedFolders: [{ hostPath: linked, name: 'notes', access: 'read-only' }] }),
+      )
+
+      const expected = [{ hostPath: workspaceB, name: 'notes', access: 'read-only' }]
+      const { createAgentToolAccess } = await import('../../agent/piToolOperations')
+      expect(vi.mocked(createAgentToolAccess).mock.lastCall?.[0]).toMatchObject({
+        mountedFolders: expected,
+      })
+      const { buildWorkspaceInstructions } = await import('../../agent/piWorkspaceRuntime')
+      expect(vi.mocked(buildWorkspaceInstructions).mock.lastCall?.[0]).toMatchObject({
+        mountedFolders: expected,
+      })
+    })
+  })
+
   it('refuses a second turn for the same session while one is running', async () => {
     const manager = await loadManager()
     let release = () => {}

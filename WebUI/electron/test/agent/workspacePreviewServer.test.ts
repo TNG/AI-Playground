@@ -135,4 +135,22 @@ describe('workspace instructions', () => {
     expect(instructions).toContain('python3')
     expect(instructions).not.toContain('no script interpreter')
   })
+
+  it('lists each Mounted Folder with its access mode and host folder', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      mountedFolders: [
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/notes', name: 'notes-2', access: 'read-only' },
+      ],
+    })
+
+    expect(instructions).toContain('/mnt/notes (read-only) is /Users/ada/notes on the host')
+    expect(instructions).toContain('/mnt/notes-2 (read-only) is /Volumes/usb/notes on the host')
+    expect(instructions).toMatch(/new files belong in your working directory/i)
+  })
+
+  it('says nothing about Mounted Folders when there are none', () => {
+    expect(buildWorkspaceInstructions(options)).not.toContain('/mnt/')
+  })
 })

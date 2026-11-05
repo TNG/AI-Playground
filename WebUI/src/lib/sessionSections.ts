@@ -13,7 +13,9 @@ export type PinnedToggle = { action: 'more'; count: number } | { action: 'less' 
 export type SessionSection =
   | { id: 'pinned'; sessions: SessionSummary[]; toggle: PinnedToggle }
   | { id: 'groups'; groups: SessionGroupListing[] }
-  | { id: 'recent'; sessions: SessionSummary[] }
+  | { id: DateBucket; sessions: SessionSummary[] }
+
+export type DateBucket = 'today' | 'yesterday' | 'previous7Days' | 'older'
 
 export type SessionSectionId = SessionSection['id']
 
@@ -25,7 +27,13 @@ export type SessionSectionsInput = {
   untitled: string
   openSessionId: string | null
   pinnedShowMore: boolean
+  now: number
+  /** Sessions with a turn running, queued or paused: they are listed under Today. */
+  liveSessionIds: ReadonlySet<string>
 }
+
+const DATE_BUCKETS: DateBucket[] = ['today', 'yesterday', 'previous7Days', 'older']
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const PINNED_SHOWN = 3
 
@@ -48,6 +56,23 @@ function newestFirst(a: SessionSummary, b: SessionSummary): number {
   return b.updatedAt - a.updatedAt || b.createdAt - a.createdAt
 }
 
+/** Whole local calendar days from `time` to `now`; a daylight-saving change cannot shift it. */
+function calendarDaysBack(time: number, now: number): number {
+  const day = (t: number) => {
+    const d = new Date(t)
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+  }
+  return Math.round((day(now) - day(time)) / DAY_MS)
+}
+
+function dateBucket(time: number, now: number): DateBucket {
+  const days = calendarDaysBack(time, now)
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days <= 7) return 'previous7Days'
+  return 'older'
+}
+
 export function sessionSections({
   sessions,
   groups,
@@ -55,6 +80,8 @@ export function sessionSections({
   untitled,
   openSessionId,
   pinnedShowMore,
+  now,
+  liveSessionIds,
 }: SessionSectionsInput): SessionSection[] {
   const needle = query.trim().toLocaleLowerCase()
   const contains = (text: string) => text.toLocaleLowerCase().includes(needle)
@@ -97,7 +124,12 @@ export function sessionSections({
     result.push(pinnedSection(pinned, needle !== '', openSessionId, pinnedShowMore))
   }
   if (listings.length > 0) result.push({ id: 'groups', groups: listings })
-  if (recent.length > 0) result.push({ id: 'recent', sessions: recent })
+  const bucketOf = (s: SessionSummary) =>
+    liveSessionIds.has(s.id) ? 'today' : dateBucket(s.updatedAt, now)
+  for (const bucket of DATE_BUCKETS) {
+    const listed = recent.filter((s) => bucketOf(s) === bucket)
+    if (listed.length > 0) result.push({ id: bucket, sessions: listed })
+  }
   return result
 }
 

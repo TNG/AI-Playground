@@ -104,10 +104,7 @@
             :aria-label="sectionLabel(section.id)"
             class="flex flex-col gap-1.5"
           >
-            <h3
-              v-if="sections.length > 1 || section.id !== 'recent'"
-              class="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            >
+            <h3 class="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {{ sectionLabel(section.id) }}
             </h3>
             <template v-if="section.id === 'groups'">
@@ -198,13 +195,18 @@ const sections = computed(() =>
     untitled: i18nState.SESSIONS_UNTITLED,
     openSessionId: sessions.openSessionId,
     pinnedShowMore: sessions.pinnedShowMore,
+    now: Date.now(),
+    liveSessionIds: new Set(Object.keys(sessions.turns)),
   }),
 )
 
 const SECTION_LABELS: Record<SessionSectionId, string> = {
   pinned: 'SESSIONS_SECTION_PINNED',
   groups: 'SESSIONS_SECTION_GROUPS',
-  recent: 'SESSIONS_SECTION_RECENT',
+  today: 'SESSIONS_SECTION_TODAY',
+  yesterday: 'SESSIONS_SECTION_YESTERDAY',
+  previous7Days: 'SESSIONS_SECTION_PREVIOUS_7_DAYS',
+  older: 'SESSIONS_SECTION_OLDER',
 }
 
 function sectionLabel(id: SessionSectionId) {

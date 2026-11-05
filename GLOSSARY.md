@@ -25,9 +25,12 @@ Sessions. A Session is in at most one Session Group; deleting a Session Group ke
 _Avoid_: folder, project, collection, category
 
 **Pinned Session**:
-A Session the user keeps at the top of the sessions panel, above Session Groups and recent ones,
-until unpinned. Pinning does not take a Session out of its Session Group.
+A Session the user keeps at the top of the sessions panel, above Session Groups and Recent
+Sessions, until unpinned. Pinning does not take a Session out of its Session Group.
 _Avoid_: favourite, starred
+
+**Recent Session**:
+A Session that is neither pinned nor in a Session Group, listed by when it was last used.
 
 **Harness Session**:
 The agent harness's own conversation inside a Session, one per Agent Preset used there; it carries

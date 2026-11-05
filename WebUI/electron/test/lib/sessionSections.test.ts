@@ -25,7 +25,12 @@ function sections(
   sessions: SessionSummary[],
   query = '',
   groups: SessionGroup[] = [],
-  view: { openSessionId?: string | null; pinnedShowMore?: boolean } = {},
+  view: {
+    openSessionId?: string | null
+    pinnedShowMore?: boolean
+    now?: number
+    liveSessionIds?: string[]
+  } = {},
 ) {
   return sessionSections({
     sessions,
@@ -34,7 +39,16 @@ function sections(
     untitled: UNTITLED,
     openSessionId: view.openSessionId ?? null,
     pinnedShowMore: view.pinnedShowMore ?? false,
+    now: view.now ?? NOW,
+    liveSessionIds: new Set(view.liveSessionIds ?? []),
   })
+}
+
+/** Tuesday 10 March 2026, 12:00 local time. */
+const NOW = new Date(2026, 2, 10, 12, 0).getTime()
+
+function at(day: number, hour = 12, minute = 0) {
+  return new Date(2026, 2, day, hour, minute).getTime()
 }
 
 function holdsOpenOf(result: SessionSection[]) {
@@ -61,13 +75,13 @@ function ids(result: SessionSection[]) {
 }
 
 describe('sessionSections', () => {
-  it('lists every Session under Recent, newest turn first', () => {
+  it('lists Sessions in a bucket newest turn first', () => {
     const sessions = [
       session('old', { updatedAt: 1 }),
       session('new', { updatedAt: 3 }),
       session('mid', { updatedAt: 2 }),
     ]
-    expect(ids(sections(sessions))).toEqual([['recent', ['new', 'mid', 'old']]])
+    expect(ids(sections(sessions))).toEqual([['older', ['new', 'mid', 'old']]])
   })
 
   it('breaks a tie in last turn by the newer Session', () => {
@@ -75,7 +89,7 @@ describe('sessionSections', () => {
       session('first', { createdAt: 1, updatedAt: 5 }),
       session('second', { createdAt: 2, updatedAt: 5 }),
     ]
-    expect(ids(sections(sessions))).toEqual([['recent', ['second', 'first']]])
+    expect(ids(sections(sessions))).toEqual([['older', ['second', 'first']]])
   })
 
   it('shows no sections when there are no Sessions', () => {
@@ -88,12 +102,12 @@ describe('sessionSections', () => {
       session('b', { title: 'Grocery list', updatedAt: 3 }),
       session('c', { title: 'LISBON trip plan', updatedAt: 1 }),
     ]
-    expect(ids(sections(sessions, '  lisbon '))).toEqual([['recent', ['a', 'c']]])
+    expect(ids(sections(sessions, '  lisbon '))).toEqual([['older', ['a', 'c']]])
   })
 
   it('matches an untitled Session by the Title the panel shows for it', () => {
     const sessions = [session('blank', { title: '' }), session('named', { title: 'Logo ideas' })]
-    expect(ids(sections(sessions, 'untitled'))).toEqual([['recent', ['blank']]])
+    expect(ids(sections(sessions, 'untitled'))).toEqual([['older', ['blank']]])
   })
 
   it('shows no sections when nothing matches', () => {
@@ -101,29 +115,29 @@ describe('sessionSections', () => {
   })
 
   it('lists everything for a blank query', () => {
-    expect(ids(sections([session('a', { title: 'Logo' })], '   '))).toEqual([['recent', ['a']]])
+    expect(ids(sections([session('a', { title: 'Logo' })], '   '))).toEqual([['older', ['a']]])
   })
 
-  it('lists a Session the user named in Recent, where it was before its Name', () => {
+  it('lists a Session the user named in Older, where it was before its Name', () => {
     const sessions = [
       session('plain', { updatedAt: 1 }),
       session('named', { title: 'Foxes', renamed: true, updatedAt: 2 }),
     ]
-    expect(ids(sections(sessions))).toEqual([['recent', ['named', 'plain']]])
+    expect(ids(sections(sessions))).toEqual([['older', ['named', 'plain']]])
   })
 
-  it('keeps an unreadable Session in Recent', () => {
+  it('keeps an unreadable Session in Older', () => {
     const sessions = [
       session('broken', { title: 'Unavailable session', unreadable: true, updatedAt: 2 }),
       session('pinned', { pinned: true, updatedAt: 1 }),
     ]
     expect(ids(sections(sessions))).toEqual([
       ['pinned', ['pinned']],
-      ['recent', ['broken']],
+      ['older', ['broken']],
     ])
   })
 
-  it('lists Pinned above Recent, newest turn first', () => {
+  it('lists Pinned above the date buckets, newest turn first', () => {
     const sessions = [
       session('recent', { updatedAt: 6 }),
       session('pinned-old', { pinned: true, updatedAt: 1 }),
@@ -131,7 +145,7 @@ describe('sessionSections', () => {
     ]
     expect(ids(sections(sessions))).toEqual([
       ['pinned', ['pinned-new', 'pinned-old']],
-      ['recent', ['recent']],
+      ['older', ['recent']],
     ])
   })
 
@@ -141,7 +155,7 @@ describe('sessionSections', () => {
     ])
   })
 
-  it('lists Groups between Pinned and Recent, each with its Sessions newest first', () => {
+  it('lists Groups between Pinned and the date buckets, each with its Sessions newest first', () => {
     const sessions = [
       session('recent', { updatedAt: 9 }),
       session('pinned', { pinned: true, updatedAt: 1 }),
@@ -151,7 +165,7 @@ describe('sessionSections', () => {
     expect(ids(sections(sessions, '', [group('trip')]))).toEqual([
       ['pinned', ['pinned']],
       ['groups', [['trip', ['in-new', 'in-old']]]],
-      ['recent', ['recent']],
+      ['older', ['recent']],
     ])
   })
 
@@ -230,7 +244,7 @@ describe('sessionSections', () => {
     expect(expandedOf(sections(sessions, 'lisbon', groups))).toEqual({ a: true })
   })
 
-  it('lists a Session whose Group cannot be found in Recent', () => {
+  it('lists a Session whose Group cannot be found in Older', () => {
     const sessions = [
       session('lost', { groupId: 'gone' }),
       session('pinned-lost', { pinned: true, groupId: 'gone' }),
@@ -238,20 +252,20 @@ describe('sessionSections', () => {
     expect(ids(sections(sessions, '', [group('other')]))).toEqual([
       ['pinned', ['pinned-lost']],
       ['groups', [['other', []]]],
-      ['recent', ['lost']],
+      ['older', ['lost']],
     ])
   })
 
-  it('lists an unreadable Session in Recent even if it claims a Group', () => {
+  it('lists an unreadable Session in Older even if it claims a Group', () => {
     const sessions = [session('broken', { unreadable: true, groupId: 'trip' })]
     expect(ids(sections(sessions, '', [group('trip')]))).toEqual([
       ['groups', [['trip', []]]],
-      ['recent', ['broken']],
+      ['older', ['broken']],
     ])
   })
 
   it('shows no Groups section without Groups', () => {
-    expect(ids(sections([session('a')], '', []))).toEqual([['recent', ['a']]])
+    expect(ids(sections([session('a')], '', []))).toEqual([['older', ['a']]])
   })
 
   it('narrows Group members by Title while searching and hides Groups left empty', () => {
@@ -279,7 +293,7 @@ describe('sessionSections', () => {
     const groups = [group('trip', { name: 'Lisbon' }), group('other', { name: 'Porto' })]
     expect(ids(sections([session('a', { title: 'Lisbon notes' })], 'lisbon', groups))).toEqual([
       ['groups', [['trip', []]]],
-      ['recent', ['a']],
+      ['older', ['a']],
     ])
   })
 
@@ -290,6 +304,107 @@ describe('sessionSections', () => {
     expect(stored.expanded).toBe(false)
     expect(expandedOf(sections([session('a1', { groupId: 'trip' })], '', [stored]))).toEqual({
       trip: false,
+    })
+  })
+
+  describe('date buckets', () => {
+    it('buckets Recent Sessions by the local calendar day of their last turn', () => {
+      const sessions = [
+        session('midnight', { updatedAt: at(10, 0, 0) }),
+        session('late-yesterday', { updatedAt: at(9, 23, 59) }),
+        session('early-yesterday', { updatedAt: at(9, 0, 0) }),
+        session('two-days', { updatedAt: at(8, 23, 59) }),
+        session('seven-days', { updatedAt: at(3, 0, 0) }),
+        session('eight-days', { updatedAt: at(2, 23, 59) }),
+      ]
+      expect(ids(sections(sessions))).toEqual([
+        ['today', ['midnight']],
+        ['yesterday', ['late-yesterday', 'early-yesterday']],
+        ['previous7Days', ['two-days', 'seven-days']],
+        ['older', ['eight-days']],
+      ])
+    })
+
+    it('lists a Session with a running, queued or paused turn under Today, in its place by date', () => {
+      const sessions = [
+        session('today', { updatedAt: at(10, 9) }),
+        session('live-last-month', { updatedAt: new Date(2026, 1, 3).getTime() }),
+        session('settled-last-month', { updatedAt: new Date(2026, 1, 2).getTime() }),
+      ]
+      expect(ids(sections(sessions, '', [], { liveSessionIds: ['live-last-month'] }))).toEqual([
+        ['today', ['today', 'live-last-month']],
+        ['older', ['settled-last-month']],
+      ])
+    })
+
+    it('keeps a Session in its calendar day across a daylight-saving change', () => {
+      const zone = process.env.TZ
+      process.env.TZ = 'Europe/Berlin'
+      try {
+        const now = new Date(2026, 2, 30, 0, 30).getTime()
+        const sessions = [
+          session('before-the-switch', { updatedAt: new Date(2026, 2, 28, 23, 30).getTime() }),
+        ]
+        expect(ids(sections(sessions, '', [], { now }))).toEqual([
+          ['previous7Days', ['before-the-switch']],
+        ])
+      } finally {
+        process.env.TZ = zone
+      }
+    })
+
+    it('shows a lone bucket with its heading and leaves empty buckets out', () => {
+      expect(ids(sections([session('a', { updatedAt: at(10, 8) })]))).toEqual([['today', ['a']]])
+      expect(ids(sections([session('a', { updatedAt: at(5) })]))).toEqual([
+        ['previous7Days', ['a']],
+      ])
+    })
+
+    it('orders each bucket newest turn first, the newer Session breaking a tie', () => {
+      const sessions = [
+        session('first', { createdAt: 1, updatedAt: at(9, 10) }),
+        session('second', { createdAt: 2, updatedAt: at(9, 10) }),
+        session('latest', { createdAt: 0, updatedAt: at(9, 20) }),
+      ]
+      expect(ids(sections(sessions))).toEqual([['yesterday', ['latest', 'second', 'first']]])
+    })
+
+    it('lists a Session with no turn yet by when it was created', () => {
+      const fresh = session('fresh', { createdAt: at(10, 11), updatedAt: at(10, 11) })
+      expect(ids(sections([fresh]))).toEqual([['today', ['fresh']]])
+    })
+
+    it('buckets an unreadable Session by the time it reports', () => {
+      const broken = session('broken', { unreadable: true, pinned: true, updatedAt: at(9, 8) })
+      expect(ids(sections([broken]))).toEqual([['yesterday', ['broken']]])
+    })
+
+    it('does not split Pinned Sessions or Session Groups by date', () => {
+      const sessions = [
+        session('pin-today', { pinned: true, updatedAt: at(10, 9) }),
+        session('pin-old', { pinned: true, updatedAt: at(1) }),
+        session('in-today', { groupId: 'trip', updatedAt: at(10, 8) }),
+        session('in-old', { groupId: 'trip', updatedAt: at(1) }),
+        session('loose', { updatedAt: at(9) }),
+      ]
+      expect(ids(sections(sessions, '', [group('trip')]))).toEqual([
+        ['pinned', ['pin-today', 'pin-old']],
+        ['groups', [['trip', ['in-today', 'in-old']]]],
+        ['yesterday', ['loose']],
+      ])
+    })
+
+    it('keeps the headings while searching, each bucket narrowed to its matches', () => {
+      const sessions = [
+        session('today-hit', { title: 'Lisbon walk', updatedAt: at(10, 9) }),
+        session('today-miss', { title: 'Groceries', updatedAt: at(10, 8) }),
+        session('yesterday-miss', { title: 'Packing', updatedAt: at(9) }),
+        session('older-hit', { title: 'LISBON flights', updatedAt: at(1) }),
+      ]
+      expect(ids(sections(sessions, 'lisbon'))).toEqual([
+        ['today', ['today-hit']],
+        ['older', ['older-hit']],
+      ])
     })
   })
 

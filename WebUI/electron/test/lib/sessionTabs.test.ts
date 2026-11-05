@@ -183,15 +183,15 @@ describe('schedulesPanel', () => {
     })
   })
 
-  it("offers the save bar, Steps and only the preset's own Agent under a saved Agent Preset", () => {
+  it("lets a saved Agent Preset run its own Agent and schedule it here, but not edit it", () => {
     expect(schedulesPanel('one-agent')).toEqual({
-      editSteps: true,
-      editNote: false,
+      editSteps: false,
+      editNote: true,
       agentList: {
         listed: 'preset-agent',
         load: false,
         saveAsPreset: false,
-        manage: true,
+        manage: false,
         run: true,
         editSchedule: true,
       },

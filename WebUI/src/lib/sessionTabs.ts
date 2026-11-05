@@ -122,13 +122,13 @@ export function schedulesPanel(allowance: SchedulesAllowance): SchedulesPanel {
       }
     case 'one-agent':
       return {
-        editSteps: true,
-        editNote: false,
+        editSteps: false,
+        editNote: true,
         agentList: {
           listed: 'preset-agent',
           load: false,
           saveAsPreset: false,
-          manage: true,
+          manage: false,
           run: true,
           editSchedule: true,
         },

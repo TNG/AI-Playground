@@ -11,6 +11,20 @@ export class AppShellPage {
     return this.page.getByRole('button', { name: 'App Settings' })
   }
 
+  get header(): Locator {
+    return this.page.getByRole('banner')
+  }
+
+  get sessionsPanel(): Locator {
+    return this.page.getByRole('region', { name: 'Sessions' })
+  }
+
+  get openDeveloperConsoleButton(): Locator {
+    return this.page
+      .getByRole('region', { name: 'App Settings' })
+      .getByRole('button', { name: 'Open Developer Console' })
+  }
+
   get footer(): Locator {
     return this.page.getByRole('contentinfo')
   }

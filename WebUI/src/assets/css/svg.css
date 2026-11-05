@@ -17,14 +17,6 @@
   --svg: url('@/assets/svg/uncheck.svg');
 }
 
-.i-setup {
-  --svg: url('@/assets/svg/setup.svg');
-}
-
-.i-code {
-  --svg: url('@/assets/svg/code.svg');
-}
-
 .i-mini {
   --svg: url('@/assets/svg/mini.svg');
 }

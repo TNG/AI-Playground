@@ -154,7 +154,12 @@
           <Label class="whitespace-nowrap">{{
             languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE_ON_STARTUP
           }}</Label>
-          <Checkbox id="open-dev-console" v-model="developerSettings.openDevConsoleOnStartup" />
+          <div class="flex items-center gap-3">
+            <Button variant="outline" size="sm" @click="openDevTools">
+              {{ languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE }}
+            </Button>
+            <Checkbox id="open-dev-console" v-model="developerSettings.openDevConsoleOnStartup" />
+          </div>
         </div>
         <div class="flex justify-between pr-4 items-center gap-4 mb-4">
           <div class="flex items-center gap-2">
@@ -505,6 +510,10 @@ async function loadPresetsFromIntel() {
 function openSetupWizard() {
   if (demoMode.enabled) return
   setupWizardStore.openWizard()
+}
+
+function openDevTools() {
+  window.electronAPI.openDevTools()
 }
 </script>
 

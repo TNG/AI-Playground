@@ -57,6 +57,21 @@
       >
         <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
       </button>
+      <TooltipProvider v-if="globalSetup.loadingState === 'running'" :delay-duration="200">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              id="app-settings-button"
+              type="button"
+              :aria-label="languages.COM_APP_SETTINGS"
+              @click="openAppSettings"
+            >
+              <Cog6ToothIcon class="size-6 text-foreground"></Cog6ToothIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.COM_APP_SETTINGS }}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <button
         v-if="globalSetup.loadingState === 'running'"
         id="contextual-help-toggle"
@@ -165,24 +180,7 @@
       'border-t border-border': theme.active === 'dark',
     }"
   >
-    <SessionsPanel>
-      <template #footer>
-        <div id="app-settings-button" class="relative">
-          <button
-            @click="openAppSettings"
-            class="svg-icon i-setup w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-            title="App Settings"
-          ></button>
-        </div>
-        <DemoModeBlocker>
-          <button
-            @click="openDevTools"
-            class="svg-icon i-code w-6 h-6 text-foreground hover:text-foreground/80 transition-colors"
-            title="Developer Tools"
-          ></button>
-        </DemoModeBlocker>
-      </template>
-    </SessionsPanel>
+    <SessionsPanel />
 
     <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
 
@@ -281,7 +279,7 @@ import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
-import { CircleStackIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
+import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
 import ModelManager from '@/views/ModelManager.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
@@ -301,7 +299,6 @@ import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
-import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
 import HomeAgentToggle from '@/components/HomeAgentToggle.vue'

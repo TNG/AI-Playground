@@ -27,5 +27,18 @@ test.describe('App shell', () => {
       await expect(footer.getByRole('img')).toHaveCount(0)
       await expect(window.getByRole('button', { name: /(hide|show) footer/i })).toHaveCount(0)
     })
+
+    await test.step('App Settings opens from the header and holds the developer console', async () => {
+      const shell = app.shell
+      await expect(shell.header.getByRole('button', { name: 'App Settings' })).toBeVisible()
+      await expect(shell.sessionsPanel.getByRole('button', { name: 'App Settings' })).toHaveCount(0)
+      await expect(
+        shell.sessionsPanel.getByRole('button', { name: 'Developer Tools' }),
+      ).toHaveCount(0)
+
+      await shell.openAppSettings()
+      await expect(shell.openDeveloperConsoleButton).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
   })
 })

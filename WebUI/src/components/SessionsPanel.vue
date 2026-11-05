@@ -163,10 +163,6 @@
         </div>
       </template>
       <div v-else class="flex-1"></div>
-
-      <div class="flex-none flex items-center gap-3 px-3 py-3" :class="{ 'flex-col': collapsed }">
-        <slot name="footer" />
-      </div>
     </TooltipProvider>
   </aside>
 </template>

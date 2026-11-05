@@ -503,7 +503,10 @@ export async function startAgentTurn(
         const failure = modelCallError(current.session)
         if (failure) throw new Error(failure)
       }
-      await current.session.prompt(await withSessionUpdate(prompt, config))
+      const note = current.mountedFoldersNote
+      current.mountedFoldersNote = undefined
+      const withUpdate = await withSessionUpdate(prompt, config)
+      await current.session.prompt(note ? `${note}\n\n${withUpdate}` : withUpdate)
       failIfModelErrored()
       // A session that plans first has only been asked for the plan so far; the
       // build is a second request, sent from here rather than by the user.
@@ -533,6 +536,7 @@ export async function startAgentTurn(
       workspaceDir: current.workspaceDir,
       sessionFilePath: current.session.getSessionStats().sessionFile ?? '',
       updatedAt: Date.now(),
+      mountedFolders: current.mountedFolders,
     })
     return { success: true }
   } catch (error) {

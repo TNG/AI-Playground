@@ -402,6 +402,86 @@ describe('session reuse', () => {
         mountedFolders: expected,
       })
     })
+
+    it('fails the turn naming a missing folder, and runs again once it is back', async () => {
+      const notes = path.join(path.dirname(workspaceB), 'notes')
+      const config = configFor({
+        mountedFolders: [{ hostPath: notes, name: 'my-notes', access: 'read-only' }],
+      })
+      const manager = await loadManager()
+
+      const failed = await manager.startAgentTurn('t1', 'first', config)
+
+      expect(failed.success).toBe(false)
+      expect(!failed.success && failed.error).toContain('my-notes')
+      expect(!failed.success && failed.error).toContain(notes)
+      expect(createAgentSession).not.toHaveBeenCalled()
+
+      fs.mkdirSync(notes)
+      expect(await manager.startAgentTurn('t2', 'second', config)).toEqual({ success: true })
+    })
+
+    async function promptsSent(): Promise<string[]> {
+      const sessions = await Promise.all(
+        createAgentSession.mock.results.map(async (result) => (await result.value).session),
+      )
+      return sessions.flatMap((session: FakeSession) =>
+        session.prompt.mock.calls.map(([text]) => text as string),
+      )
+    }
+
+    it('tells the next turn which folders were added and removed', async () => {
+      const old = path.join(path.dirname(workspaceB), 'old')
+      fs.mkdirSync(old)
+      const manager = await loadManager()
+      await manager.startAgentTurn('t1', 'first', configFor({ mountedFolders: [mountOf(old)] }))
+      const changed = configFor({
+        mountedFolders: [{ hostPath: workspaceB, name: 'notes', access: 'read-write' }],
+      })
+      await manager.startAgentTurn('t2', 'second', changed)
+      await manager.startAgentTurn('t3', 'third', changed)
+
+      const [first, second, third] = await promptsSent()
+      expect(first).toBe('first')
+      expect(third).toBe('third')
+      const [note, ...rest] = second.split('\n')
+      expect(rest.join('\n').trim()).toBe('second')
+      expect(note).toMatch(/added.*\/mnt\/notes \(read-write\)/i)
+      expect(note).toMatch(/removed.*\/mnt\/old/i)
+    })
+
+    it('still tells the turn after a restart', async () => {
+      const old = path.join(path.dirname(workspaceB), 'old')
+      fs.mkdirSync(old)
+      await (
+        await loadManager()
+      ).startAgentTurn('t1', 'first', configFor({ mountedFolders: [mountOf(old)] }))
+      vi.resetModules()
+      await (await loadManager()).startAgentTurn('t2', 'second', configFor())
+
+      const [, second] = await promptsSent()
+      expect(second).toMatch(/removed.*\/mnt\/old/i)
+      expect(second).not.toMatch(/added/i)
+    })
+
+    it('fails a turn that would reuse the session once its folder has gone', async () => {
+      const notes = path.join(path.dirname(workspaceB), 'notes')
+      fs.mkdirSync(notes)
+      const config = configFor({ mountedFolders: [mountOf(notes)] })
+      const manager = await loadManager()
+      await manager.startAgentTurn('t1', 'first', config)
+      const { session } = (await createAgentSession.mock.results[0].value) as {
+        session: FakeSession
+      }
+
+      fs.rmSync(notes, { recursive: true })
+      fs.writeFileSync(notes, 'a file now, not a folder')
+      const failed = await manager.startAgentTurn('t2', 'second', config)
+
+      expect(failed.success).toBe(false)
+      expect(!failed.success && failed.error).toContain(notes)
+      expect(session.prompt).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('refuses a second turn for the same session while one is running', async () => {

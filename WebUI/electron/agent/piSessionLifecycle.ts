@@ -18,6 +18,7 @@ import { resolveCapabilities, type CapabilityHost } from './capabilities/index.t
 import { enabledCapabilityIds } from '@/types/agentCapabilities'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { createAgentToolAccess } from './piToolOperations.ts'
+import { assertMountedFoldersPresent, mountedFoldersChangeNote } from './mountedFolderTurn.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
 import { laminarPiExtensionPath } from '../observability/laminar.ts'
@@ -31,7 +32,13 @@ import {
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import { chatModelFromAgentConfig } from './chatModelFromAgent.ts'
 import { setMediaSpecialistTurn } from './capabilities/mediaDelegation.ts'
-import { piAgentDir, piSessionDir, loadSessionFilePath, savePointer } from './piSessionStore.ts'
+import {
+  piAgentDir,
+  piSessionDir,
+  loadSessionFilePath,
+  readSessionStore,
+  savePointer,
+} from './piSessionStore.ts'
 import { compactionSettingsForWindow } from './piCompaction.ts'
 import { sessionPaths } from '../session/sessions.ts'
 import { buildSessionHistoryTool } from './sessionHistoryTool.ts'
@@ -259,6 +266,15 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   if (sessionFilePath) {
     logger.info(`resumed Pi session ${sessionId} (${workspaceDir})`, LOG_SOURCE)
   }
+  // Only a resumed conversation has a last turn; a new one learns its folders from the prompt.
+  const previousMountedFolders = sessionFilePath
+    ? (readSessionStore()[sessionId]?.mountedFolders ?? [])
+    : mountedFolders
+  const mountedFoldersNote = mountedFoldersChangeNote(
+    previousMountedFolders,
+    mountedFolders,
+    unsandboxed,
+  )
 
   const announcedSkills = skills.filter((skill) =>
     capabilities.announcedSkillNames.includes(skill.name),
@@ -365,6 +381,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     workspaceDir,
     sessionFilePath: session.getSessionStats().sessionFile ?? '',
     updatedAt: Date.now(),
+    mountedFolders: previousMountedFolders,
   })
 
   return {
@@ -386,6 +403,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // starts empty. A resumed one is past the point where a plan is what is
     // wanted, and the request it reopens with is a change to a finished game.
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
+    mountedFolders,
+    ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
   }
 }
 
@@ -503,6 +522,7 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
 
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
   const config = withShellPolicy(requested)
+  assertMountedFoldersPresent(config.mountedFolders ?? [])
   const configKey = configKeyOf(config)
   if (active && active.configKey === configKey) {
     applyMediaSpecialistTurn(config)

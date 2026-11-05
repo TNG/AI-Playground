@@ -102,6 +102,34 @@ function assertContained(root: string, candidate: string, action: string): void 
 }
 
 /**
+ * Where `candidate` really lands once symlinks are followed, for a path that
+ * may not exist yet: its deepest existing ancestor is resolved and the rest is
+ * appended. A dangling link is followed to its target, which a write creates.
+ */
+async function realDestination(candidate: string, hops = 0): Promise<string> {
+  try {
+    return await fsp.realpath(candidate)
+  } catch {
+    const parent = path.dirname(candidate)
+    if (parent === candidate || hops > 40) return candidate
+    const link = await fsp.readlink(candidate).catch(() => null)
+    if (link !== null) return realDestination(path.resolve(parent, link), hops + 1)
+    return path.join(await realDestination(parent, hops), path.basename(candidate))
+  }
+}
+
+/** {@link assertContained}, then the same check on where symlinks really lead. */
+async function assertReallyContained(
+  root: string,
+  candidate: string,
+  action: string,
+): Promise<void> {
+  assertContained(root, candidate, action)
+  const destination = await realDestination(path.resolve(candidate))
+  assertContained(await realDestination(root), destination, action)
+}
+
+/**
  * Reject a write to a file a one-file session was never meant to produce.
  *
  * `relativePath` is already workspace-relative and POSIX-separated. The refusal
@@ -141,14 +169,20 @@ function toSandboxPath(candidate: string): string {
     .join('/')
 }
 
+/** Sandbox directories the file tools may write below. */
+const SANDBOX_WRITABLE_ROOTS = [SANDBOX_WORKDIR]
+
+function insideSandboxRoot(root: string, candidate: string): boolean {
+  const relative = path.posix.relative(root, path.posix.resolve(SANDBOX_WORKDIR, candidate))
+  return relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative))
+}
+
 /**
  * Same check for sandbox paths, which are always POSIX-style regardless of the
  * host platform (on Windows `path.relative` would mangle them).
  */
-function assertInsideSandboxWorkspace(candidate: string, action: string): void {
-  const resolved = path.posix.resolve(SANDBOX_WORKDIR, candidate)
-  const relative = path.posix.relative(SANDBOX_WORKDIR, resolved)
-  if (relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative))) return
+function assertInsideSandboxRoots(roots: string[], candidate: string, action: string): void {
+  if (roots.some((root) => insideSandboxRoot(root, candidate))) return
   // Without this the write would land in the sandbox's throwaway in-memory root
   // instead of the mounted workspace, and the model would be told it succeeded.
   throw new Error(
@@ -331,7 +365,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
   const write: WriteOperations = {
     writeFile: async (hostPath, content) => {
       const absolutePath = toSandboxPath(hostPath)
-      assertInsideSandboxWorkspace(absolutePath, 'write')
+      assertInsideSandboxRoots(SANDBOX_WRITABLE_ROOTS, absolutePath, 'write')
       assertWritable(absolutePath, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await vfs.mkdir(path.posix.dirname(absolutePath), { recursive: true })
@@ -340,7 +374,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
     },
     mkdir: async (hostPath) => {
       const dir = toSandboxPath(hostPath)
-      assertInsideSandboxWorkspace(dir, 'create a directory')
+      assertInsideSandboxRoots(SANDBOX_WRITABLE_ROOTS, dir, 'create a directory')
       await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
         await vfs.mkdir(dir, { recursive: true })
       })
@@ -352,7 +386,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
     readFile,
     writeFile: async (hostPath, content) => {
       const absolutePath = toSandboxPath(hostPath)
-      assertInsideSandboxWorkspace(absolutePath, 'edit')
+      assertInsideSandboxRoots(SANDBOX_WRITABLE_ROOTS, absolutePath, 'edit')
       assertWritable(absolutePath, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await vfs.writeFile(absolutePath, content)
@@ -375,12 +409,8 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
     exists: (hostPath) => vfs.exists(toSandboxPath(hostPath)),
     glob: async (pattern, hostCwd, options) => {
       const matcher = globToRegExp(pattern)
-      const cwd = toSandboxPath(hostCwd)
-      const root = cwd.endsWith('/') ? cwd : `${cwd}/`
       const matches: string[] = []
-      for (const candidate of vfs.getAllPaths()) {
-        if (!candidate.startsWith(root)) continue
-        const relative = candidate.slice(root.length)
+      for await (const { relative } of walkSandbox(vfs, toSandboxPath(hostCwd))) {
         if (!matcher.test(relative)) continue
         if (options.ignore.some((ignored) => globToRegExp(ignored).test(relative))) continue
         matches.push(relative)
@@ -391,6 +421,58 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
   }
 
   return { read, write, edit, find, ls }
+}
+
+/** Directories a search never descends into, as Pi's own find and grep don't. */
+const SEARCH_SKIPPED_DIRS = new Set(['.git', 'node_modules'])
+
+type WalkedEntry = { filePath: string; relative: string; isDirectory: boolean }
+
+/**
+ * Every entry below `root`, one directory listing at a time: `getAllPaths()` walks every
+ * mount's whole real tree synchronously. Symlinks are listed, never followed.
+ */
+async function* walkSandbox(
+  vfs: IFileSystem,
+  root: string,
+  relativeDir = '',
+): AsyncGenerator<WalkedEntry> {
+  const dir = relativeDir ? path.posix.join(root, relativeDir) : root
+  let names: string[]
+  try {
+    names = [...(await vfs.readdir(dir))].sort()
+  } catch {
+    return
+  }
+  for (const name of names) {
+    const filePath = path.posix.join(dir, name)
+    const relative = relativeDir ? `${relativeDir}/${name}` : name
+    let isDirectory: boolean
+    try {
+      isDirectory = (await vfs.lstat(filePath)).isDirectory
+    } catch {
+      continue
+    }
+    yield { filePath, relative, isDirectory }
+    if (isDirectory && !SEARCH_SKIPPED_DIRS.has(name)) {
+      yield* walkSandbox(vfs, root, relative)
+    }
+  }
+}
+
+/** The files a grep rooted at `searchRoot` reads: the file itself, or those below it. */
+async function* grepCandidates(
+  vfs: IFileSystem,
+  searchRoot: string,
+): AsyncGenerator<{ filePath: string; relative: string }> {
+  if (!(await vfs.exists(searchRoot))) return
+  if (!(await vfs.stat(searchRoot)).isDirectory) {
+    yield { filePath: searchRoot, relative: path.posix.basename(searchRoot) }
+    return
+  }
+  for await (const entry of walkSandbox(vfs, searchRoot)) {
+    if (!entry.isDirectory) yield entry
+  }
 }
 
 /** Cap on grep hits, mirroring the order of magnitude of Pi's own grep tool. */
@@ -436,7 +518,7 @@ function createSandboxGrepTool(pi: PiModule, vfs: IFileSystem): ToolDefinition {
         SANDBOX_WORKDIR,
         toSandboxPath(params.path ?? SANDBOX_WORKDIR),
       )
-      assertInsideSandboxWorkspace(searchRoot, 'search')
+      assertInsideSandboxRoots([SANDBOX_WORKDIR], searchRoot, 'search')
       const limit = params.limit ?? SANDBOX_GREP_LIMIT
       const expression = new RegExp(
         params.literal ? params.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : params.pattern,
@@ -444,20 +526,12 @@ function createSandboxGrepTool(pi: PiModule, vfs: IFileSystem): ToolDefinition {
       )
       const globMatcher = params.glob ? globToRegExp(params.glob) : null
 
-      const prefix = searchRoot.endsWith('/') ? searchRoot : `${searchRoot}/`
-      const candidates = (await vfs.exists(searchRoot))
-        ? (await vfs.stat(searchRoot)).isDirectory
-          ? vfs.getAllPaths().filter((candidate) => candidate.startsWith(prefix))
-          : [searchRoot]
-        : []
-
       const lines: string[] = []
       let truncated = false
-      for (const filePath of candidates) {
-        if (globMatcher && !globMatcher.test(filePath.slice(prefix.length))) continue
+      for await (const { filePath, relative: underRoot } of grepCandidates(vfs, searchRoot)) {
+        if (globMatcher && !globMatcher.test(underRoot)) continue
         let content: string
         try {
-          if ((await vfs.stat(filePath)).isDirectory) continue
           content = await vfs.readFile(filePath)
         } catch {
           continue
@@ -629,7 +703,7 @@ function hostReadOperations(workspaceDir: string): ReadOperations {
 function guardedWriteOperations(workspaceDir: string, writableFiles?: string[]): WriteOperations {
   return {
     writeFile: async (absolutePath, content) => {
-      assertContained(workspaceDir, absolutePath, 'write')
+      await assertReallyContained(workspaceDir, absolutePath, 'write')
       assertHostWritable(workspaceDir, absolutePath, writableFiles, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await fsp.mkdir(path.dirname(absolutePath), { recursive: true })
@@ -637,7 +711,7 @@ function guardedWriteOperations(workspaceDir: string, writableFiles?: string[]):
       })
     },
     mkdir: async (dir) => {
-      assertContained(workspaceDir, dir, 'create a directory')
+      await assertReallyContained(workspaceDir, dir, 'create a directory')
       await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
         await fsp.mkdir(dir, { recursive: true })
       })
@@ -667,14 +741,14 @@ function guardedEditOperations(workspaceDir: string, writableFiles?: string[]): 
         async () => await fsp.readFile(absolutePath),
       ),
     writeFile: async (absolutePath, content) => {
-      assertContained(workspaceDir, absolutePath, 'edit')
+      await assertReallyContained(workspaceDir, absolutePath, 'edit')
       assertHostWritable(workspaceDir, absolutePath, writableFiles, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await fsp.writeFile(absolutePath, content, 'utf8')
       })
     },
     access: async (absolutePath) => {
-      assertContained(workspaceDir, absolutePath, 'edit')
+      await assertReallyContained(workspaceDir, absolutePath, 'edit')
       await fsp.access(absolutePath)
     },
   }
@@ -715,7 +789,7 @@ export const testables = {
   globToRegExp,
   containedIn,
   assertContained,
-  assertInsideSandboxWorkspace,
+  assertInsideSandboxRoots,
   assertWritableFile,
   reportingHostDenials,
   toSandboxPath,

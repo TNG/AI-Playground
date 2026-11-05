@@ -11,6 +11,7 @@ import {
 } from '../../agent/piToolOperations'
 import type { AgentSkill } from '../../agent/piCustomTools'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
+import { InMemoryFs, MountableFs, ReadWriteFs } from 'just-bash'
 
 // The read tool sizes images with Electron's decoder (see imageForModel), which
 // vitest does not have. `decodedSize` is what the stand-in reports for the next
@@ -315,6 +316,58 @@ describe('sandboxed access', () => {
     expect(resultText(found)).toContain('app.ts')
   })
 
+  it('finds by walking from its own directory, skipping .git and node_modules', async () => {
+    fs.mkdirSync(path.join(workspace, 'src/deep'), { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'src/deep/app.md'), 'a')
+    fs.writeFileSync(path.join(workspace, 'top.md'), 'b')
+    fs.mkdirSync(path.join(workspace, '.git'))
+    fs.writeFileSync(path.join(workspace, '.git/HEAD.md'), 'c')
+    fs.mkdirSync(path.join(workspace, 'node_modules/pkg'), { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'node_modules/pkg/README.md'), 'd')
+
+    const text = resultText(await invoke(toolOf(access, 'find'), { pattern: '**/*.md' }))
+
+    expect(text.split('\n').sort()).toEqual(['src/deep/app.md', 'top.md'])
+    expect(text).not.toContain('SKILL.md')
+  })
+
+  it('stops finding at the limit', async () => {
+    for (const name of ['a', 'b', 'c', 'd'])
+      fs.writeFileSync(path.join(workspace, `${name}.ts`), '')
+
+    const text = resultText(await invoke(toolOf(access, 'find'), { pattern: '*.ts', limit: 2 }))
+
+    expect(text.split('\n').filter((line) => line.endsWith('.ts'))).toHaveLength(2)
+    expect(text).toContain('2 results limit reached')
+  })
+
+  // Enumerating every path walks every mount's whole real tree synchronously on
+  // the main process, which a large mounted folder turns into a freeze.
+  it('never enumerates the whole filesystem to find or grep', async () => {
+    const enumerations = [MountableFs, ReadWriteFs, InMemoryFs].map((fsClass) =>
+      vi.spyOn(fsClass.prototype, 'getAllPaths'),
+    )
+    fs.writeFileSync(path.join(workspace, 'app.ts'), 'const answer = 42\n')
+
+    await invoke(toolOf(access, 'find'), { pattern: '**/*.ts' })
+    await invoke(toolOf(access, 'grep'), { pattern: 'answer' })
+
+    for (const enumeration of enumerations) expect(enumeration).not.toHaveBeenCalled()
+    for (const enumeration of enumerations) enumeration.mockRestore()
+  })
+
+  it('greps a subdirectory without reaching files beside it', async () => {
+    fs.mkdirSync(path.join(workspace, 'src'))
+    fs.writeFileSync(path.join(workspace, 'src/app.ts'), 'answer\n')
+    fs.writeFileSync(path.join(workspace, 'root.ts'), 'answer\n')
+
+    const text = resultText(
+      await invoke(toolOf(access, 'grep'), { pattern: 'answer', path: 'src' }),
+    )
+
+    expect(text).toBe('src/app.ts:1:answer')
+  })
+
   it('greps the virtual filesystem instead of the host', async () => {
     fs.mkdirSync(path.join(workspace, 'src'))
     fs.writeFileSync(path.join(workspace, 'src/app.ts'), 'export const answer = 42\n')
@@ -395,6 +448,27 @@ describe('host-shell access', () => {
     ).rejects.toThrow(/outside the workspace/)
 
     expect(fs.readFileSync(outsideFile, 'utf8')).toBe('top secret')
+  })
+
+  it('refuses to write or edit through a symlink that leads out of the workspace', async () => {
+    fs.symlinkSync(outsideDir, path.join(workspace, 'linked-dir'))
+    fs.symlinkSync(outsideFile, path.join(workspace, 'linked-file.txt'))
+
+    await expect(
+      invoke(toolOf(access, 'write'), { path: 'linked-dir/secret.txt', content: 'overwritten' }),
+    ).rejects.toThrow(/outside the workspace folder/)
+    await expect(
+      invoke(toolOf(access, 'write'), { path: 'linked-dir/new/fresh.txt', content: 'planted' }),
+    ).rejects.toThrow(/outside the workspace folder/)
+    await expect(
+      invoke(toolOf(access, 'edit'), {
+        path: 'linked-file.txt',
+        edits: [{ oldText: 'top secret', newText: 'leaked' }],
+      }),
+    ).rejects.toThrow(/outside the workspace/)
+
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('top secret')
+    expect(fs.existsSync(path.join(outsideDir, 'new'))).toBe(false)
   })
 
   it('points the model at the real skill files', async () => {

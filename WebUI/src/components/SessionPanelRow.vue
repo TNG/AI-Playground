@@ -4,6 +4,7 @@
     :groups="sessions.groups"
     :active="session.id === sessions.openSessionId"
     :status="lifecycle.rowStatus(session.id)"
+    :live="session.id in sessions.turns"
     :scheduled="agentTasks.scheduledSessionIds.has(session.id)"
     :create-group="(name) => sessions.createGroup(session.id, name)"
     @open="lifecycle.openSession(session.id)"

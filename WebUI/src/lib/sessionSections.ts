@@ -68,7 +68,7 @@ function calendarDaysBack(time: number, now: number): number {
   return Math.round((day(now) - day(time)) / DAY_MS)
 }
 
-function dateBucket(time: number, now: number): DateBucket {
+export function dateBucket(time: number, now: number): DateBucket {
   const days = calendarDaysBack(time, now)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'

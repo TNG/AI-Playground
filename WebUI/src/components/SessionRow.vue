@@ -54,9 +54,7 @@
         </Tooltip>
       </span>
       <span class="flex items-center gap-2 min-w-0">
-        <span class="text-xs text-muted-foreground shrink-0">{{
-          relativeTime(session.updatedAt)
-        }}</span>
+        <span class="text-xs text-muted-foreground shrink-0">{{ timeLabel }}</span>
         <Tooltip v-if="scheduled">
           <TooltipTrigger as-child>
             <span
@@ -259,9 +257,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
-import { relativeTime } from '@/assets/js/store/recordRows'
 import type { GroupNameRefusal } from '@/assets/js/store/sessions'
 import { sessionRowMarker, type SessionRowStatus } from '@/lib/sessionRowStatus'
+import { sessionTimeLabel } from '@/lib/sessionTimeLabel'
 import type { SessionGroup, SessionSummary } from '@/types/sessionIpc'
 
 const props = defineProps<{
@@ -270,6 +268,8 @@ const props = defineProps<{
   groups: SessionGroup[]
   active: boolean
   status: SessionRowStatus
+  /** A turn is running, queued or paused, so the row is listed under Today. */
+  live?: boolean
   /** One of the Session's Tasks has an enabled Schedule. */
   scheduled?: boolean
   createGroup: (name: string) => Promise<GroupNameRefusal | null>
@@ -298,6 +298,9 @@ const ownGroup = computed(() => props.groups.find((group) => group.id === props.
 const otherGroups = computed(() => props.groups.filter((group) => group !== ownGroup.value))
 
 const title = computed(() => props.session.title || i18nState.SESSIONS_UNTITLED)
+const timeLabel = computed(() =>
+  sessionTimeLabel(props.session.updatedAt, Date.now(), i18n.langName, props.live),
+)
 
 const marker = computed(() => sessionRowMarker(props.status, i18nState, i18n.langName))
 

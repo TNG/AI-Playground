@@ -259,7 +259,7 @@ import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
 import type { GroupNameRefusal } from '@/assets/js/store/sessions'
 import { sessionRowMarker, type SessionRowStatus } from '@/lib/sessionRowStatus'
-import { sessionTimeLabel } from '@/lib/sessionTimeLabel'
+import { sessionTimeLabel, type TimeLabelBucket } from '@/lib/sessionTimeLabel'
 import type { SessionGroup, SessionSummary } from '@/types/sessionIpc'
 
 const props = defineProps<{
@@ -268,8 +268,8 @@ const props = defineProps<{
   groups: SessionGroup[]
   active: boolean
   status: SessionRowStatus
-  /** A turn is running, queued or paused, so the row is listed under Today. */
-  live?: boolean
+  now: number
+  timeBucket: TimeLabelBucket
   /** One of the Session's Tasks has an enabled Schedule. */
   scheduled?: boolean
   createGroup: (name: string) => Promise<GroupNameRefusal | null>
@@ -299,7 +299,7 @@ const otherGroups = computed(() => props.groups.filter((group) => group !== ownG
 
 const title = computed(() => props.session.title || i18nState.SESSIONS_UNTITLED)
 const timeLabel = computed(() =>
-  sessionTimeLabel(props.session.updatedAt, Date.now(), i18n.langName, props.live),
+  sessionTimeLabel(props.session.updatedAt, props.now, i18n.langName, props.timeBucket),
 )
 
 const marker = computed(() => sessionRowMarker(props.status, i18nState, i18n.langName))

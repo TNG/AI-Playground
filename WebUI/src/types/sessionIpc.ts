@@ -63,18 +63,20 @@ export type SessionGroup = z.infer<typeof SessionGroupSchema>
 export const SessionGroupsFileSchema = z.object({
   schemaVersion: z.literal(1),
   groups: z.array(SessionGroupSchema).default([]),
-  /** Whether Pinned lists every pinned Session instead of the three most recent. */
+  /** Whether Pinned lists every pinned Session. */
   pinnedShowMore: z.boolean().default(false),
-  /** Whether Older lists every Session instead of the five most recent. */
+  /** Whether Older lists every Session. */
   olderShowMore: z.boolean().default(false),
 })
 
 export type SessionGroupsFile = z.infer<typeof SessionGroupsFileSchema>
 
-export type SessionGroupsState = Pick<
-  SessionGroupsFile,
-  'groups' | 'pinnedShowMore' | 'olderShowMore'
->
+/** The panel sections that list a few rows until the user asks for all of them. */
+export type ShowMoreSection = 'pinned' | 'older'
+
+export type ShowMore = Record<ShowMoreSection, boolean>
+
+export type SessionGroupsState = { groups: SessionGroup[]; showMore: ShowMore }
 
 export const HistoryEntryKindSchema = z.enum([
   'chat',

@@ -32,6 +32,8 @@ import {
   type SessionGroup,
   type SessionGroupsFile,
   type SessionSummary,
+  type ShowMore,
+  type ShowMoreSection,
 } from '@/types/sessionIpc'
 
 // The Session module (ADR-0003), sole owner of every Session Folder.
@@ -203,11 +205,7 @@ async function readGroupsForWrite(): Promise<SessionGroupsFile> {
 
 async function saveGroupsFile(file: SessionGroupsFile): Promise<void> {
   await writeSessionGroupsFile(file)
-  emitSessionGroupsChanged({
-    groups: file.groups,
-    pinnedShowMore: file.pinnedShowMore,
-    olderShowMore: file.olderShowMore,
-  })
+  emitSessionGroupsChanged({ groups: file.groups, showMore: showMoreOf(file) })
 }
 
 function requireGroup(groups: SessionGroup[], groupId: string): SessionGroup {
@@ -309,25 +307,24 @@ export async function deleteSessionGroup(groupId: string): Promise<void> {
   })
 }
 
-/** Whether Pinned lists every pinned Session; off while the Groups file cannot be read. */
-export async function readPinnedShowMore(): Promise<boolean> {
-  return (await readGroupsFile())?.pinnedShowMore ?? false
+const SHOW_MORE_FIELDS = {
+  pinned: 'pinnedShowMore',
+  older: 'olderShowMore',
+} as const satisfies Record<ShowMoreSection, keyof SessionGroupsFile>
+
+function showMoreOf(file: SessionGroupsFile | null): ShowMore {
+  return { pinned: file?.pinnedShowMore ?? false, older: file?.olderShowMore ?? false }
 }
 
-export async function setPinnedShowMore(shown: boolean): Promise<void> {
+/** Which shortened sections list every Session; all off while the Groups file cannot be read. */
+export async function readShowMore(): Promise<ShowMore> {
+  return showMoreOf(await readGroupsFile())
+}
+
+export async function setShowMore(section: ShowMoreSection, shown: boolean): Promise<void> {
   await serializeSessionGroups(async () => {
-    await saveGroupsFile({ ...(await readGroupsForWrite()), pinnedShowMore: shown })
-  })
-}
-
-/** Whether Older lists every Session; off while the Groups file cannot be read. */
-export async function readOlderShowMore(): Promise<boolean> {
-  return (await readGroupsFile())?.olderShowMore ?? false
-}
-
-export async function setOlderShowMore(shown: boolean): Promise<void> {
-  await serializeSessionGroups(async () => {
-    await saveGroupsFile({ ...(await readGroupsForWrite()), olderShowMore: shown })
+    const file = await readGroupsForWrite()
+    await saveGroupsFile({ ...file, [SHOW_MORE_FIELDS[section]]: shown })
   })
 }
 

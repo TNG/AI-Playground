@@ -55,8 +55,7 @@ beforeEach(async () => {
         list: ok(async () => ({
           sessions: await sessionModule.listSessions(),
           groups: await sessionModule.listSessionGroups(),
-          pinnedShowMore: await sessionModule.readPinnedShowMore(),
-          olderShowMore: await sessionModule.readOlderShowMore(),
+          showMore: await sessionModule.readShowMore(),
         })),
         create: ok(async () => ({ session: await sessionModule.createSession() })),
         open: (id: string) =>
@@ -70,7 +69,8 @@ beforeEach(async () => {
           registry['sessions:renameGroup'](noEvent, groupId, name),
         setGroupExpanded: (groupId: string, expanded: boolean) =>
           registry['sessions:setGroupExpanded'](noEvent, groupId, expanded),
-        setOlderShowMore: (shown: boolean) => registry['sessions:setOlderShowMore'](noEvent, shown),
+        setShowMore: (section: 'pinned' | 'older', shown: boolean) =>
+          registry['sessions:setShowMore'](noEvent, section, shown),
       },
     },
   })
@@ -239,28 +239,26 @@ describe('Sessions store', () => {
       expect(store.groups).toEqual([{ ...group, name: 'Porto', expanded: false }]),
     )
 
-    await sessionModule.setPinnedShowMore(true)
-    await sessionModule.setOlderShowMore(true)
+    await sessionModule.setShowMore('pinned', true)
+    await sessionModule.setShowMore('older', true)
     await sessionModule.deleteSessionGroup(group.id)
     await vi.waitFor(() => expect(store.groups).toEqual([]))
-    expect(store.pinnedShowMore).toBe(true)
-    expect(store.olderShowMore).toBe(true)
+    expect(store.showMore).toEqual({ pinned: true, older: true })
   })
 
   it('shows all of Older at once and reads the choice back on the next boot', async () => {
     const store = useSessions()
     await store.init()
 
-    const saving = store.setOlderShowMore(true)
-    expect(store.olderShowMore).toBe(true)
+    const saving = store.setShowMore('older', true)
+    expect(store.showMore).toEqual({ pinned: false, older: true })
     await saving
-    expect(await sessionModule.readOlderShowMore()).toBe(true)
+    expect(await sessionModule.readShowMore()).toEqual({ pinned: false, older: true })
 
     setActivePinia(createPinia())
     const rebooted = useSessions()
     await rebooted.init()
-    expect(rebooted.olderShowMore).toBe(true)
-    expect(rebooted.pinnedShowMore).toBe(false)
+    expect(rebooted.showMore).toEqual({ pinned: false, older: true })
   })
 
   it('folds Older back when main cannot save the choice', async () => {
@@ -268,9 +266,9 @@ describe('Sessions store', () => {
     await store.init()
     await fs.writeFile(path.join(dirs.real, 'session-groups.json'), '{not json')
 
-    await store.setOlderShowMore(true)
+    await store.setShowMore('older', true)
 
-    expect(store.olderShowMore).toBe(false)
+    expect(store.showMore).toEqual({ pinned: false, older: false })
   })
 
   it("refuses a Group name main finds taken, though this store's list had not seen it", async () => {

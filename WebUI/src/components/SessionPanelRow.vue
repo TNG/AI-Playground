@@ -4,7 +4,8 @@
     :groups="sessions.groups"
     :active="session.id === sessions.openSessionId"
     :status="lifecycle.rowStatus(session.id)"
-    :live="session.id in sessions.turns"
+    :now
+    :time-bucket
     :scheduled="agentTasks.scheduledSessionIds.has(session.id)"
     :create-group="(name) => sessions.createGroup(session.id, name)"
     @open="lifecycle.openSession(session.id)"
@@ -20,9 +21,10 @@ import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import SessionRow from '@/components/SessionRow.vue'
+import type { TimeLabelBucket } from '@/lib/sessionTimeLabel'
 import type { SessionSummary } from '@/types/sessionIpc'
 
-defineProps<{ session: SessionSummary }>()
+defineProps<{ session: SessionSummary; now: number; timeBucket: TimeLabelBucket }>()
 
 const sessions = useSessions()
 const agentTasks = useAgentTasks()

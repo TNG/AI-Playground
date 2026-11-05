@@ -10,6 +10,8 @@ import type {
   SessionSummary,
   SessionTurn,
   SessionTurns,
+  ShowMore,
+  ShowMoreSection,
 } from '@/types/sessionIpc'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { groupToRevealOnOpen } from '@/lib/sessionSections'
@@ -39,8 +41,7 @@ export const useSessions = defineStore('sessions', () => {
 
   const sessions = ref<Record<string, SessionSummary>>({})
   const groups = ref<SessionGroup[]>([])
-  const pinnedShowMore = ref(false)
-  const olderShowMore = ref(false)
+  const showMore = ref<ShowMore>({ pinned: false, older: false })
   const openSessionId = ref<string | null>(null)
   const openTimeline = ref<unknown[]>([])
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
@@ -83,8 +84,7 @@ export const useSessions = defineStore('sessions', () => {
 
   function applyGroups(state: SessionGroupsState): void {
     groups.value = state.groups
-    pinnedShowMore.value = state.pinnedShowMore
-    olderShowMore.value = state.olderShowMore
+    showMore.value = state.showMore
   }
 
   /** Each Session's turn in flight, as main's ledger has it. */
@@ -284,20 +284,12 @@ export const useSessions = defineStore('sessions', () => {
     rememberGroup(result ? result.group : group)
   }
 
-  async function setPinnedShowMore(shown: boolean): Promise<void> {
-    pinnedShowMore.value = shown
-    const result = await call('sessions/pinned-show-more-failed', () =>
-      window.electronAPI.sessions.setPinnedShowMore(shown),
+  async function setShowMore(section: ShowMoreSection, shown: boolean): Promise<void> {
+    showMore.value = { ...showMore.value, [section]: shown }
+    const result = await call('sessions/show-more-failed', () =>
+      window.electronAPI.sessions.setShowMore(section, shown),
     )
-    if (!result) pinnedShowMore.value = !shown
-  }
-
-  async function setOlderShowMore(shown: boolean): Promise<void> {
-    olderShowMore.value = shown
-    const result = await call('sessions/older-show-more-failed', () =>
-      window.electronAPI.sessions.setOlderShowMore(shown),
-    )
-    if (!result) olderShowMore.value = !shown
+    if (!result) showMore.value = { ...showMore.value, [section]: !shown }
   }
 
   /** Saves settled display messages into a Session's timeline; one with a known id is replaced. */
@@ -334,8 +326,7 @@ export const useSessions = defineStore('sessions', () => {
   return {
     sessions,
     groups,
-    pinnedShowMore,
-    olderShowMore,
+    showMore,
     openSessionId,
     openTimeline,
     openDeletedFiles,
@@ -355,8 +346,7 @@ export const useSessions = defineStore('sessions', () => {
     renameGroup,
     deleteGroup,
     setGroupExpanded,
-    setPinnedShowMore,
-    setOlderShowMore,
+    setShowMore,
     remove,
     saveTimelineMessages,
     ensureOpenSession,

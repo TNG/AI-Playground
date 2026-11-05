@@ -22,10 +22,8 @@ import type {
   listSessions,
   moveSessionToGroup,
   openSession,
-  readPinnedShowMore,
-  setPinnedShowMore,
-  readOlderShowMore,
-  setOlderShowMore,
+  readShowMore,
+  setShowMore,
   pinSession,
   renameSession,
   renameSessionGroup,
@@ -57,10 +55,8 @@ export type SessionsDeps = {
   renameSessionGroup: typeof renameSessionGroup
   deleteSessionGroup: typeof deleteSessionGroup
   setSessionGroupExpanded: typeof setSessionGroupExpanded
-  readPinnedShowMore: typeof readPinnedShowMore
-  setPinnedShowMore: typeof setPinnedShowMore
-  readOlderShowMore: typeof readOlderShowMore
-  setOlderShowMore: typeof setOlderShowMore
+  readShowMore: typeof readShowMore
+  setShowMore: typeof setShowMore
   deleteSession: typeof deleteSession
   recordAudioTurn: typeof recordAudioTurn
   listAllArtifacts: typeof listAllArtifacts
@@ -102,13 +98,12 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
   return {
     'sessions:list': async () => {
       try {
-        const [sessions, groups, pinnedShowMore, olderShowMore] = await Promise.all([
+        const [sessions, groups, showMore] = await Promise.all([
           deps.listSessions(),
           deps.listSessionGroups(),
-          deps.readPinnedShowMore(),
-          deps.readOlderShowMore(),
+          deps.readShowMore(),
         ])
-        return { success: true as const, sessions, groups, pinnedShowMore, olderShowMore }
+        return { success: true as const, sessions, groups, showMore }
       } catch (e) {
         return ipcFail(e)
       }
@@ -209,19 +204,11 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
-    'sessions:setPinnedShowMore': async (_event, shown) => {
+    'sessions:setShowMore': async (_event, section, shown) => {
       try {
+        if (section !== 'pinned' && section !== 'older') throw new Error('unknown section')
         if (typeof shown !== 'boolean') throw new Error('show more must be a boolean')
-        await deps.setPinnedShowMore(shown)
-        return { success: true as const }
-      } catch (e) {
-        return ipcFail(e)
-      }
-    },
-    'sessions:setOlderShowMore': async (_event, shown) => {
-      try {
-        if (typeof shown !== 'boolean') throw new Error('show more must be a boolean')
-        await deps.setOlderShowMore(shown)
+        await deps.setShowMore(section, shown)
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

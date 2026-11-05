@@ -49,6 +49,8 @@ import type {
   SessionLastPreset,
   SessionSummary,
   SessionTurn,
+  ShowMore,
+  ShowMoreSection,
 } from './sessionIpc'
 import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
@@ -218,7 +220,7 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string[]],
     result: null as unknown as IpcMutationResult,
   },
-  /** Every Session of the active root (demo or real), newest first, its Session Groups and the Pinned and Older "show more" choices. */
+  /** Every Session of the active root (demo or real), newest first, its Session Groups and "show more" choices. */
   'sessions:list': {
     kind: 'invoke',
     owner: 'main',
@@ -226,8 +228,7 @@ export const CHANNELS = {
     result: null as unknown as IpcOkWith<{
       sessions: SessionSummary[]
       groups: SessionGroup[]
-      pinnedShowMore: boolean
-      olderShowMore: boolean
+      showMore: ShowMore
     }>,
   },
   /** Create a Session and lay out its Session Folder, optionally already in a Session Group. */
@@ -300,18 +301,11 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, boolean],
     result: null as unknown as IpcOkWith<{ group: SessionGroup }>,
   },
-  /** Remember whether Pinned lists every pinned Session or the three most recent; pushes `session-groups-changed`. */
-  'sessions:setPinnedShowMore': {
+  /** Remember whether a shortened panel section lists every Session; pushes `session-groups-changed`. */
+  'sessions:setShowMore': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [boolean],
-    result: null as unknown as IpcMutationResult,
-  },
-  /** Remember whether Older lists every Session or the five most recent; pushes `session-groups-changed`. */
-  'sessions:setOlderShowMore': {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as unknown as readonly [boolean],
+    args: [] as unknown as readonly [ShowMoreSection, boolean],
     result: null as unknown as IpcMutationResult,
   },
   /** Delete a Session and its whole Session Folder. */

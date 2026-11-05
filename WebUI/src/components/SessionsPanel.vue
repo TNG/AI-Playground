@@ -131,18 +131,30 @@
                   :id="`session-group-${listing.group.id}`"
                   class="flex flex-col gap-1.5"
                 >
-                  <SessionPanelRow v-for="session in listing.sessions" :key="session.id" :session />
+                  <SessionPanelRow
+                    v-for="session in listing.sessions"
+                    :key="session.id"
+                    :session
+                    :now
+                    :time-bucket="sectionTimeBucket(section.id)"
+                  />
                 </div>
               </section>
             </template>
             <template v-else>
-              <SessionPanelRow v-for="session in section.sessions" :key="session.id" :session />
+              <SessionPanelRow
+                v-for="session in section.sessions"
+                :key="session.id"
+                :session
+                :now
+                :time-bucket="sectionTimeBucket(section.id)"
+              />
               <Button
-                v-if="(section.id === 'pinned' || section.id === 'older') && section.toggle"
+                v-if="'toggle' in section && section.toggle"
                 variant="ghost"
                 size="sm"
                 class="w-full justify-start text-muted-foreground"
-                @click="setShowMore(section.id, section.toggle.action === 'more')"
+                @click="sessions.setShowMore(section.id, section.toggle.action === 'more')"
               >
                 {{ toggleLabel(section.id, section.toggle) }}
               </Button>
@@ -177,7 +189,13 @@ import SessionPanelRow from '@/components/SessionPanelRow.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { sessionSections, type ShowMoreToggle, type SessionSectionId } from '@/lib/sessionSections'
+import {
+  sectionTimeBucket,
+  sessionSections,
+  type ShowMoreToggle,
+  type SessionSectionId,
+} from '@/lib/sessionSections'
+import type { ShowMoreSection } from '@/types/sessionIpc'
 
 const sessions = useSessions()
 const lifecycle = useSessionLifecycle()
@@ -187,19 +205,22 @@ const i18nState = useI18N().state
 const collapsed = computed(() => ui.sessionsPanelCollapsed)
 const query = ref('')
 
-const sections = computed(() =>
-  sessionSections({
+const listing = computed(() => {
+  const now = Date.now()
+  const sections = sessionSections({
     sessions: sessions.orderedSessions,
     groups: sessions.groups,
     query: query.value,
     untitled: i18nState.SESSIONS_UNTITLED,
     openSessionId: sessions.openSessionId,
-    pinnedShowMore: sessions.pinnedShowMore,
-    olderShowMore: sessions.olderShowMore,
-    now: Date.now(),
+    showMore: sessions.showMore,
+    now,
     liveSessionIds: new Set(Object.keys(sessions.turns)),
-  }),
-)
+  })
+  return { now, sections }
+})
+const sections = computed(() => listing.value.sections)
+const now = computed(() => listing.value.now)
 
 const SECTION_LABELS: Record<SessionSectionId, string> = {
   pinned: 'SESSIONS_SECTION_PINNED',
@@ -214,19 +235,14 @@ function sectionLabel(id: SessionSectionId) {
   return i18nState[SECTION_LABELS[id]]
 }
 
-const TOGGLE_LABELS = {
+const TOGGLE_LABELS: Record<ShowMoreSection, { more: string; less: string }> = {
   pinned: { more: 'SESSIONS_PINNED_SHOW_MORE', less: 'SESSIONS_PINNED_SHOW_LESS' },
   older: { more: 'SESSIONS_OLDER_SHOW_MORE', less: 'SESSIONS_OLDER_SHOW_LESS' },
 }
 
-function toggleLabel(id: 'pinned' | 'older', toggle: NonNullable<ShowMoreToggle>) {
+function toggleLabel(id: ShowMoreSection, toggle: NonNullable<ShowMoreToggle>) {
   return toggle.action === 'more'
     ? i18nState[TOGGLE_LABELS[id].more].replace('{count}', String(toggle.count))
     : i18nState[TOGGLE_LABELS[id].less]
-}
-
-function setShowMore(id: 'pinned' | 'older', shown: boolean) {
-  if (id === 'pinned') sessions.setPinnedShowMore(shown)
-  else sessions.setOlderShowMore(shown)
 }
 </script>

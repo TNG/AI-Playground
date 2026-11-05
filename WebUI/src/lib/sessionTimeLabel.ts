@@ -1,4 +1,7 @@
-import { dateBucket } from '@/lib/sessionSections'
+import type { DateBucket } from '@/lib/sessionSections'
+
+/** How a row's time is worded: for the date bucket it is listed under, or relative at any age. */
+export type TimeLabelBucket = DateBucket | 'relative'
 
 const MINUTE_MS = 60_000
 
@@ -12,10 +15,15 @@ function relativeLabel(time: number, now: number, locale: string): string {
   return format.format(-Math.floor(hours / 24), 'day')
 }
 
-/** A Session row's time, worded for the date bucket it is listed under (a live one under Today). */
-export function sessionTimeLabel(time: number, now: number, locale: string, live = false): string {
-  switch (live ? 'today' : dateBucket(time, now)) {
+export function sessionTimeLabel(
+  time: number,
+  now: number,
+  locale: string,
+  bucket: TimeLabelBucket,
+): string {
+  switch (bucket) {
     case 'today':
+    case 'relative':
       return relativeLabel(time, now, locale)
     case 'yesterday':
       return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(time)

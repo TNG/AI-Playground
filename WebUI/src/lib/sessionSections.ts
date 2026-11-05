@@ -1,4 +1,5 @@
-import type { SessionGroup, SessionSummary } from '@/types/sessionIpc'
+import type { TimeLabelBucket } from '@/lib/sessionTimeLabel'
+import type { SessionGroup, SessionSummary, ShowMore } from '@/types/sessionIpc'
 
 export type SessionGroupListing = {
   group: SessionGroup
@@ -27,10 +28,9 @@ export type SessionSectionsInput = {
   /** The Title the panel shows for a Session that has none yet. */
   untitled: string
   openSessionId: string | null
-  pinnedShowMore: boolean
-  olderShowMore: boolean
+  showMore: ShowMore
   now: number
-  /** Sessions with a turn running, queued or paused: they are listed under Today. */
+  /** Sessions with a turn running, queued or paused. */
   liveSessionIds: ReadonlySet<string>
 }
 
@@ -43,10 +43,12 @@ const OLDER_SHOWN = 5
 /** The first `limit` rows plus the open Session in its place, unless searching or shown in full. */
 function shortened(
   listed: SessionSummary[],
-  limit: number,
-  searching: boolean,
-  openSessionId: string | null,
-  showMore: boolean,
+  {
+    limit,
+    searching,
+    openSessionId,
+    showMore,
+  }: { limit: number; searching: boolean; openSessionId: string | null; showMore: boolean },
 ): { sessions: SessionSummary[]; toggle: ShowMoreToggle } {
   if (searching || listed.length <= limit) return { sessions: listed, toggle: null }
   if (showMore) return { sessions: listed, toggle: { action: 'less' } }
@@ -68,7 +70,7 @@ function calendarDaysBack(time: number, now: number): number {
   return Math.round((day(now) - day(time)) / DAY_MS)
 }
 
-export function dateBucket(time: number, now: number): DateBucket {
+function dateBucket(time: number, now: number): DateBucket {
   const days = calendarDaysBack(time, now)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
@@ -82,8 +84,7 @@ export function sessionSections({
   query,
   untitled,
   openSessionId,
-  pinnedShowMore,
-  olderShowMore,
+  showMore,
   now,
   liveSessionIds,
 }: SessionSectionsInput): SessionSection[] {
@@ -123,10 +124,16 @@ export function sessionSections({
     })
     .map(({ listing }) => listing)
 
+  const searching = needle !== ''
   const result: SessionSection[] = []
   if (pinned.length > 0) {
-    const cut = shortened(pinned, PINNED_SHOWN, needle !== '', openSessionId, pinnedShowMore)
-    result.push({ id: 'pinned', ...cut })
+    const pinnedRows = shortened(pinned, {
+      limit: PINNED_SHOWN,
+      searching,
+      openSessionId,
+      showMore: showMore.pinned,
+    })
+    result.push({ id: 'pinned', ...pinnedRows })
   }
   if (listings.length > 0) result.push({ id: 'groups', groups: listings })
   const bucketOf = (s: SessionSummary) =>
@@ -135,13 +142,22 @@ export function sessionSections({
     const listed = recent.filter((s) => bucketOf(s) === bucket)
     if (listed.length === 0) continue
     if (bucket === 'older') {
-      const cut = shortened(listed, OLDER_SHOWN, needle !== '', openSessionId, olderShowMore)
-      result.push({ id: bucket, ...cut })
+      const olderRows = shortened(listed, {
+        limit: OLDER_SHOWN,
+        searching,
+        openSessionId,
+        showMore: showMore.older,
+      })
+      result.push({ id: bucket, ...olderRows })
     } else {
       result.push({ id: bucket, sessions: listed })
     }
   }
   return result
+}
+
+export function sectionTimeBucket(id: SessionSectionId): TimeLabelBucket {
+  return id === 'pinned' || id === 'groups' ? 'relative' : id
 }
 
 /** The collapsed Group to expand when this Session is opened, so the open Session is in view. */

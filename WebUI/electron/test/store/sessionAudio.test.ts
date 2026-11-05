@@ -75,8 +75,7 @@ beforeEach(async () => {
           success: true,
           sessions: await sessionModule.listSessions(),
           groups: await sessionModule.listSessionGroups(),
-          pinnedShowMore: await sessionModule.readPinnedShowMore(),
-          olderShowMore: await sessionModule.readOlderShowMore(),
+          showMore: await sessionModule.readShowMore(),
         }),
         create: async () => ({ success: true, session: await sessionModule.createSession() }),
         open: async (id: string) => ({

@@ -39,8 +39,7 @@ function sections(
     query,
     untitled: UNTITLED,
     openSessionId: view.openSessionId ?? null,
-    pinnedShowMore: view.pinnedShowMore ?? false,
-    olderShowMore: view.olderShowMore ?? false,
+    showMore: { pinned: view.pinnedShowMore ?? false, older: view.olderShowMore ?? false },
     now: view.now ?? NOW,
     liveSessionIds: new Set(view.liveSessionIds ?? []),
   })

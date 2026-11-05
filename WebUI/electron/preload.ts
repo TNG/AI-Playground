@@ -14,6 +14,7 @@ import type {
   AudioTurnRequest,
   HarnessGameWorkspace,
   SessionTurn,
+  ShowMoreSection,
 } from '@/types/sessionIpc'
 import type { AgentTask } from '@/types/agentTaskIpc'
 import type { PresetSessionSettings } from '@/types/sessionSettings'
@@ -296,8 +297,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteGroup: (groupId: string) => invoke('sessions:deleteGroup', groupId),
     setGroupExpanded: (groupId: string, expanded: boolean) =>
       invoke('sessions:setGroupExpanded', groupId, expanded),
-    setPinnedShowMore: (shown: boolean) => invoke('sessions:setPinnedShowMore', shown),
-    setOlderShowMore: (shown: boolean) => invoke('sessions:setOlderShowMore', shown),
+    setShowMore: (section: ShowMoreSection, shown: boolean) =>
+      invoke('sessions:setShowMore', section, shown),
     delete: (id: string) => invoke('sessions:delete', id),
     harnessSession: (id: string, presetName: string, game?: HarnessGameWorkspace) =>
       invoke('sessions:harnessSession', id, presetName, game),

@@ -62,8 +62,8 @@ _Avoid_: session summary, recap
 ## Agents
 
 **Agent**:
-A named, repeatable piece of work that belongs to one Session: an ordered list of Steps run with
-its own Settings Template, by hand or on a Schedule.
+A named, repeatable piece of work, available to every Session: an ordered list of Steps run with
+its own Settings Template, by hand or on a Schedule. The Session it was made in does not own it.
 _Avoid_: Task, job, automation
 
 **Agent Preset**:
@@ -78,11 +78,13 @@ One prompt of an Agent, sent as its own turn.
 The settings an Agent's runs use, fixed on the Agent rather than taken from the Session.
 
 **Schedule**:
-The recurring interval at which an Agent runs by itself.
+The recurring interval at which an Agent runs by itself in one Session. An Agent can have a
+Schedule in several Sessions; a Schedule ends with its Session or its Agent.
 
 **Agent Run**:
-One execution of an Agent's Steps inside its Session, in a fresh Harness Session that starts with
-no context from the Session.
+One execution of an Agent's Steps inside the Session it was started or scheduled in, in a fresh
+Harness Session that starts with no context from the Session. Its result is its final answer and
+the Artifacts it produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
 ## Settings

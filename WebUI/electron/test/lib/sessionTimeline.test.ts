@@ -248,6 +248,45 @@ describe('an Agent Run in the timeline', () => {
   })
 })
 
+describe('Run steps in the open Agent Maker conversation', () => {
+  const agentRun = { runId: 'p1', taskName: 'Digest', startedAt: 7, trigger: 'manual' as const }
+  const stepMessage = (id: string, text: string) => ({
+    ...agentMessage(id, 'user', text),
+    metadata: { agentTurn, agentRun },
+  })
+  const conversation = [
+    agentMessage('u1', 'user', 'make me a digest agent'),
+    agentMessage('a1', 'assistant', 'done'),
+    stepMessage('s1', 'Collect the news'),
+    agentMessage('a2', 'assistant', 'collected'),
+    stepMessage('s2', 'Summarize them'),
+    agentMessage('a3', 'assistant', 'Here is the digest.'),
+    agentMessage('u2', 'user', 'thanks'),
+    agentMessage('a4', 'assistant', 'welcome'),
+  ]
+
+  it('is one Turn between the conversation turns around it', () => {
+    const turns = timelineTurns(conversation)
+
+    expect(turns.map((turn) => turn.id)).toEqual(['u1', 's1', 'u2'])
+    expect(turns[1]).toMatchObject({
+      prompt: { text: '', agentRun: { trigger: 'manual', name: 'Digest', startedAt: 7 } },
+      answers: [{ id: 'a2' }, { id: 'a3' }],
+    })
+    expect(turns[1].kind === 'agent' && turns[1].result).toEqual([
+      { kind: 'prose', messageId: 'a3', index: 0 },
+    ])
+    expect(turns[2]).toMatchObject({ answers: [{ id: 'a4' }] })
+  })
+
+  it('keeps its text in the details while it is in flight', () => {
+    const items = sessionTimelineItems(conversation.slice(0, 6), { agentRunsInFlight: ['p1'] })
+
+    expect(items[1].kind === 'agent' && items[1].result).toEqual([])
+    expect(items[1]).toMatchObject({ streaming: true, details: { live: { kind: 'working' } } })
+  })
+})
+
 describe('chat turns in the timeline', () => {
   it('starts a Turn for every chat prompt, each holding its own answer', () => {
     const turns = timelineTurns([

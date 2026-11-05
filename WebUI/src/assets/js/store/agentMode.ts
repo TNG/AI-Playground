@@ -64,6 +64,7 @@ import {
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { LiveAgentTurn } from '@/lib/turnTypes'
+import type { PromptRunTag } from '@/types/sessionTimeline'
 import type { ChannelKind } from './channels/types'
 import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
@@ -110,7 +111,7 @@ export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
 /** Stored with a user message; `origin` is the channel an Answer arrived on. */
-export type AgentMessageMetadata = { origin?: ChannelKind }
+export type AgentMessageMetadata = { origin?: ChannelKind; agentRun?: PromptRunTag }
 
 /** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
 export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
@@ -1851,7 +1852,10 @@ export const useAgentMode = defineStore(
      * Resolves once the turn ended, with whether one was started at all. `title` names a session
      * this turn opens, when the message sent is not what the user typed.
      */
-    async function generate(prompt: string, options: { title?: string } = {}): Promise<boolean> {
+    async function generate(
+      prompt: string,
+      options: { title?: string; metadata?: AgentMessageMetadata } = {},
+    ): Promise<boolean> {
       if (await blockedBySettingsProblems()) return false
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games') {
@@ -1863,7 +1867,7 @@ export const useAgentMode = defineStore(
       const sessionId = ensureSessionId(openSessionId)
       if (options.title && !sessions.value[sessionId]) pendingTitles[sessionId] = options.title
       await runTurn(sessionId, liveTurnContext(), (chat) =>
-        chat.sendMessage({ text: `${prompt}${attached}` }),
+        chat.sendMessage({ text: `${prompt}${attached}`, metadata: options.metadata }),
       )
       return true
     }
@@ -2016,6 +2020,7 @@ export const useAgentMode = defineStore(
         answer?: AgentAnswerOrigin
         /** A Task Run's Step. */
         taskRun?: AgentModeTurnConfig['taskRun']
+        metadata?: AgentMessageMetadata
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -2073,9 +2078,10 @@ export const useAgentMode = defineStore(
       if (options.quietErrors) context.quietErrors = true
       if (options.answer) context.answer = options.answer
       if (options.taskRun) context.taskRun = options.taskRun
-      const metadata: AgentMessageMetadata | undefined = options.answer
-        ? { origin: options.answer.channel }
-        : undefined
+      const metadata: AgentMessageMetadata | undefined =
+        options.answer || options.metadata
+          ? { ...options.metadata, ...(options.answer ? { origin: options.answer.channel } : {}) }
+          : undefined
       runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
         (error) =>
           errors.report(error, {

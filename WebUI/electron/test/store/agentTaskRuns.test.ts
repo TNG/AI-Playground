@@ -1673,13 +1673,13 @@ describe('running Steps from the prompt bar', () => {
       ].join('\n'),
     )
     expect(sentConfig(0).sessionId).toBe('session-open')
-    expect(tasks.promptRunOf('session-open')).toEqual({ stepIndex: 1, stepCount: 3 })
+    expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 1, stepCount: 3 })
 
     await finishTurn(0)
     await submitting
     await turnIdOf(1)
     expect(sentPrompts()[1]).toBe('Step 2 of 3: Summarise it by topic')
-    expect(tasks.promptRunOf('session-open')).toEqual({ stepIndex: 2, stepCount: 3 })
+    expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 2, stepCount: 3 })
 
     await finishTurn(1)
     await turnIdOf(2)
@@ -1692,6 +1692,26 @@ describe('running Steps from the prompt bar', () => {
     expect(startTurn.mock.calls.every(([, , config]) => config.sessionId === 'session-open')).toBe(
       true,
     )
+  })
+
+  it('marks every Step prompt with one run, in flight until its last Step', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(STEPS.slice(0, 2))
+
+    void tasks.runSteps('Intel news')
+    await turnIdOf(0)
+    const runId = tasks.promptRunOf('session-open')!.tag.runId
+    expect(tasks.runsInFlight).toContain(runId)
+    await finishTurn(0)
+    await turnIdOf(1)
+    await finishTurn(1)
+    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
+
+    const marks = agentMode.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => (message.metadata as { agentRun?: { runId: string } })?.agentRun?.runId)
+    expect(marks).toEqual([undefined, runId, runId])
+    expect(tasks.runsInFlight).not.toContain(runId)
   })
 
   it('starts the Steps in a new session when the Open Session is a draft', async () => {
@@ -1745,7 +1765,7 @@ describe('running Steps from the prompt bar', () => {
     void tasks.runSteps('Intel news')
     await turnIdOf(0)
 
-    expect(tasks.promptRunOf('session-open')).toEqual({ stepIndex: 1, stepCount: 2 })
+    expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 1, stepCount: 2 })
   })
 
   it('starts from Step 1 when there is no prompt', async () => {
@@ -1913,7 +1933,7 @@ describe('a session carrying out Steps from the prompt bar', () => {
 
     await finishTurn(0)
     await vi.waitFor(() =>
-      expect(tasks.promptRunOf('session-open')).toEqual({ stepIndex: 2, stepCount: 3 }),
+      expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 2, stepCount: 3 }),
     )
     await settleMicrotasks()
     const interloper = await agentMode.sendToSession('session-open', 'answer', {

@@ -50,3 +50,6 @@ export type { AgentRunTag }
 
 /** Set on an agent turn's timeline messages: the agent preset and Harness Session they came from. */
 export type AgentTurnTag = { presetName: string; harnessSessionId: string; taskRun?: AgentRunTag }
+
+/** On a Step prompt Run steps sends into the open Harness Session; `runId` groups its Steps. */
+export type PromptRunTag = AgentRunTag & { runId: string }

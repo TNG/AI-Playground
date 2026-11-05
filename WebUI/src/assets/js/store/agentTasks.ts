@@ -5,6 +5,7 @@ import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionTurn } from '@/types/sessionIpc'
+import type { PromptRunTag } from '@/types/sessionTimeline'
 import type {
   AgentSessionSchedule,
   AgentTask,
@@ -39,7 +40,7 @@ import {
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
 
 /** A prompt being carried out in its session's Steps; `stepIndex` is 1-based. */
-export type PromptRun = { stepIndex: number; stepCount: number }
+export type PromptRun = { stepIndex: number; stepCount: number; tag: PromptRunTag }
 
 /** Why a draft cannot be saved yet. */
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step'
@@ -198,8 +199,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   let schedulesHeld = false
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
-  /** Harness Sessions of the runs in flight, including between two Steps. */
-  const runHarnessSessions = computed(() => Object.keys(runs.value))
+  /** The runs in flight, including between two Steps, by the key the timeline groups them by. */
+  const runsInFlight = computed(() => [
+    ...Object.keys(runs.value),
+    ...Object.values(promptRuns.value).map((run) => run.tag.runId),
+  ])
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(
@@ -1230,18 +1234,26 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const steps = agentMode.sessionScoped ? stepPrompts(agentMode.openSteps) : []
     if (steps.length === 0) return
     const sessionId = agentMode.ensureOpenSessionId()
+    const title = prompt.trim() || openSessionTask.value?.name || steps[0]
+    const tag: PromptRunTag = {
+      runId: crypto.randomUUID(),
+      taskName: openSessionTask.value?.name ?? title,
+      startedAt: Date.now(),
+      trigger: 'manual',
+    }
     promptRunContexts[sessionId] = { steps, abort: new AbortController() }
     promptRuns.value = {
       ...promptRuns.value,
-      [sessionId]: { stepIndex: 1, stepCount: steps.length },
+      [sessionId]: { stepIndex: 1, stepCount: steps.length, tag },
     }
     const turn = firstStepTurn(prompt, steps)
-    const title = prompt.trim() || openSessionTask.value?.name || steps[0]
-    const started = await agentMode.generate(turn, { title }).catch((error) => {
-      endPromptRun(sessionId)
-      agentMode.releaseHeldAnswer(sessionId)
-      throw error
-    })
+    const started = await agentMode
+      .generate(turn, { title, metadata: { agentRun: tag } })
+      .catch((error) => {
+        endPromptRun(sessionId)
+        agentMode.releaseHeldAnswer(sessionId)
+        throw error
+      })
     if (!started) {
       endPromptRun(sessionId)
       agentMode.releaseHeldAnswer(sessionId)
@@ -1279,6 +1291,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     promptRuns.value = { ...promptRuns.value, [sessionId]: { ...run, stepIndex } }
     const result = await agentMode.sendToSession(sessionId, stepTurn(stepIndex, context.steps), {
       signal: context.abort.signal,
+      metadata: { agentRun: run.tag },
     })
     if (result.ok) return
     endPromptRun(sessionId)
@@ -1302,7 +1315,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   return {
     tasks,
     openSessionAgents,
-    runHarnessSessions,
+    runsInFlight,
     scheduledSessionIds,
     scheduledSessionCount,
     otherScheduledSessions,

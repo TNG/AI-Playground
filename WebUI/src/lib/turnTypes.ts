@@ -160,6 +160,8 @@ export type AgentTurn = TurnOf<
   {
     presetName: string
     harnessSessionId: string
+    /** Set on an Agent Run's Turn, or a Run steps run's: what its Steps are grouped by. */
+    runKey?: string
     prompt?: TurnPrompt
     answers: UIMessage[]
     artifacts: TurnArtifact[]
@@ -230,7 +232,7 @@ export type MediaStepStatus = { label: string; progress?: number }
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   chat?: readonly { id: string }[]
   agents?: readonly LiveAgentTurn[]
-  /** Harness Sessions of the Agent Runs still in flight, including between two Steps. */
+  /** Runs still in flight, including between two Steps: their run keys. */
   agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
   media?: M | null

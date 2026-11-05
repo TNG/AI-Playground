@@ -60,6 +60,7 @@ import type {
   AudioTurnData,
   MediaTurnData,
   AgentRunTag,
+  PromptRunTag,
   TimelineMessage,
   TimelinePart,
 } from '@/types/sessionTimeline'
@@ -67,7 +68,7 @@ import type {
 /** One Step of an Agent Run: the prompt the run sent and the answers to it. */
 type RunStep = { prompt?: UIMessage; answers: UIMessage[] }
 
-type AgentRun = { turn: AgentTurn; steps: RunStep[]; end?: AgentRunTag['end'] }
+type AgentRun = { key: string; turn: AgentTurn; steps: RunStep[]; end?: AgentRunTag['end'] }
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -110,6 +111,15 @@ function promptOf(message: TimelineMessage): string {
 function agentTagOf(value: unknown): AgentTurnTag | null {
   const tag = (value as { metadata?: { agentTurn?: AgentTurnTag } } | null)?.metadata?.agentTurn
   return tag && typeof tag.harnessSessionId === 'string' ? tag : null
+}
+
+/** An Agent Run fills its own Harness Session; Run steps marks each Step prompt it sends. */
+function runTagOf(tag: AgentTurnTag, message: UIMessage): { key: string; run: AgentRunTag } | null {
+  if (tag.taskRun) return { key: tag.harnessSessionId, run: tag.taskRun }
+  const marked = (message.metadata as { agentRun?: PromptRunTag } | undefined)?.agentRun
+  return message.role === 'user' && typeof marked?.runId === 'string'
+    ? { key: marked.runId, run: marked }
+    : null
 }
 
 /** A live copy replaces its saved message in place; unsaved live messages follow at the end. */
@@ -330,8 +340,8 @@ function withAnswers(
       turn.hint = agentHint(turn.prompt?.agentRun?.name ?? turn.presetName, turn.answers)
       turn.footer = agentFooter(turn.answers)
     }
-    const run = turn.kind === 'agent' ? runs.get(turn.harnessSessionId) : undefined
-    if (run) Object.assign(turn, runSections(run, inFlight.has(run.turn.harnessSessionId)))
+    const run = turn.kind === 'agent' && turn.runKey ? runs.get(turn.runKey) : undefined
+    if (run) Object.assign(turn, runSections(run, inFlight.has(run.key)))
     else if (turn.kind === 'chat' || turn.kind === 'agent') {
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
@@ -633,7 +643,9 @@ function markLiveAgentTurns(
 /** Between two Steps no turn is streaming, but the run is still going. */
 function markRunsBetweenSteps(turns: TimelineTurn[], inFlight: ReadonlySet<string>): void {
   for (const turn of turns) {
-    if (turn.kind !== 'agent' || !inFlight.has(turn.harnessSessionId) || turn.streaming) continue
+    if (turn.kind !== 'agent' || !turn.runKey || !inFlight.has(turn.runKey) || turn.streaming) {
+      continue
+    }
     turn.streaming = true
     turn.details = { ...turn.details, live: turn.details.live ?? { kind: 'working' } }
   }
@@ -692,16 +704,26 @@ export function timelineTurns(
   const turns: TimelineTurn[] = []
   const prompts = new Map<string, UIMessage>()
   const runs = new Map<string, AgentRun>()
+  const latestRun = new Map<string, AgentRun>()
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     const tag = agentTagOf(message)
-    if (tag?.taskRun && isUIMessage(message)) {
-      const run = runs.get(tag.harnessSessionId) ?? openRun(message.id, tag, tag.taskRun)
-      if (!runs.has(tag.harnessSessionId)) {
-        runs.set(tag.harnessSessionId, run)
-        turns.push(run.turn)
-      }
-      if (tag.taskRun.end) run.end = tag.taskRun.end
+    const marked = tag && isUIMessage(message) ? runTagOf(tag, message) : null
+    let run = marked ? runs.get(marked.key) : undefined
+    if (tag && marked && !run) {
+      run = openRun(marked.key, message.id, tag, marked.run)
+      runs.set(marked.key, run)
+      turns.push(run.turn)
+    }
+    if (tag && !marked && (message as { role?: unknown }).role === 'assistant') {
+      run = latestRun.get(tag.harnessSessionId)
+    }
+    if (tag && (message as { role?: unknown }).role === 'user') {
+      if (run) latestRun.set(tag.harnessSessionId, run)
+      else latestRun.delete(tag.harnessSessionId)
+    }
+    if (run && isUIMessage(message)) {
+      if (marked?.run.end) run.end = marked.run.end
       if (message.role === 'user') run.steps.push({ prompt: message, answers: [] })
       else {
         if (run.steps.length === 0) run.steps.push({ answers: [] })
@@ -808,13 +830,14 @@ export function timelineTurns(
   )
 }
 
-function openRun(id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {
+function openRun(key: string, id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {
   const agentRun: AgentRunIdentity = {
     trigger: taskRun.trigger ?? 'manual',
     name: taskRun.taskName,
     startedAt: taskRun.startedAt,
   }
   return {
+    key,
     steps: [],
     turn: {
       kind: 'agent',
@@ -825,6 +848,7 @@ function openRun(id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun 
       footer: noFooter(),
       presetName: tag.presetName,
       harnessSessionId: tag.harnessSessionId,
+      runKey: key,
       artifacts: [],
       audioArtifacts: [],
       prompt: { text: '', agentRun },

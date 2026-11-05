@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Najpierw wybierz folder roboczy.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "Zamontowane foldery",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Foldery z Twojego komputera, które agent może czytać w /mnt/<name>, a w trybie odczytu i zapisu także zmieniać. Nowe pliki nadal trafiają do folderu tej sesji.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "Przy prawdziwej powłoce systemowej tryb tylko do odczytu nie jest egzekwowany: powłoka agenta nadal może zmieniać pliki w każdym Mounted Folder. Jego narzędzia plikowe zapisują tylko w folderach do odczytu i zapisu.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Brak zamontowanych folderów.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Odczyt i zapis",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Pozwól agentowi zmieniać pliki w {folder}",

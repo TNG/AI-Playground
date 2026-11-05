@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Select a workspace folder first.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "Mounted Folders",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Folders from your machine the agent can read at /mnt/<name>, and change when read-write. New files still go into this Session's folder.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "With the real system shell, read-only is not enforced: the agent's shell can still change files in every Mounted Folder. Its file tools write only to read-write ones.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "No Mounted Folders.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Read-write",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Let the agent change files in {folder}",

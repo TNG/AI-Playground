@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Selecciona primero una carpeta de trabajo.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "Carpetas montadas",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Carpetas de tu equipo que el agente puede leer en /mnt/<name> y modificar si son de lectura y escritura. Los archivos nuevos siguen guardándose en la carpeta de esta sesión.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "Con la shell real del sistema, el modo de solo lectura no se aplica: la shell del agente puede seguir modificando archivos en cualquier Mounted Folder. Sus herramientas de archivos solo escriben en las de lectura y escritura.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "No hay carpetas montadas.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Lectura y escritura",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Permitir que el agente modifique archivos en {folder}",

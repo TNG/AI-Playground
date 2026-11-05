@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "먼저 작업 폴더를 선택하세요.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "마운트된 폴더",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "에이전트가 /mnt/<name>에서 읽을 수 있고, 읽기/쓰기로 설정하면 변경도 할 수 있는 이 컴퓨터의 폴더입니다. 새 파일은 계속 이 세션의 폴더에 저장됩니다.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "실제 시스템 셸에서는 읽기 전용이 강제되지 않습니다. 에이전트의 셸은 모든 Mounted Folder의 파일을 계속 변경할 수 있습니다. 파일 도구는 읽기/쓰기 폴더에만 씁니다.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "마운트된 폴더가 없습니다.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "읽기/쓰기",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "에이전트가 {folder}의 파일을 변경하도록 허용",

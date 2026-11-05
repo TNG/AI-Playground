@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Pilih folder kerja terlebih dahulu.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "Folder Terpasang",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Folder dari komputer Anda yang dapat dibaca agen di /mnt/<name>, dan diubah jika baca-tulis. File baru tetap disimpan di folder Sesi ini.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "Dengan shell sistem asli, mode hanya-baca tidak ditegakkan: shell agen tetap dapat mengubah file di setiap Mounted Folder. Alat file-nya hanya menulis ke folder baca-tulis.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Tidak ada Folder Terpasang.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Baca-tulis",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Izinkan agen mengubah file di {folder}",

@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "先に作業フォルダーを選択してください。",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "マウントフォルダー",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "エージェントが /mnt/<name> で読み取れる、このPC上のフォルダーです。読み書き可能にすると変更もできます。新しいファイルは引き続きこのセッションのフォルダーに保存されます。",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "実際のシステムシェルでは読み取り専用は強制されません。エージェントのシェルはどの Mounted Folder のファイルでも変更できます。ファイルツールが書き込むのは読み書き可能なフォルダーだけです。",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "マウントフォルダーはありません。",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "読み書き可能",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "{folder} 内のファイルの変更をエージェントに許可",

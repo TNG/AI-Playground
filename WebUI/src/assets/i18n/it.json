@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Seleziona prima una cartella di lavoro.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "Cartelle montate",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Cartelle del tuo computer che l’agente può leggere in /mnt/<name> e modificare se in lettura e scrittura. I nuovi file finiscono comunque nella cartella di questa sessione.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "Con la shell di sistema reale, la sola lettura non è applicata: la shell dell'agente può comunque modificare i file in ogni Mounted Folder. I suoi strumenti per i file scrivono solo in quelle in lettura e scrittura.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Nessuna cartella montata.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Lettura e scrittura",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Consenti all’agente di modificare i file in {folder}",

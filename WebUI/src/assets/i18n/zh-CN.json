@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "请先选择工作文件夹。",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "挂载文件夹",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "智能体可在 /mnt/<name> 读取的本机文件夹，设为读写后还可修改。新文件仍保存在此会话的文件夹中。",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "使用真实系统 shell 时，只读不会被强制执行：代理的 shell 仍可更改任何 Mounted Folder 中的文件。其文件工具只会写入读写文件夹。",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "没有挂载文件夹。",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "读写",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "允许智能体修改 {folder} 中的文件",

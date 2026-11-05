@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "เลือกโฟลเดอร์ทำงานก่อน",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "โฟลเดอร์ที่เมานต์",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "โฟลเดอร์ในเครื่องของคุณที่เอเจนต์อ่านได้ที่ /mnt/<name> และแก้ไขได้เมื่อตั้งเป็นอ่านและเขียน ไฟล์ใหม่ยังคงถูกบันทึกในโฟลเดอร์ของเซสชันนี้",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "เมื่อใช้เชลล์ระบบจริง โหมดอ่านอย่างเดียวจะไม่ถูกบังคับใช้: เชลล์ของเอเจนต์ยังคงเปลี่ยนไฟล์ใน Mounted Folder ใดก็ได้ เครื่องมือไฟล์จะเขียนเฉพาะโฟลเดอร์ที่อ่านและเขียนได้เท่านั้น",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "ไม่มีโฟลเดอร์ที่เมานต์",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "อ่านและเขียน",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "อนุญาตให้เอเจนต์แก้ไขไฟล์ใน {folder}",

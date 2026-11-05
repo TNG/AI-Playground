@@ -1081,6 +1081,7 @@
   "AGENT_SETTINGS_REAL_SHELL_NEEDS_FOLDER": "Önce bir çalışma klasörü seç.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS": "Bağlı Klasörler",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_HINT": "Aracının /mnt/<name> altında okuyabildiği, okuma-yazma açıksa değiştirebildiği, bilgisayarınızdaki klasörler. Yeni dosyalar yine bu oturumun klasörüne kaydedilir.",
+  "AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE": "Gerçek sistem kabuğunda salt okunur zorunlu tutulmaz: ajanın kabuğu her Mounted Folder içindeki dosyaları yine de değiştirebilir. Dosya araçları yalnızca okuma-yazma klasörlerine yazar.",
   "AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY": "Bağlı klasör yok.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Okuma-yazma",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Aracının {folder} içindeki dosyaları değiştirmesine izin ver",

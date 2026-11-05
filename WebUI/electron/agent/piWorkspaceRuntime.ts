@@ -304,6 +304,9 @@ export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions
     lines.push(
       '- New files belong in your working directory unless the user asks for them elsewhere.',
     )
+    if (unsandboxed && mountedFolders.some((folder) => folder.access !== 'read-write')) {
+      lines.push('- Do not change files in a read-only folder, from bash either.')
+    }
   }
   if (baseUrl) {
     lines.push(

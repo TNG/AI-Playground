@@ -672,6 +672,90 @@ describe('host-shell access', () => {
   })
 })
 
+describe('Mounted Folders under the real system shell', () => {
+  let access: AgentToolAccess
+  let projectDir: string
+  let notesDir: string
+
+  beforeEach(async () => {
+    projectDir = path.join(path.dirname(workspace), 'project')
+    notesDir = path.join(path.dirname(workspace), 'notes')
+    fs.mkdirSync(projectDir)
+    fs.mkdirSync(notesDir)
+    fs.writeFileSync(path.join(projectDir, 'readme.md'), 'old title\n')
+    fs.writeFileSync(path.join(notesDir, 'todo.md'), 'buy milk\n')
+    access = await createAgentToolAccess({
+      ...accessOptions(true),
+      mountedFolders: [
+        { hostPath: projectDir, name: 'project', access: 'read-write' },
+        { hostPath: notesDir, name: 'notes', access: 'read-only' },
+      ],
+    })
+  })
+
+  afterEach(async () => {
+    await access.dispose()
+  })
+
+  it('writes, edits and creates directories in a read-write folder by its real path', async () => {
+    await invoke(toolOf(access, 'write'), {
+      path: path.join(projectDir, 'docs/new.md'),
+      content: 'hi',
+    })
+    await invoke(toolOf(access, 'edit'), {
+      path: path.join(projectDir, 'readme.md'),
+      edits: [{ oldText: 'old', newText: 'new' }],
+    })
+
+    expect(fs.readFileSync(path.join(projectDir, 'docs/new.md'), 'utf8')).toBe('hi')
+    expect(fs.readFileSync(path.join(projectDir, 'readme.md'), 'utf8')).toBe('new title\n')
+  })
+
+  it('refuses write and edit in a read-only folder, naming it read-only', async () => {
+    await expect(
+      invoke(toolOf(access, 'write'), { path: path.join(notesDir, 'new.md'), content: 'x' }),
+    ).rejects.toThrow(/read-only Mounted Folder/)
+    await expect(
+      invoke(toolOf(access, 'edit'), {
+        path: path.join(notesDir, 'todo.md'),
+        edits: [{ oldText: 'milk', newText: 'beer' }],
+      }),
+    ).rejects.toThrow(/read-only Mounted Folder/)
+
+    expect(fs.readFileSync(path.join(notesDir, 'todo.md'), 'utf8')).toBe('buy milk\n')
+    expect(fs.existsSync(path.join(notesDir, 'new.md'))).toBe(false)
+  })
+
+  it('still refuses writes outside every folder', async () => {
+    await expect(
+      invoke(toolOf(access, 'write'), { path: outsideFile, content: 'overwritten' }),
+    ).rejects.toThrow(/outside the workspace folder/)
+
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('top secret')
+  })
+
+  it('refuses a symlink out of a read-write folder', async () => {
+    fs.symlinkSync(outsideDir, path.join(projectDir, 'escape'))
+    fs.symlinkSync(notesDir, path.join(projectDir, 'to-notes'))
+
+    await expect(
+      invoke(toolOf(access, 'write'), {
+        path: path.join(projectDir, 'escape/secret.txt'),
+        content: 'overwritten',
+      }),
+    ).rejects.toThrow(/outside the workspace folder/)
+    await expect(
+      invoke(toolOf(access, 'write'), {
+        path: path.join(projectDir, 'to-notes/todo.md'),
+        content: 'overwritten',
+      }),
+    ).rejects.toThrow(/read-only Mounted Folder/)
+
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('top secret')
+    expect(fs.readFileSync(path.join(notesDir, 'todo.md'), 'utf8')).toBe('buy milk\n')
+  })
+})
+
 describe('containment helpers', () => {
   it('accepts the root itself and paths below it', () => {
     expect(testables.containedIn('/work', '/work')).toBe(true)

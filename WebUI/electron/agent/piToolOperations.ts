@@ -99,7 +99,11 @@ function containedIn(root: string, candidate: string): boolean {
 /** Reject a path that leaves `root`, so host-shell mode can't write anywhere. */
 function assertContained(root: string, candidate: string, action: string): void {
   if (containedIn(root, path.resolve(candidate))) return
-  throw new Error(
+  throw outsideWorkspace(action, candidate)
+}
+
+function outsideWorkspace(action: string, candidate: string): Error {
+  return new Error(
     `Refusing to ${action} outside the workspace folder: ${candidate}. ` +
       'All file operations must stay inside the workspace.',
   )
@@ -122,15 +126,42 @@ async function realDestination(candidate: string, hops = 0): Promise<string> {
   }
 }
 
-/** {@link assertContained}, then the same check on where symlinks really lead. */
+/** Where host-shell file tools may write: the workspace and the read-write Mounted Folders. */
+type HostWriteRoots = { writable: string[]; readOnly: ResolvedMountedFolder[] }
+
+function hostWriteRoots(options: AgentToolAccessOptions): HostWriteRoots {
+  const folders = options.mountedFolders ?? []
+  return {
+    writable: [
+      options.workspaceDir,
+      ...folders.filter((f) => f.access === 'read-write').map((f) => f.hostPath),
+    ],
+    readOnly: folders.filter((f) => f.access !== 'read-write'),
+  }
+}
+
+/** Refuse a write unless the path, and where its symlinks really lead, stay in a writable root. */
 async function assertReallyContained(
-  root: string,
+  roots: HostWriteRoots,
   candidate: string,
   action: string,
 ): Promise<void> {
-  assertContained(root, candidate, action)
-  const destination = await realDestination(path.resolve(candidate))
-  assertContained(await realDestination(root), destination, action)
+  const resolved = path.resolve(candidate)
+  const destination = await realDestination(resolved)
+  for (const folder of roots.readOnly) {
+    const real = await realDestination(folder.hostPath)
+    if (containedIn(folder.hostPath, resolved) || containedIn(real, destination)) {
+      throw readOnlyRefusal(action, candidate, folder.hostPath, roots.writable[0])
+    }
+  }
+  const realRoots = await Promise.all(roots.writable.map((root) => realDestination(root)))
+  if (
+    roots.writable.some((root) => containedIn(root, resolved)) &&
+    realRoots.some((root) => containedIn(root, destination))
+  ) {
+    return
+  }
+  throw outsideWorkspace(action, candidate)
 }
 
 /**
@@ -195,11 +226,16 @@ function assertInsideSandboxRoots(roots: string[], candidate: string, action: st
 /** Where the file tools may write: the workspace and the read-write Mounted Folders. */
 type SandboxWriteRoots = { writable: string[]; readOnly: string[] }
 
-function readOnlyRefusal(action: string, candidate: string, mountPoint: string): Error {
+function readOnlyRefusal(
+  action: string,
+  candidate: string,
+  mountPoint: string,
+  workingDir = SANDBOX_WORKDIR,
+): Error {
   return new Error(
     `Refusing to ${action} ${candidate}: ${mountPoint} is a read-only Mounted Folder. The ` +
       'user has not allowed changes there, so retrying will not help. Tell the user, or ' +
-      `write the file in ${SANDBOX_WORKDIR} instead.`,
+      `write the file in ${workingDir} instead.`,
   )
 }
 
@@ -732,6 +768,7 @@ function createSandboxAccess(
  */
 function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): AgentToolAccess {
   const { workspaceDir } = options
+  const roots = hostWriteRoots(options)
   return {
     cwd: workspaceDir,
     skillsRoot: options.skillsDir,
@@ -741,10 +778,10 @@ function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): A
         autoResizeImages: false,
       }),
       pi.createWriteToolDefinition(workspaceDir, {
-        operations: guardedWriteOperations(workspaceDir, options.writableFiles),
+        operations: guardedWriteOperations(workspaceDir, roots, options.writableFiles),
       }),
       pi.createEditToolDefinition(workspaceDir, {
-        operations: guardedEditOperations(workspaceDir, options.writableFiles),
+        operations: guardedEditOperations(workspaceDir, roots, options.writableFiles),
       }),
       pi.createBashToolDefinition(workspaceDir, {
         // Every command starts in the workspace, whatever cwd Pi passes.
@@ -775,10 +812,14 @@ function hostReadOperations(workspaceDir: string): ReadOperations {
   })
 }
 
-function guardedWriteOperations(workspaceDir: string, writableFiles?: string[]): WriteOperations {
+function guardedWriteOperations(
+  workspaceDir: string,
+  roots: HostWriteRoots,
+  writableFiles?: string[],
+): WriteOperations {
   return {
     writeFile: async (absolutePath, content) => {
-      await assertReallyContained(workspaceDir, absolutePath, 'write')
+      await assertReallyContained(roots, absolutePath, 'write')
       assertHostWritable(workspaceDir, absolutePath, writableFiles, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await fsp.mkdir(path.dirname(absolutePath), { recursive: true })
@@ -786,7 +827,7 @@ function guardedWriteOperations(workspaceDir: string, writableFiles?: string[]):
       })
     },
     mkdir: async (dir) => {
-      await assertReallyContained(workspaceDir, dir, 'create a directory')
+      await assertReallyContained(roots, dir, 'create a directory')
       await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
         await fsp.mkdir(dir, { recursive: true })
       })
@@ -806,7 +847,11 @@ function assertHostWritable(
   assertWritableFile(relative, writableFiles, action)
 }
 
-function guardedEditOperations(workspaceDir: string, writableFiles?: string[]): EditOperations {
+function guardedEditOperations(
+  workspaceDir: string,
+  roots: HostWriteRoots,
+  writableFiles?: string[],
+): EditOperations {
   return {
     readFile: async (absolutePath) =>
       await reportingHostDenials(
@@ -816,14 +861,14 @@ function guardedEditOperations(workspaceDir: string, writableFiles?: string[]): 
         async () => await fsp.readFile(absolutePath),
       ),
     writeFile: async (absolutePath, content) => {
-      await assertReallyContained(workspaceDir, absolutePath, 'edit')
+      await assertReallyContained(roots, absolutePath, 'edit')
       assertHostWritable(workspaceDir, absolutePath, writableFiles, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await fsp.writeFile(absolutePath, content, 'utf8')
       })
     },
     access: async (absolutePath) => {
-      await assertReallyContained(workspaceDir, absolutePath, 'edit')
+      await assertReallyContained(roots, absolutePath, 'edit')
       await fsp.access(absolutePath)
     },
   }

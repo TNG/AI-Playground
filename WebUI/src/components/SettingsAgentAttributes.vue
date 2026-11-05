@@ -73,6 +73,9 @@
         <p class="text-xs text-muted-foreground">
           {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_HINT }}
         </p>
+        <p v-if="showShellOption && agentMode.unsandboxed" class="text-xs text-amber-500">
+          {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE }}
+        </p>
         <MountedFolderList
           :model-value="binding.mountedFolders"
           :session-folder="agentMode.workspaceDir"

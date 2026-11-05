@@ -9,13 +9,13 @@ import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
-import { useSessions } from '@/assets/js/store/sessions'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { createAppError, isCancellation } from '@/assets/js/errors/appError'
 import { pendingVoiceTurn, speak, speakRepliesAvailable } from '@/assets/js/speech/speechIO'
 import { toolPartNameOf } from '@/lib/agentTranscript'
 import { messageText } from '@/lib/chatMessageText'
+import { useAgentRunHold } from '@/lib/useAgentRunHold'
 
 const MEDIA_MODES: WorkflowModeType[] = ['imageGen', 'imageEdit', 'video']
 
@@ -33,7 +33,7 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
   const imageGeneration = useImageGenerationPresets()
   const presets = usePresets()
   const sessionAudio = useSessionAudio()
-  const sessions = useSessions()
+  const afterAgentRun = useAgentRunHold()
   const errors = useErrors()
   const languages = useI18N().state
 
@@ -75,9 +75,7 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
   // A run may be between Steps with no turn to stop, so the run is stopped instead.
   function cancelAgent(): void {
     const sessionId = agentMode.openSessionId
-    const task = agentTasks.taskLockingSession(sessionId)
-    if (task) void agentTasks.stopTask(task.id)
-    else if (agentTasks.promptRunOf(sessionId)) void agentTasks.stopPromptRun(sessionId)
+    if (agentTasks.promptRunOf(sessionId)) void agentTasks.stopPromptRun(sessionId)
     else void agentMode.stop()
   }
 
@@ -149,23 +147,19 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
     { immediate: true },
   )
 
-  // Whatever the preset, a prompt sent mid-run starts after the Session's Agent Run.
-  function afterAgentRun(submit: (prompt: string) => unknown) {
-    return async (prompt: string): Promise<void> => {
-      if (await agentTasks.afterAgentRun(sessions.openSessionId)) await submit(prompt)
-      else promptStore.promptSubmitted = false
-    }
+  function heldBehindAgentRun(submit: (prompt: string) => unknown) {
+    return (prompt: string) => afterAgentRun(() => submit(prompt), prompt)
   }
 
   onMounted(() => {
     ensureMediaAgentEventWiring()
-    promptStore.registerSubmitCallback('chat', afterAgentRun(submitChat))
+    promptStore.registerSubmitCallback('chat', heldBehindAgentRun(submitChat))
     promptStore.registerCancelCallback('chat', cancelChat)
-    promptStore.registerSubmitCallback('agent', afterAgentRun(submitAgent))
+    promptStore.registerSubmitCallback('agent', heldBehindAgentRun(submitAgent))
     promptStore.registerCancelCallback('agent', cancelAgent)
-    promptStore.registerSubmitCallback('audio', afterAgentRun(synthesize))
+    promptStore.registerSubmitCallback('audio', heldBehindAgentRun(synthesize))
     for (const mode of MEDIA_MODES) {
-      promptStore.registerSubmitCallback(mode, afterAgentRun(generateMedia(mode)))
+      promptStore.registerSubmitCallback(mode, heldBehindAgentRun(generateMedia(mode)))
       promptStore.registerCancelCallback(mode, () => imageGeneration.stopGeneration())
     }
   })

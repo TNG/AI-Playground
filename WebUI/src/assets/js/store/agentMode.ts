@@ -1993,13 +1993,8 @@ export const useAgentMode = defineStore(
     ): SendToSessionResult | undefined {
       const lock = taskLockOf(sessionId)
       if (!lock || (lock.signal && lock.signal === signal)) return undefined
-      return refuseSend(
-        'task-locked',
-        (
-          i18n.state.AGENT_TASK_SESSION_LOCKED ??
-          'Agent “{name}” is running. Stop it to type in this session.'
-        ).replace('{name}', lock.taskName),
-      )
+      // A sender holds on this reason and retries, so the message only reaches the log.
+      return refuseSend('task-locked', `Agent “${lock.taskName}” is running.`)
     }
 
     /**

@@ -856,43 +856,72 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Each Session's prompt waiting for its Agent Run, by the Agent's name. Memory only. */
   const queuedPrompts = ref<Record<string, string>>({})
-  const queuedReleases: Record<string, (go: boolean) => void> = {}
+  const queuedHolds: Record<string, { release: (go: boolean) => void; prompt?: string }> = {}
+  /** Held prompts whose Session was left before the run ended, for its prompt bar to take back. */
+  const unsentPrompts: Record<string, string> = {}
 
   function releaseQueuedPrompt(sessionRef: string, go: boolean): void {
-    const release = queuedReleases[sessionRef]
-    if (!release) return
-    delete queuedReleases[sessionRef]
+    const hold = queuedHolds[sessionRef]
+    if (!hold) return
+    delete queuedHolds[sessionRef]
     const { [sessionRef]: _released, ...rest } = queuedPrompts.value
     queuedPrompts.value = rest
-    release(go)
+    hold.release(go)
   }
 
-  /**
-   * Resolves once no Agent Run is in flight in the Session and main holds no turn there, so a
-   * prompt sent mid-run starts after the run's last Step (ADR-0005); false when it was cancelled.
-   */
-  function afterAgentRun(sessionRef: string | null): Promise<boolean> {
+  /** Resolves once the Session's Agent Run and its last turn are over (ADR-0005); false if not sent. */
+  function afterAgentRun(sessionRef: string | null, prompt?: string): Promise<boolean> {
     if (!sessionRef) return Promise.resolve(true)
     const run = agentRunIn(sessionRef)
     if (!run) return Promise.resolve(true)
     releaseQueuedPrompt(sessionRef, false)
     queuedPrompts.value = { ...queuedPrompts.value, [sessionRef]: run.name }
-    return new Promise((resolve) => (queuedReleases[sessionRef] = resolve))
+    return new Promise((release) => (queuedHolds[sessionRef] = { release, prompt }))
   }
 
   function cancelQueuedPrompt(sessionRef: string): void {
     releaseQueuedPrompt(sessionRef, false)
   }
 
+  /** The held prompt of a Session the user left, handed out once. */
+  function takeUnsentPrompt(sessionRef: string): string | undefined {
+    const prompt = unsentPrompts[sessionRef]
+    delete unsentPrompts[sessionRef]
+    return prompt
+  }
+
   // A held prompt is sent by the prompt bar's mode, which follows the open Session.
   watch(
     () => sessionsStore.openSessionId,
     (open) => {
-      for (const sessionRef of Object.keys(queuedReleases)) {
-        if (sessionRef !== open) releaseQueuedPrompt(sessionRef, false)
+      for (const sessionRef of Object.keys(queuedHolds)) {
+        if (sessionRef !== open) handBackQueuedPrompt(sessionRef)
       }
     },
   )
+
+  function handBackQueuedPrompt(sessionRef: string): void {
+    const name = queuedPrompts.value[sessionRef] ?? ''
+    const prompt = queuedHolds[sessionRef]?.prompt
+    if (prompt) unsentPrompts[sessionRef] = prompt
+    releaseQueuedPrompt(sessionRef, false)
+    const template = prompt
+      ? (i18n.state.AGENT_RUN_QUEUED_PROMPT_RETURNED ??
+        'Not sent: you left the session before Agent Run “{name}” ended. Your prompt is back in that session’s prompt bar.')
+      : (i18n.state.AGENT_RUN_QUEUED_PROMPT_DROPPED ??
+        'Not sent: you left the session before Agent Run “{name}” ended.')
+    const userMessage = fill(template, { name })
+    errors.report(
+      createAppError({
+        category: 'validation',
+        code: 'agent-tasks/held-prompt-not-sent',
+        severity: 'info',
+        surface: 'toast',
+        userMessage,
+        technicalMessage: userMessage,
+      }),
+    )
+  }
 
   /** A Session turn that is one of an Agent Run's Steps, not the user's own. */
   function isAgentRunTurn(turn: SessionTurn | null | undefined): boolean {
@@ -904,7 +933,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   watch([runs, () => sessionsStore.turns], () => {
-    for (const sessionRef of Object.keys(queuedReleases)) {
+    for (const sessionRef of Object.keys(queuedHolds)) {
       if (!agentRunIn(sessionRef) && !sessionBusy(sessionRef)) releaseQueuedPrompt(sessionRef, true)
     }
   })
@@ -971,11 +1000,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function isSessionLockedByTask(sessionId: string): boolean {
     return runs.value[sessionId] !== undefined
-  }
-
-  function taskLockingSession(sessionId: string): AgentTask | undefined {
-    const taskId = runs.value[sessionId]?.taskId
-    return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
   }
 
   // Prompt runs lock too, so an Answer cannot slip in between their Steps.
@@ -1326,9 +1350,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     isSessionLockedByTask,
     afterAgentRun,
     cancelQueuedPrompt,
+    takeUnsentPrompt,
     queuedPrompts,
     isAgentRunTurn,
-    taskLockingSession,
     openSessionTask,
     openSessionAgentChanged,
     renameAgent,

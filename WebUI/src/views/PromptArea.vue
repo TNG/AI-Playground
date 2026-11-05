@@ -33,23 +33,6 @@
         <p class="flex-1 min-w-0">{{ queuedBehindRunNote }}</p>
       </div>
       <div
-        v-else-if="lockingTask"
-        role="status"
-        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
-      >
-        <p class="flex-1 min-w-0">{{ lockedNote }}</p>
-        <Button
-          variant="secondary"
-          size="sm"
-          class="h-7 px-2 text-xs"
-          :aria-label="(languages?.AGENT_TASKS_STOP ?? '').replace('{name}', lockingTask.name)"
-          @click="agentTasks.stopTask(lockingTask.id)"
-        >
-          <StopIcon class="size-3.5" aria-hidden="true" />
-          {{ languages?.AGENT_TASK_STOP_RUN }}
-        </Button>
-      </div>
-      <div
         v-else-if="promptRun"
         role="status"
         class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
@@ -594,6 +577,7 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/compon
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
 import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
 import { stepPrompts } from '@/lib/taskSteps'
+import { useAgentRunHold } from '@/lib/useAgentRunHold'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -610,6 +594,7 @@ const sessionLifecycle = useSessionLifecycle()
 const sessionTabs = useSessionTabs()
 const sessionSettings = useSessionSettings()
 const agentTasks = useAgentTasks()
+const afterAgentRun = useAgentRunHold()
 const oemBranding = useOemBranding()
 const textInference = useTextInference()
 const conversations = useConversations()
@@ -838,9 +823,7 @@ async function transcribe(
   audio: Blob,
   options: Parameters<typeof sessionAudio.transcribeAudio>[1],
 ): Promise<void> {
-  if (await agentTasks.afterAgentRun(sessions.openSessionId)) {
-    await sessionAudio.transcribeAudio(audio, options)
-  }
+  await afterAgentRun(() => sessionAudio.transcribeAudio(audio, options))
 }
 
 // The Session's newest audio, pre-attached as the default Speech-to-Text input.
@@ -994,16 +977,6 @@ function removeImage(index: number) {
   openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)
 }
 
-const lockingTask = computed(() =>
-  promptStore.getCurrentMode() === 'agent'
-    ? agentTasks.taskLockingSession(agentMode.openSessionId)
-    : undefined,
-)
-
-const lockedNote = computed(() =>
-  (languages?.AGENT_TASK_SESSION_LOCKED ?? '').replace('{name}', lockingTask.value?.name ?? ''),
-)
-
 /** The Agent Run in the open Session a sent prompt waits for. */
 const queuedBehindRun = computed(() =>
   sessions.openSessionId ? agentTasks.queuedPrompts[sessions.openSessionId] : undefined,
@@ -1031,8 +1004,7 @@ const promptRunNote = computed(() =>
 // activity indicator.
 const isProcessing = computed(() =>
   promptBusy(promptStore.getCurrentMode(), {
-    agentSession:
-      agentMode.processing || lockingTask.value !== undefined || promptRun.value !== undefined,
+    agentSession: agentMode.processing || promptRun.value !== undefined,
     conversation:
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,
@@ -1113,6 +1085,16 @@ watch(isProcessing, (busy, wasBusy) => {
   if (clearPrompt) prompt.value = ''
   if (resetSubmitted) promptStore.promptSubmitted = false
 })
+
+// A prompt held for an Agent Run comes back when the user returns to the Session it was sent in.
+watch(
+  () => sessions.openSessionId,
+  (open) => {
+    if (!open || prompt.value.trim()) return
+    const unsent = agentTasks.takeUnsentPrompt(open)
+    if (unsent !== undefined) prompt.value = unsent
+  },
+)
 
 // Accept programmatically injected prompt text (e.g. from demo sample prompts)
 watch(
@@ -1198,8 +1180,8 @@ async function handleRunStepsClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   emits('autoHideFooter')
   promptStore.promptSubmitted = true
-  if (await agentTasks.afterAgentRun(sessions.openSessionId)) void agentTasks.runSteps(prompt.value)
-  else promptStore.promptSubmitted = false
+  const text = prompt.value
+  await afterAgentRun(() => void agentTasks.runSteps(text), text)
 }
 
 // The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.

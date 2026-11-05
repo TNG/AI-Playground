@@ -1498,18 +1498,6 @@ describe('locking the Task Session', () => {
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
   })
 
-  it('names the Task holding a session', async () => {
-    const { tasks } = await readyStores(task('t1', ['one']))
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-
-    expect(tasks.taskLockingSession(sentConfig(0).sessionId)).toMatchObject({
-      id: 't1',
-      name: 'Task t1',
-    })
-    expect(tasks.taskLockingSession('session-open')).toBeUndefined()
-  })
-
   it('lets a Held Answer go when the run ends on a Step that could not be sent', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
     const ends: [string, string][] = []
@@ -1976,7 +1964,6 @@ describe('a session carrying out Steps from the prompt bar', () => {
     await turnIdOf(0)
 
     expect(tasks.isSessionLockedByTask('session-open')).toBe(false)
-    expect(tasks.taskLockingSession('session-open')).toBeUndefined()
   })
 })
 
@@ -2095,15 +2082,21 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     expect(tasks.taskState('t1')).toEqual({ running: expect.objectContaining({ stepIndex: 1 }) })
   })
 
-  it('is dropped when another Session is opened, so it cannot land there', async () => {
+  it('is handed back to its own Session, and said so, when another Session is opened', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')
     await turnIdOf(0)
-    const prompt = tasks.afterAgentRun(SESSION)
+    const prompt = tasks.afterAgentRun(SESSION, 'summarise the logs')
 
     await useSessions(pinia).open('session-2')
 
     expect(await prompt).toBe(false)
+    expect(errorsReport).toHaveBeenCalledWith(
+      expect.objectContaining({ surface: 'toast', severity: 'info' }),
+    )
+    expect(tasks.takeUnsentPrompt('session-2')).toBeUndefined()
+    expect(tasks.takeUnsentPrompt(SESSION)).toBe('summarise the logs')
+    expect(tasks.takeUnsentPrompt(SESSION)).toBeUndefined()
   })
 
   it('tells a Step’s turn of the run from the user’s own turn in the Session', async () => {

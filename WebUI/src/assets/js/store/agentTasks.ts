@@ -4,6 +4,7 @@ import { MODEL_DOWNLOAD_DECLINED, promptHasImageAttachment } from '@/types/agent
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { SessionTurn } from '@/types/sessionIpc'
 import type {
   AgentTask,
   AgentTaskActiveRun,
@@ -747,6 +748,67 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     },
   )
 
+  /** The Agent whose run is in flight in the Session, if any. */
+  function agentRunIn(sessionRef: string): AgentTask | undefined {
+    const taskId = Object.keys(runs.value).find((id) => runs.value[id].sessionRef === sessionRef)
+    return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
+  }
+
+  /** Each Session's prompt waiting for its Agent Run, by the Agent's name. Memory only. */
+  const queuedPrompts = ref<Record<string, string>>({})
+  const queuedReleases: Record<string, (go: boolean) => void> = {}
+
+  function releaseQueuedPrompt(sessionRef: string, go: boolean): void {
+    const release = queuedReleases[sessionRef]
+    if (!release) return
+    delete queuedReleases[sessionRef]
+    const { [sessionRef]: _released, ...rest } = queuedPrompts.value
+    queuedPrompts.value = rest
+    release(go)
+  }
+
+  /**
+   * Resolves once no Agent Run is in flight in the Session and main holds no turn there, so a
+   * prompt sent mid-run starts after the run's last Step (ADR-0005); false when it was cancelled.
+   */
+  function afterAgentRun(sessionRef: string | null): Promise<boolean> {
+    if (!sessionRef) return Promise.resolve(true)
+    const run = agentRunIn(sessionRef)
+    if (!run) return Promise.resolve(true)
+    releaseQueuedPrompt(sessionRef, false)
+    queuedPrompts.value = { ...queuedPrompts.value, [sessionRef]: run.name }
+    return new Promise((resolve) => (queuedReleases[sessionRef] = resolve))
+  }
+
+  function cancelQueuedPrompt(sessionRef: string): void {
+    releaseQueuedPrompt(sessionRef, false)
+  }
+
+  // A held prompt is sent by the prompt bar's mode, which follows the open Session.
+  watch(
+    () => sessionsStore.openSessionId,
+    (open) => {
+      for (const sessionRef of Object.keys(queuedReleases)) {
+        if (sessionRef !== open) releaseQueuedPrompt(sessionRef, false)
+      }
+    },
+  )
+
+  /** A Session turn that is one of an Agent Run's Steps, not the user's own. */
+  function isAgentRunTurn(turn: SessionTurn | null | undefined): boolean {
+    return (
+      turn?.kind === 'agent' &&
+      !!turn.harnessSessionId &&
+      runOfSession(turn.harnessSessionId) !== undefined
+    )
+  }
+
+  watch([runs, () => sessionsStore.turns], () => {
+    for (const sessionRef of Object.keys(queuedReleases)) {
+      if (!agentRunIn(sessionRef) && !sessionBusy(sessionRef)) releaseQueuedPrompt(sessionRef, true)
+    }
+  })
+
   async function sendStep(taskId: string, stepIndex: number): Promise<void> {
     const run = runs.value[taskId]
     const context = runContexts[taskId]
@@ -1156,6 +1218,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     runTask,
     stopTask,
     isSessionLockedByTask,
+    afterAgentRun,
+    cancelQueuedPrompt,
+    queuedPrompts,
+    isAgentRunTurn,
     taskLockingSession,
     openSessionTask,
     openSessionAgentChanged,

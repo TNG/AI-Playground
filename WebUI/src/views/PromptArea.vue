@@ -26,7 +26,14 @@
         </p>
       </div>
       <div
-        v-if="lockingTask"
+        v-if="queuedBehindRun"
+        role="status"
+        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <p class="flex-1 min-w-0">{{ queuedBehindRunNote }}</p>
+      </div>
+      <div
+        v-else-if="lockingTask"
         role="status"
         class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
       >
@@ -585,6 +592,7 @@ import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
+import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
 import { stepPrompts } from '@/lib/taskSteps'
 
 const instance = getCurrentInstance()
@@ -823,7 +831,16 @@ async function handleSttFileUpload(event: Event) {
   const file = target.files?.[0]
   target.value = ''
   if (!file) return
-  await sessionAudio.transcribeAudio(file, { label: `🎤 ${file.name}`, fileName: file.name })
+  await transcribe(file, { label: `🎤 ${file.name}`, fileName: file.name })
+}
+
+async function transcribe(
+  audio: Blob,
+  options: Parameters<typeof sessionAudio.transcribeAudio>[1],
+): Promise<void> {
+  if (await agentTasks.afterAgentRun(sessions.openSessionId)) {
+    await sessionAudio.transcribeAudio(audio, options)
+  }
 }
 
 // The Session's newest audio, pre-attached as the default Speech-to-Text input.
@@ -846,12 +863,12 @@ async function transcribeAttachedClip() {
     })
     return
   }
-  await sessionAudio.transcribeAudio(blob, { label: `🎤 ${fileName}`, fileName })
+  await transcribe(blob, { label: `🎤 ${fileName}`, fileName })
 }
 
 audioRecorder.registerRecordingCompleteHandler(async (wavBlob) => {
   if (!isSttPreset.value) return
-  await sessionAudio.transcribeAudio(wavBlob, { label: '🎤 Recording' })
+  await transcribe(wavBlob, { label: '🎤 Recording' })
 })
 
 audioRecorder.registerTranscriptionCallback((text) => {
@@ -987,6 +1004,15 @@ const lockedNote = computed(() =>
   (languages?.AGENT_TASK_SESSION_LOCKED ?? '').replace('{name}', lockingTask.value?.name ?? ''),
 )
 
+/** The Agent Run in the open Session a sent prompt waits for. */
+const queuedBehindRun = computed(() =>
+  sessions.openSessionId ? agentTasks.queuedPrompts[sessions.openSessionId] : undefined,
+)
+
+const queuedBehindRunNote = computed(() =>
+  agentRunQueuedLabel(languages ?? {}, queuedBehindRun.value ?? ''),
+)
+
 const promptRun = computed(() =>
   promptStore.getCurrentMode() === 'agent'
     ? agentTasks.promptRunOf(agentMode.openSessionId)
@@ -1011,13 +1037,15 @@ const isProcessing = computed(() =>
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,
     audioTurn: sessionAudio.processing,
-    sessionTurn: sessionTabs.sessionTurnInFlight,
+    sessionTurn: sessionTabs.sessionTurnInFlight && !agentTasks.isAgentRunTurn(sessions.openTurn),
   }),
 )
 
 const isStopping = computed(() => imageGeneration.stopping)
 
-const readyForNewSubmit = computed(() => !promptStore.promptSubmitted && !isProcessing.value)
+const readyForNewSubmit = computed(
+  () => !promptStore.promptSubmitted && !isProcessing.value && !queuedBehindRun.value,
+)
 
 const isFirstPrompt = computed(() => {
   const mode = promptStore.getCurrentMode()
@@ -1166,15 +1194,20 @@ const canRunSteps = computed(
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
 
-function handleRunStepsClick() {
+async function handleRunStepsClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   emits('autoHideFooter')
   promptStore.promptSubmitted = true
-  void agentTasks.runSteps(prompt.value)
+  if (await agentTasks.afterAgentRun(sessions.openSessionId)) void agentTasks.runSteps(prompt.value)
+  else promptStore.promptSubmitted = false
 }
 
 // The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.
 async function handleCancelClick() {
+  if (queuedBehindRun.value && sessions.openSessionId) {
+    agentTasks.cancelQueuedPrompt(sessions.openSessionId)
+    return
+  }
   const turn = sessions.openTurn
   const mode = promptStore.getCurrentMode()
   const ownTurn =

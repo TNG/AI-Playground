@@ -88,6 +88,11 @@ export function turnQueuedLabel(
   return (pattern ?? '').replace('{position}', queueOrdinal(position, locale, i18nState))
 }
 
+/** "Queued, waiting for Agent Run <name>" for a prompt held until its Session's run ends. */
+export function agentRunQueuedLabel(i18nState: I18nState, name: string): string {
+  return (i18nState.COM_ACTIVITY_TURN_QUEUED_FOR_AGENT_RUN ?? '').replace('{name}', name)
+}
+
 function applyQueueEvent(
   activities: ReturnType<typeof useActivities>,
   i18nState: Record<string, string>,

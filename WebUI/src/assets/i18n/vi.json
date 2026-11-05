@@ -191,6 +191,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "Đang xếp hàng ({position}), chờ một lượt trò chuyện hoàn tất",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "Đang xếp hàng ({position}), chờ bản tóm tắt tiêu đề trò chuyện hoàn tất",
   "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "Đang xếp hàng ({position}), chờ một lượt tạo nội dung đa phương tiện hoàn tất",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT_RUN": "Đang xếp hàng, chờ lượt chạy tác tử {name}",
   "COM_ACTIVITY_RUNNING_TOOL": "Đang chạy {tool}…",
   "COM_NO_SELECTED": "Chưa chọn",
   "COM_CONFIRM": "Xác nhận",

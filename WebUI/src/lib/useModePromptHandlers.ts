@@ -9,6 +9,7 @@ import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
+import { useSessions } from '@/assets/js/store/sessions'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { createAppError, isCancellation } from '@/assets/js/errors/appError'
@@ -32,6 +33,7 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
   const imageGeneration = useImageGenerationPresets()
   const presets = usePresets()
   const sessionAudio = useSessionAudio()
+  const sessions = useSessions()
   const errors = useErrors()
   const languages = useI18N().state
 
@@ -147,15 +149,23 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
     { immediate: true },
   )
 
+  // Whatever the preset, a prompt sent mid-run starts after the Session's Agent Run.
+  function afterAgentRun(submit: (prompt: string) => unknown) {
+    return async (prompt: string): Promise<void> => {
+      if (await agentTasks.afterAgentRun(sessions.openSessionId)) await submit(prompt)
+      else promptStore.promptSubmitted = false
+    }
+  }
+
   onMounted(() => {
     ensureMediaAgentEventWiring()
-    promptStore.registerSubmitCallback('chat', submitChat)
+    promptStore.registerSubmitCallback('chat', afterAgentRun(submitChat))
     promptStore.registerCancelCallback('chat', cancelChat)
-    promptStore.registerSubmitCallback('agent', submitAgent)
+    promptStore.registerSubmitCallback('agent', afterAgentRun(submitAgent))
     promptStore.registerCancelCallback('agent', cancelAgent)
-    promptStore.registerSubmitCallback('audio', synthesize)
+    promptStore.registerSubmitCallback('audio', afterAgentRun(synthesize))
     for (const mode of MEDIA_MODES) {
-      promptStore.registerSubmitCallback(mode, generateMedia(mode))
+      promptStore.registerSubmitCallback(mode, afterAgentRun(generateMedia(mode)))
       promptStore.registerCancelCallback(mode, () => imageGeneration.stopGeneration())
     }
   })

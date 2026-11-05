@@ -191,6 +191,7 @@
   "COM_ACTIVITY_TURN_QUEUED_FOR_CHAT": "Dalam antrean ({position}), menunggu giliran obrolan selesai",
   "COM_ACTIVITY_TURN_QUEUED_FOR_SUMMARY": "Dalam antrean ({position}), menunggu ringkasan judul obrolan selesai",
   "COM_ACTIVITY_TURN_QUEUED_FOR_GENERATION": "Dalam antrean ({position}), menunggu pembuatan media selesai",
+  "COM_ACTIVITY_TURN_QUEUED_FOR_AGENT_RUN": "Dalam antrean, menunggu jalannya agen {name}",
   "COM_ACTIVITY_RUNNING_TOOL": "Menjalankan {tool}…",
   "COM_NO_SELECTED": "Tidak Dipilih",
   "COM_CONFIRM": "Konfirmasi",

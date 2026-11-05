@@ -191,7 +191,10 @@ const openRecord = {
 }
 
 let storedTasks: AgentTask[]
-let pushKernelEvent: (event: KernelEvent) => void = () => {}
+const kernelListeners = new Set<(event: KernelEvent) => void>()
+const pushKernelEvent = (event: KernelEvent) => {
+  for (const listener of [...kernelListeners]) listener(event)
+}
 let seq = 10
 
 function pushEvent(payload: Record<string, unknown>): void {
@@ -214,6 +217,7 @@ let pinia: ReturnType<typeof createPinia>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  kernelListeners.clear()
   // Explicit: a store action left running by the previous test re-activates its own pinia.
   pinia = createPinia()
   setActivePinia(pinia)
@@ -238,8 +242,8 @@ beforeEach(() => {
   globalThis.window = {
     electronAPI: {
       onKernelEvent: vi.fn((listener: (event: KernelEvent) => void) => {
-        pushKernelEvent = listener
-        return () => {}
+        kernelListeners.add(listener)
+        return () => kernelListeners.delete(listener)
       }),
       getKernelSnapshot: vi.fn(async (): Promise<KernelSnapshot> => ({
         scope: { kind: 'global' },
@@ -1928,5 +1932,145 @@ describe('a session carrying out Steps from the prompt bar', () => {
 
     expect(tasks.isSessionLockedByTask('session-open')).toBe(false)
     expect(tasks.taskLockingSession('session-open')).toBeUndefined()
+  })
+})
+
+describe('a prompt sent while an Agent Run is in flight in its Session', () => {
+  /** Main's one-turn-per-Session ledger, as its kernel event reports it. */
+  function setSessionTurns(turns: Record<string, { turnId: string; kind: 'agent' | 'chat' }>) {
+    pushEvent({ type: 'session-turns', turns })
+  }
+
+  /** Whether `promise` has settled yet, and with what. */
+  function track<T>(promise: Promise<T>): { settled: boolean; value?: T } {
+    const state: { settled: boolean; value?: T } = { settled: false }
+    void promise.then((value) => {
+      state.settled = true
+      state.value = value
+    })
+    return state
+  }
+
+  it('goes ahead at once when the Session has no run', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(await tasks.afterAgentRun(SESSION)).toBe(true)
+  })
+
+  it('waits until the run’s last Step settled, while the Steps go on', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    const prompt = track(tasks.afterAgentRun(SESSION))
+    await finishTurn(0)
+    await turnIdOf(1)
+    await settleMicrotasks()
+    expect(prompt.settled).toBe(false)
+
+    await finishTurn(1)
+
+    await vi.waitFor(() => expect(prompt).toEqual({ settled: true, value: true }))
+    expect(sentSteps()).toEqual(['one', 'two'])
+  })
+
+  it('names the Agent Run it waits for, until it goes ahead', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    const prompt = tasks.afterAgentRun(SESSION)
+    expect(tasks.queuedPrompts).toEqual({ [SESSION]: 'Task t1' })
+
+    await finishTurn(0)
+    await prompt
+    expect(tasks.queuedPrompts).toEqual({})
+  })
+
+  it('waits for main to let go of the last Step’s turn too', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    setSessionTurns({ [SESSION]: { turnId: 'step-1', kind: 'agent' } })
+
+    const prompt = track(tasks.afterAgentRun(SESSION))
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+    await settleMicrotasks()
+    expect(prompt.settled).toBe(false)
+
+    setSessionTurns({})
+
+    await vi.waitFor(() => expect(prompt).toEqual({ settled: true, value: true }))
+  })
+
+  it('does not hold back a prompt in another Session', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(await tasks.afterAgentRun('session-2')).toBe(true)
+    expect(tasks.queuedPrompts).toEqual({})
+  })
+
+  it('goes ahead when the run is stopped', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const prompt = tasks.afterAgentRun(SESSION)
+
+    await tasks.stopTask('t1')
+
+    expect(await prompt).toBe(true)
+    expect(sentSteps()).toEqual(['one'])
+  })
+
+  it('goes ahead when a Step fails', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const prompt = tasks.afterAgentRun(SESSION)
+
+    await failTurn(0, 'model crashed')
+
+    expect(await prompt).toBe(true)
+    expect(sentSteps()).toEqual(['one'])
+  })
+
+  it('is dropped when cancelled, and the run goes on', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const prompt = tasks.afterAgentRun(SESSION)
+
+    tasks.cancelQueuedPrompt(SESSION)
+
+    expect(await prompt).toBe(false)
+    expect(tasks.queuedPrompts).toEqual({})
+    expect(tasks.taskState('t1')).toEqual({ running: expect.objectContaining({ stepIndex: 1 }) })
+  })
+
+  it('is dropped when another Session is opened, so it cannot land there', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const prompt = tasks.afterAgentRun(SESSION)
+
+    await useSessions(pinia).open('session-2')
+
+    expect(await prompt).toBe(false)
+  })
+
+  it('tells a Step’s turn of the run from the user’s own turn in the Session', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const harnessSessionId = sentConfig(0).sessionId
+
+    expect(tasks.isAgentRunTurn({ turnId: 'a', kind: 'agent', harnessSessionId })).toBe(true)
+    expect(
+      tasks.isAgentRunTurn({ turnId: 'b', kind: 'agent', harnessSessionId: 'session-open' }),
+    ).toBe(false)
+    expect(tasks.isAgentRunTurn({ turnId: 'c', kind: 'chat' })).toBe(false)
   })
 })

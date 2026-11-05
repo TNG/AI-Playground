@@ -1,4 +1,4 @@
-import { deleteAgentTasksOfSession } from '../persist/agentTaskFiles'
+import { forgetSessionInAgentTasks } from '../persist/agentTaskFiles'
 import { ensureSessionFilesDir } from '../persist/sessionMediaFiles'
 import { mintHarnessSessionId } from './sessionHarness'
 import { mutateSession, onSessionDeleted } from './sessions'
@@ -17,7 +17,7 @@ export async function taskRunHarnessFor(sessionId: string): Promise<HarnessSessi
   return { harnessSessionId, workspaceDir: await ensureSessionFilesDir(sessionId) }
 }
 
-/** Deleting a Session deletes its Tasks; returns the unsubscribe. */
-export function deleteTasksWithSession(): () => void {
-  return onSessionDeleted((id) => deleteAgentTasksOfSession(id))
+/** Deleting a Session keeps its Agents and drops its Schedules; returns the unsubscribe. */
+export function dropSchedulesWithSession(): () => void {
+  return onSessionDeleted((id) => forgetSessionInAgentTasks(id))
 }

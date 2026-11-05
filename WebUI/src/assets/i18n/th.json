@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "ตั้งชื่อให้เอเจนต์",
   "AGENT_TASK_BLOCKED_NO_STEPS": "เพิ่มอย่างน้อยหนึ่งขั้นตอน",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "มีขั้นตอนที่ว่างอยู่",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "เปิดเซสชันก่อน",
   "AGENT_TASK_ADD_STEP": "เพิ่มขั้นตอน",
   "AGENT_TASK_STEP_TEXT": "พรอมต์ของขั้นตอนที่ {number}",
   "AGENT_TASK_MOVE_STEP_UP": "ย้ายขั้นตอนที่ {number} ขึ้น",

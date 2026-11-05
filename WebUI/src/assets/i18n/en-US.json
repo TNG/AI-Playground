@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "Give the agent a name.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Add at least one step.",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "A step is empty.",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "Open a Session first.",
   "AGENT_TASK_ADD_STEP": "Add step",
   "AGENT_TASK_STEP_TEXT": "Step {number} prompt",
   "AGENT_TASK_MOVE_STEP_UP": "Move step {number} up",

@@ -242,8 +242,9 @@ const renameValue = ref('')
 const confirmDeleteId = ref<string | null>(null)
 const saving = ref(false)
 
+// Agent Maker lists the library; the run-only tab only what this Session holds.
 const listedTasks = computed(() => {
-  if (!presetAgentOnly) return agentTasks.sessionTasks
+  if (!presetAgentOnly) return load ? agentTasks.tasks : agentTasks.openSessionAgents
   const agent = agentTasks.presetAgent
   return agent ? [agent] : []
 })

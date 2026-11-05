@@ -6,8 +6,8 @@ import type { ShutdownCause } from '../kernel/shutdown'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 
 /**
- * The kernel's one-writer Tasks store: `AI-Playground/agent-tasks.json`, every saved
- * Task in one file. Unlike the workspace pointers, an unreadable file is never
+ * The kernel's one-writer Agents store: `AI-Playground/agent-tasks.json`, every saved
+ * Agent in one file. Unlike the workspace pointers, an unreadable file is never
  * replaced by a write — one upsert would otherwise erase every other Task.
  */
 
@@ -118,13 +118,18 @@ export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> 
   })
 }
 
-/** A deleted Session takes its Tasks with it. */
-export async function deleteAgentTasksOfSession(sessionRef: string): Promise<void> {
+/** A deleted Session keeps its Agents; the Schedules that ran in it go with it. */
+export async function forgetSessionInAgentTasks(sessionRef: string): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
     const tasks = await readAgentTasks()
-    const remaining = tasks.filter((entry) => entry.sessionRef !== sessionRef)
-    if (remaining.length === tasks.length) return
-    await writeTasks(remaining)
+    if (!tasks.some((entry) => entry.sessionRef === sessionRef)) return
+    await writeTasks(
+      tasks.map((entry) => {
+        if (entry.sessionRef !== sessionRef) return entry
+        const { sessionRef: _gone, schedule: _schedule, nextRunAt: _nextRunAt, ...kept } = entry
+        return kept
+      }),
+    )
   })
 }
 

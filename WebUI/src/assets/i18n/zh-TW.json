@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "請為代理程式命名。",
   "AGENT_TASK_BLOCKED_NO_STEPS": "請至少新增一個步驟。",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "有步驟是空的。",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "請先開啟一個工作階段。",
   "AGENT_TASK_ADD_STEP": "新增步驟",
   "AGENT_TASK_STEP_TEXT": "步驟 {number} 的提示詞",
   "AGENT_TASK_MOVE_STEP_UP": "上移步驟 {number}",

@@ -4,8 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentTask } from '@/types/agentTaskIpc'
 
-// A Session's Tasks live and die with it: deleting the Session removes them from
-// the Tasks file, driven against real files in a temp dir.
+// Agents outlive the Session they were made in: deleting it keeps them in the Agents
+// file and drops only the Schedules that ran in it, driven against real files in a temp dir.
 
 const dirs = vi.hoisted(() => ({ root: '' }))
 
@@ -23,7 +23,7 @@ vi.mock('../../observability/logger', () => ({
 
 const sessions = await import('../../session/sessions')
 const taskFiles = await import('../../persist/agentTaskFiles')
-const { deleteTasksWithSession } = await import('../../session/sessionTaskRuns')
+const { dropSchedulesWithSession } = await import('../../session/sessionTaskRuns')
 
 function task(id: string, sessionRef: string): AgentTask {
   return {
@@ -54,15 +54,20 @@ afterEach(async () => {
 })
 
 describe('deleting a Session', () => {
-  it('deletes its Tasks and keeps those of other Sessions', async () => {
-    deleteTasksWithSession()
+  it('keeps its Agents, dropping the Schedules that ran in it, and leaves other Agents alone', async () => {
+    dropSchedulesWithSession()
     const doomed = await sessions.createSession()
     const kept = await sessions.createSession()
-    await taskFiles.saveAgentTask(task('a', doomed.id))
-    await taskFiles.saveAgentTask(task('b', kept.id))
+    const schedule = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
+    await taskFiles.saveAgentTask({ ...task('a', doomed.id), schedule, nextRunAt: 200 })
+    await taskFiles.saveAgentTask({ ...task('b', kept.id), schedule, nextRunAt: 200 })
 
     await sessions.deleteSession(doomed.id)
 
-    expect((await taskFiles.readAgentTasks()).map((entry) => entry.id)).toEqual(['b'])
+    const { sessionRef: _gone, ...made } = task('a', doomed.id)
+    expect(await taskFiles.readAgentTasks()).toEqual([
+      made,
+      { ...task('b', kept.id), schedule, nextRunAt: 200 },
+    ])
   })
 })

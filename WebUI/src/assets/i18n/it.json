@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "Dai un nome all'agente.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Aggiungi almeno un passaggio.",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "Un passaggio è vuoto.",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "Apri prima una sessione.",
   "AGENT_TASK_ADD_STEP": "Aggiungi passaggio",
   "AGENT_TASK_STEP_TEXT": "Prompt del passaggio {number}",
   "AGENT_TASK_MOVE_STEP_UP": "Sposta su il passaggio {number}",

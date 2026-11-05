@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "エージェントに名前を付けてください。",
   "AGENT_TASK_BLOCKED_NO_STEPS": "ステップを 1 つ以上追加してください。",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "空のステップがあります。",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "先にセッションを開いてください。",
   "AGENT_TASK_ADD_STEP": "ステップを追加",
   "AGENT_TASK_STEP_TEXT": "ステップ {number} のプロンプト",
   "AGENT_TASK_MOVE_STEP_UP": "ステップ {number} を上へ移動",

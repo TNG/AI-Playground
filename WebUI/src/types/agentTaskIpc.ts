@@ -27,6 +27,8 @@ export type AgentTaskOutcome = z.infer<typeof AgentTaskOutcomeSchema>
  */
 export const AgentTaskActiveRunSchema = z.object({
   sessionId: z.string(),
+  /** The Session the run is in; absent on a marker written before runs left the Agent's Session. */
+  sessionRef: z.string().optional(),
   stepIndex: z.number(),
   stepCount: z.number(),
   /** Set for a Scheduled Run, so a reattached one still toasts a failure. */
@@ -54,9 +56,9 @@ export type AgentTaskSchedule = z.infer<typeof AgentTaskScheduleSchema>
 export const AgentTaskSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
-  /** The Session the Task belongs to and runs in; absent on a Task saved before Sessions. */
+  /** The Session the Agent was made in, where its Schedule runs; absent when there is none. */
   sessionRef: z.string().min(1).optional(),
-  /** Only on a Task saved before Sessions, which stays on disk unlisted. */
+  /** Only on an Agent saved before Sessions. */
   workspaceDir: z.string().optional(),
   settingsTemplate: AgentSessionSettingsSchema,
   steps: z.array(AgentTaskStepSchema),

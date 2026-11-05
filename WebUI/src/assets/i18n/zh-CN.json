@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "请为智能体命名。",
   "AGENT_TASK_BLOCKED_NO_STEPS": "请至少添加一个步骤。",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "有步骤为空。",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "请先打开一个会话。",
   "AGENT_TASK_ADD_STEP": "添加步骤",
   "AGENT_TASK_STEP_TEXT": "步骤 {number} 的提示词",
   "AGENT_TASK_MOVE_STEP_UP": "上移步骤 {number}",

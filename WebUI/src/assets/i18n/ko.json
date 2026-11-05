@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "에이전트 이름을 지정하세요.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "단계를 하나 이상 추가하세요.",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "비어 있는 단계가 있습니다.",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "먼저 세션을 여세요.",
   "AGENT_TASK_ADD_STEP": "단계 추가",
   "AGENT_TASK_STEP_TEXT": "단계 {number} 프롬프트",
   "AGENT_TASK_MOVE_STEP_UP": "단계 {number} 위로 이동",

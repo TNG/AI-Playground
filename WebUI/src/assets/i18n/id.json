@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "Beri nama agen.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Tambahkan setidaknya satu langkah.",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "Ada langkah yang kosong.",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "Buka sesi terlebih dahulu.",
   "AGENT_TASK_ADD_STEP": "Tambah langkah",
   "AGENT_TASK_STEP_TEXT": "Prompt langkah {number}",
   "AGENT_TASK_MOVE_STEP_UP": "Pindahkan langkah {number} ke atas",

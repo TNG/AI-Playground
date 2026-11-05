@@ -323,14 +323,16 @@ describe('saving a Task', () => {
     expect(tasks.tasks).toEqual([])
   })
 
-  it('refuses while no Session is open', async () => {
+  it('saves with no Session open, owned by none', async () => {
     const { tasks } = await readyStores({ session: false })
 
-    expect(await tasks.saveTask(draftOf('Docs', 'go'))).toEqual({
-      ok: false,
-      reason: 'no-session',
-    })
-    expect(saveTask).not.toHaveBeenCalled()
+    const result = await tasks.saveTask(draftOf('Docs', 'go'))
+
+    expect(result.ok).toBe(true)
+    const saved = saveTask.mock.calls[0][0]
+    expect(saved.name).toBe('Docs')
+    expect(saved.sessionRef).toBeUndefined()
+    expect(tasks.tasks).toEqual([saved])
   })
 
   it('persists the Steps in the open Session, with its Session Settings', async () => {
@@ -399,21 +401,22 @@ describe('saving a Task', () => {
     expect(tasks.tasks).toEqual(storedTasks)
   })
 
-  it('leaves a Task saved before Tasks belonged to a Session unlisted', async () => {
+  it('lists an Agent saved before Sessions existed', async () => {
     const { sessionRef: _none, ...legacy } = savedTask('old')
     storedTasks = [{ ...legacy, workspaceDir: '/work/open' }, savedTask('task-1')]
 
     const { tasks } = await readyStores()
 
-    expect(tasks.tasks.map((task) => task.id)).toEqual(['task-1'])
+    expect(tasks.tasks.map((task) => task.id)).toEqual(['old', 'task-1'])
   })
 
-  it("lists only the open Session's Tasks in its panel", async () => {
+  it('lists every Agent in every Session, whichever Session it was made in', async () => {
     storedTasks = [savedTask('mine'), savedTask('theirs', { sessionRef: 'session-2' })]
-
     const { tasks } = await readyStores()
 
-    expect(tasks.sessionTasks.map((task) => task.id)).toEqual(['mine'])
+    expect(tasks.tasks.map((task) => task.id)).toEqual(['mine', 'theirs'])
+    await useSessions().create()
+    expect(tasks.tasks.map((task) => task.id)).toEqual(['mine', 'theirs'])
   })
 })
 
@@ -541,6 +544,20 @@ describe('updating an Agent', () => {
     expect(agentMode.openTaskId).toBe('task-2')
   })
 
+  it('keeps the Session it was made in when updated from another one, or from none', async () => {
+    const { sessionRef: _none, ...legacy } = savedTask('old')
+    storedTasks = [savedTask('theirs', { sessionRef: 'session-2' }), legacy]
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(stepsOf('changed'))
+
+    expect((await tasks.updateAgent('theirs', 'Theirs')).ok).toBe(true)
+    expect((await tasks.updateAgent('old', 'Old')).ok).toBe(true)
+
+    const saved = saveTask.mock.calls.map(([task]) => task)
+    expect(saved.find((task) => task.id === 'theirs')?.sessionRef).toBe('session-2')
+    expect(saved.find((task) => task.id === 'old')?.sessionRef).toBeUndefined()
+  })
+
   it.each([
     ['an empty name', ' ', ['go'], 'name'],
     ['no Steps', 'News', [], 'no-steps'],
@@ -641,16 +658,39 @@ describe('loading an Agent', () => {
   })
 })
 
+describe('scheduling an Agent that belongs to no Session', () => {
+  it('sets the Schedule in the open Session', async () => {
+    const { sessionRef: _none, ...legacy } = savedTask('old')
+    storedTasks = [legacy]
+    const { tasks } = await readyStores()
+
+    const schedule = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
+    expect(await tasks.setSchedule('old', schedule)).toMatchObject({ ok: true })
+
+    expect(saveTask.mock.calls.at(-1)![0]).toMatchObject({ sessionRef: SESSION, schedule })
+  })
+})
+
 describe('deleting a Session', () => {
-  it('forgets its Tasks and their presets, and keeps the Tasks of other Sessions', async () => {
-    storedTasks = [savedTask('mine'), savedTask('theirs', { sessionRef: 'session-2' })]
+  it('keeps every Agent and preset, dropping the Schedules that ran in it', async () => {
+    const schedule = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
+    const nextRunAt = Date.now() + 60_000
+    storedTasks = [
+      savedTask('mine', { schedule, nextRunAt }),
+      savedTask('theirs', { sessionRef: 'session-2', schedule, nextRunAt }),
+    ]
     const { tasks } = await readyStores()
     await tasks.saveAgentAsPreset('mine', { description: 'x' })
 
     await useSessions().remove(SESSION)
 
-    await vi.waitFor(() => expect(tasks.tasks.map((task) => task.id)).toEqual(['theirs']))
-    expect(removeUserPreset).toHaveBeenCalledWith('Task mine')
+    await vi.waitFor(() => expect(tasks.tasks[0].schedule).toBeUndefined())
+    const { sessionRef: _gone, ...mine } = savedTask('mine')
+    expect(tasks.tasks).toEqual([
+      mine,
+      savedTask('theirs', { sessionRef: 'session-2', schedule, nextRunAt }),
+    ])
+    expect(removeUserPreset).not.toHaveBeenCalled()
     expect(window.electronAPI.agentMode.deleteTask).not.toHaveBeenCalled()
   })
 })

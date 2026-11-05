@@ -208,12 +208,18 @@ const deleteTask = vi.fn(async (_id: string) => ({ success: true as boolean, err
 
 const SESSION = 'session-1'
 let runHarnesses = 0
+/** The id main gives the next Session the sessions store creates. */
+let nextSessionId = SESSION
+let pinia: ReturnType<typeof createPinia>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  setActivePinia(createPinia())
+  // Explicit: a store action left running by the previous test re-activates its own pinia.
+  pinia = createPinia()
+  setActivePinia(pinia)
   seq = 10
   storedTasks = []
+  nextSessionId = SESSION
   activePreset.state!.preset = AGENT
   inference.live.activeModel = 'Live-9B'
   inference.catalog = []
@@ -257,6 +263,39 @@ beforeEach(() => {
           },
         })),
         saveTimelineMessages: vi.fn(async () => ({ success: true })),
+        harnessSession: vi.fn(async (sessionRef: string) => ({
+          success: true,
+          harness:
+            sessionRef === SESSION
+              ? { harnessSessionId: 'session-open', workspaceDir: '/work/open' }
+              : { harnessSessionId: `harness-${sessionRef}`, workspaceDir: '/work/open' },
+        })),
+        delete: vi.fn(async () => ({ success: true })),
+        open: vi.fn(async (id: string) => ({
+          success: true,
+          session: {
+            id,
+            title: '',
+            renamed: false,
+            createdAt: 1,
+            updatedAt: 1,
+            presetsUsed: [],
+            timeline: [],
+          },
+          missingFiles: [],
+          lastPreset: null,
+        })),
+        create: vi.fn(async () => ({
+          success: true,
+          session: {
+            id: nextSessionId,
+            title: '',
+            renamed: false,
+            createdAt: 1,
+            updatedAt: 1,
+            presetsUsed: [],
+          },
+        })),
       },
       agentMode: {
         startTurn,
@@ -295,12 +334,18 @@ afterEach(async () => {
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
+const { useSessions } = await import('@/assets/js/store/sessions')
 
 async function readyStores(...saved: AgentTask[]) {
+  return readyStoresIn({ session: true }, ...saved)
+}
+
+async function readyStoresIn(options: { session: boolean }, ...saved: AgentTask[]) {
   storedTasks = saved
-  const agentMode = useAgentMode()
+  const agentMode = useAgentMode(pinia)
   await agentMode.init()
-  const tasks = useAgentTasks()
+  if (options.session) await useSessions(pinia).create()
+  const tasks = useAgentTasks(pinia)
   await tasks.init()
   return { agentMode, tasks }
 }
@@ -340,6 +385,145 @@ async function settleMicrotasks(): Promise<void> {
 
 const lastSavedTask = (id: string) =>
   saveTask.mock.calls.map(([saved]) => saved).findLast((saved) => saved.id === id)
+
+describe('where an Agent Run runs', () => {
+  it('runs in the open Session, not the one the Agent was made in', async () => {
+    const { agentMode, tasks } = await readyStores(
+      task('t1', ['one'], { sessionRef: 'session-made-in' }),
+    )
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
+    expect(agentMode.liveTurnsIn(SESSION).map((turn) => turn.tag.taskRun?.taskName)).toContain(
+      'Task t1',
+    )
+    expect(agentMode.liveTurnsIn('session-made-in')).toEqual([])
+  })
+
+  it('runs an Agent saved before Sessions existed', async () => {
+    const { sessionRef: _none, ...legacy } = task('old', ['one'])
+    const { tasks } = await readyStores(legacy)
+
+    expect(await tasks.runTask('old')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
+  })
+
+  it('opens a Session for the run when none is open', async () => {
+    nextSessionId = 'session-new'
+    const { tasks } = await readyStoresIn({ session: false }, task('t1', ['one']))
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith('session-new')
+    expect(useSessions(pinia).openSessionId).toBe('session-new')
+  })
+
+  it('runs an Agent Preset’s Agent in the current Session', async () => {
+    activePreset.state!.preset = NEWS_PRESET
+    const { tasks } = await readyStores(task('t-news', ['one'], { sessionRef: 'session-made-in' }))
+
+    expect(tasks.presetAgent?.id).toBe('t-news')
+    expect(await tasks.runTask(tasks.presetAgent!.id)).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
+  })
+
+  it('stays in the Session it started in when another one is opened', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    nextSessionId = 'session-2'
+    await useSessions(pinia).create()
+    await finishTurn(0)
+    await turnIdOf(1)
+
+    const runsIn = (sessionRef: string) =>
+      agentMode.liveTurnsIn(sessionRef).filter((turn) => turn.tag.taskRun)
+    expect(sentConfig(1).sessionId).toBe(sentConfig(0).sessionId)
+    expect(runsIn(SESSION)).toHaveLength(1)
+    expect(runsIn('session-2')).toEqual([])
+  })
+})
+
+describe('deleting the Session a run is in', () => {
+  it('stops the run and keeps the Agent', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    nextSessionId = 'session-2'
+    await useSessions(pinia).create()
+
+    await useSessions(pinia).remove(SESSION)
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped', stepIndex: 1 })
+    expect(window.electronAPI.agentMode.cancel).toHaveBeenCalled()
+    expect(tasks.tasks.map((agent) => agent.id)).toEqual(['t1'])
+    expect(lastSavedTask('t1')?.activeRun).toBeUndefined()
+  })
+
+  it('leaves a run in another Session going', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    nextSessionId = 'session-2'
+    await useSessions(pinia).create()
+
+    await useSessions(pinia).remove('session-2')
+    await settleMicrotasks()
+
+    expect(tasks.taskState('t1')).toHaveProperty('running')
+    expect(window.electronAPI.agentMode.cancel).not.toHaveBeenCalled()
+  })
+})
+
+describe('the Agents a Session holds', () => {
+  const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
+  const ids = (tasks: ReturnType<typeof useAgentTasks>) =>
+    tasks.openSessionAgents.map((agent) => agent.id)
+
+  it('are none for an Agent made in it that neither runs nor is scheduled', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(ids(tasks)).toEqual([])
+  })
+
+  it('include an Agent while its run is in flight in the Session, and not after', async () => {
+    const { tasks } = await readyStores(task('t1', ['one'], { sessionRef: 'session-made-in' }))
+
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    expect(ids(tasks)).toEqual(['t1'])
+
+    nextSessionId = 'session-2'
+    await useSessions(pinia).create()
+    expect(ids(tasks)).toEqual([])
+    await useSessions(pinia).open(SESSION)
+
+    await finishTurn(0)
+    await vi.waitFor(() => expect(ids(tasks)).toEqual([]))
+  })
+
+  it('include an Agent whose enabled Schedule runs in the Session', async () => {
+    const { tasks } = await readyStores(
+      task('here', ['one'], { schedule: daily, nextRunAt: Date.now() + 60_000 }),
+      task('paused', ['one'], { schedule: { ...daily, enabled: false } }),
+      task('there', ['one'], {
+        sessionRef: 'session-2',
+        schedule: daily,
+        nextRunAt: Date.now() + 60_000,
+      }),
+    )
+
+    expect(ids(tasks)).toEqual(['here'])
+  })
+})
 
 describe('running a Task', () => {
   it('creates the Task Session in the background, leaving the Open Session alone', async () => {
@@ -388,7 +572,7 @@ describe('running a Task', () => {
 
   it('files the Task Session under the Chat preset the Agent was saved as', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
-    const tasks = useAgentTasks()
+    const tasks = useAgentTasks(pinia)
 
     await tasks.runTask('t-news')
 
@@ -446,11 +630,15 @@ describe('running a Task', () => {
     await tasks.runTask('t1')
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
-    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+    })
 
     await finishTurn(0)
     await turnIdOf(1)
-    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 2, stepCount: 2, sessionId } })
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 2, stepCount: 2, sessionId, sessionRef: SESSION },
+    })
   })
 })
 
@@ -1119,7 +1307,7 @@ describe('the app closing during a run', () => {
     )
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { sessionId, stepIndex: 1, stepCount: 2 },
+      running: { sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
     })
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
     expect(saveTask.mock.calls.some(([saved]) => saved.lastOutcome?.reason === 'app-closed')).toBe(
@@ -1374,7 +1562,9 @@ describe('updating an Agent while it runs', () => {
     })
     expect((await tasks.updateAgent('t1', 'Task t1')).ok).toBe(true)
 
-    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+    })
     expect(lastSavedTask('t1')).toMatchObject({
       steps: [{ prompt: 'first' }, { prompt: 'second' }],
       activeRun: { sessionId, stepIndex: 1 },
@@ -1468,7 +1658,8 @@ describe('running Steps from the prompt bar', () => {
   })
 
   it('starts the Steps in a new session when the Open Session is a draft', async () => {
-    const { agentMode, tasks } = await readyStores()
+    const { agentMode, tasks } = await readyStoresIn({ session: false })
+    vi.mocked(window.electronAPI.sessions.create).mockRejectedValue(new Error('no Sessions'))
     await agentMode.newSession()
     agentMode.setOpenSteps(STEPS.slice(0, 2))
 
@@ -1534,7 +1725,8 @@ describe('running Steps from the prompt bar', () => {
   })
 
   it('names a new session after Step 1 when there is no prompt', async () => {
-    const { agentMode, tasks } = await readyStores()
+    nextSessionId = 'session-new'
+    const { agentMode, tasks } = await readyStoresIn({ session: false })
     await agentMode.newSession()
     agentMode.setOpenSteps(STEPS.slice(0, 2))
 
@@ -1545,7 +1737,8 @@ describe('running Steps from the prompt bar', () => {
   })
 
   it('names a new session after its Agent when there is no prompt', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    nextSessionId = 'session-new'
+    const { agentMode, tasks } = await readyStoresIn({ session: false }, task('t1', ['one', 'two']))
     await tasks.loadAgent('t1')
 
     void tasks.runSteps('')

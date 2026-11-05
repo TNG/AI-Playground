@@ -22,7 +22,7 @@ vi.mock('../../observability/logger', () => ({
 
 const {
   deleteAgentTask,
-  deleteAgentTasksOfSession,
+  forgetSessionInAgentTasks,
   readAgentTasks,
   resetAgentTaskFilesForTest,
   saveAgentTask,
@@ -158,16 +158,22 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([old, task('new')])
   })
 
-  it("deletes a Session's Tasks and leaves every other one", async () => {
+  it("keeps a deleted Session's Agents, without that Session or its Schedules", async () => {
     const { sessionRef: _none, ...legacy } = task('old')
-    await saveAgentTask(task('a'))
-    await saveAgentTask(task('b', { sessionRef: 'session-2' }))
-    await saveAgentTask(task('c'))
+    const schedule = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
+    const outcome = { kind: 'completed' as const, at: 5, stepCount: 1 }
+    await saveAgentTask(task('a', { schedule, nextRunAt: 200, lastOutcome: outcome }))
+    await saveAgentTask(task('b', { sessionRef: 'session-2', schedule, nextRunAt: 200 }))
     await saveAgentTask(legacy)
 
-    await deleteAgentTasksOfSession('session-1')
+    await forgetSessionInAgentTasks('session-1')
 
-    expect(await readAgentTasks()).toEqual([task('b', { sessionRef: 'session-2' }), legacy])
+    const { sessionRef: _gone, ...keptA } = task('a', { lastOutcome: outcome })
+    expect(await readAgentTasks()).toEqual([
+      keptA,
+      task('b', { sessionRef: 'session-2', schedule, nextRunAt: 200 }),
+      legacy,
+    ])
   })
 
   it('deletes one Task and keeps the others', async () => {

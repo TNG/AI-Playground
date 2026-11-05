@@ -786,7 +786,6 @@
   "AGENT_TASK_BLOCKED_NAME": "Hãy đặt tên cho tác tử.",
   "AGENT_TASK_BLOCKED_NO_STEPS": "Thêm ít nhất một bước.",
   "AGENT_TASK_BLOCKED_EMPTY_STEP": "Có một bước bị trống.",
-  "AGENT_TASK_BLOCKED_NO_SESSION": "Hãy mở một phiên trước.",
   "AGENT_TASK_ADD_STEP": "Thêm bước",
   "AGENT_TASK_STEP_TEXT": "Prompt của bước {number}",
   "AGENT_TASK_MOVE_STEP_UP": "Di chuyển bước {number} lên",

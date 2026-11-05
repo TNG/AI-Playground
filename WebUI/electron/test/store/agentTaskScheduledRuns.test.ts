@@ -261,6 +261,21 @@ beforeEach(() => {
           },
         })),
         saveTimelineMessages: vi.fn(async () => ({ success: true })),
+        harnessSession: vi.fn(async () => ({
+          success: true,
+          harness: { harnessSessionId: 'session-open', workspaceDir: '/work/open' },
+        })),
+        create: vi.fn(async () => ({
+          success: true,
+          session: {
+            id: SESSION,
+            title: '',
+            renamed: false,
+            createdAt: 1,
+            updatedAt: 1,
+            presetsUsed: [],
+          },
+        })),
       },
       agentMode: {
         startTurn,
@@ -300,11 +315,13 @@ afterEach(async () => {
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
+const { useSessions } = await import('@/assets/js/store/sessions')
 
 async function readyStores(...saved: AgentTask[]) {
   storedTasks = saved
   const agentMode = useAgentMode()
   await agentMode.init()
+  await useSessions().create()
   const tasks = useAgentTasks()
   await tasks.init()
   return { agentMode, tasks }
@@ -375,6 +392,26 @@ describe('a Scheduled Run in its Session', () => {
       taskName: 'Task t1',
       trigger: 'scheduled',
     })
+  })
+
+  it('never runs in a Session it was not set in, nor in the open one', async () => {
+    const { sessionRef: _none, ...unbound } = scheduledTask('t1')
+    await readyStores(unbound)
+
+    await runClockTo(NOW + 10 * MINUTE)
+    await settleMicrotasks()
+
+    expect(window.electronAPI.sessions.taskRunHarness).not.toHaveBeenCalled()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('runs in the Session it was set in, whichever Session is open', async () => {
+    await readyStores(scheduledTask('t1', { sessionRef: 'session-made-in' }))
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith('session-made-in')
   })
 
   it('tags every Step with the Task and its index', async () => {
@@ -452,7 +489,9 @@ describe('a Schedule reaching its Next Run', () => {
       presetName: 'Agent',
       settings: TEMPLATE,
     })
-    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+    })
   })
 
   it('moves the Next Run to the following slot and saves it', async () => {
@@ -575,7 +614,9 @@ describe('a slot that finds a Task Run in flight', () => {
 
     expect(startTurn).toHaveBeenCalledTimes(1)
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
-    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+    })
     expect(lastSavedTask('t1')?.activeRun).not.toHaveProperty('scheduled')
     expect(lastSavedTask('t1')).not.toHaveProperty('lastOutcome')
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
@@ -1101,12 +1142,20 @@ describe('a Task Run whose Task Session is paused', () => {
     await pauseTurn(0, DOWNLOAD_PAUSE)
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 1, stepCount: 2, sessionId, paused: { reason: DOWNLOAD_PAUSE } },
+      running: {
+        stepIndex: 1,
+        stepCount: 2,
+        sessionId,
+        sessionRef: SESSION,
+        paused: { reason: DOWNLOAD_PAUSE },
+      },
     })
 
     await resumeTurn(0)
 
-    expect(tasks.taskState('t1')).toEqual({ running: { stepIndex: 1, stepCount: 2, sessionId } })
+    expect(tasks.taskState('t1')).toEqual({
+      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+    })
   })
 
   it('is shown as paused when main names no reason', async () => {

@@ -15,6 +15,13 @@
           <span class="text-sm text-foreground">{{ row.sandboxPath }}</span>
           <span class="text-xs text-muted-foreground break-all">{{ row.folder.hostPath }}</span>
         </span>
+        <Input
+          class="h-7 w-28 shrink-0 px-2"
+          :model-value="row.folder.name ?? ''"
+          :placeholder="folderBaseName(row.folder.hostPath)"
+          :aria-label="nameLabel(row.folder.hostPath)"
+          @change="rename(row.folder, ($event.target as HTMLInputElement).value)"
+        />
         <label class="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
           <Switch
             :model-value="row.access === 'read-write'"
@@ -52,22 +59,36 @@
         {{ languages.AGENT_SETTINGS_MOUNTED_FOLDER_ADD }}
       </Button>
     </div>
+    <p v-if="refusalText" role="alert" class="text-xs text-amber-500">{{ refusalText }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { FolderIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { MOUNTED_FOLDERS_ROOT, resolveMountedFolders } from '@/lib/mountedFolders'
+import {
+  folderBaseName,
+  MOUNTED_FOLDERS_ROOT,
+  mountedFolderRefusal,
+  resolveMountedFolders,
+  type MountedFolderRefusal,
+} from '@/lib/mountedFolders'
 import type { MountedFolder } from '@/types/agentSessionIpc'
+
+const props = defineProps<{
+  /** Absent where there is no Session Folder to overlap, as in an Agent's Settings Template. */
+  sessionFolder?: string
+}>()
 
 const folders = defineModel<MountedFolder[]>({ required: true })
 
 const languages = useI18N().state
+const refusal = ref<MountedFolderRefusal>()
 
 const rows = computed(() => {
   const resolved = resolveMountedFolders(folders.value)
@@ -78,14 +99,47 @@ const rows = computed(() => {
   }))
 })
 
+const refusalText = computed(() => {
+  const refused = refusal.value
+  if (!refused) return ''
+  if (refused.reason === 'mounted') {
+    return languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED.replace(
+      '{folder}',
+      refused.folder,
+    )
+  }
+  if (refused.reason === 'contains-mounted') {
+    return languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED.replaceAll(
+      '{folder}',
+      refused.folder,
+    )
+  }
+  return {
+    'too-broad': languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD,
+    home: languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME,
+    'session-folder': languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER,
+  }[refused.reason]
+})
+
 function removeLabel(sandboxPath: string): string {
   return languages.AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED.replace('{folder}', sandboxPath)
 }
 
+function nameLabel(hostPath: string): string {
+  return languages.AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL.replace('{folder}', hostPath)
+}
+
 async function add(): Promise<void> {
+  refusal.value = undefined
   const result = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
   const hostPath = result.canceled ? undefined : result.filePaths[0]
-  if (!hostPath || folders.value.some((folder) => folder.hostPath === hostPath)) return
+  if (!hostPath) return
+  refusal.value = mountedFolderRefusal(hostPath, {
+    homeFolder: await window.electronAPI.getHomePath(),
+    sessionFolder: props.sessionFolder || undefined,
+    mountedFolders: folders.value,
+  })
+  if (refusal.value) return
   folders.value = [...folders.value, { hostPath, access: 'read-only' }]
 }
 
@@ -103,7 +157,18 @@ function setWritable(target: MountedFolder, writable: boolean): void {
   )
 }
 
+function rename(target: MountedFolder, raw: string): void {
+  const name = raw.trim()
+  if (name === (target.name ?? '')) return
+  folders.value = folders.value.map((folder) => {
+    if (folder !== target) return folder
+    const { name: _previous, ...rest } = folder
+    return name ? { ...rest, name } : rest
+  })
+}
+
 function remove(target: MountedFolder): void {
+  refusal.value = undefined
   folders.value = folders.value.filter((folder) => folder !== target)
 }
 </script>

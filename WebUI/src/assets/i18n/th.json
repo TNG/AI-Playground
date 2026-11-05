@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "อ่านและเขียน",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "อนุญาตให้เอเจนต์แก้ไขไฟล์ใน {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "เพิ่มโฟลเดอร์",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "ชื่อสำหรับ {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "นี่คือไดรฟ์ทั้งไดรฟ์ โปรดเลือกโฟลเดอร์ภายในไดรฟ์แทน",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "การทำเช่นนี้จะให้เอเจนต์เข้าถึงโฟลเดอร์โฮมทั้งหมดของคุณ โปรดเลือกโฟลเดอร์ภายในโฟลเดอร์โฮมของคุณ",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "โฟลเดอร์นี้ซ้อนทับกับโฟลเดอร์ของเซสชันนี้ ซึ่งเอเจนต์เข้าถึงได้แล้วที่ /workspace",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "เข้าถึงได้แล้วผ่าน {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "โฟลเดอร์นี้มี {folder} อยู่ข้างใน โปรดนำ {folder} ออกก่อนเพื่อเมานต์โฟลเดอร์ที่ใหญ่กว่า",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "ลบโฟลเดอร์",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "ลบ {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "อ่านอย่างเดียว"

@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "읽기/쓰기",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "에이전트가 {folder}의 파일을 변경하도록 허용",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "폴더 추가",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "{folder}의 이름",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "드라이브 전체입니다. 대신 그 안의 폴더를 선택하세요.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "에이전트에게 홈 폴더 전체를 주게 됩니다. 홈 폴더 안의 폴더를 선택하세요.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "이 세션의 폴더와 겹칩니다. 에이전트는 이미 /workspace에서 접근할 수 있습니다.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "이미 {folder}을(를) 통해 접근할 수 있습니다.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "{folder}을(를) 포함합니다. 더 큰 폴더를 마운트하려면 먼저 {folder}을(를) 제거하세요.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "폴더 제거",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} 제거",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "읽기 전용"

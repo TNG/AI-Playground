@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Read-write",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Let the agent change files in {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Add folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Name for {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "That is a whole drive. Pick a folder on it instead.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "That would give the agent your whole home folder. Pick a folder inside your home folder.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "That overlaps this Session's folder, which the agent already reaches at /workspace.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "Already reachable through {folder}.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "That contains {folder}. Remove {folder} first to mount the larger folder.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Remove folder",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Remove {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Read-only"

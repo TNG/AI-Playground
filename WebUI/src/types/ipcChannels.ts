@@ -1179,6 +1179,13 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as string,
   },
+  /** The user's home folder, which the Mounted Folders picker refuses as too broad. */
+  getHomePath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
   /** The OS platform (`process.platform`). */
   getPlatform: {
     kind: 'invoke',

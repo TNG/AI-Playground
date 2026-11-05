@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Lesen und Schreiben",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Dem Agenten erlauben, Dateien in {folder} zu ändern",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Ordner hinzufügen",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Name für {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Das ist ein ganzes Laufwerk. Wähle stattdessen einen Ordner darauf.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Damit bekäme der Agent deinen ganzen Benutzerordner. Wähle einen Ordner innerhalb deines Benutzerordners.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "Das überschneidet sich mit dem Ordner dieser Session, den der Agent schon unter /workspace erreicht.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "Schon über {folder} erreichbar.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "Das enthält {folder}. Entferne zuerst {folder}, um den größeren Ordner einzubinden.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Ordner entfernen",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} entfernen",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Schreibgeschützt"

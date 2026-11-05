@@ -75,6 +75,7 @@
         </p>
         <MountedFolderList
           :model-value="binding.mountedFolders"
+          :session-folder="agentMode.workspaceDir"
           @update:model-value="binding.setMountedFolders"
         />
       </section>

@@ -362,6 +362,26 @@ describe('session reuse', () => {
       expect(createAgentSession).toHaveBeenCalledTimes(1)
     })
 
+    it('rebuilds with the new name when a folder is renamed', async () => {
+      const manager = await loadManager()
+      await manager.startAgentTurn(
+        't1',
+        'first',
+        configFor({ mountedFolders: [mountOf(workspaceB)] }),
+      )
+      await manager.startAgentTurn(
+        't2',
+        'second',
+        configFor({ mountedFolders: [{ ...mountOf(workspaceB), name: 'papers' }] }),
+      )
+
+      expect(createAgentSession).toHaveBeenCalledTimes(2)
+      const { buildWorkspaceInstructions } = await import('../../agent/piWorkspaceRuntime')
+      expect(vi.mocked(buildWorkspaceInstructions).mock.lastCall?.[0]).toMatchObject({
+        mountedFolders: [{ name: 'papers' }],
+      })
+    })
+
     it('mounts each folder by its real path and lists it in the prompt', async () => {
       const linked = path.join(path.dirname(workspaceB), 'linked-notes')
       fs.symlinkSync(workspaceB, linked)

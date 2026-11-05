@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Đọc-ghi",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Cho phép tác tử thay đổi tệp trong {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Thêm thư mục",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Tên cho {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Đây là toàn bộ ổ đĩa. Hãy chọn một thư mục trong đó.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Như vậy sẽ cho tác tử toàn bộ thư mục chính của bạn. Hãy chọn một thư mục bên trong thư mục chính.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "Thư mục này chồng lấn với thư mục của Phiên này, nơi tác tử đã truy cập tại /workspace.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "Đã truy cập được qua {folder}.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "Thư mục này chứa {folder}. Hãy xóa {folder} trước để gắn thư mục lớn hơn.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Gỡ thư mục",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Gỡ {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Chỉ đọc"

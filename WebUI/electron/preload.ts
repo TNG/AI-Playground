@@ -177,6 +177,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showModelInFolder: (modelPath: string) => invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),
+  getHomePath: () => invoke('getHomePath'),
   demoMode: {
     leave: () => invoke('demoMode:leave'),
     enter: () => invoke('demoMode:enter'),

@@ -703,6 +703,7 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     },
 
     getPlatform: () => process.platform,
+    getHomePath: () => app.getPath('home'),
 
     addDocumentToRAGList: (
       _event,

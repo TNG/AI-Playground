@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Baca-tulis",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Izinkan agen mengubah file di {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Tambah folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Nama untuk {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Itu adalah seluruh drive. Pilih folder di dalamnya.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Itu akan memberi agen seluruh folder home Anda. Pilih folder di dalam folder home Anda.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "Itu tumpang tindih dengan folder Sesi ini, yang sudah dapat dijangkau agen di /workspace.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "Sudah dapat dijangkau melalui {folder}.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "Itu berisi {folder}. Hapus {folder} terlebih dahulu untuk memasang folder yang lebih besar.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Hapus folder",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Hapus {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Hanya baca"

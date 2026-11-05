@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Odczyt i zapis",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Pozwól agentowi zmieniać pliki w {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Dodaj folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Nazwa dla {folder}",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "To cały dysk. Wybierz zamiast tego folder na nim.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Agent dostałby cały Twój folder domowy. Wybierz folder wewnątrz folderu domowego.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "To pokrywa się z folderem tej sesji, do którego agent ma już dostęp w /workspace.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "Już dostępny przez {folder}.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "To zawiera {folder}. Najpierw usuń {folder}, aby zamontować większy folder.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Usuń folder",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Usuń {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Tylko do odczytu"

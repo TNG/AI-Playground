@@ -1085,6 +1085,12 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Okuma-yazma",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Aracının {folder} içindeki dosyaları değiştirmesine izin ver",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Klasör ekle",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "{folder} için ad",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Bu bir sürücünün tamamı. Bunun yerine içindeki bir klasörü seçin.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Bu, aracıya ana klasörünüzün tamamını verir. Ana klasörünüzün içindeki bir klasörü seçin.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER": "Bu, aracının zaten /workspace altında eriştiği bu oturumun klasörüyle çakışıyor.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED": "Zaten {folder} üzerinden erişilebilir.",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED": "Bu, {folder} klasörünü içeriyor. Daha büyük klasörü bağlamak için önce {folder} klasörünü kaldırın.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE": "Klasörü kaldır",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} kaldır",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Salt okunur"

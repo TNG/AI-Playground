@@ -83,12 +83,68 @@
           <!-- Whether the model plus its context fits the card (llama.cpp only) -->
           <ModelVramFit v-if="modelChip.source === 'chat'" :delay-duration="0" />
         </template>
-        <Tooltip>
-          <TooltipTrigger as-child>
+        <DropdownMenu v-if="bar.presetChip === 'dropdown'">
+          <DropdownMenuTrigger as-child>
             <button
               type="button"
-              class="flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-primary/60 bg-primary/10 px-1.5 text-left cursor-help"
+              :class="presetChipClass"
+              :aria-label="`${languages.PROMPT_BAR_PRESET}: ${presetChip.label}`"
             >
+              <img
+                v-if="presetChip.image"
+                :src="presetChip.image"
+                alt=""
+                class="size-4 rounded object-cover flex-none"
+              />
+              <span class="text-foreground font-medium truncate">{{ presetChip.label }}</span>
+              <ChevronDownIcon class="size-3.5 flex-none" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" class="z-[40010] min-w-48">
+            <DropdownMenuRadioGroup
+              :model-value="presetChip.name"
+              @update:model-value="(name) => pickPreset(name as string)"
+            >
+              <TooltipProvider :delay-duration="200">
+                <Tooltip v-for="preset in bar.presets" :key="preset.name">
+                  <TooltipTrigger as-child>
+                    <!-- Gated items stay focusable rather than `disabled`, which would also
+                       swallow the hover that shows their reason. -->
+                    <DropdownMenuRadioItem
+                      :value="preset.name"
+                      :aria-disabled="!preset.enabled"
+                      :data-aipg-preset-name="preset.name"
+                      class="gap-2"
+                      :class="{ 'opacity-50': !preset.enabled }"
+                      @select="(event: Event) => !preset.enabled && event.preventDefault()"
+                    >
+                      <img
+                        v-if="preset.image"
+                        :src="preset.image"
+                        alt=""
+                        class="size-6 rounded object-cover flex-none"
+                        :class="{ grayscale: !preset.enabled }"
+                      />
+                      <span class="truncate">{{ preset.label }}</span>
+                    </DropdownMenuRadioItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" class="z-[40011] max-w-[260px]">
+                    <p class="font-semibold">{{ preset.label }}</p>
+                    <p v-if="descriptionOf(preset.name)" class="mt-1 text-primary-foreground/80">
+                      {{ descriptionOf(preset.name) }}
+                    </p>
+                    <p v-if="!preset.enabled" class="mt-1 text-amber-400 text-xs">
+                      {{ preset.reason }}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Tooltip v-else>
+          <TooltipTrigger as-child>
+            <button type="button" :class="presetChipClass" class="cursor-help">
               <img
                 v-if="presetChip.image"
                 :src="presetChip.image"
@@ -103,8 +159,8 @@
             class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
           >
             <p class="text-sm font-semibold">{{ presetChip.label }}</p>
-            <p v-if="presetDescription" class="mt-1 text-xs text-muted-foreground">
-              {{ presetDescription }}
+            <p v-if="descriptionOf(presetChip.name)" class="mt-1 text-xs text-muted-foreground">
+              {{ descriptionOf(presetChip.name) }}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -199,6 +255,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import {
+  ChevronDownIcon,
   FolderOpenIcon,
   MagnifyingGlassPlusIcon,
   MagnifyingGlassMinusIcon,
@@ -220,7 +277,17 @@ import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
+import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import { Context } from '@/components/ui/context'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
 import ModelVramFit from '@/components/ModelVramFit.vue'
@@ -229,6 +296,11 @@ import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { promptBarModel, type HeaderChip } from '@/lib/promptBarModel'
+import { presetGate } from '@/lib/presetGate'
+import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import * as toast from '@/assets/js/toast'
+
+const props = defineProps<{ phisonUsable: boolean }>()
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
@@ -243,6 +315,13 @@ const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
 const agentMode = useAgentMode()
 const errors = useErrors()
+const homeAgent = useHomeAgent()
+const presetSwitching = usePresetSwitching()
+const promptBarStyle = usePromptBarStyle()
+const switchPresetFromBar = usePromptBarPresetSwitch()
+
+const presetChipClass =
+  'flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-primary/60 bg-primary/10 px-1.5 text-left'
 
 const chipClass =
   'flex h-6 items-center gap-1 rounded-md border border-border px-1.5 text-foreground/80'
@@ -319,18 +398,46 @@ const activeService = computed<BackendServiceName | undefined>(() => {
   return backendToService[textInference.backend] ?? undefined
 })
 
-const headerChips = computed(
-  () =>
-    promptBarModel({
-      activePreset: activePreset.value,
-      presetLabel: (name) => oemBranding.presetLabel(name),
-      machine: {
-        chatBackend: textInference.backend,
-        chatModel: textInference.activeModel,
-        device: activeService.value ? selectedDevice(activeService.value) : undefined,
-      },
-    }).headerChips,
+const bar = computed(() =>
+  promptBarModel({
+    activePreset: activePreset.value,
+    presetLabel: (name) => oemBranding.presetLabel(name),
+    machine: {
+      chatBackend: textInference.backend,
+      chatModel: textInference.activeModel,
+      device: activeService.value ? selectedDevice(activeService.value) : undefined,
+    },
+    catalog: presetsStore.getPresetsByCategories([]),
+    presetGate: (preset) =>
+      presetGate(preset, {
+        phisonUsable: props.phisonUsable,
+        homeAgentEnabled: homeAgent.masterEnabled,
+        homeAgentAvailable: homeAgent.isAvailable,
+      }),
+    style: promptBarStyle.active,
+  }),
 )
+
+const headerChips = computed(() => bar.value.headerChips)
+
+async function pickPreset(name: string) {
+  const preset = bar.value.presets.find((p) => p.name === name)
+  if (!preset || name === presetsStore.activePresetName) return
+  if (!preset.enabled) {
+    toast.warning(preset.reason ?? 'This preset is not available yet.')
+    return
+  }
+  if (presetSwitching.isSwitching) {
+    toast.warning('Please wait for current preset change to complete')
+    return
+  }
+  const result = await switchPresetFromBar(name)
+  if (result.success) {
+    toast.success(`Switched to ${preset.label}`)
+  } else if (result.error) {
+    toast.error(`Failed to switch preset: ${result.error}`)
+  }
+}
 
 function chipOf<K extends HeaderChip['kind']>(kind: K) {
   return computed(() =>
@@ -390,10 +497,9 @@ const computeChip = computed(() => {
 
 // The base preset's description, the same text as the quick preset picker; the active
 // preset is variant-merged, where `description` can be a per-variant blurb instead.
-const presetDescription = computed(() => {
-  const name = presetChip.value?.name
+function descriptionOf(name: string): string | undefined {
   return presetsStore.presets.find((p) => p.name === name)?.description
-})
+}
 
 const currentModel = computed(() =>
   textInference.llmModels.find((m) => m.active && m.type === textInference.backend),

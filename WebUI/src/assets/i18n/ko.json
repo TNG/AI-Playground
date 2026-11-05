@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "모드",
+  "PROMPT_BAR_PRESET": "프리셋",
   "PROMPT_BAR_OPEN_INFERENCING": "Inferencing 설정 열기",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "생성하기 전에 입력 이미지를 설정하세요",
   "ENHANCE_UPSCALE": "업스케일",

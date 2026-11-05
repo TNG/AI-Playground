@@ -1,4 +1,6 @@
 import { AUDIO_CATEGORY, type Preset } from '@/lib/presetSchemas'
+import type { PresetGate } from '@/lib/presetGate'
+import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import type { llmBackendTypes } from '@/types/shared'
 
 type LlmBackend = (typeof llmBackendTypes)[number]
@@ -35,6 +37,9 @@ export type PromptBarInput = {
   catalog?: Preset[]
   /** Remembered preset names per mode, most specific first. */
   lastUsed?: Partial<Record<ModeType, (string | null | undefined)[]>>
+  /** Whether a listed preset can be picked now; every preset can when omitted. */
+  presetGate?: (preset: Preset) => PresetGate
+  style?: PromptBarStyle
 }
 
 export type PromptBarModel = {
@@ -44,6 +49,18 @@ export type PromptBarModel = {
   activeMode: ModeType | null
   /** The preset picking each offered mode activates. */
   modePicks: Partial<Record<ModeType, string>>
+  /** The active mode's presets, for the header preset dropdown. */
+  presets: PresetEntry[]
+  /** Classic switches presets from its thumbnails, so its header only names the active one. */
+  presetChip: 'label' | 'dropdown'
+}
+
+export type PresetEntry = {
+  name: string
+  label: string
+  image?: string
+  enabled: boolean
+  reason?: string
 }
 
 export function promptBarModel(input: PromptBarInput): PromptBarModel {
@@ -53,12 +70,21 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
   for (const mode of modes) {
     modePicks[mode] = presetForModePick(catalog, mode, input.lastUsed?.[mode] ?? [])
   }
-  return {
-    headerChips: headerChips(input),
-    modes,
-    activeMode: input.activePreset ? modernModeOf(input.activePreset) : null,
-    modePicks,
-  }
+  const activeMode = input.activePreset ? modernModeOf(input.activePreset) : null
+  const presets = activeMode
+    ? presetsInMode(catalog, activeMode).map((preset) => {
+        const gate = input.presetGate?.(preset) ?? { enabled: true }
+        return {
+          name: preset.name,
+          label: input.presetLabel(preset.name),
+          image: preset.image,
+          enabled: gate.enabled,
+          reason: gate.reason,
+        }
+      })
+    : []
+  const presetChip = input.style !== 'classic' && presets.length > 1 ? 'dropdown' : 'label'
+  return { headerChips: headerChips(input), modes, activeMode, modePicks, presets, presetChip }
 }
 
 const MODERN_MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']

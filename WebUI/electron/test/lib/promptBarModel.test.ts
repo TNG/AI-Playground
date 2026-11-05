@@ -288,3 +288,76 @@ describe('promptBarModel modes', () => {
     })
   })
 })
+
+describe('promptBarModel preset picker', () => {
+  const chat = (name: string, extra: Partial<ChatPreset> = {}): ChatPreset => ({
+    ...assistant,
+    name,
+    image: `${name}.png`,
+    ...extra,
+  })
+  const agent = (name: string) => chat(name, { agentPreset: true })
+  const gameAgent = agent('Game Agent')
+  const catalog: Preset[] = [
+    chat('Assistant'),
+    chat('aiDAPTIV', { requiresPhison: true }),
+    chat('Home Agent'),
+    agent('Agent'),
+    gameAgent,
+    agent('Quick Coder'),
+    { ...comfy('Fast', []), image: 'fast.png' },
+  ]
+
+  it('lists the active mode’s presets with branded label and thumbnail', () => {
+    const { presets } = promptBarModel(
+      input({
+        catalog,
+        activePreset: gameAgent,
+        presetLabel: (name) => (name === 'Game Agent' ? `Acer ${name}` : name),
+      }),
+    )
+    expect(presets).toEqual([
+      { name: 'Agent', label: 'Agent', image: 'Agent.png', enabled: true },
+      { name: 'Game Agent', label: 'Acer Game Agent', image: 'Game Agent.png', enabled: true },
+      { name: 'Quick Coder', label: 'Quick Coder', image: 'Quick Coder.png', enabled: true },
+    ])
+  })
+
+  it('keeps gated presets listed but disabled, with the reason', () => {
+    const { presets } = promptBarModel(
+      input({
+        catalog,
+        presetGate: (preset) =>
+          preset.name === 'Home Agent'
+            ? { enabled: false, reason: 'Enable the Home Agent in settings to use this preset.' }
+            : { enabled: true },
+      }),
+    )
+    expect(presets.map(({ name, enabled, reason }) => ({ name, enabled, reason }))).toEqual([
+      { name: 'Assistant', enabled: true, reason: undefined },
+      { name: 'aiDAPTIV', enabled: true, reason: undefined },
+      {
+        name: 'Home Agent',
+        enabled: false,
+        reason: 'Enable the Home Agent in settings to use this preset.',
+      },
+    ])
+  })
+
+  describe('the header preset chip', () => {
+    const chipFor = (activePreset: Preset, style: PromptBarInput['style']) =>
+      promptBarModel(input({ catalog, activePreset, style })).presetChip
+
+    it('is a dropdown in Modern when the mode has several presets', () => {
+      expect(chipFor(gameAgent, 'modern')).toBe('dropdown')
+    })
+
+    it('is a label in Modern when the mode has a single preset', () => {
+      expect(chipFor(catalog[6], 'modern')).toBe('label')
+    })
+
+    it('is always a label in Classic', () => {
+      expect(chipFor(gameAgent, 'classic')).toBe('label')
+    })
+  })
+})

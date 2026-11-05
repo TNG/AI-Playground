@@ -51,7 +51,7 @@
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
       <div class="w-full max-w-3xl flex flex-col">
-        <PromptStatusBar />
+        <PromptStatusBar :phison-usable="phisonUsable" />
         <!-- RAG Documents Display (only when RAG is enabled and has documents) -->
         <div
           v-if="

@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "วิดีโอ",
   "PROMPT_BAR_MODE": "โหมด",
+  "PROMPT_BAR_PRESET": "พรีเซ็ต",
   "PROMPT_BAR_OPEN_INFERENCING": "เปิดการตั้งค่า Inferencing",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "โปรดตั้งค่าภาพต้นทางก่อนสร้าง",
   "ENHANCE_UPSCALE": "ขยายความละเอียด",

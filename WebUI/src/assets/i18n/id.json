@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Mode",
+  "PROMPT_BAR_PRESET": "Preset",
   "PROMPT_BAR_OPEN_INFERENCING": "Buka pengaturan Inferencing",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "Silakan atur gambar masukan sebelum membuat",
   "ENHANCE_UPSCALE": "Perbesar",

@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Mod",
+  "PROMPT_BAR_PRESET": "Ön Ayar",
   "PROMPT_BAR_OPEN_INFERENCING": "Inferencing ayarlarını aç",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "Oluşturmadan önce lütfen giriş görselini ayarlayın",
   "ENHANCE_UPSCALE": "Büyüt",

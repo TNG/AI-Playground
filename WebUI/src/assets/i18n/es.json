@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Modo",
+  "PROMPT_BAR_PRESET": "Preajuste",
   "PROMPT_BAR_OPEN_INFERENCING": "Abrir la configuración de Inferencing",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "Configura la imagen de entrada antes de generar",
   "ENHANCE_UPSCALE": "Escalar",

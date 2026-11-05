@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "模式",
+  "PROMPT_BAR_PRESET": "预设",
   "PROMPT_BAR_OPEN_INFERENCING": "打开 Inferencing 设置",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "请在生成前设置输入图像",
   "ENHANCE_UPSCALE": "放大",

@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Wideo",
   "PROMPT_BAR_MODE": "Tryb",
+  "PROMPT_BAR_PRESET": "Ustawienie wstępne",
   "PROMPT_BAR_OPEN_INFERENCING": "Otwórz ustawienia Inferencing",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "Ustaw obraz wejściowy przed generowaniem",
   "ENHANCE_UPSCALE": "Zwiększ rozdzielczość",

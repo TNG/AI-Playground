@@ -306,6 +306,7 @@
   "MODE_IMAGE_EDIT": "Image Edit",
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Chế độ",
+  "PROMPT_BAR_PRESET": "Preset",
   "PROMPT_BAR_OPEN_INFERENCING": "Mở cài đặt Inferencing",
   "ENHANCE_INPUT_IMAGE_REQUIRED": "Vui lòng đặt ảnh đầu vào trước khi tạo",
   "ENHANCE_UPSCALE": "Nâng độ phân giải",

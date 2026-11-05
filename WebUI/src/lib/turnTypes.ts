@@ -15,7 +15,7 @@ import type {
   AgentTurnTag,
   AudioTurnData,
   MediaTurnData,
-  TaskRunTag,
+  AgentRunTag,
   TimelineMessage,
 } from '@/types/sessionTimeline'
 
@@ -88,14 +88,16 @@ export type TurnDetails = {
   /** One line under the header, for an error the Result does not already say. */
   errorLine?: string
 }
-export type AgentRunPrompt = Pick<TaskRunTag, 'startedAt'> & {
-  trigger: NonNullable<TaskRunTag['trigger']>
+
+/** Which Agent ran and what started it, shown in its Turn's prompt bubble. */
+export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
+  trigger: NonNullable<AgentRunTag['trigger']>
   name: string
 }
 
 export type TurnPrompt = {
   text: string
-  run?: AgentRunPrompt
+  agentRun?: AgentRunIdentity
   placeholder?: string
   inputImageUrl?: string
   audio?: { url: string; name?: string }[]
@@ -162,7 +164,6 @@ export type AgentTurn = TurnOf<
     answers: UIMessage[]
     artifacts: TurnArtifact[]
     audioArtifacts: AudioArtifact[]
-    run?: AgentRunPrompt
     streaming?: boolean
     queued?: boolean
     notRun?: boolean

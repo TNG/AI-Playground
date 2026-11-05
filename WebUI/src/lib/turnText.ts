@@ -40,7 +40,7 @@ const ARTIFACT_LABELS: Record<ArtifactKind, [keyof TurnSummaryLabels, keyof Turn
   audio: ['audio', 'audios'],
 }
 
-function counted(count: number, [one, many]: [string, string]): string {
+export function counted(count: number, [one, many]: [string, string]): string {
   return count === 1 ? one : many.replace('{count}', String(count))
 }
 

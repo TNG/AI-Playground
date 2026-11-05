@@ -230,6 +230,7 @@ import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
 import type { SchedulesPanel } from '@/lib/sessionTabs'
 import { describeNextRun } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { counted } from '@/lib/turnText'
 
 const { list } = defineProps<{ list: SchedulesPanel['agentList'] }>()
 
@@ -290,8 +291,11 @@ const rows = computed(() =>
       problem: reasons ? fillTemplate(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }) : undefined,
       scheduled: schedule.enabled,
       hasSchedule: agentTasks.taskSchedule(task.id).schedule !== undefined,
-      removeScheduleLabel: fill(i18n.AGENT_AGENTS_REMOVE_SCHEDULE_LABEL, label),
-      deleteRefusal: deleteRefusal(agentTasks.runningSessionCount(task.id)),
+      removeScheduleLabel: fillTemplate(i18n.AGENT_AGENTS_REMOVE_SCHEDULE_LABEL, label),
+      deleteRefusal: countedIfAny(agentTasks.runningSessionCount(task.id), [
+        i18n.AGENT_AGENTS_DELETE_RUNNING_ONE,
+        i18n.AGENT_AGENTS_DELETE_RUNNING_MANY,
+      ]),
       scheduleTip: schedule.line ?? i18n.AGENT_AGENTS_NOT_SCHEDULED,
       selectLabel: fillTemplate(i18n.AGENT_AGENTS_SELECT_LABEL, label),
       stopLabel: fillTemplate(i18n.AGENT_TASKS_STOP, label),
@@ -307,29 +311,23 @@ const rows = computed(() =>
       moreLabel: fillTemplate(i18n.AGENT_AGENTS_MORE_LABEL, label),
       renameLabel: fillTemplate(i18n.AGENT_AGENTS_RENAME_LABEL, label),
       deleteLabel: fillTemplate(i18n.AGENT_AGENTS_DELETE_LABEL, label),
-      alsoScheduled: alsoScheduledHint(agentTasks.otherScheduledSessions(task.id)),
-      deleteQuestion: deleteQuestion(task.name, agentTasks.scheduledSessionCount(task.id)),
+      alsoScheduled: countedIfAny(agentTasks.otherScheduledSessions(task.id), [
+        i18n.AGENT_AGENTS_ALSO_SCHEDULED_ONE,
+        i18n.AGENT_AGENTS_ALSO_SCHEDULED_MANY,
+      ]),
+      deleteQuestion: fillTemplate(
+        countedIfAny(agentTasks.scheduledSessionCount(task.id), [
+          i18n.AGENT_AGENTS_DELETE_CONFIRM_SCHEDULED_ONE,
+          i18n.AGENT_AGENTS_DELETE_CONFIRM_SCHEDULED_MANY,
+        ]) ?? i18n.AGENT_AGENTS_DELETE_CONFIRM,
+        label,
+      ),
     }
   }),
 )
 
-function alsoScheduledHint(count: number): string | undefined {
-  if (count === 0) return undefined
-  if (count === 1) return i18n.AGENT_AGENTS_ALSO_SCHEDULED_ONE
-  return fillTemplate(i18n.AGENT_AGENTS_ALSO_SCHEDULED_MANY, { count })
-}
-
-function deleteRefusal(runningIn: number): string | undefined {
-  if (runningIn === 0) return undefined
-  if (runningIn === 1) return i18n.AGENT_AGENTS_DELETE_RUNNING_ONE
-  return fill(i18n.AGENT_AGENTS_DELETE_RUNNING_MANY, { count: runningIn })
-}
-
-function deleteQuestion(name: string, scheduledIn: number): string {
-  if (scheduledIn === 0) return fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM, { name })
-  if (scheduledIn === 1)
-    return fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM_SCHEDULED_ONE, { name })
-  return fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM_SCHEDULED_MANY, { name, count: scheduledIn })
+function countedIfAny(count: number, labels: [string, string]): string | undefined {
+  return count > 0 ? counted(count, labels) : undefined
 }
 
 function scheduleOf(id: string): { enabled: boolean; line?: string } {

@@ -79,10 +79,7 @@ export const AgentTaskSchema = z.object({
 })
 export type AgentTask = z.infer<typeof AgentTaskSchema>
 
-/**
- * An Agent written before Schedules were per Session carried one `schedule` / `nextRunAt` and one
- * `activeRun`: the Schedule moves into the Agent's own Session, or is dropped without one.
- */
+/** An old single `schedule` moves into the Agent's own Session, or is dropped without one. */
 function migrateLegacyAgent(raw: unknown): unknown {
   if (typeof raw !== 'object' || raw === null) return raw
   const { schedule, nextRunAt, activeRun, ...rest } = raw as Record<string, unknown>

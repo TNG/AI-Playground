@@ -183,7 +183,7 @@ describe('schedulesPanel', () => {
     })
   })
 
-  it("lets a saved Agent Preset run its own Agent and schedule it here, but not edit it", () => {
+  it('lets a saved Agent Preset run its own Agent and schedule it here, but not edit it', () => {
     expect(schedulesPanel('one-agent')).toEqual({
       editSteps: false,
       editNote: true,

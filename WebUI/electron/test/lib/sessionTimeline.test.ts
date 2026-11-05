@@ -107,7 +107,7 @@ describe('an Agent Run in the timeline', () => {
     expect(turns.map((turn) => turn.kind)).toEqual(['agent', 'agent'])
     expect(turns[1]).toMatchObject({
       id: 'r1',
-      prompt: { text: '', run: { trigger: 'manual', name: 'Morning digest', startedAt: 500 } },
+      prompt: { text: '', agentRun: { trigger: 'manual', name: 'Morning digest', startedAt: 500 } },
       answers: [{ id: 'r2' }, { id: 'r4' }],
     })
   })
@@ -117,7 +117,7 @@ describe('an Agent Run in the timeline', () => {
     const [turn] = timelineTurns([runMessage('r1', 'user', undefined, scheduled)])
 
     expect(turn).toMatchObject({
-      prompt: { run: { trigger: 'scheduled', name: 'Morning digest', startedAt: 500 } },
+      prompt: { agentRun: { trigger: 'scheduled', name: 'Morning digest', startedAt: 500 } },
     })
   })
 

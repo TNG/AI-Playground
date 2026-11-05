@@ -50,12 +50,7 @@ export const SAVE_TASK_BLOCKER_KEYS = {
   'empty-step': 'AGENT_TASK_BLOCKED_EMPTY_STEP',
 } as const satisfies Record<SaveTaskBlocker, string>
 
-/**
- * A Task Run in flight; `stepIndex` is 1-based. `sessionRef` is the Session it runs in,
- * `sessionId` its Harness Session. `skippedSlots` counts the Schedule slots that passed while its
- * Harness Session was paused; `waiting` is set while its next Step waits for the Session's own
- * turn to end. Memory only.
- */
+/** An Agent Run in flight, in memory only; `skippedSlots` passed while it was paused. */
 export type TaskRun = {
   taskId: string
   stepIndex: number
@@ -118,20 +113,22 @@ function withSchedule(
   const replaced = current.some((entry) => entry.sessionRef === sessionRef)
     ? current.map((entry) => (entry.sessionRef === sessionRef ? schedule : entry))
     : [...current, schedule]
-  return withSchedules(
+  return withEntries(
     task,
+    'schedules',
     replaced.filter((entry): entry is AgentSessionSchedule => entry !== undefined),
   )
 }
 
-function withSchedules(task: AgentTask, schedules: AgentSessionSchedule[]): AgentTask {
-  const { schedules: _schedules, ...rest } = task
-  return schedules.length > 0 ? { ...rest, schedules } : rest
-}
-
-function withActiveRuns(task: AgentTask, activeRuns: AgentTaskActiveRun[]): AgentTask {
-  const { activeRuns: _activeRuns, ...rest } = task
-  return activeRuns.length > 0 ? { ...rest, activeRuns } : rest
+/** The Task with `key` set to `entries`, or without it when there are none. */
+function withEntries<K extends 'schedules' | 'activeRuns'>(
+  task: AgentTask,
+  key: K,
+  entries: NonNullable<AgentTask[K]>,
+): AgentTask {
+  const next: AgentTask = { ...task }
+  delete next[key]
+  return entries.length > 0 ? { ...next, [key]: entries } : next
 }
 
 /** What starting or minting a run of the Task in the Session is keyed by. */
@@ -208,9 +205,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     )
   }
 
-  function isRunningOrStarting(taskId: string, sessionRef: string): boolean {
-    const slot = runSlot(taskId, sessionRef)
-    return !!runIn(taskId, sessionRef) || starting.has(slot) || minting.has(slot)
+  /** A run of the Agent is in flight in the Session, or getting its Harness Session there. */
+  function runsIn(taskId: string, sessionRef: string): boolean {
+    return !!runIn(taskId, sessionRef) || minting.has(runSlot(taskId, sessionRef))
   }
 
   async function init(): Promise<void> {
@@ -312,7 +309,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           reattachRun(task, activeRun)
           continue
         }
-        agentMode.endTaskRun(sessionId, {
+        agentMode.endAgentRun(sessionId, {
           kind: 'failed',
           message: i18n.state.AGENT_TASKS_OUTCOME_APP_CLOSED ?? 'The app closed during the run.',
         })
@@ -492,7 +489,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return Object.values(runs.value).filter((run) => run.taskId === id).length
   }
 
-  /** Removes its Schedules in every Session; its runs stay in their Sessions. Refused while it runs. */
+  /** Removes its Schedules in every Session, keeping its runs; refused while it runs. */
   async function deleteTask(id: string): Promise<boolean> {
     if (runningSessionCount(id) > 0) return false
     deleting.add(id)
@@ -532,8 +529,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     tasks.value = tasks.value.map((task) => {
       const { sessionRef: madeIn, ...rest } = task
       const base = madeIn !== undefined && gone.has(madeIn) ? rest : task
-      return withSchedules(
+      return withEntries(
         base,
+        'schedules',
         (task.schedules ?? []).filter((entry) => !gone.has(entry.sessionRef)),
       )
     })
@@ -596,10 +594,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return taskId ? loadAgent(taskId) : false
   })
 
-  /**
-   * Set, replace, pause or resume the Agent's Schedule in a Session, the open one by default;
-   * its Schedules in other Sessions are left alone. The Next Run is kept only while enabled.
-   */
+  /** Set, pause or resume the Agent's Schedule in one Session, the open one by default. */
   async function setSchedule(
     id: string,
     schedule: AgentTaskSchedule,
@@ -681,12 +676,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     )
   }
 
-  /**
-   * Start a Task Run in the background in the open Session: a new Harness Session on the Task's
-   * Settings Template, its Steps sent one by one as each previous turn settles. Refused, before
-   * any Task Session exists, while the Settings Template has a problem or its chat model is not
-   * downloaded, and while the Agent already runs in the open Session.
-   */
+  /** Start an Agent Run in the open Session; refused while it cannot run or already runs there. */
   async function runTask(id: string): Promise<RunTaskResult> {
     const slot = runSlot(id, sessionsStore.openSessionId ?? '')
     if (starting.has(slot)) return { ok: false, reason: 'running' }
@@ -698,18 +688,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   }
 
-  function runsInOpenSession(id: string): boolean {
-    const open = sessionsStore.openSessionId
-    return !!open && (!!runIn(id, open) || minting.has(runSlot(id, open)))
-  }
-
   async function startManualRun(id: string): Promise<RunTaskResult> {
     const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate.capabilities
     await agentMode.loadMcpServersFor(capabilities ?? [])
     // Looked up after the wait, which a delete or a second Run may have overtaken.
     const checked = tasks.value.find((entry) => entry.id === id)
     if (!checked) return { ok: false, reason: 'no-task' }
-    if (runsInOpenSession(id)) return { ok: false, reason: 'running' }
+    const open = sessionsStore.openSessionId
+    if (open && runsIn(id, open)) return { ok: false, reason: 'running' }
     const problems = taskProblems(id)
     if (problems.length > 0) {
       const message = describeSettingsProblems(problems, i18n.state)
@@ -722,18 +708,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
     const task = tasks.value.find((entry) => entry.id === id)
     if (!task) return { ok: false, reason: 'no-task' }
-    if (runIn(id, sessionRef) || minting.has(runSlot(id, sessionRef))) {
-      return { ok: false, reason: 'running' }
-    }
+    if (runsIn(id, sessionRef)) return { ok: false, reason: 'running' }
     await startRun(task, sessionRef, false)
     return { ok: true }
   }
 
-  /**
-   * A Task Run started by its Schedule in that Schedule's Session. Nobody is watching, so a
-   * refusal is kept as the Task's outcome and toasted; a run already in flight there skips the
-   * slot silently.
-   */
+  /** A Scheduled Run nobody watches: a refusal is kept as the outcome and toasted. */
   async function runScheduled(id: string, sessionRef: string): Promise<void> {
     const slotTask = stillScheduled(id, sessionRef)
     if (!slotTask) return
@@ -757,7 +737,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   function stillScheduled(id: string, sessionRef: string): AgentTask | undefined {
     const task = tasks.value.find((entry) => entry.id === id)
     if (!task || scheduleIn(task, sessionRef)?.enabled !== true) return undefined
-    if (isRunningOrStarting(id, sessionRef) || deleting.has(id)) return undefined
+    if (runsIn(id, sessionRef) || starting.has(runSlot(id, sessionRef))) return undefined
+    if (deleting.has(id)) return undefined
     return task
   }
 
@@ -779,10 +760,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return null
   }
 
-  /**
-   * A run works in the `files/` of the Session it is started in, on a Harness Session of its
-   * own, minted fresh, so it carries no context from the Session or from earlier runs.
-   */
+  /** A run gets a fresh Harness Session in its Session, so it carries no earlier context. */
   async function startRun(task: AgentTask, sessionRef: string, scheduled: boolean): Promise<void> {
     const id = task.id
     const slot = runSlot(id, sessionRef)
@@ -869,7 +847,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     hold.release(go)
   }
 
-  /** Resolves once the Session's Agent Run and its last turn are over (ADR-0005); false if not sent. */
+  /** Resolves once the Session's Agent Run and last turn are over (ADR-0005); false if unsent. */
   function afterAgentRun(sessionRef: string | null, prompt?: string): Promise<boolean> {
     if (!sessionRef) return Promise.resolve(true)
     const run = agentRunIn(sessionRef)
@@ -975,7 +953,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const task = tasks.value.find((entry) => entry.id === taskId)
     if (!task) return
     const others = (task.activeRuns ?? []).filter((run) => run.sessionId !== activeRun.sessionId)
-    void persistTask(replaceTask(withActiveRuns(task, [...others, activeRun])))
+    void persistTask(replaceTask(withEntries(task, 'activeRuns', [...others, activeRun])))
   }
 
   function replaceTask(updated: AgentTask): AgentTask {
@@ -1053,7 +1031,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     delete runContexts[sessionId]
     const declined = end.kind === 'failed' && end.message === MODEL_DOWNLOAD_DECLINED
     if (end.kind !== 'completed') {
-      agentMode.endTaskRun(sessionId, {
+      agentMode.endAgentRun(sessionId, {
         kind: end.kind,
         ...(end.message !== undefined ? { message: end.message } : {}),
       })
@@ -1089,7 +1067,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       ...(fields.reason !== undefined ? { reason: fields.reason } : {}),
     }
     const activeRuns = (task.activeRuns ?? []).filter((run) => run.sessionId !== fields.sessionId)
-    await persistTask(replaceTask({ ...withActiveRuns(task, activeRuns), lastOutcome }))
+    await persistTask(replaceTask({ ...withEntries(task, 'activeRuns', activeRuns), lastOutcome }))
   }
 
   /** The outcome shows a failed run, so only a Scheduled Run, which nobody watched, is toasted. */

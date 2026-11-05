@@ -39,13 +39,14 @@ export const AgentTaskStepSchema = z.object({
 })
 export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
 
-export const TaskRunTagSchema = z.object({
+/** Marks a Harness Session as one Agent Run of its Session. */
+export const AgentRunTagSchema = z.object({
   taskName: z.string(),
   startedAt: z.number(),
   trigger: z.enum(['manual', 'scheduled']).optional(),
   end: z.object({ kind: z.enum(['failed', 'stopped']), message: z.string().optional() }).optional(),
 })
-export type TaskRunTag = z.infer<typeof TaskRunTagSchema>
+export type AgentRunTag = z.infer<typeof AgentRunTagSchema>
 
 export const AgentSessionFileSchema = z.object({
   schemaVersion: z.literal(1),
@@ -65,7 +66,7 @@ export const AgentSessionFileSchema = z.object({
   /** The Session this Harness Session belongs to. */
   sessionRef: z.string().optional(),
   /** Set when this Harness Session is one Task Run of its Session. */
-  taskRun: TaskRunTagSchema.optional(),
+  taskRun: AgentRunTagSchema.optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

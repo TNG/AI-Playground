@@ -32,7 +32,7 @@ import {
 import { agentFooter, audioFooter, chatAnswerFooter, noFooter } from '@/lib/turnFooter'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
-  AgentRunPrompt,
+  AgentRunIdentity,
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
@@ -59,7 +59,7 @@ import type {
   AgentTurnTag,
   AudioTurnData,
   MediaTurnData,
-  TaskRunTag,
+  AgentRunTag,
   TimelineMessage,
   TimelinePart,
 } from '@/types/sessionTimeline'
@@ -67,7 +67,7 @@ import type {
 /** One Step of an Agent Run: the prompt the run sent and the answers to it. */
 type RunStep = { prompt?: UIMessage; answers: UIMessage[] }
 
-type AgentRun = { turn: AgentTurn; steps: RunStep[]; end?: TaskRunTag['end'] }
+type AgentRun = { turn: AgentTurn; steps: RunStep[]; end?: AgentRunTag['end'] }
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -324,7 +324,7 @@ function withAnswers(
       turn.footer = chatAnswerFooter(turn.answers)
     }
     if (turn.kind === 'agent') {
-      turn.hint = agentHint(turn.run?.name ?? turn.presetName, turn.answers)
+      turn.hint = agentHint(turn.prompt?.agentRun?.name ?? turn.presetName, turn.answers)
       turn.footer = agentFooter(turn.answers)
     }
     const run = turn.kind === 'agent' ? runs.get(turn.harnessSessionId) : undefined
@@ -787,8 +787,8 @@ export function timelineTurns(
   return withArtifacts(withAnswers(turns, prompts, runs), files.deletedUrls ?? [], artifactRuns)
 }
 
-function openRun(id: string, tag: AgentTurnTag, taskRun: TaskRunTag): AgentRun {
-  const run: AgentRunPrompt = {
+function openRun(id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {
+  const agentRun: AgentRunIdentity = {
     trigger: taskRun.trigger ?? 'manual',
     name: taskRun.taskName,
     startedAt: taskRun.startedAt,
@@ -798,7 +798,7 @@ function openRun(id: string, tag: AgentTurnTag, taskRun: TaskRunTag): AgentRun {
     turn: {
       kind: 'agent',
       id,
-      hint: agentHint(run.name, []),
+      hint: agentHint(agentRun.name, []),
       details: EMPTY_DETAILS,
       result: [],
       footer: noFooter(),
@@ -806,9 +806,8 @@ function openRun(id: string, tag: AgentTurnTag, taskRun: TaskRunTag): AgentRun {
       harnessSessionId: tag.harnessSessionId,
       artifacts: [],
       audioArtifacts: [],
-      prompt: { text: '', run },
+      prompt: { text: '', agentRun },
       answers: [],
-      run,
     },
   }
 }

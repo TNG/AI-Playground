@@ -87,6 +87,12 @@ Harness Session that starts with no context from the Session. Its result is its 
 the Artifacts it produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
+**Mounted Folder**:
+A folder on the user's machine that Agent Maker's turns or an Agent's runs can reach besides the
+Session Folder, added by the user to the Session Settings or to the Agent's Settings Template, and
+either read-only or read-write.
+_Avoid_: extra folder, attached folder, workspace
+
 ## Settings
 
 **Session Settings**:

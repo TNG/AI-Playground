@@ -279,6 +279,11 @@ describe('promptBarModel modes', () => {
       })
     })
 
+    it('falls back to Agent Maker for Agent, wherever it sits in the catalog', () => {
+      const reordered = [agent('Game Agent'), agent('Quick Coder'), agent('Agent')]
+      expect(promptBarModel(input({ catalog: reordered })).modePicks.agent).toBe('Agent')
+    })
+
     it('offers no pick for a mode without presets', () => {
       expect(picks({ video: ['Fast'] })).toEqual({
         chat: 'Assistant',

@@ -1,12 +1,15 @@
 <template>
-  <div
-    class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
-    :class="{ 'border-primary bg-primary/10': isOverDropZone }"
-    id="plus-icon"
-  >
-    <Label htmlFor="file-attachment" @click="handlePlusIconClick">
-      <PlusIcon class="size-4 cursor-pointer" />
-    </Label>
+  <div class="self-center flex" id="plus-icon">
+    <Button
+      as-child
+      variant="secondary"
+      class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5 cursor-pointer"
+      :class="{ 'ring-2 ring-primary bg-primary/10': isOverDropZone }"
+    >
+      <Label htmlFor="file-attachment" @click="handlePlusIconClick">
+        <PaperClipIcon class="w-5 h-5" />
+      </Label>
+    </Button>
     <input
       type="file"
       class="hidden"
@@ -20,8 +23,9 @@
 </template>
 
 <script setup lang="ts">
-import { PlusIcon } from '@heroicons/vue/24/outline'
+import { PaperClipIcon } from '@heroicons/vue/24/outline'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import * as toast from '@/assets/js/toast'
 

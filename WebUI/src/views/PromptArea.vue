@@ -12,7 +12,7 @@
             ? 'Agent session settings unusable'
             : 'Session settings unusable'
         "
-        class="w-full max-w-3xl text-sm text-amber-500 flex flex-col gap-1"
+        class="w-full text-sm text-amber-500 flex flex-col gap-1"
       >
         <p>
           {{
@@ -28,14 +28,14 @@
       <div
         v-if="queuedBehindRun"
         role="status"
-        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+        class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
       >
         <p class="flex-1 min-w-0">{{ queuedBehindRunNote }}</p>
       </div>
       <div
         v-else-if="promptRun"
         role="status"
-        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+        class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
       >
         <p class="flex-1 min-w-0">{{ promptRunNote }}</p>
         <Button
@@ -50,7 +50,7 @@
       </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
-      <div class="w-full max-w-3xl flex flex-col">
+      <div class="w-full flex flex-col">
         <PromptStatusBar :phison-usable="phisonUsable" />
         <!-- RAG Documents Display (only when RAG is enabled and has documents) -->
         <div

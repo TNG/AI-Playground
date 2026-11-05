@@ -116,8 +116,13 @@ function presetForModePick(
 ): string {
   const listed = presetsInMode(catalog, mode)
   const remembered = lastUsed.find((name) => name && listed.some((p) => p.name === name))
-  return remembered ?? listed[0].name
+  const preferred = MODE_DEFAULT_PRESET[mode]
+  const fallback = listed.find((p) => p.name === preferred) ?? listed[0]
+  return remembered ?? fallback.name
 }
+
+// Agent Maker's preset identity stays `Agent`.
+const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { agent: 'Agent' }
 
 function headerChips({ activePreset: preset, presetLabel, machine }: PromptBarInput): HeaderChip[] {
   if (!preset) return []

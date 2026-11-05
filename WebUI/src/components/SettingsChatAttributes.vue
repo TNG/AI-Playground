@@ -1,6 +1,8 @@
 <template>
   <TooltipProvider :delay-duration="200">
     <SettingsTabLayout :machine-only="isHomeAgentPresetActive" :machine-note="machineNote">
+      <PresetVariantPicker @update:variant="changeVariant" />
+
       <SettingsRow v-if="advancedMode" align="start">
         <template #label>
           <Label for="chat-system-prompt" class="whitespace-nowrap pt-2">{{
@@ -107,6 +109,7 @@ import { useTextInference } from '@/assets/js/store/textInference.ts'
 import { useI18N } from '@/assets/js/store/i18n.ts'
 import DropDownNew from '@/components/DropDownNew.vue'
 import PresetResetButton from '@/components/PresetResetButton.vue'
+import PresetVariantPicker from '@/components/PresetVariantPicker.vue'
 import Rag from '@/components/Rag.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import SettingsMcp from '@/components/SettingsMcp.vue'
@@ -114,12 +117,14 @@ import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useActiveChatPreset } from '@/assets/js/activeChatPreset'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
+import { usePresetPicker } from '@/assets/js/presetPicker'
 
 const showUploader = ref(false)
 const languages = useI18N().state
 const textInference = useTextInference()
 
 const { activeChatPreset, isHomeAgentPresetActive, machineNote } = useActiveChatPreset()
+const { changeVariant } = usePresetPicker({})
 
 const { activeName: activeEmbeddingModelName, items: embeddingModelItems } =
   useEmbeddingModelPicker(

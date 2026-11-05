@@ -6,7 +6,6 @@
           :categories="categories"
           :model-value="presetsStore.activePresetName || undefined"
           @update:model-value="changePreset"
-          @update:variant="changeVariant"
         />
       </template>
 
@@ -90,7 +89,7 @@ const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
 const errors = useErrors()
-const { changePreset, changeVariant } = usePresetPicker({ skipModeSwitch: true, announce: false })
+const { changePreset } = usePresetPicker({ skipModeSwitch: true, announce: false })
 const backendServices = useBackendServices()
 const languages = useI18N().state
 const { currentPreset, presetRequiresOvms, usesInProcessOpenVINO, openvinoImageGenDevicePrefixes } =

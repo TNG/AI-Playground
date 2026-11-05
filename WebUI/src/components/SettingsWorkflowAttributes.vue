@@ -1,6 +1,8 @@
 <template>
   <TooltipProvider :delay-duration="200">
     <SettingsTabLayout>
+      <PresetVariantPicker @update:variant="changeVariant" />
+
       <!-- The in-process OpenVINO upscale device is a workflow input, so it stays the Session's. -->
       <SettingsRow v-if="usesInProcessOpenVINO" :label="languages.DEVICE">
         <drop-down-new
@@ -173,14 +175,17 @@ import DropDownNew from '@/components/DropDownNew.vue'
 import RandomNumber from '@/components/RandomNumber.vue'
 import ComfyDynamic from '@/components/SettingsImageComfyDynamic.vue'
 import PresetResetButton from '@/components/PresetResetButton.vue'
+import PresetVariantPicker from '@/components/PresetVariantPicker.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { deviceMatchesAllowedPrefixes, useWorkflowDevices } from '@/assets/js/workflowDevices'
+import { usePresetPicker } from '@/assets/js/presetPicker'
 
 const imageGeneration = useImageGenerationPresets()
 const backendServices = useBackendServices()
 const languages = useI18N().state
 const { usesInProcessOpenVINO, openvinoImageGenDevicePrefixes } = useWorkflowDevices()
+const { changeVariant } = usePresetPicker({})
 
 const IN_PROCESS_OV_DEVICE_INPUT = { nodeTitle: 'OpenVINO Upscale', nodeInput: 'device' } as const
 const FALLBACK_OV_DEVICES = ['AUTO', 'CPU', 'GPU', 'NPU'] as const

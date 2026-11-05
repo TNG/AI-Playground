@@ -143,7 +143,7 @@ const BasePresetFieldsSchema = z.object({
         // Groups variants by execution backend (e.g. 'comfyui', 'openvino'). When omitted,
         // the variant is treated as belonging to the default 'comfyui' backend. The
         // SettingsWorkflowInferencing Backend dropdown is built from the distinct values across
-        // a preset's variants; the quality radio in PresetSelector then filters to
+        // a preset's variants; the quality radio in PresetVariantPicker then filters to
         // variants matching the active backend.
         backend: z.string().optional(),
         overrides: z.any(), // DeepPartial<Preset> - using z.any() for flexibility

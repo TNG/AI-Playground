@@ -6,7 +6,6 @@
         :categories="['chat']"
         :model-value="presetsStore.activePresetName || undefined"
         @update:model-value="handlePresetChange"
-        @update:variant="changeVariant"
       />
     </template>
 
@@ -217,7 +216,7 @@ const cloudMode = useCloudMode()
 const uiStore = useUIStore()
 
 const { activeChatPreset, isHomeAgentPresetActive, machineNote } = useActiveChatPreset()
-const { changePreset, changeVariant } = usePresetPicker({})
+const { changePreset } = usePresetPicker({})
 
 // Non-null service name for the local-backend DeviceSelector (only rendered for
 // non-cloud backends; cloud uses ProviderSelector instead).

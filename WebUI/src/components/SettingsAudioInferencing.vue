@@ -6,7 +6,6 @@
         :categories="[AUDIO_CATEGORY]"
         :model-value="presetsStore.activePresetName || undefined"
         @update:model-value="changePreset"
-        @update:variant="changeVariant"
       />
     </template>
 
@@ -37,5 +36,5 @@ const languages = useI18N().state
 const presetsStore = usePresets()
 const { isTtsPreset, isSttPreset } = useActiveAudioPreset()
 const { resetSpeechSettings } = useSpeechSettingsReset()
-const { changePreset, changeVariant } = usePresetPicker({ skipModeSwitch: true })
+const { changePreset } = usePresetPicker({ skipModeSwitch: true })
 </script>

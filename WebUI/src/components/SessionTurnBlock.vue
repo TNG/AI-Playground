@@ -1,31 +1,12 @@
 <template>
-  <TaskRunBlock v-if="item.kind === 'task-run'" :task-run="item.taskRun">
-    <SessionTurnBlock
-      v-for="turn in item.turns"
-      :key="turn.id"
-      :item="turn"
-      :last-chat-message-id="lastChatMessageId"
-      :chat-key="chatKey"
-    />
-    <template v-if="item.resultTurns.length > 0" #collapsed>
-      <SessionTurnBlock
-        v-for="turn in item.resultTurns"
-        :key="turn.id"
-        :item="turn"
-        :last-chat-message-id="lastChatMessageId"
-        :chat-key="chatKey"
-        result-only
-      />
-    </template>
-  </TaskRunBlock>
   <div
-    v-else-if="item.kind === 'message'"
+    v-if="item.kind === 'message'"
     class="mx-auto w-full max-w-3xl text-sm text-muted-foreground whitespace-pre-wrap"
     :class="{ 'text-right': item.message.role === 'user' }"
   >
     {{ plainText(item.message) }}
   </div>
-  <SessionTurn v-else :result-only="resultOnly">
+  <SessionTurn v-else>
     <template v-if="item.prompt" #prompt>
       <SessionTurnPrompt
         :prompt="item.prompt"
@@ -49,6 +30,19 @@
           <p v-if="part.kind === 'workspace-path'" class="text-xs text-muted-foreground break-all">
             {{ fillTemplate(languages.AGENT_MEDIA_IN_WORKSPACE, { path: part.path }) }}
           </p>
+          <div
+            v-else-if="part.kind === 'step-prompt'"
+            role="group"
+            :aria-label="
+              fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(part.step) })
+            "
+            class="flex flex-col gap-1 rounded-md bg-muted px-3 py-2 text-sm"
+          >
+            <p class="text-xs text-muted-foreground">
+              {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(part.step) }) }}
+            </p>
+            <MarkdownRenderer :content="part.prompt.text" />
+          </div>
           <TurnWorkflowParameters
             v-else-if="part.kind === 'workflow'"
             :variant="part.variant"
@@ -87,8 +81,8 @@
           :conversation-key="chatKey"
         />
       </template>
-      <SessionAssistantBubble v-if="item.kind === 'chat' && chatFailure">
-        <TurnFailureLine :failure="chatFailure" />
+      <SessionAssistantBubble v-if="item.kind === 'chat' && turnFailure">
+        <TurnFailureLine :failure="turnFailure" />
       </SessionAssistantBubble>
       <template v-for="answer in item.kind === 'agent' ? item.answers : []" :key="answer.id">
         <SessionMessage
@@ -99,6 +93,9 @@
           :result-only="resultIndexes(answer.id)"
         />
       </template>
+      <SessionAssistantBubble v-if="item.kind === 'agent' && turnFailure">
+        <TurnFailureLine :failure="turnFailure" />
+      </SessionAssistantBubble>
       <MediaTurnBlock
         v-if="item.kind === 'media' || item.kind === 'pending-media'"
         :artifacts="item.artifacts"
@@ -139,13 +136,13 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import ChatMessageParts from '@/components/ChatMessageParts.vue'
+import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import MediaTurnBlock from '@/components/MediaTurnBlock.vue'
 import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import SessionMessage from '@/components/SessionMessage.vue'
 import SessionTurn from '@/components/SessionTurn.vue'
 import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
-import TaskRunBlock from '@/components/TaskRunBlock.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
@@ -158,7 +155,6 @@ const props = defineProps<{
   item: SessionTimelineItem<PendingMediaTurn, PendingAudioTurn>
   lastChatMessageId?: string
   chatKey: string
-  resultOnly?: boolean
 }>()
 
 const emit = defineEmits<{ resend: [] }>()
@@ -169,7 +165,7 @@ const confirmations = useConfirmations()
 const languages = useI18N().state
 
 const footerShown = computed(() => {
-  if (props.item.kind === 'task-run' || props.item.kind === 'message') return false
+  if (props.item.kind === 'message') return false
   const footer = props.item.footer
   return footer.actions.length > 0 || (textInference.metricsEnabled && !!footer.metrics)
 })
@@ -191,7 +187,7 @@ function answerOf(messageId: string): UIMessage | undefined {
 }
 
 function resultIndexes(messageId: string): number[] {
-  if (props.item.kind === 'task-run' || props.item.kind === 'message') return []
+  if (props.item.kind === 'message') return []
   return props.item.result.flatMap((part) =>
     'messageId' in part && part.messageId === messageId && part.index !== undefined
       ? [part.index]
@@ -204,8 +200,8 @@ const mediaFailure = computed(() => {
   return props.item.result.find((part): part is TurnFailurePart => part.kind === 'failure')
 })
 
-const chatFailure = computed(() => {
-  if (props.item.kind !== 'chat') return undefined
+const turnFailure = computed(() => {
+  if (props.item.kind !== 'chat' && props.item.kind !== 'agent') return undefined
   return props.item.result.find(
     (part): part is TurnFailurePart => part.kind === 'failure' && part.messageId === undefined,
   )

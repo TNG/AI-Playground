@@ -712,7 +712,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       presetName: presetOfAgent(id)?.name ?? AGENT_PRESET,
       title: plan.name,
       taskId: plan.id,
-      taskRun: { taskName: plan.name, startedAt: Date.now() },
+      taskRun: {
+        taskName: plan.name,
+        startedAt: Date.now(),
+        trigger: scheduled ? 'scheduled' : 'manual',
+      },
       steps: plan.steps,
     })
     runContexts[id] = { plan, abort: new AbortController(), scheduled }
@@ -848,6 +852,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     runContexts[taskId]?.abort.abort()
     delete runContexts[taskId]
     const declined = end.kind === 'failed' && end.message === MODEL_DOWNLOAD_DECLINED
+    if (end.kind !== 'completed') {
+      agentMode.endTaskRun(run.sessionId, {
+        kind: end.kind,
+        ...(end.message !== undefined ? { message: end.message } : {}),
+      })
+    }
     await recordOutcome(
       taskId,
       {

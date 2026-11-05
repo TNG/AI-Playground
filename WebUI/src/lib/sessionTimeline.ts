@@ -32,7 +32,10 @@ import {
 import { agentFooter, audioFooter, chatAnswerFooter, noFooter } from '@/lib/turnFooter'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
+  AgentRunPrompt,
+  AgentTurn,
   AnswerDetailKind,
+  AnswerPartRef,
   ArtifactKind,
   LiveAgentTurn,
   LiveChatStatus,
@@ -41,7 +44,6 @@ import type {
   PendingAudio,
   PendingMedia,
   SessionTimelineItem,
-  TimelineEntry,
   TimelineFiles,
   TimelineTurn,
   TurnDetailPart,
@@ -57,9 +59,15 @@ import type {
   AgentTurnTag,
   AudioTurnData,
   MediaTurnData,
+  TaskRunTag,
   TimelineMessage,
   TimelinePart,
 } from '@/types/sessionTimeline'
+
+/** One Step of an Agent Run: the prompt the run sent and the answers to it. */
+type RunStep = { prompt?: UIMessage; answers: UIMessage[] }
+
+type AgentRun = { turn: AgentTurn; steps: RunStep[]; end?: TaskRunTag['end'] }
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -305,21 +313,66 @@ function audioHint(audio: PendingAudio & { engine?: string }): TurnHint {
 }
 
 /** Answers arrive after their Turn opens, so hint, sections and footer are read last. */
-function withAnswers(turns: TimelineTurn[], prompts: Map<string, UIMessage>): TimelineTurn[] {
+function withAnswers(
+  turns: TimelineTurn[],
+  prompts: Map<string, UIMessage>,
+  runs: Map<string, AgentRun>,
+): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat') {
       turn.hint = chatHint(prompts.get(turn.id), turn.answers)
       turn.footer = chatAnswerFooter(turn.answers)
     }
     if (turn.kind === 'agent') {
-      turn.hint = agentHint(turn.presetName, turn.answers)
+      turn.hint = agentHint(turn.run?.name ?? turn.presetName, turn.answers)
       turn.footer = agentFooter(turn.answers)
     }
-    if (turn.kind === 'chat' || turn.kind === 'agent') {
+    const run = turn.kind === 'agent' ? runs.get(turn.harnessSessionId) : undefined
+    if (run) Object.assign(turn, runSections(run))
+    else if (turn.kind === 'chat' || turn.kind === 'agent') {
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
   }
   return turns
+}
+
+/** An Agent Run's answer is the text its last Step wrote after its last tool call. */
+function finalProse(step: RunStep | undefined): Set<string> {
+  const refs = (step?.answers ?? []).flatMap((answer) =>
+    answer.parts.map((part, index) => ({ part, key: `${answer.id}:${index}` })),
+  )
+  const lastTool = refs.findLastIndex(({ part }) => toolPartNameOf(part) !== undefined)
+  return new Set(
+    refs
+      .slice(lastTool + 1)
+      .flatMap(({ part, key }) => (shapeOf(part).type === 'text' ? [key] : [])),
+  )
+}
+
+function runSections(run: AgentRun): { details: TurnDetails; result: TurnResultPart[] } {
+  const final = finalProse(run.steps.at(-1))
+  const prose = (ref: AnswerPartRef) => final.has(`${ref.messageId}:${ref.index}`)
+  const whole = answerSections(
+    'agent',
+    run.steps.flatMap((step) => step.answers),
+  )
+  const parts: TurnDetailPart[] = []
+  const result: TurnResultPart[] = []
+  run.steps.forEach((step, index) => {
+    if (step.prompt) {
+      parts.push({ kind: 'step-prompt', step: index + 1, prompt: messagePrompt(step.prompt) })
+    }
+    const sections = answerSections('agent', step.answers, prose)
+    parts.push(...sections.details.parts)
+    result.push(...sections.result)
+  })
+  const end = run.end
+  if (end) {
+    const state = end.kind === 'failed' ? 'failed' : 'cancelled'
+    result.push({ kind: 'failure', ...generationFailure({ state, error: end.message }) })
+  }
+  const summary = { ...whole.details.summary, steps: run.steps.length }
+  return { details: { ...whole.details, parts, summary }, result }
 }
 
 const EMPTY_DETAILS: TurnDetails = { parts: [], summary: { kind: 'activity' } }
@@ -395,6 +448,7 @@ function workspacePathsOf(part: unknown): string[] {
 function answerSections(
   engine: 'chat' | 'agent',
   answers: UIMessage[],
+  proseInResult: (ref: AnswerPartRef) => boolean = () => true,
 ): { details: TurnDetails; result: TurnResultPart[] } {
   const parts: TurnDetailPart[] = []
   const result: TurnResultPart[] = []
@@ -407,6 +461,10 @@ function answerSections(
       allParts.push(part)
       const ref = { messageId: answer.id, index }
       const placement = placementOf(engine, part)
+      if (shapeOf(part).type === 'text' && !proseInResult(ref)) {
+        parts.push({ kind: 'prose', ...ref })
+        return
+      }
       if (placement.details) {
         parts.push({ kind: placement.details, ...ref })
         if (engine === 'agent') {
@@ -509,7 +567,7 @@ function partsLiveStatus(
 }
 
 function markLiveChatTurn(
-  entries: TimelineEntry[],
+  entries: TimelineTurn[],
   status: LiveChatStatus | undefined,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
 ): void {
@@ -531,15 +589,14 @@ function markLiveChatTurn(
 }
 
 function markLiveAgentTurns(
-  entries: TimelineEntry[],
+  entries: TimelineTurn[],
   agent: LiveAgentTurn,
   mediaSteps: Readonly<Record<string, MediaStepStatus>>,
 ): void {
   const id = agent.tag.harnessSessionId
-  const turns = entries.flatMap((entry) => {
-    if (entry.kind === 'task-run') return entry.harnessSessionId === id ? entry.turns : []
-    return entry.kind === 'agent' && entry.harnessSessionId === id ? [entry] : []
-  })
+  const turns = entries.filter(
+    (entry): entry is AgentTurn => entry.kind === 'agent' && entry.harnessSessionId === id,
+  )
   const last = turns.at(-1)
   for (const turn of turns) {
     turn.streaming = agent.live && turn === last
@@ -564,8 +621,6 @@ function markLiveAgentTurns(
     if (agent.open) last.questionKey = id
     if (agent.heldAnswer) last.heldAnswer = agent.heldAnswer
   }
-  const run = entries.find((entry) => entry.kind === 'task-run' && entry.harnessSessionId === id)
-  if (run?.kind === 'task-run') run.live = agent.live
 }
 
 function pendingMediaArtifacts(
@@ -611,45 +666,33 @@ function mediaFailure(media: MediaTurnData, artifacts: TurnArtifact[]): Generati
   return generationFailure({ state: media.status, error: media.error })
 }
 
-function withTaskRuns(turns: TimelineTurn[]): TimelineEntry[] {
-  const entries: TimelineEntry[] = []
-  for (const turn of turns) {
-    if (turn.kind !== 'agent' || !turn.taskRun) {
-      entries.push(turn)
-      continue
-    }
-    const last = entries.at(-1)
-    if (last?.kind === 'task-run' && last.harnessSessionId === turn.harnessSessionId) {
-      last.turns.push(turn)
-      continue
-    }
-    entries.push({
-      kind: 'task-run',
-      id: `task-run-${turn.id}`,
-      harnessSessionId: turn.harnessSessionId,
-      taskRun: turn.taskRun,
-      turns: [turn],
-      resultTurns: [],
-      live: false,
-    })
-  }
-  for (const entry of entries) {
-    if (entry.kind === 'task-run') entry.resultTurns = entry.turns.filter((t) => t.result.length)
-  }
-  return entries
-}
-
 export function timelineTurns(
   timeline: readonly unknown[],
   files: TimelineFiles = {},
   artifactRuns?: ArtifactRunsState,
-): TimelineEntry[] {
+): TimelineTurn[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
   const prompts = new Map<string, UIMessage>()
+  const runs = new Map<string, AgentRun>()
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     const tag = agentTagOf(message)
+    if (tag?.taskRun && isUIMessage(message)) {
+      const run = runs.get(tag.harnessSessionId) ?? openRun(message.id, tag, tag.taskRun)
+      if (!runs.has(tag.harnessSessionId)) {
+        runs.set(tag.harnessSessionId, run)
+        turns.push(run.turn)
+      }
+      if (tag.taskRun.end) run.end = tag.taskRun.end
+      if (message.role === 'user') run.steps.push({ prompt: message, answers: [] })
+      else {
+        if (run.steps.length === 0) run.steps.push({ answers: [] })
+        run.steps.at(-1)!.answers.push(message)
+        run.turn.answers.push(message)
+      }
+      continue
+    }
     if (tag && isUIMessage(message)) {
       const last = turns.at(-1)
       if (
@@ -674,7 +717,6 @@ export function timelineTurns(
           ...(message.role === 'user'
             ? { prompt: messagePrompt(message), answers: [] }
             : { answers: [message] }),
-          ...(tag.taskRun ? { taskRun: tag.taskRun } : {}),
         })
       }
       continue
@@ -742,7 +784,31 @@ export function timelineTurns(
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return withTaskRuns(
-    withArtifacts(withAnswers(turns, prompts), files.deletedUrls ?? [], artifactRuns),
-  )
+  return withArtifacts(withAnswers(turns, prompts, runs), files.deletedUrls ?? [], artifactRuns)
+}
+
+function openRun(id: string, tag: AgentTurnTag, taskRun: TaskRunTag): AgentRun {
+  const run: AgentRunPrompt = {
+    trigger: taskRun.trigger ?? 'manual',
+    name: taskRun.taskName,
+    startedAt: taskRun.startedAt,
+  }
+  return {
+    steps: [],
+    turn: {
+      kind: 'agent',
+      id,
+      hint: agentHint(run.name, []),
+      details: EMPTY_DETAILS,
+      result: [],
+      footer: noFooter(),
+      presetName: tag.presetName,
+      harnessSessionId: tag.harnessSessionId,
+      artifacts: [],
+      audioArtifacts: [],
+      prompt: { text: '', run },
+      answers: [],
+      run,
+    },
+  }
 }

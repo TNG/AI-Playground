@@ -27,6 +27,7 @@ import {
   type AgentSessionSettings,
   type AgentTaskStep,
   type LegacyAgentSessionState,
+  type TaskRunTag,
 } from '@/types/agentSessionIpc'
 import {
   type BagDerivedSetting,
@@ -1419,6 +1420,15 @@ export const useAgentMode = defineStore(
       void sessionsStore.saveTimelineMessages(record.sessionRef, messages)
     }
 
+    /** How an Agent Run ended short, kept on its tag so its timeline Turn can show it. */
+    function endTaskRun(id: string, end: NonNullable<TaskRunTag['end']>): void {
+      const record = sessions.value[id]
+      if (!record?.taskRun) return
+      const ended = { ...record, taskRun: { ...record.taskRun, end } }
+      rewriteSession(id, ended)
+      saveToSessionTimeline(ended)
+    }
+
     function snapshotOpenSession(presetName?: string): void {
       snapshotSessionById(openSessionId.value, presetName)
     }
@@ -2199,6 +2209,7 @@ export const useAgentMode = defineStore(
       reconcileWorkspaceKind,
       generate,
       createSession,
+      endTaskRun,
       sendToSession,
       setTaskLockLookup,
       quietSessionErrors,

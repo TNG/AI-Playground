@@ -23,6 +23,7 @@
         :aria-label="clip.name ?? languages.SESSION_TURN_INPUT_AUDIO"
       />
     </template>
+    <p v-if="prompt.run">{{ runLabel(prompt.run) }}</p>
     <MarkdownRenderer v-if="prompt.text" :content="prompt.text" :on-copy="copyText" />
     <p v-else-if="prompt.placeholder" class="text-muted-foreground italic">
       {{ prompt.placeholder }}
@@ -97,7 +98,7 @@ import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/notificationLabel'
-import type { TurnPrompt } from '@/lib/turnTypes'
+import type { AgentRunPrompt, TurnPrompt } from '@/lib/turnTypes'
 
 defineProps<{
   prompt: TurnPrompt
@@ -109,7 +110,18 @@ defineProps<{
 const emit = defineEmits<{ resend: [] }>()
 
 const sessions = useSessions()
-const languages = useI18N().state
+const i18nStore = useI18N()
+const languages = i18nStore.state
+
+function runLabel(run: AgentRunPrompt): string {
+  if (run.trigger === 'manual')
+    return fillTemplate(languages.AGENT_RUN_PROMPT_MANUAL, { name: run.name })
+  const time = new Date(run.startedAt).toLocaleString(i18nStore.langName, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+  return fillTemplate(languages.AGENT_RUN_PROMPT_SCHEDULED, { time })
+}
 
 function copyText(value: string) {
   copyToClipboard(value, languages.COM_COPY_SUCCESS_TIP)

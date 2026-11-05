@@ -359,7 +359,7 @@ function setSessionTurns(turns: Record<string, { turnId: string; kind: 'chat' }>
 
 describe('a Scheduled Run in its Session', () => {
   it('runs in the Session on a fresh Harness Session, with no Session context', async () => {
-    await readyStores(scheduledTask('t1'))
+    const { agentMode } = await readyStores(scheduledTask('t1'))
 
     await runClockTo(NOW + 10 * MINUTE)
 
@@ -371,6 +371,10 @@ describe('a Scheduled Run in its Session', () => {
       taskRun: { taskName: 'Task t1', stepIndex: 1 },
     })
     expect(sentConfig(0).sessionId).toMatch(/^aipg-agent-run-/)
+    expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
+      taskName: 'Task t1',
+      trigger: 'scheduled',
+    })
   })
 
   it('tags every Step with the Task and its index', async () => {

@@ -26,11 +26,12 @@ export type TurnHint = { kind: TurnHintKind; icon: TurnHintIcon; preset: string;
 
 export type AnswerPartRef = { messageId: string; index: number }
 
-export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction'
+export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction' | 'prose'
 
 export type TurnDetailPart =
   | ({ kind: AnswerDetailKind } & AnswerPartRef)
   | { kind: 'workspace-path'; path: string }
+  | { kind: 'step-prompt'; step: number; prompt: TurnPrompt }
   | {
       kind: 'workflow'
       variant?: string
@@ -51,6 +52,8 @@ export type ArtifactKind = 'image' | 'video' | 'model3d' | 'audio'
 export type TurnSummary =
   | {
       kind: 'activity'
+      /** Set on an Agent Run: how many of its Steps have started. */
+      steps?: number
       reasoningMs?: number
       tools?: number
       artifacts?: Partial<Record<ArtifactKind, number>>
@@ -85,8 +88,14 @@ export type TurnDetails = {
   /** One line under the header, for an error the Result does not already say. */
   errorLine?: string
 }
+export type AgentRunPrompt = Pick<TaskRunTag, 'startedAt'> & {
+  trigger: NonNullable<TaskRunTag['trigger']>
+  name: string
+}
+
 export type TurnPrompt = {
   text: string
+  run?: AgentRunPrompt
   placeholder?: string
   inputImageUrl?: string
   audio?: { url: string; name?: string }[]
@@ -153,7 +162,7 @@ export type AgentTurn = TurnOf<
     answers: UIMessage[]
     artifacts: TurnArtifact[]
     audioArtifacts: AudioArtifact[]
-    taskRun?: TaskRunTag
+    run?: AgentRunPrompt
     streaming?: boolean
     queued?: boolean
     notRun?: boolean
@@ -176,16 +185,6 @@ export type AudioTurn = TurnOf<
 export type MessageTurn = { kind: 'message'; id: string; message: TimelineMessage }
 
 export type TimelineTurn = ChatTurn | AgentTurn | MediaTurn | AudioTurn | MessageTurn
-
-export type TaskRunItem = {
-  kind: 'task-run'
-  id: string
-  harnessSessionId: string
-  taskRun: TaskRunTag
-  turns: AgentTurn[]
-  resultTurns: AgentTurn[]
-  live: boolean
-}
 
 export type LiveAgentTurn = {
   tag: AgentTurnTag
@@ -237,13 +236,11 @@ export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   artifactRuns?: ArtifactRunsState
 }
 
-export type TimelineEntry = TimelineTurn | TaskRunItem
-
 export type TimelineFiles = {
   deletedUrls?: readonly string[]
 }
 
 export type SessionTimelineItem<M = PendingMedia, A = PendingAudio> =
-  | TimelineEntry
+  | TimelineTurn
   | TurnOf<'pending-media', { prompt: TurnPrompt; pending: M; artifacts: TurnArtifact[] }>
   | TurnOf<'pending-audio', { prompt: TurnPrompt; pending: A; audioArtifacts: AudioArtifact[] }>

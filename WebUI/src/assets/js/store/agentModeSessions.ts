@@ -2,7 +2,7 @@ import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
-import type { AgentSessionSettings, AgentTaskStep } from '@/types/agentSessionIpc'
+import type { AgentSessionSettings, AgentTaskStep, TaskRunTag } from '@/types/agentSessionIpc'
 
 export type AgentSessionRecord = {
   id: string
@@ -40,7 +40,7 @@ export type AgentSessionRecord = {
   /** The Session this Harness Session belongs to, once it is one. */
   sessionRef?: string
   /** Set when this Harness Session is one Task Run of its Session. */
-  taskRun?: { taskName: string; startedAt: number }
+  taskRun?: TaskRunTag
 }
 
 /**

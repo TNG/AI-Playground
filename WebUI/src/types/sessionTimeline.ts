@@ -1,3 +1,4 @@
+import type { TaskRunTag } from './agentSessionIpc'
 import type { MediaItem } from './mediaItem'
 
 /**
@@ -45,8 +46,7 @@ export type TimelineMessage = {
   parts: TimelinePart[]
 }
 
-/** Set on an agent turn's timeline messages: the agent preset and Harness Session they came from. */
-/** The Task Run a Harness Session's messages belong to, when it is one. */
-export type TaskRunTag = { taskName: string; startedAt: number }
+export type { TaskRunTag }
 
+/** Set on an agent turn's timeline messages: the agent preset and Harness Session they came from. */
 export type AgentTurnTag = { presetName: string; harnessSessionId: string; taskRun?: TaskRunTag }

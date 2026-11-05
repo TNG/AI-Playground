@@ -363,6 +363,17 @@ describe('running a Task', () => {
     expect(JSON.stringify(agentMode.messages)).not.toContain('"one"')
   })
 
+  it('tags the run as started by hand, for the timeline to say so', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.runTask('t1')
+
+    await turnIdOf(0)
+    expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
+      taskName: 'Task t1',
+      trigger: 'manual',
+    })
+  })
+
   it('keeps the Steps on the Task Session, so opening it offers Run again', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
 
@@ -623,6 +634,22 @@ describe('a run that fails', () => {
     expect(lastSavedTask('t1')?.lastOutcome).toMatchObject(outcome)
     await settleMicrotasks()
     expect(sentSteps()).toEqual(['one', 'two'])
+  })
+
+  it('records on the run how it failed, so its timeline Turn can show it', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+
+    await failTurn(0, 'model refused')
+
+    const end = { kind: 'failed', message: 'model refused' }
+    await vi.waitFor(() => expect(agentMode.sessions[sessionId].taskRun?.end).toEqual(end))
+    const saved = vi.mocked(window.electronAPI.sessions.saveTimelineMessages).mock.calls.at(-1)
+    expect(JSON.stringify(saved?.[1])).toContain(
+      '"end":{"kind":"failed","message":"model refused"}',
+    )
   })
 
   it('settles failed without any turn when the folder is missing', async () => {

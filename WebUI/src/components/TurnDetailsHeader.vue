@@ -68,6 +68,8 @@ const summaryText = computed(() =>
     audio: languages.SESSION_TURN_DETAILS_AUDIO,
     audios: languages.SESSION_TURN_DETAILS_AUDIOS,
     seed: languages.SESSION_TURN_DETAILS_SEED,
+    agentRunStep: languages.SESSION_TURN_DETAILS_AGENT_RUN_STEP,
+    agentRunSteps: languages.SESSION_TURN_DETAILS_AGENT_RUN_STEPS,
   }),
 )
 </script>

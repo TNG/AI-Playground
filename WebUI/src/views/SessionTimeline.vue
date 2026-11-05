@@ -3,7 +3,6 @@
   <div
     id="chatPanel"
     ref="panel"
-    data-artifact-breakout
     class="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 flex flex-col relative"
   >
     <!-- Game Agent works on one game at a time, and what to do with that game

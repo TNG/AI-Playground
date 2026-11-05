@@ -40,7 +40,7 @@
       v-else-if="artifact.item.type === 'image'"
       alt="Generated result"
       class="block max-w-full object-contain rounded-lg"
-      :class="boxSize ? 'max-h-full' : 'max-h-[70vh]'"
+      :class="boxSize ? 'max-h-full' : 'max-h-[60vh]'"
       :src="artifact.url"
       :draggable="artifact.state === 'done'"
       @dragstart="drag"
@@ -51,7 +51,7 @@
       :src="artifact.url"
       aria-label="Generated result"
       class="block max-w-full object-contain rounded-lg"
-      :class="boxSize ? 'max-h-full' : 'max-h-[70vh]'"
+      :class="boxSize ? 'max-h-full' : 'max-h-[60vh]'"
       controlsList="nodownload nofullscreen noremoteplayback"
       controls
       :draggable="artifact.state === 'done'"
@@ -127,7 +127,7 @@ function videoLoaded(event: Event) {
   noteNaturalSize(video.videoWidth, video.videoHeight)
 }
 
-const MAX_HEIGHT = '70vh'
+const MAX_HEIGHT = '60vh'
 const boxSize = computed(() => {
   const artifact = props.artifact
   const needsBox = is3D(artifact.item) || !hasDisplayableMedia(artifact.item) || unfinished.value

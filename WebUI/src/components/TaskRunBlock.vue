@@ -21,14 +21,10 @@
         <span class="ml-auto flex-none text-xs text-muted-foreground">{{ time }}</span>
       </button>
     </CollapsibleTrigger>
-    <div
-      v-if="!open && $slots.collapsed"
-      data-artifact-breakout
-      class="flex flex-col gap-6 px-3 pb-3"
-    >
+    <div v-if="!open && $slots.collapsed" class="flex flex-col gap-6 px-3 pb-3">
       <slot name="collapsed" />
     </div>
-    <CollapsibleContent data-artifact-breakout class="flex flex-col gap-6 px-3 pb-3">
+    <CollapsibleContent class="flex flex-col gap-6 px-3 pb-3">
       <slot />
     </CollapsibleContent>
   </Collapsible>

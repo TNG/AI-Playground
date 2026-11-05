@@ -25,7 +25,7 @@
   >
     {{ plainText(item.message) }}
   </div>
-  <SessionTurn v-else :hint="item.hint" :result-only="resultOnly">
+  <SessionTurn v-else :result-only="resultOnly">
     <template v-if="item.prompt" #prompt>
       <SessionTurnPrompt
         :prompt="item.prompt"
@@ -36,7 +36,7 @@
       />
     </template>
     <template #details>
-      <TurnDetails :details="item.details">
+      <TurnDetails :details="item.details" :hint="item.hint">
         <template v-if="question || heldAnswer" #status>
           <ChatConfirmation v-if="question" :conversation-key="question" />
           <TurnHeldAnswer

@@ -1,6 +1,6 @@
 <template>
   <div v-if="artifacts.length > 0" ref="anchor" class="w-full min-w-0">
-    <div class="relative" :style="breakout.style.value">
+    <div class="relative">
       <div class="mx-auto grid items-start" :style="gridStyle">
         <div
           v-for="artifact in artifacts"
@@ -28,6 +28,7 @@
 
 <script setup lang="ts">
 import { computed, ref, type StyleValue } from 'vue'
+import { useElementSize } from '@vueuse/core'
 import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
@@ -44,7 +45,6 @@ import {
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
 import { useArtifactActions } from '@/lib/useArtifactActions'
-import { useArtifactBreakout } from '@/lib/useArtifactBreakout'
 
 const props = defineProps<{ artifacts: TurnArtifact[] }>()
 
@@ -54,7 +54,7 @@ const gallery = useGallery()
 const imageGeneration = useImageGenerationPresets()
 const promptStore = usePromptStore()
 const anchor = ref<HTMLElement | null>(null)
-const breakout = useArtifactBreakout(anchor)
+const { width: anchorWidth } = useElementSize(anchor)
 const infoId = ref<string | null>(null)
 const confirmingDelete = ref<string | null>(null)
 
@@ -63,7 +63,7 @@ const infoArtifact = computed(
 )
 
 const gridStyle = computed<StyleValue>(() => {
-  const grid = artifactGrid(props.artifacts, breakout.width.value)
+  const grid = artifactGrid(props.artifacts, anchorWidth.value)
   return {
     gap: `${ARTIFACT_GRID_GAP_PX}px`,
     gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,

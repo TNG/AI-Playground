@@ -58,16 +58,18 @@ describe('deleting a Session', () => {
     dropSchedulesWithSession()
     const doomed = await sessions.createSession()
     const kept = await sessions.createSession()
-    const schedule = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
-    await taskFiles.saveAgentTask({ ...task('a', doomed.id), schedule, nextRunAt: 200 })
-    await taskFiles.saveAgentTask({ ...task('b', kept.id), schedule, nextRunAt: 200 })
+    const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true, nextRunAt: 200 }
+    const inDoomed = { sessionRef: doomed.id, ...daily }
+    const inKept = { sessionRef: kept.id, ...daily }
+    await taskFiles.saveAgentTask({ ...task('a', doomed.id), schedules: [inDoomed, inKept] })
+    await taskFiles.saveAgentTask({ ...task('b', kept.id), schedules: [inKept] })
 
     await sessions.deleteSession(doomed.id)
 
     const { sessionRef: _gone, ...made } = task('a', doomed.id)
     expect(await taskFiles.readAgentTasks()).toEqual([
-      made,
-      { ...task('b', kept.id), schedule, nextRunAt: 200 },
+      { ...made, schedules: [inKept] },
+      { ...task('b', kept.id), schedules: [inKept] },
     ])
   })
 })

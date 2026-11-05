@@ -3,7 +3,7 @@ import { fillTemplate } from './fillTemplate'
 
 export type LabelTask = {
   name: string
-  activeRun?: { sessionId: string; stepIndex: number; stepCount: number }
+  activeRuns?: { sessionId: string; stepIndex: number; stepCount: number }[]
 }
 
 type LabelTemplates = Pick<NotificationTemplates, 'sessionLabel' | 'taskLabel' | 'untitled'>
@@ -15,9 +15,10 @@ export function notificationSessionLabel(
   title: string,
   tasks: readonly LabelTask[],
 ): string {
-  const task = tasks.find((entry) => entry.activeRun?.sessionId === sessionId)
-  if (task?.activeRun) {
-    const { stepIndex, stepCount } = task.activeRun
+  const task = tasks.find((entry) => runOf(entry, sessionId))
+  const run = task && runOf(task, sessionId)
+  if (task && run) {
+    const { stepIndex, stepCount } = run
     if (!Number.isInteger(stepIndex) || stepIndex < 1 || stepIndex > stepCount) {
       return fillTemplate(templates.sessionLabel, { title: task.name })
     }
@@ -28,4 +29,8 @@ export function notificationSessionLabel(
     })
   }
   return fillTemplate(templates.sessionLabel, { title: title || templates.untitled })
+}
+
+function runOf(task: LabelTask, sessionId: string) {
+  return task.activeRuns?.find((run) => run.sessionId === sessionId)
 }

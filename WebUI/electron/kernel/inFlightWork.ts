@@ -10,7 +10,7 @@ export type InFlightWorkSources = {
   textRequests: OpenTextRequest[]
   artifactRuns: OpenArtifactRun[]
   /** An enabled Schedule is not In-flight Work; only a Task Run's marker is. */
-  tasks: Pick<AgentTask, 'id' | 'name' | 'activeRun'>[]
+  tasks: Pick<AgentTask, 'id' | 'name' | 'activeRuns'>[]
   /** What only the window knows: Prompt Runs, and Task Runs whose marker is not on disk yet. */
   rendererWork: InFlightWorkItem[]
 }
@@ -20,11 +20,15 @@ function stepRuns(sources: InFlightWorkSources): InFlightWorkItem[] {
   const reported = sources.rendererWork.filter(
     (item) => item.kind === 'task-run' || item.kind === 'prompt-run',
   )
-  const reportedTaskIds = new Set(
-    reported.flatMap((item) => (item.kind === 'task-run' ? [item.taskId] : [])),
+  const reportedRuns = new Set(
+    reported.flatMap((item) =>
+      item.kind === 'task-run' && item.sessionId ? [item.sessionId] : [],
+    ),
   )
   const markers = sources.tasks.flatMap((task) =>
-    task.activeRun && !reportedTaskIds.has(task.id) ? [taskRunWorkItem(task, task.activeRun)] : [],
+    (task.activeRuns ?? [])
+      .filter((run) => !reportedRuns.has(run.sessionId))
+      .map((run) => taskRunWorkItem(task, run)),
   )
   return [...markers, ...reported]
 }

@@ -135,7 +135,9 @@ const i18n = i18nStore.state
 
 const task = computed(() => agentTasks.tasks.find((entry) => entry.id === props.taskId))
 const title = computed(() => i18n.AGENT_TASKS_SCHEDULE.replace('{name}', task.value?.name ?? ''))
-const hasSchedule = computed(() => task.value?.schedule !== undefined)
+const hasSchedule = computed(
+  () => props.taskId !== null && agentTasks.taskSchedule(props.taskId).schedule !== undefined,
+)
 
 const modelWarnings = useTaskModelWarnings(() => task.value?.settingsTemplate, {
   chatModelSteps: () => task.value?.steps,
@@ -165,7 +167,7 @@ watch(open, (isOpen) => {
 })
 
 function reset(): void {
-  const existing = task.value?.schedule
+  const existing = props.taskId ? agentTasks.taskSchedule(props.taskId).schedule : undefined
   active.value = existing?.enabled ?? true
   every.value = existing?.every ?? 1
   unit.value = existing?.unit ?? 'days'

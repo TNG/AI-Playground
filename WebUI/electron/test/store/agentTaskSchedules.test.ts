@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
-import type { AgentTask, AgentTaskSchedule } from '@/types/agentTaskIpc'
+import type { AgentSessionSchedule, AgentTask, AgentTaskSchedule } from '@/types/agentTaskIpc'
 import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 
-// Giving a Task a Schedule: the Tasks store validates it, works out its Next Run
-// and saves both on the Task. Driven through the Tasks store against the real
-// Agent store, with a fake electronAPI and a pinned clock.
+// Giving an Agent a Schedule in a Session: the Agents store validates it, works out its Next Run
+// and saves both as that Session's Schedule on the Agent. Driven through the Agents store against
+// the real Agent store, with a fake electronAPI and a pinned clock.
 
 const AGENT: ChatPreset = {
   type: 'chat',
@@ -145,6 +145,21 @@ beforeEach(() => {
       })),
       existsPath: vi.fn(async () => true),
       sessions: {
+        open: vi.fn(async (id: string) => ({
+          success: true,
+          session: {
+            id,
+            title: '',
+            renamed: false,
+            createdAt: 1,
+            updatedAt: 1,
+            presetsUsed: [],
+            timeline: [],
+          },
+          missingFiles: [],
+          lastPreset: null,
+        })),
+        delete: vi.fn(async () => ({ success: true })),
         taskRunHarness: vi.fn(async () => ({
           success: true,
           harness: {
@@ -189,11 +204,15 @@ afterEach(async () => {
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
+const { useSessions } = await import('@/assets/js/store/sessions')
 
-async function readyStores(...saved: AgentTask[]) {
-  storedTasks = saved
+const openSession = (id: string) => useSessions().open(id)
+
+async function readyStores(...stored: AgentTask[]) {
+  storedTasks = stored
   const agentMode = useAgentMode()
   await agentMode.init()
+  await openSession(SESSION)
   const tasks = useAgentTasks()
   await tasks.init()
   return { agentMode, tasks }
@@ -212,6 +231,17 @@ const schedule = (overrides: Partial<AgentTaskSchedule> = {}): AgentTaskSchedule
   ...overrides,
 })
 
+/** An Agent's Schedule as saved for one Session. */
+const saved = (
+  fields: AgentTaskSchedule,
+  nextRunAt?: number,
+  sessionRef = SESSION,
+): AgentSessionSchedule => ({
+  sessionRef,
+  ...fields,
+  ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+})
+
 describe('giving a Task a Schedule', () => {
   it('saves the Schedule with its first slot as the Next Run', async () => {
     vi.setSystemTime(NOW)
@@ -220,8 +250,7 @@ describe('giving a Task a Schedule', () => {
     expect(await tasks.setSchedule('t1', schedule())).toMatchObject({ ok: true })
 
     expect(lastSavedTask('t1')).toMatchObject({
-      schedule: schedule(),
-      nextRunAt: NOW + 30 * MINUTE,
+      schedules: [saved(schedule(), NOW + 30 * MINUTE)],
     })
     expect(tasks.taskSchedule('t1')).toEqual({
       schedule: schedule(),
@@ -237,7 +266,7 @@ describe('giving a Task a Schedule', () => {
 
     // Slots at -5h15, -3h15, -1h15, then +45 minutes.
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 45 * MINUTE)
-    expect(lastSavedTask('t1')?.nextRunAt).toBe(NOW + 45 * MINUTE)
+    expect(lastSavedTask('t1')?.schedules?.[0].nextRunAt).toBe(NOW + 45 * MINUTE)
   })
 
   it('does not run at a slot that is exactly now', async () => {
@@ -251,7 +280,7 @@ describe('giving a Task a Schedule', () => {
 
   it('replaces an earlier Schedule', async () => {
     vi.setSystemTime(NOW)
-    const { tasks } = await readyStores(task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }))
+    const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
     await tasks.setSchedule('t1', schedule({ every: 1, unit: 'days', startAt: NOW + 3 * HOUR }))
 
@@ -288,7 +317,7 @@ describe('giving a Task a Schedule', () => {
 
     expect(await tasks.setSchedule('t1', schedule())).toMatchObject({ ok: true })
 
-    expect(lastSavedTask('t1')).toMatchObject({ schedule: schedule() })
+    expect(lastSavedTask('t1')).toMatchObject({ schedules: [saved(schedule())] })
     expect(requestDownload).not.toHaveBeenCalled()
   })
 
@@ -310,7 +339,7 @@ describe('giving a Task a Schedule', () => {
 
   it('keeps the previous Schedule when the save fails', async () => {
     vi.setSystemTime(NOW)
-    const { tasks } = await readyStores(task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }))
+    const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
     saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
 
     expect(await tasks.setSchedule('t1', schedule({ every: 3 }))).toEqual({
@@ -325,13 +354,12 @@ describe('giving a Task a Schedule', () => {
 describe('pausing a Schedule', () => {
   it('keeps a disabled Schedule but no Next Run', async () => {
     vi.setSystemTime(NOW)
-    const { tasks } = await readyStores(task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }))
+    const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
     await tasks.setSchedule('t1', schedule({ enabled: false }))
 
     expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule({ enabled: false }) })
-    expect(lastSavedTask('t1')).toMatchObject({ schedule: { enabled: false } })
-    expect(lastSavedTask('t1')).not.toHaveProperty('nextRunAt')
+    expect(lastSavedTask('t1')?.schedules).toEqual([saved(schedule({ enabled: false }))])
   })
 
   it('works out the Next Run again when re-enabled', async () => {
@@ -350,15 +378,14 @@ describe('pausing a Schedule', () => {
 describe('removing a Schedule', () => {
   it('saves the Task without Schedule or Next Run', async () => {
     vi.setSystemTime(NOW)
-    const { tasks } = await readyStores(task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }))
+    const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
     expect(await tasks.removeSchedule('t1')).toBe(true)
 
     expect(tasks.taskSchedule('t1')).toEqual({})
-    const saved = lastSavedTask('t1')!
-    expect(saved).not.toHaveProperty('schedule')
-    expect(saved).not.toHaveProperty('nextRunAt')
-    expect(saved).toMatchObject({ name: 'Task t1', steps: [{ prompt: 'one' }] })
+    const written = lastSavedTask('t1')!
+    expect(written).not.toHaveProperty('schedules')
+    expect(written).toMatchObject({ name: 'Task t1', steps: [{ prompt: 'one' }] })
   })
 })
 
@@ -366,7 +393,7 @@ describe('a Schedule and the rest of the Task', () => {
   it('reads a saved Schedule after a restart', async () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(
-      task('t1', { schedule: schedule(), nextRunAt: NOW + 30 * MINUTE }),
+      task('t1', { schedules: [saved(schedule(), NOW + 30 * MINUTE)] }),
       task('t2'),
     )
 
@@ -380,7 +407,7 @@ describe('a Schedule and the rest of the Task', () => {
   it('keeps the Schedule and Next Run when the Agent is updated', async () => {
     vi.setSystemTime(NOW)
     const { agentMode, tasks } = await readyStores(
-      task('t1', { schedule: schedule(), nextRunAt: NOW + HOUR }),
+      task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }),
     )
 
     await tasks.loadAgent('t1')
@@ -389,10 +416,126 @@ describe('a Schedule and the rest of the Task', () => {
 
     expect(lastSavedTask('t1')).toMatchObject({
       steps: [{ prompt: 'reworded' }],
-      schedule: schedule(),
-      nextRunAt: NOW + HOUR,
+      schedules: [saved(schedule(), NOW + HOUR)],
     })
     expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule(), nextRunAt: NOW + HOUR })
+  })
+})
+
+describe('Schedules of one Agent in several Sessions', () => {
+  it('keeps a Schedule per Session, each with its own Next Run', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(task('t1'))
+    const hourly = schedule({ every: 1, unit: 'hours' })
+    const daily = schedule({ every: 1, unit: 'days', startAt: NOW + 3 * HOUR })
+
+    await tasks.setSchedule('t1', hourly)
+    await openSession('session-2')
+    await tasks.setSchedule('t1', daily)
+
+    expect(tasks.taskSchedule('t1')).toEqual({ schedule: daily, nextRunAt: NOW + 3 * HOUR })
+    await openSession(SESSION)
+    expect(tasks.taskSchedule('t1')).toEqual({ schedule: hourly, nextRunAt: NOW + 30 * MINUTE })
+    expect(lastSavedTask('t1')?.schedules).toEqual([
+      saved(hourly, NOW + 30 * MINUTE),
+      saved(daily, NOW + 3 * HOUR, 'session-2'),
+    ])
+  })
+
+  it('pauses only the open Session’s Schedule', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        schedules: [saved(schedule(), NOW + HOUR), saved(schedule(), NOW + HOUR, 'session-2')],
+      }),
+    )
+
+    await tasks.setSchedule('t1', schedule({ enabled: false }))
+
+    expect(lastSavedTask('t1')?.schedules).toEqual([
+      saved(schedule({ enabled: false })),
+      saved(schedule(), NOW + HOUR, 'session-2'),
+    ])
+  })
+
+  it('removes only the open Session’s Schedule', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        schedules: [saved(schedule(), NOW + HOUR), saved(schedule(), NOW + HOUR, 'session-2')],
+      }),
+    )
+
+    await openSession('session-2')
+    expect(await tasks.removeSchedule('t1')).toBe(true)
+
+    expect(tasks.taskSchedule('t1')).toEqual({})
+    expect(lastSavedTask('t1')?.schedules).toEqual([saved(schedule(), NOW + HOUR)])
+  })
+
+  it('does not tie the Agent to the Session it is scheduled in', async () => {
+    vi.setSystemTime(NOW)
+    const { sessionRef: _none, ...unbound } = task('t1')
+    const { tasks } = await readyStores(unbound)
+
+    await tasks.setSchedule('t1', schedule())
+
+    expect(lastSavedTask('t1')).not.toHaveProperty('sessionRef')
+    expect(lastSavedTask('t1')?.schedules).toEqual([saved(schedule(), NOW + 30 * MINUTE)])
+  })
+
+  it('counts the other Sessions the Agent is scheduled in, paused ones too', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        schedules: [
+          saved(schedule(), NOW + HOUR),
+          saved(schedule(), NOW + HOUR, 'session-2'),
+          saved(schedule({ enabled: false }), undefined, 'session-3'),
+        ],
+      }),
+      task('t2', { schedules: [saved(schedule(), NOW + HOUR, 'session-2')] }),
+      task('t3'),
+    )
+
+    expect(tasks.otherScheduledSessions('t1')).toBe(2)
+    expect(tasks.otherScheduledSessions('t2')).toBe(1)
+    expect(tasks.otherScheduledSessions('t3')).toBe(0)
+    expect(tasks.scheduledSessionCount('t1')).toBe(3)
+    await openSession('session-2')
+    expect(tasks.otherScheduledSessions('t2')).toBe(0)
+  })
+
+  it('marks the Sessions holding an enabled Schedule', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        sessionRef: 'session-made-in',
+        schedules: [
+          saved(schedule(), NOW + HOUR, 'session-2'),
+          saved(schedule({ enabled: false }), undefined, 'session-3'),
+        ],
+      }),
+    )
+
+    expect([...tasks.scheduledSessionIds]).toEqual(['session-2'])
+  })
+})
+
+describe('deleting an Agent', () => {
+  it('removes its Schedules in every Session', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        schedules: [saved(schedule(), NOW + HOUR), saved(schedule(), NOW + HOUR, 'session-2')],
+      }),
+    )
+
+    expect(await tasks.deleteTask('t1')).toBe(true)
+
+    expect(window.electronAPI.agentMode.deleteTask).toHaveBeenCalledWith('t1')
+    expect(tasks.scheduledSessionIds.size).toBe(0)
+    expect(tasks.scheduledSessionCount('t1')).toBe(0)
   })
 })
 

@@ -29,7 +29,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { TurnHint, TurnHintIcon } from '@/lib/turnTypes'
 
 const props = defineProps<{ hint: TurnHint }>()

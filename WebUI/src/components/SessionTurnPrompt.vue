@@ -97,7 +97,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/chatMessageText'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentRunPrompt, TurnPrompt } from '@/lib/turnTypes'
 
 defineProps<{

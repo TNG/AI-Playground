@@ -21,11 +21,18 @@ function sources(overrides: Partial<InFlightWorkSources>): InFlightWorkSources {
   }
 }
 
-const dailyReport = { id: 'task-1', name: 'Daily report', schedule: { enabled: true } }
-const marker = (stepIndex: number) => ({
-  ...dailyReport,
-  activeRun: { sessionId: 's-1', stepIndex, stepCount: 4 },
+const dailyReport = {
+  id: 'task-1',
+  name: 'Daily report',
+  schedules: [{ sessionRef: 'session-1', enabled: true }],
+}
+const run = (sessionId: string, stepIndex: number) => ({
+  sessionId,
+  sessionRef: `ref-${sessionId}`,
+  stepIndex,
+  stepCount: 4,
 })
+const marker = (stepIndex: number) => ({ ...dailyReport, activeRuns: [run('s-1', stepIndex)] })
 const reportedTaskRun = (index: number): InFlightWorkItem => ({
   kind: 'task-run',
   taskId: 'task-1',
@@ -48,6 +55,23 @@ describe('collectInFlightWork', () => {
         name: 'Daily report',
         state: { status: 'step', index: 2, count: 4 },
       },
+    ])
+  })
+
+  it("names each of an Agent's runs in different Sessions, deferring only the reported one", () => {
+    const twoRuns = { ...dailyReport, activeRuns: [run('s-1', 2), run('s-2', 1)] }
+
+    expect(
+      collectInFlightWork(sources({ tasks: [twoRuns], rendererWork: [reportedTaskRun(3)] })),
+    ).toEqual([
+      {
+        kind: 'task-run',
+        taskId: 'task-1',
+        sessionId: 's-2',
+        name: 'Daily report',
+        state: { status: 'step', index: 1, count: 4 },
+      },
+      reportedTaskRun(3),
     ])
   })
 

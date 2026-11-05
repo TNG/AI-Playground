@@ -243,7 +243,7 @@ import {
   isChatWebBrowseToolPart,
 } from '@/lib/chatToolParts'
 import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
 

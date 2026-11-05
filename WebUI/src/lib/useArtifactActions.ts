@@ -1,7 +1,7 @@
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { ArtifactAction } from '@/lib/turnArtifacts'
 
 const LABEL_KEYS = {

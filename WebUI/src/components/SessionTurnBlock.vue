@@ -147,7 +147,7 @@ import TurnDetails from '@/components/TurnDetails.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { SessionTimelineItem, TurnFailurePart } from '@/lib/turnTypes'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 

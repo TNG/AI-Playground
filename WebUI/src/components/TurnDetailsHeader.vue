@@ -21,7 +21,7 @@
 import { computed } from 'vue'
 import { ArrowPathIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 

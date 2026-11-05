@@ -66,7 +66,7 @@ import {
 import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib/chatEnergy'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { MediaRerun, TurnFooter } from '@/lib/turnTypes'
 
 const props = defineProps<{ footer: TurnFooter }>()

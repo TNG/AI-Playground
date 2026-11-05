@@ -469,7 +469,7 @@ describe('deleting the Session a run is in', () => {
     expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped', stepIndex: 1 })
     expect(window.electronAPI.agentMode.cancel).toHaveBeenCalled()
     expect(tasks.tasks.map((agent) => agent.id)).toEqual(['t1'])
-    expect(lastSavedTask('t1')?.activeRun).toBeUndefined()
+    expect(lastSavedTask('t1')).not.toHaveProperty('activeRuns')
   })
 
   it('leaves a run in another Session going', async () => {
@@ -514,15 +514,15 @@ describe('the Agents a Session holds', () => {
     await vi.waitFor(() => expect(ids(tasks)).toEqual([]))
   })
 
-  it('include an Agent whose enabled Schedule runs in the Session', async () => {
+  it('include an Agent whose enabled Schedule runs in the Session, wherever it was made', async () => {
+    const nextRunAt = Date.now() + 60_000
     const { tasks } = await readyStores(
-      task('here', ['one'], { schedule: daily, nextRunAt: Date.now() + 60_000 }),
-      task('paused', ['one'], { schedule: { ...daily, enabled: false } }),
-      task('there', ['one'], {
+      task('here', ['one'], {
         sessionRef: 'session-2',
-        schedule: daily,
-        nextRunAt: Date.now() + 60_000,
+        schedules: [{ sessionRef: SESSION, ...daily, nextRunAt }],
       }),
+      task('paused', ['one'], { schedules: [{ sessionRef: SESSION, ...daily, enabled: false }] }),
+      task('there', ['one'], { schedules: [{ sessionRef: 'session-2', ...daily, nextRunAt }] }),
     )
 
     expect(ids(tasks)).toEqual(['here'])
@@ -635,13 +635,13 @@ describe('running a Task', () => {
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
     })
 
     await finishTurn(0)
     await turnIdOf(1)
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 2, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', stepIndex: 2, stepCount: 2, sessionId, sessionRef: SESSION },
     })
   })
 })
@@ -1211,17 +1211,20 @@ describe('the app closing during a run', () => {
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
 
-    expect(lastSavedTask('t1')?.activeRun).toMatchObject({ sessionId, stepIndex: 1 })
-    expect(lastSavedTask('t1')?.activeRun).not.toHaveProperty('scheduled')
+    expect(lastSavedTask('t1')?.activeRuns).toEqual([
+      { sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
+    ])
     await finishTurn(0)
     await turnIdOf(1)
-    await vi.waitFor(() => expect(lastSavedTask('t1')?.activeRun).toMatchObject({ stepIndex: 2 }))
+    await vi.waitFor(() =>
+      expect(lastSavedTask('t1')?.activeRuns).toEqual([expect.objectContaining({ stepIndex: 2 })]),
+    )
 
     await finishTurn(1)
     await settledOutcome(tasks, 't1')
     const saved = lastSavedTask('t1')!
     expect(saved.lastOutcome).toMatchObject({ kind: 'completed' })
-    expect(saved).not.toHaveProperty('activeRun')
+    expect(saved).not.toHaveProperty('activeRuns')
   })
 
   it.each([
@@ -1235,12 +1238,12 @@ describe('the app closing during a run', () => {
     await end(tasks)
 
     await settledOutcome(tasks, 't1')
-    expect(lastSavedTask('t1')).not.toHaveProperty('activeRun')
+    expect(lastSavedTask('t1')).not.toHaveProperty('activeRuns')
   })
 
   it('settles a Task left with a run marker as failed on init, and runs it again', async () => {
     const interrupted = task('t1', ['one', 'two', 'three'], {
-      activeRun: { sessionId: 'session-old', stepIndex: 2, stepCount: 3 },
+      activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION, stepIndex: 2, stepCount: 3 }],
     })
     const { tasks } = await readyStores(interrupted)
 
@@ -1254,7 +1257,7 @@ describe('the app closing during a run', () => {
     expect(tasks.taskState('t1')).toEqual({ idle: expect.objectContaining(outcome) })
     const saved = lastSavedTask('t1')!
     expect(saved.lastOutcome).toMatchObject(outcome)
-    expect(saved).not.toHaveProperty('activeRun')
+    expect(saved).not.toHaveProperty('activeRuns')
     expect(startTurn).not.toHaveBeenCalled()
 
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
@@ -1306,12 +1309,14 @@ describe('the app closing during a run', () => {
     })
     const { agentMode, tasks } = await readyStores(
       task('t1', ['one', 'two'], {
-        activeRun: { sessionId, stepIndex: 1, stepCount: 2, scheduled: true },
+        activeRuns: [
+          { sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2, scheduled: true },
+        ],
       }),
     )
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
+      running: { taskId: 't1', sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
     })
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
     expect(saveTask.mock.calls.some(([saved]) => saved.lastOutcome?.reason === 'app-closed')).toBe(
@@ -1332,11 +1337,9 @@ describe('the app closing during a run', () => {
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['two'])
-    expect(lastSavedTask('t1')?.activeRun).toMatchObject({
-      sessionId,
-      stepIndex: 2,
-      scheduled: true,
-    })
+    expect(lastSavedTask('t1')?.activeRuns).toEqual([
+      expect.objectContaining({ sessionId, stepIndex: 2, scheduled: true }),
+    ])
   })
 
   it('keeps the interrupted Task Session’s "not run" message and resend action', async () => {
@@ -1358,7 +1361,7 @@ describe('the app closing during a run', () => {
     } as never)
     const { agentMode, tasks } = await readyStores(
       task('t1', ['one'], {
-        activeRun: { sessionId: 'session-old', stepIndex: 1, stepCount: 1 },
+        activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION, stepIndex: 1, stepCount: 1 }],
       }),
     )
 
@@ -1567,11 +1570,11 @@ describe('updating an Agent while it runs', () => {
     expect((await tasks.updateAgent('t1', 'Task t1')).ok).toBe(true)
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
     })
     expect(lastSavedTask('t1')).toMatchObject({
       steps: [{ prompt: 'first' }, { prompt: 'second' }],
-      activeRun: { sessionId, stepIndex: 1 },
+      activeRuns: [expect.objectContaining({ sessionId, stepIndex: 1 })],
     })
 
     await finishTurn(0)

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
-import type { AgentTask, AgentTaskSchedule } from '@/types/agentTaskIpc'
+import type { AgentSessionSchedule, AgentTask, AgentTaskSchedule } from '@/types/agentTaskIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
@@ -176,9 +176,16 @@ const task = (id: string, overrides: Partial<AgentTask> = {}): AgentTask => ({
   ...overrides,
 })
 
-/** A Task whose Schedule next fires ten minutes from NOW. */
-const scheduledTask = (id: string, overrides: Partial<AgentTask> = {}): AgentTask =>
-  task(id, { schedule: every10Minutes(), nextRunAt: NOW + 10 * MINUTE, ...overrides })
+/** A Task whose Schedule in SESSION (or as `at` says) next fires ten minutes from NOW. */
+const scheduledTask = (
+  id: string,
+  overrides: Partial<AgentTask> = {},
+  at: Partial<AgentSessionSchedule> = {},
+): AgentTask =>
+  task(id, {
+    schedules: [{ sessionRef: SESSION, ...every10Minutes(), nextRunAt: NOW + 10 * MINUTE, ...at }],
+    ...overrides,
+  })
 
 const openRecord = {
   id: 'session-open',
@@ -369,6 +376,11 @@ const savedCopies = (id: string) =>
 
 const lastSavedTask = (id: string) => savedCopies(id).at(-1)
 
+const savedSchedule = (id: string, sessionRef = SESSION) =>
+  lastSavedTask(id)?.schedules?.find((entry) => entry.sessionRef === sessionRef)
+
+const savedRuns = (id: string) => lastSavedTask(id)?.activeRuns ?? []
+
 /** Main's one-turn-per-Session ledger, as its kernel event reports it. */
 function setSessionTurns(turns: Record<string, { turnId: string; kind: 'chat' }>): void {
   pushEvent({ type: 'session-turns', turns })
@@ -394,24 +406,27 @@ describe('a Scheduled Run in its Session', () => {
     })
   })
 
-  it('never runs in a Session it was not set in, nor in the open one', async () => {
-    const { sessionRef: _none, ...unbound } = scheduledTask('t1')
-    await readyStores(unbound)
-
-    await runClockTo(NOW + 10 * MINUTE)
-    await settleMicrotasks()
-
-    expect(window.electronAPI.sessions.taskRunHarness).not.toHaveBeenCalled()
-    expect(startTurn).not.toHaveBeenCalled()
-  })
-
-  it('runs in the Session it was set in, whichever Session is open', async () => {
-    await readyStores(scheduledTask('t1', { sessionRef: 'session-made-in' }))
+  it('runs in its Schedule’s Session, not the Agent’s nor the open one', async () => {
+    await readyStores(
+      scheduledTask('t1', { sessionRef: 'session-made-in' }, { sessionRef: 'session-2' }),
+    )
 
     await runClockTo(NOW + 10 * MINUTE)
 
     await turnIdOf(0)
-    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith('session-made-in')
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledTimes(1)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith('session-2')
+    expect(sentConfig(0).sessionRef).toBe('session-2')
+  })
+
+  it('runs for an Agent made in no Session', async () => {
+    const { sessionRef: _none, ...unbound } = scheduledTask('t1')
+    await readyStores(unbound)
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
   })
 
   it('tags every Step with the Task and its index', async () => {
@@ -490,7 +505,7 @@ describe('a Schedule reaching its Next Run', () => {
       settings: TEMPLATE,
     })
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
     })
   })
 
@@ -500,7 +515,7 @@ describe('a Schedule reaching its Next Run', () => {
     await runClockTo(NOW + 10 * MINUTE)
 
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
-    expect(lastSavedTask('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
   })
 
   it('does nothing before the slot', async () => {
@@ -528,7 +543,7 @@ describe('a Schedule reaching its Next Run', () => {
         idle: expect.objectContaining({ kind: 'completed', sessionId: sentConfig(0).sessionId }),
       }),
     )
-    expect(lastSavedTask('t1')).toMatchObject({ nextRunAt: NOW + 20 * MINUTE })
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
   })
 
   it('fires outside Agent Mode without opening its session', async () => {
@@ -615,12 +630,12 @@ describe('a slot that finds a Task Run in flight', () => {
     expect(startTurn).toHaveBeenCalledTimes(1)
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
     })
-    expect(lastSavedTask('t1')?.activeRun).not.toHaveProperty('scheduled')
+    expect(savedRuns('t1')).toEqual([expect.not.objectContaining({ scheduled: true })])
     expect(lastSavedTask('t1')).not.toHaveProperty('lastOutcome')
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
-    expect(lastSavedTask('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
     expect(errorsReport).not.toHaveBeenCalled()
   })
 
@@ -671,6 +686,87 @@ describe('a slot that finds a Task Run in flight', () => {
   })
 })
 
+describe('one Agent scheduled in two Sessions', () => {
+  const inBoth = (overrides: Partial<AgentTask> = {}) =>
+    task('t1', {
+      schedules: [
+        { sessionRef: SESSION, ...every10Minutes(), nextRunAt: NOW + 10 * MINUTE },
+        { sessionRef: 'session-2', ...every10Minutes(), nextRunAt: NOW + 10 * MINUTE },
+      ],
+      ...overrides,
+    })
+  const sessionOf = (call: number) => sentConfig(call).sessionRef
+
+  it('runs in both Sessions when their slots fall together, each on its own Harness Session', async () => {
+    await readyStores(inBoth())
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await turnIdOf(1)
+    expect([sessionOf(0), sessionOf(1)].sort()).toEqual([SESSION, 'session-2'])
+    expect(sentConfig(0).sessionId).not.toBe(sentConfig(1).sessionId)
+    expect(sentSteps()).toEqual(['t1 one', 't1 one'])
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(savedSchedule('t1', 'session-2')?.nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(
+      savedRuns('t1')
+        .map((run) => run.sessionRef)
+        .sort(),
+    ).toEqual([SESSION, 'session-2'])
+  })
+
+  it('skips a slot only in the Session whose run is still going', async () => {
+    await readyStores(inBoth({ steps: [{ id: 's', prompt: 'x' }] }))
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(1)
+    const call = sessionOf(0) === 'session-2' ? 0 : 1
+    await finishTurn(call)
+    await vi.waitFor(() => expect(savedRuns('t1')).toHaveLength(1))
+
+    await runClockTo(NOW + 20 * MINUTE)
+
+    await turnIdOf(2)
+    await settleMicrotasks()
+    expect(startTurn).toHaveBeenCalledTimes(3)
+    expect(sessionOf(2)).toBe('session-2')
+  })
+
+  it('shows each Session its own run', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1', {}, { sessionRef: 'session-2' }))
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+
+    expect(tasks.taskState('t1')).toHaveProperty('idle')
+    expect(tasks.taskState('t1', 'session-2')).toMatchObject({
+      running: { sessionRef: 'session-2', stepIndex: 1 },
+    })
+    expect(tasks.openSessionAgents).toEqual([])
+  })
+
+  it('lets a manual run in the open Session start while a scheduled one runs in another', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1', {}, { sessionRef: 'session-2' }))
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+
+    await turnIdOf(1)
+    expect(sessionOf(1)).toBe(SESSION)
+    expect(await tasks.runTask('t1')).toEqual({ ok: false, reason: 'running' })
+  })
+
+  it('stops only the open Session’s run', async () => {
+    const { tasks } = await readyStores(inBoth())
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(1)
+
+    await tasks.stopTask('t1')
+
+    expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'stopped')
+    expect(tasks.taskState('t1', 'session-2')).toHaveProperty('running')
+  })
+})
+
 describe('a slot that was missed', () => {
   it('is skipped when the machine slept through it, and the Next Run moves on', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'))
@@ -683,20 +779,17 @@ describe('a slot that was missed', () => {
     expect(startTurn).not.toHaveBeenCalled()
     expect(tasks.taskState('t1')).toEqual({ idle: undefined })
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
-    expect(lastSavedTask('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
   })
 
   it('is skipped at launch when it fell while the app was closed', async () => {
     const { tasks } = await readyStores(
-      scheduledTask('t1', {
-        schedule: every10Minutes({ startAt: NOW - 2 * HOUR - 3 * MINUTE }),
-        nextRunAt: NOW - HOUR,
-      }),
+      scheduledTask('t1', {}, { startAt: NOW - 2 * HOUR - 3 * MINUTE, nextRunAt: NOW - HOUR }),
     )
 
     // Slots at -2h03, …, -3m, then +7m.
     expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 7 * MINUTE)
-    expect(lastSavedTask('t1')?.nextRunAt).toBe(NOW + 7 * MINUTE)
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 7 * MINUTE)
     await vi.advanceTimersByTimeAsync(TICK)
     await settleMicrotasks()
     expect(startTurn).not.toHaveBeenCalled()
@@ -711,18 +804,22 @@ describe('a slot that was missed', () => {
 
   it('settles an interrupted run at launch without starting a new one', async () => {
     const { tasks } = await readyStores(
-      scheduledTask('t1', {
-        nextRunAt: NOW - 5 * MINUTE,
-        schedule: every10Minutes({ startAt: NOW - 5 * MINUTE }),
-        activeRun: { sessionId: 'session-old', stepIndex: 1, stepCount: 2 },
-      }),
+      scheduledTask(
+        't1',
+        {
+          activeRuns: [
+            { sessionId: 'session-old', sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
+          ],
+        },
+        { startAt: NOW - 5 * MINUTE, nextRunAt: NOW - 5 * MINUTE },
+      ),
     )
 
     expect(lastSavedTask('t1')).toMatchObject({
       lastOutcome: { kind: 'failed', reason: 'app-closed' },
-      nextRunAt: NOW + 5 * MINUTE,
     })
-    expect(lastSavedTask('t1')).not.toHaveProperty('activeRun')
+    expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 5 * MINUTE)
+    expect(lastSavedTask('t1')).not.toHaveProperty('activeRuns')
     expect(tasks.taskState('t1')).toHaveProperty('idle')
     await settleMicrotasks()
     expect(startTurn).not.toHaveBeenCalled()
@@ -743,7 +840,9 @@ describe('running a scheduled Task by hand', () => {
     })
     expect(savedCopies('t1').length).toBeGreaterThan(0)
     for (const saved of savedCopies('t1')) {
-      expect(saved).toMatchObject({ schedule: every10Minutes(), nextRunAt: NOW + 10 * MINUTE })
+      expect(saved.schedules).toEqual([
+        { sessionRef: SESSION, ...every10Minutes(), nextRunAt: NOW + 10 * MINUTE },
+      ])
     }
   })
 
@@ -810,8 +909,9 @@ describe('a Scheduled Run that cannot start', () => {
     expect(startTurn).not.toHaveBeenCalled()
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
     expect(reported('agent-tasks/scheduled-run-not-started')).toMatchObject({ surface: 'toast' })
-    expect(lastSavedTask('t1')).toMatchObject({
-      schedule: every10Minutes(),
+    expect(savedSchedule('t1')).toEqual({
+      sessionRef: SESSION,
+      ...every10Minutes(),
       nextRunAt: NOW + 20 * MINUTE,
     })
   })
@@ -969,8 +1069,9 @@ describe('a Scheduled Run that fails part-way', () => {
     const toast = reported('agent-tasks/scheduled-run-failed')
     expect(toast).toMatchObject({ surface: 'toast' })
     expect(toast?.userMessage).toContain('model refused')
-    expect(lastSavedTask('t1')).toMatchObject({
-      schedule: every10Minutes(),
+    expect(savedSchedule('t1')).toEqual({
+      sessionRef: SESSION,
+      ...every10Minutes(),
       nextRunAt: NOW + 20 * MINUTE,
     })
   })
@@ -1033,7 +1134,7 @@ describe('a scheduled Task run by hand', () => {
 describe('a Schedule that must not fire', () => {
   it('never fires while paused', async () => {
     const { tasks } = await readyStores(
-      task('t1', { schedule: every10Minutes({ enabled: false }) }),
+      task('t1', { schedules: [{ sessionRef: SESSION, ...every10Minutes({ enabled: false }) }] }),
     )
 
     await runClockTo(NOW + HOUR)
@@ -1143,6 +1244,7 @@ describe('a Task Run whose Task Session is paused', () => {
 
     expect(tasks.taskState('t1')).toEqual({
       running: {
+        taskId: 't1',
         stepIndex: 1,
         stepCount: 2,
         sessionId,
@@ -1154,7 +1256,7 @@ describe('a Task Run whose Task Session is paused', () => {
     await resumeTurn(0)
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
     })
   })
 
@@ -1397,7 +1499,9 @@ describe('reporting In-flight Work to the close question', () => {
     await turnIdOf(0)
     await settleMicrotasks()
     expect(lastReport()).toEqual([expect.objectContaining({ kind: 'task-run', taskId: 't1' })])
-    expect(lastSavedTask('t1')?.activeRun).toMatchObject({ scheduled: true, stepIndex: 1 })
+    expect(savedRuns('t1')).toEqual([
+      expect.objectContaining({ sessionRef: SESSION, scheduled: true, stepIndex: 1 }),
+    ])
 
     await finishTurn(0)
     await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))

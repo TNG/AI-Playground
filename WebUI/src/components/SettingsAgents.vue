@@ -62,6 +62,9 @@
                   </Tooltip>
                 </span>
                 <span class="text-xs text-muted-foreground">{{ row.meta }}</span>
+                <span v-if="row.alsoScheduled" class="text-xs text-muted-foreground">
+                  {{ row.alsoScheduled }}
+                </span>
                 <span v-if="row.progress" class="text-xs text-primary">{{ row.progress }}</span>
                 <span
                   v-else-if="row.outcome"
@@ -295,10 +298,24 @@ const rows = computed(() =>
       moreLabel: fillTemplate(i18n.AGENT_AGENTS_MORE_LABEL, label),
       renameLabel: fillTemplate(i18n.AGENT_AGENTS_RENAME_LABEL, label),
       deleteLabel: fillTemplate(i18n.AGENT_AGENTS_DELETE_LABEL, label),
-      deleteQuestion: fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM, label),
+      alsoScheduled: alsoScheduledHint(agentTasks.otherScheduledSessions(task.id)),
+      deleteQuestion: deleteQuestion(task.name, agentTasks.scheduledSessionCount(task.id)),
     }
   }),
 )
+
+function alsoScheduledHint(count: number): string | undefined {
+  if (count === 0) return undefined
+  if (count === 1) return i18n.AGENT_AGENTS_ALSO_SCHEDULED_ONE
+  return fillTemplate(i18n.AGENT_AGENTS_ALSO_SCHEDULED_MANY, { count })
+}
+
+function deleteQuestion(name: string, scheduledIn: number): string {
+  if (scheduledIn === 0) return fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM, { name })
+  if (scheduledIn === 1)
+    return fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM_SCHEDULED_ONE, { name })
+  return fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM_SCHEDULED_MANY, { name, count: scheduledIn })
+}
 
 function scheduleOf(id: string): { enabled: boolean; line?: string } {
   const { schedule, nextRunAt } = agentTasks.taskSchedule(id)

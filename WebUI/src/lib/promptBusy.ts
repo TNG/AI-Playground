@@ -29,10 +29,9 @@ export function promptBusy(mode: ModeType, targets: PromptBusyTargets): boolean 
 }
 
 /**
- * What the prompt field does when its target's busy state flips. Chat-like modes clear
- * the field once a send is accepted (the message is in the transcript by then) and never
- * on the way back, so navigating between busy and idle targets leaves typed text alone.
- * Image modes keep the prompt so it can be tweaked and reused.
+ * What the prompt field does when its target's busy state flips. Every mode clears the field
+ * once a send is accepted (its Turn shows the prompt by then) and never on the way back, so
+ * navigating between busy and idle targets leaves typed text alone.
  */
 export function promptOnBusyChange(
   mode: ModeType,
@@ -41,5 +40,8 @@ export function promptOnBusyChange(
   if (isChatLikeMode(mode)) {
     return { clearPrompt: change.busy && change.submitted, resetSubmitted: true }
   }
-  return { clearPrompt: false, resetSubmitted: change.wasBusy && !change.busy }
+  return {
+    clearPrompt: change.busy && change.submitted,
+    resetSubmitted: change.wasBusy && !change.busy,
+  }
 }

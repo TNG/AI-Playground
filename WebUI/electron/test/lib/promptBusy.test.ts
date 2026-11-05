@@ -53,9 +53,9 @@ describe('prompt field on a busy change', () => {
     ).toBe(false)
   })
 
-  it('keeps the prompt after an image run, only ending the submitted state', () => {
+  it('clears the prompt once an image run is accepted, ending the submitted state after it', () => {
     expect(promptOnBusyChange('imageGen', { busy: true, wasBusy: false, submitted: true })).toEqual(
-      { clearPrompt: false, resetSubmitted: false },
+      { clearPrompt: true, resetSubmitted: false },
     )
     expect(promptOnBusyChange('imageGen', { busy: false, wasBusy: true, submitted: true })).toEqual(
       { clearPrompt: false, resetSubmitted: true },

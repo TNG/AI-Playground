@@ -1086,33 +1086,6 @@ watch(isProcessing, (busy, wasBusy) => {
   if (resetSubmitted) promptStore.promptSubmitted = false
 })
 
-// Sync prompt from store to textarea when switching to ComfyUI modes
-watch(
-  () => promptStore.getCurrentMode(),
-  (newMode) => {
-    const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
-    if (comfyUiModes.includes(newMode)) {
-      // When switching to ComfyUI modes, sync the store prompt to the textarea
-      prompt.value = imageGeneration.prompt || ''
-    }
-  },
-)
-
-// Keep textarea in sync with imageGeneration.prompt for ComfyUI modes
-watch(
-  () => imageGeneration.prompt,
-  (newPrompt) => {
-    const currentMode = promptStore.getCurrentMode()
-    const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
-    if (comfyUiModes.includes(currentMode)) {
-      // Only sync if the prompt actually changed to avoid unnecessary updates
-      if (prompt.value !== newPrompt) {
-        prompt.value = newPrompt || ''
-      }
-    }
-  },
-)
-
 // Accept programmatically injected prompt text (e.g. from demo sample prompts)
 watch(
   () => promptStore.injectedPromptText,

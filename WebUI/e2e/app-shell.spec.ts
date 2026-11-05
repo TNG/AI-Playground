@@ -40,5 +40,31 @@ test.describe('App shell', () => {
       await expect(shell.openDeveloperConsoleButton).toBeVisible()
       await shell.ensureSettingsClosed()
     })
+
+    await test.step('Theme switches from the header and is gone from App Settings', async () => {
+      const shell = app.shell
+      await shell.themeButton.click()
+      await expect(shell.themeOptions).toHaveText([
+        'Default',
+        'Intel® Core™ Ultra',
+        'Intel® Arc™',
+        'Light',
+      ])
+      await shell.closeThemeMenu()
+
+      const original = await shell.activeTheme()
+      const other = original === 'Light' ? 'Default' : 'Light'
+      try {
+        await shell.chooseTheme(other)
+      } finally {
+        await shell.chooseTheme(original)
+      }
+
+      await shell.openAppSettings()
+      const sidebar = window.getByRole('region', { name: 'App Settings' })
+      await expect(sidebar.getByText('Theme', { exact: true })).toHaveCount(0)
+      await expect(sidebar.getByText('Intel® Arc™')).toHaveCount(0)
+      await shell.ensureSettingsClosed()
+    })
   })
 })

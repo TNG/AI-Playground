@@ -29,6 +29,43 @@ export class AppShellPage {
     return this.page.getByRole('contentinfo')
   }
 
+  get themeButton(): Locator {
+    return this.header.getByRole('button', { name: 'Theme' })
+  }
+
+  get themeOptions(): Locator {
+    return this.page.getByRole('menu').getByRole('menuitemradio')
+  }
+
+  async activeTheme(): Promise<string> {
+    await this.themeButton.click()
+    await expect(this.themeOptions.first()).toBeVisible()
+    let active = ''
+    for (const option of await this.themeOptions.all()) {
+      if (await option.isChecked()) active = (await option.innerText()).trim()
+    }
+    await this.closeThemeMenu()
+    return active
+  }
+
+  async chooseTheme(name: string): Promise<void> {
+    await this.themeButton.click()
+    await this.themeOption(name).click()
+    await expect(this.themeOptions).toHaveCount(0)
+    await this.themeButton.click()
+    await expect(this.themeOption(name)).toBeChecked()
+    await this.closeThemeMenu()
+  }
+
+  async closeThemeMenu(): Promise<void> {
+    await this.page.keyboard.press('Escape')
+    await expect(this.themeOptions).toHaveCount(0)
+  }
+
+  private themeOption(name: string): Locator {
+    return this.page.getByRole('menu').getByRole('menuitemradio', { name, exact: true })
+  }
+
   get setupWizardButton(): Locator {
     return this.page.getByRole('button', { name: 'Setup Wizard' })
   }

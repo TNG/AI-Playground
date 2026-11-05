@@ -129,7 +129,7 @@ export const TOUR_STEPS_ALTERNATIVE: TourStep[] = [
     id: '#app-settings-button',
     title: 'Application Settings',
     descr:
-      "Select this gear icon to see a list of application-level settings, from to language options, installation manager, and speech mode. You'll find important application settings here. Click here and select the Theme menu to give AI Playground different looks.",
+      'Select this gear icon to see a list of application-level settings, from language and prompt bar style to backend status, permissions and developer options.',
   },
   {
     id: '#sessions-panel',

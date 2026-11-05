@@ -57,8 +57,8 @@
       >
         <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
       </button>
-      <TooltipProvider v-if="globalSetup.loadingState === 'running'" :delay-duration="200">
-        <Tooltip>
+      <TooltipProvider :delay-duration="200">
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
             <button
               id="app-settings-button"
@@ -72,6 +72,7 @@
           <TooltipContent side="bottom">{{ languages.COM_APP_SETTINGS }}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
+      <ThemeMenu />
       <button
         v-if="globalSetup.loadingState === 'running'"
         id="contextual-help-toggle"
@@ -293,6 +294,7 @@ import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
 import SchedulesPanel from '@/components/SchedulesPanel.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
+import ThemeMenu from '@/components/ThemeMenu.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
 import { useUIStore } from '@/assets/js/store/ui.ts'

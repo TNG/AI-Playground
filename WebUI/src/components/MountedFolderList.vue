@@ -15,9 +15,18 @@
           <span class="text-sm text-foreground">{{ row.sandboxPath }}</span>
           <span class="text-xs text-muted-foreground break-all">{{ row.folder.hostPath }}</span>
         </span>
-        <span class="text-xs text-muted-foreground whitespace-nowrap">
-          {{ languages.AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY }}
-        </span>
+        <label class="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+          <Switch
+            :model-value="row.access === 'read-write'"
+            :aria-label="allowChangesLabel(row.sandboxPath)"
+            @update:model-value="(writable: boolean) => setWritable(row.folder, writable)"
+          />
+          {{
+            row.access === 'read-write'
+              ? languages.AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE
+              : languages.AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY
+          }}
+        </label>
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
@@ -51,6 +60,7 @@ import { computed } from 'vue'
 import { FolderIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MOUNTED_FOLDERS_ROOT, resolveMountedFolders } from '@/lib/mountedFolders'
 import type { MountedFolder } from '@/types/agentSessionIpc'
@@ -64,6 +74,7 @@ const rows = computed(() => {
   return folders.value.map((folder, index) => ({
     folder,
     sandboxPath: `${MOUNTED_FOLDERS_ROOT}/${resolved[index].name}`,
+    access: resolved[index].access,
   }))
 })
 
@@ -76,6 +87,20 @@ async function add(): Promise<void> {
   const hostPath = result.canceled ? undefined : result.filePaths[0]
   if (!hostPath || folders.value.some((folder) => folder.hostPath === hostPath)) return
   folders.value = [...folders.value, { hostPath, access: 'read-only' }]
+}
+
+function allowChangesLabel(sandboxPath: string): string {
+  return languages.AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED.replace(
+    '{folder}',
+    sandboxPath,
+  )
+}
+
+function setWritable(target: MountedFolder, writable: boolean): void {
+  const access = writable ? 'read-write' : 'read-only'
+  folders.value = folders.value.map((folder) =>
+    folder === target ? { ...folder, access } : folder,
+  )
 }
 
 function remove(target: MountedFolder): void {

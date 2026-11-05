@@ -329,6 +329,26 @@ describe('session reuse', () => {
       expect(openSession).toHaveBeenLastCalledWith(sessionFiles[0], expect.anything(), workspaceA)
     })
 
+    it('rebuilds when a folder is switched to read-write', async () => {
+      const manager = await loadManager()
+      await manager.startAgentTurn(
+        't1',
+        'first',
+        configFor({ mountedFolders: [mountOf(workspaceB)] }),
+      )
+      await manager.startAgentTurn(
+        't2',
+        'second',
+        configFor({ mountedFolders: [{ ...mountOf(workspaceB), access: 'read-write' }] }),
+      )
+
+      expect(createAgentSession).toHaveBeenCalledTimes(2)
+      const { createAgentToolAccess } = await import('../../agent/piToolOperations')
+      expect(vi.mocked(createAgentToolAccess).mock.lastCall?.[0].mountedFolders).toEqual([
+        { hostPath: workspaceB, name: path.basename(workspaceB), access: 'read-write' },
+      ])
+    })
+
     it('reuses the session while the list is unchanged', async () => {
       const manager = await loadManager()
       const config = configFor({ mountedFolders: [mountOf(workspaceB)] })

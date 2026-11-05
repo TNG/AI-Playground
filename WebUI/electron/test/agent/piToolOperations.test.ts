@@ -10,6 +10,7 @@ import {
   type AgentToolAccess,
 } from '../../agent/piToolOperations'
 import type { AgentSkill } from '../../agent/piCustomTools'
+import { onGeneratedMedia } from '../../agent/generatedMedia'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { InMemoryFs, MountableFs, ReadWriteFs } from 'just-bash'
 
@@ -464,19 +465,20 @@ describe('a read-only Mounted Folder, sandboxed', () => {
     expect(grepped).toBe('todo.md:1:milk')
   })
 
-  it('refuses write, edit and mkdir there and leaves the host file alone', async () => {
+  it('refuses write, edit and mkdir there as read-only and leaves the host file alone', async () => {
+    const readOnly = /\/mnt\/notes is a read-only Mounted Folder/
     await expect(
       invoke(toolOf(access, 'write'), { path: '/mnt/notes/journal/monday.md', content: 'x' }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(readOnly)
     await expect(
       invoke(toolOf(access, 'edit'), {
         path: '/mnt/notes/journal/monday.md',
         edits: [{ oldText: 'milk', newText: 'beer' }],
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(readOnly)
     await expect(
       invoke(toolOf(access, 'write'), { path: '/mnt/notes/new/file.md', content: 'x' }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(readOnly)
     for (const command of [
       'echo x > /mnt/notes/journal/monday.md',
       'mkdir /mnt/notes/made',
@@ -487,6 +489,16 @@ describe('a read-only Mounted Folder, sandboxed', () => {
 
     expect(fs.readFileSync(noteFile, 'utf8')).toBe('remember the milk\n')
     expect(fs.readdirSync(notesDir)).toEqual(['journal'])
+  })
+
+  it('tells the shell a write there was refused because the folder is read-only', async () => {
+    for (const command of ['echo x > /mnt/notes/journal/monday.md', 'mkdir /mnt/notes/made']) {
+      const outcome = await invoke(toolOf(access, 'bash'), { command }).then(
+        resultText,
+        (error: Error) => error.message,
+      )
+      expect(outcome).toMatch(/\/mnt\/notes is a read-only Mounted Folder/)
+    }
   })
 
   it('cannot leave the mount through .. or a symlink', async () => {
@@ -502,6 +514,78 @@ describe('a read-only Mounted Folder, sandboxed', () => {
       await invoke(toolOf(access, 'bash'), { command: 'cat /mnt/notes/escape/secret.txt' }),
     )
     expect(shell).not.toContain('top secret')
+  })
+})
+
+describe('a read-write Mounted Folder, sandboxed', () => {
+  let access: AgentToolAccess
+  let projectDir: string
+
+  beforeEach(async () => {
+    projectDir = path.join(path.dirname(workspace), 'project')
+    fs.mkdirSync(projectDir)
+    fs.writeFileSync(path.join(projectDir, 'readme.md'), 'old title\n')
+    access = await createAgentToolAccess({
+      ...accessOptions(false),
+      mountedFolders: [{ hostPath: projectDir, name: 'project', access: 'read-write' }],
+    })
+  })
+
+  afterEach(async () => {
+    await access.dispose()
+  })
+
+  it('writes, edits and creates directories in the real folder', async () => {
+    await invoke(toolOf(access, 'write'), { path: '/mnt/project/docs/new.md', content: 'hi' })
+    await invoke(toolOf(access, 'edit'), {
+      path: '/mnt/project/readme.md',
+      edits: [{ oldText: 'old', newText: 'new' }],
+    })
+    await invoke(toolOf(access, 'bash'), { command: 'mkdir /mnt/project/made' })
+
+    expect(fs.readFileSync(path.join(projectDir, 'docs/new.md'), 'utf8')).toBe('hi')
+    expect(fs.readFileSync(path.join(projectDir, 'readme.md'), 'utf8')).toBe('new title\n')
+    expect(fs.statSync(path.join(projectDir, 'made')).isDirectory()).toBe(true)
+  })
+
+  it('does not offer what it writes there as an Artifact', async () => {
+    const reported: string[][] = []
+    const stop = onGeneratedMedia((_workspaceDir, relativePaths) => reported.push(relativePaths))
+
+    await invoke(toolOf(access, 'write'), { path: '/mnt/project/cover.png', content: 'png' })
+    stop()
+
+    expect(fs.existsSync(path.join(projectDir, 'cover.png'))).toBe(true)
+    expect(reported).toEqual([])
+  })
+
+  it('deletes real files from the shell', async () => {
+    await invoke(toolOf(access, 'bash'), { command: 'rm /mnt/project/readme.md' })
+
+    expect(fs.existsSync(path.join(projectDir, 'readme.md'))).toBe(false)
+  })
+
+  it('cannot write beside the mount through .. or a symlink', async () => {
+    fs.symlinkSync(outsideDir, path.join(projectDir, 'escape'))
+
+    await expect(
+      invoke(toolOf(access, 'write'), { path: '/mnt/project/../outside.md', content: 'x' }),
+    ).rejects.toThrow()
+    await invoke(toolOf(access, 'write'), {
+      path: '/mnt/project/escape/secret.txt',
+      content: 'overwritten',
+    }).catch(() => undefined)
+    await invoke(toolOf(access, 'bash'), {
+      command: 'echo overwritten > /mnt/project/escape/secret.txt',
+    }).catch(() => undefined)
+
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('top secret')
+    expect(fs.readdirSync(path.dirname(workspace)).sort()).toEqual([
+      'outside',
+      'project',
+      'skills',
+      'workspace',
+    ])
   })
 })
 

@@ -173,9 +173,6 @@ function toSandboxPath(candidate: string): string {
     .join('/')
 }
 
-/** Sandbox directories the file tools may write below. */
-const SANDBOX_WRITABLE_ROOTS = [SANDBOX_WORKDIR]
-
 function insideSandboxRoot(root: string, candidate: string): boolean {
   const relative = path.posix.relative(root, path.posix.resolve(SANDBOX_WORKDIR, candidate))
   return relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative))
@@ -191,8 +188,52 @@ function assertInsideSandboxRoots(roots: string[], candidate: string, action: st
   // instead of the mounted workspace, and the model would be told it succeeded.
   throw new Error(
     `Refusing to ${action} outside the workspace: ${candidate}. Everything must stay under ` +
-      `${SANDBOX_WORKDIR}, which is the workspace folder.`,
+      `${roots.join(' or ')}; ${SANDBOX_WORKDIR} is the workspace folder.`,
   )
+}
+
+/** Where the file tools may write: the workspace and the read-write Mounted Folders. */
+type SandboxWriteRoots = { writable: string[]; readOnly: string[] }
+
+function readOnlyRefusal(action: string, candidate: string, mountPoint: string): Error {
+  return new Error(
+    `Refusing to ${action} ${candidate}: ${mountPoint} is a read-only Mounted Folder. The ` +
+      'user has not allowed changes there, so retrying will not help. Tell the user, or ' +
+      `write the file in ${SANDBOX_WORKDIR} instead.`,
+  )
+}
+
+function assertSandboxWritable(roots: SandboxWriteRoots, candidate: string, action: string): void {
+  const readOnlyRoot = roots.readOnly.find((root) => insideSandboxRoot(root, candidate))
+  if (readOnlyRoot) throw readOnlyRefusal(action, candidate, readOnlyRoot)
+  assertInsideSandboxRoots(roots.writable, candidate, action)
+}
+
+/**
+ * The read-only overlay names only the mount-relative path in its EROFS, which the shell
+ * passes on; restate it with the mount point so the model knows which folder refused.
+ */
+function namingReadOnlyMount(fs: IFileSystem, mountPoint: string): IFileSystem {
+  return new Proxy(fs, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        const restated = (error: unknown): never => {
+          const message = error instanceof Error ? error.message : String(error)
+          const refused = /^EROFS\b.*?'([^']*)'/.exec(message)
+          if (!refused) throw error
+          throw readOnlyRefusal('change', path.posix.join(mountPoint, refused[1]), mountPoint)
+        }
+        try {
+          const result = value.apply(target, args)
+          return result instanceof Promise ? result.catch(restated) : result
+        } catch (error) {
+          return restated(error)
+        }
+      }
+    },
+  })
 }
 
 // ── Sandboxed mode ──────────────────────────────────────────────────────────
@@ -345,7 +386,12 @@ function imageAwareReadOperations(
  * absolute sandbox paths (rooted at SANDBOX_WORKDIR), which is exactly the
  * namespace the MountableFs understands, so no translation is needed.
  */
-function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFiles?: string[]) {
+function sandboxFsOperations(
+  vfs: IFileSystem,
+  workspaceDir: string,
+  roots: SandboxWriteRoots,
+  writableFiles?: string[],
+) {
   /** Guard a sandbox write against the session's fixed file list, if it has one. */
   const assertWritable = (absolutePath: string, action: string): void => {
     if (!writableFiles) return
@@ -369,7 +415,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
   const write: WriteOperations = {
     writeFile: async (hostPath, content) => {
       const absolutePath = toSandboxPath(hostPath)
-      assertInsideSandboxRoots(SANDBOX_WRITABLE_ROOTS, absolutePath, 'write')
+      assertSandboxWritable(roots, absolutePath, 'write')
       assertWritable(absolutePath, 'write')
       await reportingHostDenials('write', absolutePath, workspaceDir, async () => {
         await vfs.mkdir(path.posix.dirname(absolutePath), { recursive: true })
@@ -378,7 +424,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
     },
     mkdir: async (hostPath) => {
       const dir = toSandboxPath(hostPath)
-      assertInsideSandboxRoots(SANDBOX_WRITABLE_ROOTS, dir, 'create a directory')
+      assertSandboxWritable(roots, dir, 'create a directory')
       await reportingHostDenials('create a directory at', dir, workspaceDir, async () => {
         await vfs.mkdir(dir, { recursive: true })
       })
@@ -390,7 +436,7 @@ function sandboxFsOperations(vfs: IFileSystem, workspaceDir: string, writableFil
     readFile,
     writeFile: async (hostPath, content) => {
       const absolutePath = toSandboxPath(hostPath)
-      assertInsideSandboxRoots(SANDBOX_WRITABLE_ROOTS, absolutePath, 'edit')
+      assertSandboxWritable(roots, absolutePath, 'edit')
       assertWritable(absolutePath, 'edit')
       await reportingHostDenials('edit', absolutePath, workspaceDir, async () => {
         await vfs.writeFile(absolutePath, content)
@@ -611,13 +657,23 @@ function createSandboxAccess(
     SANDBOX_SKILLS_DIR,
     new justBash.InMemoryFs(Object.fromEntries(skills.map((s) => [s.relativePath, s.content]))),
   )
+  const roots: SandboxWriteRoots = { writable: [SANDBOX_WORKDIR], readOnly: [] }
   const mountPoints = (options.mountedFolders ?? []).map((folder) => {
     const mountPoint = path.posix.join(MOUNTED_FOLDERS_ROOT, folder.name)
-    // The overlay's own mount point is where paths below it start once MountableFs strips its prefix.
-    vfs.mount(
-      mountPoint,
-      new justBash.OverlayFs({ root: folder.hostPath, mountPoint: '/', readOnly: true }),
-    )
+    if (folder.access === 'read-write') {
+      vfs.mount(mountPoint, new justBash.ReadWriteFs({ root: folder.hostPath }))
+      roots.writable.push(mountPoint)
+    } else {
+      // The overlay's own mount point is where paths below it start once MountableFs strips its prefix.
+      vfs.mount(
+        mountPoint,
+        namingReadOnlyMount(
+          new justBash.OverlayFs({ root: folder.hostPath, mountPoint: '/', readOnly: true }),
+          mountPoint,
+        ),
+      )
+      roots.readOnly.push(mountPoint)
+    }
     return mountPoint
   })
   const bashEnv = new justBash.Bash({
@@ -631,7 +687,7 @@ function createSandboxAccess(
     defenseInDepth: false,
   })
 
-  const operations = sandboxFsOperations(vfs, workspaceDir, options.writableFiles)
+  const operations = sandboxFsOperations(vfs, workspaceDir, roots, options.writableFiles)
   const bash: BashOperations = {
     // just-bash resolves the whole script in-process and returns its output at
     // once, so there is a single onData call rather than incremental streaming.

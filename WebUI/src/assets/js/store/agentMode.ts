@@ -866,6 +866,7 @@ export const useAgentMode = defineStore(
       ...openSettings.value,
       capabilities: [...capabilities.value],
       planningThinkingOnly: effectivePlanningThinkingOnly.value,
+      ...(mountedFolders.value.length > 0 ? { mountedFolders: [...mountedFolders.value] } : {}),
     }))
 
     function setPlanningThinkingOnly(value: boolean): void {
@@ -2094,6 +2095,21 @@ export const useAgentMode = defineStore(
           (
             i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
           ).replace('{path}', context.workspaceDir),
+        )
+      }
+      const folders = context.stored
+        ? (context.settings?.mountedFolders ?? [])
+        : mountedFolders.value
+      for (const folder of resolveMountedFolders(folders)) {
+        if (await window.electronAPI.existsPath(folder.hostPath)) continue
+        return refuseSend(
+          'missing-folder',
+          (
+            i18n.state.AGENT_MOUNTED_FOLDER_MISSING ??
+            'The Mounted Folder “{name}” is missing: {path}'
+          )
+            .replace('{name}', folder.name)
+            .replace('{path}', folder.hostPath),
         )
       }
       const lockedSince = taskLockRefusal(sessionId, options.signal)

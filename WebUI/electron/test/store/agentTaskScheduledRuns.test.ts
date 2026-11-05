@@ -1089,6 +1089,23 @@ describe('a Scheduled Run that fails part-way', () => {
     })
   })
 
+  it('fails before any turn when a Mounted Folder is missing, and toasts its name and path', async () => {
+    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+      async (path: string) => path !== '/Volumes/usb/inbox',
+    )
+    const template = { ...TEMPLATE, mountedFolders: [{ hostPath: '/Volumes/usb/inbox' }] }
+    const { tasks } = await readyStores(scheduledTask('t1', { settingsTemplate: template }))
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'failed'))
+    expect(startTurn).not.toHaveBeenCalled()
+    const toast = reported('agent-tasks/scheduled-run-failed')
+    expect(toast).toMatchObject({ surface: 'toast' })
+    expect(toast?.userMessage).toContain('“inbox”')
+    expect(toast?.userMessage).toContain('/Volumes/usb/inbox')
+  })
+
   it('toasts a Step that main refuses to start', async () => {
     startTurn.mockImplementationOnce(async () => ({ success: false, error: 'refused by main' }))
     const { tasks } = await readyStores(scheduledTask('t1'))

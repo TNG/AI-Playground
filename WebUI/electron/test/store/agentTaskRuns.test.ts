@@ -692,6 +692,40 @@ describe('the settings a run uses', () => {
   })
 })
 
+describe('the Mounted Folders a run reaches', () => {
+  const inSession = { hostPath: '/Users/ada/session-notes', access: 'read-write' as const }
+  const ofAgent = { hostPath: '/Users/ada/inbox', name: 'mail' }
+
+  it('are its Agent’s, not the Session’s', async () => {
+    const template = { ...TEMPLATE, mountedFolders: [ofAgent] }
+    const { agentMode, tasks } = await readyStores(
+      task('t1', ['one', 'two'], { settingsTemplate: template }),
+    )
+    agentMode.setMountedFolders([inSession])
+    expect(agentMode.mountedFolders).toEqual([inSession])
+
+    await tasks.runTask('t1')
+    await finishTurn(0)
+    await turnIdOf(1)
+
+    for (const call of [0, 1]) {
+      expect(sentConfig(call).mountedFolders).toEqual([
+        { hostPath: '/Users/ada/inbox', name: 'mail', access: 'read-only' },
+      ])
+    }
+  })
+
+  it('are none when its Agent has none, whatever the Session has', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    agentMode.setMountedFolders([inSession])
+
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(sentConfig(0).mountedFolders ?? []).toEqual([])
+  })
+})
+
 describe('one run per Task', () => {
   it('refuses to run a Task that is already running', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))

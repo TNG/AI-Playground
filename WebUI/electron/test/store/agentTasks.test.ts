@@ -84,11 +84,14 @@ vi.mock('@/assets/js/permissions/permissions', () => ({
   notify: vi.fn(),
 }))
 
+/** The presets' Default Settings bags, as textInference keeps them. */
+const settingsPerPreset = vi.hoisted(() => ({}) as Record<string, Record<string, unknown>>)
+
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     backend: 'llamaCPP',
     activeModel: 'Live-9B',
-    settingsPerPreset: {},
+    settingsPerPreset,
     embeddingBackend: 'llamaCPP',
     getMissingLlmModels,
     inferenceForSettings: (_preset: string, settings: AgentSessionSettings) => ({
@@ -175,6 +178,7 @@ let runHarnesses = 0
 beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
+  for (const key of Object.keys(settingsPerPreset)) delete settingsPerPreset[key]
   catalog.presets = [{ ...AGENT, image: 'data:image/png;base64,AGENT', extendedDescription: 'How' }]
   catalog.active = AGENT
   catalog.saved = true
@@ -509,6 +513,61 @@ describe('saving the Open Session as an Agent', () => {
     agentMode.setOpenSteps(stepsOf('search the news', 'find a source'))
 
     expect(tasks.tasks[0].steps.map((step) => step.prompt)).toEqual(['search the news'])
+  })
+})
+
+describe('an Agent’s Mounted Folders', () => {
+  const notes = { hostPath: '/Users/ada/notes', access: 'read-write' as const }
+  const photos = { hostPath: '/Users/ada/photos', name: 'pics' }
+
+  it('are copied from the Session it is saved from', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(stepsOf('tidy the notes'))
+    agentMode.setMountedFolders([notes])
+
+    await tasks.saveAgent('Tidy')
+
+    expect(saveTask.mock.calls[0][0].settingsTemplate.mountedFolders).toEqual([notes])
+  })
+
+  it('are copied when the Session only shows its Default Settings’ folders', async () => {
+    settingsPerPreset.Agent = { agentMountedFolders: [notes] }
+    const { agentMode, tasks } = await readyStores({ session: false })
+    await agentMode.newSession()
+    agentMode.setOpenSteps(stepsOf('tidy the notes'))
+    expect(agentMode.mountedFolders).toEqual([notes])
+
+    await tasks.saveAgent('Tidy')
+
+    expect(saveTask.mock.calls[0][0].settingsTemplate.mountedFolders).toEqual([notes])
+  })
+
+  it('stay as saved when the Session’s folders change afterwards', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps(stepsOf('tidy the notes'))
+    agentMode.setMountedFolders([notes])
+    await tasks.saveAgent('Tidy')
+
+    agentMode.setMountedFolders([photos])
+
+    expect(tasks.tasks[0].settingsTemplate.mountedFolders).toEqual([notes])
+  })
+
+  it('leave the Session it was saved from alone when the Agent is edited', async () => {
+    const { agentMode, tasks } = await readyStores()
+    const sessionId = agentMode.openSessionId
+    agentMode.setOpenSteps(stepsOf('tidy the notes'))
+    agentMode.setMountedFolders([notes])
+    const saved = await tasks.saveAgent('Tidy')
+    if (!saved.ok) throw new Error('not saved')
+
+    await tasks.loadAgent(saved.task.id)
+    agentMode.setMountedFolders([photos])
+    await tasks.updateAgent(saved.task.id, 'Tidy')
+    await agentMode.switchSession(sessionId)
+
+    expect(tasks.tasks[0].settingsTemplate.mountedFolders).toEqual([photos])
+    expect(agentMode.mountedFolders).toEqual([notes])
   })
 })
 

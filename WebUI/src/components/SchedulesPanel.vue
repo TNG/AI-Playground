@@ -10,6 +10,20 @@
         />
         <p class="text-xs text-muted-foreground">{{ i18n.AGENT_STEPS_HINT }}</p>
       </SettingsSection>
+      <SettingsSection
+        v-if="agentMode.mountedFoldersSupported"
+        :title="i18n.AGENT_SETTINGS_MOUNTED_FOLDERS"
+        :summary="foldersSummary"
+      >
+        <p class="text-xs text-muted-foreground">{{ i18n.AGENT_AGENT_MOUNTED_FOLDERS_HINT }}</p>
+        <TooltipProvider :delay-duration="200">
+          <MountedFolderList
+            :model-value="agentMode.mountedFolders"
+            :session-folder="agentMode.workspaceDir"
+            @update:model-value="agentMode.setMountedFolders"
+          />
+        </TooltipProvider>
+      </SettingsSection>
     </template>
     <p
       v-if="panel.editNote"
@@ -26,9 +40,11 @@ import { computed } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import AgentSaveBar from '@/components/AgentSaveBar.vue'
+import MountedFolderList from '@/components/MountedFolderList.vue'
 import SettingsAgents from '@/components/SettingsAgents.vue'
 import SettingsSection from '@/components/SettingsSection.vue'
 import TaskStepsEditor from '@/components/TaskStepsEditor.vue'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { schedulesPanel, type SchedulesAllowance } from '@/lib/sessionTabs'
 
 const props = defineProps<{ allowance: SchedulesAllowance }>()
@@ -40,5 +56,9 @@ const panel = computed(() => schedulesPanel(props.allowance))
 
 const stepsSummary = computed(() =>
   i18n.AGENT_TASKS_STEP_COUNT.replace('{count}', String(agentMode.openSteps.length)),
+)
+
+const foldersSummary = computed(() =>
+  i18n.AGENT_AGENT_MOUNTED_FOLDER_COUNT.replace('{count}', String(agentMode.mountedFolders.length)),
 )
 </script>

@@ -3,176 +3,119 @@
        zoom controls (28px) are chat-only, so without it the row would collapse to
        the preset chip's height and sit closer to the prompt input. -->
   <div class="flex w-full items-center gap-2 m-1 min-h-7 text-xs text-muted-foreground">
-    <!-- Active preset / model indicator -->
     <div
-      v-if="presetIndicator"
+      v-if="presetChip"
       role="status"
-      :aria-label="`Active preset: ${presetIndicator.name}`"
+      :aria-label="`Active preset: ${presetChip.label}`"
       class="flex min-w-0 items-center gap-2"
     >
-      <TooltipProvider>
-        <Tooltip :delay-duration="0">
+      <TooltipProvider :delay-duration="0">
+        <Tooltip v-if="backendChip">
           <TooltipTrigger as-child>
-            <button type="button" class="flex min-w-0 items-center gap-1 text-left cursor-help">
-              <img
-                v-if="presetIndicator.image"
-                :src="presetIndicator.image"
-                :alt="presetIndicator.name"
-                class="size-5 rounded object-cover flex-none border border-border"
-              />
-              <span class="text-foreground font-medium truncate">{{ presetIndicator.name }}</span>
+            <button
+              type="button"
+              :class="chipClass"
+              class="flex-none cursor-help"
+              :aria-label="`Inference backend: ${backendChip.name}`"
+            >
+              <span>{{ backendChip.name }}</span>
             </button>
           </TooltipTrigger>
           <TooltipContent
             align="start"
             class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
           >
-            <p class="text-sm font-semibold">{{ presetIndicator.name }}</p>
-            <p v-if="presetIndicator.description" class="mt-1 text-xs text-muted-foreground">
-              {{ presetIndicator.description }}
-            </p>
+            <p class="text-sm font-semibold">{{ backendChip.name }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ backendChip.description }}</p>
           </TooltipContent>
         </Tooltip>
-      </TooltipProvider>
-      <div v-if="presetIndicator.model && currentModel">·</div>
-      <ModelCapabilities
-        v-if="presetIndicator.model && currentModel"
-        :model="currentModel"
-        show-name
-        :delay-duration="0"
-      >
-        <template #trigger>
-          <button type="button" class="truncate text-left cursor-help">
-            {{ presetIndicator.model }}
-          </button>
-        </template>
-      </ModelCapabilities>
-      <span v-else-if="presetIndicator.model" class="truncate">{{ presetIndicator.model }}</span>
-      <!-- Whether the model plus its context fits the card (llama.cpp only) -->
-      <ModelVramFit v-if="presetIndicator.model" :delay-duration="0" />
-      <!-- Capability icons for the active model, only in the Assistant preset -->
-      <CapabilityIcons
-        v-if="isAssistantPreset && presetIndicator.model && currentModel"
-        :model="currentModel"
-        icon-size="size-3.5"
-        :delay-duration="0"
-      />
-      <!-- Active chat inference backend (llama.cpp / OpenVINO / Cloud Mode) -->
-      <template v-if="chatBackendBadge">
-        ·
-        <TooltipProvider>
-          <Tooltip :delay-duration="0">
-            <TooltipTrigger as-child>
-              <button
-                type="button"
-                class="flex flex-none items-center cursor-help"
-                :aria-label="`Inference backend: ${chatBackendBadge.name}`"
-              >
-                <img
-                  v-if="chatBackendBadge.logo"
-                  :src="chatBackendBadge.logo"
-                  :alt="chatBackendBadge.name"
-                  class="size-4 flex-none object-contain"
+        <Tooltip v-if="deviceChip">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :class="chipClass"
+              class="min-w-0 max-w-48 cursor-help"
+              :aria-label="`Inference device: ${deviceChip.name}`"
+            >
+              <span class="truncate">{{ deviceChip.label }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            align="start"
+            class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+          >
+            <p class="text-sm font-semibold">{{ deviceChip.name }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{{ deviceChip.categoryLabel }}</p>
+          </TooltipContent>
+        </Tooltip>
+        <template v-if="modelChip">
+          <ModelCapabilities
+            v-if="modelChip.source === 'chat' && currentModel"
+            :model="currentModel"
+            show-name
+            :delay-duration="0"
+          >
+            <template #trigger>
+              <button type="button" :class="chipClass" class="min-w-0 cursor-help">
+                <span class="truncate">{{ modelChip.name }}</span>
+                <CapabilityIcons
+                  v-if="isAssistantPreset"
+                  :model="currentModel"
+                  icon-size="size-3.5"
+                  :delay-duration="0"
                 />
-                <CloudIcon v-else class="size-4 flex-none text-muted-foreground" />
               </button>
-            </TooltipTrigger>
-            <TooltipContent
-              align="start"
-              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
-            >
-              <p class="text-sm font-semibold">{{ chatBackendBadge.name }}</p>
-              <p class="mt-1 text-xs text-muted-foreground">{{ chatBackendBadge.description }}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </template>
-      <template v-if="deviceBadge || (textInference.metricsEnabled && computeChip)">·</template>
-      <!-- Selected inference device (GPU / NPU / CPU) as a text badge -->
-      <template v-if="deviceBadge">
-        <TooltipProvider>
-          <Tooltip :delay-duration="0">
+            </template>
+          </ModelCapabilities>
+          <Tooltip v-else>
             <TooltipTrigger as-child>
-              <button
-                type="button"
-                class="flex flex-none items-center cursor-help"
-                :aria-label="`Inference device: ${deviceBadge.name}`"
-              >
-                <span
-                  class="flex-none rounded border border-border px-1 text-[10px] font-semibold leading-4 tracking-tight text-muted-foreground"
-                >
-                  {{ deviceBadge.categoryLabel }}
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              align="start"
-              class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
-            >
-              <p class="text-sm font-semibold">{{ deviceBadge.name }}</p>
-              <p class="mt-1 text-xs text-muted-foreground">{{ deviceBadge.categoryLabel }}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </template>
-      <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
-      <template v-if="textInference.metricsEnabled && computeChip">
-        <TooltipProvider>
-          <Tooltip :delay-duration="0">
-            <TooltipTrigger as-child>
-              <button
-                type="button"
-                class="flex flex-none items-center cursor-help"
-                :aria-label="computeChip.ariaLabel"
-              >
-                <span class="tabular-nums">{{ computeChip.label }}</span>
+              <button type="button" :class="chipClass" class="min-w-0 cursor-help">
+                <span class="truncate">{{ modelChip.name }}</span>
               </button>
             </TooltipTrigger>
             <TooltipContent
               align="start"
               class="w-72 bg-card border border-border text-foreground p-3 z-[200]"
             >
-              <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
-              <section
-                v-for="section in computeChip.sections"
-                :key="section.title"
-                class="mt-2 first-of-type:mt-1.5"
-              >
-                <p class="text-xs font-medium text-foreground">{{ section.title }}</p>
-                <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-4 text-xs">
-                  <template v-for="row in section.rows" :key="row.label">
-                    <dt class="text-muted-foreground">{{ row.label }}</dt>
-                    <dd class="text-right tabular-nums text-foreground">{{ row.value }}</dd>
-                  </template>
-                </dl>
-              </section>
+              <p class="text-sm font-semibold break-all">{{ modelChip.id }}</p>
             </TooltipContent>
           </Tooltip>
-        </TooltipProvider>
-      </template>
+          <!-- Whether the model plus its context fits the card (llama.cpp only) -->
+          <ModelVramFit v-if="modelChip.source === 'chat'" :delay-duration="0" />
+        </template>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              class="flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-primary/60 bg-primary/10 px-1.5 text-left cursor-help"
+            >
+              <img
+                v-if="presetChip.image"
+                :src="presetChip.image"
+                :alt="presetChip.label"
+                class="size-4 rounded object-cover flex-none"
+              />
+              <span class="text-foreground font-medium truncate">{{ presetChip.label }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            align="start"
+            class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
+          >
+            <p class="text-sm font-semibold">{{ presetChip.label }}</p>
+            <p v-if="presetDescription" class="mt-1 text-xs text-muted-foreground">
+              {{ presetDescription }}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
-    <!-- Context usage (chat only). Sibling of the status element so the live
-         region doesn't re-announce the token percentage on every stream tick. -->
-    <div v-if="isChatMode">·</div>
-    <Context
-      v-if="isChatMode"
-      trigger-size="xs"
-      :used-tokens="contextUsedTokens"
-      :max-tokens="contextMaxTokens"
-      :max-context-size="textInference.maxContextSizeFromModel"
-      :dynamic-context="textInference.contextSizeIsDynamic"
-      :usage="contextUsage"
-    />
-    <!-- Same gauge in agent mode, fed by Pi's context report instead of the chat
-         store — see AgentTokenUsage / store/agentMode.ts. -->
-    <div v-if="isAgentMode">·</div>
-    <AgentTokenUsage v-if="isAgentMode" />
     <TooltipProvider v-if="workspaceFolder" :delay-duration="200">
       <Tooltip>
         <TooltipTrigger as-child>
           <button
             type="button"
-            class="ml-auto flex min-w-0 items-center gap-1 p-1 text-muted-foreground hover:text-foreground transition-colors"
+            class="flex min-w-0 items-center gap-1 p-1 text-muted-foreground hover:text-foreground transition-colors"
             :aria-label="`Open workspace folder ${workspaceFolder.name}`"
             @click="openWorkspaceFolder"
           >
@@ -183,24 +126,72 @@
         <TooltipContent side="top">{{ workspaceFolder.dir }}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
-    <!-- Font zoom controls (chat only) -->
-    <div v-if="isChatMode" class="ml-auto flex flex-none gap-1">
-      <button
-        @click="textInference.decreaseFontSize()"
-        :disabled="textInference.isMinSize"
-        class="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        title="Decrease font size"
-      >
-        <MagnifyingGlassMinusIcon class="size-5" />
-      </button>
-      <button
-        @click="textInference.increaseFontSize()"
-        :disabled="textInference.isMaxSize"
-        class="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        title="Increase font size"
-      >
-        <MagnifyingGlassPlusIcon class="size-5" />
-      </button>
+    <div class="ml-auto flex flex-none items-center gap-2">
+      <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
+      <TooltipProvider v-if="textInference.metricsEnabled && computeChip" :delay-duration="0">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :class="chipClass"
+              class="flex-none cursor-help"
+              :aria-label="computeChip.ariaLabel"
+            >
+              <span class="tabular-nums">{{ computeChip.label }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            align="start"
+            class="w-72 bg-card border border-border text-foreground p-3 z-[200]"
+          >
+            <p class="text-sm font-semibold">{{ languages.COMPUTE_METRICS_LABEL }}</p>
+            <section
+              v-for="section in computeChip.sections"
+              :key="section.title"
+              class="mt-2 first-of-type:mt-1.5"
+            >
+              <p class="text-xs font-medium text-foreground">{{ section.title }}</p>
+              <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-4 text-xs">
+                <template v-for="row in section.rows" :key="row.label">
+                  <dt class="text-muted-foreground">{{ row.label }}</dt>
+                  <dd class="text-right tabular-nums text-foreground">{{ row.value }}</dd>
+                </template>
+              </dl>
+            </section>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <!-- Context usage. Outside the status element so the live region doesn't
+           re-announce the token percentage on every stream tick. -->
+      <Context
+        v-if="isChatMode"
+        trigger-size="xs"
+        :used-tokens="contextUsedTokens"
+        :max-tokens="contextMaxTokens"
+        :max-context-size="textInference.maxContextSizeFromModel"
+        :dynamic-context="textInference.contextSizeIsDynamic"
+        :usage="contextUsage"
+      />
+      <!-- Same gauge in agent mode, fed by Pi's context report. -->
+      <AgentTokenUsage v-if="isAgentMode" />
+      <div v-if="isChatMode" class="flex flex-none gap-1">
+        <button
+          @click="textInference.decreaseFontSize()"
+          :disabled="textInference.isMinSize"
+          class="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          title="Decrease font size"
+        >
+          <MagnifyingGlassMinusIcon class="size-5" />
+        </button>
+        <button
+          @click="textInference.increaseFontSize()"
+          :disabled="textInference.isMaxSize"
+          class="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          title="Increase font size"
+        >
+          <MagnifyingGlassPlusIcon class="size-5" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -212,17 +203,11 @@ import {
   MagnifyingGlassPlusIcon,
   MagnifyingGlassMinusIcon,
 } from '@heroicons/vue/24/outline'
-import { CloudIcon } from '@heroicons/vue/24/solid'
-import llamaCppLogoDark from '@/assets/image/llamacpp-dark.svg'
-import llamaCppLogoLight from '@/assets/image/llamacpp-light.svg'
-import openVinoLogoDark from '@/assets/image/openvino-dark.svg'
-import openVinoLogoLight from '@/assets/image/openvino-light.svg'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useErrors } from '@/assets/js/store/errors'
 import {
   useTextInference,
-  textInferenceBackendDisplayName,
   textInferenceBackendDescription,
   backendToService,
 } from '@/assets/js/store/textInference'
@@ -232,17 +217,18 @@ import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { AUDIO_CATEGORY, usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
-import { useTheme } from '@/assets/js/store/theme'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
-import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { Context } from '@/components/ui/context'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
 import ModelVramFit from '@/components/ModelVramFit.vue'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
+import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
+import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { promptBarModel, type HeaderChip } from '@/lib/promptBarModel'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
@@ -252,16 +238,14 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const textToSpeech = useTextToSpeech()
-const theme = useTheme()
 const oemBranding = useOemBranding()
 const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
 const agentMode = useAgentMode()
 const errors = useErrors()
 
-// The backend badge logos ship as light/dark variants; only the `light` theme
-// needs the dark-fill icon, all other themes are dark-background.
-const isLightTheme = computed(() => theme.active === 'light')
+const chipClass =
+  'flex h-6 items-center gap-1 rounded-md border border-border px-1.5 text-foreground/80'
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
@@ -283,23 +267,15 @@ async function openWorkspaceFolder(): Promise<void> {
   }
 }
 
-// Chat, Agent and Audio all run on chat-type presets (Agent Mode is entered by
-// picking an agent preset from the chat list; Audio holds the speech presets), so
-// the preset, backend and device badges read from the same place for all three.
-// Background mode borrowing is gone (media runs no longer switch modes,
-// step 7), so the live mode is the user's context.
+// Chat, Agent and Audio all run on chat-type presets.
 const isLlmMode = computed(() => ['chat', 'agent', 'audio'].includes(promptStore.currentMode))
 
-// Get active chat preset
 const activeChatPreset = computed(() => {
   const preset = presetsStore.activePresetWithVariant
   if (preset?.type === 'chat') return preset as ChatPreset
   return null
 })
 
-// Remember the most recent chat preset so the indicator stays stable while a
-// tool call or Home Agent turn temporarily switches the active preset to a
-// ComfyUI one during agentic tool use.
 const stableChatPreset = ref<ChatPreset | null>(null)
 watch(
   activeChatPreset,
@@ -309,10 +285,7 @@ watch(
   { immediate: true },
 )
 
-// On startup no preset switch has run yet (presets/backends load async), so
-// `activePresetWithVariant` — and thus `stableChatPreset` — can be null even
-// though there is a persisted last-used preset. Fall back to it (or the first
-// available chat preset) so the indicator isn't blank at launch.
+// No preset switch has run yet at launch, so fall back to the persisted last-used preset.
 const fallbackChatPreset = computed<ChatPreset | null>(() => {
   const inAudioMode = promptStore.currentMode === 'audio'
   const candidates = inAudioMode ? presetsStore.audioPresets : presetsStore.chatPresets
@@ -321,142 +294,89 @@ const fallbackChatPreset = computed<ChatPreset | null>(() => {
   return candidates.find((p) => p.name === lastUsed) ?? candidates[0]
 })
 
-// The direct Text-to-Speech preset runs the Qwen3-TTS backend, not an LLM, so
-// without this the bar would show the leftover chat model (e.g. llama) and the
-// chat backend's device. Treat it specially throughout.
-const isTtsPreset = computed(
-  () => (stableChatPreset.value ?? fallbackChatPreset.value)?.ttsPreset === true,
+const activePreset = computed(() =>
+  isLlmMode.value
+    ? (stableChatPreset.value ?? fallbackChatPreset.value)
+    : (imageGeneration.activePreset ?? null),
 )
 
-// The direct Speech-to-Text preset also runs no LLM — it transcribes on the
-// OpenVINO Whisper server. Treat it like the TTS preset in the status bar.
-const isSttPreset = computed(
-  () => (stableChatPreset.value ?? fallbackChatPreset.value)?.sttPreset === true,
-)
-
-// Preset/model indicator shown at the left of the bar.
-const presetIndicator = computed(() => {
-  if (isLlmMode.value) {
-    const preset = stableChatPreset.value ?? fallbackChatPreset.value
-    if (!preset) return null
-    // Match the ModelSelector label: display only the last path segment, and
-    // drop the model-file extension (the backend badge now conveys the format).
-    // TTS / STT have no LLM model, so leave it blank.
-    const model = isTtsPreset.value || isSttPreset.value ? undefined : textInference.activeModel
-    const lastSegment = model?.split('/').at(-1) ?? model
-    return {
-      image: preset.image,
-      name: oemBranding.presetLabel(preset.name),
-      model: lastSegment?.replace(/\.(gguf|bin|safetensors)$/i, ''),
-      description: basePresetDescription(preset.name),
-    }
-  }
-  const preset = imageGeneration.activePreset
-  if (!preset) return null
-  return {
-    image: preset.image,
-    name: preset.name,
-    model: undefined as string | undefined,
-    description: basePresetDescription(preset.name),
-  }
-})
-
-// Small badge on the preset/model line showing which inference backend is active
-// for a chat or agent turn: the engine logo for llama.cpp / OpenVINO, a cloud
-// glyph for Hybrid Cloud (which has no local engine, and no device badge either).
-// Hidden for the image/video modes and for the speech presets, which run on their
-// own sidecars.
-const chatBackendBadge = computed(() => {
-  if (!isLlmMode.value) return null
-  // TTS / STT don't run on the chat engine, so no engine badge for them.
-  if (isTtsPreset.value || isSttPreset.value) return null
-  const backend = textInference.backend
-  if (backend === 'cloud') {
-    const provider = cloudMode.selectedProvider?.name
-    return {
-      name: provider
-        ? `${textInferenceBackendDisplayName.cloud} · ${provider}`
-        : textInferenceBackendDisplayName.cloud,
-      description: textInferenceBackendDescription.cloud,
-      logo: undefined,
-    }
-  }
-  return {
-    name: textInferenceBackendDisplayName[backend],
-    description:
-      backend === 'llamaCPP'
-        ? 'Chat is running on the llama.cpp backend (GGUF models).'
-        : 'Chat is running on the OpenVINO backend (OpenVINO IR models).',
-    logo:
-      backend === 'llamaCPP'
-        ? isLightTheme.value
-          ? llamaCppLogoLight
-          : llamaCppLogoDark
-        : isLightTheme.value
-          ? openVinoLogoLight
-          : openVinoLogoDark,
-  }
-})
-
-// Classify any InferenceDevice into a short GPU / NPU / CPU badge. OpenVINO uses ids
-// like 'NPU' / 'CPU' / 'GPU.0'; llama.cpp reports numeric ids with GPU names; ComfyUI
-// reports numeric GPU indices; TTS uses torch strings ('xpu:N' / 'cuda:N' / 'cpu').
-// Anything not NPU/CPU is treated as GPU (covers 'GPU.x', 'AUTO', 'xpu:N', 'cuda:N' and
-// named GPU devices). We deliberately don't split integrated vs discrete: `InferenceDevice`
-// carries no reliable flag for it (that only lives on `GpuHardwareDevice.category`).
-function classifyInferenceDevice(device: InferenceDevice) {
-  const haystack = `${device.id} ${device.name}`.toUpperCase()
-  const category: 'gpu' | 'npu' | 'cpu' = haystack.includes('NPU')
-    ? 'npu'
-    : device.id.toUpperCase() === 'CPU' || /\bCPU\b/.test(haystack)
-      ? 'cpu'
-      : 'gpu'
-  const categoryLabel = category === 'npu' ? 'NPU' : category === 'cpu' ? 'CPU' : 'GPU'
-  return { name: device.name || device.id, category, categoryLabel }
-}
-
-// The selected-device badge for a backend service, or null when it isn't running /
-// hasn't reported a device selection yet.
-function selectedDeviceBadgeFor(serviceName: BackendServiceName) {
+function selectedDevice(serviceName: BackendServiceName): InferenceDevice | undefined {
   const info = backendServices.info.find((s) => s.serviceName === serviceName)
-  const device = info?.devices.find((d) => d.selected)
-  return device ? classifyInferenceDevice(device) : null
+  return info?.devices.find((d) => d.selected)
 }
 
-// Selected inference device shown as a short text badge (GPU / NPU / CPU), device name
-// on hover — for whichever backend the active mode actually runs on, not just the chat
-// engine: llama.cpp / OpenVINO in chat and agent mode, the speech sidecars in audio
-// mode, and ComfyUI in the Image / Image Edit / Video modes. Null on Hybrid Cloud
-// (remote — no local hardware) and before device detection has reported a selection.
-const deviceBadge = computed(() => {
-  if (isLlmMode.value) {
-    if (isSttPreset.value) return selectedDeviceBadgeFor('openvino-backend')
-    if (isTtsPreset.value) {
-      // External endpoint runs remotely — no local inference device to show.
-      if (textToSpeech.selectedEngine === 'external') return null
-      return selectedDeviceBadgeFor(
-        textToSpeech.selectedEngine === 'kokoro' ? 'openvino-backend' : 'qwen3-tts-backend',
-      )
-    }
-    const backend = textInference.backend
-    if (backend === 'cloud') return null
-    const serviceName = backendToService[backend]
-    return serviceName ? selectedDeviceBadgeFor(serviceName) : null
+// The service that runs the active preset: ComfyUI for media, the speech sidecars for
+// TTS / STT, the chat engine otherwise. Undefined for remote inference.
+const activeService = computed<BackendServiceName | undefined>(() => {
+  const preset = activePreset.value
+  if (!preset) return undefined
+  if (preset.type === 'comfy') return 'comfyui-backend'
+  if (preset.sttPreset) return 'openvino-backend'
+  if (preset.ttsPreset) {
+    if (textToSpeech.selectedEngine === 'external') return undefined
+    return textToSpeech.selectedEngine === 'kokoro' ? 'openvino-backend' : 'qwen3-tts-backend'
   }
-  // Image / Image Edit / Video modes all run on the ComfyUI backend.
-  return selectedDeviceBadgeFor('comfyui-backend')
+  return backendToService[textInference.backend] ?? undefined
+})
+
+const headerChips = computed(
+  () =>
+    promptBarModel({
+      activePreset: activePreset.value,
+      presetLabel: (name) => oemBranding.presetLabel(name),
+      machine: {
+        chatBackend: textInference.backend,
+        chatModel: textInference.activeModel,
+        device: activeService.value ? selectedDevice(activeService.value) : undefined,
+      },
+    }).headerChips,
+)
+
+function chipOf<K extends HeaderChip['kind']>(kind: K) {
+  return computed(() =>
+    headerChips.value.find((c): c is Extract<HeaderChip, { kind: K }> => c.kind === kind),
+  )
+}
+
+const deviceChip = chipOf('device')
+const modelChip = chipOf('model')
+const presetChip = chipOf('preset')
+
+const BACKEND_NAMES = {
+  llamaCPP: 'llama.cpp',
+  openVINO: 'OpenVINO',
+  cloud: HYBRID_CLOUD_NAME,
+  comfyui: 'ComfyUI',
+} as const
+
+const backendChip = computed(() => {
+  const chip = headerChips.value.find((c) => c.kind === 'backend')
+  if (!chip) return undefined
+  const provider = cloudMode.selectedProvider?.name
+  const name =
+    chip.backend === 'cloud' && provider
+      ? `${BACKEND_NAMES.cloud} · ${provider}`
+      : BACKEND_NAMES[chip.backend]
+  const description =
+    chip.backend === 'comfyui'
+      ? 'Images and videos are generated by ComfyUI workflows.'
+      : chip.backend === 'cloud'
+        ? textInferenceBackendDescription.cloud
+        : chip.backend === 'llamaCPP'
+          ? 'Chat is running on the llama.cpp backend (GGUF models).'
+          : 'Chat is running on the OpenVINO backend (OpenVINO IR models).'
+  return { name, description }
 })
 
 const computeChip = computed(() => {
   const snapshot = computeMetrics.latest
   if (!snapshot) return null
-  // Report the card the active mode's backend was pointed at. Only a GPU selection
-  // names one; on CPU / NPU the lookup falls back to the primary card.
-  const badge = deviceBadge.value
-  const gpu =
-    textInference.backend === 'cloud'
-      ? undefined
-      : computeMetrics.gpuFor(badge?.category === 'gpu' ? badge.name : undefined)
+  // Only a GPU selection names a card; on CPU / NPU the lookup falls back to the primary card.
+  const device = deviceChip.value
+  const onCloud = headerChips.value.some((c) => c.kind === 'backend' && c.backend === 'cloud')
+  const gpu = onCloud
+    ? undefined
+    : computeMetrics.gpuFor(device?.category === 'gpu' ? device.name : undefined)
   const label =
     gpu?.memUsedMiB != null
       ? `${formatMib(gpu.memUsedMiB)}${gpu.memTotalMiB != null ? ` / ${formatMib(gpu.memTotalMiB)}` : ''}`
@@ -468,24 +388,20 @@ const computeChip = computed(() => {
   }
 })
 
-// The tooltip shows the base preset's description — same text as the quick
-// preset picker. `stableChatPreset` / `imageGeneration.activePreset` are
-// variant-merged, where `description` can be a per-variant blurb instead.
-function basePresetDescription(name: string): string | undefined {
+// The base preset's description, the same text as the quick preset picker; the active
+// preset is variant-merged, where `description` can be a per-variant blurb instead.
+const presetDescription = computed(() => {
+  const name = presetChip.value?.name
   return presetsStore.presets.find((p) => p.name === name)?.description
-}
+})
 
-// Active model object (capabilities, max context) — same source as ModelSelector.
-// Undefined for models without metadata (e.g. cloud models), which hides the tooltip.
 const currentModel = computed(() =>
   textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
 )
 
-// The merged Assistant preset shows per-capability icons in the banner; other
-// presets keep just the ModelCapabilities info tooltip.
-const isAssistantPreset = computed(() => presetIndicator.value?.name === 'Assistant')
+// The merged Assistant preset shows per-capability icons on its model chip.
+const isAssistantPreset = computed(() => presetChip.value?.name === 'Assistant')
 
-// Context usage data for Context component
 const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)
 const contextMaxTokens = computed(() => textInference.effectiveContextWindow)
 const contextUsage = computed(() => openAiCompatibleChat.contextUsage)

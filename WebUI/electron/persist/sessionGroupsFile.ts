@@ -24,7 +24,10 @@ export type SessionGroupsRead = { status: 'ok'; file: SessionGroupsFile } | { st
 export async function readSessionGroupsFile(): Promise<SessionGroupsRead> {
   const read = await readJson(groupsFilePath(), LOG_SCOPE)
   if (read.status === 'missing') {
-    return { status: 'ok', file: { schemaVersion: 1, groups: [], pinnedShowMore: false } }
+    return {
+      status: 'ok',
+      file: { schemaVersion: 1, groups: [], pinnedShowMore: false, olderShowMore: false },
+    }
   }
   if (read.status === 'corrupt') return { status: 'unreadable' }
   const parsed = SessionGroupsFileSchema.safeParse(read.value)

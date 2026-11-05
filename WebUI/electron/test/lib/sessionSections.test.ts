@@ -28,6 +28,7 @@ function sections(
   view: {
     openSessionId?: string | null
     pinnedShowMore?: boolean
+    olderShowMore?: boolean
     now?: number
     liveSessionIds?: string[]
   } = {},
@@ -39,6 +40,7 @@ function sections(
     untitled: UNTITLED,
     openSessionId: view.openSessionId ?? null,
     pinnedShowMore: view.pinnedShowMore ?? false,
+    olderShowMore: view.olderShowMore ?? false,
     now: view.now ?? NOW,
     liveSessionIds: new Set(view.liveSessionIds ?? []),
   })
@@ -62,6 +64,15 @@ function pinnedOf(result: SessionSection[]) {
   if (pinned?.id !== 'pinned') throw new Error('no Pinned section')
   return { ids: pinned.sessions.map((s) => s.id), toggle: pinned.toggle }
 }
+
+function olderOf(result: SessionSection[]) {
+  const older = result.find((section) => section.id === 'older')
+  if (older?.id !== 'older') throw new Error('no Older section')
+  return { ids: older.sessions.map((s) => s.id), toggle: older.toggle }
+}
+
+/** Seven Sessions from February, o1 the most recently used. */
+const sevenOld = [1, 2, 3, 4, 5, 6, 7].map((n) => session(`o${n}`, { updatedAt: at(-n) }))
 
 /** Five pinned Sessions, p1 the most recently used. */
 const fivePins = [5, 4, 3, 2, 1].map((n) => session(`p${6 - n}`, { pinned: true, updatedAt: n }))
@@ -467,6 +478,70 @@ describe('sessionSections', () => {
         toggle: null,
       })
     })
+  })
+})
+
+describe('Older "show more"', () => {
+  it('shows the five most recent Older Sessions and counts the rest', () => {
+    expect(olderOf(sections(sevenOld))).toEqual({
+      ids: ['o1', 'o2', 'o3', 'o4', 'o5'],
+      toggle: { action: 'more', count: 2 },
+    })
+  })
+
+  it('shows every Older Session with a way back once shown', () => {
+    expect(olderOf(sections(sevenOld, '', [], { olderShowMore: true }))).toEqual({
+      ids: ['o1', 'o2', 'o3', 'o4', 'o5', 'o6', 'o7'],
+      toggle: { action: 'less' },
+    })
+  })
+
+  it('offers no toggle with five Older Sessions or fewer, whatever was chosen', () => {
+    const five = sevenOld.slice(0, 5)
+    expect(olderOf(sections(five)).toggle).toBeNull()
+    expect(olderOf(sections(five, '', [], { olderShowMore: true })).toggle).toBeNull()
+  })
+
+  it('keeps the open Session in its place by date when it ranks lower', () => {
+    const eight = [...sevenOld, session('o8', { updatedAt: at(-8) })]
+    expect(olderOf(sections(eight, '', [], { openSessionId: 'o6' }))).toEqual({
+      ids: ['o1', 'o2', 'o3', 'o4', 'o5', 'o6'],
+      toggle: { action: 'more', count: 2 },
+    })
+  })
+
+  it('offers no toggle when the open Session is the only one left out', () => {
+    const six = sevenOld.slice(0, 6)
+    expect(olderOf(sections(six, '', [], { openSessionId: 'o6' }))).toEqual({
+      ids: ['o1', 'o2', 'o3', 'o4', 'o5', 'o6'],
+      toggle: null,
+    })
+  })
+
+  it('shows every matching Older Session while searching, without a toggle', () => {
+    const sessions = sevenOld.map((s) => ({ ...s, title: `Trip ${s.id}` }))
+    expect(olderOf(sections(sessions, 'trip'))).toEqual({
+      ids: ['o1', 'o2', 'o3', 'o4', 'o5', 'o6', 'o7'],
+      toggle: null,
+    })
+  })
+
+  it('never shortens Today, Yesterday or Previous 7 days', () => {
+    const many = (prefix: string, day: number) =>
+      [0, 1, 2, 3, 4, 5, 6].map((n) => session(`${prefix}${n}`, { updatedAt: at(day, 11, n) }))
+    const result = sections([...many('t', 10), ...many('y', 9), ...many('w', 5)])
+    expect(ids(result).map(([id, listed]) => [id, listed.length])).toEqual([
+      ['today', 7],
+      ['yesterday', 7],
+      ['previous7Days', 7],
+    ])
+  })
+
+  it('leaves Pinned to its own choice', () => {
+    const sessions = [...fivePins.map((s) => ({ ...s, updatedAt: at(10) })), ...sevenOld]
+    const result = sections(sessions, '', [], { olderShowMore: true })
+    expect(pinnedOf(result).toggle).toEqual({ action: 'more', count: 2 })
+    expect(olderOf(result).toggle).toEqual({ action: 'less' })
   })
 })
 

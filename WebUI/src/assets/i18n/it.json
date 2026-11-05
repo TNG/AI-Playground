@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "Fissate",
   "SESSIONS_PINNED_SHOW_MORE": "Mostra altre {count}",
   "SESSIONS_PINNED_SHOW_LESS": "Mostra meno",
+  "SESSIONS_OLDER_SHOW_MORE": "Mostra altre {count}",
+  "SESSIONS_OLDER_SHOW_LESS": "Mostra meno",
   "SESSIONS_SECTION_GROUPS": "Gruppi",
   "SESSIONS_SECTION_TODAY": "Oggi",
   "SESSIONS_SECTION_YESTERDAY": "Ieri",

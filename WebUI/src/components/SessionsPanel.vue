@@ -138,13 +138,13 @@
             <template v-else>
               <SessionPanelRow v-for="session in section.sessions" :key="session.id" :session />
               <Button
-                v-if="section.id === 'pinned' && section.toggle"
+                v-if="(section.id === 'pinned' || section.id === 'older') && section.toggle"
                 variant="ghost"
                 size="sm"
                 class="w-full justify-start text-muted-foreground"
-                @click="sessions.setPinnedShowMore(section.toggle.action === 'more')"
+                @click="setShowMore(section.id, section.toggle.action === 'more')"
               >
-                {{ pinnedToggleLabel(section.toggle) }}
+                {{ toggleLabel(section.id, section.toggle) }}
               </Button>
             </template>
           </section>
@@ -177,7 +177,7 @@ import SessionPanelRow from '@/components/SessionPanelRow.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { sessionSections, type PinnedToggle, type SessionSectionId } from '@/lib/sessionSections'
+import { sessionSections, type ShowMoreToggle, type SessionSectionId } from '@/lib/sessionSections'
 
 const sessions = useSessions()
 const lifecycle = useSessionLifecycle()
@@ -195,6 +195,7 @@ const sections = computed(() =>
     untitled: i18nState.SESSIONS_UNTITLED,
     openSessionId: sessions.openSessionId,
     pinnedShowMore: sessions.pinnedShowMore,
+    olderShowMore: sessions.olderShowMore,
     now: Date.now(),
     liveSessionIds: new Set(Object.keys(sessions.turns)),
   }),
@@ -213,9 +214,19 @@ function sectionLabel(id: SessionSectionId) {
   return i18nState[SECTION_LABELS[id]]
 }
 
-function pinnedToggleLabel(toggle: NonNullable<PinnedToggle>) {
+const TOGGLE_LABELS = {
+  pinned: { more: 'SESSIONS_PINNED_SHOW_MORE', less: 'SESSIONS_PINNED_SHOW_LESS' },
+  older: { more: 'SESSIONS_OLDER_SHOW_MORE', less: 'SESSIONS_OLDER_SHOW_LESS' },
+}
+
+function toggleLabel(id: 'pinned' | 'older', toggle: NonNullable<ShowMoreToggle>) {
   return toggle.action === 'more'
-    ? i18nState.SESSIONS_PINNED_SHOW_MORE.replace('{count}', String(toggle.count))
-    : i18nState.SESSIONS_PINNED_SHOW_LESS
+    ? i18nState[TOGGLE_LABELS[id].more].replace('{count}', String(toggle.count))
+    : i18nState[TOGGLE_LABELS[id].less]
+}
+
+function setShowMore(id: 'pinned' | 'older', shown: boolean) {
+  if (id === 'pinned') sessions.setPinnedShowMore(shown)
+  else sessions.setOlderShowMore(shown)
 }
 </script>

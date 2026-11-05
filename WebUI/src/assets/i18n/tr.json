@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "Sabitlenmiş",
   "SESSIONS_PINNED_SHOW_MORE": "{count} tane daha göster",
   "SESSIONS_PINNED_SHOW_LESS": "Daha az göster",
+  "SESSIONS_OLDER_SHOW_MORE": "{count} tane daha göster",
+  "SESSIONS_OLDER_SHOW_LESS": "Daha az göster",
   "SESSIONS_SECTION_GROUPS": "Gruplar",
   "SESSIONS_SECTION_TODAY": "Bugün",
   "SESSIONS_SECTION_YESTERDAY": "Dün",

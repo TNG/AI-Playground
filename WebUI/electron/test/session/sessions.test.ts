@@ -30,10 +30,12 @@ const {
   onSessionDeleted,
   openSession,
   pinSession,
+  readOlderShowMore,
   readPinnedShowMore,
   renameSession,
   renameSessionGroup,
   resetSessionsForTest,
+  setOlderShowMore,
   setPinnedShowMore,
   setSessionGroupExpanded,
   setSessionDeps,
@@ -552,15 +554,18 @@ describe('Session Groups push', () => {
     await renameSessionGroup(group.id, 'Porto')
     await setSessionGroupExpanded(group.id, false)
     await setPinnedShowMore(true)
+    await setOlderShowMore(true)
     await deleteSessionGroup(group.id)
 
     const renamed = { ...group, name: 'Porto' }
+    const collapsed = { ...renamed, expanded: false }
     expect(pushes()).toEqual([
-      { groups: [group], pinnedShowMore: false },
-      { groups: [renamed], pinnedShowMore: false },
-      { groups: [{ ...renamed, expanded: false }], pinnedShowMore: false },
-      { groups: [{ ...renamed, expanded: false }], pinnedShowMore: true },
-      { groups: [], pinnedShowMore: true },
+      { groups: [group], pinnedShowMore: false, olderShowMore: false },
+      { groups: [renamed], pinnedShowMore: false, olderShowMore: false },
+      { groups: [collapsed], pinnedShowMore: false, olderShowMore: false },
+      { groups: [collapsed], pinnedShowMore: true, olderShowMore: false },
+      { groups: [collapsed], pinnedShowMore: true, olderShowMore: true },
+      { groups: [], pinnedShowMore: true, olderShowMore: true },
     ])
   })
 
@@ -647,5 +652,37 @@ describe('demo mode', () => {
 
     expect(await listSessions()).toEqual([])
     expect(await listDir(dirs.real)).toEqual([real.id])
+  })
+})
+
+describe('Older "show more"', () => {
+  it('starts off and survives a re-read once shown, apart from Pinned', async () => {
+    expect(await readOlderShowMore()).toBe(false)
+
+    await setOlderShowMore(true)
+    expect(await readOlderShowMore()).toBe(true)
+    expect(await readPinnedShowMore()).toBe(false)
+    await setOlderShowMore(false)
+    expect(await readOlderShowMore()).toBe(false)
+  })
+
+  it('reads a Groups file written before it existed as off', async () => {
+    await fs.mkdir(dirs.real, { recursive: true })
+    await fs.writeFile(
+      groupsFile(),
+      JSON.stringify({ schemaVersion: 1, groups: [], pinnedShowMore: true }),
+    )
+
+    expect(await readOlderShowMore()).toBe(false)
+    expect(await readPinnedShowMore()).toBe(true)
+  })
+
+  it('reads off from an unreadable Groups file and refuses to overwrite it', async () => {
+    await fs.mkdir(dirs.real, { recursive: true })
+    await fs.writeFile(groupsFile(), '{not json')
+
+    expect(await readOlderShowMore()).toBe(false)
+    await expect(setOlderShowMore(true)).rejects.toThrow()
+    expect(await fs.readFile(groupsFile(), 'utf8')).toBe('{not json')
   })
 })

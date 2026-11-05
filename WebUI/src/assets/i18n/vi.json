@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "Đã ghim",
   "SESSIONS_PINNED_SHOW_MORE": "Hiển thị thêm {count}",
   "SESSIONS_PINNED_SHOW_LESS": "Ẩn bớt",
+  "SESSIONS_OLDER_SHOW_MORE": "Hiển thị thêm {count}",
+  "SESSIONS_OLDER_SHOW_LESS": "Ẩn bớt",
   "SESSIONS_SECTION_GROUPS": "Nhóm",
   "SESSIONS_SECTION_TODAY": "Hôm nay",
   "SESSIONS_SECTION_YESTERDAY": "Hôm qua",

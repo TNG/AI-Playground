@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "Disematkan",
   "SESSIONS_PINNED_SHOW_MORE": "Tampilkan {count} lagi",
   "SESSIONS_PINNED_SHOW_LESS": "Tampilkan lebih sedikit",
+  "SESSIONS_OLDER_SHOW_MORE": "Tampilkan {count} lagi",
+  "SESSIONS_OLDER_SHOW_LESS": "Tampilkan lebih sedikit",
   "SESSIONS_SECTION_GROUPS": "Grup",
   "SESSIONS_SECTION_TODAY": "Hari ini",
   "SESSIONS_SECTION_YESTERDAY": "Kemarin",

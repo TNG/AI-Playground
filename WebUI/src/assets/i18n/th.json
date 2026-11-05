@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "ปักหมุดแล้ว",
   "SESSIONS_PINNED_SHOW_MORE": "แสดงเพิ่มอีก {count} รายการ",
   "SESSIONS_PINNED_SHOW_LESS": "แสดงน้อยลง",
+  "SESSIONS_OLDER_SHOW_MORE": "แสดงเพิ่มอีก {count} รายการ",
+  "SESSIONS_OLDER_SHOW_LESS": "แสดงน้อยลง",
   "SESSIONS_SECTION_GROUPS": "กลุ่ม",
   "SESSIONS_SECTION_TODAY": "วันนี้",
   "SESSIONS_SECTION_YESTERDAY": "เมื่อวาน",

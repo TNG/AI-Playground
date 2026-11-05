@@ -218,7 +218,7 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string[]],
     result: null as unknown as IpcMutationResult,
   },
-  /** Every Session of the active root (demo or real), newest first, its Session Groups and Pinned "show more". */
+  /** Every Session of the active root (demo or real), newest first, its Session Groups and the Pinned and Older "show more" choices. */
   'sessions:list': {
     kind: 'invoke',
     owner: 'main',
@@ -227,6 +227,7 @@ export const CHANNELS = {
       sessions: SessionSummary[]
       groups: SessionGroup[]
       pinnedShowMore: boolean
+      olderShowMore: boolean
     }>,
   },
   /** Create a Session and lay out its Session Folder, optionally already in a Session Group. */
@@ -301,6 +302,13 @@ export const CHANNELS = {
   },
   /** Remember whether Pinned lists every pinned Session or the three most recent; pushes `session-groups-changed`. */
   'sessions:setPinnedShowMore': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Remember whether Older lists every Session or the five most recent; pushes `session-groups-changed`. */
+  'sessions:setOlderShowMore': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [boolean],

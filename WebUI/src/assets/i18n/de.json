@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "Angeheftet",
   "SESSIONS_PINNED_SHOW_MORE": "{count} weitere anzeigen",
   "SESSIONS_PINNED_SHOW_LESS": "Weniger anzeigen",
+  "SESSIONS_OLDER_SHOW_MORE": "{count} weitere anzeigen",
+  "SESSIONS_OLDER_SHOW_LESS": "Weniger anzeigen",
   "SESSIONS_SECTION_GROUPS": "Gruppen",
   "SESSIONS_SECTION_TODAY": "Heute",
   "SESSIONS_SECTION_YESTERDAY": "Gestern",

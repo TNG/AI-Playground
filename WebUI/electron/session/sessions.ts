@@ -203,7 +203,11 @@ async function readGroupsForWrite(): Promise<SessionGroupsFile> {
 
 async function saveGroupsFile(file: SessionGroupsFile): Promise<void> {
   await writeSessionGroupsFile(file)
-  emitSessionGroupsChanged({ groups: file.groups, pinnedShowMore: file.pinnedShowMore })
+  emitSessionGroupsChanged({
+    groups: file.groups,
+    pinnedShowMore: file.pinnedShowMore,
+    olderShowMore: file.olderShowMore,
+  })
 }
 
 function requireGroup(groups: SessionGroup[], groupId: string): SessionGroup {
@@ -313,6 +317,17 @@ export async function readPinnedShowMore(): Promise<boolean> {
 export async function setPinnedShowMore(shown: boolean): Promise<void> {
   await serializeSessionGroups(async () => {
     await saveGroupsFile({ ...(await readGroupsForWrite()), pinnedShowMore: shown })
+  })
+}
+
+/** Whether Older lists every Session; off while the Groups file cannot be read. */
+export async function readOlderShowMore(): Promise<boolean> {
+  return (await readGroupsFile())?.olderShowMore ?? false
+}
+
+export async function setOlderShowMore(shown: boolean): Promise<void> {
+  await serializeSessionGroups(async () => {
+    await saveGroupsFile({ ...(await readGroupsForWrite()), olderShowMore: shown })
   })
 }
 

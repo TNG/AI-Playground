@@ -7,13 +7,14 @@ export type SessionGroupListing = {
   holdsOpen: boolean
 }
 
-/** The button row under the pinned rows: "Show N more" or "Show less". */
-export type PinnedToggle = { action: 'more'; count: number } | { action: 'less' } | null
+/** The button row under a shortened section: "Show N more" or "Show less". */
+export type ShowMoreToggle = { action: 'more'; count: number } | { action: 'less' } | null
 
 export type SessionSection =
-  | { id: 'pinned'; sessions: SessionSummary[]; toggle: PinnedToggle }
+  | { id: 'pinned'; sessions: SessionSummary[]; toggle: ShowMoreToggle }
   | { id: 'groups'; groups: SessionGroupListing[] }
-  | { id: DateBucket; sessions: SessionSummary[] }
+  | { id: Exclude<DateBucket, 'older'>; sessions: SessionSummary[] }
+  | { id: 'older'; sessions: SessionSummary[]; toggle: ShowMoreToggle }
 
 export type DateBucket = 'today' | 'yesterday' | 'previous7Days' | 'older'
 
@@ -27,6 +28,7 @@ export type SessionSectionsInput = {
   untitled: string
   openSessionId: string | null
   pinnedShowMore: boolean
+  olderShowMore: boolean
   now: number
   /** Sessions with a turn running, queued or paused: they are listed under Today. */
   liveSessionIds: ReadonlySet<string>
@@ -36,20 +38,21 @@ const DATE_BUCKETS: DateBucket[] = ['today', 'yesterday', 'previous7Days', 'olde
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const PINNED_SHOWN = 3
+const OLDER_SHOWN = 5
 
-function pinnedSection(
-  pinned: SessionSummary[],
+/** The first `limit` rows plus the open Session in its place, unless searching or shown in full. */
+function shortened(
+  listed: SessionSummary[],
+  limit: number,
   searching: boolean,
   openSessionId: string | null,
   showMore: boolean,
-): SessionSection {
-  if (searching || pinned.length <= PINNED_SHOWN) {
-    return { id: 'pinned', sessions: pinned, toggle: null }
-  }
-  if (showMore) return { id: 'pinned', sessions: pinned, toggle: { action: 'less' } }
-  const shown = pinned.filter((s, index) => index < PINNED_SHOWN || s.id === openSessionId)
-  const count = pinned.length - shown.length
-  return { id: 'pinned', sessions: shown, toggle: count > 0 ? { action: 'more', count } : null }
+): { sessions: SessionSummary[]; toggle: ShowMoreToggle } {
+  if (searching || listed.length <= limit) return { sessions: listed, toggle: null }
+  if (showMore) return { sessions: listed, toggle: { action: 'less' } }
+  const shown = listed.filter((s, index) => index < limit || s.id === openSessionId)
+  const count = listed.length - shown.length
+  return { sessions: shown, toggle: count > 0 ? { action: 'more', count } : null }
 }
 
 function newestFirst(a: SessionSummary, b: SessionSummary): number {
@@ -80,6 +83,7 @@ export function sessionSections({
   untitled,
   openSessionId,
   pinnedShowMore,
+  olderShowMore,
   now,
   liveSessionIds,
 }: SessionSectionsInput): SessionSection[] {
@@ -121,14 +125,21 @@ export function sessionSections({
 
   const result: SessionSection[] = []
   if (pinned.length > 0) {
-    result.push(pinnedSection(pinned, needle !== '', openSessionId, pinnedShowMore))
+    const cut = shortened(pinned, PINNED_SHOWN, needle !== '', openSessionId, pinnedShowMore)
+    result.push({ id: 'pinned', ...cut })
   }
   if (listings.length > 0) result.push({ id: 'groups', groups: listings })
   const bucketOf = (s: SessionSummary) =>
     liveSessionIds.has(s.id) ? 'today' : dateBucket(s.updatedAt, now)
   for (const bucket of DATE_BUCKETS) {
     const listed = recent.filter((s) => bucketOf(s) === bucket)
-    if (listed.length > 0) result.push({ id: bucket, sessions: listed })
+    if (listed.length === 0) continue
+    if (bucket === 'older') {
+      const cut = shortened(listed, OLDER_SHOWN, needle !== '', openSessionId, olderShowMore)
+      result.push({ id: bucket, ...cut })
+    } else {
+      result.push({ id: bucket, sessions: listed })
+    }
   }
   return result
 }

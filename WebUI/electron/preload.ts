@@ -297,6 +297,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setGroupExpanded: (groupId: string, expanded: boolean) =>
       invoke('sessions:setGroupExpanded', groupId, expanded),
     setPinnedShowMore: (shown: boolean) => invoke('sessions:setPinnedShowMore', shown),
+    setOlderShowMore: (shown: boolean) => invoke('sessions:setOlderShowMore', shown),
     delete: (id: string) => invoke('sessions:delete', id),
     harnessSession: (id: string, presetName: string, game?: HarnessGameWorkspace) =>
       invoke('sessions:harnessSession', id, presetName, game),

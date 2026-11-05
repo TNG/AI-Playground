@@ -223,6 +223,7 @@ beforeEach(async () => {
           sessions: await sessionModule.listSessions(),
           groups: await sessionModule.listSessionGroups(),
           pinnedShowMore: await sessionModule.readPinnedShowMore(),
+          olderShowMore: await sessionModule.readOlderShowMore(),
         })),
         create: ok(async () => ({ session: await sessionModule.createSession() })),
         open: (id: string) => ok(async () => ({ session: await sessionModule.openSession(id) }))(),

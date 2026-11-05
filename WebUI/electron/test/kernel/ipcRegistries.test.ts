@@ -37,6 +37,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:deleteGroup'
       | 'sessions:setGroupExpanded'
       | 'sessions:setPinnedShowMore'
+      | 'sessions:setOlderShowMore'
       | 'sessions:delete'
       | 'sessions:harnessSession'
       | 'sessions:taskRunHarness'

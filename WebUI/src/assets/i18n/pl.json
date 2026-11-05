@@ -28,6 +28,8 @@
   "SESSIONS_SECTION_PINNED": "Przypięte",
   "SESSIONS_PINNED_SHOW_MORE": "Pokaż {count} więcej",
   "SESSIONS_PINNED_SHOW_LESS": "Pokaż mniej",
+  "SESSIONS_OLDER_SHOW_MORE": "Pokaż {count} więcej",
+  "SESSIONS_OLDER_SHOW_LESS": "Pokaż mniej",
   "SESSIONS_SECTION_GROUPS": "Grupy",
   "SESSIONS_SECTION_TODAY": "Dzisiaj",
   "SESSIONS_SECTION_YESTERDAY": "Wczoraj",

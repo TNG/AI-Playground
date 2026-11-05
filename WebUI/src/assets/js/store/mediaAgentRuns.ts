@@ -79,7 +79,12 @@ export const useMediaAgentRuns = defineStore('mediaAgentRuns', () => {
   }
 
   function patchRun(runId: string, patch: (current: MediaRun) => MediaRun): void {
-    runs.value = runs.value.map((item) => (item.id === runId ? patch(item) : item))
+    const index = runs.value.findIndex((item) => item.id === runId)
+    if (index < 0) return
+    const current = runs.value[index]
+    const next = patch(current)
+    if (next === current) return
+    runs.value = runs.value.map((item, at) => (at === index ? next : item))
   }
 
   function beginRun(runId: string, request: string): void {
@@ -153,17 +158,21 @@ export const useMediaAgentRuns = defineStore('mediaAgentRuns', () => {
   }
 
   function endRun(runId: string, state: 'done' | 'failed'): void {
-    patchRun(runId, (current) => ({
-      ...current,
-      state,
-      phase: 'planning',
-      narration: '',
-      // A run can only end while its steps are settled; anything still marked
-      // running died with the run.
-      steps: current.steps.map((step) =>
-        step.state === 'running' ? { ...step, state: 'failed' as const } : step,
-      ),
-    }))
+    patchRun(runId, (current) =>
+      current.state === state
+        ? current
+        : {
+            ...current,
+            state,
+            phase: 'planning',
+            narration: '',
+            // A run can only end while its steps are settled; anything still marked
+            // running died with the run.
+            steps: current.steps.map((step) =>
+              step.state === 'running' ? { ...step, state: 'failed' as const } : step,
+            ),
+          },
+    )
   }
 
   return {

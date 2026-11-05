@@ -165,7 +165,11 @@ const mediaToolFailure = computed(() => toolCallResultFailure(props.part))
 const audioArtifacts = computed(() => ttsToolArtifacts(props.part, sessions.openDeletedFiles))
 
 watch(
-  () => [mediaToolNameOf(props.part), toolPart.value.toolCallId, toolPart.value.state] as const,
+  [
+    () => mediaToolNameOf(props.part),
+    () => toolPart.value.toolCallId,
+    () => toolPart.value.state,
+  ] as const,
   ([isMedia, id, state]) => {
     if (!isMedia || props.section === 'details') return
     if (state === 'output-available' && toolPart.value.output != null) {

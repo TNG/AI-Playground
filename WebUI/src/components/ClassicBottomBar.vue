@@ -1,6 +1,6 @@
 <template>
   <div class="absolute bottom-14 left-3 flex gap-2">
-    <slot name="previews" />
+    <PromptAttachmentPreviews />
     <PromptAttachButton
       v-if="showAttach"
       :accepted-file-types="acceptedFileTypes"
@@ -71,7 +71,7 @@
                       ? 'hover:border-primary'
                       : 'opacity-40 grayscale cursor-not-allowed',
                   ]"
-                  @click="selectPresetFromPicker(mode, preset)"
+                  @click="selectPresetFromPicker(preset)"
                 >
                   <img
                     v-if="preset.image"
@@ -93,8 +93,8 @@
                 <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
                   {{ preset.description }}
                 </p>
-                <p v-if="!gateOf(preset).enabled" class="mt-1 text-amber-400 text-xs">
-                  {{ gateOf(preset).reason }}
+                <p v-if="gateOf(preset).reason" class="mt-1 text-amber-400 text-xs">
+                  {{ i18nState[gateOf(preset).reason!] }}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -135,25 +135,22 @@
 import { ref, nextTick, watch } from 'vue'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
-import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import Button from '@/components/ui/button/Button.vue'
 import PromptAttachButton from '@/components/PromptAttachButton.vue'
+import PromptAttachmentPreviews from '@/components/PromptAttachmentPreviews.vue'
 import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
 import PromptSendButtons from '@/components/PromptSendButtons.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
-import { presetGate, type PresetGate } from '@/lib/presetGate'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
-import * as toast from '@/assets/js/toast'
 
-const props = defineProps<{
+defineProps<{
   modes: ModeType[]
-  phisonUsable: boolean
   showAttach: boolean
   acceptedFileTypes: string
   isOverDropZone: boolean
@@ -179,19 +176,10 @@ const emit = defineEmits<{
 
 const promptStore = usePromptStore()
 const presetsStore = usePresets()
-const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
-const switchPresetFromBar = usePromptBarPresetSwitch()
-const homeAgent = useHomeAgent()
+const i18nState = useI18N().state
+const { gateOf, switchTo } = usePromptBarPresetSwitch()
 const demoMode = useDemoMode()
-
-function gateOf(preset: Preset): PresetGate {
-  return presetGate(preset, {
-    phisonUsable: props.phisonUsable,
-    homeAgentEnabled: homeAgent.masterEnabled,
-    homeAgentAvailable: homeAgent.isAvailable,
-  })
-}
 
 function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
@@ -275,40 +263,10 @@ function onPickerOpenChange(mode: ModeType, open: boolean) {
   if (lastPickerPointerType !== 'mouse' && !demoMode.tourOpen) openPickerMode.value = mode
 }
 
-async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
-  // Greyed-out presets (feature off / not installed) aren't selectable — explain why.
-  const gate = gateOf(preset)
-  if (!gate.enabled) {
-    toast.warning(gate.reason ?? 'This preset is not available yet.')
-    return
-  }
-
-  closePicker() // Selecting a preset closes the picker.
-
-  if (presetSwitching.isSwitching) {
-    toast.warning('Please wait for current preset change to complete')
-    return
-  }
-  // No-op if it's already the active preset for this mode.
-  if (
-    preset.name === presetsStore.activePresetName &&
-    buttonModeFor(promptStore.getCurrentMode()) === mode
-  ) {
-    return
-  }
-
-  // Hovering only opened the picker, so selecting the preset performs the mode
-  // switch too (skipPresetSwitch: we pick the preset ourselves right after).
-  if (!promptStore.setCurrentMode(mode, { skipPresetSwitch: true })) return
-
-  // The mode is left to the switch: an agent preset from the chat list moves the app
-  // to Agent Mode, which the button above cannot know.
-  const result = await switchPresetFromBar(preset.name)
-  if (result.success) {
-    toast.success(`Switched to ${oemBranding.presetLabel(preset.name)}`)
-  } else if (result.error) {
-    toast.error(`Failed to switch preset: ${result.error}`)
-  }
+// Hovering only opened the picker, so selecting a preset performs the mode switch too.
+async function selectPresetFromPicker(preset: Preset) {
+  if (gateOf(preset).enabled) closePicker()
+  await switchTo(preset.name)
 }
 
 watch(

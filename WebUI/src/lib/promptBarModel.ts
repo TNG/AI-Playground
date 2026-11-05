@@ -1,9 +1,12 @@
-import { AUDIO_CATEGORY, type Preset } from '@/lib/presetSchemas'
-import type { PresetGate } from '@/lib/presetGate'
+import type { Preset } from '@/lib/presetSchemas'
+import { MODE_TO_CATEGORIES, presetToMode } from '@/lib/presetModes'
+import type { PresetGate, PresetGateReason } from '@/lib/presetGate'
 import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import type { llmBackendTypes } from '@/types/shared'
 
 type LlmBackend = (typeof llmBackendTypes)[number]
+
+export type SpeechBackend = 'openVINO' | 'qwen3TTS' | 'external'
 
 export type DeviceCategory = 'gpu' | 'npu' | 'cpu'
 
@@ -16,7 +19,7 @@ export type DeviceChip = {
 }
 
 export type HeaderChip =
-  | { kind: 'backend'; backend: LlmBackend | 'comfyui' }
+  | { kind: 'backend'; backend: LlmBackend | SpeechBackend | 'comfyui' }
   | DeviceChip
   | { kind: 'model'; name: string; id: string; source: 'chat' | 'comfy' }
   | { kind: 'preset'; name: string; label: string; image?: string }
@@ -24,34 +27,31 @@ export type HeaderChip =
 export type PromptBarMachine = {
   chatBackend: LlmBackend
   chatModel?: string
-  /** The selected device of the service that runs the active preset. */
+  speechBackend?: SpeechBackend
+  /** Selected device of the service running the active preset. */
   device?: InferenceDevice
 }
 
+type LastUsed = Partial<Record<ModeType, (string | null | undefined)[]>>
+
 export type PromptBarInput = {
-  /** The active preset with its variant applied. */
+  /** With its variant applied. */
   activePreset: Preset | null
   presetLabel: (name: string) => string
   machine: PromptBarMachine
-  /** The presets the pickers list, after product-mode and system filtering. */
   catalog?: Preset[]
-  /** Remembered preset names per mode, most specific first. */
-  lastUsed?: Partial<Record<ModeType, (string | null | undefined)[]>>
-  /** Whether a listed preset can be picked now; every preset can when omitted. */
+  /** Most specific first. */
+  lastUsed?: LastUsed
   presetGate?: (preset: Preset) => PresetGate
   style?: PromptBarStyle
 }
 
 export type PromptBarModel = {
   headerChips: HeaderChip[]
-  /** The Modern Mode dropdown's entries, in order, without modes that have no presets. */
   modes: ModeType[]
   activeMode: ModeType | null
-  /** The preset picking each offered mode activates. */
   modePicks: Partial<Record<ModeType, string>>
-  /** The active mode's presets, for the header preset dropdown. */
   presets: PresetEntry[]
-  /** Classic switches presets from its thumbnails, so its header only names the active one. */
   presetChip: 'label' | 'dropdown'
 }
 
@@ -60,20 +60,23 @@ export type PresetEntry = {
   label: string
   image?: string
   enabled: boolean
-  reason?: string
+  reason?: PresetGateReason
 }
 
 export function promptBarModel(input: PromptBarInput): PromptBarModel {
   const catalog = input.catalog ?? []
+  const gateOf = (preset: Preset) => input.presetGate?.(preset) ?? { enabled: true }
   const modes = MODERN_MODES.filter((mode) => presetsInMode(catalog, mode).length > 0)
   const modePicks: Partial<Record<ModeType, string>> = {}
   for (const mode of modes) {
-    modePicks[mode] = presetForModePick(catalog, mode, input.lastUsed?.[mode] ?? [])
+    const enabled = presetsInMode(catalog, mode).filter((preset) => gateOf(preset).enabled)
+    const pick = presetForModePick(enabled, mode, input.lastUsed?.[mode] ?? [])
+    if (pick) modePicks[mode] = pick
   }
-  const activeMode = input.activePreset ? modernModeOf(input.activePreset) : null
+  const activeMode = input.activePreset ? presetToMode(input.activePreset) : null
   const presets = activeMode
     ? presetsInMode(catalog, activeMode).map((preset) => {
-        const gate = input.presetGate?.(preset) ?? { enabled: true }
+        const gate = gateOf(preset)
         return {
           name: preset.name,
           label: input.presetLabel(preset.name),
@@ -89,36 +92,31 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
 
 const MODERN_MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']
 
-/** The Modern prompt bar's grouping: Agent Presets get a mode of their own instead of riding Chat. */
-export function modernModeOf(preset: Preset): ModeType {
-  if (preset.type === 'chat') {
-    if (preset.agentPreset) return 'agent'
-    return preset.category === AUDIO_CATEGORY ? 'audio' : 'chat'
-  }
-  switch (preset.category) {
-    case 'edit-images':
-      return 'imageEdit'
-    case 'create-videos':
-      return 'video'
-    default:
-      return 'imageGen'
-  }
+export function presetsInMode(catalog: Preset[], mode: ModeType): Preset[] {
+  return catalog.filter((preset) => presetToMode(preset) === mode)
 }
 
-export function presetsInMode(catalog: Preset[], mode: ModeType): Preset[] {
-  return catalog.filter((preset) => modernModeOf(preset) === mode)
+export function lastUsedByMode(
+  perMode: Partial<Record<ModeType, string>>,
+  perCategory: Record<string, string | null | undefined>,
+): LastUsed {
+  return Object.fromEntries(
+    (Object.keys(MODE_TO_CATEGORIES) as ModeType[]).map((mode) => [
+      mode,
+      [perMode[mode], ...MODE_TO_CATEGORIES[mode].map((category) => perCategory[category])],
+    ]),
+  )
 }
 
 function presetForModePick(
-  catalog: Preset[],
+  listed: Preset[],
   mode: ModeType,
   lastUsed: (string | null | undefined)[],
-): string {
-  const listed = presetsInMode(catalog, mode)
+): string | undefined {
   const remembered = lastUsed.find((name) => name && listed.some((p) => p.name === name))
   const preferred = MODE_DEFAULT_PRESET[mode]
   const fallback = listed.find((p) => p.name === preferred) ?? listed[0]
-  return remembered ?? fallback.name
+  return remembered ?? fallback?.name
 }
 
 // Agent Maker's preset identity stays `Agent`.
@@ -136,7 +134,11 @@ function headerChips({ activePreset: preset, presetLabel, machine }: PromptBarIn
       checkpoint ? modelChip(checkpoint, 'comfy') : undefined,
     )
   } else if (preset.ttsPreset || preset.sttPreset) {
-    chips.push(device)
+    const speech = machine.speechBackend
+    chips.push(
+      speech ? { kind: 'backend', backend: speech } : undefined,
+      speech === 'external' ? undefined : device,
+    )
   } else {
     chips.push(
       { kind: 'backend', backend: machine.chatBackend },

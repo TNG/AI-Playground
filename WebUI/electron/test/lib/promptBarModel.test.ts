@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  lastUsedByMode,
   presetsInMode,
   promptBarModel,
   type DeviceChip,
@@ -164,15 +165,35 @@ describe('promptBarModel header chips', () => {
     expect(labels).toEqual(['AI Boost NPU', 'CPU', 'Arc Pro B60 GPU'])
   })
 
-  it('shows no chat backend or chat model for a speech preset', () => {
+  describe('a speech preset', () => {
     const tts = { ...assistant, name: 'Text to Speech', category: 'audio', ttsPreset: true }
-    const { headerChips } = promptBarModel(
-      input({
-        activePreset: tts,
-        machine: { chatBackend: 'llamaCPP', chatModel: 'Qwen3.5-9B-Q4_K_M.gguf', device: gpu },
-      }),
-    )
-    expect(headerChips.map((c) => c.kind)).toEqual(['device', 'preset'])
+    const stt = { ...assistant, name: 'Speech to Text', category: 'audio', sttPreset: true }
+    const chipsFor = (preset: ChatPreset, machine: Partial<PromptBarInput['machine']>) =>
+      promptBarModel(
+        input({
+          activePreset: preset,
+          machine: { chatBackend: 'llamaCPP', chatModel: 'Qwen3.5-9B-Q4_K_M.gguf', ...machine },
+        }),
+      ).headerChips
+
+    it('names its speech engine and device instead of the chat backend and model', () => {
+      expect(chipsFor(tts, { speechBackend: 'qwen3TTS', device: gpu }).slice(0, 2)).toEqual([
+        { kind: 'backend', backend: 'qwen3TTS' },
+        expect.objectContaining({ kind: 'device', label: 'Arc B580 GPU' }),
+      ])
+      expect(chipsFor(stt, { speechBackend: 'openVINO', device: gpu }).map((c) => c.kind)).toEqual([
+        'backend',
+        'device',
+        'preset',
+      ])
+    })
+
+    it('shows no local device on an external speech endpoint', () => {
+      expect(chipsFor(tts, { speechBackend: 'external' }).map((c) => c.kind)).toEqual([
+        'backend',
+        'preset',
+      ])
+    })
   })
 })
 
@@ -284,6 +305,34 @@ describe('promptBarModel modes', () => {
       expect(promptBarModel(input({ catalog: reordered })).modePicks.agent).toBe('Agent')
     })
 
+    it('never picks a gated preset, falling back to the mode’s first enabled one', () => {
+      const gated = new Set(['Assistant', 'Reasoning', 'Agent'])
+      const modePicks = promptBarModel(
+        input({
+          catalog: [chat('Home Agent'), ...catalog],
+          lastUsed: { chat: ['Reasoning'] },
+          presetGate: (preset) =>
+            gated.has(preset.name)
+              ? { enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' }
+              : { enabled: true },
+        }),
+      ).modePicks
+      expect(modePicks).toMatchObject({ chat: 'Home Agent', agent: 'Game Agent' })
+    })
+
+    it('offers no pick for a mode whose presets are all gated', () => {
+      const modePicks = promptBarModel(
+        input({
+          catalog,
+          presetGate: (preset) =>
+            preset.type === 'comfy'
+              ? { enabled: false, reason: 'PRESET_GATE_PHISON' }
+              : { enabled: true },
+        }),
+      ).modePicks
+      expect(modePicks.imageGen).toBeUndefined()
+    })
+
     it('offers no pick for a mode without presets', () => {
       expect(picks({ video: ['Fast'] })).toEqual({
         chat: 'Assistant',
@@ -334,18 +383,14 @@ describe('promptBarModel preset picker', () => {
         catalog,
         presetGate: (preset) =>
           preset.name === 'Home Agent'
-            ? { enabled: false, reason: 'Enable the Home Agent in settings to use this preset.' }
+            ? { enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' }
             : { enabled: true },
       }),
     )
     expect(presets.map(({ name, enabled, reason }) => ({ name, enabled, reason }))).toEqual([
       { name: 'Assistant', enabled: true, reason: undefined },
       { name: 'aiDAPTIV', enabled: true, reason: undefined },
-      {
-        name: 'Home Agent',
-        enabled: false,
-        reason: 'Enable the Home Agent in settings to use this preset.',
-      },
+      { name: 'Home Agent', enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' },
     ])
   })
 
@@ -363,6 +408,22 @@ describe('promptBarModel preset picker', () => {
 
     it('is always a label in Classic', () => {
       expect(chipFor(gameAgent, 'classic')).toBe('label')
+    })
+  })
+})
+
+describe('lastUsedByMode', () => {
+  it('puts the mode’s own memory ahead of its category’s', () => {
+    const lastUsed = lastUsedByMode(
+      { agent: 'Game Agent', imageGen: 'Fast' },
+      { chat: 'Reasoning', 'create-images': 'HD Image', audio: 'Text to Speech' },
+    )
+    expect(lastUsed).toMatchObject({
+      chat: [undefined, 'Reasoning'],
+      agent: ['Game Agent', 'Reasoning'],
+      audio: [undefined, 'Text to Speech'],
+      imageGen: ['Fast', 'HD Image'],
+      video: [undefined, undefined],
     })
   })
 })

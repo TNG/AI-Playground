@@ -1,7 +1,6 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref, computed } from 'vue'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, presetToMode } from '@/lib/presetModes'
-import { modernModeOf } from '@/lib/promptBarModel'
 import { usePresets, type Preset, type ChatPreset } from './presets'
 import { useTextInference } from './textInference'
 import { useImageGenerationPresets } from './imageGenerationPresets'
@@ -120,7 +119,7 @@ export const usePresetSwitching = defineStore('presetSwitching', () => {
 
     if (!options.skipLastUsedUpdate) {
       if (preset.category) presets.setLastUsedPreset(preset.category, presetName)
-      presets.setLastUsedPresetForMode(modernModeOf(preset), presetName)
+      presets.setLastUsedPresetForMode(presetToMode(preset), presetName)
     }
   }
 

@@ -6,6 +6,7 @@ import { useBackendServices } from './backendServices'
 import { withDevPresets } from './devPresets'
 import { useProductMode } from './productMode'
 import { currentPresetName, renamePresetKeys } from '@/lib/presetRenames'
+import { lastUsedByMode } from '@/lib/promptBarModel'
 import {
   applyVariant,
   getFirstVariantName,
@@ -504,6 +505,10 @@ export const usePresets = defineStore(
       lastUsedPresetPerMode.value[mode] = presetName
     }
 
+    const lastUsedPresetsByMode = computed(() =>
+      lastUsedByMode(lastUsedPresetPerMode.value, lastUsedPresetName.value),
+    )
+
     /**
      * Carry state stored under a preset's former name over to the name it ships
      * with now. Without it a rename reads as "preset gone": the picker falls back
@@ -676,6 +681,7 @@ export const usePresets = defineStore(
       audioPresets,
       selectableChatTypePresets,
       activePresetWithVariant,
+      lastUsedPresetsByMode,
 
       // Methods
       validatePreset,

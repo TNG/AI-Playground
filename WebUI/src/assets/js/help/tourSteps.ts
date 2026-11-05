@@ -16,6 +16,8 @@ export type TourStep = {
   title: string
   descr: string
   align?: 'start' | 'center' | 'end'
+  /** Skipped when its anchor is not on screen. */
+  optional?: boolean
 }
 
 const WELCOME_STEP: TourStep = {
@@ -45,7 +47,8 @@ const MODERN_MODE_STEPS: TourStep[] = [
     id: '#preset-dropdown',
     title: 'Pick a Preset',
     descr:
-      'This shows the preset that will run, after the backend, device and model it runs on. When the mode has more than one preset, click it to pick another; each one is tuned for a task, from a chat model to an image workflow.',
+      'This shows the preset that will run, after the backend, device and model it runs on. Click it to pick another; each one is tuned for a task, from a chat model to an image workflow.',
+    optional: true,
   },
 ]
 

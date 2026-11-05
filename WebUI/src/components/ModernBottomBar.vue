@@ -1,6 +1,6 @@
 <template>
   <div class="absolute bottom-14 left-3 flex gap-2">
-    <slot name="previews" />
+    <PromptAttachmentPreviews />
   </div>
   <div class="absolute bottom-4 left-3 flex items-center gap-2">
     <DropdownMenu>
@@ -75,7 +75,6 @@ import { computed } from 'vue'
 import { ChevronDownIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets } from '@/assets/js/store/presets'
-import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
@@ -90,16 +89,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import PromptAttachButton from '@/components/PromptAttachButton.vue'
+import PromptAttachmentPreviews from '@/components/PromptAttachmentPreviews.vue'
 import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
 import PromptSendButtons from '@/components/PromptSendButtons.vue'
 import { mapModeToLabel } from '@/lib/utils.ts'
-import { MODE_TO_CATEGORIES } from '@/lib/presetModes'
 import { promptBarModel } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
-import * as toast from '@/assets/js/toast'
-
-// Classic's mode-button props arrive too; they are not rendered.
-defineOptions({ inheritAttrs: false })
 
 defineProps<{
   showAttach: boolean
@@ -127,12 +122,11 @@ const emit = defineEmits<{
 
 const promptStore = usePromptStore()
 const presetsStore = usePresets()
-const presetSwitching = usePresetSwitching()
 const sessionTabs = useSessionTabs()
 const textInference = useTextInference()
 const oemBranding = useOemBranding()
 const i18nState = useI18N().state
-const switchPresetFromBar = usePromptBarPresetSwitch()
+const { gateOf, switchTo } = usePromptBarPresetSwitch()
 
 const model = computed(() =>
   promptBarModel({
@@ -140,15 +134,8 @@ const model = computed(() =>
     presetLabel: (name) => oemBranding.presetLabel(name),
     machine: { chatBackend: textInference.backend },
     catalog: presetsStore.getPresetsByCategories([]),
-    lastUsed: Object.fromEntries(
-      (Object.keys(MODE_TO_CATEGORIES) as ModeType[]).map((mode) => [
-        mode,
-        [
-          presetsStore.lastUsedPresetPerMode[mode],
-          ...MODE_TO_CATEGORIES[mode].map((category) => presetsStore.lastUsedPresetName[category]),
-        ],
-      ]),
-    ),
+    lastUsed: presetsStore.lastUsedPresetsByMode,
+    presetGate: gateOf,
   }),
 )
 
@@ -157,13 +144,6 @@ const shownMode = computed(() => model.value.activeMode ?? promptStore.getCurren
 async function pickMode(mode: ModeType) {
   const presetName = model.value.modePicks[mode]
   if (!presetName || mode === model.value.activeMode) return
-  if (presetSwitching.isSwitching) {
-    toast.warning('Please wait for current preset change to complete')
-    return
-  }
-  // skipPresetSwitch: Chat and Agent share a category, so the mode's own pick is switched to below.
-  if (!promptStore.setCurrentMode(mode, { skipPresetSwitch: true })) return
-  const result = await switchPresetFromBar(presetName)
-  if (!result.success && result.error) toast.error(`Failed to switch preset: ${result.error}`)
+  await switchTo(presetName, { announce: false })
 }
 </script>

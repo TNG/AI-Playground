@@ -51,7 +51,7 @@
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
       <div class="w-full flex flex-col">
-        <PromptStatusBar :phison-usable="phisonUsable" />
+        <PromptStatusBar />
         <!-- RAG Documents Display (only when RAG is enabled and has documents) -->
         <div
           v-if="
@@ -198,82 +198,17 @@
               />
             </template>
           </div>
-          <component
-            :is="promptBarStyle.active === 'modern' ? ModernBottomBar : ClassicBottomBar"
+          <ModernBottomBar
+            v-if="promptBarStyle.active === 'modern'"
+            v-bind="bottomBarProps"
+            v-on="bottomBarEvents"
+          />
+          <ClassicBottomBar
+            v-else
             :modes="modesWithPresets"
-            :phison-usable="phisonUsable"
-            :show-attach="shouldShowImageUploadButton"
-            :accepted-file-types="getAcceptedFileTypes()"
-            :is-over-drop-zone="isOverDropZone"
-            :downloading="!!downloadGroup"
-            :stt-available="sttAvailable"
-            :stt-unavailable-hint="sttUnavailableHint"
-            :show-send="!isSttPreset && !downloadGroup"
-            :ready-for-new-submit="readyForNewSubmit"
-            :can-run-steps="canRunSteps"
-            :settings-blocked="settingsProblems.length > 0"
-            :is-slash-command="isSlashCommand"
-            :is-stopping="isStopping"
-            @attach="handleFileInput"
-            @camera="handleCameraClick"
-            @record="handleRecordingClick"
-            @send="handleSubmitPromptClick"
-            @run-steps="handleRunStepsClick"
-            @cancel="handleCancelClick"
-          >
-            <template #previews>
-              <div
-                v-for="preview in imagePreview"
-                :key="preview.id"
-                class="relative max-h-12 max-w-12 mr-2 aspect-square group"
-              >
-                <img
-                  :src="preview.url"
-                  alt="Image Preview"
-                  class="w-full h-full object-contain border border-dashed border-border rounded-md"
-                />
-                <button
-                  @click="removeImage(preview.id)"
-                  class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-full p-0.5 text-muted-foreground hover:text-destructive"
-                  title="Remove image"
-                >
-                  <XMarkIcon class="size-4" />
-                </button>
-              </div>
-              <div
-                v-for="clip in audioPreview"
-                :key="clip.id"
-                class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
-              >
-                <MusicalNoteIcon class="size-4 flex-none" />
-                <span class="truncate max-w-40" :title="clip.part.filename">{{
-                  clip.part.filename
-                }}</span>
-                <button
-                  @click="removeImage(clip.id)"
-                  class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                  title="Remove attachment"
-                >
-                  <XMarkIcon class="size-4" />
-                </button>
-              </div>
-              <div
-                v-for="(file, index) in agentMode.attachments"
-                :key="`${file.name}-${index}`"
-                class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
-              >
-                <PaperClipIcon class="size-4 flex-none" />
-                <span class="truncate max-w-40" :title="file.name">{{ file.name }}</span>
-                <button
-                  @click="agentMode.removeAttachment(index)"
-                  class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                  title="Remove attachment"
-                >
-                  <XMarkIcon class="size-4" />
-                </button>
-              </div>
-            </template>
-          </component>
+            v-bind="bottomBarProps"
+            v-on="bottomBarEvents"
+          />
         </div>
       </div>
     </div>
@@ -333,7 +268,6 @@ import {
 } from '@/lib/sessionSettingsProblems'
 import { buttonModeFor } from '@/lib/presetModes'
 import { useConversations } from '@/assets/js/store/conversations'
-import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
 import { useTextInference } from '@/assets/js/store/textInference'
@@ -385,23 +319,32 @@ const errors = useErrors()
 const textareaRef = ref<HTMLTextAreaElement>()
 const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
-const backendServices = useBackendServices()
 const dialogStore = useDialogStore()
 const promptBarStyle = usePromptBarStyle()
 
-// Some chat presets are gated on a feature that the user can enable/install but
-// that may currently be off. They stay visible in the picker but greyed-out and
-// non-selectable (with a reason), unlike presets that are entirely unavailable on
-// this system — those are filtered out upstream (e.g. aiDAPTIV™/Phison without the
-// SSD).
-const phisonUsable = computed(
-  () =>
-    backendServices.phisonSsdDetected &&
-    (backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
-      ?.llamaCppPhisonArtifactReady ??
-      false) &&
-    backendServices.llamaCppBuildVariant === 'ssd-offload',
-)
+const bottomBarProps = computed(() => ({
+  showAttach: shouldShowImageUploadButton.value,
+  acceptedFileTypes: getAcceptedFileTypes(),
+  isOverDropZone: isOverDropZone.value,
+  downloading: !!downloadGroup.value,
+  sttAvailable: sttAvailable.value,
+  sttUnavailableHint: sttUnavailableHint.value,
+  showSend: !isSttPreset.value && !downloadGroup.value,
+  readyForNewSubmit: readyForNewSubmit.value,
+  canRunSteps: canRunSteps.value,
+  settingsBlocked: settingsProblems.value.length > 0,
+  isSlashCommand: isSlashCommand.value,
+  isStopping: isStopping.value,
+}))
+
+const bottomBarEvents = {
+  attach: handleFileInput,
+  camera: handleCameraClick,
+  record: handleRecordingClick,
+  send: handleSubmitPromptClick,
+  runSteps: handleRunStepsClick,
+  cancel: handleCancelClick,
+}
 
 // Modes that run on chat-type presets and stream their turns into a conversation
 // view. They share the prompt box's text handling (free-form text, cleared after a
@@ -591,17 +534,9 @@ const attachmentPreview = computed(() =>
   openAiCompatibleChat.fileInput.map((part, id) => ({ id, url: part.url, part })),
 )
 
-const imagePreview = computed(() =>
-  attachmentPreview.value.filter((item) => !item.part.mediaType?.startsWith('audio/')),
-)
-
 const audioPreview = computed(() =>
   attachmentPreview.value.filter((item) => item.part.mediaType?.startsWith('audio/')),
 )
-
-function removeImage(index: number) {
-  openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)
-}
 
 /** The Agent Run in the open Session a sent prompt waits for. */
 const queuedBehindRun = computed(() =>

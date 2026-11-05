@@ -134,8 +134,8 @@
                     <p v-if="descriptionOf(preset.name)" class="mt-1 text-primary-foreground/80">
                       {{ descriptionOf(preset.name) }}
                     </p>
-                    <p v-if="!preset.enabled" class="mt-1 text-amber-400 text-xs">
-                      {{ preset.reason }}
+                    <p v-if="preset.reason" class="mt-1 text-amber-400 text-xs">
+                      {{ languages[preset.reason] }}
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -145,12 +145,7 @@
         </DropdownMenu>
         <Tooltip v-else>
           <TooltipTrigger as-child>
-            <button
-              :id="promptBarStyle.active === 'modern' ? 'preset-dropdown' : undefined"
-              type="button"
-              :class="presetChipClass"
-              class="cursor-help"
-            >
+            <button type="button" :class="presetChipClass" class="cursor-help">
               <img
                 v-if="presetChip.image"
                 :src="presetChip.image"
@@ -283,8 +278,6 @@ import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
-import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import { Context } from '@/components/ui/context'
 import {
@@ -301,12 +294,8 @@ import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
-import { promptBarModel, type HeaderChip } from '@/lib/promptBarModel'
-import { presetGate } from '@/lib/presetGate'
+import { promptBarModel, type HeaderChip, type SpeechBackend } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
-import * as toast from '@/assets/js/toast'
-
-const props = defineProps<{ phisonUsable: boolean }>()
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
@@ -321,10 +310,8 @@ const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
 const agentMode = useAgentMode()
 const errors = useErrors()
-const homeAgent = useHomeAgent()
-const presetSwitching = usePresetSwitching()
 const promptBarStyle = usePromptBarStyle()
-const switchPresetFromBar = usePromptBarPresetSwitch()
+const { gateOf, switchTo } = usePromptBarPresetSwitch()
 
 const presetChipClass =
   'flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-primary/60 bg-primary/10 px-1.5 text-left'
@@ -404,6 +391,18 @@ const activeService = computed<BackendServiceName | undefined>(() => {
   return backendToService[textInference.backend] ?? undefined
 })
 
+const SPEECH_BACKEND_OF: Partial<Record<BackendServiceName, SpeechBackend>> = {
+  'openvino-backend': 'openVINO',
+  'qwen3-tts-backend': 'qwen3TTS',
+}
+
+const speechBackend = computed<SpeechBackend | undefined>(() => {
+  const preset = activePreset.value
+  if (!preset || preset.type !== 'chat' || !(preset.ttsPreset || preset.sttPreset)) return undefined
+  const service = activeService.value
+  return service ? SPEECH_BACKEND_OF[service] : 'external'
+})
+
 const bar = computed(() =>
   promptBarModel({
     activePreset: activePreset.value,
@@ -411,15 +410,11 @@ const bar = computed(() =>
     machine: {
       chatBackend: textInference.backend,
       chatModel: textInference.activeModel,
+      speechBackend: speechBackend.value,
       device: activeService.value ? selectedDevice(activeService.value) : undefined,
     },
     catalog: presetsStore.getPresetsByCategories([]),
-    presetGate: (preset) =>
-      presetGate(preset, {
-        phisonUsable: props.phisonUsable,
-        homeAgentEnabled: homeAgent.masterEnabled,
-        homeAgentAvailable: homeAgent.isAvailable,
-      }),
+    presetGate: gateOf,
     style: promptBarStyle.active,
   }),
 )
@@ -427,22 +422,7 @@ const bar = computed(() =>
 const headerChips = computed(() => bar.value.headerChips)
 
 async function pickPreset(name: string) {
-  const preset = bar.value.presets.find((p) => p.name === name)
-  if (!preset || name === presetsStore.activePresetName) return
-  if (!preset.enabled) {
-    toast.warning(preset.reason ?? 'This preset is not available yet.')
-    return
-  }
-  if (presetSwitching.isSwitching) {
-    toast.warning('Please wait for current preset change to complete')
-    return
-  }
-  const result = await switchPresetFromBar(name)
-  if (result.success) {
-    toast.success(`Switched to ${preset.label}`)
-  } else if (result.error) {
-    toast.error(`Failed to switch preset: ${result.error}`)
-  }
+  await switchTo(name)
 }
 
 function chipOf<K extends HeaderChip['kind']>(kind: K) {
@@ -460,11 +440,19 @@ const BACKEND_NAMES = {
   openVINO: 'OpenVINO',
   cloud: HYBRID_CLOUD_NAME,
   comfyui: 'ComfyUI',
+  qwen3TTS: 'Qwen3-TTS',
 } as const
 
 const backendChip = computed(() => {
   const chip = headerChips.value.find((c) => c.kind === 'backend')
   if (!chip) return undefined
+  if (chip.backend === 'external' || speechBackend.value) {
+    const name =
+      chip.backend === 'external'
+        ? languages.PROMPT_BAR_EXTERNAL_SPEECH_ENDPOINT
+        : BACKEND_NAMES[chip.backend]
+    return { name, description: languages.PROMPT_BAR_SPEECH_BACKEND.replace('{engine}', name) }
+  }
   const provider = cloudMode.selectedProvider?.name
   const name =
     chip.backend === 'cloud' && provider

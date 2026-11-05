@@ -32,6 +32,7 @@ const enabledModes = computed(
 )
 
 function isStepEnabled(step: TourStep): boolean {
+  if (step.optional && !document.querySelector(step.id)) return false
   const mode = SELECTOR_TO_MODE[step.id]
   return !mode || enabledModes.value.includes(mode)
 }

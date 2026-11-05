@@ -312,6 +312,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           reattachRun(task, activeRun)
           continue
         }
+        agentMode.endTaskRun(sessionId, {
+          kind: 'failed',
+          message: i18n.state.AGENT_TASKS_OUTCOME_APP_CLOSED ?? 'The app closed during the run.',
+        })
         await recordOutcome(task.id, {
           kind: 'failed',
           sessionId,

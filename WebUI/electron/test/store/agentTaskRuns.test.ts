@@ -1272,6 +1272,41 @@ describe('the app closing during a run', () => {
     expect(sentSteps()).toEqual(['one'])
   })
 
+  it('records on the run that the app closed, so its timeline Turn shows the error', async () => {
+    vi.mocked(window.electronAPI.agentMode.bootstrapSessions).mockResolvedValue({
+      status: 'ok',
+      activeSessionId: 'session-open',
+      sessions: [
+        openRecord,
+        {
+          id: 'session-old',
+          workspaceDir: '/work/task',
+          title: 'Task t1',
+          messages: [],
+          createdAt: 1,
+          updatedAt: 2,
+          presetName: 'Agent',
+          settings: TEMPLATE,
+          taskId: 't1',
+          sessionRef: SESSION,
+          taskRun: { taskName: 'Task t1', startedAt: 1, trigger: 'manual' },
+        },
+      ],
+    } as never)
+    const interrupted = task('t1', ['one', 'two'], {
+      activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION, stepIndex: 1, stepCount: 2 }],
+    })
+
+    const { agentMode } = await readyStores(interrupted)
+
+    await vi.waitFor(() =>
+      expect(agentMode.sessions['session-old'].taskRun?.end).toEqual({
+        kind: 'failed',
+        message: 'The app closed during the run.',
+      }),
+    )
+  })
+
   it('reattaches a run whose turn main still holds, and sends the next step when it ends', async () => {
     const sessionId = 'session-old'
     const turnId = 'turn-live'

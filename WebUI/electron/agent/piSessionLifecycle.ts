@@ -201,6 +201,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const capabilityHost: CapabilityHost = {
     sessionId,
     workspaceDir,
+    mountedFolders,
     toolSpecs: config.toolSpecs ?? [],
     mediaAgent: config.mediaAgent,
     chatModel: chatModelFromAgentConfig(config.modelConfig),

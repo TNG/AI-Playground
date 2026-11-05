@@ -3,6 +3,7 @@ import type { SessionMediaTarget, SkillSource } from '../piCustomTools.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import type { ChatModelConfig, ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
+import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 export type { AgentToolSpec }
 
@@ -21,6 +22,8 @@ export type CapabilityHost = {
   sessionId: string
   /** Resolved workspace folder (host path). */
   workspaceDir: string
+  /** The session's Mounted Folders, host paths realpathed. */
+  mountedFolders?: ResolvedMountedFolder[]
   /** Bridged renderer tool contracts shipped with the turn. */
   toolSpecs: AgentToolSpec[]
   /**

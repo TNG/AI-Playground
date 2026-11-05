@@ -1,11 +1,14 @@
 <template>
-  <template v-for="{ part, index } in shownParts()" :key="`${message.id}:${index}`">
-    <AgentMessagePart :part="asPart(part)" :section="section" />
-  </template>
+  <div class="contents" :class="textInference.fontSizeClass">
+    <template v-for="{ part, index } in shownParts()" :key="`${message.id}:${index}`">
+      <AgentMessagePart :part="asPart(part)" :section="section" />
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
 import type { UIDataTypes, UIMessagePart, UITools, UIMessage } from 'ai'
+import { useTextInference } from '@/assets/js/store/textInference'
 import AgentMessagePart from '@/components/AgentMessagePart.vue'
 
 const props = defineProps<{
@@ -13,6 +16,8 @@ const props = defineProps<{
   section?: 'details' | 'result'
   indexes?: readonly number[]
 }>()
+
+const textInference = useTextInference()
 
 function shownParts() {
   return (props.message.parts ?? [])

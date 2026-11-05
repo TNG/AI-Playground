@@ -1,4 +1,5 @@
 import type { HelpTopicId } from '@/assets/js/help/helpTopics'
+import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 
 /**
  * Anchors the demo tour uses that are deliberately not click-to-learn targets.
@@ -17,20 +18,38 @@ export type TourStep = {
   align?: 'start' | 'center' | 'end'
 }
 
-/** Guided-narration copy for the demo-mode walkthrough, auto-started in demo mode. */
-export const TOUR_STEPS: TourStep[] = [
-  {
-    id: '#contextual-help-toggle',
-    title: 'Welcome to Intel AI-Playground!',
-    descr:
-      'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. Whenever you want to know what something does, click this "?" button and then click the control — help mode explains it without changing anything. Click "Next" or press "Right" to start the tour.',
-  },
+const WELCOME_STEP: TourStep = {
+  id: '#contextual-help-toggle',
+  title: 'Welcome to Intel AI-Playground!',
+  descr:
+    'Intel AI-Playground is a generative AI app that provides local-powered chat, image, and video capabilities. Whenever you want to know what something does, click this "?" button and then click the control — help mode explains it without changing anything. Click "Next" or press "Right" to start the tour.',
+}
+
+const CLASSIC_MODE_STEPS: TourStep[] = [
   {
     id: '#mode-buttons',
     title: 'Pick your Mode',
     descr:
       'Here are multiple mode buttons, that define the type of content you are generating. Select any one of these modes later to explore each. Little dots generally indicate additional help is available when clicking the first time.',
   },
+]
+
+const MODERN_MODE_STEPS: TourStep[] = [
+  {
+    id: '#mode-dropdown',
+    title: 'Pick your Mode',
+    descr:
+      'Open this menu to choose the type of work you are doing: Chat, Agent, Audio, Image Gen, Image Edit or Video. Picking a mode activates the preset you last used in it.',
+  },
+  {
+    id: '#preset-dropdown',
+    title: 'Pick a Preset',
+    descr:
+      'This shows the preset that will run, after the backend, device and model it runs on. When the mode has more than one preset, click it to pick another; each one is tuned for a task, from a chat model to an image workflow.',
+  },
+]
+
+const PROMPT_STEPS: TourStep[] = [
   {
     id: '#prompt-input',
     title: 'Unified Prompt',
@@ -45,6 +64,12 @@ export const TOUR_STEPS: TourStep[] = [
     align: 'end',
   },
 ]
+
+/** Guided-narration copy for the demo-mode walkthrough, auto-started in demo mode. */
+export function tourSteps(style: PromptBarStyle): TourStep[] {
+  const modeSteps = style === 'modern' ? MODERN_MODE_STEPS : CLASSIC_MODE_STEPS
+  return [WELCOME_STEP, ...modeSteps, ...PROMPT_STEPS]
+}
 
 /** Per-control copy used by the mini tours triggered from individual buttons. */
 export const TOUR_STEPS_ALTERNATIVE: TourStep[] = [

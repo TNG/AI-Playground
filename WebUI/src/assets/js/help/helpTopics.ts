@@ -21,6 +21,8 @@ export type HelpTopicId =
   | 'app-settings-sidebar'
   | 'sessions-panel'
   | 'preset-selector'
+  | 'mode-dropdown'
+  | 'preset-dropdown'
 
 export type HelpTopic = {
   title: string
@@ -101,6 +103,14 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
   'preset-selector': {
     title: 'Presets',
     body: 'Each tile is a preset tuned for a task (chat model, image workflow, etc.). Click a tile to select it; use help mode on a tile to read what that preset does.',
+  },
+  'mode-dropdown': {
+    title: 'Mode',
+    body: 'Choose the type of work: Chat, Agent, Audio, Image Gen, Image Edit or Video. Picking a mode activates the preset you last used in it.',
+  },
+  'preset-dropdown': {
+    title: 'Preset',
+    body: 'The preset that runs your next prompt. When the mode has more than one, click it to pick another; use help mode on a menu item to read what that preset does.',
   },
 }
 

@@ -6,6 +6,7 @@
     <DropdownMenu>
       <DropdownMenuTrigger as-child>
         <Button
+          id="mode-dropdown"
           variant="secondary"
           class="gap-1"
           :aria-label="`${i18nState.PROMPT_BAR_MODE}: ${mapModeToLabel(shownMode)}`"

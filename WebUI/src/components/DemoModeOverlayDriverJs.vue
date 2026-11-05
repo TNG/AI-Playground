@@ -6,10 +6,12 @@
 import { driver, type Driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
-import { TOUR_STEPS, TOUR_STEPS_ALTERNATIVE, type TourStep } from '@/assets/js/help/tourSteps'
+import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
+import { TOUR_STEPS_ALTERNATIVE, tourSteps, type TourStep } from '@/assets/js/help/tourSteps'
 import { computed } from 'vue'
 
 const demoMode = useDemoMode()
+const promptBarStyle = usePromptBarStyle()
 
 onMounted(() => {
   demoMode.registerDriverJs({
@@ -50,7 +52,7 @@ function driveTour(tour: Driver) {
 }
 
 function startTour() {
-  const filteredSteps = TOUR_STEPS.filter(isStepEnabled)
+  const filteredSteps = tourSteps(promptBarStyle.active).filter(isStepEnabled)
   const driverObj = driver({
     showProgress: true,
     showButtons: ['next', 'previous', 'close'],

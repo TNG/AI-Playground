@@ -6,13 +6,13 @@ import {
   getHelpTopic,
   resolveHelpTarget,
 } from '@/assets/js/help/helpTopics'
-import { TOUR_ONLY_ANCHORS, TOUR_STEPS, TOUR_STEPS_ALTERNATIVE } from '@/assets/js/help/tourSteps'
+import { TOUR_ONLY_ANCHORS, TOUR_STEPS_ALTERNATIVE, tourSteps } from '@/assets/js/help/tourSteps'
 
 const tourOnly = new Set<string>(TOUR_ONLY_ANCHORS)
 
 describe('help topic registry', () => {
   it('gives every demo-tour anchor a click-to-learn topic', () => {
-    const anchors = [...TOUR_STEPS, ...TOUR_STEPS_ALTERNATIVE]
+    const anchors = [...tourSteps('classic'), ...tourSteps('modern'), ...TOUR_STEPS_ALTERNATIVE]
       .map((step) => step.id)
       .filter((id) => !tourOnly.has(id))
 

@@ -86,6 +86,7 @@
         <DropdownMenu v-if="bar.presetChip === 'dropdown'">
           <DropdownMenuTrigger as-child>
             <button
+              id="preset-dropdown"
               type="button"
               :class="presetChipClass"
               :aria-label="`${languages.PROMPT_BAR_PRESET}: ${presetChip.label}`"
@@ -144,7 +145,12 @@
         </DropdownMenu>
         <Tooltip v-else>
           <TooltipTrigger as-child>
-            <button type="button" :class="presetChipClass" class="cursor-help">
+            <button
+              :id="promptBarStyle.active === 'modern' ? 'preset-dropdown' : undefined"
+              type="button"
+              :class="presetChipClass"
+              class="cursor-help"
+            >
               <img
                 v-if="presetChip.image"
                 :src="presetChip.image"

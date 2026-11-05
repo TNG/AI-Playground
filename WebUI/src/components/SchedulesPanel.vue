@@ -17,11 +17,7 @@
     >
       {{ i18n.SESSION_SCHEDULES_EDIT_NOTE }}
     </p>
-    <SettingsAgents
-      :load="panel.agentList.load"
-      :save-as-preset="panel.agentList.saveAsPreset"
-      :preset-agent-only="panel.agentList.presetAgentOnly"
-    />
+    <SettingsAgents :list="panel.agentList" />
   </div>
 </template>
 

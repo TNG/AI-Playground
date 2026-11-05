@@ -452,13 +452,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return false
   }
 
-  /** Agents with an enabled Schedule or a run in flight in the open Session. */
+  /** Agents with a Schedule, paused or not, or a run in flight in the open Session. */
   const openSessionAgents = computed(() => {
     const open = sessionsStore.openSessionId
     if (!open) return []
-    return tasks.value.filter(
-      (task) => !!runIn(task.id, open) || scheduleIn(task, open)?.enabled === true,
-    )
+    return tasks.value.filter((task) => !!runIn(task.id, open) || !!scheduleIn(task, open))
   })
 
   /** Sessions holding an enabled Schedule. */
@@ -485,9 +483,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return schedules.filter((entry) => entry.sessionRef !== sessionRef).length
   }
 
+  /** How many Sessions the Agent has a run in flight in; deleting it is refused until none. */
+  function runningSessionCount(id: string): number {
+    return Object.values(runs.value).filter((run) => run.taskId === id).length
+  }
+
   /** Removes its Schedules in every Session; its runs stay in their Sessions. Refused while it runs. */
   async function deleteTask(id: string): Promise<boolean> {
-    if (Object.values(runs.value).some((run) => run.taskId === id)) return false
+    if (runningSessionCount(id) > 0) return false
     deleting.add(id)
     const result = await window.electronAPI.agentMode
       .deleteTask(id)
@@ -1294,6 +1297,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     scheduledSessionIds,
     scheduledSessionCount,
     otherScheduledSessions,
+    runningSessionCount,
     init,
     setSchedulesHeld,
     saveBlocker,

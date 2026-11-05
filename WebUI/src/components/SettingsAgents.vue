@@ -1,7 +1,7 @@
 <template>
   <TooltipProvider :delay-duration="200">
     <SettingsPanel :title="i18n.AGENT_AGENTS_TITLE" switch-id="agent-agents">
-      <p class="text-xs text-muted-foreground">{{ i18n.AGENT_AGENTS_HINT }}</p>
+      <p v-if="list.load" class="text-xs text-muted-foreground">{{ i18n.AGENT_AGENTS_HINT }}</p>
 
       <ul v-if="rows.length > 0" class="flex flex-col gap-1" :aria-label="i18n.AGENT_AGENTS_TITLE">
         <li
@@ -28,11 +28,11 @@
               @cancel="renamingId = null"
             />
             <component
-              :is="load ? 'button' : 'div'"
+              :is="list.load ? 'button' : 'div'"
               v-else
               class="flex items-start gap-2 min-w-0 flex-1 text-left disabled:cursor-default"
               v-bind="
-                load
+                list.load
                   ? {
                       type: 'button',
                       'aria-pressed': row.loaded,
@@ -41,7 +41,7 @@
                     }
                   : {}
               "
-              @click="load && select(row.id)"
+              @click="list.load && select(row.id)"
             >
               <CpuChipIcon
                 class="size-5 flex-none mt-0.5"
@@ -86,7 +86,7 @@
                 <StopIcon class="size-4" />
               </AgentRowAction>
               <AgentRowAction
-                v-else
+                v-else-if="list.run"
                 :label="row.runLabel"
                 :tooltip="i18n.AGENT_AGENTS_RUN_NOW"
                 @click="runNow(row.id)"
@@ -94,6 +94,7 @@
                 <PlayIcon class="size-4" />
               </AgentRowAction>
               <AgentRowAction
+                v-if="list.editSchedule"
                 :label="row.scheduleLabel"
                 :tooltip="row.scheduleTip"
                 :active="row.scheduled"
@@ -103,7 +104,15 @@
                 <ClockIcon v-else class="size-4" />
               </AgentRowAction>
               <AgentRowAction
-                v-if="saveAsPreset"
+                v-else-if="row.hasSchedule"
+                :label="row.removeScheduleLabel"
+                :tooltip="i18n.AGENT_TASK_SCHEDULE_REMOVE"
+                @click="agentTasks.removeSchedule(row.id)"
+              >
+                <TrashIcon class="size-4" />
+              </AgentRowAction>
+              <AgentRowAction
+                v-if="list.saveAsPreset"
                 :label="row.presetLabel"
                 :tooltip="row.hasPreset ? i18n.AGENT_PRESET_EDIT : i18n.AGENT_PRESET_SAVE"
                 :active="row.hasPreset"
@@ -112,7 +121,7 @@
                 <ArrowUpOnSquareSolidIcon v-if="row.hasPreset" class="size-4" />
                 <ArrowUpOnSquareIcon v-else class="size-4" />
               </AgentRowAction>
-              <DropdownMenu>
+              <DropdownMenu v-if="list.manage">
                 <DropdownMenuTrigger as-child>
                   <Button
                     variant="ghost"
@@ -136,11 +145,16 @@
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     class="text-destructive focus:text-destructive"
-                    :disabled="row.running"
+                    :disabled="row.deleteRefusal !== undefined"
                     @select="startDelete(row.id)"
                   >
                     <TrashIcon />
-                    {{ i18n.AGENT_AGENTS_DELETE }}
+                    <span class="flex flex-col">
+                      {{ i18n.AGENT_AGENTS_DELETE }}
+                      <span v-if="row.deleteRefusal" class="text-xs text-muted-foreground">
+                        {{ row.deleteRefusal }}
+                      </span>
+                    </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -172,7 +186,7 @@
   </TooltipProvider>
 
   <TaskScheduleDialog v-model:open="scheduleOpen" :task-id="scheduleTaskId" />
-  <AgentPresetDialog v-if="saveAsPreset" v-model:open="presetOpen" :task-id="presetTaskId" />
+  <AgentPresetDialog v-if="list.saveAsPreset" v-model:open="presetOpen" :task-id="presetTaskId" />
 </template>
 
 <script setup lang="ts">
@@ -213,18 +227,11 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { createAppError } from '@/assets/js/errors/appError'
 import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
+import type { SchedulesPanel } from '@/lib/sessionTabs'
 import { describeNextRun } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
 
-const {
-  load = true,
-  saveAsPreset = true,
-  presetAgentOnly = false,
-} = defineProps<{
-  load?: boolean
-  saveAsPreset?: boolean
-  presetAgentOnly?: boolean
-}>()
+const { list } = defineProps<{ list: SchedulesPanel['agentList'] }>()
 
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
@@ -245,11 +252,10 @@ const renameValue = ref('')
 const confirmDeleteId = ref<string | null>(null)
 const saving = ref(false)
 
-// Agent Maker lists the library; the run-only tab only what this Session holds.
 const listedTasks = computed(() => {
-  if (!presetAgentOnly) return load ? agentTasks.tasks : agentTasks.openSessionAgents
-  const agent = agentTasks.presetAgent
-  return agent ? [agent] : []
+  if (list.listed === 'library') return agentTasks.tasks
+  if (list.listed === 'this-session') return agentTasks.openSessionAgents
+  return agentTasks.presetAgent ? [agentTasks.presetAgent] : []
 })
 
 const rows = computed(() =>
@@ -283,6 +289,9 @@ const rows = computed(() =>
       },
       problem: reasons ? fillTemplate(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }) : undefined,
       scheduled: schedule.enabled,
+      hasSchedule: agentTasks.taskSchedule(task.id).schedule !== undefined,
+      removeScheduleLabel: fill(i18n.AGENT_AGENTS_REMOVE_SCHEDULE_LABEL, label),
+      deleteRefusal: deleteRefusal(agentTasks.runningSessionCount(task.id)),
       scheduleTip: schedule.line ?? i18n.AGENT_AGENTS_NOT_SCHEDULED,
       selectLabel: fillTemplate(i18n.AGENT_AGENTS_SELECT_LABEL, label),
       stopLabel: fillTemplate(i18n.AGENT_TASKS_STOP, label),
@@ -308,6 +317,12 @@ function alsoScheduledHint(count: number): string | undefined {
   if (count === 0) return undefined
   if (count === 1) return i18n.AGENT_AGENTS_ALSO_SCHEDULED_ONE
   return fillTemplate(i18n.AGENT_AGENTS_ALSO_SCHEDULED_MANY, { count })
+}
+
+function deleteRefusal(runningIn: number): string | undefined {
+  if (runningIn === 0) return undefined
+  if (runningIn === 1) return i18n.AGENT_AGENTS_DELETE_RUNNING_ONE
+  return fill(i18n.AGENT_AGENTS_DELETE_RUNNING_MANY, { count: runningIn })
 }
 
 function deleteQuestion(name: string, scheduledIn: number): string {

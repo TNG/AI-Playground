@@ -24,7 +24,7 @@
         "
         @click="selectTab(tab)"
       >
-        {{ i18nState[TAB_LABELS[tab]] }}
+        {{ i18nState[SESSION_TAB_LABELS[tab]] }}
         <span
           v-if="tab === 'viewport' && sessionTabs.sessionTurnInFlight"
           class="size-2 rounded-full bg-primary animate-pulse"
@@ -56,21 +56,13 @@ import type { ComponentPublicInstance } from 'vue'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
-import type { SessionTabId } from '@/lib/sessionTabs'
+import { SESSION_TAB_LABELS, type SessionTabId } from '@/lib/sessionTabs'
 
 defineSlots<Partial<Record<SessionTabId, () => unknown>>>()
 
 const sessionTabs = useSessionTabs()
 const demoMode = useDemoMode()
 const i18nState = useI18N().state
-
-const TAB_LABELS: Record<SessionTabId, string> = {
-  viewport: 'SESSION_TAB_VIEWPORT',
-  inferencing: 'SESSION_TAB_INFERENCING',
-  attributes: 'SESSION_TAB_ATTRIBUTES',
-  artifacts: 'SESSION_TAB_ARTIFACTS',
-  schedules: 'SESSION_TAB_SCHEDULES',
-}
 
 const SETTINGS_TABS: ReadonlySet<SessionTabId> = new Set(['inferencing', 'attributes'])
 

@@ -743,6 +743,19 @@ describe('one Agent scheduled in two Sessions', () => {
     expect(tasks.openSessionAgents).toEqual([])
   })
 
+  it('counts a run in another Session as one that keeps the Agent from being deleted', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1', {}, { sessionRef: 'session-2' }))
+    expect(tasks.runningSessionCount('t1')).toBe(0)
+
+    await runClockTo(NOW + 10 * MINUTE)
+    await turnIdOf(0)
+
+    expect(tasks.taskState('t1')).toHaveProperty('idle')
+    expect(tasks.runningSessionCount('t1')).toBe(1)
+    expect(await tasks.deleteTask('t1')).toBe(false)
+    expect(tasks.tasks.map((agent) => agent.id)).toEqual(['t1'])
+  })
+
   it('lets a manual run in the open Session start while a scheduled one runs in another', async () => {
     const { tasks } = await readyStores(scheduledTask('t1', {}, { sessionRef: 'session-2' }))
     await runClockTo(NOW + 10 * MINUTE)

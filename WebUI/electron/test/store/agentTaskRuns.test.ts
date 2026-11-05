@@ -514,18 +514,25 @@ describe('the Agents a Session holds', () => {
     await vi.waitFor(() => expect(ids(tasks)).toEqual([]))
   })
 
-  it('include an Agent whose enabled Schedule runs in the Session, wherever it was made', async () => {
+  it('include an Agent scheduled in the Session, wherever it was made', async () => {
     const nextRunAt = Date.now() + 60_000
     const { tasks } = await readyStores(
       task('here', ['one'], {
         sessionRef: 'session-2',
         schedules: [{ sessionRef: SESSION, ...daily, nextRunAt }],
       }),
-      task('paused', ['one'], { schedules: [{ sessionRef: SESSION, ...daily, enabled: false }] }),
       task('there', ['one'], { schedules: [{ sessionRef: 'session-2', ...daily, nextRunAt }] }),
     )
 
     expect(ids(tasks)).toEqual(['here'])
+  })
+
+  it('include an Agent whose Schedule in the Session is paused, so it can be removed', async () => {
+    const { tasks } = await readyStores(
+      task('paused', ['one'], { schedules: [{ sessionRef: SESSION, ...daily, enabled: false }] }),
+    )
+
+    expect(ids(tasks)).toEqual(['paused'])
   })
 })
 

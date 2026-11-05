@@ -2,6 +2,14 @@ import { usesSessionSettings } from '@/lib/agentSessionSettings'
 
 export type SessionTabId = 'viewport' | 'inferencing' | 'attributes' | 'artifacts' | 'schedules'
 
+export const SESSION_TAB_LABELS = {
+  viewport: 'SESSION_TAB_VIEWPORT',
+  inferencing: 'SESSION_TAB_INFERENCING',
+  attributes: 'SESSION_TAB_ATTRIBUTES',
+  artifacts: 'SESSION_TAB_ARTIFACTS',
+  schedules: 'SESSION_TAB_AGENTS',
+} as const satisfies Record<SessionTabId, string>
+
 export type SessionTabsOwner = 'session' | 'home-agent-thread'
 
 export type SessionTabsPresetKind =
@@ -23,7 +31,8 @@ export type ArtifactsScope = 'this-session' | 'all-sessions'
 export type SessionTabsInput = {
   owner: SessionTabsOwner
   presetKind: SessionTabsPresetKind
-  hasAgents: boolean
+  /** The Session holds a Schedule, paused or not, or a running Agent Run. */
+  holdsScheduleOrRun: boolean
   landing: SessionTabLanding
   current: SessionTabId
 }
@@ -40,7 +49,7 @@ function schedulesAllowance(input: SessionTabsInput): SchedulesAllowance | null 
   if (input.owner !== 'session') return null
   if (input.presetKind === 'agent-maker') return 'full'
   if (input.presetKind === 'saved-agent-preset') return 'one-agent'
-  return input.hasAgents ? 'run-only' : null
+  return input.holdsScheduleOrRun ? 'run-only' : null
 }
 
 export function sessionTabs(input: SessionTabsInput): SessionTabsView {
@@ -70,8 +79,17 @@ export type SchedulesPanel = {
   /** The save bar and the Steps editor. */
   editSteps: boolean
   editNote: boolean
-  /** `presetAgentOnly`: list just the Agent the saved Agent Preset was made from. */
-  agentList: { load: boolean; saveAsPreset: boolean; presetAgentOnly: boolean }
+  agentList: {
+    /** The whole library, the saved Agent Preset's own Agent, or what this Session holds. */
+    listed: 'library' | 'preset-agent' | 'this-session'
+    load: boolean
+    saveAsPreset: boolean
+    /** Rename and delete. */
+    manage: boolean
+    run: boolean
+    /** Otherwise this Session's Schedule can only be removed. */
+    editSchedule: boolean
+  }
 }
 
 export function schedulesPanel(allowance: SchedulesAllowance): SchedulesPanel {
@@ -80,19 +98,40 @@ export function schedulesPanel(allowance: SchedulesAllowance): SchedulesPanel {
       return {
         editSteps: true,
         editNote: false,
-        agentList: { load: true, saveAsPreset: true, presetAgentOnly: false },
+        agentList: {
+          listed: 'library',
+          load: true,
+          saveAsPreset: true,
+          manage: true,
+          run: true,
+          editSchedule: true,
+        },
       }
     case 'run-only':
       return {
         editSteps: false,
         editNote: true,
-        agentList: { load: false, saveAsPreset: false, presetAgentOnly: false },
+        agentList: {
+          listed: 'this-session',
+          load: false,
+          saveAsPreset: false,
+          manage: false,
+          run: false,
+          editSchedule: false,
+        },
       }
     case 'one-agent':
       return {
         editSteps: true,
         editNote: false,
-        agentList: { load: false, saveAsPreset: false, presetAgentOnly: true },
+        agentList: {
+          listed: 'preset-agent',
+          load: false,
+          saveAsPreset: false,
+          manage: true,
+          run: true,
+          editSchedule: true,
+        },
       }
   }
 }

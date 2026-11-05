@@ -155,6 +155,22 @@ async function closeApp(app: ElectronApplication): Promise<void> {
   await closed
 }
 
+/**
+ * Specs drive the Classic prompt bar (mode buttons + thumbnail picker); Modern is the product
+ * default, so the preference is written and the renderer reloaded once when it is not Classic yet.
+ */
+async function forceClassicPromptBar(page: Page): Promise<void> {
+  await page.waitForLoadState('domcontentloaded')
+  const changed = await page.evaluate(async () => {
+    const read = await window.electronAPI.preferences.read()
+    const section = read.success ? read.sections.promptBarStyle : undefined
+    if ((section as { selected?: string } | undefined)?.selected === 'classic') return false
+    await window.electronAPI.preferences.write('promptBarStyle', { selected: 'classic' })
+    return true
+  })
+  if (changed) await page.reload()
+}
+
 type E2EFixtures = {
   electronApp: ElectronApplication
   window: Page
@@ -171,6 +187,7 @@ export const test = base.extend<E2EFixtures>({
 
   window: async ({ electronApp }, use) => {
     const window = await getMainWindow(electronApp)
+    await forceClassicPromptBar(window)
     // Before anything else: a failing wait quotes what the app reported while it
     // ran, and the app's own on-screen notice is a toast that has usually faded
     // by then (see appErrors.ts).

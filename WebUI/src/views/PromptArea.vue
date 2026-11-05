@@ -198,7 +198,8 @@
               />
             </template>
           </div>
-          <ClassicBottomBar
+          <component
+            :is="promptBarStyle.active === 'modern' ? ModernBottomBar : ClassicBottomBar"
             :modes="modesWithPresets"
             :phison-usable="phisonUsable"
             :show-attach="shouldShowImageUploadButton"
@@ -272,7 +273,7 @@
                 </button>
               </div>
             </template>
-          </ClassicBottomBar>
+          </component>
         </div>
       </div>
     </div>
@@ -349,6 +350,8 @@ import * as toast from '@/assets/js/toast'
 import Button from '@/components/ui/button/Button.vue'
 import PromptStatusBar from '@/components/PromptStatusBar.vue'
 import ClassicBottomBar from '@/components/ClassicBottomBar.vue'
+import ModernBottomBar from '@/components/ModernBottomBar.vue'
+import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode } from '@/assets/js/store/demoMode'
@@ -384,6 +387,7 @@ const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
 const backendServices = useBackendServices()
 const dialogStore = useDialogStore()
+const promptBarStyle = usePromptBarStyle()
 
 // Some chat presets are gated on a feature that the user can enable/install but
 // that may currently be off. They stay visible in the picker but greyed-out and

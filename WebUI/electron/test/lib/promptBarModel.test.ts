@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { promptBarModel, type DeviceChip, type PromptBarInput } from '@/lib/promptBarModel'
-import type { ChatPreset, ComfyUiPreset } from '@/lib/presetSchemas'
+import {
+  presetsInMode,
+  promptBarModel,
+  type DeviceChip,
+  type PromptBarInput,
+} from '@/lib/promptBarModel'
+import type { ChatPreset, ComfyUiPreset, Preset } from '@/lib/presetSchemas'
 
 const gpu = { id: '0', name: 'Intel(R) Arc(TM) B580 Graphics', selected: true }
 
@@ -168,5 +173,118 @@ describe('promptBarModel header chips', () => {
       }),
     )
     expect(headerChips.map((c) => c.kind)).toEqual(['device', 'preset'])
+  })
+})
+
+describe('promptBarModel modes', () => {
+  const chat = (name: string, extra: Partial<ChatPreset> = {}): ChatPreset => ({
+    ...assistant,
+    name,
+    ...extra,
+  })
+  const agent = (name: string) => chat(name, { agentPreset: true })
+  const audio = (name: string) => chat(name, { category: 'audio' })
+  const image = (name: string, category = 'create-images'): Preset => ({
+    ...comfy(name, []),
+    category,
+  })
+  const names = (presets: Preset[]) => presets.map((p) => p.name)
+
+  it('lists Agent Presets under Agent and never under Chat', () => {
+    const catalog = [chat('Assistant'), agent('Agent'), agent('Game Agent'), agent('Quick Coder')]
+    expect(names(presetsInMode(catalog, 'agent'))).toEqual(['Agent', 'Game Agent', 'Quick Coder'])
+    expect(names(presetsInMode(catalog, 'chat'))).toEqual(['Assistant'])
+  })
+
+  it('keeps aiDAPTIV, Home Agent chat and user chat presets under Chat', () => {
+    const catalog = [
+      chat('Assistant'),
+      chat('aiDAPTIV', { requiresPhison: true }),
+      chat('Home Agent'),
+      chat('My Helper', { category: undefined }),
+    ]
+    expect(names(presetsInMode(catalog, 'chat'))).toEqual([
+      'Assistant',
+      'aiDAPTIV',
+      'Home Agent',
+      'My Helper',
+    ])
+  })
+
+  it('lists the speech presets under Audio', () => {
+    const catalog = [chat('Assistant'), audio('Text to Speech'), audio('Speech to Text')]
+    expect(names(presetsInMode(catalog, 'audio'))).toEqual(['Text to Speech', 'Speech to Text'])
+    expect(names(presetsInMode(catalog, 'chat'))).toEqual(['Assistant'])
+  })
+
+  it('offers the six modes in order, leaving out modes with no presets', () => {
+    const all = [
+      image('Video', 'create-videos'),
+      image('Edit', 'edit-images'),
+      image('Fast'),
+      audio('Text to Speech'),
+      agent('Game Agent'),
+      chat('Assistant'),
+    ]
+    expect(promptBarModel(input({ catalog: all })).modes).toEqual([
+      'chat',
+      'agent',
+      'audio',
+      'imageGen',
+      'imageEdit',
+      'video',
+    ])
+    expect(promptBarModel(input({ catalog: [chat('Assistant'), image('Fast')] })).modes).toEqual([
+      'chat',
+      'imageGen',
+    ])
+  })
+
+  it('selects the mode of the active preset, Agent for an Agent Preset', () => {
+    const modeOf = (activePreset: Preset | null) =>
+      promptBarModel(input({ activePreset })).activeMode
+    expect(modeOf(agent('Game Agent'))).toBe('agent')
+    expect(modeOf(chat('Assistant'))).toBe('chat')
+    expect(modeOf(image('Edit', 'edit-images'))).toBe('imageEdit')
+    expect(modeOf(null)).toBeNull()
+  })
+
+  describe('picking a mode', () => {
+    const catalog = [
+      chat('Assistant'),
+      chat('Reasoning'),
+      agent('Agent'),
+      agent('Game Agent'),
+      image('Fast'),
+    ]
+    const picks = (lastUsed: PromptBarInput['lastUsed']) =>
+      promptBarModel(input({ catalog, lastUsed })).modePicks
+
+    it('activates the mode’s last-used preset', () => {
+      expect(picks({ agent: ['Game Agent'], chat: ['Reasoning'] })).toMatchObject({
+        agent: 'Game Agent',
+        chat: 'Reasoning',
+      })
+    })
+
+    it('skips a remembered preset that belongs to another mode', () => {
+      // The chat category remembers agent presets too; Chat must not land on one.
+      expect(picks({ chat: [undefined, 'Game Agent', 'Reasoning'] }).chat).toBe('Reasoning')
+    })
+
+    it('falls back to the first preset when the last-used one left the catalog', () => {
+      expect(picks({ agent: ['Removed Agent'], chat: [null] })).toMatchObject({
+        agent: 'Agent',
+        chat: 'Assistant',
+      })
+    })
+
+    it('offers no pick for a mode without presets', () => {
+      expect(picks({ video: ['Fast'] })).toEqual({
+        chat: 'Assistant',
+        agent: 'Agent',
+        imageGen: 'Fast',
+      })
+    })
   })
 })

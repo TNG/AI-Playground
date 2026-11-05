@@ -15,6 +15,7 @@ import { useAgentMode } from './assets/js/store/agentMode'
 import { useAgentTasks } from './assets/js/store/agentTasks'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
+import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
 import { useTextToSpeech } from './assets/js/store/textToSpeech'
@@ -126,6 +127,7 @@ await useImageGenerationPresets().init()
 // any service start already sees the machine's flags.
 await Promise.all([
   useTheme().init(),
+  usePromptBarStyle().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),
   useTextToSpeech().init(),

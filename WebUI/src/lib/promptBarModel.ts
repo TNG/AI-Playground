@@ -1,4 +1,4 @@
-import type { Preset } from '@/lib/presetSchemas'
+import { AUDIO_CATEGORY, type Preset } from '@/lib/presetSchemas'
 import type { llmBackendTypes } from '@/types/shared'
 
 type LlmBackend = (typeof llmBackendTypes)[number]
@@ -31,14 +31,66 @@ export type PromptBarInput = {
   activePreset: Preset | null
   presetLabel: (name: string) => string
   machine: PromptBarMachine
+  /** The presets the pickers list, after product-mode and system filtering. */
+  catalog?: Preset[]
+  /** Remembered preset names per mode, most specific first. */
+  lastUsed?: Partial<Record<ModeType, (string | null | undefined)[]>>
 }
 
 export type PromptBarModel = {
   headerChips: HeaderChip[]
+  /** The Modern Mode dropdown's entries, in order, without modes that have no presets. */
+  modes: ModeType[]
+  activeMode: ModeType | null
+  /** The preset picking each offered mode activates. */
+  modePicks: Partial<Record<ModeType, string>>
 }
 
 export function promptBarModel(input: PromptBarInput): PromptBarModel {
-  return { headerChips: headerChips(input) }
+  const catalog = input.catalog ?? []
+  const modes = MODERN_MODES.filter((mode) => presetsInMode(catalog, mode).length > 0)
+  const modePicks: Partial<Record<ModeType, string>> = {}
+  for (const mode of modes) {
+    modePicks[mode] = presetForModePick(catalog, mode, input.lastUsed?.[mode] ?? [])
+  }
+  return {
+    headerChips: headerChips(input),
+    modes,
+    activeMode: input.activePreset ? modernModeOf(input.activePreset) : null,
+    modePicks,
+  }
+}
+
+const MODERN_MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']
+
+/** The Modern prompt bar's grouping: Agent Presets get a mode of their own instead of riding Chat. */
+export function modernModeOf(preset: Preset): ModeType {
+  if (preset.type === 'chat') {
+    if (preset.agentPreset) return 'agent'
+    return preset.category === AUDIO_CATEGORY ? 'audio' : 'chat'
+  }
+  switch (preset.category) {
+    case 'edit-images':
+      return 'imageEdit'
+    case 'create-videos':
+      return 'video'
+    default:
+      return 'imageGen'
+  }
+}
+
+export function presetsInMode(catalog: Preset[], mode: ModeType): Preset[] {
+  return catalog.filter((preset) => modernModeOf(preset) === mode)
+}
+
+function presetForModePick(
+  catalog: Preset[],
+  mode: ModeType,
+  lastUsed: (string | null | undefined)[],
+): string {
+  const listed = presetsInMode(catalog, mode)
+  const remembered = lastUsed.find((name) => name && listed.some((p) => p.name === name))
+  return remembered ?? listed[0].name
 }
 
 function headerChips({ activePreset: preset, presetLabel, machine }: PromptBarInput): HeaderChip[] {

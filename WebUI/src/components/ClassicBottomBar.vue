@@ -1,25 +1,12 @@
 <template>
   <div class="absolute bottom-14 left-3 flex gap-2">
     <slot name="previews" />
-    <div
+    <PromptAttachButton
       v-if="showAttach"
-      class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
-      :class="{ 'border-primary bg-primary/10': isOverDropZone }"
-      id="plus-icon"
-    >
-      <Label htmlFor="file-attachment" @click="handlePlusIconClick">
-        <PlusIcon class="size-4 cursor-pointer" />
-      </Label>
-      <input
-        type="file"
-        class="hidden"
-        id="file-attachment"
-        aria-label="Attach image or document"
-        :accept="acceptedFileTypes"
-        multiple
-        @change="(e: Event) => emit('attach', e)"
-      />
-    </div>
+      :accepted-file-types="acceptedFileTypes"
+      :is-over-drop-zone="isOverDropZone"
+      @attach="(e: Event) => emit('attach', e)"
+    />
   </div>
   <div
     id="mode-buttons"
@@ -123,129 +110,45 @@
     </Popover>
   </div>
   <div class="absolute bottom-4 right-3 flex gap-2">
-    <Button
-      id="camera-button"
-      class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
-      variant="secondary"
-      v-if="promptStore.getCurrentMode() === 'chat'"
-      :disabled="downloading"
-      @click="emit('camera')"
-      title="Capture image from camera"
-    >
-      <AcerCameraIcon class="w-5 h-5" />
-    </Button>
-    <Button
-      id="microphone-button"
-      class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
-      variant="secondary"
-      v-if="promptStore.getCurrentMode() === 'chat'"
-      @click="emit('record')"
-      :disabled="
-        (!sttAvailable && !audioRecorder.isRecording) ||
-        audioRecorder.isTranscribing ||
-        preparingStt ||
-        downloading
-      "
-      :title="preparingStt ? 'Starting speech service…' : sttAvailable ? '' : sttUnavailableHint"
-    >
-      <i
-        v-if="!audioRecorder.isTranscribing && !preparingStt"
-        class="svg-icon w-5 h-5"
-        :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
-      ></i>
-      <span
-        v-else
-        class="svg-icon i-loading w-5 h-5 animate-spin inline-block"
-        :aria-label="preparingStt ? 'Starting speech service' : 'Transcribing'"
-      ></span>
-      <div v-if="audioRecorder.isRecording" class="absolute -top-11 flex gap-1 items-end h-10">
-        <div
-          v-for="i in 5"
-          :key="i"
-          class="w-1.5 bg-primary rounded-full transition-all duration-100"
-          :style="{
-            height: `${Math.max(6, (audioRecorder.audioLevel / 100) * 40 * (i / 5))}px`,
-            opacity: audioRecorder.audioLevel > (i - 1) * 20 ? 1 : 0.35,
-          }"
-        ></div>
-      </div>
-    </Button>
-    <!-- Send / stop / loading cluster — hidden for the STT preset, which
-         submits via its own record/upload controls. -->
-    <template v-if="showSend">
-      <TooltipProvider v-if="readyForNewSubmit" :delay-duration="200">
-        <Tooltip v-if="canRunSteps">
-          <TooltipTrigger as-child>
-            <Button
-              @click="emit('runSteps')"
-              :aria-label="languages?.AGENT_STEPS_RUN"
-              :disabled="settingsBlocked || isSlashCommand"
-              class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-            >
-              <PlayIcon class="size-4" aria-hidden="true" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN_TIP }}</TooltipContent>
-        </Tooltip>
-        <Tooltip :disabled="!canRunSteps">
-          <TooltipTrigger as-child>
-            <Button
-              @click="emit('send')"
-              id="send-button"
-              aria-label="Send"
-              :disabled="settingsBlocked"
-              class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-            >
-              →
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{{ languages?.AGENT_STEPS_SEND_TIP }}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <Button
-        v-else-if="!isStopping"
-        @click="emit('cancel')"
-        aria-label="Stop generating"
-        aria-busy="true"
-        class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-      >
-        <i class="svg-icon w-4 h-4 i-stop"></i>
-      </Button>
-      <Button
-        v-else
-        disabled
-        aria-label="Stopping"
-        aria-busy="true"
-        class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-      >
-        <i class="svg-icon w-4 h-4 i-loading"></i>
-      </Button>
-    </template>
+    <PromptCaptureButtons
+      :downloading="downloading"
+      :stt-available="sttAvailable"
+      :stt-unavailable-hint="sttUnavailableHint"
+      @camera="emit('camera')"
+      @record="emit('record')"
+    />
+    <PromptSendButtons
+      :show-send="showSend"
+      :ready-for-new-submit="readyForNewSubmit"
+      :can-run-steps="canRunSteps"
+      :settings-blocked="settingsBlocked"
+      :is-slash-command="isSlashCommand"
+      :is-stopping="isStopping"
+      @send="emit('send')"
+      @run-steps="emit('runSteps')"
+      @cancel="emit('cancel')"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { getCurrentInstance, ref, nextTick, watch } from 'vue'
-import { PlusIcon } from '@heroicons/vue/24/outline'
-import { PlayIcon } from '@heroicons/vue/24/solid'
-import { useAudioRecorder } from '@/assets/js/store/audioRecorder'
+import { ref, nextTick, watch } from 'vue'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
-import { useSessionChat } from '@/assets/js/store/sessionChat'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
-import { preparingStt } from '@/assets/js/speech/speechIO'
-import AcerCameraIcon from '@/components/AcerCameraIcon.vue'
 import Button from '@/components/ui/button/Button.vue'
-import { Label } from '@/components/ui/label'
+import PromptAttachButton from '@/components/PromptAttachButton.vue'
+import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
+import PromptSendButtons from '@/components/PromptSendButtons.vue'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { presetGate, type PresetGate } from '@/lib/presetGate'
+import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import * as toast from '@/assets/js/toast'
 
 const props = defineProps<{
@@ -274,15 +177,11 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const instance = getCurrentInstance()
-const languages = instance?.appContext.config.globalProperties.languages
-const audioRecorder = useAudioRecorder()
 const promptStore = usePromptStore()
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
-const conversations = useConversations()
-const sessionChat = useSessionChat()
+const switchPresetFromBar = usePromptBarPresetSwitch()
 const homeAgent = useHomeAgent()
 const demoMode = useDemoMode()
 
@@ -402,21 +301,10 @@ async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
   // switch too (skipPresetSwitch: we pick the preset ourselves right after).
   if (!promptStore.setCurrentMode(mode, { skipPresetSwitch: true })) return
 
-  // Route the active conversation alongside the preset, mirroring SettingsChatInferencing:
-  // Home Agent jumps to its remote thread; leaving a Home Agent thread for another
-  // preset spawns a fresh main conversation so we don't write into Home Agent state.
-  const switchingToHomeAgent = preset.name === HOME_AGENT_CHAT_PRESET_NAME
-  const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
-
   // The mode is left to the switch: an agent preset from the chat list moves the app
   // to Agent Mode, which the button above cannot know.
-  const result = await presetSwitching.switchPreset(preset.name)
+  const result = await switchPresetFromBar(preset.name)
   if (result.success) {
-    if (switchingToHomeAgent) {
-      conversations.activeKey = homeAgent.ensureActiveRemoteConversation()
-    } else if (onHomeAgentThread) {
-      sessionChat.returnToSessionChat()
-    }
     toast.success(`Switched to ${oemBranding.presetLabel(preset.name)}`)
   } else if (result.error) {
     toast.error(`Failed to switch preset: ${result.error}`)
@@ -444,18 +332,5 @@ function handleModeClick(mode: ModeType) {
       })
     })
   })
-}
-
-function handlePlusIconClick(event: MouseEvent) {
-  if (demoMode.triggerFirstTimeHelp('plus-icon')) {
-    event.preventDefault()
-    return
-  }
-  if (demoMode.enabled) {
-    event.preventDefault()
-    toast.show('Clicking this feature is disabled during demo.')
-    return
-  }
-  // Let the Label's default behavior open the file dialog
 }
 </script>

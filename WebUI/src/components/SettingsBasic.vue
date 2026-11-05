@@ -12,6 +12,11 @@
       <ThemeSelector />
     </div>
 
+    <div class="flex flex-col gap-2">
+      <SettingsHeading>{{ languages.SETTINGS_PROMPT_BAR_STYLE }}</SettingsHeading>
+      <PromptBarStyleSelector />
+    </div>
+
     <DemoModeBlocker>
       <div class="flex flex-col gap-3">
         <SettingsHeading>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</SettingsHeading>
@@ -318,6 +323,7 @@ import { useDemoMode } from '@/assets/js/store/demoMode'
 import * as toast from '@/assets/js/toast'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import ThemeSelector from '@/components/ThemeSelector.vue'
+import PromptBarStyleSelector from '@/components/PromptBarStyleSelector.vue'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'

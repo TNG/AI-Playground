@@ -165,9 +165,11 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   for (const agent of live.agents ?? []) {
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
-  const turns = timelineTurns(merged, files, live.artifactRuns)
+  const inFlight = new Set(live.agentRunsInFlight ?? [])
+  const turns = timelineTurns(merged, files, live.artifactRuns, inFlight)
   const mediaSteps = live.mediaSteps ?? {}
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
+  markRunsBetweenSteps(turns, inFlight)
   markLiveChatTurn(turns, live.chatStatus, mediaSteps)
   const items: SessionTimelineItem<M, A>[] = [...turns]
   const media = live.media
@@ -317,6 +319,7 @@ function withAnswers(
   turns: TimelineTurn[],
   prompts: Map<string, UIMessage>,
   runs: Map<string, AgentRun>,
+  inFlight: ReadonlySet<string>,
 ): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat') {
@@ -328,7 +331,7 @@ function withAnswers(
       turn.footer = agentFooter(turn.answers)
     }
     const run = turn.kind === 'agent' ? runs.get(turn.harnessSessionId) : undefined
-    if (run) Object.assign(turn, runSections(run))
+    if (run) Object.assign(turn, runSections(run, inFlight.has(run.turn.harnessSessionId)))
     else if (turn.kind === 'chat' || turn.kind === 'agent') {
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
@@ -349,8 +352,12 @@ function finalProse(step: RunStep | undefined): Set<string> {
   )
 }
 
-function runSections(run: AgentRun): { details: TurnDetails; result: TurnResultPart[] } {
-  const final = finalProse(run.steps.at(-1))
+/** Until the run ends, its newest text is a Step's progress, not its answer. */
+function runSections(
+  run: AgentRun,
+  inFlight: boolean,
+): { details: TurnDetails; result: TurnResultPart[] } {
+  const final = inFlight ? new Set<string>() : finalProse(run.steps.at(-1))
   const prose = (ref: AnswerPartRef) => final.has(`${ref.messageId}:${ref.index}`)
   const whole = answerSections(
     'agent',
@@ -623,6 +630,15 @@ function markLiveAgentTurns(
   }
 }
 
+/** Between two Steps no turn is streaming, but the run is still going. */
+function markRunsBetweenSteps(turns: TimelineTurn[], inFlight: ReadonlySet<string>): void {
+  for (const turn of turns) {
+    if (turn.kind !== 'agent' || !inFlight.has(turn.harnessSessionId) || turn.streaming) continue
+    turn.streaming = true
+    turn.details = { ...turn.details, live: turn.details.live ?? { kind: 'working' } }
+  }
+}
+
 function pendingMediaArtifacts(
   media: PendingMedia,
   artifactRuns: ArtifactRunsState | undefined,
@@ -670,6 +686,7 @@ export function timelineTurns(
   timeline: readonly unknown[],
   files: TimelineFiles = {},
   artifactRuns?: ArtifactRunsState,
+  inFlight: ReadonlySet<string> = new Set(),
 ): TimelineTurn[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
@@ -784,7 +801,11 @@ export function timelineTurns(
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return withArtifacts(withAnswers(turns, prompts, runs), files.deletedUrls ?? [], artifactRuns)
+  return withArtifacts(
+    withAnswers(turns, prompts, runs, inFlight),
+    files.deletedUrls ?? [],
+    artifactRuns,
+  )
 }
 
 function openRun(id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {

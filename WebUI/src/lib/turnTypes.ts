@@ -230,6 +230,8 @@ export type MediaStepStatus = { label: string; progress?: number }
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   chat?: readonly { id: string }[]
   agents?: readonly LiveAgentTurn[]
+  /** Harness Sessions of the Agent Runs still in flight, including between two Steps. */
+  agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>

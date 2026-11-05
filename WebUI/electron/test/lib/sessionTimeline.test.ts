@@ -178,6 +178,34 @@ describe('an Agent Run in the timeline', () => {
     ])
   })
 
+  it('keeps every Step in its details and stays live between two Steps of a run in flight', () => {
+    const [turn] = sessionTimelineItems(twoSteps, { agentRunsInFlight: ['aipg-agent-run'] })
+
+    expect(turn.kind === 'agent' && turn.result).toEqual([
+      { kind: 'artifact', messageId: 'a1', index: 1 },
+    ])
+    expect(turn.kind === 'agent' && turn.details.parts).toContainEqual({
+      kind: 'prose',
+      messageId: 'a2',
+      index: 2,
+    })
+    expect(turn).toMatchObject({ streaming: true, details: { live: { kind: 'working' } } })
+  })
+
+  it('keeps text streamed after a tool call in its details while the run is in flight', () => {
+    const streaming = runMessage('a1', 'assistant', [
+      image('t1'),
+      { type: 'text', text: 'Here is', state: 'streaming' },
+    ])
+    const [turn] = sessionTimelineItems([twoSteps[0], streaming], {
+      agentRunsInFlight: ['aipg-agent-run'],
+      agents: [{ tag: runTag, messages: [], live: true }],
+    })
+
+    expect(turn.kind === 'agent' && turn.result.some((part) => part.kind === 'prose')).toBe(false)
+    expect(turn).toMatchObject({ streaming: true, details: { live: { kind: 'writing' } } })
+  })
+
   it('shows why a failed run ended beside the Artifacts it already made', () => {
     const failed = {
       ...runTag,

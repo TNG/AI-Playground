@@ -198,6 +198,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   let schedulesHeld = false
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
+  /** Harness Sessions of the runs in flight, including between two Steps. */
+  const runHarnessSessions = computed(() => Object.keys(runs.value))
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(
@@ -1300,6 +1302,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   return {
     tasks,
     openSessionAgents,
+    runHarnessSessions,
     scheduledSessionIds,
     scheduledSessionCount,
     otherScheduledSessions,

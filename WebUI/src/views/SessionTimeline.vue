@@ -33,6 +33,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useActivities } from '@/assets/js/store/activities'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useConversations } from '@/assets/js/store/conversations'
@@ -58,6 +59,7 @@ import { useStickToBottom } from '@/lib/useStickToBottom'
 const sessions = useSessions()
 const chat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const sessionAudio = useSessionAudio()
 const promptStore = usePromptStore()
 const activities = useActivities()
@@ -117,6 +119,7 @@ const items = computed(() =>
       chat: chatLive.value,
       chatStatus: chatStatus.value,
       agents: agentLive.value,
+      agentRunsInFlight: agentTasks.runHarnessSessions,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
       mediaSteps: mediaSteps.value,
       audio: sessionAudio.pendingTurn,

@@ -4,7 +4,7 @@ import http from 'node:http'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { closeBrowserSession } from './agentBrowser.ts'
 import { injectProbe, PROBE_PATH, PROBE_SCRIPT } from './previewProbe.ts'
-import { MOUNTED_FOLDERS_ROOT, type ResolvedMountedFolder } from '@/lib/mountedFolders'
+import { isWritable, mountedFolderLocation, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 // ── Workspace runtime: localhost preview server ──────────────────────────────
 //
@@ -294,17 +294,15 @@ export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions
   if (mountedFolders.length > 0) {
     lines.push('- The user also gave you these Mounted Folders:')
     for (const folder of mountedFolders) {
-      lines.push(
-        unsandboxed
-          ? `  - ${folder.hostPath} (${folder.access})`
-          : `  - ${path.posix.join(MOUNTED_FOLDERS_ROOT, folder.name)} (${folder.access}) is ` +
-              `${folder.hostPath} on the host`,
-      )
+      const where = `  - ${mountedFolderLocation(folder, unsandboxed)} (${folder.access})`
+      lines.push(unsandboxed ? where : `${where} is ${folder.hostPath} on the host`)
     }
     lines.push(
       '- New files belong in your working directory unless the user asks for them elsewhere.',
+      '- When you finish, tell the user which files you created, changed or deleted in a' +
+        ' Mounted Folder, by path, so they know what happened to their own files.',
     )
-    if (unsandboxed && mountedFolders.some((folder) => folder.access !== 'read-write')) {
+    if (unsandboxed && !mountedFolders.every(isWritable)) {
       lines.push('- Do not change files in a read-only folder, from bash either.')
     }
   }

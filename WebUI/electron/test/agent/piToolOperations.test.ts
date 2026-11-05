@@ -12,7 +12,7 @@ import {
 import type { AgentSkill } from '../../agent/piCustomTools'
 import { onGeneratedMedia } from '../../agent/generatedMedia'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { InMemoryFs, MountableFs, ReadWriteFs } from 'just-bash'
+import { InMemoryFs, MountableFs, OverlayFs, ReadWriteFs } from 'just-bash'
 
 // The read tool sizes images with Electron's decoder (see imageForModel), which
 // vitest does not have. `decodedSize` is what the stand-in reports for the next
@@ -453,6 +453,25 @@ describe('a read-only Mounted Folder, sandboxed', () => {
 
     const shell = resultText(await invoke(toolOf(access, 'bash'), { command: 'ls /mnt/notes' }))
     expect(shell).toContain('journal')
+  })
+
+  // just-bash's ls matches a glob the shell left unexpanded against getAllPaths(),
+  // which walks every mount's whole real tree synchronously.
+  it('never enumerates a mount for a shell glob, matched or not', async () => {
+    const enumerations = [ReadWriteFs, OverlayFs].map((fsClass) =>
+      vi.spyOn(fsClass.prototype, 'getAllPaths'),
+    )
+    const bash = toolOf(access, 'bash')
+    const run = (command: string) =>
+      invoke(bash, { command }).then(resultText, (error: Error) => error.message)
+
+    const matched = await run('ls /mnt/notes/journal/*.md')
+    const unmatched = await run('ls /mnt/notes/nothing* nothing*')
+
+    expect(matched).toContain('monday.md')
+    expect(unmatched).toContain('ls: /mnt/notes/nothing*: No such file or directory')
+    for (const enumeration of enumerations) expect(enumeration).not.toHaveBeenCalled()
+    for (const enumeration of enumerations) enumeration.mockRestore()
   })
 
   it('keeps the mount out of a find or grep in the workspace', async () => {

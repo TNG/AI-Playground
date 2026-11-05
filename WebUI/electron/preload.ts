@@ -147,6 +147,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   screenChange: (callback: (metrics: { width: number; height: number }) => void) =>
     onRaw('display-metrics-changed', callback),
   existsPath: (path: string) => invoke('existsPath', path),
+  isFolderPath: (path: string) => invoke('isFolderPath', path),
   addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
     invoke('addDocumentToRAGList', doc, phisonKmConfig),
   embedInputUsingRag: (embedInquiry: EmbedInquiry) => invoke('embedInputUsingRag', embedInquiry),

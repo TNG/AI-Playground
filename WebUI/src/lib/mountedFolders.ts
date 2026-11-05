@@ -9,6 +9,19 @@ export type ResolvedMountedFolder = {
 
 export const MOUNTED_FOLDERS_ROOT = '/mnt'
 
+export function mountedFolderSandboxPath(folder: { name: string }): string {
+  return `${MOUNTED_FOLDERS_ROOT}/${folder.name}`
+}
+
+/** Where the agent finds a folder: its sandbox path, or its real path under the real shell. */
+export function mountedFolderLocation(folder: ResolvedMountedFolder, unsandboxed: boolean): string {
+  return unsandboxed ? folder.hostPath : mountedFolderSandboxPath(folder)
+}
+
+export function isWritable(folder: { access?: MountedFolderAccess }): boolean {
+  return folder.access === 'read-write'
+}
+
 export function folderBaseName(hostPath: string): string {
   return (
     hostPath
@@ -62,14 +75,13 @@ function isDriveRoot(segments: string[]): boolean {
   return segments.length === 2 && segments[0] === 'Volumes'
 }
 
-function comparable(hostPath: string): string[] {
+function comparablePathSegments(hostPath: string): string[] {
   const segments = segmentsOf(hostPath)
   const windows = /^[a-z]:$/i.test(segments[0] ?? '') || hostPath.match(/^[\\/]{2}/)
   return windows ? segments.map((segment) => segment.toLowerCase()) : segments
 }
 
-/** Whether `outer` is `inner` or one of its parent folders. */
-function holds(outer: string[], inner: string[]): boolean {
+function isSameOrAncestor(outer: string[], inner: string[]): boolean {
   return outer.length <= inner.length && outer.every((segment, i) => segment === inner[i])
 }
 
@@ -78,20 +90,22 @@ export function mountedFolderRefusal(
   candidate: string,
   context: MountedFolderContext,
 ): MountedFolderRefusal | undefined {
-  const folder = comparable(candidate)
+  const folder = comparablePathSegments(candidate)
   if (isDriveRoot(folder)) return { reason: 'too-broad' }
-  if (context.homeFolder && holds(folder, comparable(context.homeFolder))) return { reason: 'home' }
+  if (context.homeFolder && isSameOrAncestor(folder, comparablePathSegments(context.homeFolder)))
+    return { reason: 'home' }
   if (context.sessionFolder) {
-    const sessionFolder = comparable(context.sessionFolder)
-    if (holds(folder, sessionFolder) || holds(sessionFolder, folder)) {
+    const sessionFolder = comparablePathSegments(context.sessionFolder)
+    if (isSameOrAncestor(folder, sessionFolder) || isSameOrAncestor(sessionFolder, folder)) {
       return { reason: 'session-folder' }
     }
   }
   for (const mounted of resolveMountedFolders(context.mountedFolders)) {
-    const mountedPath = comparable(mounted.hostPath)
-    const sandboxPath = `${MOUNTED_FOLDERS_ROOT}/${mounted.name}`
-    if (holds(mountedPath, folder)) return { reason: 'mounted', folder: sandboxPath }
-    if (holds(folder, mountedPath)) return { reason: 'contains-mounted', folder: sandboxPath }
+    const mountedPath = comparablePathSegments(mounted.hostPath)
+    const sandboxPath = mountedFolderSandboxPath(mounted)
+    if (isSameOrAncestor(mountedPath, folder)) return { reason: 'mounted', folder: sandboxPath }
+    if (isSameOrAncestor(folder, mountedPath))
+      return { reason: 'contains-mounted', folder: sandboxPath }
   }
   return undefined
 }

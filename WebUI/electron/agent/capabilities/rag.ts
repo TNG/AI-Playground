@@ -12,7 +12,8 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { ragAccess } from '../ragAccess.ts'
-import { MOUNTED_FOLDERS_ROOT } from '@/lib/mountedFolders'
+import { mountedFolderSandboxPath } from '@/lib/mountedFolders'
+import { realFileInside } from '../hostPathContainment.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 
 // ── rag capability ───────────────────────────────────────────────────────────
@@ -116,24 +117,10 @@ function documentRoots(host: CapabilityHost): DocumentRoot[] {
   return [
     { sandboxPath: SANDBOX_WORKDIR, hostPath: host.workspaceDir },
     ...(host.mountedFolders ?? []).map((folder) => ({
-      sandboxPath: `${MOUNTED_FOLDERS_ROOT}/${folder.name}`,
+      sandboxPath: mountedFolderSandboxPath(folder),
       hostPath: folder.hostPath,
     })),
   ]
-}
-
-function realInside(root: string, candidate: string): string | null {
-  let realRoot: string
-  let real: string
-  try {
-    realRoot = fs.realpathSync(root)
-    real = fs.realpathSync(path.resolve(realRoot, candidate))
-  } catch {
-    return null
-  }
-  const relative = path.relative(realRoot, real)
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null
-  return real
 }
 
 /**
@@ -146,11 +133,11 @@ function resolveDocumentFile(roots: readonly DocumentRoot[], inputPath: string):
   const [workspace] = roots
   const sandboxRoot = roots.find((root) => inputPath.startsWith(root.sandboxPath + '/'))
   if (sandboxRoot) {
-    return realInside(sandboxRoot.hostPath, inputPath.slice(sandboxRoot.sandboxPath.length + 1))
+    return realFileInside(sandboxRoot.hostPath, inputPath.slice(sandboxRoot.sandboxPath.length + 1))
   }
-  if (!path.isAbsolute(inputPath)) return realInside(workspace.hostPath, inputPath)
+  if (!path.isAbsolute(inputPath)) return realFileInside(workspace.hostPath, inputPath)
   for (const root of roots) {
-    const real = realInside(root.hostPath, inputPath)
+    const real = realFileInside(root.hostPath, inputPath)
     if (real) return real
   }
   return null

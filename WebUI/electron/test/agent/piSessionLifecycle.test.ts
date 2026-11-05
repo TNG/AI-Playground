@@ -421,6 +421,17 @@ describe('session reuse', () => {
       expect(await manager.startAgentTurn('t2', 'second', config)).toEqual({ success: true })
     })
 
+    function ensureDir(folder: string): string {
+      fs.mkdirSync(folder, { recursive: true })
+      return folder
+    }
+
+    function linkTo(target: string, name: string): string {
+      const link = path.join(path.dirname(target), name)
+      fs.symlinkSync(target, link)
+      return link
+    }
+
     async function promptsSent(): Promise<string[]> {
       const sessions = await Promise.all(
         createAgentSession.mock.results.map(async (result) => (await result.value).session),
@@ -462,6 +473,65 @@ describe('session reuse', () => {
       const [, second] = await promptsSent()
       expect(second).toMatch(/removed.*\/mnt\/old/i)
       expect(second).not.toMatch(/added/i)
+    })
+
+    it.each([
+      ['inside the Session Folder', () => ensureDir(path.join(workspaceA, 'docs'))],
+      ['containing the Session Folder', () => path.dirname(workspaceA)],
+      ['an alias of the Session Folder', () => linkTo(workspaceA, 'alias-a')],
+    ])('refuses a turn with a Mounted Folder %s', async (_label, folderFor) => {
+      const folder = folderFor()
+      const manager = await loadManager()
+
+      const failed = await manager.startAgentTurn(
+        't1',
+        'first',
+        configFor({ mountedFolders: [mountOf(folder)] }),
+      )
+
+      expect(failed.success).toBe(false)
+      expect(!failed.success && failed.error).toMatch(/session folder/i)
+      expect(!failed.success && failed.error).toContain(folder)
+      expect(createAgentSession).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['inside another', () => ensureDir(path.join(workspaceB, 'inner'))],
+      ['an alias of another', () => linkTo(workspaceB, 'alias-b')],
+    ])('refuses a turn with one Mounted Folder %s', async (_label, folderFor) => {
+      const second = folderFor()
+      const manager = await loadManager()
+
+      const failed = await manager.startAgentTurn(
+        't1',
+        'first',
+        configFor({
+          mountedFolders: [mountOf(workspaceB), { ...mountOf(second), name: 'second' }],
+        }),
+      )
+
+      expect(failed.success).toBe(false)
+      expect(!failed.success && failed.error).toContain(second)
+      expect(!failed.success && failed.error).toContain(workspaceB)
+      expect(createAgentSession).not.toHaveBeenCalled()
+    })
+
+    it('keeps the change note for the next turn when the prompt fails', async () => {
+      const manager = await loadManager()
+      await manager.startAgentTurn('t1', 'first', configFor())
+      const changed = configFor({ mountedFolders: [mountOf(workspaceB)] })
+      createAgentSession.mockImplementationOnce(async () => {
+        const made = await makeAgentSession()
+        made.session.prompt.mockRejectedValueOnce(new Error('model went away'))
+        return made
+      })
+      const failed = await manager.startAgentTurn('t2', 'second', changed)
+      await manager.startAgentTurn('t3', 'third', changed)
+
+      expect(failed.success).toBe(false)
+      const [, , third] = await promptsSent()
+      expect(third).toMatch(/added.*\/mnt\/workspace-b/i)
+      expect(third.trim().endsWith('third')).toBe(true)
     })
 
     it('fails a turn that would reuse the session once its folder has gone', async () => {

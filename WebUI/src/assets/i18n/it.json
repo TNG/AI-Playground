@@ -1089,6 +1089,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Lettura e scrittura",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Consenti all’agente di modificare i file in {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Aggiungi cartella",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED": "Impossibile aggiungere la cartella.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Nome per {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Questa è un’intera unità. Scegli invece una cartella al suo interno.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Così l’agente avrebbe l’intera cartella home. Scegli una cartella all’interno della tua cartella home.",

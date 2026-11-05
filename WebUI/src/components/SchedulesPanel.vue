@@ -20,6 +20,7 @@
           <MountedFolderList
             :model-value="agentMode.mountedFolders"
             :session-folder="agentMode.workspaceDir"
+            :real-shell="realShell"
             @update:model-value="agentMode.setMountedFolders"
           />
         </TooltipProvider>
@@ -38,6 +39,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import AgentSaveBar from '@/components/AgentSaveBar.vue'
 import MountedFolderList from '@/components/MountedFolderList.vue'
@@ -56,6 +58,10 @@ const panel = computed(() => schedulesPanel(props.allowance))
 
 const stepsSummary = computed(() =>
   i18n.AGENT_TASKS_STEP_COUNT.replace('{count}', String(agentMode.openSteps.length)),
+)
+
+const realShell = computed(
+  () => agentMode.agentWorkspaceKind !== 'games' && developerMode() && agentMode.unsandboxed,
 )
 
 const foldersSummary = computed(() =>

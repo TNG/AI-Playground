@@ -258,6 +258,7 @@ beforeEach(() => {
         },
       })),
       existsPath: vi.fn(async () => true),
+      isFolderPath: vi.fn(async () => true),
       reportInFlightWork,
       sessions: {
         taskRunHarness: vi.fn(async () => ({
@@ -1090,7 +1091,7 @@ describe('a Scheduled Run that fails part-way', () => {
   })
 
   it('fails before any turn when a Mounted Folder is missing, and toasts its name and path', async () => {
-    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+    vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
       async (path: string) => path !== '/Volumes/usb/inbox',
     )
     const template = { ...TEMPLATE, mountedFolders: [{ hostPath: '/Volumes/usb/inbox' }] }

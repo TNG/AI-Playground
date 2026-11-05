@@ -1200,6 +1200,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as boolean | undefined,
   },
+  /** Whether a path is an existing folder, symlinks followed — what a Mounted Folder must be. */
+  isFolderPath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
+  },
 
   // ── Media files: app-owned media dirs, renderer-supplied payloads ──
 

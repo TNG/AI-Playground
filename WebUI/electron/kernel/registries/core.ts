@@ -18,6 +18,7 @@ import { LocalSettingsSchema } from '../localSettings'
 import { ipcErrorText, ipcFail, typedSend } from '../typedIpc'
 import { hintFromError } from '../../adapters/backends/applicationControl.ts'
 import { revealFileInFolder, saveFileCopy, startFileDrag } from '../../adapters/osFileActions.ts'
+import { isFolder } from '../../agent/hostPathContainment.ts'
 import type {
   CoreInvokeName,
   CoreSendName,
@@ -574,6 +575,8 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
       }
       return fs.existsSync(path)
     },
+
+    isFolderPath: (_event, folderPath: string) => isFolder(folderPath),
 
     getInitSetting: (event) => {
       const win = BrowserWindow.fromWebContents(event.sender)

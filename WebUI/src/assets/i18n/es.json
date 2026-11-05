@@ -1089,6 +1089,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Lectura y escritura",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Permitir que el agente modifique archivos en {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Añadir carpeta",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED": "No se pudo añadir la carpeta.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Nombre para {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Eso es una unidad completa. Elige una carpeta dentro de ella.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Eso daría al agente toda tu carpeta personal. Elige una carpeta dentro de tu carpeta personal.",

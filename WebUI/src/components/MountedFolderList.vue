@@ -1,5 +1,8 @@
 <template>
   <div class="flex flex-col gap-2">
+    <p v-if="realShell" class="text-xs text-amber-500">
+      {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE }}
+    </p>
     <ul
       v-if="rows.length > 0"
       class="flex flex-col gap-1"
@@ -24,12 +27,12 @@
         />
         <label class="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
           <Switch
-            :model-value="row.access === 'read-write'"
+            :model-value="row.writable"
             :aria-label="allowChangesLabel(row.sandboxPath)"
             @update:model-value="(writable: boolean) => setWritable(row.folder, writable)"
           />
           {{
-            row.access === 'read-write'
+            row.writable
               ? languages.AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE
               : languages.AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY
           }}
@@ -66,6 +69,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { FolderIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,8 +77,9 @@ import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   folderBaseName,
-  MOUNTED_FOLDERS_ROOT,
+  isWritable,
   mountedFolderRefusal,
+  mountedFolderSandboxPath,
   resolveMountedFolders,
   type MountedFolderRefusal,
 } from '@/lib/mountedFolders'
@@ -83,19 +88,22 @@ import type { MountedFolder } from '@/types/agentSessionIpc'
 const props = defineProps<{
   /** Absent where there is no Session Folder to overlap, as in an Agent's Settings Template. */
   sessionFolder?: string
+  /** The real system shell, where read-only is not enforced. */
+  realShell?: boolean
 }>()
 
 const folders = defineModel<MountedFolder[]>({ required: true })
 
 const languages = useI18N().state
+const errors = useErrors()
 const refusal = ref<MountedFolderRefusal>()
 
 const rows = computed(() => {
   const resolved = resolveMountedFolders(folders.value)
   return folders.value.map((folder, index) => ({
     folder,
-    sandboxPath: `${MOUNTED_FOLDERS_ROOT}/${resolved[index].name}`,
-    access: resolved[index].access,
+    sandboxPath: mountedFolderSandboxPath(resolved[index]),
+    writable: isWritable(resolved[index]),
   }))
 })
 
@@ -131,14 +139,25 @@ function nameLabel(hostPath: string): string {
 
 async function add(): Promise<void> {
   refusal.value = undefined
-  const result = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
-  const hostPath = result.canceled ? undefined : result.filePaths[0]
-  if (!hostPath) return
-  refusal.value = mountedFolderRefusal(hostPath, {
-    homeFolder: await window.electronAPI.getHomePath(),
-    sessionFolder: props.sessionFolder || undefined,
-    mountedFolders: folders.value,
-  })
+  let hostPath: string | undefined
+  try {
+    const result = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
+    hostPath = result.canceled ? undefined : result.filePaths[0]
+    if (!hostPath) return
+    refusal.value = mountedFolderRefusal(hostPath, {
+      homeFolder: await window.electronAPI.getHomePath(),
+      sessionFolder: props.sessionFolder || undefined,
+      mountedFolders: folders.value,
+    })
+  } catch (error) {
+    errors.report(error, {
+      code: 'mounted-folders/add-failed',
+      category: 'unknown',
+      surface: 'toast',
+      userMessage: languages.AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED,
+    })
+    return
+  }
   if (refusal.value) return
   folders.value = [...folders.value, { hostPath, access: 'read-only' }]
 }

@@ -1089,6 +1089,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "読み書き可能",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "{folder} 内のファイルの変更をエージェントに許可",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "フォルダーを追加",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED": "フォルダーを追加できませんでした。",
   "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "{folder} の名前",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "ドライブ全体です。代わりにその中のフォルダーを選んでください。",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "ホームフォルダー全体をエージェントに渡すことになります。ホームフォルダー内のフォルダーを選んでください。",

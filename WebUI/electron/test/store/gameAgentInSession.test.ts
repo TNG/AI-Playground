@@ -162,6 +162,7 @@ globalThis.window = {
       create: createGame,
     },
     existsPath: vi.fn(async () => true),
+    isFolderPath: vi.fn(async () => true),
   },
 } as unknown as Window & typeof globalThis
 

@@ -118,6 +118,7 @@ globalThis.window = {
     sessions: { harnessSession, saveTimelineMessages },
     games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
     existsPath: vi.fn(async () => true),
+    isFolderPath: vi.fn(async () => true),
   },
 } as unknown as Window & typeof globalThis
 

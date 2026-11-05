@@ -504,9 +504,9 @@ export async function startAgentTurn(
         if (failure) throw new Error(failure)
       }
       const note = current.mountedFoldersNote
-      current.mountedFoldersNote = undefined
       const withUpdate = await withSessionUpdate(prompt, config)
       await current.session.prompt(note ? `${note}\n\n${withUpdate}` : withUpdate)
+      if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
       failIfModelErrored()
       // A session that plans first has only been asked for the plan so far; the
       // build is a second request, sent from here rather than by the user.

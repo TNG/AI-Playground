@@ -2101,7 +2101,7 @@ export const useAgentMode = defineStore(
         ? (context.settings?.mountedFolders ?? [])
         : mountedFolders.value
       for (const folder of resolveMountedFolders(folders)) {
-        if (await window.electronAPI.existsPath(folder.hostPath)) continue
+        if (await window.electronAPI.isFolderPath(folder.hostPath)) continue
         return refuseSend(
           'missing-folder',
           (

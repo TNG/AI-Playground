@@ -258,6 +258,7 @@ beforeEach(() => {
         },
       })),
       existsPath: vi.fn(async () => true),
+      isFolderPath: vi.fn(async () => true),
       sessions: {
         taskRunHarness: vi.fn(async () => ({
           success: true,

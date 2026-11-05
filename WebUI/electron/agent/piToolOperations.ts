@@ -15,7 +15,12 @@ import type {
 import { appLoggerInstance } from '../observability/logger.ts'
 import { loadJustBash, loadPi, type JustBashModule, type PiModule } from './piRuntime.ts'
 import type { AgentSkill } from './piCustomTools.ts'
-import { MOUNTED_FOLDERS_ROOT, type ResolvedMountedFolder } from '@/lib/mountedFolders'
+import {
+  isWritable,
+  mountedFolderSandboxPath,
+  type ResolvedMountedFolder,
+} from '@/lib/mountedFolders'
+import { containedIn, realDestination } from './hostPathContainment.ts'
 
 // ── Agent Mode file/shell access ─────────────────────────────────────────────
 //
@@ -91,11 +96,6 @@ export type AgentToolAccessOptions = {
   mountedFolders?: ResolvedMountedFolder[]
 }
 
-function containedIn(root: string, candidate: string): boolean {
-  const relative = path.relative(root, candidate)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
-}
-
 /** Reject a path that leaves `root`, so host-shell mode can't write anywhere. */
 function assertContained(root: string, candidate: string, action: string): void {
   if (containedIn(root, path.resolve(candidate))) return
@@ -109,49 +109,31 @@ function outsideWorkspace(action: string, candidate: string): Error {
   )
 }
 
-/**
- * Where `candidate` really lands once symlinks are followed, for a path that
- * may not exist yet: its deepest existing ancestor is resolved and the rest is
- * appended. A dangling link is followed to its target, which a write creates.
- */
-async function realDestination(candidate: string, hops = 0): Promise<string> {
-  try {
-    return await fsp.realpath(candidate)
-  } catch {
-    const parent = path.dirname(candidate)
-    if (parent === candidate || hops > 40) return candidate
-    const link = await fsp.readlink(candidate).catch(() => null)
-    if (link !== null) return realDestination(path.resolve(parent, link), hops + 1)
-    return path.join(await realDestination(parent, hops), path.basename(candidate))
-  }
-}
+type WriteRoots = { writable: string[]; readOnly: string[] }
 
-/** Where host-shell file tools may write: the workspace and the read-write Mounted Folders. */
-type HostWriteRoots = { writable: string[]; readOnly: ResolvedMountedFolder[] }
-
-function hostWriteRoots(options: AgentToolAccessOptions): HostWriteRoots {
-  const folders = options.mountedFolders ?? []
+function writeRoots(
+  workingDir: string,
+  folders: readonly ResolvedMountedFolder[],
+  locate: (folder: ResolvedMountedFolder) => string,
+): WriteRoots {
   return {
-    writable: [
-      options.workspaceDir,
-      ...folders.filter((f) => f.access === 'read-write').map((f) => f.hostPath),
-    ],
-    readOnly: folders.filter((f) => f.access !== 'read-write'),
+    writable: [workingDir, ...folders.filter(isWritable).map(locate)],
+    readOnly: folders.filter((folder) => !isWritable(folder)).map(locate),
   }
 }
 
 /** Refuse a write unless the path, and where its symlinks really lead, stay in a writable root. */
 async function assertReallyContained(
-  roots: HostWriteRoots,
+  roots: WriteRoots,
   candidate: string,
   action: string,
 ): Promise<void> {
   const resolved = path.resolve(candidate)
   const destination = await realDestination(resolved)
   for (const folder of roots.readOnly) {
-    const real = await realDestination(folder.hostPath)
-    if (containedIn(folder.hostPath, resolved) || containedIn(real, destination)) {
-      throw readOnlyRefusal(action, candidate, folder.hostPath, roots.writable[0])
+    const real = await realDestination(folder)
+    if (containedIn(folder, resolved) || containedIn(real, destination)) {
+      throw readOnlyRefusal(action, candidate, folder, roots.writable[0])
     }
   }
   const realRoots = await Promise.all(roots.writable.map((root) => realDestination(root)))
@@ -223,9 +205,6 @@ function assertInsideSandboxRoots(roots: string[], candidate: string, action: st
   )
 }
 
-/** Where the file tools may write: the workspace and the read-write Mounted Folders. */
-type SandboxWriteRoots = { writable: string[]; readOnly: string[] }
-
 function readOnlyRefusal(
   action: string,
   candidate: string,
@@ -239,7 +218,7 @@ function readOnlyRefusal(
   )
 }
 
-function assertSandboxWritable(roots: SandboxWriteRoots, candidate: string, action: string): void {
+function assertSandboxWritable(roots: WriteRoots, candidate: string, action: string): void {
   const readOnlyRoot = roots.readOnly.find((root) => insideSandboxRoot(root, candidate))
   if (readOnlyRoot) throw readOnlyRefusal(action, candidate, readOnlyRoot)
   assertInsideSandboxRoots(roots.writable, candidate, action)
@@ -268,6 +247,25 @@ function namingReadOnlyMount(fs: IFileSystem, mountPoint: string): IFileSystem {
           return restated(error)
         }
       }
+    },
+  })
+}
+
+/**
+ * just-bash's `ls` matches a glob the shell left unexpanded against `getAllPaths()`, which
+ * walks every real mount's whole tree synchronously. Only the mount points are offered
+ * instead: a pattern the shell could not expand matches nothing, as in a real shell.
+ */
+function withoutTreeEnumeration(vfs: IFileSystem, mountPoints: readonly string[]): IFileSystem {
+  const structure = new Set(['/'])
+  for (const mountPoint of mountPoints) {
+    for (let dir = mountPoint; dir !== '/'; dir = path.posix.dirname(dir)) structure.add(dir)
+  }
+  return new Proxy(vfs, {
+    get(target, property) {
+      if (property === 'getAllPaths') return () => [...structure]
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
     },
   })
 }
@@ -425,7 +423,7 @@ function imageAwareReadOperations(
 function sandboxFsOperations(
   vfs: IFileSystem,
   workspaceDir: string,
-  roots: SandboxWriteRoots,
+  roots: WriteRoots,
   writableFiles?: string[],
 ) {
   /** Guard a sandbox write against the session's fixed file list, if it has one. */
@@ -546,7 +544,6 @@ async function* walkSandbox(
   }
 }
 
-/** The files a grep rooted at `searchRoot` reads: the file itself, or those below it. */
 async function* grepCandidates(
   vfs: IFileSystem,
   searchRoot: string,
@@ -693,12 +690,12 @@ function createSandboxAccess(
     SANDBOX_SKILLS_DIR,
     new justBash.InMemoryFs(Object.fromEntries(skills.map((s) => [s.relativePath, s.content]))),
   )
-  const roots: SandboxWriteRoots = { writable: [SANDBOX_WORKDIR], readOnly: [] }
-  const mountPoints = (options.mountedFolders ?? []).map((folder) => {
-    const mountPoint = path.posix.join(MOUNTED_FOLDERS_ROOT, folder.name)
-    if (folder.access === 'read-write') {
+  const mountedFolders = options.mountedFolders ?? []
+  const roots = writeRoots(SANDBOX_WORKDIR, mountedFolders, mountedFolderSandboxPath)
+  const mountPoints = mountedFolders.map((folder) => {
+    const mountPoint = mountedFolderSandboxPath(folder)
+    if (isWritable(folder)) {
       vfs.mount(mountPoint, new justBash.ReadWriteFs({ root: folder.hostPath }))
-      roots.writable.push(mountPoint)
     } else {
       // The overlay's own mount point is where paths below it start once MountableFs strips its prefix.
       vfs.mount(
@@ -708,12 +705,11 @@ function createSandboxAccess(
           mountPoint,
         ),
       )
-      roots.readOnly.push(mountPoint)
     }
     return mountPoint
   })
   const bashEnv = new justBash.Bash({
-    fs: vfs,
+    fs: withoutTreeEnumeration(vfs, [SANDBOX_WORKDIR, SANDBOX_SKILLS_DIR, ...mountPoints]),
     cwd: SANDBOX_WORKDIR,
     env: { HOME: SANDBOX_HOME, PWD: SANDBOX_WORKDIR },
     // just-bash's secondary hardening layer patches Module._load while a script
@@ -768,7 +764,7 @@ function createSandboxAccess(
  */
 function createHostShellAccess(pi: PiModule, options: AgentToolAccessOptions): AgentToolAccess {
   const { workspaceDir } = options
-  const roots = hostWriteRoots(options)
+  const roots = writeRoots(workspaceDir, options.mountedFolders ?? [], (folder) => folder.hostPath)
   return {
     cwd: workspaceDir,
     skillsRoot: options.skillsDir,
@@ -814,7 +810,7 @@ function hostReadOperations(workspaceDir: string): ReadOperations {
 
 function guardedWriteOperations(
   workspaceDir: string,
-  roots: HostWriteRoots,
+  roots: WriteRoots,
   writableFiles?: string[],
 ): WriteOperations {
   return {
@@ -849,7 +845,7 @@ function assertHostWritable(
 
 function guardedEditOperations(
   workspaceDir: string,
-  roots: HostWriteRoots,
+  roots: WriteRoots,
   writableFiles?: string[],
 ): EditOperations {
   return {

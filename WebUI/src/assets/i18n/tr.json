@@ -1089,6 +1089,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Okuma-yazma",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Aracının {folder} içindeki dosyaları değiştirmesine izin ver",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Klasör ekle",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED": "Klasör eklenemedi.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "{folder} için ad",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Bu bir sürücünün tamamı. Bunun yerine içindeki bir klasörü seçin.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Bu, aracıya ana klasörünüzün tamamını verir. Ana klasörünüzün içindeki bir klasörü seçin.",

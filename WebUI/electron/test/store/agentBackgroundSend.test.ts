@@ -181,6 +181,7 @@ beforeEach(() => {
         },
       })),
       existsPath,
+      isFolderPath: vi.fn(async () => true),
       agentMode: {
         startTurn,
         cancel,

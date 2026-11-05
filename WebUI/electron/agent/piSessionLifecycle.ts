@@ -18,7 +18,11 @@ import { resolveCapabilities, type CapabilityHost } from './capabilities/index.t
 import { enabledCapabilityIds } from '@/types/agentCapabilities'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { createAgentToolAccess } from './piToolOperations.ts'
-import { assertMountedFoldersPresent, mountedFoldersChangeNote } from './mountedFolderTurn.ts'
+import {
+  assertMountedFoldersApart,
+  assertMountedFoldersPresent,
+  mountedFoldersChangeNote,
+} from './mountedFolderTurn.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
 import { laminarPiExtensionPath } from '../observability/laminar.ts'
@@ -524,6 +528,7 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
   const config = withShellPolicy(requested)
   assertMountedFoldersPresent(config.mountedFolders ?? [])
+  assertMountedFoldersApart(config.workspaceDir, config.mountedFolders ?? [])
   const configKey = configKeyOf(config)
   if (active && active.configKey === configKey) {
     applyMediaSpecialistTurn(config)

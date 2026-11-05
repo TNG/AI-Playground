@@ -1089,6 +1089,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Baca-tulis",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Izinkan agen mengubah file di {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Tambah folder",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED": "Folder tidak dapat ditambahkan.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Nama untuk {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Itu adalah seluruh drive. Pilih folder di dalamnya.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Itu akan memberi agen seluruh folder home Anda. Pilih folder di dalam folder home Anda.",

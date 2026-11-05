@@ -1089,6 +1089,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_WRITE": "Lesen und Schreiben",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ALLOW_CHANGES_NAMED": "Dem Agenten erlauben, Dateien in {folder} zu ändern",
   "AGENT_SETTINGS_MOUNTED_FOLDER_ADD": "Ordner hinzufügen",
+  "AGENT_SETTINGS_MOUNTED_FOLDER_ADD_FAILED": "Der Ordner konnte nicht hinzugefügt werden.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_NAME_LABEL": "Name für {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD": "Das ist ein ganzes Laufwerk. Wähle stattdessen einen Ordner darauf.",
   "AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME": "Damit bekäme der Agent deinen ganzen Benutzerordner. Wähle einen Ordner innerhalb deines Benutzerordners.",

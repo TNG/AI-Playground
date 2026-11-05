@@ -166,6 +166,17 @@ describe('workspace instructions', () => {
     expect(instructions).toMatch(/do not change files in a read-only folder, from bash either/i)
   })
 
+  it('asks the agent to report what it changed in a Mounted Folder', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      mountedFolders: [{ hostPath: '/Users/ada/notes', name: 'notes', access: 'read-write' }],
+    })
+
+    expect(instructions).toMatch(
+      /tell the user which files you created, changed or deleted in a Mounted Folder/i,
+    )
+  })
+
   it('says nothing about Mounted Folders when there are none', () => {
     expect(buildWorkspaceInstructions(options)).not.toContain('/mnt/')
   })

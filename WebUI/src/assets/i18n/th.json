@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "บันทึกเอเจนต์ “{name}” แล้ว",
   "AGENT_AGENTS_NEW": "เอเจนต์ใหม่",
   "AGENT_AGENTS_SELECT_LABEL": "ใช้ {name}",
+  "AGENT_AGENTS_DESELECT_LABEL": "เลิกใช้ {name}",
   "AGENT_AGENTS_CHANGED": "การเปลี่ยนแปลงที่ยังไม่ได้บันทึก",
   "AGENT_AGENTS_COPY_NAME": "สำเนาของ {name}",
   "AGENT_AGENTS_RUN_LABEL": "เรียกใช้ {name} ตอนนี้",

@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "“{name}” ajanı kaydedildi",
   "AGENT_AGENTS_NEW": "Yeni ajan",
   "AGENT_AGENTS_SELECT_LABEL": "{name} kullan",
+  "AGENT_AGENTS_DESELECT_LABEL": "{name} kullanmayı bırak",
   "AGENT_AGENTS_CHANGED": "Kaydedilmemiş değişiklikler",
   "AGENT_AGENTS_COPY_NAME": "{name} kopyası",
   "AGENT_AGENTS_RUN_LABEL": "{name} şimdi çalıştır",

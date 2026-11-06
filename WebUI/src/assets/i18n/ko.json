@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "에이전트 “{name}” 저장됨",
   "AGENT_AGENTS_NEW": "새 에이전트",
   "AGENT_AGENTS_SELECT_LABEL": "{name} 사용",
+  "AGENT_AGENTS_DESELECT_LABEL": "{name} 사용 중지",
   "AGENT_AGENTS_CHANGED": "저장되지 않은 변경 사항",
   "AGENT_AGENTS_COPY_NAME": "{name} 사본",
   "AGENT_AGENTS_RUN_LABEL": "{name} 지금 실행",

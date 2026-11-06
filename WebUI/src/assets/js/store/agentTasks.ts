@@ -1228,6 +1228,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return true
   }
 
+  /** Unlink the open Harness Session from its Agent and drop its Steps; settings stay. */
+  function unloadAgent(): void {
+    agentMode.linkOpenSessionToAgent(undefined)
+    agentMode.setOpenSteps([])
+  }
+
   /** Send a prompt from the prompt bar as one turn; the open Harness Session's Steps do not run. */
   async function submitPrompt(prompt: string): Promise<void> {
     if (isSessionLockedByTask(agentMode.openSessionId)) return
@@ -1339,6 +1345,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     saveAgent,
     updateAgent,
     loadAgent,
+    unloadAgent,
     deleteTask,
     presetOfAgent,
     presetAgent,

@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "Saved agent “{name}”",
   "AGENT_AGENTS_NEW": "New agent",
   "AGENT_AGENTS_SELECT_LABEL": "Use {name}",
+  "AGENT_AGENTS_DESELECT_LABEL": "Stop using {name}",
   "AGENT_AGENTS_CHANGED": "Unsaved changes",
   "AGENT_AGENTS_COPY_NAME": "{name} copy",
   "AGENT_AGENTS_RUN_LABEL": "Run {name} now",

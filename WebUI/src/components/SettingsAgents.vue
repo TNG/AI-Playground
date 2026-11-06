@@ -36,12 +36,12 @@
                   ? {
                       type: 'button',
                       'aria-pressed': row.loaded,
-                      'aria-label': row.selectLabel,
-                      disabled: row.loaded || agentMode.processing,
+                      'aria-label': row.loaded ? row.deselectLabel : row.selectLabel,
+                      disabled: agentMode.processing,
                     }
                   : {}
               "
-              @click="list.load && select(row.id)"
+              @click="list.load && toggle(row.id, row.loaded)"
             >
               <CpuChipIcon
                 class="size-5 flex-none mt-0.5"
@@ -298,6 +298,7 @@ const rows = computed(() =>
       ]),
       scheduleTip: schedule.line ?? i18n.AGENT_AGENTS_NOT_SCHEDULED,
       selectLabel: fillTemplate(i18n.AGENT_AGENTS_SELECT_LABEL, label),
+      deselectLabel: fillTemplate(i18n.AGENT_AGENTS_DESELECT_LABEL, label),
       stopLabel: fillTemplate(i18n.AGENT_TASKS_STOP, label),
       runLabel: fillTemplate(i18n.AGENT_AGENTS_RUN_LABEL, label),
       scheduleLabel: fillTemplate(i18n.AGENT_AGENTS_SCHEDULE_LABEL, label),
@@ -365,10 +366,11 @@ function outcomeMessage({ message, reason }: AgentTaskOutcome): string | undefin
   return message
 }
 
-async function select(id: string): Promise<void> {
+async function toggle(id: string, loaded: boolean): Promise<void> {
   renamingId.value = null
   confirmDeleteId.value = null
-  await agentTasks.loadAgent(id)
+  if (loaded) agentTasks.unloadAgent()
+  else await agentTasks.loadAgent(id)
 }
 
 /** The inline field a menu item opened takes focus, not the menu's trigger. */

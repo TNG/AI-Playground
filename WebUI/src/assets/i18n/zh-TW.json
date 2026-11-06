@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "已儲存代理程式「{name}」",
   "AGENT_AGENTS_NEW": "新代理程式",
   "AGENT_AGENTS_SELECT_LABEL": "使用 {name}",
+  "AGENT_AGENTS_DESELECT_LABEL": "停止使用 {name}",
   "AGENT_AGENTS_CHANGED": "未儲存的變更",
   "AGENT_AGENTS_COPY_NAME": "{name} 副本",
   "AGENT_AGENTS_RUN_LABEL": "立即執行 {name}",

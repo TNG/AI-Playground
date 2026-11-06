@@ -633,6 +633,19 @@ describe('updating an Agent', () => {
     expect(saveTask).not.toHaveBeenCalled()
   })
 
+  it('deselects the Agent and clears its Steps', async () => {
+    storedTasks = [savedTask('task-1')]
+    const { agentMode, tasks } = await readyStores()
+    await tasks.loadAgent('task-1')
+
+    tasks.unloadAgent()
+
+    expect(agentMode.openTaskId).toBeUndefined()
+    expect(tasks.openSessionTask).toBeUndefined()
+    expect(agentMode.openSteps).toEqual([])
+    expect(tasks.tasks[0]).toEqual(savedTask('task-1'))
+  })
+
   it('refuses an Agent that does not exist', async () => {
     const { agentMode, tasks } = await readyStores()
     agentMode.setOpenSteps(stepsOf('go'))

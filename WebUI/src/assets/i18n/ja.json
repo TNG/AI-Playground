@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "エージェント「{name}」を保存しました",
   "AGENT_AGENTS_NEW": "新しいエージェント",
   "AGENT_AGENTS_SELECT_LABEL": "{name} を使用",
+  "AGENT_AGENTS_DESELECT_LABEL": "{name} の使用をやめる",
   "AGENT_AGENTS_CHANGED": "未保存の変更",
   "AGENT_AGENTS_COPY_NAME": "{name} のコピー",
   "AGENT_AGENTS_RUN_LABEL": "{name} を今すぐ実行",

@@ -1029,6 +1029,7 @@
   "AGENT_AGENTS_SAVED": "Agen “{name}” disimpan",
   "AGENT_AGENTS_NEW": "Agen baru",
   "AGENT_AGENTS_SELECT_LABEL": "Gunakan {name}",
+  "AGENT_AGENTS_DESELECT_LABEL": "Berhenti menggunakan {name}",
   "AGENT_AGENTS_CHANGED": "Perubahan belum disimpan",
   "AGENT_AGENTS_COPY_NAME": "Salinan {name}",
   "AGENT_AGENTS_RUN_LABEL": "Jalankan {name} sekarang",

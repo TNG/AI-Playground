@@ -1,5 +1,5 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelMessageOwner } from '@/types/notificationsIpc'
 import { hasAnswerTyping } from '@/lib/answerButton'

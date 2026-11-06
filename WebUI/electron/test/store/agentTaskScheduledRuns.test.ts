@@ -5,6 +5,7 @@ import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTask, AgentTaskSchedule } from '@/types/agentTaskIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from '@/types/kernelEvents'
+import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
 // Scheduled Runs: the Tasks store's ticker starts a Task Run by itself when a
 // Task's Next Run arrives, skips slots that find a run in flight or that were
@@ -203,7 +204,7 @@ const startTurn = vi.fn(async (_turnId: string, _prompt: string, _config: AgentM
   error: undefined as string | undefined,
 }))
 const saveTask = vi.fn(async (_task: AgentTask) => ({ success: true as boolean, error: '' }))
-const setLifecycleBusy = vi.fn((_busy: boolean) => {})
+const reportInFlightWork = vi.fn((_work: InFlightWorkItem[]) => {})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -243,7 +244,7 @@ beforeEach(() => {
         },
       })),
       existsPath: vi.fn(async () => true),
-      setLifecycleBusy,
+      reportInFlightWork,
       agentMode: {
         startTurn,
         cancel: vi.fn(async () => {}),
@@ -432,6 +433,30 @@ describe('a Schedule reaching its Next Run', () => {
     await turnIdOf(1)
     expect(sentSteps().sort()).toEqual(['t1 one', 't2 one'])
     expect(sentConfig(0).sessionId).not.toBe(sentConfig(1).sessionId)
+  })
+})
+
+describe('a slot that falls while the close question is open', () => {
+  it('starts no Task Run while Schedules are held', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    tasks.setSchedulesHeld(true)
+
+    await runClockTo(NOW + 10 * MINUTE + TICK)
+    await settleMicrotasks()
+
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('runs once Schedules resume on Keep open', async () => {
+    const { tasks } = await readyStores(scheduledTask('t1'))
+    tasks.setSchedulesHeld(true)
+    await runClockTo(NOW + 10 * MINUTE)
+
+    tasks.setSchedulesHeld(false)
+    await runClockTo(NOW + 10 * MINUTE + TICK)
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['t1 one'])
   })
 })
 
@@ -1069,38 +1094,38 @@ describe('a Task Run whose Task Session is paused', () => {
   })
 })
 
-/** What main last heard over `lifecycle:busy`; its close policy hides the window while true. */
-const lastBusy = () => setLifecycleBusy.mock.calls.at(-1)?.[0]
+/** What main last heard over `lifecycle:reportWork`; its close question lists these. */
+const lastReport = () => reportInFlightWork.mock.calls.at(-1)?.[0]
 
-describe('keeping the app alive when the window is closed', () => {
-  it('is not busy with no Schedule and no Task Run', async () => {
+describe('reporting In-flight Work to the close question', () => {
+  it('reports nothing with no Schedule and no Task Run', async () => {
     await readyStores(task('t1'))
     await settleMicrotasks()
 
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
   })
 
-  it('is not busy merely because a Schedule is enabled', async () => {
+  it('reports nothing merely because a Schedule is enabled', async () => {
     const { tasks } = await readyStores(task('t1'))
 
     await tasks.setSchedule('t1', every10Minutes())
     await settleMicrotasks()
 
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
   })
-  it('stays not busy when the Schedule is paused, removed, or the Task is deleted', async () => {
+  it('stays empty when the Schedule is paused, removed, or the Task is deleted', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'), scheduledTask('t2'))
     await settleMicrotasks()
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
 
     await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
     await tasks.removeSchedule('t2')
     await tasks.deleteTask('t1')
     await settleMicrotasks()
 
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
   })
-  it('is busy for a whole Task Run, between its Steps too, and not after', async () => {
+  it('reports a whole Task Run by name and step, between its Steps too, and not after', async () => {
     const { tasks } = await readyStores(task('t1'))
     let releaseSecondStep: () => void = () => {}
     startTurn.mockImplementationOnce(startTurn.getMockImplementation()!)
@@ -1112,44 +1137,112 @@ describe('keeping the app alive when the window is closed', () => {
     )
     await tasks.runTask('t1')
     await settleMicrotasks()
-    expect(lastBusy()).toBe(true)
-    setLifecycleBusy.mockClear()
+    expect(lastReport()).toEqual([
+      expect.objectContaining({
+        kind: 'task-run',
+        taskId: 't1',
+        name: 'Task t1',
+        state: { status: 'step', index: 1, count: 2 },
+      }),
+    ])
+    reportInFlightWork.mockClear()
 
     // Step one settles; Step two has been asked for but its turn has not started yet.
     await finishTurn(0)
     await turnIdOf(1)
     await settleMicrotasks()
-    expect(setLifecycleBusy).not.toHaveBeenCalledWith(false)
+    expect(reportInFlightWork).not.toHaveBeenCalledWith([])
+    expect(lastReport()).toEqual([
+      expect.objectContaining({ kind: 'task-run', state: { status: 'step', index: 2, count: 2 } }),
+    ])
 
     releaseSecondStep()
     await finishTurn(1)
     await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))
     await settleMicrotasks()
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
   })
+  it('reports a Task Run while ▶ Run waits on its model download, before any Step', async () => {
+    missingModels.list = [{ repo_id: TEMPLATE.model! }]
+    const { tasks } = await readyStores(task('t1'))
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
 
-  it('is busy during a Scheduled Run and not after, even while the Schedule stays on', async () => {
+    const running = tasks.runTask('t1')
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalledTimes(1))
+    await settleMicrotasks()
+    expect(lastReport()).toEqual([
+      { kind: 'task-run', taskId: 't1', name: 'Task t1', state: { status: 'starting' } },
+    ])
+
+    finishDownload()
+    await running
+    await settleMicrotasks()
+    expect(lastReport()).toEqual([
+      expect.objectContaining({ kind: 'task-run', state: { status: 'step', index: 1, count: 2 } }),
+    ])
+  })
+  it('reports a Prompt Run under its session, between its Steps too, and not after', async () => {
+    const { agentMode, tasks } = await readyStores()
+    agentMode.setOpenSteps([
+      { id: 'p1', prompt: 'one' },
+      { id: 'p2', prompt: 'two' },
+    ])
+
+    const submitting = tasks.runSteps('')
+    await turnIdOf(0)
+    await settleMicrotasks()
+    expect(lastReport()).toEqual([
+      expect.objectContaining({
+        kind: 'prompt-run',
+        sessionId: 'session-open',
+        name: 'what I am doing',
+        state: { status: 'step', index: 1, count: 2 },
+      }),
+    ])
+    reportInFlightWork.mockClear()
+
+    await finishTurn(0)
+    await submitting
+    await turnIdOf(1)
+    await settleMicrotasks()
+    expect(reportInFlightWork).not.toHaveBeenCalledWith([])
+    expect(lastReport()).toEqual([
+      expect.objectContaining({
+        kind: 'prompt-run',
+        state: { status: 'step', index: 2, count: 2 },
+      }),
+    ])
+
+    await finishTurn(1)
+    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
+    await settleMicrotasks()
+    expect(lastReport()).toEqual([])
+  })
+  it('reports a Scheduled Run and not after, even while the Schedule stays on', async () => {
     const { tasks } = await readyStores(scheduledTask('t1', { steps: [{ id: 's', prompt: 'x' }] }))
     await settleMicrotasks()
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
 
     await runClockTo(NOW + 10 * MINUTE)
     await turnIdOf(0)
     await settleMicrotasks()
-    expect(lastBusy()).toBe(true)
+    expect(lastReport()).toEqual([expect.objectContaining({ kind: 'task-run', taskId: 't1' })])
     expect(lastSavedTask('t1')?.activeRun).toMatchObject({ scheduled: true, stepIndex: 1 })
 
     await finishTurn(0)
     await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle.kind', 'completed'))
     await settleMicrotasks()
 
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
   })
-  it('is not kept alive by Schedules in demo mode, where they never fire', async () => {
+  it('reports nothing for Schedules in demo mode, where they never fire', async () => {
     demo.enabled = true
     await readyStores(scheduledTask('t1'))
     await settleMicrotasks()
 
-    expect(lastBusy()).toBe(false)
+    expect(lastReport()).toEqual([])
   })
 })

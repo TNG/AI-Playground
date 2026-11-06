@@ -80,8 +80,8 @@ history filter read `currentMode`. `setModeOnly()` remains for Home Agent remote
 **The agent is in main but screenshot and web-browse still reach back into the window.** Direct
 `generateImage` / `editImage` and the NL `media` specialist's inner Comfy tools execute in-process
 against the Artifact runner (`mediaDirect.ts`, `inProcessComfy.ts`, `mediaAgentRunner.ts`). Pi's
-thin `media` tool calls that runner directly. A headless host still needs Chromium for screenshot /
-web-browse (§10.1) and for download consent.
+thin `media` tool calls that runner directly. Screenshot / web-browse (§10.1) and download consent
+still need Chromium.
 
 **Stores mix state that has different owners and lifetimes.** `textInference` still holds live
 `backend`, `selectedModels`, `maxTokens`, `contextSize`, `temperature` and `screenshotWindow`
@@ -165,7 +165,6 @@ flowchart TD
     chatTools["Chat tool calls"]
     agent["Agent Mode (Pi)"]
     ha["Home Agent channels"]
-    hidden["Hidden window / headless"]
   end
 
   subgraph kernel["Kernel (main process, no Vue)"]
@@ -194,7 +193,6 @@ flowchart TD
   chatTools --> orch
   agent --> orch
   ha --> orch
-  hidden --> orch
 
   orch --> text
   orch --> artifact
@@ -232,9 +230,9 @@ Four rules make the picture real:
 4. **Every** capability and the orchestrator emit onto one ordered event stream (§4.6) — not one
    channel per capability, and not only Text. A projection connects with a snapshot plus sequence
    watermark; events alone are insufficient.
-5. The **renderer** subscribes and renders. It owns what to show, not what to run. Headless, for
-   now, means main remains alive while the app window may be hidden. Chromium stays available
-   lazily for browser-backed tools; Vue does not own the run.
+5. The **renderer** subscribes and renders. It owns what to show, not what to run. There is no
+   headless mode: the app runs while its window is open (§5.1). Chromium stays available lazily
+   for browser-backed tools; Vue does not own the run.
 
 ---
 
@@ -532,7 +530,7 @@ Why one stream rather than a channel per capability:
 - **Ordering.** A progress event must not overtake the item it belongs to, and an artifact item
   produced inside a chat turn has to interleave correctly with that turn's chunks. One sequence
   per scope gives that for free; N channels do not.
-- **One bridge, one reconnect.** Hidden-window and future drivers subscribe once. The
+- **One bridge, one reconnect.** A reloaded window and future drivers subscribe once. The
   anti-stuck reconciliation (`endScope()` today) has one place to live instead of one per
   capability.
 - **The renderer already has this shape.** `activities` + `errors` sinks and `agentModeIpc`'s
@@ -615,8 +613,8 @@ of those events, which is what they already are.
 needs a download) calls `permissions.request(action)`. Adapters: modal dialog in the desktop UI,
 in-channel yes/no on Home Agent (already exists for settings and downloads), and a **grant list**
 the user can review and pre-fill so an agentic or channel-driven task does not stall on a prompt
-nobody is looking at. Hidden-window / headless still has a user — they are just not in this window.
-There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See §10.4–10.5.
+nobody is looking at. A remote Home Agent turn still has a user — they are just not at this
+window. There is no silent auto-allow; there is prompt-once, remember, or pre-grant. See §10.4–10.5.
 
 **Renderer interim (step 3 done).** The consent layer lives at
 `src/assets/js/permissions/permissions.ts`; the desktop adapter is the dialog store
@@ -661,55 +659,74 @@ ways of hanging them on a model.
 | Chat tool calls    | model-chosen arguments against a JSON schema          | main (after §7) | no                   |
 | Agent Mode (Pi)    | same, through Pi tool definitions                     | main            | no                   |
 | Home Agent         | channel message, `/imgGen` picks, in-channel confirms | main (after §7) | no                   |
-| Hidden window      | same kernel as desktop; BrowserWindow not shown       | renderer+main   | Chromium, not a view |
 
 Two tools genuinely need Chromium and should stay bridged: window screenshot capture and in-page
-web browsing/debugging, both of which drive a real `BrowserWindow`. A hidden window still provides
-that. Everything else crossing the bridge today is doing so because of where the stores are. A CLI
+web browsing/debugging, both of which drive a real `BrowserWindow`. The open app provides that.
+Everything else crossing the bridge today is doing so because of where the stores are. A CLI
 with no Chromium at all is out of scope until we decide it isn't.
 
-### 5.1 Hidden-window lifecycle
+### 5.1 Closing the app
 
-"Hidden" does not mean starting a second permanent Vue renderer:
+There is no hidden window and no background mode: the app runs while its window is open, and
+closing the window quits it. Hiding the window used to keep the app alive with no sign that it was
+running (no tray, and no taskbar entry on Windows), and nothing quit it once the work ended;
+Schedules and Home Agent working only while the app is open was the accepted cost of dropping it.
 
 1. Electron main starts the kernel and owns Home Agent, active runs, Persistence and the
-   orchestrator.
-2. The normal application `BrowserWindow` may be shown or hidden. Closing it hides rather than
-   destroys it while Home Agent is enabled or a run is active; otherwise normal quit policy applies.
-3. Chat, Artifact, Speech I/O and persistence continue in main. They do not need any renderer.
-4. A browser-backed capability (window screenshot or in-page browsing/debugging) asks a
+   orchestrator for as long as the app is open. Schedules fire and Home Agent answers only then
+   (minimised is fine); their settings say so.
+2. Every user-initiated close — the in-app close button, the OS close (Alt+F4, the taskbar, the
+   red macOS button, Cmd+W), Cmd+Q and the menu's Quit — goes to one close coordinator in main.
+   With no In-flight Work (work the user started that has not finished) it quits at once.
+   Otherwise it asks in the app's own dialog, which names each piece of In-flight Work and offers
+   **Keep open** (cancel the close) or **Quit** (stop everything and quit). macOS quits on window
+   close like the other platforms.
+3. Main assembles In-flight Work from what it owns — open agent turns (paused ones included), chat
+   and Home Agent turns, queued Turn Queue members, executing and queued media runs — merged with
+   the renderer's report of its own In-flight Work. An enabled Schedule and Home Agent serving its
+   channels are not In-flight Work and never trigger the question.
+4. A crashed or destroyed window cannot be asked, so closing quits. Logout / OS shutdown and
+   process signals bypass the coordinator and quit directly.
+5. Chat, Artifact, Speech I/O and persistence run in main, not in the renderer. A reloaded
+   renderer reconnects its projection via the listener-first snapshot handshake in §4.6; in-flight
+   work does not restart.
+6. A browser-backed capability (window screenshot or in-page browsing/debugging) asks a
    main-owned browser host for Chromium. That host creates its dedicated `BrowserWindow` lazily on
    first use and disposes/reuses it according to the tool's existing lifecycle. It is not a second
    application UI.
-5. Showing or recreating the application window reconnects its projection via the
-   listener-first snapshot handshake in §4.6; in-flight work does not restart.
-6. Explicit app quit cancels or checkpoints active work, shuts down sessions that flush on exit,
-   flushes Persistence, then stops backends. Closing a visible window is not implicitly app quit
-   while the headless host is serving.
+7. Quit cancels or checkpoints active work, shuts down sessions that flush on exit, flushes
+   Persistence, then stops backends.
 
-The lifecycle policy belongs in main, beside Electron's existing single-instance and quit
-handling. The renderer must never decide whether a process-backed run survives its own window.
+The close decision belongs in main, beside Electron's existing single-instance and quit handling.
+The renderer never quits the app on its own: its close button asks main.
 
-**Renderer interim (step 4 done).** The policy is a pure function,
-`resolveClosePolicy({ homeAgentRunning, rendererBusy, agentTurnActive, chatTurnActive, artifactWorkOpen, tasksKeepAlive }) → 'hide' | 'close'`
-(`electron/kernel/windowLifecycle.ts`), consulted in the window's `close` handler: `hide` prevents
-the default and hides the window; `close` tears down the browser-backed windows and quits (via
-`app.quit()` off-darwin, backends freed in `window-all-closed` on macOS, as before). Main owns
-every input: Home Agent service status, `isAgentTurnActive()`, `anyChatTurnActive()`,
-`artifactWorkOpen()` (admitted / executing / queued), a `rendererBusy` flag the renderer
-pushes over `lifecycle:busy` whenever the activities sink flips (an in-flight task run holds it
-for the moment before its marker is on disk), and `tasksKeepAlive`, read from
-`AI-Playground/agent-tasks.json` when a saved task has an enabled schedule or an `activeRun`.
-Demo-mode tasks and an unreadable file are not keep-alive. Chat and artifact occupancy do
-not round-trip through `rendererBusy` — it clears when the renderer dies. A hidden window is reopened
-by relaunch (`second-instance`) and dock activation (`activate`), and the recreated/relaunched
-renderer resumes a running agent turn from the kernel snapshot (§4.6 interim). A task run whose
-session is still in that snapshot is reattached, so the step loop continues; a marker with no
-turn left is recorded as `app-closed`. Explicit quit still runs the shutdown task. The title-bar
-X (`exitApp`) still quits outright for Home Agent and for ordinary chat, agent and artifact work.
-When `tasksKeepAlive` is set it asks first — the renderer shows the localized dialog, main owns
-the fact — and Keep running hides the window, while Quit calls `app.quit()`, which the
-`before-quit` handler routes to the shutdown sequence.
+**As landed.** `createCloseCoordinator` (`electron/kernel/closeCoordinator.ts`) exposes
+`requestClose() → 'quit' | 'kept-open'`; a close while the question is open joins it instead of
+asking again. Its deps are `listInFlightWork`, `askWindow`, `showRefreshedQuestion` + `whileAsking`
+(the open question's list is refreshed every second, and an emptied list never answers for the
+user), `quit`, and `suspendSchedules` / `resumeSchedules` (no Schedule starts a Task Run while the
+question is open; Keep open resumes them). The window's `close` handler, `before-quit` and the
+in-app button (`lifecycle:requestClose`) all route there until a quit is confirmed; after that
+`before-quit` runs the gated shutdown (`appShutdown.shutdown(cause)`), and `session-end` /
+`powerMonitor` `shutdown` confirm the quit without asking. `createInFlightWork`
+(`electron/kernel/inFlightWork.ts`, item union in `src/types/lifecycleIpc.ts`) merges main's own
+work (agent turns, chat turns, the text and artifact queues, Task Run markers in
+`agent-tasks.json`) with what only the window knows, reported over `lifecycle:reportWork` (Prompt
+Runs, and Task Runs still in their pre-flight checks or ahead of their marker); the list is shown
+five at a time plus "and N more". The question crosses `lifecycle:askClose` /
+`lifecycle:closeQuestionChanged` / `lifecycle:answerClose` (`electron/kernel/closeAsk.ts`, which
+answers `no-window` for a crashed, destroyed or vanishing window, and re-sends the open question
+and the Schedule hold when a reloaded window's bridge announces itself on
+`lifecycle:bridgeReady`), and is rendered by `src/components/CloseDialog.vue` from the dialog
+store, fed by `src/assets/js/lifecycle/closeAskBridge.ts`, with its lines worded by
+`src/lib/closeQuestionLines.ts`. A user's Quit settles every Task Run marker in
+`agent-tasks.json` as stopped during shutdown (`settleTaskRunsOnQuit`; later saves keep that run
+state and change only the rest of the Task); a marker left by a crash, a forced kill, a signal or
+the OS ending the session is still recorded as `app-closed` at the next launch. Known limitation:
+Electron documents `powerMonitor` `shutdown` for shutdown and reboot only, so a macOS logout is not
+known to skip the question (Electron listens to `NSWorkspaceWillPowerOffNotification`, which macOS
+also posts on logout, but neither that case nor its order relative to the quit request is
+documented).
 
 ---
 
@@ -748,9 +765,9 @@ Classify by **who writes it** and **how long it lives**, not by which feature it
 | last-used preset per category (today inside preset switching)  | user preference    | kernel-owned preference as of step 8 (`presets` section); the `Preset \| "last"` choice stays parked (§8.2) |
 | active preset while the app is running                         | UI state           | not written back except as "last used" when the pref is `last`        |
 
-Rule of thumb: **if a headless run would still need it, it is not UI state**. If a fresh install
-should ship it, it is machine config. If the user chose it and would be annoyed to lose it, it is a
-preference. If the app produced it, it is app data and belongs in a file the kernel owns.
+Rule of thumb: **if a run nobody is watching would still need it, it is not UI state**. If a fresh
+install should ship it, it is machine config. If the user chose it and would be annoyed to lose it,
+it is a preference. If the app produced it, it is app data and belongs in a file the kernel owns.
 
 The Image Gen (and Chat, Video, …) view keeps an active workflow so it has a form to render. That
 selection is UI state. On a cold start it is filled from a user preference
@@ -802,7 +819,7 @@ AI-Playground/
 `activeSessionId`; Pi's own session files are untouched. Tasks are one file,
 `agent-tasks.json`, written by `electron/persist/agentTaskFiles.ts` — schemaVersion 1,
 one writer, atomic replace. Demo mode uses `agent-tasks-demo.json`, wiped on boot and
-shutdown. An unreadable tasks file is not overwritten and does not count as keep-alive.)
+shutdown. An unreadable tasks file is not overwritten.)
 
 User preferences that a human would want in a backup live as `AI-Playground/preferences.json`
 (theme, developer toggles, model favorites, TTS voices, per-preset knobs and last-used names
@@ -958,7 +975,7 @@ The ladder above is what landed. It is not the finished kernel. Remaining rows, 
 | 1 | **Done.** Tools and Home Agent `/imgGen` have no preset save/restore and no readiness preflight; the run (`runArtifact` + `comfyUiPresets.generate`) owns backend start, installs and model download; selection stays side-effect-free (`resolvePresetVariant`); callers pass `artifactKindForMedia` / panel-derived kind | yes |
 | 2 | **Done.** `transcribeAudio` / speak-replies (and every other speech driver — mic, TTS preset, `/imgGen` voice paths) import no TTS/STT store; all of them cross the one speech adapter (`speechIO`), which owns readiness, endpoint resolution and the Qwen3/Kokoro/external engine branch | yes |
 | 3 | **Done.** Inference/download code calls the Permissions layer (`requestDownload` / `requestVramWarning` / `notify` in `src/assets/js/permissions/permissions.ts`); no `useDialogStore()` outside the adapter, the settings-setup flows and the dialog components. "Do not show again" and the remote-download pre-grant are entries in the persisted `permissionGrants` store, reviewed and revoked in Settings → Permissions (legacy `memoryAlertSuppress_*` flags migrate once) | yes |
-| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, `anyChatTurnActive()`, `artifactWorkOpen()`, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. Remaining event types (`activity`, `error`, `stored`) ride with steps 7–8 work; `queue` landed
+| 4 | **Done.** Notifications that were pushed point-to-point (`serviceInfoUpdate`, the four `agentMode:*` push channels) cross the kernel stream (`kernel:event`, one monotonic `seq`; listener-first snapshot handshake with install-before-flush; bus holds the current window so no service pushes to a stale webContents). Main owns hide/reopen/quit via `resolveClosePolicy` (`lifecycle:busy` from the activities sink, Home Agent status, `anyChatTurnActive()`, `artifactWorkOpen()`, active agent turn); a reconnected renderer resumes a running agent turn from the snapshot (`Chat.resumeStream`). Browser-backed windows were already lazy. The hide half was later reversed — closing quits, asking first when there is In-flight Work (§5.1). Remaining event types (`activity`, `error`, `stored`) ride with steps 7–8 work; `queue` landed
 with step 7 (`queue-event`, not snapshotted) | yes |
 | 5 | **Done.** `capabilities/media.ts` no longer calls `executeToolInRenderer` — direct tools execute in-process against `electron/artifact/runner.ts` (`mediaDirect.ts`), the NL `media` tool lives in `mediaDelegation.ts` — and the UI hydrates readiness/generation progress from main via kernel `artifact-phase`/`artifact-item` events. In-process runs ask the renderer for model checks and download consent over `artifact:request` | yes, needs 1–4 |
 | 6 | **Done.** The renderer has no `streamText` — chat turns run in the main-side engine (`electron/chat/turnEngine.ts`) over `chat:submitTurn` and stream back as kernel `chat-chunk` events (adjacent deltas coalesced at the bus, semantic chunks immediate) through the renderer's kernel transport (`src/lib/kernelChatTransport.ts`); a reloaded renderer resumes from the snapshot (`chat:resumeTurn`). Tool executions round-trip to the renderer registry (`src/lib/chatToolRegistry.ts`) over the tool bridge; the nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`) with inner Comfy in-process (step 12) and progress as `media-agent-event`; one-shot summarize is `chat:summarize`; Laminar's AI SDK integration is registered in main against the SDK's global telemetry registry. RAG retrieval landed with step 9 | yes, needs 1–5 |
@@ -1126,7 +1143,7 @@ None.
 
 The goal was never "more kernel-owned JSON files." It was: **stop scattering the run across Pinia
 stores** so one process can say what is in flight, what holds the GPU, what was persisted, and what
-a hidden-window host can do without asking Vue.
+it can do without asking Vue.
 
 Steps 1–15 were that kernel. Chat `generate()` no longer IPC-loads (step 9); chat turns occupy the
 orchestrator as `text` requests (step 10); chat/media/agent transcripts persist on turn lifecycle
@@ -1134,7 +1151,9 @@ orchestrator as `text` requests (step 10); chat/media/agent transcripts persist 
 lives in main (step 13); `activity` / `error` / `stored` and the live inference profile ride the
 bus (step 14); Agent Mode and Home Agent `/load` admit through the same `text` gate (step 15).
 Screenshot / web-browse and parent-turn chat `comfyUI` still close over Pinia. Those are not spine
-rows.
+rows. The hidden-window host these rows were aiming at is gone (§5.1): their "headless"
+and "hidden window" wording is history, and the hidden-window proof step 15 left open is obsolete,
+not parked.
 
 The spine is complete. Do not insert another persist bucket as a spine row.
 
@@ -1146,7 +1165,7 @@ flowchart TD
   s12["12. Remaining work tools in-process (done)"]
   s13["13. Permissions policy in main (done)"]
   s14["14. Ledger on the bus + live inference profile (done)"]
-  s15["15. Agent/Home Agent on the same gate; hidden-window proof (done)"]
+  s15["15. Agent/Home Agent on the same gate (done)"]
 
   s9 --> s10 --> s11
   s10 --> s12 --> s13
@@ -1164,7 +1183,7 @@ flowchart TD
 | 12 | **Done.** The NL `media` specialist's inner `comfyUI` / `comfyUiImageEdit` tools run in-process against the Artifact runner (`electron/artifact/inProcessComfy.ts`), the way direct `generateImage` / `editImage` already do. Pi's thin `media` tool calls `runMediaAgentInMain` with a catalog shipped on the turn (`AgentModeTurnConfig.mediaAgent`); `executeToolInRenderer` is gone for that path. Screenshot and web-browse stay renderer (§10.1). Parent-turn chat `comfyUI` (tool delegation off) still uses the renderer bridge. Headless still needs Chromium for those two | A hidden window that must round-trip Pinia closures is still asking Vue what to do | 5; can overlap 11 |
 | 13 | **Done.** Permissions *policy* lives in main (`electron/permissions/permissionsService.ts`, grants in `permission-grants.json`). The renderer is the dialog / channel adapter (`permissionsAdapter.ts`) behind a remote-turn port — Permissions never imports `homeAgent`. Download consent works with a hidden window via the channel the user is on, or a `download:remote-turns` pre-grant. No window → the prompt rejects (no silent auto-allow). Named verbs stay; grant vocabulary (§8.2 Design) is not this row | Consent is the other thing a headless turn still asks Vue for. Named verbs stay; grant vocabulary (§8.2 Design) is not this row | 3, 12 |
 | 14 | **Done.** `activity` / `error` / `stored` are kernel-bus events (§4.6). Pinia projects busy / fail / save (`kernelLedgerProjection.ts`). The live loaded model is kernel memory (`chatReadiness` → `inferenceProfile` snapshot); `textInference` keeps settings UI and `screenshotWindow`, plus a projection of that profile | "What's going on" is still a Pinia sink. The mixed `textInference` bag is the original §1 symptom that step 8 only half-split (maps and `ragList` moved; the live profile did not) | 4, 10 |
-| 15 | **Done.** Agent Mode (`startAgentTurn`) and Home Agent `/load` (`chat:summarize`) admit through `submitTextRequest` like Chat. Pi stays a second harness (§10.2). Local turns ship `readiness` and load after GPU admit (`remember: false` for the summarizer). Unit tests prove occupancy + load happen in main without renderer `ensureReadyForInference`. Screenshot / web-browse and parent-turn chat `comfyUI` still need Chromium. Hidden-window e2e against live backends is not this row | Agent still called `ensureReadyForInference` from Pinia. Putting it on the gate before Chat was queued would copy today's occupancy split | 10–14 |
+| 15 | **Done.** Agent Mode (`startAgentTurn`) and Home Agent `/load` (`chat:summarize`) admit through `submitTextRequest` like Chat. Pi stays a second harness (§10.2). Local turns ship `readiness` and load after GPU admit (`remember: false` for the summarizer). Unit tests prove occupancy + load happen in main without renderer `ensureReadyForInference`. Screenshot / web-browse and parent-turn chat `comfyUI` still need Chromium. Hidden-window e2e against live backends is obsolete: there is no hidden window (§5.1) | Agent still called `ensureReadyForInference` from Pinia. Putting it on the gate before Chat was queued would copy today's occupancy split | 10–14 |
 
 **Not a spine row** (do not schedule these as the next architecture slice):
 
@@ -1184,7 +1203,7 @@ flowchart TD
 - One code path per operation. The Send button, a chat tool, Pi and `/imgGen` differ only in how
   they build the request.
 - A media run stops changing what the user is looking at.
-- Hidden-window Home Agent, and later a CLI, call the same kernel as the desktop.
+- Home Agent, and later a CLI, call the same kernel as the desktop.
 - GPU policy is one function, not three helpers that cannot see each other's queues.
 - "Where does the last GPU choice live?" has an answer instead of a grep. Transcripts are files the
   user can copy.
@@ -1195,7 +1214,7 @@ flowchart TD
 
 | # | Question | Decision |
 | --- | --- | --- |
-| 1 | Headless = hidden window, or no Chromium? | **Hidden window for now.** Chromium stays; Vue does not own the run. Screenshot and web-browse keep working. A Chromium-free CLI is a later product decision. |
+| 1 | Headless = hidden window, or no Chromium? | **Neither — superseded (§5.1).** There is no background mode: closing the window quits, asking first when there is In-flight Work (§5.1). Chromium stays; Vue does not own the run. A Chromium-free CLI is a later product decision. |
 | 2 | Converge AI SDK and Pi? | **No.** Two harnesses, one capability set. Converging is its own project. |
 | 3 | Files vs SQLite for conversations / media? | **User-data files as source of truth** (see §6.1). SQLite stays for persistent memory and may later be a rebuildable search index, not the store. |
 | 4 | May an agent change user preferences? | **Yes, after consent.** Same Permissions surface as downloads. |

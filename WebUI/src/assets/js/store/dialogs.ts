@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import { sanitizeMarkdown } from '@/lib/sanitize'
 import { parse } from '../markdownParser'
+import type { CloseAskPayload } from '@/types/lifecycleIpc'
 
 // todo: Consider adding "add-l-l-m-dialog" as well
 export type PresetRequirementsData = {
@@ -134,6 +135,9 @@ export const useDialogStore = defineStore('dialog', () => {
       warningDialogVisible.value = true
     })
   }
+
+  /** Main's open close question; null while none is asked. */
+  const closeQuestion = ref<CloseAskPayload | null>(null)
 
   function closeWarningDialog() {
     warningDialogVisible.value = false
@@ -409,6 +413,8 @@ export const useDialogStore = defineStore('dialog', () => {
     showWarningDialog,
     requestConfirmation,
     closeWarningDialog,
+
+    closeQuestion,
 
     // Download dialog
     downloadDialogVisible,

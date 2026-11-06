@@ -200,7 +200,7 @@ import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
 import type { AgentMessageMetadata } from '@/assets/js/store/agentMode'
 import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import {
   ArrowPathIcon,
   ChatBubbleLeftEllipsisIcon,

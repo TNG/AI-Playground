@@ -333,6 +333,7 @@
   </footer>
   <!-- Outside the running-only main: Home Agent setup lives in the wizard. -->
   <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
+  <close-dialog v-if="dialogStore.closeQuestion"></close-dialog>
 </template>
 
 <script setup lang="ts">
@@ -347,6 +348,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from './assets/js/store/theme.ts'
 import WarningDialog from '@/components/WarningDialog.vue'
+import CloseDialog from '@/components/CloseDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
@@ -377,7 +379,6 @@ import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
-import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { usesSessionSettings } from '@/lib/agentSessionSettings'
 
@@ -392,7 +393,6 @@ const uiStore = useUIStore()
 const setupWizardStore = useSetupWizard()
 const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
-const i18n = useI18N()
 const agentMode = useAgentMode()
 
 // Agent Maker sessions can notify over Home Agent; the games presets cannot.
@@ -522,31 +522,8 @@ function toggleFullScreen() {
   window.electronAPI.setFullScreen(fullscreen.value)
 }
 
-let closeInFlight = false
-
-async function closeWindow() {
-  if (closeInFlight) return
-  closeInFlight = true
-  try {
-    const keepAlive = await window.electronAPI.tasksKeepAlive().catch(() => false)
-    if (keepAlive) {
-      const keep = await dialogStore.requestConfirmation(
-        i18n.state.AGENT_TASKS_CLOSE_CONFIRM ??
-          'A task is scheduled or still running. Keep AI Playground running in the background, or quit and stop it?',
-        {
-          confirm: i18n.state.AGENT_TASKS_KEEP_RUNNING ?? 'Keep running',
-          cancel: i18n.state.AGENT_TASKS_QUIT ?? 'Quit',
-        },
-      )
-      if (keep) {
-        window.electronAPI.hideMainWindow()
-        return
-      }
-    }
-    window.electronAPI.exitApp()
-  } finally {
-    closeInFlight = false
-  }
+function closeWindow() {
+  window.electronAPI.requestAppClose()
 }
 
 function openDevTools() {

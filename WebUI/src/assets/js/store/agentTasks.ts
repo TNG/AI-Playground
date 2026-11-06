@@ -1,8 +1,9 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { MODEL_DOWNLOAD_DECLINED, promptHasImageAttachment } from '@/types/agentIpc'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
+import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type {
   AgentTask,
   AgentTaskActiveRun,
@@ -11,7 +12,6 @@ import type {
   AgentTaskStep,
 } from '@/types/agentTaskIpc'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
-import { useActivities } from './activities'
 import { useAgentMode, type SessionTurnInfo, type TurnOutcome } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { useDemoMode } from './demoMode'
@@ -26,6 +26,8 @@ import { cloneForIpc } from '@/lib/cloneForIpc'
 import { sameAgentSetup } from '@/lib/agentSetup'
 import { firstStepTurn, stepPrompts, stepTurn } from '@/lib/taskSteps'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
+import { fillTemplate } from '@/lib/fillTemplate'
+import { taskRunWorkItem } from '@/lib/inFlightWorkItem'
 import {
   describeSettingsProblems,
   type SessionSettingsProblem,
@@ -96,13 +98,6 @@ type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
 
 type ScheduledTask = AgentTask & { schedule: AgentTaskSchedule }
 
-function fill(template: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(`{${name}}`, String(value)),
-    template,
-  )
-}
-
 const SCHEDULE_TICK_MS = 30_000
 /**
  * A due slot older than this was missed (app closed, machine asleep) and is not run. The margin
@@ -111,7 +106,6 @@ const SCHEDULE_TICK_MS = 30_000
 const FRESH_SLOT_MS = SCHEDULE_TICK_MS + 60_000
 
 export const useAgentTasks = defineStore('agentTasks', () => {
-  const activities = useActivities()
   const agentMode = useAgentMode()
   const demoMode = useDemoMode()
   const errors = useErrors()
@@ -133,19 +127,30 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const promptRuns = ref<Record<string, PromptRun>>({})
   const promptRunContexts: Record<string, { steps: string[]; abort: AbortController }> = {}
 
-  // A standing schedule is main's to read from the tasks file. This only covers the
-  // gap before an in-flight run's marker reaches disk, including between Steps.
-  watch(
-    () => Object.keys(runs.value).length > 0 || Object.keys(promptRuns.value).length > 0,
-    (busy) => activities.holdBusy('agent-tasks', busy),
-    { immediate: true },
-  )
+  /** Tasks whose ▶ Run is still being checked, possibly waiting on a model download. */
+  const starting = reactive(new Set<string>())
+
+  // Main reads Task Run markers from the tasks file; this covers what it cannot see yet.
+  const inFlightWork = computed((): InFlightWorkItem[] => [
+    ...tasks.value
+      .filter((task) => runs.value[task.id] || starting.has(task.id))
+      .map((task) => taskRunWorkItem(task, runs.value[task.id])),
+    ...Object.entries(promptRuns.value).map(([sessionId, run]) => ({
+      kind: 'prompt-run' as const,
+      sessionId,
+      name: agentMode.sessions[sessionId]?.title || undefined,
+      state: { status: 'step' as const, index: run.stepIndex, count: run.stepCount },
+    })),
+  ])
+  watch(inFlightWork, (work) => window.electronAPI?.reportInFlightWork?.(work), {
+    immediate: true,
+  })
 
   let scheduleTicker: ReturnType<typeof setInterval> | undefined
+  /** Main holds Schedules while it asks whether to quit. */
+  let schedulesHeld = false
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
-  /** Tasks whose ▶ Run is still being checked, possibly waiting on a model download. */
-  const starting = new Set<string>()
 
   async function init(): Promise<void> {
     try {
@@ -170,8 +175,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   }
 
+  function setSchedulesHeld(held: boolean): void {
+    schedulesHeld = held
+  }
+
   function tickSchedules(): void {
-    if (demoMode.enabled) return
+    if (demoMode.enabled || schedulesHeld) return
     const now = Date.now()
     for (const task of tasks.value) {
       if (!isDue(task, now) || deleting.has(task.id)) continue
@@ -317,13 +326,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         const declined =
           i18n.state.AGENT_TASK_RUN_DOWNLOAD_DECLINED ??
           'Not started: the agent’s chat model {model} has to be downloaded first.'
-        return { reason: 'download-declined', message: fill(declined, { model }) }
+        return { reason: 'download-declined', message: fillTemplate(declined, { model }) }
       }
       const technical = extractMessage(error)
       const failed =
         i18n.state.AGENT_TASK_RUN_DOWNLOAD_FAILED ??
         'Not started: the download of {model} failed: {error}'
-      const message = fill(failed, { model, error: technical })
+      const message = fillTemplate(failed, { model, error: technical })
       errors.report(
         createAppError({
           category: 'backend',
@@ -607,7 +616,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       id.startsWith(MCP_CAPABILITY_PREFIX),
     )
     if (needsMcp && !mcp.serversLoaded) {
-      return fill(
+      return fillTemplate(
         i18n.state.AGENT_TASK_MCP_UNAVAILABLE ?? 'The MCP servers could not be loaded: {error}',
         { error: mcp.configError ?? '' },
       )
@@ -615,7 +624,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const problems = taskProblems(task.id)
     if (problems.length > 0) return describeSettingsProblems(problems, i18n.state)
     if (!folderFound) {
-      return fill(
+      return fillTemplate(
         i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}',
         { path: task.workspaceDir },
       )
@@ -799,7 +808,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
               i18n.state.AGENT_TASK_SCHEDULED_RUN_FAILED ??
               'The scheduled run of “{name}” failed: {reason}',
           }
-      const userMessage = fill(report.template, { name: task.name, reason: message })
+      const userMessage = fillTemplate(report.template, { name: task.name, reason: message })
       errors.report(
         createAppError({
           category: report.category,
@@ -998,7 +1007,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         code: 'agent/step-not-sent',
         severity: 'warning',
         surface: 'toast',
-        userMessage: fill(
+        userMessage: fillTemplate(
           i18n.state.AGENT_STEPS_STEP_NOT_SENT ?? 'Step {step} was not sent: {reason}',
           { step: stepIndex, reason: result.message },
         ),
@@ -1010,6 +1019,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   return {
     tasks,
     init,
+    setSchedulesHeld,
     saveBlocker,
     saveTask,
     saveAgentBlocker,

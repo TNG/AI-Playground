@@ -148,7 +148,7 @@ import {
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import { createAppError } from '@/assets/js/errors/appError'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 const grants = usePermissionGrants()
 const homeAgent = useHomeAgent()

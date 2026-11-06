@@ -50,6 +50,8 @@ import { appLoggerInstance } from '../observability/logger'
 import { emitArtifactPhase, emitQueueEvent } from './kernelBus'
 import { registerUserWaitQueue } from './userWait'
 import type { PauseReason, TurnWork } from '@/types/kernelEvents'
+import type { ArtifactRunMode } from '@/types/artifactIpc'
+import type { OpenArtifactRun } from '@/types/lifecycleIpc'
 import {
   artifactRunActive,
   artifactRunTag,
@@ -176,6 +178,8 @@ const turnMemberRuns = new Map<string, AbortController>()
 // Runs nested in a turn while their models are checked or the user is asked for them.
 const preflightCancels = new Map<string, AbortController>()
 const preflightTails = new Map<string, Promise<void>>()
+// Every artifact run from submission until it settles, for the close question.
+const openArtifactModes = new Map<string, ArtifactRunMode>()
 
 export function setOrchestratorDeps(deps: OrchestratorDeps): void {
   orchestratorDeps = deps
@@ -202,15 +206,38 @@ export function resetOrchestratorForTest(): void {
   for (const cancel of preflightCancels.values()) cancel.abort()
   preflightCancels.clear()
   preflightTails.clear()
+  openArtifactModes.clear()
 }
 
 export function artifactRunsQueued(): number {
   return runQueue.length
 }
 
-/** Admitted, executing, or queued — the close policy asks. */
 export function artifactWorkOpen(): boolean {
   return queueBusy() || turnMemberRuns.size > 0 || preflightCancels.size > 0
+}
+
+/** Each artifact run not yet settled: executing once admitted, otherwise waiting. */
+export function openArtifactRuns(): OpenArtifactRun[] {
+  return [...openArtifactModes].map(([runId, mode]) => ({
+    mode,
+    executing: admittedCancels.has(runId),
+  }))
+}
+
+export type OpenTextRequest = {
+  conversationKey: string
+  work?: TurnWork
+  state: 'queued' | 'running' | 'paused'
+}
+
+/** Text occupancy as the close question names it; a member asking the user is paused. */
+export function openTextRequests(): OpenTextRequest[] {
+  return [...textOccupancy.values()].map((entry) => ({
+    conversationKey: entry.conversationKey,
+    work: entry.work,
+    state: entry.userWaits.length > 0 ? 'paused' : entry.phase === 'waiting' ? 'queued' : 'running',
+  }))
 }
 
 export function mediaRequestsQueued(): number {
@@ -263,8 +290,9 @@ export function submitArtifactRun(
   payload: ArtifactRunPayload,
   options: { queue: 'turn' | 'queue' } = { queue: 'turn' },
 ): Promise<ArtifactRunResult> {
-  if (options.queue === 'turn') return runAsTurnMember(payload)
-  return runInTurn(payload)
+  openArtifactModes.set(payload.runId, payload.mode)
+  const run = options.queue === 'turn' ? runAsTurnMember(payload) : runInTurn(payload)
+  return run.finally(() => openArtifactModes.delete(payload.runId))
 }
 
 const DECLINED: RunModelsOutcome = { state: 'declined' }

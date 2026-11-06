@@ -218,6 +218,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { createAppError } from '@/assets/js/errors/appError'
 import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
 import { describeNextRun } from '@/lib/taskSchedule'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
@@ -228,14 +229,8 @@ const i18n = i18nStore.state
 
 onMounted(() => void agentTasks.loadProblemSources())
 
-function fill(template: string, values: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (token, key) =>
-    key in values ? String(values[key]) : token,
-  )
-}
-
 function stepCount(count: number): string {
-  return fill(i18n.AGENT_TASKS_STEP_COUNT, { count })
+  return fillTemplate(i18n.AGENT_TASKS_STEP_COUNT, { count })
 }
 
 const loadedId = computed(() => agentTasks.openSessionTask?.id)
@@ -261,31 +256,32 @@ const rows = computed(() =>
       running: run !== undefined,
       sessionId: run?.sessionId,
       progress:
-        run && fill(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
+        run &&
+        fillTemplate(i18n.AGENT_TASKS_RUNNING_STEP, { step: run.stepIndex, count: run.stepCount }),
       outcome: outcome && {
         label: [outcomeLabel(outcome), outcome.kind === 'failed' ? outcomeMessage(outcome) : '']
           .filter(Boolean)
           .join(': '),
         failed: outcome.kind === 'failed',
       },
-      problem: reasons ? fill(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }) : undefined,
+      problem: reasons ? fillTemplate(i18n.AGENT_TASKS_PROBLEM, { reason: reasons }) : undefined,
       scheduled: schedule.enabled,
       scheduleTip: schedule.line ?? i18n.AGENT_AGENTS_NOT_SCHEDULED,
-      selectLabel: fill(i18n.AGENT_AGENTS_SELECT_LABEL, label),
-      stopLabel: fill(i18n.AGENT_TASKS_STOP, label),
-      runLabel: fill(i18n.AGENT_AGENTS_RUN_LABEL, label),
-      scheduleLabel: fill(i18n.AGENT_AGENTS_SCHEDULE_LABEL, label),
+      selectLabel: fillTemplate(i18n.AGENT_AGENTS_SELECT_LABEL, label),
+      stopLabel: fillTemplate(i18n.AGENT_TASKS_STOP, label),
+      runLabel: fillTemplate(i18n.AGENT_AGENTS_RUN_LABEL, label),
+      scheduleLabel: fillTemplate(i18n.AGENT_AGENTS_SCHEDULE_LABEL, label),
       hasPreset: agentTasks.presetOfAgent(task.id) !== undefined,
-      presetLabel: fill(
+      presetLabel: fillTemplate(
         agentTasks.presetOfAgent(task.id)
           ? i18n.AGENT_PRESET_EDIT_LABEL
           : i18n.AGENT_PRESET_SAVE_LABEL,
         label,
       ),
-      moreLabel: fill(i18n.AGENT_AGENTS_MORE_LABEL, label),
-      renameLabel: fill(i18n.AGENT_AGENTS_RENAME_LABEL, label),
-      deleteLabel: fill(i18n.AGENT_AGENTS_DELETE_LABEL, label),
-      deleteQuestion: fill(i18n.AGENT_AGENTS_DELETE_CONFIRM, label),
+      moreLabel: fillTemplate(i18n.AGENT_AGENTS_MORE_LABEL, label),
+      renameLabel: fillTemplate(i18n.AGENT_AGENTS_RENAME_LABEL, label),
+      deleteLabel: fillTemplate(i18n.AGENT_AGENTS_DELETE_LABEL, label),
+      deleteQuestion: fillTemplate(i18n.AGENT_AGENTS_DELETE_CONFIRM, label),
     }
   }),
 )
@@ -299,7 +295,7 @@ function scheduleOf(id: string): { enabled: boolean; line?: string } {
     today: i18n.AGENT_TASKS_NEXT_RUN_TODAY,
     tomorrow: i18n.AGENT_TASKS_NEXT_RUN_TOMORROW,
   })
-  return { enabled: true, line: fill(i18n.AGENT_TASKS_NEXT_RUN, { time }) }
+  return { enabled: true, line: fillTemplate(i18n.AGENT_TASKS_NEXT_RUN, { time }) }
 }
 
 function outcomeLabel({ kind, stepIndex, stepCount, reason }: AgentTaskOutcome): string {
@@ -310,11 +306,11 @@ function outcomeLabel({ kind, stepIndex, stepCount, reason }: AgentTaskOutcome):
     case 'failed':
       if (reason === 'not-started') return i18n.AGENT_TASKS_OUTCOME_NOT_STARTED
       return stepIndex
-        ? fill(i18n.AGENT_TASKS_OUTCOME_FAILED_AT_STEP, step)
+        ? fillTemplate(i18n.AGENT_TASKS_OUTCOME_FAILED_AT_STEP, step)
         : i18n.AGENT_TASKS_OUTCOME_FAILED
     case 'stopped':
       return stepIndex
-        ? fill(i18n.AGENT_TASKS_OUTCOME_STOPPED_AT_STEP, step)
+        ? fillTemplate(i18n.AGENT_TASKS_OUTCOME_STOPPED_AT_STEP, step)
         : i18n.AGENT_TASKS_OUTCOME_STOPPED
   }
 }
@@ -391,7 +387,7 @@ async function runNow(id: string): Promise<void> {
       code: 'agent-tasks/run-blocked',
       severity: 'warning',
       surface: 'toast',
-      userMessage: fill(i18n.AGENT_TASKS_RUN_BLOCKED, { reason: result.message }),
+      userMessage: fillTemplate(i18n.AGENT_TASKS_RUN_BLOCKED, { reason: result.message }),
     }),
   )
 }

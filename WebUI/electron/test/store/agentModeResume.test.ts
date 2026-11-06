@@ -72,7 +72,7 @@ beforeEach(() => {
             resolveSnapshot = resolve
           }),
       ),
-      setLifecycleBusy: vi.fn(),
+      reportInFlightWork: vi.fn(),
       agentMode: {
         onExecuteTool: vi.fn(),
         submitToolResult: vi.fn(),

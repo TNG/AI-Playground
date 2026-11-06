@@ -84,7 +84,7 @@ import {
 } from '../models/modelDownloadQueue'
 import { holdOpenDownloadQuestion } from '../models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
-import { fillTemplate } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { answerHelpLine } from '@/lib/answerRouterWording'
 import {
   registerRemoteTurnPort,

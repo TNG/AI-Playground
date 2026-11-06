@@ -231,6 +231,10 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   sidebar closes to their region (`getByRole('region', { name: '<title>' })`, via
   `SideModalBase`'s `role="region"`), and prefer a uniquely-named button (e.g. the wizard's
   "Continue") over "Close".
+- **Teardown answers the close question.** The fixture's `closeApp` quits through `before-quit`,
+  and a quit with In-flight Work (a turn, a queued or running media run, a Task Run) asks in the
+  app's own dialog first; `closeApp` clicks its **Quit** so the real shutdown still runs. A test
+  that asserts on that dialog itself must answer it before returning.
 - **Channel config outlives the test run** (it is stored in `safeStorage`, not in the app
   window), so a channel setting is only what this test asserts if the test _drives it to the
   value it wants_ — `configureLocalWeb` unchecks LAN access when it wasn't asked for, rather
@@ -848,7 +852,7 @@ before the kernel move or as a small fix.
 
 ### Key IPC Channels by Category
 
-**Kernel stream (M→R notifications)**: `kernel:event` — service status, agent-turn events (chunk / tool progress / tool image / turn done), artifact-phase/item events, chat turns (`chat-chunk` — delta-coalesced — and `chat-turn-done`), media-specialist progress (`media-agent-event`), and orchestrator queue events (`queue-event` — enqueued/started/finished per run; the renderer relabels the queued tool's activity with its queue position, `src/lib/queueActivityProjection.ts`), all stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent or chat turn via `Chat.resumeStream()`. `lifecycle:busy` (R→M) pushes the renderer's busy flag for the close policy. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
+**Kernel stream (M→R notifications)**: `kernel:event` — service status, agent-turn events (chunk / tool progress / tool image / turn done), artifact-phase/item events, chat turns (`chat-chunk` — delta-coalesced — and `chat-turn-done`), media-specialist progress (`media-agent-event`), and orchestrator queue events (`queue-event` — enqueued/started/finished per run; the renderer relabels the queued tool's activity with its queue position, `src/lib/queueActivityProjection.ts`), all stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent or chat turn via `Chat.resumeStream()`. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
 
 **Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness` (6th arg `skipGpuAdmission` = Keep Models Loaded; optional 7th `{ remember?: boolean }`; Home Agent summarizer passes `remember: false`), `setLastChatBackendLoadActive`, `rememberChatBackendLoad` (dropdown → last-load snapshot, no service start)
 
@@ -878,7 +882,15 @@ before the kernel move or as a small fix.
 
 **Dialogs/files**: `showOpenDialog`, `showSaveDialog`, `showMessageBox`, `existsPath`, `saveImage`
 
-**Window**: `getWinSize`, `setWinSize`, `miniWindow`, `setFullScreen`, `exitApp`, `zoomIn`, `zoomOut`
+**Window**: `getWinSize`, `setWinSize`, `miniWindow`, `setFullScreen`, `zoomIn`, `zoomOut`
+
+**Closing the app** (`docs/architecture-target.md` §5.1): there is no hidden window and no
+background mode — Schedules and Home Agent run only while the app is open. Every close (the
+in-app X via `lifecycle:requestClose`, the OS close, Cmd+Q) goes to main's close coordinator
+(`electron/kernel/closeCoordinator.ts`), which quits when there is no **In-flight Work** (work
+the user started that has not finished) and otherwise asks the window over `lifecycle:askClose` /
+`lifecycle:answerClose` whether to keep open or quit. Main lists the work it owns (`electron/kernel/inFlightWork.ts`); the
+renderer reports its own In-flight Work. A crashed or missing window quits without asking.
 
 ### Pinia Stores — What Each Does
 

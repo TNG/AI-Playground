@@ -7,18 +7,21 @@ const DEFAULT_TIMEOUT_MS = 15_000
 
 type AppLogger = Pick<typeof appLoggerInstance, 'info' | 'warn' | 'error'>
 
+/** `quit` is the user's own choice; the OS ending the session or a signal is not. */
+export type ShutdownCause = 'quit' | 'session-end' | 'signal'
+
 export type ShutdownStep = {
   /** Shown in the teardown log. */
   name: string
   /** Awaited; any resolved value is ignored. */
-  run: () => unknown
+  run: (cause: ShutdownCause) => unknown
 }
 
 export type ShutdownController = {
   /** Steps run in registration order, so register producers before consumers. */
   register: (step: ShutdownStep) => void
-  /** Runs every step exactly once; repeat calls await the first run. */
-  shutdown: (timeoutMs?: number) => Promise<void>
+  /** Runs every step exactly once; repeat calls await the first run and its cause. */
+  shutdown: (cause: ShutdownCause, timeoutMs?: number) => Promise<void>
   /** True from the moment teardown starts, so respawn logic can stand down. */
   isShuttingDown: () => boolean
 }
@@ -35,11 +38,11 @@ export function createShutdown(logger: AppLogger = appLoggerInstance): ShutdownC
   const steps: ShutdownStep[] = []
   let inFlight: Promise<void> | null = null
 
-  const runSteps = async (): Promise<void> => {
+  const runSteps = async (cause: ShutdownCause): Promise<void> => {
     for (const step of steps) {
       const started = Date.now()
       try {
-        await step.run()
+        await step.run(cause)
         logger.info(`${step.name} stopped in ${Date.now() - started}ms`, LOG_SOURCE)
       } catch (e) {
         logger.warn(`${step.name} failed to stop: ${e}`, LOG_SOURCE)
@@ -47,7 +50,7 @@ export function createShutdown(logger: AppLogger = appLoggerInstance): ShutdownC
     }
   }
 
-  const runBounded = async (timeoutMs: number): Promise<void> => {
+  const runBounded = async (cause: ShutdownCause, timeoutMs: number): Promise<void> => {
     const started = Date.now()
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<void>((resolve) => {
@@ -57,7 +60,7 @@ export function createShutdown(logger: AppLogger = appLoggerInstance): ShutdownC
       }, timeoutMs)
     })
     try {
-      await Promise.race([runSteps(), deadline])
+      await Promise.race([runSteps(cause), deadline])
     } finally {
       clearTimeout(timer)
     }
@@ -68,8 +71,8 @@ export function createShutdown(logger: AppLogger = appLoggerInstance): ShutdownC
     register: (step) => {
       steps.push(step)
     },
-    shutdown: (timeoutMs = DEFAULT_TIMEOUT_MS) => {
-      inFlight ??= runBounded(timeoutMs)
+    shutdown: (cause, timeoutMs = DEFAULT_TIMEOUT_MS) => {
+      inFlight ??= runBounded(cause, timeoutMs)
       return inFlight
     },
     isShuttingDown: () => inFlight !== null,

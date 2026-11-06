@@ -56,3 +56,4 @@ WebUI/external/laminar.localhost.json
 # redistributed, so the raw scores stay on the machine that fetched them; only
 # the thresholded booleans they inform are committed.
 docs/agentic-scores.local.json
+docs/agentic-coding-ranking.local.md

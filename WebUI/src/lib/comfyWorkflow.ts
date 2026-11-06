@@ -63,6 +63,22 @@ export function mediaUrl(relativePath: string): string {
   return `aipg-media://media/${encoded}`
 }
 
+/** An `aipg-media://` URL for a path relative to a Session Folder (e.g. `files/x.png`). */
+export function sessionMediaUrl(sessionId: string, relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const encoded = [sessionId, ...normalized.split('/')].map(encodeURIComponent).join('/')
+  return `aipg-media://sessions/${encoded}`
+}
+
+/** The Session and Session-Folder path a `sessionMediaUrl` names, or null for any other URL. */
+export function sessionMediaPathOf(url: string): { sessionId: string; path: string } | null {
+  const prefix = 'aipg-media://sessions/'
+  if (!url.startsWith(prefix)) return null
+  const [sessionId, ...rest] = url.slice(prefix.length).split('/').map(decodeURIComponent)
+  if (!sessionId || rest.length === 0) return null
+  return { sessionId, path: rest.join('/') }
+}
+
 export const settingToComfyInputsName = {
   seed: ['seed', 'noise_seed'],
   inferenceSteps: ['steps'],

@@ -317,7 +317,7 @@ function pauseReasonText(reason: PauseReason | undefined): string {
 
 async function sessionLabel(sessionId: string): Promise<string> {
   const tasks = await readAgentTasks().catch(() => [])
-  const title = tasks.some((task) => task.activeRun?.sessionId === sessionId)
+  const title = tasks.some((task) => task.activeRuns?.some((run) => run.sessionId === sessionId))
     ? ''
     : await readAgentSessionTitle(sessionId)
   return notificationSessionLabel(config.templates, sessionId, title, tasks)

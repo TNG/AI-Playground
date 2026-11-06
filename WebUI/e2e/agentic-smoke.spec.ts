@@ -16,7 +16,7 @@ import { MainPage } from './pages/MainPage'
 // The chat preset that puts the assistant in agentic mode (built-in tools on).
 const AGENTIC_PRESET = 'Assistant'
 
-// Backend picker labels (see SettingsChat.vue / SpecificSettingsPage.availableBackends).
+// Backend picker labels (see SettingsChatInferencing.vue / SpecificSettingsPage.availableBackends).
 const CHAT_BACKENDS = [
   { label: 'llamaCPP - GGUF', name: 'llama.cpp', optional: false },
   { label: 'OpenVINO', name: 'OpenVINO', optional: true },
@@ -45,7 +45,7 @@ test.describe('Agentic smoke', () => {
       // a model without tool calling would keep it — and this test's tool checkboxes
       // are hidden whenever the active model can't tool-call. Start from the preset's
       // own defaults instead of the machine's history.
-      await app.resetPresetDefaults('Chat')
+      await app.resetPresetDefaults()
 
       // Pin the chat backend for this variant; skip OpenVINO where it isn't offered.
       const pinned = await app.selectChatBackendOrSkip(backend.label, backend.optional)

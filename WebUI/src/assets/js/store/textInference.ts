@@ -80,6 +80,7 @@ import {
   isNpuDevice,
 } from '@/lib/llmBackendChoices'
 import { modelSupportsThinkingToggle as supportsThinkingToggleFor } from '@/lib/llmModelChoices'
+import { sessionIdOfChatKey } from '@/lib/sessionChat'
 
 const LlmBackendSchema = z.enum(llmBackendTypes)
 export type LlmBackend = z.infer<typeof LlmBackendSchema>
@@ -460,15 +461,6 @@ export const useTextInference = defineStore(
 
     const getDeviceNameForBackend = (which: LlmBackend): string | null =>
       selectedDeviceFor(which)?.name ?? null
-
-    // Stable UUID of the currently selected device, when the backend exposes one.
-    // Persisted alongside the id so a preset re-binds to the same physical device
-    // even if its backend-local id shifts (driver update / enumeration reorder).
-    const getCurrentDeviceUuid = (): string | null => {
-      const serviceName = backendToService[backend.value] as BackendServiceName
-      const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-      return serviceInfo?.devices.find((d) => d.selected)?.uuid ?? null
-    }
 
     const backendToAipgModelType = {
       openVINO: 'openvinoLLM',
@@ -1525,7 +1517,7 @@ export const useTextInference = defineStore(
       isLoadingSettings = true
 
       const defaultSettings = settingsPerPreset.value[settingsKey] || {}
-      const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+      const binding = activeSettingsBinding()
       const sessionSettings = binding?.load(defaultSettings, embeddingBackend.value) ?? null
       const savedSettings = sessionSettings ?? defaultSettings
       // A sent session's stored backend is applied as-is; an unusable one blocks Send instead.
@@ -1534,19 +1526,11 @@ export const useTextInference = defineStore(
       console.log('Loading settings for preset', settingsKey, savedSettings)
       const preset = activePreset.value
 
-      // Backend, device and preferred model go through the shared silent repair:
-      // an unavailable choice is replaced rather than restored. A preset with no
-      // saved backend never inherits the previously active preset's backend.
-      const savedDeviceId = savedSettings.selectedDeviceId as string | undefined
+      // Backend and preferred model go through the shared silent repair: an unavailable
+      // choice is replaced rather than restored. A preset with no saved backend never
+      // inherits the previously active preset's backend. The device is a Machine Setting.
       const repaired = repairChatSettings(
-        {
-          backend: savedSettings.backend as LlmBackend | undefined,
-          deviceId: savedDeviceId,
-          deviceUuid:
-            typeof savedSettings.selectedDeviceUuid === 'string'
-              ? savedSettings.selectedDeviceUuid
-              : null,
-        },
+        { backend: savedSettings.backend as LlmBackend | undefined },
         {
           presetBackends: pinnedBackend ? [pinnedBackend] : (preset.backends ?? []),
           presetPreferredModels: preset.preferredModels,
@@ -1555,19 +1539,10 @@ export const useTextInference = defineStore(
             const info = backendServices.info.find((s) => s.serviceName === backendToService[b])
             return info?.status === 'running'
           }),
-          devices: (b) =>
-            backendServices.info.find((s) => s.serviceName === backendToService[b])?.devices ?? [],
           models: llmModels.value,
         },
       )
       if (repaired.backend) backend.value = repaired.backend
-
-      const serviceName = backendToService[backend.value] as BackendServiceName
-      const serviceInfo = backendServices.info.find((s) => s.serviceName === serviceName)
-      const targetDevice = serviceInfo?.devices.find((d) => d.id === repaired.deviceId)
-      if (targetDevice && (savedDeviceId !== undefined || !targetDevice.selected)) {
-        backendServices.selectDevice(serviceName, targetDevice.id)
-      }
 
       // Load selected models (per backend)
       if (savedSettings.selectedModels !== undefined) {
@@ -1789,7 +1764,10 @@ export const useTextInference = defineStore(
       }
 
       // A session with no settings of its own (a Draft Session) takes the repaired defaults.
-      if (binding && !sessionSettings) binding.save(sessionSettingsBag(), embeddingBackend.value)
+      const repairedFromDefaults = !pinned && binding === presetSessionBinding
+      if (binding && (!sessionSettings || repairedFromDefaults)) {
+        binding.save(sessionSettingsBag(), embeddingBackend.value, true)
+      }
       if (pinned) binding.loaded(sessionSettingsBag(), embeddingBackend.value)
 
       // Defer clearing the flag so the persistence watcher (default flush:
@@ -1821,7 +1799,7 @@ export const useTextInference = defineStore(
     /**
      * Resolve the chat preset (+ variant) that should drive inference for a
      * given conversation. Home Agent threads are always pinned to the bundled
-     * Home Agent preset; main threads mirror the live sidebar selection.
+     * Home Agent preset; main threads mirror the live settings selection.
      */
     function resolvePresetForConversation(
       conversationKey: string,
@@ -1878,7 +1856,7 @@ export const useTextInference = defineStore(
      * Called from generate/regenerate before running inference.
      *
      * For Home Agent threads this also enforces routing to the bundled preset
-     * regardless of what the desktop sidebar happened to show.
+     * regardless of what the desktop settings happened to show.
      */
     function stampMetaForConversation(conversationKey: string): void {
       const resolved = resolvePresetForConversation(conversationKey)
@@ -1892,7 +1870,7 @@ export const useTextInference = defineStore(
     }
 
     /**
-     * Ensure the live sidebar/`textInference` refs match the meta (or kind)
+     * Ensure the live `textInference` refs match the meta (or kind)
      * of the target conversation, then return what was applied. Used by
      * `generate`/`regenerate` so the in-flight stream uses the thread's
      * preset, not whatever was last selected for an unrelated chat.
@@ -1915,8 +1893,6 @@ export const useTextInference = defineStore(
         backend: backend.value,
         selectedModels: { ...selectedModels.value },
         selectedEmbeddingModels: { ...selectedEmbeddingModels.value },
-        selectedDeviceId: getCurrentDeviceId(),
-        selectedDeviceUuid: getCurrentDeviceUuid(),
         maxTokens: maxTokens.value,
         contextSize: contextSize.value,
         requestedContextSize: requestedContextSize.value,
@@ -1953,7 +1929,12 @@ export const useTextInference = defineStore(
         defaults: SettingsBag,
         embeddingBackend: Exclude<LlmBackend, 'cloud'>,
       ) => SettingsBag | null
-      save: (bag: SettingsBag, embeddingBackend: Exclude<LlmBackend, 'cloud'>) => void
+      /** `fromLoad` marks the repaired values a load hands back, as opposed to an edit. */
+      save: (
+        bag: SettingsBag,
+        embeddingBackend: Exclude<LlmBackend, 'cloud'>,
+        fromLoad?: boolean,
+      ) => void
       /** Whether the active session was already sent, so its stored values must not be swapped. */
       pinned: () => boolean
       /** The live values right after a pinned session loaded. */
@@ -1973,12 +1954,36 @@ export const useTextInference = defineStore(
       sessionSettingsBindingRef.value = binding
     }
 
-    /** True while the Agent preset shows a sent session: nothing may replace its stored model. */
-    const sessionSettingsPinned = computed(
-      () =>
-        usesSessionSettings(activePreset.value) &&
-        sessionSettingsBindingRef.value?.pinned() === true,
-    )
+    /**
+     * Every other chat preset's Session Settings (ADR-0004), bound by the Session Settings
+     * store. `applies` says whether the open Session holds the given preset's settings.
+     */
+    type PresetSessionBinding = SessionSettingsBinding & {
+      applies: (preset: ChatPreset) => boolean
+    }
+    let presetSessionBinding: PresetSessionBinding | null = null
+    const presetSessionBindingRef = shallowRef<PresetSessionBinding | null>(null)
+
+    function bindPresetSessionSettings(binding: PresetSessionBinding | null): void {
+      presetSessionBinding = binding
+      presetSessionBindingRef.value = binding
+    }
+
+    function activeSettingsBinding(): SessionSettingsBinding | null {
+      const preset = activePreset.value
+      if (!preset) return null
+      if (usesSessionSettings(preset)) return sessionSettingsBinding
+      return presetSessionBinding?.applies(preset) ? presetSessionBinding : null
+    }
+
+    /** True while the active preset shows settings the Session sent with: nothing may replace its stored model. */
+    const sessionSettingsPinned = computed(() => {
+      const preset = activePreset.value
+      if (!preset) return false
+      if (usesSessionSettings(preset)) return sessionSettingsBindingRef.value?.pinned() === true
+      const binding = presetSessionBindingRef.value
+      return binding?.applies(preset) === true && binding.pinned()
+    })
 
     /** What can be served right now, for checking a sent session's stored settings. */
     const settingsAvailability = computed(() => ({
@@ -2071,7 +2076,11 @@ export const useTextInference = defineStore(
         if (!settingsKey) return
 
         const bag = currentSettingsBag()
-        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
+        const binding = activeSettingsBinding()
+        if (binding && binding === presetSessionBinding) {
+          binding.save(sessionSettingsBag(), embeddingBackend.value)
+          return
+        }
         if (binding) {
           // The preset's bag holds the Default Settings; session-owned values go to the session.
           binding.save(sessionSettingsBag(), embeddingBackend.value)
@@ -2082,31 +2091,6 @@ export const useTextInference = defineStore(
           return
         }
         settingsPerPreset.value[settingsKey] = { ...settingsPerPreset.value[settingsKey], ...bag }
-      },
-      { deep: true },
-    )
-
-    // Watch for device changes to save per-preset
-    watch(
-      () => backendServices.info,
-      () => {
-        // Don't save if we're loading settings (prevents overwriting during preset switch)
-        if (isLoadingSettings) return
-
-        const settingsKey = getSettingsKey()
-        if (!settingsKey) return
-
-        const currentDeviceId = getCurrentDeviceId()
-        const binding = usesSessionSettings(activePreset.value) ? sessionSettingsBinding : null
-        if (currentDeviceId && binding) {
-          binding.save(sessionSettingsBag(), embeddingBackend.value)
-        } else if (currentDeviceId) {
-          settingsPerPreset.value[settingsKey] = {
-            ...settingsPerPreset.value[settingsKey],
-            selectedDeviceId: currentDeviceId,
-            selectedDeviceUuid: getCurrentDeviceUuid(),
-          }
-        }
       },
       { deep: true },
     )
@@ -2126,7 +2110,8 @@ export const useTextInference = defineStore(
     watch(
       () => conversations.activeKey,
       (newKey) => {
-        if (!newKey) return
+        // A Session's chat follows the live preset; opening a Session restores its preset itself.
+        if (!newKey || sessionIdOfChatKey(newKey)) return
         const meta = conversations.getThreadMeta(newKey)
         // Home Agent threads are always pinned to the bundled Home Agent preset,
         // even before they've been stamped, so opening one switches the picker.
@@ -2137,7 +2122,7 @@ export const useTextInference = defineStore(
         if (!meta?.presetName) return
         const exists = presetsStore.presets.some((p) => p.name === meta.presetName)
         if (!exists) {
-          // Preset removed since last use — leave the sidebar untouched and let
+          // Preset removed since last use — leave the settings untouched and let
           // the next outbound generate stamp meta from current globals.
           return
         }
@@ -2215,6 +2200,7 @@ export const useTextInference = defineStore(
 
     return {
       bindSessionSettings,
+      bindPresetSessionSettings,
       sessionSettingsPinned,
       settingsAvailability,
       inferenceForSettings,

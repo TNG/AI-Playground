@@ -12,6 +12,8 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { ragAccess } from '../ragAccess.ts'
+import { mountedFolderSandboxPath } from '@/lib/mountedFolders'
+import { realFileInside } from '../hostPathContainment.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 
 // ── rag capability ───────────────────────────────────────────────────────────
@@ -28,7 +30,8 @@ import type { AgentCapability, CapabilityHost } from './types.ts'
 const RAG_TOOL_DESCRIPTION =
   'Semantic search over one or more large documents in the workspace (pdf, docx, doc, md, txt). ' +
   "Pass a list of file paths and a question; it returns the k best-matching passages across the merged documents, each labelled with its source file and page or line numbers. Use it to answer questions about documents too large to read into context in full. Prefer 'read' for small files. " +
-  'The first call on a file indexes it and can take a while; later calls are fast.'
+  'The first call on a file indexes it and can take a while; later calls are fast. ' +
+  "For documents in a Mounted Folder, 'find' them there first, then pass their paths; it takes files, not folders."
 
 // Mirrors piToolOperations.SANDBOX_WORKDIR — the path Pi's sandbox mounts the
 // workspace at, so the model (which lives there) addresses files as
@@ -43,9 +46,9 @@ const RAG_SKILL: SkillSource = {
   body: [
     '`read` loads a whole file into context — fine for code, wrong for a 300-page PDF.',
     'For questions about big documents, call `rag` with a list of file paths',
-    '(workspace-relative like "report.pdf", or the "/workspace/report.pdf" form',
-    'other tools show) and the question; it returns the best-matching passages,',
-    'each labelled with the file it came from.',
+    '(workspace-relative like "report.pdf", the "/workspace/report.pdf" form other',
+    'tools show, or a file in a Mounted Folder) and the question; it returns the',
+    'best-matching passages, each labelled with the file it came from.',
     '',
     '- Pass multiple files to search across them at once; the top-k passages are',
     '  ranked over the merged document set.',
@@ -66,7 +69,7 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
       type: 'array',
       items: { type: 'string' },
       description:
-        'Paths of the documents to search — workspace-relative ("report.pdf") or the /workspace/report.pdf form other tools show. Pass one or more; they are searched as a merged set.',
+        'Paths of the documents to search — workspace-relative ("report.pdf"), the /workspace/report.pdf form other tools show, or a file in a Mounted Folder. Pass one or more files (not folders); they are searched as a merged set.',
     },
     query: {
       type: 'string',
@@ -108,41 +111,36 @@ type IndexedCacheEntry = {
   doc: IndexedDocument
 }
 
+type DocumentRoot = { sandboxPath: string; hostPath: string }
+
+function documentRoots(host: CapabilityHost): DocumentRoot[] {
+  return [
+    { sandboxPath: SANDBOX_WORKDIR, hostPath: host.workspaceDir },
+    ...(host.mountedFolders ?? []).map((folder) => ({
+      sandboxPath: mountedFolderSandboxPath(folder),
+      hostPath: folder.hostPath,
+    })),
+  ]
+}
+
 /**
- * Resolve a model-provided path against the (realpathed) workspace dir.
- *
- * The agent lives in Pi's sandbox, where the workspace is mounted at
- * /workspace: bash's cwd is /workspace and every built-in tool (read, ls, find)
- * reports /workspace/<name> paths. `ls`/`find`/`grep` return relative names, but
- * the model usually reconstructs the absolute form on a first attempt, so
- * accept that prefix and treat the rest as workspace-relative. In host-shell
- * mode the same happens with the real workspace dir. Either way the unchanged
- * realpath containment check below is the sole authority for what is inside:
- * symlinks pointing out, `..` traversals and absolute outside paths all stay
- * rejected. Returns null when the path is not a workspace file.
+ * Resolve a model-provided path to a host file inside the workspace or a Mounted Folder.
+ * `/workspace/…` and `/mnt/<name>/…` must stay inside that one root (by realpath);
+ * relative paths are workspace-relative; a real host path may sit in any root.
  */
-function resolveWorkspaceFile(workspaceDir: string, inputPath: string): string | null {
+function resolveDocumentFile(roots: readonly DocumentRoot[], inputPath: string): string | null {
   if (!inputPath) return null
-  let candidate = inputPath
-  if (candidate.startsWith(SANDBOX_WORKDIR + '/')) {
-    candidate = candidate.slice(SANDBOX_WORKDIR.length + 1)
+  const [workspace] = roots
+  const sandboxRoot = roots.find((root) => inputPath.startsWith(root.sandboxPath + '/'))
+  if (sandboxRoot) {
+    return realFileInside(sandboxRoot.hostPath, inputPath.slice(sandboxRoot.sandboxPath.length + 1))
   }
-  let root: string
-  try {
-    root = fs.realpathSync(workspaceDir)
-  } catch {
-    return null
+  if (!path.isAbsolute(inputPath)) return realFileInside(workspace.hostPath, inputPath)
+  for (const root of roots) {
+    const real = realFileInside(root.hostPath, inputPath)
+    if (real) return real
   }
-  const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(root, candidate)
-  let real: string
-  try {
-    real = fs.realpathSync(resolved)
-  } catch {
-    return null
-  }
-  const relative = path.relative(root, real)
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null
-  return real
+  return null
 }
 
 function chunkLocation(metadata: Document['metadata']): string | undefined {
@@ -251,7 +249,7 @@ function formatChunks(
 
 async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
   const pi = await loadPi()
-  const { workspaceDir } = host
+  const roots = documentRoots(host)
 
   // Session-scoped: built once per session, dies with its tools.
   const indexedFiles = new Map<string, IndexedCacheEntry>()
@@ -294,9 +292,9 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
         }[] = []
         const seenPaths = new Set<string>()
         for (const input of fileList) {
-          const realPath = resolveWorkspaceFile(workspaceDir, input)
+          const realPath = resolveDocumentFile(roots, input)
           if (!realPath) {
-            skipped.push(`"${input}" — not a file in the workspace folder`)
+            skipped.push(`"${input}" — not a file in the workspace folder or a Mounted Folder`)
             continue
           }
           if (seenPaths.has(realPath)) continue
@@ -451,7 +449,7 @@ export const ragCapability: AgentCapability = {
   unavailableReason: (host) =>
     host.embeddingModel
       ? undefined
-      : 'No embedding model selected — pick one in the settings sidebar to enable it.',
+      : 'No embedding model selected — pick one in the Attributes tab to enable it.',
   lazyEligible: true,
 }
 
@@ -460,7 +458,7 @@ export const testables = {
   MAX_K,
   MAX_RESULT_CHARS,
   SUPPORTED_EXTENSIONS,
-  resolveWorkspaceFile,
+  resolveDocumentFile,
   coerceFileList,
   userFileLabel,
   formatChunks,

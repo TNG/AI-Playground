@@ -62,7 +62,7 @@ import {
   type ComfyClientDeps,
 } from './comfyClient'
 import { buildDummyGlb, DUMMY_3D_PRESET_NAME, VIEW_FIXTURE } from '@/lib/devPresetWorkflows'
-import { saveMediaItems } from '../persist/mediaItemFiles'
+import { recordMediaTurn } from '../session/sessionMediaTurn'
 import { extractMessage } from '@/assets/js/errors/appError'
 
 const appLogger = appLoggerInstance
@@ -125,6 +125,8 @@ export type ArtifactRunPayload = {
   conversationKey?: string
   /** The renderer activity the tool began for this run — lets queue events relabel it. */
   activityId?: string
+  /** The Session a panel run belongs to: its outputs and History Entry settle there. */
+  sessionId?: string
 }
 
 // Hoisted to `@/types/artifactIpc` (the manifest row states it); re-exported
@@ -170,6 +172,8 @@ export type ArtifactRunnerDeps = {
   getPlatform(): NodeJS.Platform
   /** Dev-only dummy presets are offered (npm run dev / showDebugSettingsInUI). */
   devPresetsEnabled(): boolean
+  /** The file an `aipg-media://` URL names, so a Session can take the run's outputs. */
+  localPathOf?(url: string): string | null
 }
 
 type ActiveRun = {
@@ -187,6 +191,9 @@ type ActiveRun = {
   /** ComfyUI client id for this run — unique so leftover WS frames cannot mix. */
   clientId: string
   comfyBaseUrl: string | null
+  startedAt: number
+  /** An item began generating; a run failing before that keeps none of its slots. */
+  generationStarted: boolean
 }
 
 let activeRun: ActiveRun | null = null
@@ -285,6 +292,7 @@ function emitItem(run: ActiveRun, item: MediaItem): void {
   const index = run.items.findIndex((existing) => existing.id === item.id)
   if (index === -1) run.items.push(item)
   else run.items[index] = item
+  if (item.state === 'generating' || item.state === 'done') run.generationStarted = true
   emitArtifactItem(artifactRunTag(run.payload), item)
 }
 
@@ -326,6 +334,14 @@ function doneItems(run: ActiveRun): MediaItem[] {
   return run.items.filter(isDoneWithMedia)
 }
 
+/** The slots a run that had started generating left without a result, without their preview. */
+function unfinishedItems(run: ActiveRun, state: 'failed' | 'stopped'): MediaItem[] | undefined {
+  if (!run.generationStarted) return undefined
+  return run.items
+    .filter((item) => !isDoneWithMedia(item))
+    .map((item) => ({ ...item, state, type: 'image', imageUrl: '' }) as MediaItem)
+}
+
 function settleItems(run: ActiveRun, state: 'failed' | 'stopped'): void {
   for (const item of run.items) {
     if (item.state === 'queued' || item.state === 'generating') {
@@ -334,13 +350,33 @@ function settleItems(run: ActiveRun, state: 'failed' | 'stopped'): void {
   }
 }
 
-function persistRendererGallery(run: ActiveRun): void {
-  if (runOrigin(run.payload) !== 'renderer') return
-  const items = doneItems(run)
-  if (items.length === 0) return
-  void saveMediaItems(items).catch((error) => {
-    appLogger.warn(`Media record persist failed: ${extractMessage(error)}`, 'electron-backend')
-  })
+/** A panel run in a Session moves its outputs there and records its turn before it settles. */
+async function settleIntoSession(
+  sessionId: string,
+  run: ActiveRun,
+  result: ArtifactRunResult,
+): Promise<ArtifactRunResult> {
+  try {
+    const items = await recordMediaTurn({
+      sessionId,
+      runId: run.payload.runId,
+      mode: run.payload.mode,
+      preset: run.payload.preset.name,
+      variant: resolvedVariantName(run.payload),
+      prompt: run.payload.params.prompt,
+      status: result.state,
+      error: result.error,
+      durationMs: Date.now() - run.startedAt,
+      items: result.items,
+      unfinished: result.unfinished,
+      localPathOf: (url) => runnerDeps?.localPathOf?.(url) ?? null,
+    })
+    for (const item of items) emitItem(run, item)
+    return { ...result, items }
+  } catch (error) {
+    appLogger.warn(`Session turn record failed: ${extractMessage(error)}`, 'electron-backend')
+    return result
+  }
 }
 
 function finish(run: ActiveRun, result: ArtifactRunResult): void {
@@ -352,7 +388,16 @@ function finish(run: ActiveRun, result: ArtifactRunResult): void {
   }
   run.statusWatch?.()
   run.statusWatch = null
-  persistRendererGallery(run)
+  if (run.payload.sessionId && runOrigin(run.payload) === 'renderer') {
+    void settleIntoSession(run.payload.sessionId, run, result).then((settled) =>
+      publishSettlement(run, settled),
+    )
+  } else {
+    publishSettlement(run, result)
+  }
+}
+
+function publishSettlement(run: ActiveRun, result: ArtifactRunResult): void {
   emitArtifactPhase(
     artifactRunTag(run.payload),
     result.state === 'completed'
@@ -389,7 +434,12 @@ function failRun(run: ActiveRun, message: string, interrupt: boolean): void {
     void clearQueue(baseUrl, clientDeps()).catch(() => {})
   }
   settleItems(run, 'failed')
-  finish(run, { state: 'failed', items: doneItems(run), error: message })
+  finish(run, {
+    state: 'failed',
+    items: doneItems(run),
+    unfinished: unfinishedItems(run, 'failed'),
+    error: message,
+  })
 }
 
 function cancelRun(run: ActiveRun): void {
@@ -400,13 +450,23 @@ function cancelRun(run: ActiveRun): void {
     void clearQueue(baseUrl, clientDeps()).catch(() => {})
   }
   settleItems(run, 'stopped')
-  finish(run, { state: 'cancelled', items: doneItems(run), error: 'Generation cancelled.' })
+  finish(run, {
+    state: 'cancelled',
+    items: doneItems(run),
+    unfinished: unfinishedItems(run, 'stopped'),
+    error: 'Generation cancelled.',
+  })
 }
 
 function checkCompletion(run: ActiveRun): void {
   if (run.settled) return
   if (run.items.some((item) => item.state === 'failed')) {
-    finish(run, { state: 'failed', items: doneItems(run), error: 'Generation failed' })
+    finish(run, {
+      state: 'failed',
+      items: doneItems(run),
+      unfinished: unfinishedItems(run, 'failed'),
+      error: 'Generation failed',
+    })
     return
   }
   const completed = doneItems(run)
@@ -470,6 +530,8 @@ function startRun(payload: ArtifactRunPayload): Promise<ArtifactRunResult> {
     phase: 'queued',
     clientId: `aipg-artifact-${payload.runId}`,
     comfyBaseUrl: null,
+    startedAt: Date.now(),
+    generationStarted: false,
   }
   activeRun = run
 
@@ -681,8 +743,10 @@ function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
       const current = run.items[run.generateIdx]
       if (!current) break
       const createdAt = Date.now()
+      // ComfyUI reuses a filename once the earlier file has left its output folder,
+      // so the item id keeps two outputs from sharing a URL (and a cached image).
       const relative = (subfolder?: string, filename?: string) =>
-        mediaUrl(subfolder && filename ? `${subfolder}/${filename}` : (filename ?? ''))
+        `${mediaUrl(subfolder && filename ? `${subfolder}/${filename}` : (filename ?? ''))}?v=${encodeURIComponent(current.id)}`
       const image = 'images' in output ? output.images.find((i) => i.type === 'output') : undefined
       const video = 'gifs' in output ? output.gifs.find((i) => i.type === 'output') : undefined
       const model3d =

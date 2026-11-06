@@ -5,37 +5,37 @@
         <p class="text-red-500">{{ contextError }}</p>
       </div>
       <div
-        v-if="agentSettingsProblems.length > 0"
+        v-if="settingsProblems.length > 0"
         role="alert"
-        aria-label="Agent session settings unusable"
-        class="w-full max-w-3xl text-sm text-amber-500 flex flex-col gap-1"
+        :aria-label="
+          agentSettingsProblems.length > 0
+            ? 'Agent session settings unusable'
+            : 'Session settings unusable'
+        "
+        class="w-full text-sm text-amber-500 flex flex-col gap-1"
       >
-        <p>{{ languages?.AGENT_SETTINGS_UNUSABLE }}</p>
-        <p v-for="problem in agentSettingsProblems" :key="`${problem.field}:${problem.value}`">
+        <p>
+          {{
+            agentSettingsProblems.length > 0
+              ? languages?.AGENT_SETTINGS_UNUSABLE
+              : languages?.SESSION_SETTINGS_UNUSABLE
+          }}
+        </p>
+        <p v-for="problem in settingsProblems" :key="`${problem.field}:${problem.value}`">
           {{ describeSettingsProblem(problem) }}
         </p>
       </div>
       <div
-        v-if="lockingTask"
+        v-if="queuedBehindRun"
         role="status"
-        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+        class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
       >
-        <p class="flex-1 min-w-0">{{ lockedNote }}</p>
-        <Button
-          variant="secondary"
-          size="sm"
-          class="h-7 px-2 text-xs"
-          :aria-label="(languages?.AGENT_TASKS_STOP ?? '').replace('{name}', lockingTask.name)"
-          @click="agentTasks.stopTask(lockingTask.id)"
-        >
-          <StopIcon class="size-3.5" aria-hidden="true" />
-          {{ languages?.AGENT_TASK_STOP_RUN }}
-        </Button>
+        <p class="flex-1 min-w-0">{{ queuedBehindRunNote }}</p>
       </div>
       <div
         v-else-if="promptRun"
         role="status"
-        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+        class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
       >
         <p class="flex-1 min-w-0">{{ promptRunNote }}</p>
         <Button
@@ -50,7 +50,7 @@
       </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
-      <div class="w-full max-w-3xl flex flex-col">
+      <div class="w-full flex flex-col">
         <PromptStatusBar />
         <!-- RAG Documents Display (only when RAG is enabled and has documents) -->
         <div
@@ -143,6 +143,21 @@
             </p>
             <template v-else>
               <Button
+                v-if="sttAttachedClip"
+                variant="outline"
+                class="rounded-lg px-4 py-2"
+                :disabled="sessionAudio.processing || preparingStt"
+                @click="transcribeAttachedClip"
+              >
+                <MusicalNoteIcon class="size-5 mr-2" aria-hidden="true" />
+                {{
+                  (languages?.STT_TRANSCRIBE_ATTACHED ?? 'Transcribe {file}').replace(
+                    '{file}',
+                    sttAttachedClip.filename ?? '',
+                  )
+                }}
+              </Button>
+              <Button
                 id="stt-record-button"
                 class="bg-primary hover:bg-primary/80 text-primary-foreground rounded-lg px-4 py-2"
                 :disabled="audioRecorder.isTranscribing || preparingStt"
@@ -183,295 +198,17 @@
               />
             </template>
           </div>
-          <div class="absolute bottom-14 left-3 flex gap-2">
-            <div
-              v-for="preview in imagePreview"
-              :key="preview.id"
-              class="relative max-h-12 max-w-12 mr-2 aspect-square group"
-            >
-              <img
-                :src="preview.url"
-                alt="Image Preview"
-                class="w-full h-full object-contain border border-dashed border-border rounded-md"
-              />
-              <button
-                @click="removeImage(preview.id)"
-                class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-full p-0.5 text-muted-foreground hover:text-destructive"
-                title="Remove image"
-              >
-                <XMarkIcon class="size-4" />
-              </button>
-            </div>
-            <div
-              v-for="clip in audioPreview"
-              :key="clip.id"
-              class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
-            >
-              <MusicalNoteIcon class="size-4 flex-none" />
-              <span class="truncate max-w-40" :title="clip.part.filename">{{
-                clip.part.filename
-              }}</span>
-              <button
-                @click="removeImage(clip.id)"
-                class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                title="Remove attachment"
-              >
-                <XMarkIcon class="size-4" />
-              </button>
-            </div>
-            <div
-              v-for="(file, index) in agentMode.attachments"
-              :key="`${file.name}-${index}`"
-              class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
-            >
-              <PaperClipIcon class="size-4 flex-none" />
-              <span class="truncate max-w-40" :title="file.name">{{ file.name }}</span>
-              <button
-                @click="agentMode.removeAttachment(index)"
-                class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                title="Remove attachment"
-              >
-                <XMarkIcon class="size-4" />
-              </button>
-            </div>
-            <div
-              v-if="shouldShowImageUploadButton"
-              class="self-center border border-dashed border-border rounded-md p-1 hover:cursor-pointer origin-bottom-left"
-              :class="{ 'border-primary bg-primary/10': isOverDropZone }"
-              id="plus-icon"
-            >
-              <Label htmlFor="file-attachment" @click="handlePlusIconClick">
-                <PlusIcon class="size-4 cursor-pointer" />
-              </Label>
-              <input
-                type="file"
-                class="hidden"
-                id="file-attachment"
-                aria-label="Attach image or document"
-                :accept="getAcceptedFileTypes()"
-                multiple
-                @change="handleFileInput"
-              />
-            </div>
-          </div>
-          <div
-            id="mode-buttons"
-            class="absolute bottom-4 left-3 flex gap-2"
-            @pointerleave="schedulePickerClose"
-          >
-            <Popover
-              v-for="mode in modesWithPresets"
-              :key="mode"
-              :open="openPickerMode === mode"
-              @update:open="(val: boolean) => onPickerOpenChange(mode, val)"
-            >
-              <!-- Shared anchor pinned to the left edge of the button row, so every
-                   mode's picker opens from the same point (using the full width) -->
-              <PopoverAnchor as-child>
-                <span
-                  aria-hidden="true"
-                  class="pointer-events-none absolute left-0 top-0 bottom-0 w-0"
-                />
-              </PopoverAnchor>
-              <PopoverTrigger as-child>
-                <Button
-                  :variant="
-                    buttonModeFor(promptStore.getCurrentMode()) === mode ? 'default' : 'secondary'
-                  "
-                  :id="'mode-button-' + mode"
-                  @pointerenter="(e: PointerEvent) => onPickerPointerEnter(mode, e)"
-                  @pointerdown="onPickerPointerDown"
-                  @focus="(e: FocusEvent) => onPickerFocus(mode, e)"
-                  @blur="schedulePickerClose()"
-                  @click="handleModeClick(mode)"
-                >
-                  {{ mapModeToLabel(mode) }}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="start"
-                :side-offset="8"
-                class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
-                @open-auto-focus.prevent
-                @close-auto-focus.prevent
-              >
-                <!-- Hover handlers live on this inner div rather than <PopoverContent>:
-                     that wrapper's root is a Teleport (PopoverPortal), which drops attrs. -->
-                <div
-                  data-aipg-help="preset-selector"
-                  class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
-                  @pointerenter="cancelPickerClose"
-                  @pointerleave="schedulePickerClose"
-                >
-                  <TooltipProvider :delay-duration="200">
-                    <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
-                      <TooltipTrigger as-child>
-                        <button
-                          type="button"
-                          :aria-label="oemBranding.presetLabel(preset.name)"
-                          :aria-pressed="presetsStore.activePresetName === preset.name"
-                          :aria-disabled="!presetGate(preset).enabled"
-                          :data-aipg-preset-name="preset.name"
-                          class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
-                          :class="[
-                            presetsStore.activePresetName === preset.name
-                              ? 'border-primary ring-2 ring-primary'
-                              : 'border-transparent',
-                            presetGate(preset).enabled
-                              ? 'hover:border-primary'
-                              : 'opacity-40 grayscale cursor-not-allowed',
-                          ]"
-                          @click="selectPresetFromPicker(mode, preset)"
-                        >
-                          <img
-                            v-if="preset.image"
-                            :src="preset.image"
-                            :alt="oemBranding.presetLabel(preset.name)"
-                            class="absolute inset-0 w-full h-full object-cover"
-                          />
-                          <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
-                            <span
-                              class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
-                            >
-                              {{ oemBranding.presetLabel(preset.name) }}
-                            </span>
-                          </div>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" class="z-[40011] max-w-[260px]">
-                        <p class="font-semibold">{{ oemBranding.presetLabel(preset.name) }}</p>
-                        <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
-                          {{ preset.description }}
-                        </p>
-                        <p v-if="!presetGate(preset).enabled" class="mt-1 text-amber-400 text-xs">
-                          {{ presetGate(preset).reason }}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <p
-                    v-if="presetsForMode(mode).length === 0"
-                    class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
-                  >
-                    No presets available
-                  </p>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <div class="absolute bottom-4 right-3 flex gap-2">
-            <Button
-              id="camera-button"
-              class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
-              variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat'"
-              :disabled="!!downloadGroup"
-              @click="handleCameraClick"
-              title="Capture image from camera"
-            >
-              <AcerCameraIcon class="w-5 h-5" />
-            </Button>
-            <Button
-              id="microphone-button"
-              class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
-              variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat'"
-              @click="handleRecordingClick"
-              :disabled="
-                (!sttAvailable && !audioRecorder.isRecording) ||
-                audioRecorder.isTranscribing ||
-                preparingStt ||
-                !!downloadGroup
-              "
-              :title="
-                preparingStt ? 'Starting speech service…' : sttAvailable ? '' : sttUnavailableHint
-              "
-            >
-              <i
-                v-if="!audioRecorder.isTranscribing && !preparingStt"
-                class="svg-icon w-5 h-5"
-                :class="audioRecorder.isRecording ? 'i-record-active' : 'i-record'"
-              ></i>
-              <span
-                v-else
-                class="svg-icon i-loading w-5 h-5 animate-spin inline-block"
-                :aria-label="preparingStt ? 'Starting speech service' : 'Transcribing'"
-              ></span>
-              <div
-                v-if="audioRecorder.isRecording"
-                class="absolute -top-11 flex gap-1 items-end h-10"
-              >
-                <div
-                  v-for="i in 5"
-                  :key="i"
-                  class="w-1.5 bg-primary rounded-full transition-all duration-100"
-                  :style="{
-                    height: `${Math.max(6, (audioRecorder.audioLevel / 100) * 40 * (i / 5))}px`,
-                    opacity: audioRecorder.audioLevel > (i - 1) * 20 ? 1 : 0.35,
-                  }"
-                ></div>
-              </div>
-            </Button>
-            <Button
-              id="advanced-settings-button"
-              class="px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm font-normal"
-              @click="handleAdvancedSettingsClick"
-            >
-              {{ settingsLabel }}
-            </Button>
-            <!-- Send / stop / loading cluster — hidden for the STT preset, which
-                 submits via its own record/upload controls. -->
-            <template v-if="!isSttPreset && !downloadGroup">
-              <TooltipProvider v-if="readyForNewSubmit" :delay-duration="200">
-                <Tooltip v-if="canRunSteps">
-                  <TooltipTrigger as-child>
-                    <Button
-                      @click="handleRunStepsClick"
-                      :aria-label="languages?.AGENT_STEPS_RUN"
-                      :disabled="agentSettingsProblems.length > 0 || isSlashCommand"
-                      class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-                    >
-                      <PlayIcon class="size-4" aria-hidden="true" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN_TIP }}</TooltipContent>
-                </Tooltip>
-                <Tooltip :disabled="!canRunSteps">
-                  <TooltipTrigger as-child>
-                    <Button
-                      @click="handleSubmitPromptClick"
-                      id="send-button"
-                      aria-label="Send"
-                      :disabled="agentSettingsProblems.length > 0"
-                      class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
-                    >
-                      →
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{{ languages?.AGENT_STEPS_SEND_TIP }}</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <Button
-                v-else-if="!isStopping"
-                @click="handleCancelClick"
-                aria-label="Stop generating"
-                aria-busy="true"
-                class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-              >
-                <i class="svg-icon w-4 h-4 i-stop"></i>
-              </Button>
-              <Button
-                v-else
-                disabled
-                aria-label="Stopping"
-                aria-busy="true"
-                class="px-3 py-1.5 bg-red-400 cursor-not-allowed rounded-lg text-sm min-w-[44px] flex items-center justify-center"
-              >
-                <i class="svg-icon w-4 h-4 i-loading"></i>
-              </Button>
-            </template>
-          </div>
+          <ModernBottomBar
+            v-if="promptBarStyle.active === 'modern'"
+            v-bind="bottomBarProps"
+            v-on="bottomBarEvents"
+          />
+          <ClassicBottomBar
+            v-else
+            :modes="modesWithPresets"
+            v-bind="bottomBarProps"
+            v-on="bottomBarEvents"
+          />
         </div>
       </div>
     </div>
@@ -493,10 +230,9 @@
 </template>
 
 <script setup lang="ts">
-import { getCurrentInstance, ref, computed, watch, nextTick } from 'vue'
+import { getCurrentInstance, ref, computed, watch } from 'vue'
 import type { FileUIPart } from 'ai'
 import {
-  mapModeToLabel,
   downscaleImageTo1MP,
   fileToDataUri,
   fitReferenceDataUri,
@@ -520,35 +256,26 @@ import {
 } from '@/assets/js/store/imageGenerationPresets.ts'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useSessionAudio } from '@/assets/js/store/sessionAudio'
+import { useSessions } from '@/assets/js/store/sessions'
+import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
+import { useSessionTabs } from '@/assets/js/store/sessionTabs'
+import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import {
   describeSettingsProblem as describeProblem,
   type SessionSettingsProblem,
 } from '@/lib/sessionSettingsProblems'
-import { useOemBranding } from '@/assets/js/store/oemBranding'
-import { useModeSettingsLabel } from '@/assets/js/modeSettingsLabel'
-import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
-import { useBackendServices } from '@/assets/js/store/backendServices'
+import { buttonModeFor } from '@/lib/presetModes'
+import { useConversations } from '@/assets/js/store/conversations'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
 import { useTextInference } from '@/assets/js/store/textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { useI18N } from '@/assets/js/store/i18n'
-import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
-import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useProductMode } from '@/assets/js/store/productMode'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  PlusIcon,
-  PaperClipIcon,
-  MusicalNoteIcon,
-  StopIcon,
-  XMarkIcon,
-} from '@heroicons/vue/24/outline'
-import { PlayIcon } from '@heroicons/vue/24/solid'
-import AcerCameraIcon from '@/components/AcerCameraIcon.vue'
+import { PaperClipIcon, MusicalNoteIcon, StopIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -556,13 +283,18 @@ import ModelDownloadCard from '@/components/ModelDownloadCard.vue'
 import * as toast from '@/assets/js/toast'
 import Button from '@/components/ui/button/Button.vue'
 import PromptStatusBar from '@/components/PromptStatusBar.vue'
+import ClassicBottomBar from '@/components/ClassicBottomBar.vue'
+import ModernBottomBar from '@/components/ModernBottomBar.vue'
+import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import CameraCapture from '@/components/CameraCapture.vue'
-import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
-import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
+import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
 import { stepPrompts } from '@/lib/taskSteps'
+import { useAgentRunHold } from '@/lib/useAgentRunHold'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -573,9 +305,13 @@ const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
+const sessionAudio = useSessionAudio()
+const sessions = useSessions()
+const sessionLifecycle = useSessionLifecycle()
+const sessionTabs = useSessionTabs()
+const sessionSettings = useSessionSettings()
 const agentTasks = useAgentTasks()
-const oemBranding = useOemBranding()
-const settingsLabel = useModeSettingsLabel(() => promptStore.getCurrentMode())
+const afterAgentRun = useAgentRunHold()
 const textInference = useTextInference()
 const conversations = useConversations()
 const activities = useActivities()
@@ -583,46 +319,32 @@ const errors = useErrors()
 const textareaRef = ref<HTMLTextAreaElement>()
 const isTextareaFocused = ref(false)
 const presetsStore = usePresets()
-const presetSwitching = usePresetSwitching()
-const homeAgent = useHomeAgent()
-const backendServices = useBackendServices()
 const dialogStore = useDialogStore()
+const promptBarStyle = usePromptBarStyle()
 
-// Some chat presets are gated on a feature that the user can enable/install but
-// that may currently be off. They stay visible in the picker but greyed-out and
-// non-selectable (with a reason), unlike presets that are entirely unavailable on
-// this system — those are filtered out upstream (e.g. aiDAPTIV™/Phison without the
-// SSD).
-const phisonUsable = computed(
-  () =>
-    backendServices.phisonSsdDetected &&
-    (backendServices.info.find((s) => s.serviceName === 'llamacpp-backend')
-      ?.llamaCppPhisonArtifactReady ??
-      false) &&
-    backendServices.llamaCppBuildVariant === 'ssd-offload',
-)
+const bottomBarProps = computed(() => ({
+  showAttach: shouldShowImageUploadButton.value,
+  acceptedFileTypes: getAcceptedFileTypes(),
+  isOverDropZone: isOverDropZone.value,
+  downloading: !!downloadGroup.value,
+  sttAvailable: sttAvailable.value,
+  sttUnavailableHint: sttUnavailableHint.value,
+  showSend: !isSttPreset.value && !downloadGroup.value,
+  readyForNewSubmit: readyForNewSubmit.value,
+  canRunSteps: canRunSteps.value,
+  settingsBlocked: settingsProblems.value.length > 0,
+  isSlashCommand: isSlashCommand.value,
+  isStopping: isStopping.value,
+}))
 
-/** Whether a picker preset is currently selectable, plus why not when disabled. */
-function presetGate(preset: Preset): { enabled: boolean; reason?: string } {
-  if (preset.type === 'chat' && (preset as ChatPreset).requiresPhison) {
-    return phisonUsable.value
-      ? { enabled: true }
-      : { enabled: false, reason: 'Install and activate the aiDAPTIV™ build to use this preset.' }
-  }
-  if (preset.name === HOME_AGENT_CHAT_PRESET_NAME) {
-    if (!homeAgent.masterEnabled) {
-      return { enabled: false, reason: 'Enable the Home Agent in settings to use this preset.' }
-    }
-    if (!homeAgent.isAvailable) {
-      return { enabled: false, reason: 'The Home Agent backend is not installed or running yet.' }
-    }
-    return { enabled: true }
-  }
-  return { enabled: true }
+const bottomBarEvents = {
+  attach: handleFileInput,
+  camera: handleCameraClick,
+  record: handleRecordingClick,
+  send: handleSubmitPromptClick,
+  runSteps: handleRunStepsClick,
+  cancel: handleCancelClick,
 }
-
-// Quick preset picker: which mode's picker popover is currently open (null = none).
-const openPickerMode = ref<ModeType | null>(null)
 
 // Modes that run on chat-type presets and stream their turns into a conversation
 // view. They share the prompt box's text handling (free-form text, cleared after a
@@ -630,140 +352,8 @@ const openPickerMode = ref<ModeType | null>(null)
 const chatLikeModes: ModeType[] = ['chat', 'agent', 'audio']
 const isChatLikeMode = computed(() => chatLikeModes.includes(promptStore.getCurrentMode()))
 
-function presetsForMode(mode: ModeType): Preset[] {
-  return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
-}
-
-// The picker opens on hover (mouse) with a small delay, and closes shortly after the
-// pointer leaves the button row / picker — the grace delay bridges the offset gap
-// between the two so the menu doesn't flicker on the way up.
-const PICKER_OPEN_DELAY = 80
-const PICKER_CLOSE_DELAY = 150
-let pickerOpenTimer: number | null = null
-let pickerCloseTimer: number | null = null
-// Touch/pen users get no hover, so for them the trigger click may still open the picker.
-let lastPickerPointerType = 'mouse'
-
-function clearPickerTimers() {
-  if (pickerOpenTimer !== null) {
-    window.clearTimeout(pickerOpenTimer)
-    pickerOpenTimer = null
-  }
-  if (pickerCloseTimer !== null) {
-    window.clearTimeout(pickerCloseTimer)
-    pickerCloseTimer = null
-  }
-}
-
-function openPicker(mode: ModeType) {
-  clearPickerTimers()
-  // Suppressed only while a demo tour is on screen, so it doesn't collide with its popover.
-  if (demoMode.tourOpen) return
-  if (openPickerMode.value === mode) return
-  pickerOpenTimer = window.setTimeout(() => {
-    pickerOpenTimer = null
-    openPickerMode.value = mode
-  }, PICKER_OPEN_DELAY)
-}
-
-function schedulePickerClose() {
-  clearPickerTimers()
-  pickerCloseTimer = window.setTimeout(() => {
-    pickerCloseTimer = null
-    openPickerMode.value = null
-  }, PICKER_CLOSE_DELAY)
-}
-
-function cancelPickerClose() {
-  clearPickerTimers()
-}
-
-function closePicker() {
-  clearPickerTimers()
-  openPickerMode.value = null
-}
-
-function onPickerPointerEnter(mode: ModeType, event: PointerEvent) {
-  if (event.pointerType === 'mouse') openPicker(mode)
-}
-
-function onPickerFocus(mode: ModeType, event: FocusEvent) {
-  // Open for keyboard focus only: clicking the button focuses it too, and that
-  // click is a mode switch, not a request to open the picker.
-  const target = event.target as HTMLElement | null
-  if (target?.matches(':focus-visible')) openPicker(mode)
-}
-
-function onPickerPointerDown(event: PointerEvent) {
-  lastPickerPointerType = event.pointerType
-}
-
-function onPickerOpenChange(mode: ModeType, open: boolean) {
-  // Reka asks to open on trigger click; hover is the only opener for mouse users,
-  // so only close requests (outside click / Escape) are honored there. Touch/pen
-  // taps get no hover, so their click still opens the picker as before.
-  if (!open) {
-    closePicker()
-    return
-  }
-  if (lastPickerPointerType !== 'mouse' && !demoMode.tourOpen) openPickerMode.value = mode
-}
-
-async function selectPresetFromPicker(mode: ModeType, preset: Preset) {
-  // Greyed-out presets (feature off / not installed) aren't selectable — explain why.
-  const gate = presetGate(preset)
-  if (!gate.enabled) {
-    toast.warning(gate.reason ?? 'This preset is not available yet.')
-    return
-  }
-
-  closePicker() // Selecting a preset closes the picker.
-
-  if (presetSwitching.isSwitching) {
-    toast.warning('Please wait for current preset change to complete')
-    return
-  }
-  // No-op if it's already the active preset for this mode.
-  if (
-    preset.name === presetsStore.activePresetName &&
-    buttonModeFor(promptStore.getCurrentMode()) === mode
-  ) {
-    return
-  }
-
-  // Hovering only opened the picker, so selecting the preset performs the mode
-  // switch too (skipPresetSwitch: we pick the preset ourselves right after).
-  if (!promptStore.setCurrentMode(mode, { skipPresetSwitch: true })) return
-
-  // Route the active conversation alongside the preset, mirroring SettingsChat:
-  // Home Agent jumps to its remote thread; leaving a Home Agent thread for another
-  // preset spawns a fresh main conversation so we don't write into Home Agent state.
-  const switchingToHomeAgent = preset.name === HOME_AGENT_CHAT_PRESET_NAME
-  const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
-
-  // The mode is left to the switch: an agent preset from the chat list moves the app
-  // to Agent Mode, which the button above cannot know.
-  const result = await presetSwitching.switchPreset(preset.name)
-  if (result.success) {
-    if (switchingToHomeAgent) {
-      conversations.activeKey = homeAgent.ensureActiveRemoteConversation()
-    } else if (onHomeAgentThread) {
-      conversations.addNewConversation()
-    }
-    toast.success(`Switched to ${oemBranding.presetLabel(preset.name)}`)
-  } else if (result.error) {
-    toast.error(`Failed to switch preset: ${result.error}`)
-  }
-}
 const demoMode = useDemoMode()
 const productModeStore = useProductMode()
-
-watch(
-  () => demoMode.tourOpen,
-  (open) => {
-    if (open) closePicker()
-  },
-)
 
 // Get active chat preset
 const activeChatPreset = computed(() => {
@@ -789,24 +379,48 @@ const sttUnavailableHint = computed(() =>
     : 'Install the OpenVINO backend or standalone Whisper backend, or set an external transcription endpoint, to use voice input',
 )
 
-// Handle an uploaded audio file in the STT preset: transcribe it into a chat turn.
+// Handle an uploaded audio file in the STT preset: transcribe it into a Session turn.
 async function handleSttFileUpload(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   target.value = ''
   if (!file) return
-  await openAiCompatibleChat.transcribeDirect(file, {
-    conversationKey: conversations.activeKey,
-    sourceLabel: `🎤 ${file.name}`,
-  })
+  await transcribe(file, { label: `🎤 ${file.name}`, fileName: file.name })
+}
+
+async function transcribe(
+  audio: Blob,
+  options: Parameters<typeof sessionAudio.transcribeAudio>[1],
+): Promise<void> {
+  await afterAgentRun(() => sessionAudio.transcribeAudio(audio, options))
+}
+
+// The Session's newest audio, pre-attached as the default Speech-to-Text input.
+const sttAttachedClip = computed(() =>
+  isSttPreset.value ? audioPreview.value[0]?.part : undefined,
+)
+
+async function transcribeAttachedClip() {
+  const clip = sttAttachedClip.value
+  if (!clip) return
+  const fileName = clip.filename ?? 'audio.wav'
+  let blob: Blob
+  try {
+    blob = await (await fetch(clip.url)).blob()
+  } catch (error) {
+    errors.report(error, {
+      category: 'inference',
+      code: 'inference/audio-attach-failed',
+      userMessage: `Could not read ${fileName}.`,
+    })
+    return
+  }
+  await transcribe(blob, { label: `🎤 ${fileName}`, fileName })
 }
 
 audioRecorder.registerRecordingCompleteHandler(async (wavBlob) => {
   if (!isSttPreset.value) return
-  await openAiCompatibleChat.transcribeDirect(wavBlob, {
-    conversationKey: conversations.activeKey,
-    sourceLabel: '🎤 Recording',
-  })
+  await transcribe(wavBlob, { label: '🎤 Recording' })
 })
 
 audioRecorder.registerTranscriptionCallback((text) => {
@@ -912,35 +526,21 @@ function getRagIconClass(type: ValidFileExtension): string {
   }
 }
 
-const emits = defineEmits<{
-  (e: 'autoHideFooter'): void
-  (e: 'openSettings'): void
-}>()
-
 const attachmentPreview = computed(() =>
   openAiCompatibleChat.fileInput.map((part, id) => ({ id, url: part.url, part })),
-)
-
-const imagePreview = computed(() =>
-  attachmentPreview.value.filter((item) => !item.part.mediaType?.startsWith('audio/')),
 )
 
 const audioPreview = computed(() =>
   attachmentPreview.value.filter((item) => item.part.mediaType?.startsWith('audio/')),
 )
 
-function removeImage(index: number) {
-  openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)
-}
-
-const lockingTask = computed(() =>
-  promptStore.getCurrentMode() === 'agent'
-    ? agentTasks.taskLockingSession(agentMode.openSessionId)
-    : undefined,
+/** The Agent Run in the open Session a sent prompt waits for. */
+const queuedBehindRun = computed(() =>
+  sessions.openSessionId ? agentTasks.queuedPrompts[sessions.openSessionId] : undefined,
 )
 
-const lockedNote = computed(() =>
-  (languages?.AGENT_TASK_SESSION_LOCKED ?? '').replace('{name}', lockingTask.value?.name ?? ''),
+const queuedBehindRunNote = computed(() =>
+  agentRunQueuedLabel(languages ?? {}, queuedBehindRun.value ?? ''),
 )
 
 const promptRun = computed(() =>
@@ -961,17 +561,20 @@ const promptRunNote = computed(() =>
 // activity indicator.
 const isProcessing = computed(() =>
   promptBusy(promptStore.getCurrentMode(), {
-    agentSession:
-      agentMode.processing || lockingTask.value !== undefined || promptRun.value !== undefined,
+    agentSession: agentMode.processing || promptRun.value !== undefined,
     conversation:
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,
+    audioTurn: sessionAudio.processing,
+    sessionTurn: sessionTabs.sessionTurnInFlight && !agentTasks.isAgentRunTurn(sessions.openTurn),
   }),
 )
 
 const isStopping = computed(() => imageGeneration.stopping)
 
-const readyForNewSubmit = computed(() => !promptStore.promptSubmitted && !isProcessing.value)
+const readyForNewSubmit = computed(
+  () => !promptStore.promptSubmitted && !isProcessing.value && !queuedBehindRun.value,
+)
 
 const isFirstPrompt = computed(() => {
   const mode = promptStore.getCurrentMode()
@@ -1040,30 +643,13 @@ watch(isProcessing, (busy, wasBusy) => {
   if (resetSubmitted) promptStore.promptSubmitted = false
 })
 
-// Sync prompt from store to textarea when switching to ComfyUI modes
+// A prompt held for an Agent Run comes back when the user returns to the Session it was sent in.
 watch(
-  () => promptStore.getCurrentMode(),
-  (newMode) => {
-    const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
-    if (comfyUiModes.includes(newMode)) {
-      // When switching to ComfyUI modes, sync the store prompt to the textarea
-      prompt.value = imageGeneration.prompt || ''
-    }
-  },
-)
-
-// Keep textarea in sync with imageGeneration.prompt for ComfyUI modes
-watch(
-  () => imageGeneration.prompt,
-  (newPrompt) => {
-    const currentMode = promptStore.getCurrentMode()
-    const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
-    if (comfyUiModes.includes(currentMode)) {
-      // Only sync if the prompt actually changed to avoid unnecessary updates
-      if (prompt.value !== newPrompt) {
-        prompt.value = newPrompt || ''
-      }
-    }
+  () => sessions.openSessionId,
+  (open) => {
+    if (!open || prompt.value.trim()) return
+    const unsent = agentTasks.takeUnsentPrompt(open)
+    if (unsent !== undefined) prompt.value = unsent
   },
 )
 
@@ -1115,18 +701,24 @@ const agentSettingsProblems = computed(() =>
   promptStore.getCurrentMode() === 'agent' ? agentMode.settingsProblems : [],
 )
 
+/** Every other preset's Session Settings block the same way (ADR-0004). */
+const settingsProblems = computed(() => [
+  ...agentSettingsProblems.value,
+  ...sessionSettings.problems,
+])
+
 function describeSettingsProblem(problem: SessionSettingsProblem): string {
   return describeProblem(problem, languages as unknown as Record<string, string>)
 }
 
 function handleSubmitPromptClick() {
-  if (agentSettingsProblems.value.length > 0 || downloadGroup.value) return
+  if (settingsProblems.value.length > 0 || downloadGroup.value) return
   const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
     return
   }
-  emits('autoHideFooter')
+  sessionSettings.markSent()
   promptStore.submitPrompt(prompt.value)
 }
 
@@ -1140,15 +732,29 @@ const canRunSteps = computed(
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
 
-function handleRunStepsClick() {
-  if (agentSettingsProblems.value.length > 0 || isSlashCommand.value) return
-  emits('autoHideFooter')
+async function handleRunStepsClick() {
+  if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   promptStore.promptSubmitted = true
-  void agentTasks.runSteps(prompt.value)
+  const text = prompt.value
+  await afterAgentRun(() => void agentTasks.runSteps(text), text)
 }
 
-function handleCancelClick() {
-  promptStore.cancelProcessing()
+// The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.
+async function handleCancelClick() {
+  if (queuedBehindRun.value && sessions.openSessionId) {
+    agentTasks.cancelQueuedPrompt(sessions.openSessionId)
+    return
+  }
+  const turn = sessions.openTurn
+  const mode = promptStore.getCurrentMode()
+  const ownTurn =
+    !turn ||
+    (turn.kind === 'agent' &&
+      mode === 'agent' &&
+      turn.harnessSessionId === agentMode.openSessionId) ||
+    (turn.kind === 'chat' && mode === 'chat') ||
+    (turn.kind === 'media' && (mode === 'imageGen' || mode === 'imageEdit' || mode === 'video'))
+  if (ownTurn || !(await sessionLifecycle.stopOpenTurn())) promptStore.cancelProcessing()
 }
 
 async function handleRecordingClick() {
@@ -1206,27 +812,6 @@ function handleCameraClick() {
   dialogStore.showCameraDialog(async (file: File) => {
     await handleImageFiles([file])
   })
-}
-
-function handleModeClick(mode: ModeType) {
-  const buttonId = `mode-button-${mode}` as DemoButtonId
-  // Clicking switches the mode only; the quick preset picker opens on hover, and
-  // closing it here keeps the menu from being dragged along by the layout shift
-  // a mode switch can cause.
-  closePicker()
-  promptStore.setCurrentMode(mode)
-  void nextTick(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        demoMode.triggerFirstTimeHelp(buttonId)
-      })
-    })
-  })
-}
-
-function handleAdvancedSettingsClick() {
-  if (demoMode.triggerFirstTimeHelp('advanced-settings-button')) return
-  emits('openSettings')
 }
 
 function fastGenerate(e: KeyboardEvent) {
@@ -1309,6 +894,7 @@ async function handleComfyUIImageUpload(imageFiles: File[]) {
     if (firstImageInput) {
       const historyMode: WorkflowModeType =
         promptStore.getCurrentMode() === 'video' ? 'video' : 'imageEdit'
+      imageGeneration.noteInputPicked(historyMode)
       firstImageInput.current.value = aipgMediaUrl
 
       const imageItem: ImageMediaItem = {
@@ -1394,19 +980,6 @@ async function handleImageFiles(imageFiles: File[]) {
   } else {
     await handleComfyUIImageUpload(imageFiles)
   }
-}
-
-function handlePlusIconClick(event: MouseEvent) {
-  if (demoMode.triggerFirstTimeHelp('plus-icon')) {
-    event.preventDefault()
-    return
-  }
-  if (demoMode.enabled) {
-    event.preventDefault()
-    toast.show('Clicking this feature is disabled during demo.')
-    return
-  }
-  // Let the Label's default behavior open the file dialog
 }
 
 // Handle file input change

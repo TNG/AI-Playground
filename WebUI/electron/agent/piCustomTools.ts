@@ -7,7 +7,9 @@ import type { AgentMediaDetails, AgentMediaItem } from '@/types/agentMediaDetail
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
+import { freeName, moveFile } from '../persist/sessionMediaFiles.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
+import { sessionMediaUrl } from '@/lib/comfyWorkflow'
 import { agentTurns } from './piAgentState.ts'
 import { isWaitingOnUser, onUserWaitChange, whileRendererAnswers } from '../kernel/userWait.ts'
 
@@ -43,39 +45,67 @@ export function mediaToolResult(
   steps?: string[],
 ): AgentToolResult<AgentMediaDetails | undefined> {
   const items = generatedItemsOf(value)
-  const details = items.length > 0 || steps ? { items, ...(steps ? { steps } : {}) } : undefined
+  const failure = failureOf(value)
+  const details =
+    items.length > 0 || steps || failure
+      ? { items, ...(steps ? { steps } : {}), ...(failure ? { failure } : {}) }
+      : undefined
   return { ...jsonResult(value), details }
 }
 
-// A failed or cancelled run still lists its items, but none of them finished.
+type MediaToolRecord = {
+  images?: unknown
+  unfinished?: unknown
+  success?: unknown
+  state?: unknown
+  error?: unknown
+  message?: unknown
+  savedFiles?: unknown
+}
+
+function objectsOf(value: unknown): Record<string, unknown>[] {
+  return (Array.isArray(value) ? value : []).filter(
+    (item): item is Record<string, unknown> => typeof item === 'object' && item !== null,
+  )
+}
+
+// A failed or cancelled run lists only its finished items; its other slots come as `unfinished`.
 function generatedItemsOf(value: unknown): AgentMediaItem[] {
-  const record = value as { images?: unknown; success?: unknown; savedFiles?: unknown } | null
-  if (record?.success === false || !Array.isArray(record?.images)) return []
-  const savedFiles = Array.isArray(record.savedFiles) ? record.savedFiles : []
-  return record.images
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => {
-      const saved = workspacePathForMediaUrl(mediaUrlOf(item))
-      return {
-        mode: 'imageGen',
-        settings: {},
-        ...item,
-        state: 'done',
-        ...(saved && savedFiles.includes(saved) ? { workspacePath: saved } : {}),
-      } as AgentMediaItem
-    })
+  const record = value as MediaToolRecord | null
+  const savedFiles = Array.isArray(record?.savedFiles) ? record.savedFiles : []
+  const done = objectsOf(record?.images).map((item) => {
+    const saved = workspacePaths.get(item)
+    return {
+      mode: 'imageGen',
+      settings: {},
+      ...item,
+      state: 'done',
+      ...(saved && savedFiles.includes(saved) ? { workspacePath: saved } : {}),
+    } as AgentMediaItem
+  })
+  const unfinished = objectsOf(record?.unfinished).map(
+    (item) => ({ mode: 'imageGen', settings: {}, ...item }) as AgentMediaItem,
+  )
+  return [...done, ...unfinished]
+}
+
+function failureOf(value: unknown): AgentMediaDetails['failure'] {
+  const record = value as MediaToolRecord | null
+  if (record?.success !== false) return undefined
+  const message = typeof record.message === 'string' ? record.message : undefined
+  if (record.state === 'cancelled' || message === 'Generation cancelled.') {
+    return { state: 'cancelled' }
+  }
+  const error = typeof record.error === 'string' ? record.error : message
+  return { state: 'failed', ...(error ? { error } : {}) }
 }
 
 function mediaUrlOf(item: Record<string, unknown>): unknown {
   return item.imageUrl ?? item.videoUrl ?? item.model3dUrl
 }
 
-/** Where `saveGeneratedMediaToWorkspace` puts an app-folder media URL's copy. */
-function workspacePathForMediaUrl(url: unknown): string | undefined {
-  if (typeof url !== 'string' || !url.startsWith('aipg-media://')) return undefined
-  const filename = path.basename(decodeURIComponent(new URL(url).pathname))
-  return filename ? path.posix.join('generated', filename) : undefined
-}
+/** The workspace path each saved result entry landed at, which may differ from its URL's name. */
+const workspacePaths = new WeakMap<object, string>()
 
 /**
  * Pi types tool parameters as TypeBox but treats them as opaque schema metadata
@@ -281,43 +311,112 @@ export function workspaceFileToDataUri(workspaceDir: string, relativePath: strin
 }
 
 /**
- * Copy generated media (aipg-media:// URLs in the ComfyUI-shaped tool result)
- * into `<workspace>/generated/` so Pi can reference the files, and annotate
- * the result with the workspace-relative paths. Non-media results and fetch
- * failures leave the result unchanged (the media still rendered app-side).
+ * A turn in a Session: when the workspace is its `files/` folder media lands at its root;
+ * when it is a game folder media lands in the game's `generated/` and in `filesDir` too,
+ * served from the Session's copy.
  */
+export type SessionMediaTarget =
+  | { sessionRef: string; workspace: 'files' }
+  | { sessionRef: string; workspace: 'game'; filesDir: string }
+
+let appMediaPath: ((url: string) => string | null) | null = null
+
+/** How an app-folder media URL maps to its file, so a Session's copy can move it out. */
+export function setAppMediaPathResolver(resolve: ((url: string) => string | null) | null): void {
+  appMediaPath = resolve
+}
+
+const MEDIA_URL_KEYS = ['imageUrl', 'videoUrl', 'model3dUrl'] as const
+
+async function mediaBytes(url: string): Promise<Buffer> {
+  // net.fetch resolves the custom aipg-media protocol registered in
+  // main.ts (including its path-traversal protection).
+  const response = await net.fetch(url)
+  if (!response.ok) throw new Error(`fetch failed with status ${response.status}`)
+  return Buffer.from(await response.arrayBuffer())
+}
+
+async function moveIntoSession(url: string, target: string): Promise<void> {
+  const source = appMediaPath?.(url)
+  if (source && fs.existsSync(source)) {
+    await moveFile(source, target)
+    return
+  }
+  fs.writeFileSync(target, await mediaBytes(url))
+}
+
+async function saveOne(
+  entry: Record<string, unknown>,
+  url: string,
+  workspaceDir: string,
+  sessionMedia: SessionMediaTarget | undefined,
+): Promise<{ saved: string; sessionCopy?: string; entry: Record<string, unknown> }> {
+  const name = path.basename(decodeURIComponent(new URL(url).pathname)) || `media-${Date.now()}`
+  const generatedDir = path.join(workspaceDir, 'generated')
+  if (!sessionMedia) {
+    const bytes = await mediaBytes(url)
+    fs.mkdirSync(generatedDir, { recursive: true })
+    const saved = path.posix.join('generated', await freeName(generatedDir, name))
+    fs.writeFileSync(path.join(workspaceDir, saved), bytes)
+    return { saved, entry }
+  }
+  const filesDir = sessionMedia.workspace === 'game' ? sessionMedia.filesDir : workspaceDir
+  fs.mkdirSync(filesDir, { recursive: true })
+  const filesName = await freeName(filesDir, name)
+  const sessionCopy = path.join(filesDir, filesName)
+  await moveIntoSession(url, sessionCopy)
+  let saved = filesName
+  if (sessionMedia.workspace === 'game') {
+    fs.mkdirSync(generatedDir, { recursive: true })
+    saved = path.posix.join('generated', await freeName(generatedDir, name))
+    fs.copyFileSync(sessionCopy, path.join(workspaceDir, saved))
+  }
+  const key = MEDIA_URL_KEYS.find((candidate) => entry[candidate] === url) ?? 'imageUrl'
+  return {
+    saved,
+    sessionCopy,
+    entry: { ...entry, [key]: sessionMediaUrl(sessionMedia.sessionRef, `files/${filesName}`) },
+  }
+}
+
+/** Saves a tool result's media where Pi can read it and annotates the result with those paths. */
 export async function saveGeneratedMediaToWorkspace(
   result: unknown,
   workspaceDir: string,
+  sessionMedia?: SessionMediaTarget,
 ): Promise<unknown> {
   if (typeof result !== 'object' || result === null) return result
   const record = result as Record<string, unknown>
   if (!Array.isArray(record.images)) return result
 
   const savedFiles: string[] = []
+  const sessionCopies: string[] = []
+  const images: unknown[] = []
   for (const item of record.images) {
-    if (typeof item !== 'object' || item === null) continue
-    const url = mediaUrlOf(item as Record<string, unknown>)
-    if (typeof url !== 'string' || !url.startsWith('aipg-media://')) continue
+    const url =
+      typeof item === 'object' && item !== null
+        ? mediaUrlOf(item as Record<string, unknown>)
+        : undefined
+    if (typeof url !== 'string' || !url.startsWith('aipg-media://')) {
+      images.push(item)
+      continue
+    }
     try {
-      // net.fetch resolves the custom aipg-media protocol registered in
-      // main.ts (including its path-traversal protection).
-      const response = await net.fetch(url)
-      if (!response.ok) throw new Error(`fetch failed with status ${response.status}`)
-      const bytes = Buffer.from(await response.arrayBuffer())
-      const relativePath =
-        workspacePathForMediaUrl(url) ?? path.posix.join('generated', `media-${Date.now()}`)
-      fs.mkdirSync(path.join(workspaceDir, 'generated'), { recursive: true })
-      fs.writeFileSync(path.join(workspaceDir, relativePath), bytes)
-      savedFiles.push(relativePath)
+      const done = await saveOne(item as Record<string, unknown>, url, workspaceDir, sessionMedia)
+      workspacePaths.set(done.entry, done.saved)
+      savedFiles.push(done.saved)
+      if (done.sessionCopy) sessionCopies.push(done.sessionCopy)
+      images.push(done.entry)
     } catch (error) {
       logger.warn(`failed to save generated media to workspace: ${error}`, LOG_SOURCE)
+      images.push(item)
     }
   }
   if (savedFiles.length === 0) return result
-  noteGeneratedMedia(workspaceDir, savedFiles)
+  noteGeneratedMedia(workspaceDir, savedFiles, sessionCopies)
   return {
     ...record,
+    images,
     savedFiles,
     savedFilesNote:
       'The generated media files were saved into the workspace at the paths listed in savedFiles.',

@@ -38,9 +38,7 @@ vi.mock('@/assets/js/store/imageGenerationPresets', () => ({
     set generatedImages(value: MediaItem[]) {
       generatedImages.value = value
     },
-    get comfyInputsPerPreset() {
-      return comfyInputsPerPreset.value
-    },
+    savedInputsFor: (settingsKey: string) => comfyInputsPerPreset.value[settingsKey],
     get lastError() {
       return lastError.value
     },
@@ -403,7 +401,7 @@ describe('runArtifact', () => {
       }),
     ]
     comfyInputsPerPreset.value = {
-      // Keyed with the variant applied, like the real settings sidebar does.
+      // Keyed with the variant applied, like the real settings tabs do.
       'Draft Image:Fast': { 'LoraLoader.lora_name': 'my-lora.safetensors' },
     }
 

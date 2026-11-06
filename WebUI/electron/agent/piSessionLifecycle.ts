@@ -12,10 +12,17 @@ import {
   buildSkillsPromptSection,
   rejectPendingToolCalls,
   writeAgentSkills,
+  type SessionMediaTarget,
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
 import { enabledCapabilityIds } from '@/types/agentCapabilities'
+import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { createAgentToolAccess } from './piToolOperations.ts'
+import {
+  assertMountedFoldersApart,
+  assertMountedFoldersPresent,
+  mountedFoldersChangeNote,
+} from './mountedFolderTurn.ts'
 import { buildWorkspaceInstructions, ensureWorkspaceRuntime } from './piWorkspaceRuntime.ts'
 import { createSamplingExtension } from './piSampling.ts'
 import { laminarPiExtensionPath } from '../observability/laminar.ts'
@@ -29,8 +36,16 @@ import {
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import { chatModelFromAgentConfig } from './chatModelFromAgent.ts'
 import { setMediaSpecialistTurn } from './capabilities/mediaDelegation.ts'
-import { piAgentDir, piSessionDir, loadSessionFilePath, savePointer } from './piSessionStore.ts'
+import {
+  piAgentDir,
+  piSessionDir,
+  loadSessionFilePath,
+  readSessionStore,
+  savePointer,
+} from './piSessionStore.ts'
 import { compactionSettingsForWindow } from './piCompaction.ts'
+import { sessionPaths } from '../session/sessions.ts'
+import { buildSessionHistoryTool } from './sessionHistoryTool.ts'
 import {
   copySamplingParams,
   ensureModelRuntime,
@@ -65,11 +80,14 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     config.instructions ?? '',
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
+    config.mountedFolders ?? [],
     config.planningThinkingOnly ?? false,
     // The rag tool is frozen on the host at session build, so a different
     // embedding model or backend has to rebuild.
     config.embeddingModel ?? '',
     config.embeddingBackend ?? '',
+    // Decides whether session_history is among the frozen tools.
+    config.taskRun ? '' : (config.sessionRef ?? ''),
   ])
 }
 
@@ -124,6 +142,21 @@ async function shutdownSessionExtensions(session: AgentSession): Promise<void> {
   }
 }
 
+/** A Session's turn works in its `files/` folder or in a game folder; media follows suit. */
+function sessionMediaOf(
+  sessionRef: string | undefined,
+  workspaceDir: string,
+): SessionMediaTarget | undefined {
+  if (!sessionRef) return undefined
+  const { filesDir } = sessionPaths(sessionRef)
+  try {
+    if (fs.realpathSync(filesDir) === workspaceDir) return { sessionRef, workspace: 'files' }
+  } catch {
+    // Not created yet, so not the workspace either.
+  }
+  return { sessionRef, workspace: 'game', filesDir }
+}
+
 async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
   if (!fs.existsSync(config.workspaceDir) || !fs.statSync(config.workspaceDir).isDirectory()) {
     throw new Error(`Workspace folder does not exist: ${config.workspaceDir}`)
@@ -133,6 +166,10 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const workspaceDir = fs.realpathSync(path.resolve(config.workspaceDir))
   const sessionId = config.sessionId
   const unsandboxed = config.unsandboxed === true
+  const mountedFolders = resolveMountedFolders(config.mountedFolders ?? []).map((folder) => ({
+    ...folder,
+    hostPath: fs.realpathSync(path.resolve(folder.hostPath)),
+  }))
   setLastSessionId(sessionId)
 
   const pi = await loadPi()
@@ -168,12 +205,14 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const capabilityHost: CapabilityHost = {
     sessionId,
     workspaceDir,
+    mountedFolders,
     toolSpecs: config.toolSpecs ?? [],
     mediaAgent: config.mediaAgent,
     chatModel: chatModelFromAgentConfig(config.modelConfig),
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
+    sessionMedia: sessionMediaOf(config.sessionRef, workspaceDir),
     ...(config.embeddingModel
       ? {
           embeddingModel: config.embeddingModel,
@@ -201,6 +240,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     unsandboxed,
     skillsDir,
     skills,
+    mountedFolders,
     ...(capabilities.ownSession
       ? {
           baseTools: capabilities.ownSession.baseTools,
@@ -221,6 +261,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     workspaceDir,
     baseUrl: runtime.baseUrl,
     unsandboxed,
+    mountedFolders,
   })
 
   const sessionFilePath = loadSessionFilePath(sessionId, workspaceDir)
@@ -230,6 +271,15 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   if (sessionFilePath) {
     logger.info(`resumed Pi session ${sessionId} (${workspaceDir})`, LOG_SOURCE)
   }
+  // Only a resumed conversation has a last turn; a new one learns its folders from the prompt.
+  const previousMountedFolders = sessionFilePath
+    ? (readSessionStore()[sessionId]?.mountedFolders ?? [])
+    : mountedFolders
+  const mountedFoldersNote = mountedFoldersChangeNote(
+    previousMountedFolders,
+    mountedFolders,
+    unsandboxed,
+  )
 
   const announcedSkills = skills.filter((skill) =>
     capabilities.announcedSkillNames.includes(skill.name),
@@ -315,7 +365,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // piToolOperations.ts, so its builtins are switched off entirely. Capability
     // tools arrive through their extensions, not here.
     noTools: 'builtin',
-    customTools: access.definitions,
+    customTools: [
+      ...access.definitions,
+      ...(config.sessionRef && !config.taskRun
+        ? [await buildSessionHistoryTool(config.sessionRef, workspaceDir)]
+        : []),
+    ],
     resourceLoader,
   })
 
@@ -331,6 +386,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     workspaceDir,
     sessionFilePath: session.getSessionStats().sessionFile ?? '',
     updatedAt: Date.now(),
+    mountedFolders: previousMountedFolders,
   })
 
   return {
@@ -352,6 +408,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // starts empty. A resumed one is past the point where a plan is what is
     // wanted, and the request it reopens with is a change to a finished game.
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
+    mountedFolders,
+    ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
   }
 }
 
@@ -469,6 +527,8 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
 
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
   const config = withShellPolicy(requested)
+  assertMountedFoldersPresent(config.mountedFolders ?? [])
+  assertMountedFoldersApart(config.workspaceDir, config.mountedFolders ?? [])
   const configKey = configKeyOf(config)
   if (active && active.configKey === configKey) {
     applyMediaSpecialistTurn(config)

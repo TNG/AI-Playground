@@ -6,8 +6,8 @@ import type { ShutdownCause } from '../kernel/shutdown'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 
 /**
- * The kernel's one-writer Tasks store: `AI-Playground/agent-tasks.json`, every saved
- * Task in one file. Unlike the workspace pointers, an unreadable file is never
+ * The kernel's one-writer Agents store: `AI-Playground/agent-tasks.json`, every saved
+ * Agent in one file. Unlike the workspace pointers, an unreadable file is never
  * replaced by a write — one upsert would otherwise erase every other Task.
  */
 
@@ -55,10 +55,10 @@ async function writeTasks(tasks: AgentTask[]): Promise<void> {
 
 /** After a Quit, a saved Task keeps the run state on disk; everything else is the window's. */
 function withoutRunChanges(task: AgentTask, stored: AgentTask | undefined): AgentTask {
-  const { activeRun: _activeRun, lastOutcome: _lastOutcome, ...rest } = task
+  const { activeRuns: _activeRuns, lastOutcome: _lastOutcome, ...rest } = task
   return {
     ...rest,
-    ...(stored?.activeRun ? { activeRun: stored.activeRun } : {}),
+    ...(stored?.activeRuns ? { activeRuns: stored.activeRuns } : {}),
     ...(stored?.lastOutcome ? { lastOutcome: stored.lastOutcome } : {}),
   }
 }
@@ -99,9 +99,10 @@ export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> 
     const at = Date.now()
     let settled = 0
     const next = tasks.map((task): AgentTask => {
-      if (!task.activeRun) return task
+      const activeRun = task.activeRuns?.at(-1)
+      if (!activeRun) return task
       settled++
-      const { activeRun, ...rest } = task
+      const { activeRuns: _runs, ...rest } = task
       return {
         ...rest,
         lastOutcome: {
@@ -116,6 +117,30 @@ export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> 
     if (settled > 0) await writeTasks(next)
     runsSealedByQuit = true
   })
+}
+
+/** A deleted Session keeps every Agent; its Schedules go with it. */
+export async function forgetSessionInAgentTasks(sessionRef: string): Promise<void> {
+  return serialize(FILE_CHAIN, async () => {
+    const tasks = await readAgentTasks()
+    const touches = (entry: AgentTask) =>
+      entry.sessionRef === sessionRef ||
+      (entry.schedules ?? []).some((schedule) => schedule.sessionRef === sessionRef)
+    if (!tasks.some(touches)) return
+    await writeTasks(
+      tasks.map((entry) => (touches(entry) ? withoutSession(entry, sessionRef) : entry)),
+    )
+  })
+}
+
+function withoutSession(task: AgentTask, sessionRef: string): AgentTask {
+  const { sessionRef: madeIn, schedules, ...rest } = task
+  const kept = (schedules ?? []).filter((schedule) => schedule.sessionRef !== sessionRef)
+  return {
+    ...rest,
+    ...(madeIn !== undefined && madeIn !== sessionRef ? { sessionRef: madeIn } : {}),
+    ...(kept.length > 0 ? { schedules: kept } : {}),
+  }
 }
 
 /** §6.1: demo Tasks are session-scoped; wipe on exit (and on boot, for a crash tail). */

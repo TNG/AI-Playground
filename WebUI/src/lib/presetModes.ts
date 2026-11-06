@@ -1,4 +1,4 @@
-import { AUDIO_CATEGORY, type ChatPreset, type Preset } from '@/assets/js/store/presets'
+import { AUDIO_CATEGORY, type ChatPreset, type Preset } from '@/lib/presetSchemas'
 import { currentPresetName } from '@/lib/presetRenames'
 
 // ── Which view a preset belongs to ───────────────────────────────────────────

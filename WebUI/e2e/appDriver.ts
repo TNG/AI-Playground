@@ -2,14 +2,14 @@ import { type Page, test, expect } from '@playwright/test'
 import path from 'path'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
-import { MainPage, type ChatMode, type SettingsOwner } from './pages/MainPage'
+import { MainPage, type ChatMode } from './pages/MainPage'
 import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { McpSettingsPage } from './pages/McpSettingsPage'
 import { ModelManagerPage } from './pages/ModelManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
-import { setRekaToggle, settingsRegion } from './pages/uiControls'
+import { sessionTabPanel, setRekaToggle } from './pages/uiControls'
 import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
 
 /** The chat preset that puts the assistant in agentic mode (built-in + MCP tools on). */
@@ -168,7 +168,7 @@ export class AppDriver {
 
         await this.wizard.continueOut()
         await this.shell.expectRunning()
-        // Leave a clean main view (the settings sidebar re-opens on return and
+        // Leave a clean main view (the App Settings sidebar re-opens on return and
         // would otherwise occlude the prompt area for follow-up steps).
         await this.shell.ensureSettingsClosed()
       })
@@ -176,11 +176,11 @@ export class AppDriver {
   }
 
   /**
-   * Switch to `mode` and select `preset`. Returns false (leaving the settings
-   * sidebar closed) when the preset isn't offered in the current product mode —
-   * either the whole mode has no presets (its prompt-area button is absent) or the
-   * preset card isn't in the grid. On success the sidebar is left open so callers
-   * can set preset-specific inputs (e.g. reference images) before closing it.
+   * Switch to `mode` and select `preset`. Returns false when the preset isn't
+   * offered in the current product mode — either the whole mode has no presets (its
+   * prompt-area button is absent) or the preset card isn't in the grid. On success the
+   * Inferencing tab is left shown so callers can set preset-specific inputs (e.g.
+   * reference images) before returning to the Viewport.
    */
   private async selectModeAndPreset(mode: ChatMode, preset: string): Promise<boolean> {
     if (
@@ -192,16 +192,16 @@ export class AppDriver {
       return false
     }
     // Preset selection lives in the prompt-area quick picker (the mode button is
-    // its popover trigger), not the settings sidebar. Returns false when the
+    // its popover trigger), not the settings tabs. Returns false when the
     // preset isn't offered for this mode so the caller can skip.
     if (!(await this.main.selectPreset(mode, preset))) {
       return false
     }
-    // Leave the mode-settings sidebar open so callers can set preset-specific
-    // inputs (e.g. reference images) before closing it. Reset first, so those
+    // Leave the settings tabs shown so callers can set preset-specific inputs
+    // (e.g. reference images) before returning to the Viewport. Reset first, so those
     // inputs are applied on top of the preset's defaults rather than on top of
     // whatever a previous run left saved for it.
-    await this.resetPresetDefaults(mode)
+    await this.resetPresetDefaults()
     return true
   }
 
@@ -222,9 +222,9 @@ export class AppDriver {
       this.selectModeAndPreset('Chat', opts.preset))
     test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
 
-    await this.pickRandomBackend('Chat')
+    await this.pickRandomBackend()
 
-    await this.settings.close('Chat')
+    await this.settings.close()
 
     if (opts.attach === 'image') await this.main.attachChatFile(FIXTURE_IMAGE)
     if (opts.attach === 'document') {
@@ -246,7 +246,7 @@ export class AppDriver {
 
   /**
    * Put the active preset back to its shipped defaults, before the test changes
-   * anything of its own. Opens the mode's settings sidebar and leaves it open.
+   * anything of its own. Shows the Inferencing tab and leaves it shown.
    *
    * Why every preset flow starts here: preset settings persist to disk per preset,
    * so a run inherits whatever the last one (or a hand-driven session) left behind.
@@ -263,13 +263,13 @@ export class AppDriver {
    * after the pin would not help either: the reset re-picks the backend and would
    * undo the pin. Pin a model explicitly where the choice has to be exact.
    */
-  async resetPresetDefaults(mode: SettingsOwner = 'Chat'): Promise<void> {
-    await test.step(`Reset the ${mode} preset to its defaults`, async () => {
-      await this.settings.open(mode)
-      const reset = await this.settings.resetPresetDefaults(mode)
+  async resetPresetDefaults(): Promise<void> {
+    await test.step('Reset the active preset to its defaults', async () => {
+      await this.settings.open()
+      const reset = await this.settings.resetPresetDefaults()
       test.info().annotations.push({
         type: 'preset-reset',
-        description: reset ? `${mode}: reset to preset defaults` : `${mode}: no reset control`,
+        description: reset ? 'reset to preset defaults' : 'no reset control',
       })
     })
   }
@@ -278,21 +278,20 @@ export class AppDriver {
    * Randomly run the active preset on llama.cpp or OpenVINO when it offers both,
    * so neither backend silently stops being exercised. OpenVINO is only offered in
    * Intel/OpenVINO product modes — in NVIDIA mode the app filters it out
-   * (SettingsChat.vue / SettingsAgent.vue), so this is a clean no-op there and the
-   * default backend (llama.cpp) is used. Must be called with `mode`'s settings
-   * sidebar open; leaves it open. Returns the label it settled on, which is also
+   * (SettingsChatInferencing.vue / agentBackendItems.ts), so this is a clean no-op there and the
+   * default backend (llama.cpp) is used. Must be called with the Inferencing tab
+   * shown; leaves it shown. Returns the label it settled on, which is also
    * recorded as a test annotation so a failed run says which backend it ran on.
    */
-  private async pickRandomBackend(mode: SettingsOwner): Promise<string> {
+  private async pickRandomBackend(): Promise<string> {
     let chosen = 'default'
-    const offered = await test.step(`Read ${mode} backends`, () =>
-      this.settings.availableBackends(mode))
+    const offered = await test.step('Read the offered backends', () =>
+      this.settings.availableBackends())
     if (offered.includes('OpenVINO')) {
       chosen = Math.random() < 0.5 ? 'OpenVINO' : 'llamaCPP - GGUF'
-      await test.step(`Switch ${mode} backend to ${chosen}`, () =>
-        this.settings.selectBackend(chosen, mode))
+      await test.step(`Switch backend to ${chosen}`, () => this.settings.selectBackend(chosen))
     }
-    test.info().annotations.push({ type: 'backend', description: `${mode}: ${chosen}` })
+    test.info().annotations.push({ type: 'backend', description: chosen })
     return chosen
   }
 
@@ -372,37 +371,34 @@ export class AppDriver {
       this.main.selectPreset('Chat', preset))
     if (!selected) return false
 
-    // Agent Mode has no mode button of its own — its sidebar is opened from the
-    // prompt area like any other mode's, under the preset's name ("Game Agent
-    // Settings"). Reset before the pins below, never after: a reset would undo them.
-    const owner = await this.main.activePresetLabel()
-    await this.resetPresetDefaults(owner)
+    // Reset before the pins below, never after: a reset would undo them.
+    await this.resetPresetDefaults()
 
     await test.step('Start a fresh game on a randomly chosen backend', async () => {
-      const backend = await this.pickRandomBackend(owner)
+      const backend = await this.pickRandomBackend()
       // After the backend, never before: the model list is per-backend, so a model
       // picked first would be replaced when the backend changes under it. 'default'
       // means the picker wasn't offered, which only happens on the lone llama.cpp.
       const model =
         AppDriver.AGENT_GAME_MODEL[backend] ?? AppDriver.AGENT_GAME_MODEL['llamaCPP - GGUF']
-      await test.step(`Pin the small agent model: ${model}`, () =>
-        this.settings.selectModel(model, owner))
+      await test.step(`Pin the small agent model: ${model}`, () => this.settings.selectModel(model))
       // The preset asks for 128k, the size its big preferred model is tuned for. The
       // pinned model on a laptop GPU cannot allocate a KV cache that size, and llama.cpp then
       // refuses to load the model at all — the turn dies inside ensureReadyForInference
       // before it ever starts. Still well above the 32k the panel says agentic sessions
       // want. A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_GAME_CONTEXT}`, () =>
-        this.settings.setContextSize(AppDriver.AGENT_GAME_CONTEXT, owner))
+        this.settings.setContextSize(AppDriver.AGENT_GAME_CONTEXT))
       // Switching preset by hand already clears the workspace (agentMode.ts), but a
       // re-run that lands on the preset already active doesn't — so ask explicitly.
       // The folder itself is minted by the first turn.
+      await this.settings.open('Attributes')
       await expect(
-        this.agent.newGameButton(owner),
+        this.agent.newGameButton,
         'a game preset should manage its own folder and offer "New game"',
       ).toBeVisible({ timeout: 15_000 })
-      await this.agent.newGameButton(owner).click()
-      await this.settings.close(owner)
+      await this.agent.newGameButton.click()
+      await this.settings.close()
     })
     return true
   }
@@ -461,26 +457,24 @@ export class AppDriver {
   }
 
   /**
-   * Select the general-purpose "Agent" preset on its defaults, a random backend, an
-   * {@link AGENT_CONTEXT} context and `workspaceDir` (the native picker must already be
-   * stubbed at it). Returns false when the preset isn't offered in this product mode.
+   * Select the general-purpose "Agent" preset on its defaults, a random backend and an
+   * {@link AGENT_CONTEXT} context. It works in the open Session's own folder, so there is
+   * no folder to pick. Returns false when the preset isn't offered in this product mode.
    */
-  async prepareAgentPreset(workspaceDir: string): Promise<boolean> {
+  async prepareAgentPreset(): Promise<boolean> {
     const selected = await test.step(`Select agent preset "${AGENT_PRESET}"`, () =>
       this.main.selectPreset('Chat', AGENT_PRESET))
     if (!selected) return false
 
     // Reset before the context size below, never after — a reset would undo it.
-    const owner = await this.main.activePresetLabel()
-    await this.resetPresetDefaults(owner)
+    await this.resetPresetDefaults()
 
-    await test.step('Point the agent at a scratch workspace on a random backend', async () => {
-      await this.pickRandomBackend(owner)
+    await test.step('Run the agent on a random backend', async () => {
+      await this.pickRandomBackend()
       // A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
-        this.settings.setContextSize(AppDriver.AGENT_CONTEXT, owner))
-      await this.agent.selectWorkspaceFolder(workspaceDir, owner)
-      await this.settings.close(owner)
+        this.settings.setContextSize(AppDriver.AGENT_CONTEXT))
+      await this.settings.close()
     })
     return true
   }
@@ -502,20 +496,14 @@ export class AppDriver {
    * cannot be allocated on a laptop GPU and the model then refuses to load at all
    * (where the backend exposes a context size at all — OpenVINO on GPU does not).
    *
-   * Unlike the game presets, this one works in a folder the *user* picks, so the
-   * caller passes a scratch directory (and stubs the native picker at it — see
-   * `stubDirectoryPicker`). The agent writes into that folder; nothing here asserts
-   * on its contents, the transcript and the generated image are the subject.
+   * Unlike the game presets, this one works in the open Session's folder; nothing here
+   * asserts on its contents, the transcript and the generated image are the subject.
    *
    * Returns false when the preset isn't offered in this product mode so the caller
    * can skip.
    */
-  async runAgentPreset(opts: {
-    workspaceDir: string
-    prompt: string
-    imagePrompt: string
-  }): Promise<boolean> {
-    if (!(await this.prepareAgentPreset(opts.workspaceDir))) return false
+  async runAgentPreset(opts: { prompt: string; imagePrompt: string }): Promise<boolean> {
+    if (!(await this.prepareAgentPreset())) return false
 
     let imagesBefore = 0
 
@@ -627,7 +615,7 @@ export class AppDriver {
       this.selectModeAndPreset('Audio', 'Text to Speech'))
     expect(available, 'Preset "Text to Speech" must be available in this product mode').toBe(true)
 
-    await this.resetPresetDefaults('Audio')
+    await this.resetPresetDefaults()
 
     await test.step('Start from a known voice selection', async () => {
       // The app's TTS settings persist across runs (saved voices and the active
@@ -636,10 +624,10 @@ export class AppDriver {
       // making "the default voice" a designed voice, skipping the preset-speaker path
       // entirely, and turning "create a voice" into "re-save the same voice". Pin a
       // built-in speaker and drop the leftover voice so both paths are exercised.
-      await this.settings.open('Audio')
+      await this.settings.open('Attributes')
       await this.settings.deleteTtsVoiceIfPresent(opts.newVoice.name)
       await this.settings.selectTtsVoice(/^Ryan\b/)
-      await this.settings.close('Audio')
+      await this.settings.close()
     })
 
     await test.step('Synthesize speech with the default voice', async () => {
@@ -650,7 +638,7 @@ export class AppDriver {
     })
 
     await test.step('Create a custom voice and synthesize a second audio with it', async () => {
-      await this.settings.open('Audio')
+      await this.settings.open('Attributes')
       // A created voice needs two checkpoints that the preset speakers don't: voice
       // design invents it, and the Base model clones it for everything it says later.
       // Saving is what offers both downloads, so those dialogs belong to THIS step —
@@ -674,7 +662,7 @@ export class AppDriver {
         await this.downloads.resolve(),
         'playing a stored preview must not synthesize (and so never prompt for a model)',
       ).toBe('none')
-      await this.settings.close('Audio')
+      await this.settings.close()
 
       await this.main.sendPrompt(opts.newVoice.text)
       // …and therefore the first synthesis with the new voice must not need one:
@@ -725,7 +713,7 @@ export class AppDriver {
     })
 
     await test.step('Editing a voice loads it back into the form', async () => {
-      await this.settings.open('Audio')
+      await this.settings.open('Attributes')
       await this.settings.editSavedTtsVoice(opts.newVoice.name)
       // Edit restores the whole voice, seed included — that is what makes the saved
       // speaker adjustable instead of only replaceable.
@@ -733,11 +721,11 @@ export class AppDriver {
         await this.settings.ttsSeed(),
         'editing a saved voice should load its pinned seed, not a fresh one',
       ).toMatch(/^\d+$/)
-      await this.settings.close('Audio')
+      await this.settings.close()
     })
 
     await test.step('Re-saving with a new seed draws a different speaker', async () => {
-      await this.settings.open('Audio')
+      await this.settings.open('Attributes')
       await this.settings.editSavedTtsVoice(opts.newVoice.name)
       await this.settings.rollTtsSeed()
       // Same name → the save must ask before replacing the existing voice.
@@ -746,7 +734,7 @@ export class AppDriver {
         description: opts.newVoice.description,
         expectOverwrite: true,
       })
-      await this.settings.close('Audio')
+      await this.settings.close()
 
       await this.main.sendPrompt(opts.newVoice.text)
       expect(await this.downloads.resolve()).toBe('none')
@@ -771,17 +759,17 @@ export class AppDriver {
    */
   async selectChatBackendOrSkip(label: string, optional: boolean): Promise<boolean> {
     return test.step(`Pin chat backend: ${label}`, async () => {
-      await this.settings.open('Chat')
-      const offered = await this.settings.availableBackends('Chat')
+      await this.settings.open()
+      const offered = await this.settings.availableBackends()
       let available: boolean
       if (offered.length === 0) {
         // No picker → the preset is locked to its single (llama.cpp) backend.
         available = !optional
       } else {
         available = offered.includes(label)
-        if (available) await this.settings.selectBackend(label, 'Chat')
+        if (available) await this.settings.selectBackend(label)
       }
-      await this.settings.close('Chat')
+      await this.settings.close()
       return available
     })
   }
@@ -794,9 +782,9 @@ export class AppDriver {
    */
   async selectChatDeviceOrSkip(substring: string): Promise<boolean> {
     return test.step(`Select chat inference device: ${substring}`, async () => {
-      await this.settings.open('Chat')
-      const selected = await this.settings.selectDeviceContaining(substring, 'Chat')
-      await this.settings.close('Chat')
+      await this.settings.open()
+      const selected = await this.settings.selectDeviceContaining(substring)
+      await this.settings.close()
       return selected
     })
   }
@@ -837,7 +825,7 @@ export class AppDriver {
    */
   async configureAgenticTools(profile: 'minimal-image' | 'defaults'): Promise<void> {
     await test.step(`Enforce agentic tool selection: ${profile}`, async () => {
-      await this.settings.open('Chat')
+      await this.settings.open()
       const applied =
         profile === 'minimal-image'
           ? await this.tools.applyMinimalImageTools()
@@ -848,7 +836,7 @@ export class AppDriver {
           description: 'tools section not shown (model without tool calling?) — skipped',
         })
       }
-      await this.settings.close('Chat')
+      await this.settings.close()
     })
   }
 
@@ -859,7 +847,7 @@ export class AppDriver {
    * reuse the same "all built-in tools + every workflow" defaults the full agentic flow
    * uses. Best-effort: returns false (relying on the preset's own tool defaults, which
    * enable tools + all workflows) when the "Home Agent" preset isn't offered in this
-   * product mode or the tools section isn't shown. Leaves the settings sidebar closed.
+   * product mode or the tools section isn't shown. Leaves the Viewport tab shown.
    */
   async enableHomeAgentMediaTools(): Promise<boolean> {
     return test.step('Enable media generation for the Home Agent preset', async () => {
@@ -875,9 +863,9 @@ export class AppDriver {
         })
         return false
       }
-      await this.settings.open('Chat')
+      await this.settings.open()
       const applied = await this.tools.applyDefaultTools()
-      await this.settings.close('Chat')
+      await this.settings.close()
       if (!applied) {
         test.info().annotations.push({
           type: 'home-agent-tools',
@@ -898,8 +886,8 @@ export class AppDriver {
    */
   async relaxChatGenerationBudget(): Promise<void> {
     await test.step('Raise max tokens and disable thinking for a reliable final answer', async () => {
-      await this.settings.open('Chat')
-      const region = settingsRegion(this.window)
+      await this.settings.open()
+      const region = sessionTabPanel(this.window, 'Inferencing')
       const maxTokens = region.getByLabel('Max Tokens')
       if (await maxTokens.isVisible().catch(() => false)) {
         await maxTokens.fill('32768')
@@ -908,23 +896,23 @@ export class AppDriver {
       if (await thinking.isVisible().catch(() => false)) {
         await setRekaToggle(thinking, false)
       }
-      await this.settings.close('Chat')
+      await this.settings.close()
     })
   }
 
   /**
    * Switch to agentic mode (Chat + "Assistant" preset), enable MCP tools and connect
    * one MCP server by its mcp.json displayName (e.g. "DateTime MCP", "Blender MCP"),
-   * leaving the sidebar closed and the preset active. Returns false when the preset,
+   * leaving the Viewport tab shown and the preset active. Returns false when the preset,
    * the MCP section, or the server itself is unavailable in this environment (e.g.
    * `uvx`/network access missing) so the caller can skip rather than fail.
    */
   async connectMcpServerOrSkip(displayName: string): Promise<boolean> {
     return test.step(`Enable MCP tools and connect "${displayName}"`, async () => {
       if (!(await this.main.selectPreset('Chat', AGENTIC_PRESET))) return false
-      await this.settings.open('Chat')
+      await this.settings.open()
       const connected = await this.mcp.connectServer(displayName)
-      await this.settings.close('Chat')
+      await this.settings.close()
       return connected
     })
   }
@@ -1042,7 +1030,7 @@ export class AppDriver {
 
     if (opts.needsImage) {
       await test.step('Load the fixture image into the reference-image slot(s)', async () => {
-        const filled = await this.settings.attachReferenceImages(opts.mode, FIXTURE_IMAGE)
+        const filled = await this.settings.attachReferenceImages(FIXTURE_IMAGE)
         expect(
           filled,
           'preset should expose at least one reference-image input',
@@ -1050,7 +1038,7 @@ export class AppDriver {
       })
     }
 
-    await this.settings.close(opts.mode)
+    await this.settings.close()
 
     await test.step(`Generate and expect ${opts.output} output`, async () => {
       await this.main.submitGeneration(opts.prompt)

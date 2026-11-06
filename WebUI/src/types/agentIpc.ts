@@ -1,6 +1,7 @@
 import z from 'zod'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
+import { MountedFolderAccessSchema } from './agentSessionIpc'
 
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
@@ -66,8 +67,18 @@ export const AgentToolSpecSchema = z.object({
   defaultWorkflow: z.string().optional(),
 })
 
+/** A Mounted Folder with its sandbox name settled (`resolveMountedFolders`). */
+export const ResolvedMountedFolderSchema = z.object({
+  hostPath: z.string().min(1),
+  name: z.string().regex(/^[A-Za-z0-9._-]+$/),
+  access: MountedFolderAccessSchema,
+})
+
 export const AgentModeTurnConfigSchema = z.object({
+  /** The Harness Session (`aipg-agent-*`) the turn continues. */
   sessionId: z.string().min(1),
+  /** The Session the turn runs in; its History gets the turn's entry. */
+  sessionRef: z.string().min(1).optional(),
   workspaceDir: z.string().min(1),
   modelConfig: AgentModeModelConfigSchema,
   toolSpecs: z.array(AgentToolSpecSchema).optional(),
@@ -83,6 +94,7 @@ export const AgentModeTurnConfigSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
+  mountedFolders: z.array(ResolvedMountedFolderSchema).optional(),
   planningThinkingOnly: z.boolean().optional(),
   /** Downloaded embedding model for the `rag` capability; absent disables it. */
   embeddingModel: z.string().optional(),
@@ -96,6 +108,8 @@ export const AgentModeTurnConfigSchema = z.object({
   readiness: ChatModelConfigSchema.shape.readiness,
   /** Set when a channel Answer started this turn: its result is replied under the Answer. */
   answer: AgentAnswerOriginSchema.optional(),
+  /** A Task Run's Step: no Session Update, no `session_history`, its entry tagged with the Task. */
+  taskRun: z.object({ taskName: z.string(), stepIndex: z.number().int().positive() }).optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

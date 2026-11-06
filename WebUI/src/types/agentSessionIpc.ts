@@ -9,6 +9,17 @@ import { llmBackendTypes } from './shared'
  * same record; `messages` travels as an opaque array both ways.
  */
 
+export const MountedFolderAccessSchema = z.enum(['read-only', 'read-write'])
+export type MountedFolderAccess = z.infer<typeof MountedFolderAccessSchema>
+
+/** A folder on the user's machine the agent sees at `/mnt/<name>`; read-only unless stated. */
+export const MountedFolderSchema = z.object({
+  hostPath: z.string().min(1),
+  name: z.string().optional(),
+  access: MountedFolderAccessSchema.optional(),
+})
+export type MountedFolder = z.infer<typeof MountedFolderSchema>
+
 /**
  * An Agent Session's own model and capability choices. Every field is optional so a
  * file written before a field existed still parses; the store fills gaps from the
@@ -17,6 +28,7 @@ import { llmBackendTypes } from './shared'
 export const AgentSessionSettingsSchema = z.object({
   backend: z.enum(llmBackendTypes).optional(),
   cloudProviderId: z.string().optional(),
+  /** Stored before the device became a Machine Setting; ignored on read. */
   device: z.object({ id: z.string(), uuid: z.string().nullable().optional() }).optional(),
   model: z.string().optional(),
   contextSize: z.number().optional(),
@@ -29,6 +41,7 @@ export const AgentSessionSettingsSchema = z.object({
   builtinToolEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolPresetEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolDefaultPresets: z.record(z.string(), z.string()).optional(),
+  mountedFolders: z.array(MountedFolderSchema).optional(),
 })
 export type AgentSessionSettings = z.infer<typeof AgentSessionSettingsSchema>
 
@@ -37,6 +50,15 @@ export const AgentTaskStepSchema = z.object({
   prompt: z.string(),
 })
 export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
+
+/** Marks a Harness Session as one Agent Run of its Session. */
+export const AgentRunTagSchema = z.object({
+  taskName: z.string(),
+  startedAt: z.number(),
+  trigger: z.enum(['manual', 'scheduled']).optional(),
+  end: z.object({ kind: z.enum(['failed', 'stopped']), message: z.string().optional() }).optional(),
+})
+export type AgentRunTag = z.infer<typeof AgentRunTagSchema>
 
 export const AgentSessionFileSchema = z.object({
   schemaVersion: z.literal(1),
@@ -53,6 +75,10 @@ export const AgentSessionFileSchema = z.object({
   taskId: z.string().optional(),
   /** The Steps a prompt is carried out in; edited in the settings panel like any setting. */
   steps: z.array(AgentTaskStepSchema).optional(),
+  /** The Session this Harness Session belongs to. */
+  sessionRef: z.string().optional(),
+  /** Set when this Harness Session is one Task Run of its Session. */
+  taskRun: AgentRunTagSchema.optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

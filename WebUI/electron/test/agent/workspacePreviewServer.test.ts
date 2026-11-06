@@ -135,4 +135,49 @@ describe('workspace instructions', () => {
     expect(instructions).toContain('python3')
     expect(instructions).not.toContain('no script interpreter')
   })
+
+  it('lists each Mounted Folder with its access mode and host folder', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      mountedFolders: [
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/notes', name: 'notes-2', access: 'read-write' },
+      ],
+    })
+
+    expect(instructions).toContain('/mnt/notes (read-only) is /Users/ada/notes on the host')
+    expect(instructions).toContain('/mnt/notes-2 (read-write) is /Volumes/usb/notes on the host')
+    expect(instructions).toMatch(/new files belong in your working directory/i)
+  })
+
+  it('names Mounted Folders by their real path under the real shell', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      unsandboxed: true,
+      mountedFolders: [
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/project', name: 'project', access: 'read-write' },
+      ],
+    })
+
+    expect(instructions).toContain('/Users/ada/notes (read-only)')
+    expect(instructions).toContain('/Volumes/usb/project (read-write)')
+    expect(instructions).not.toContain('/mnt/')
+    expect(instructions).toMatch(/do not change files in a read-only folder, from bash either/i)
+  })
+
+  it('asks the agent to report what it changed in a Mounted Folder', () => {
+    const instructions = buildWorkspaceInstructions({
+      ...options,
+      mountedFolders: [{ hostPath: '/Users/ada/notes', name: 'notes', access: 'read-write' }],
+    })
+
+    expect(instructions).toMatch(
+      /tell the user which files you created, changed or deleted in a Mounted Folder/i,
+    )
+  })
+
+  it('says nothing about Mounted Folders when there are none', () => {
+    expect(buildWorkspaceInstructions(options)).not.toContain('/mnt/')
+  })
 })

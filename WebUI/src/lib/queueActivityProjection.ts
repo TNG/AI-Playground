@@ -1,6 +1,6 @@
 import { useActivities } from '@/assets/js/store/activities'
 import { useI18N } from '@/assets/js/store/i18n'
-import { queueOrdinal } from '@/assets/js/store/historyEntries'
+import { queueOrdinal } from '@/assets/js/store/recordRows'
 import type { KernelQueueEvent, TurnWork } from '@/types/kernelEvents'
 
 // ── Queue-event projection (architecture-target §4.4, step 7) ──────────────────
@@ -86,6 +86,11 @@ export function turnQueuedLabel(
 ): string {
   const pattern = i18nState[holder ? WAITING_FOR_KEYS[holder] : 'COM_ACTIVITY_TURN_QUEUED']
   return (pattern ?? '').replace('{position}', queueOrdinal(position, locale, i18nState))
+}
+
+/** "Queued, waiting for Agent Run <name>" for a prompt held until its Session's run ends. */
+export function agentRunQueuedLabel(i18nState: I18nState, name: string): string {
+  return (i18nState.COM_ACTIVITY_TURN_QUEUED_FOR_AGENT_RUN ?? '').replace('{name}', name)
 }
 
 function applyQueueEvent(

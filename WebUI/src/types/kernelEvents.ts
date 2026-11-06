@@ -8,6 +8,7 @@ import type { UIMessageChunk } from 'ai'
 import type { MediaItem } from './mediaItem'
 import type { ActivityCategory, ActivityScope, ActivityState } from '@/assets/js/activities/types'
 import type { SerializedAppError } from '@/assets/js/errors/types'
+import type { SessionDocument, SessionGroupsState, SessionTurns } from './sessionIpc'
 
 export type KernelEventScope =
   { kind: 'global' } | { kind: 'chat'; conversationKey: string } | { kind: 'run'; runId: string }
@@ -252,6 +253,24 @@ export type KernelStoredEvent = {
   inferenceProfile?: KernelInferenceProfile | null
 }
 
+/** A Session's `session.json` changed in main (a turn settled into it): its row and timeline. */
+export type KernelSessionChangedEvent = {
+  type: 'session-changed'
+  session: SessionDocument
+}
+
+/** The Session Groups file changed in main: every Group and Pinned "show more". */
+export type KernelSessionGroupsChangedEvent = {
+  type: 'session-groups-changed'
+  state: SessionGroupsState
+}
+
+/** Which Sessions have a turn in flight: the whole ledger on every change. */
+export type KernelSessionTurnsEvent = {
+  type: 'session-turns'
+  turns: SessionTurns
+}
+
 /** Last successful local chat load — kernel memory, not the settings dropdown. */
 export type KernelInferenceProfile = {
   serviceName: string
@@ -280,6 +299,9 @@ export type KernelEventPayload =
   | KernelActivityEvent
   | KernelErrorEvent
   | KernelStoredEvent
+  | KernelSessionChangedEvent
+  | KernelSessionGroupsChangedEvent
+  | KernelSessionTurnsEvent
 
 export type KernelEvent = KernelEventPayload & KernelEventEnvelope
 
@@ -357,6 +379,8 @@ export type KernelSnapshotState = {
   activities: KernelActivity[]
   /** Live loaded local chat model; null when none has been loaded this session. */
   inferenceProfile: KernelInferenceProfile | null
+  /** Sessions with a turn in flight, one turn each. */
+  sessionTurns?: SessionTurns
 }
 
 export type KernelSnapshot = {

@@ -56,6 +56,8 @@ export type ArtifactRequest = {
     inferenceSteps?: number
     batchSize?: number
   }
+  /** Workflow input values keyed `<nodeTitle>.<nodeInput>`, in place of the saved Attributes. */
+  inputs?: Record<string, unknown>
 }
 
 export type ArtifactRunContext = {
@@ -69,6 +71,10 @@ export type ArtifactRunContext = {
   queueMode?: 'queue'
   /** The conversation this run was asked from — routes orchestrator queue events. */
   conversationKey?: string
+  /** The Session a panel run lands in. */
+  sessionId?: string
+  /** Lets the caller know the run's id before it is submitted. */
+  runId?: string
 }
 
 export type ArtifactResult = {
@@ -152,7 +158,7 @@ type ResolvedInput = ComfyInput & { current: unknown }
 
 /**
  * Snapshot of the workflow's dynamic inputs with their resolved current
- * values, read from the same per-persisted-preset map the settings sidebar
+ * values, read from the same per-persisted-preset map the Attributes tab
  * writes into. Plain values: the run owns them, so injecting a source image
  * cannot leak back into the persisted settings.
  */
@@ -240,10 +246,10 @@ export async function runArtifact(
   const mode: WorkflowModeType = request.mode ?? (presetToMode(preset) as WorkflowModeType)
   const params = resolveParams(request, preset)
   const settingsKey = presetSettingsKey(preset.name, variantName)
-  const inputs = resolveInputs(preset, imageGen.comfyInputsPerPreset[settingsKey])
+  const inputs = resolveInputs(preset, request.inputs ?? imageGen.savedInputsFor(settingsKey))
 
   // 2. Edit kinds: inject the source image into the first required image
-  // input, matching what the settings sidebar's LoadImage field would hold.
+  // input, matching what the Attributes tab's LoadImage field would hold.
   if (request.source) {
     const imageInput = inputs.find(
       (input) =>
@@ -303,7 +309,7 @@ export async function runArtifact(
   // artifact events (the imageGenerationPresets projection), and this promise
   // settles with the run. The abort listener is armed BEFORE submit so the
   // window between item registration and queueing is covered too.
-  const runId = crypto.randomUUID()
+  const runId = ctx.runId ?? crypto.randomUUID()
   imageGen.trackArtifactRun(runId)
   const onAbort = () => {
     void window.electronAPI.artifact.cancel(runId)
@@ -332,6 +338,7 @@ export async function runArtifact(
         conversationKey: ctx.conversationKey,
         // The tool activity's id lets queue events relabel it while parked.
         activityId: typeof ctx.parentActivityId === 'string' ? ctx.parentActivityId : undefined,
+        sessionId: ctx.sessionId,
       }),
       ctx.queueMode ? { queue: ctx.queueMode } : undefined,
     )

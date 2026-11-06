@@ -39,6 +39,8 @@ export type ComfyDynamicInputWithCurrent = ComfyInput & { current: string | numb
 
 export type MediaItemState = 'queued' | 'generating' | 'done' | 'stopped' | 'failed'
 
+export type GenerationFailureRecord = { state: 'failed' | 'cancelled'; error?: string }
+
 /** A media item that has not reached a terminal state yet. */
 export const isInFlight = (item: MediaItem): boolean =>
   item.state === 'queued' || item.state === 'generating'
@@ -100,12 +102,4 @@ export const hasDisplayableMedia = (item: MediaItem): boolean => {
   if (is3D(item)) return !!item.model3dUrl && item.model3dUrl.trim() !== ''
   const url = item.imageUrl
   return !!url && url.trim() !== '' && url !== PLACEHOLDER_IMAGE_URL
-}
-
-/** Overrides where a media card's file actions point, and what it says the file is. */
-export type MediaFileHandlers = {
-  open: (item: MediaItem) => void
-  reveal: (item: MediaItem) => void
-  drag: (item: MediaItem) => void
-  caption: (item: MediaItem) => string | undefined
 }

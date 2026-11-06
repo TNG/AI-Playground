@@ -142,8 +142,8 @@ const BasePresetFieldsSchema = z.object({
         replaceWorkflow: z.boolean().optional(),
         // Groups variants by execution backend (e.g. 'comfyui', 'openvino'). When omitted,
         // the variant is treated as belonging to the default 'comfyui' backend. The
-        // SettingsWorkflow Backend dropdown is built from the distinct values across
-        // a preset's variants; the quality radio in PresetSelector then filters to
+        // SettingsWorkflowInferencing Backend dropdown is built from the distinct values across
+        // a preset's variants; the quality radio in PresetVariantPicker then filters to
         // variants matching the active backend.
         backend: z.string().optional(),
         overrides: z.any(), // DeepPartial<Preset> - using z.any() for flexibility
@@ -215,7 +215,7 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // chat: selecting it turns the prompt box into a synthesizer (typed text -> Qwen3-TTS
   // audio, no LLM loaded). The `backends` array is a schema-required placeholder and is
   // unused. Lives in the `audio` category (the Audio mode), not `chat`.
-  // See SettingsTts.vue and the direct-synthesis branch in openAiCompatibleChat.
+  // See SettingsTtsInferencing.vue and the direct-synthesis branch in openAiCompatibleChat.
   ttsPreset: z.boolean().optional(),
   // When true, this "chat" preset runs on the agent harness (Pi coding agent in the
   // main process) instead of plain chat inference: selecting it switches the app to

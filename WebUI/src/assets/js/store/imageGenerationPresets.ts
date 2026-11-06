@@ -1,15 +1,14 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
-import { cloneForIpc } from '@/lib/cloneForIpc'
-import { makeForwardPersist } from '@/lib/ipcPersist'
 import { useComfyUiPresets } from './comfyUiPresets'
 import { useDemoMode } from './demoMode'
 import { useI18N } from './i18n'
 import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
+import { useSessions } from './sessions'
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 import type { ArtifactPhase, ArtifactRunOwner } from '@/types/kernelEvents'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
@@ -28,15 +27,21 @@ export {
   OPTIONAL_MODEL_NONE,
   requiredModelToComfyUIName,
 } from '@/lib/comfyWorkflow'
-import { useUIStore } from './ui'
 import type { PresetRequirementsData } from './dialogs'
 import { getMissingComfyuiBackendModels } from './imageGenerationUtils'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { imageUrlToDataUri, saveImageToMediaInput } from '@/lib/utils'
 import { referenceSlotToFill } from '@/lib/referenceImageFit'
+import { defaultReferenceSlots } from '@/lib/sessionDefaultInputs'
 import { withTraceSpan } from '@/lib/laminarSpans'
 import { turnQueuedLabel } from '@/lib/queueActivityProjection'
-import { runArtifact, type ArtifactKind, type ArtifactResult } from '../artifact/runArtifact'
+import {
+  runArtifact,
+  type ArtifactKind,
+  type ArtifactRequest,
+  type ArtifactResult,
+} from '../artifact/runArtifact'
+import type { MediaRerun } from '@/lib/turnTypes'
 import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
@@ -112,8 +117,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const presetsStore = usePresets()
   const comfyUi = useComfyUiPresets()
   const backendServices = useBackendServices()
-  const uiStore = useUIStore()
   const errors = useErrors()
+  const sessions = useSessions()
   const i18n = useI18N()
   const i18nState = i18n.state
 
@@ -212,15 +217,12 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     const savePerPreset = (input: ComfyInput, newValue: unknown) => {
       const settingsKey = getSettingsKey()
       if (!settingsKey) return
-      comfyInputsPerPreset.value[settingsKey] = {
-        ...comfyInputsPerPreset.value[settingsKey],
-        [inputRef(input)]: newValue,
-      }
+      patchSaved(settingsKey, 'inputs', { [inputRef(input)]: newValue })
     }
     const getSavedOrDefault = (input: ComfyInput) => {
       const settingsKey = getSettingsKey()
       const raw = settingsKey
-        ? (comfyInputsPerPreset.value[settingsKey]?.[inputRef(input)] ?? input.defaultValue)
+        ? (savedInputsFor(settingsKey)?.[inputRef(input)] ?? input.defaultValue)
         : input.defaultValue
       if (
         input.type === 'model' &&
@@ -296,6 +298,58 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       return { ...section, comfyInputsPerPreset: filteredInputs }
     },
   })
+
+  /** A preset's saved settings and inputs in the shape both the defaults and a Session keep them. */
+  type ComfySettingsValues = { settings: Record<string, unknown>; inputs: Record<string, unknown> }
+
+  /** The open Session's Session Settings (ADR-0004); `use` returns null when no Session applies. */
+  type ComfySessionBinding = {
+    use: (settingsKey: string, defaults: ComfySettingsValues) => ComfySettingsValues | null
+    peek: (settingsKey: string) => ComfySettingsValues | null
+    write: (settingsKey: string, values: ComfySettingsValues) => void
+  }
+  const sessionBinding = shallowRef<ComfySessionBinding | null>(null)
+
+  function bindSessionSettings(binding: ComfySessionBinding | null): void {
+    sessionBinding.value = binding
+  }
+
+  function defaultsFor(settingsKey: string): ComfySettingsValues {
+    return {
+      settings: { ...settingsPerPreset.value[settingsKey] },
+      inputs: { ...comfyInputsPerPreset.value[settingsKey] },
+    }
+  }
+
+  function savedSettingsFor(settingsKey: string): Record<string, unknown> | undefined {
+    return sessionBinding.value?.peek(settingsKey)?.settings ?? settingsPerPreset.value[settingsKey]
+  }
+
+  /** Saved inputs for a settings key: the open Session's when it has used the preset. */
+  function savedInputsFor(settingsKey: string): Record<string, unknown> | undefined {
+    return (
+      sessionBinding.value?.peek(settingsKey)?.inputs ?? comfyInputsPerPreset.value[settingsKey]
+    )
+  }
+
+  function patchSaved(
+    settingsKey: string,
+    part: keyof ComfySettingsValues,
+    patch: Record<string, unknown>,
+  ): void {
+    const inSession = sessionBinding.value?.peek(settingsKey)
+    if (inSession) {
+      sessionBinding.value!.write(settingsKey, {
+        ...inSession,
+        [part]: { ...inSession[part], ...patch },
+      })
+      return
+    }
+    const map = part === 'settings' ? settingsPerPreset : comfyInputsPerPreset
+    map.value[settingsKey] = { ...map.value[settingsKey], ...patch }
+  }
+
+  let loadingSettings = false
 
   let modelOptionsLoadToken = 0
 
@@ -421,6 +475,45 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     inputs[index].current.value = imageUrl
   }
 
+  function inputImageUrl(): string | undefined {
+    const input = comfyInputs.value.find(
+      (candidate) => candidate.type === 'image' && candidate.current.value,
+    )
+    return input ? String(input.current.value) : undefined
+  }
+
+  /** The mode whose default image input the active preset takes; image generation takes none. */
+  const defaultImageInputMode = computed<'imageEdit' | 'video' | null>(() => {
+    const category = activePreset.value?.category
+    const mode =
+      category === 'edit-images' ? 'imageEdit' : category === 'create-videos' ? 'video' : null
+    return mode && comfyInputs.value.some((input) => input.type === 'image') ? mode : null
+  })
+
+  /** The last input the user chose by hand (load, drop, Edit / Make-video), for the default to yield to. */
+  const inputPick = ref<{ mode: WorkflowModeType; at: number } | null>(null)
+
+  function noteInputPicked(mode: WorkflowModeType): void {
+    inputPick.value = { mode, at: Date.now() }
+  }
+
+  /**
+   * Fills the active preset's image inputs with a Session artifact. Only inside the open
+   * Session's settings, so the default never lands in the Default Settings.
+   */
+  function fillDefaultReference(imageUrl: string): boolean {
+    const settingsKey = getSettingsKey()
+    if (!defaultImageInputMode.value || !settingsKey || !sessionBinding.value?.peek(settingsKey)) {
+      return false
+    }
+    const inputs = comfyInputs.value.filter((input) => input.type === 'image')
+    const slots = inputs.map((input) => ({ optional: input.optional, value: input.current.value }))
+    for (const index of defaultReferenceSlots(slots)) {
+      if (inputs[index].current.value !== imageUrl) inputs[index].current.value = imageUrl
+    }
+    return true
+  }
+
   // History selection (and a repeat click on the already-selected row) fills the
   // primary reference slot. An image that is already in a slot was just loaded
   // there, so it must not be copied onto slot 1.
@@ -452,33 +545,34 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     settings.height.value = h
   })
 
-  watch([inferenceSteps, width, height, batchSize], () => {
-    console.log('### watch inferenceSteps, width, height, batchSize', {
-      inferenceSteps: inferenceSteps.value,
-      width: width.value,
-      height: height.value,
-      batchSize: batchSize.value,
-    })
-    const saveToSettingsPerPreset = (settingName: keyof typeof settings) => {
-      const settingsKey = getSettingsKey()
-      if (!settingsKey) return
-      if (isModifiable(settingName)) {
-        settingsPerPreset.value[settingsKey] = {
-          ...settingsPerPreset.value[settingsKey],
-          [settingName]: settings[settingName]?.value,
+  watch(
+    [inferenceSteps, width, height, batchSize, seed, negativePrompt, safetyCheck, showPreview],
+    () => {
+      if (loadingSettings) return
+      console.log('### watch inferenceSteps, width, height, batchSize', {
+        inferenceSteps: inferenceSteps.value,
+        width: width.value,
+        height: height.value,
+        batchSize: batchSize.value,
+      })
+      const saveToSettingsPerPreset = (settingName: keyof typeof settings) => {
+        const settingsKey = getSettingsKey()
+        if (!settingsKey) return
+        if (isModifiable(settingName)) {
+          patchSaved(settingsKey, 'settings', { [settingName]: settings[settingName]?.value })
         }
       }
-    }
-    saveToSettingsPerPreset('seed')
-    saveToSettingsPerPreset('inferenceSteps')
-    saveToSettingsPerPreset('width')
-    saveToSettingsPerPreset('height')
-    saveToSettingsPerPreset('resolution')
-    saveToSettingsPerPreset('batchSize')
-    saveToSettingsPerPreset('negativePrompt')
-    saveToSettingsPerPreset('safetyCheck')
-    saveToSettingsPerPreset('showPreview')
-  })
+      saveToSettingsPerPreset('seed')
+      saveToSettingsPerPreset('inferenceSteps')
+      saveToSettingsPerPreset('width')
+      saveToSettingsPerPreset('height')
+      saveToSettingsPerPreset('resolution')
+      saveToSettingsPerPreset('batchSize')
+      saveToSettingsPerPreset('negativePrompt')
+      saveToSettingsPerPreset('safetyCheck')
+      saveToSettingsPerPreset('showPreview')
+    },
+  )
 
   const generatedImages = ref<MediaItem[]>([])
   const currentState = ref<GenerateState>('no_start')
@@ -503,118 +597,15 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     )
   }
 
-  // ── Kernel-owned gallery records (step 8 / step 11, §6.1) ────────────────
-  // `generatedImages` is a live projection of `media/records/` files. Completed
-  // renderer-origin runs persist from the artifact runner; this store writes
-  // only user mutations (add/delete). In-flight items are never durable.
+  // `generatedImages` is the live projection of in-flight runs plus the inputs
+  // picked for Image Edit / Video. The gallery reads every Session's History
+  // Entries instead, so nothing here writes `media/records/` any more; old
+  // records still hydrate once so nothing a user picked before vanishes.
   const MEDIA_LEGACY_KEY = 'imageGenerationPresets'
-  /** Set once `init()` has hydrated (or migrated) — gates every write-through. */
-  const mediaRecordsHydrated = ref(false)
   let mediaRecordsInitPromise: Promise<void> | null = null
-  const FLUSH_DEBOUNCE_MS = 300
-  let mediaFlushTimer: ReturnType<typeof setTimeout> | null = null
-  let mediaFlushInFlight = false
-  /** id → JSON of what the record files hold; the diff base for save/delete. */
-  const flushedMediaItems = new Map<string, string>()
-
-  const persistMediaMutation = makeForwardPersist({
-    code: 'media-records/persist-failed',
-    technicalMessage: 'the media record file store rejected the write',
-  })
-
-  function mediaItemJson(item: MediaItem): string {
-    return JSON.stringify(item)
-  }
-
-  function scheduleMediaRecordsFlush(): void {
-    if (!mediaRecordsHydrated.value) return
-    if (mediaFlushTimer) clearTimeout(mediaFlushTimer)
-    mediaFlushTimer = setTimeout(() => {
-      mediaFlushTimer = null
-      void flushMediaRecords()
-    }, FLUSH_DEBOUNCE_MS)
-  }
-
-  async function flushMediaRecords(): Promise<void> {
-    if (!mediaRecordsHydrated.value) return
-    if (mediaFlushInFlight) {
-      // Re-arm instead of overlapping: this flush must diff against the
-      // post-IPC base the in-flight one is about to write.
-      scheduleMediaRecordsFlush()
-      return
-    }
-    const doneItems = generatedImages.value.filter((item) => item.state === 'done')
-    const currentIds = new Set<string>()
-    const changed: MediaItem[] = []
-    for (const item of doneItems) {
-      currentIds.add(item.id)
-      if (flushedMediaItems.get(item.id) !== mediaItemJson(item)) changed.push(item)
-    }
-    const removed = [...flushedMediaItems.keys()].filter((id) => !currentIds.has(id))
-    if (changed.length === 0 && removed.length === 0) return
-    mediaFlushInFlight = true
-    const errorsStore = useErrors()
-    try {
-      if (changed.length > 0) {
-        const result = await window.electronAPI.mediaItems.save(cloneForIpc(changed))
-        if (result.success) {
-          for (const item of changed) flushedMediaItems.set(item.id, mediaItemJson(item))
-        } else {
-          // The items stay un-flushed, so the next flush retries them.
-          errorsStore.report(new Error(result.error), {
-            category: 'backend',
-            code: 'media-records/save-failed',
-            severity: 'warning',
-            surface: 'silent',
-            technicalMessage: 'the media record file store rejected the write',
-          })
-        }
-      }
-      if (removed.length > 0) {
-        const result = await window.electronAPI.mediaItems.delete(removed)
-        if (result.success) {
-          for (const id of removed) flushedMediaItems.delete(id)
-        } else {
-          errorsStore.report(new Error(result.error), {
-            category: 'backend',
-            code: 'media-records/delete-failed',
-            severity: 'warning',
-            surface: 'silent',
-            technicalMessage: 'the media record file store rejected the delete',
-          })
-        }
-      }
-    } finally {
-      mediaFlushInFlight = false
-    }
-  }
 
   function addGalleryItem(item: MediaItem): void {
     generatedImages.value.push(item)
-    if (!mediaRecordsHydrated.value || item.state !== 'done') return
-    persistMediaMutation(() =>
-      window.electronAPI.mediaItems.save(cloneForIpc([item])).then((result) => {
-        if (result.success) flushedMediaItems.set(item.id, mediaItemJson(item))
-        return result
-      }),
-    )
-  }
-
-  function deleteRecordIds(ids: string[]): void {
-    if (!mediaRecordsHydrated.value || ids.length === 0) return
-    for (const id of ids) flushedMediaItems.delete(id)
-    persistMediaMutation(() => window.electronAPI.mediaItems.delete(ids))
-  }
-
-  function persistMediaRecordsNow(): void {
-    if (mediaFlushTimer) {
-      clearTimeout(mediaFlushTimer)
-      mediaFlushTimer = null
-    }
-    void flushMediaRecords()
-  }
-  if (typeof window.addEventListener === 'function') {
-    window.addEventListener('beforeunload', persistMediaRecordsNow)
   }
 
   /** Read the pre-step-8 Pinia payload's gallery, if any, for the one-shot upload. */
@@ -714,16 +705,6 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       if (bootstrap && bootstrap.status === 'ok') {
         generatedImages.value = bootstrap.items
       }
-      // On a failed bootstrap the live gallery stays empty (`generatedImages`
-      // is not in the persist pick, so Pinia cannot hydrate the leftover
-      // key). The leftover key is kept so the next boot can merge-migrate;
-      // write-through of an empty projection would not recover it. The diff
-      // base always mirrors the ref as booted.
-      flushedMediaItems.clear()
-      for (const item of generatedImages.value) {
-        if (item.state === 'done') flushedMediaItems.set(item.id, mediaItemJson(item))
-      }
-      mediaRecordsHydrated.value = true
       // The per-preset settings ride the same legacy Pinia key: run after
       // the media half so the two slims never interleave — each must see
       // the other's completed write, or a removed half comes back on the
@@ -736,10 +717,6 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       settingsPrefs.dispose()
-      if (mediaFlushTimer) clearTimeout(mediaFlushTimer)
-      if (typeof window.removeEventListener === 'function') {
-        window.removeEventListener('beforeunload', persistMediaRecordsNow)
-      }
     })
   }
 
@@ -764,14 +741,16 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     if (!activePreset.value) return
 
     const settingsKey = getSettingsKey()
+    if (settingsKey) sessionBinding.value?.use(settingsKey, defaultsFor(settingsKey))
+    loadingSettings = true
     console.log(
       '### loadSettingsForActivePreset',
       settingsKey,
-      JSON.stringify(settingsPerPreset.value[settingsKey], null, 2),
+      JSON.stringify(savedSettingsFor(settingsKey), null, 2),
     )
     const getSavedOrDefault = (settingName: string) => {
       if (!settingsKey) return
-      const saved = settingsPerPreset.value[settingsKey]?.[settingName]
+      const saved = savedSettingsFor(settingsKey)?.[settingName]
       const presetValue = getSettingValue(settingName)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const globalDefaultValue: any =
@@ -791,6 +770,9 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       getSavedOrDefault('negativePrompt') ?? globalDefaultSettings.negativePrompt
     safetyCheck.value = getSavedOrDefault('safetyCheck') ?? generalDefaultSettings.safetyCheck
     showPreview.value = getSavedOrDefault('showPreview') ?? generalDefaultSettings.showPreview
+    nextTick(() => {
+      loadingSettings = false
+    })
 
     syncSelectedReferenceImage()
 
@@ -840,6 +822,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   }
 
   async function copyImageAsInputForMode(image: MediaItem, mode: WorkflowModeType) {
+    noteInputPicked(mode)
     const newImage: MediaItem = { ...image, id: crypto.randomUUID(), createdAt: Date.now() }
     newImage.mode = mode
     if (image.type === 'image' && newImage.type === 'image') {
@@ -1146,14 +1129,39 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
       return
     }
 
+    return runPanelTurn(
+      {
+        kind: MODE_TO_ARTIFACT_KIND[mode],
+        workflow: preset.name,
+        variant: presetsStore.activeVariantName[preset.name] || undefined,
+        mode,
+        prompt: prompt.value,
+        negativePrompt: negativePrompt.value,
+        params: {
+          seed: seed.value,
+          width: width.value,
+          height: height.value,
+          inferenceSteps: inferenceSteps.value,
+          batchSize: batchSize.value,
+        },
+      },
+      mode === 'imageGen' ? undefined : inputImageUrl(),
+    )
+  }
+
+  function regenerate(rerun: MediaRerun): Promise<ArtifactResult | undefined> {
+    const { inputImageUrl: turnInputImageUrl, ...request } = rerun
+    return runPanelTurn({ kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request }, turnInputImageUrl)
+  }
+
+  async function runPanelTurn(
+    request: ArtifactRequest & { mode: WorkflowModeType },
+    turnInputImageUrl: string | undefined,
+  ): Promise<ArtifactResult | undefined> {
+    const mode = request.mode
     lastError.value = null
     // Drop abandoned placeholders from a previous cancelled/failed run
     generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')
-    // Auto-open history view for batch generation
-    if (batchSize.value > 1) {
-      uiStore.openHistory()
-    }
-
     const inferenceBackendService = backendToService[backend.value]
     await backendServices.resetLastUsedInferenceBackend(inferenceBackendService)
     await backendServices.updateLastUsedBackend(inferenceBackendService)
@@ -1166,28 +1174,34 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
 
     const abort = new AbortController()
     panelAbort = abort
+    const runId = crypto.randomUUID()
+    let sessionId: string | null = null
     // UI runs are top-level: no parent activity (the runner resets the stale
     // tool-parented value the previous chat run may have left behind).
     try {
-      return await runArtifact(
-        {
-          kind: MODE_TO_ARTIFACT_KIND[mode],
-          workflow: preset.name,
-          variant: presetsStore.activeVariantName[preset.name] || undefined,
+      sessionId = await sessions.ensureOpenSession()
+      if (sessionId) {
+        sessions.beginMediaTurn(sessionId, {
+          runId,
           mode,
-          prompt: prompt.value,
-          negativePrompt: negativePrompt.value,
-          params: {
-            seed: seed.value,
-            width: width.value,
-            height: height.value,
-            inferenceSteps: inferenceSteps.value,
-            batchSize: batchSize.value,
-          },
-        },
-        { abortSignal: abort.signal },
-      )
+          preset: request.workflow,
+          prompt: request.prompt ?? '',
+          inputImageUrl: turnInputImageUrl,
+          createdAt: Date.now(),
+          size:
+            request.params?.width && request.params.height
+              ? { width: request.params.width, height: request.params.height }
+              : undefined,
+          batchSize: request.params?.batchSize,
+        })
+      }
+      return await runArtifact(request, {
+        abortSignal: abort.signal,
+        sessionId: sessionId ?? undefined,
+        runId,
+      })
     } finally {
+      if (sessionId) sessions.endMediaTurn(sessionId, runId)
       if (panelAbort === abort) panelAbort = null
       processing.value = false
       queuedLabel.value = null
@@ -1206,7 +1220,6 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
 
   function deleteImage(id: string) {
     generatedImages.value = generatedImages.value.filter((image) => image.id !== id)
-    deleteRecordIds([id])
 
     if (selectedGeneratedImageId.value === id) {
       selectedGeneratedImageId.value = null
@@ -1220,15 +1233,11 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   }
 
   function deleteAllImages() {
-    const ids = generatedImages.value.map((image) => image.id)
     generatedImages.value.length = 0
-    deleteRecordIds(ids)
   }
 
   function deleteAllImagesForMode(mode: WorkflowModeType) {
-    const removed = generatedImages.value.filter((image) => image.mode === mode).map((i) => i.id)
     generatedImages.value = generatedImages.value.filter((image) => image.mode !== mode)
-    deleteRecordIds(removed)
 
     switch (mode) {
       case 'imageGen':
@@ -1292,6 +1301,9 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     settingsPerPreset,
     comfyInputsPerPreset,
     comfyInputs,
+    bindSessionSettings,
+    defaultsFor,
+    savedInputsFor,
     resetActivePresetSettings,
     getMissingModels,
     getMissingModelsFor,
@@ -1304,6 +1316,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     trackArtifactRun,
     untrackArtifactRun,
     generate,
+    regenerate,
     stopGeneration,
     deleteImage,
     deleteAllImages,
@@ -1317,9 +1330,12 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     loadSettingsForActivePreset,
     syncSelectedReferenceImage,
     copyImageAsInputForMode,
+    defaultImageInputMode,
+    inputPick,
+    noteInputPicked,
+    fillDefaultReference,
     addGalleryItem,
     init,
-    mediaRecordsHydrated,
   }
 })
 

@@ -6,13 +6,13 @@ import {
   getHelpTopic,
   resolveHelpTarget,
 } from '@/assets/js/help/helpTopics'
-import { TOUR_ONLY_ANCHORS, TOUR_STEPS, TOUR_STEPS_ALTERNATIVE } from '@/assets/js/help/tourSteps'
+import { TOUR_ONLY_ANCHORS, TOUR_STEPS_ALTERNATIVE, tourSteps } from '@/assets/js/help/tourSteps'
 
 const tourOnly = new Set<string>(TOUR_ONLY_ANCHORS)
 
 describe('help topic registry', () => {
   it('gives every demo-tour anchor a click-to-learn topic', () => {
-    const anchors = [...TOUR_STEPS, ...TOUR_STEPS_ALTERNATIVE]
+    const anchors = [...tourSteps('classic'), ...tourSteps('modern'), ...TOUR_STEPS_ALTERNATIVE]
       .map((step) => step.id)
       .filter((id) => !tourOnly.has(id))
 
@@ -42,6 +42,13 @@ describe('help topic registry', () => {
       expect(topic.title, `${id} title`).toBeTruthy()
       expect(topic.body, `${id} body`).toBeTruthy()
     }
+  })
+
+  it('places the audio voice in the Attributes tab and the engine in Inferencing', () => {
+    const body = getHelpTopic('mode-button-audio')?.body ?? ''
+    expect(body).toMatch(/engine[^.]*Inferencing/)
+    expect(body).toMatch(/voice[^.]*Attributes/)
+    expect(body).not.toMatch(/Inferencing tab, where the voice/)
   })
 
   it('does not resolve inherited Object properties as topics', () => {
@@ -170,6 +177,22 @@ describe('resolveHelpTarget', () => {
     expect(resolveHelpTarget(target(row))).toMatchObject({
       kind: 'static',
       topicId: 'preset-selector',
+    })
+  })
+
+  it('explains a control inside a settings tab panel with that tab', () => {
+    const control = chain(
+      { id: 'session-tabpanel-attributes', 'data-aipg-help': 'session-tab-attributes' },
+      {},
+      { id: 'chat-system-prompt' },
+    )
+    expect(resolveHelpTarget(target(control))).toMatchObject({
+      kind: 'static',
+      topicId: 'session-tab-attributes',
+    })
+    expect(resolveHelpTarget(target(chain({ id: 'session-tab-inferencing' })))).toMatchObject({
+      kind: 'static',
+      topicId: 'session-tab-inferencing',
     })
   })
 

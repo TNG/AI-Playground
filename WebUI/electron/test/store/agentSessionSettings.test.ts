@@ -161,7 +161,7 @@ vi.mock('@/assets/js/store/errors', () => ({
 
 const turnConfig = vi.hoisted(() => ({
   build: null as ((sessionId: string) => unknown) | null,
-  lastInput: null as { planningThinkingOnly?: boolean } | null,
+  lastInput: null as { planningThinkingOnly?: boolean; mountedFolders?: unknown[] } | null,
 }))
 
 vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
@@ -358,11 +358,9 @@ describe('Agent Session Settings', () => {
     expect(store.sessions[store.openSessionId]?.settings).toBeUndefined()
   })
 
-  it('keeps device, provider, context, thinking, embeddings and workflows per session', async () => {
+  it('keeps provider, context, thinking, embeddings and workflows per session', async () => {
     const store = await startedStore()
     chat.edit({
-      selectedDeviceId: 'NPU',
-      selectedDeviceUuid: 'u-npu',
       cloudProviderId: 'zai',
       requestedContextSize: 65536,
       contextSizeEdited: true,
@@ -375,12 +373,9 @@ describe('Agent Session Settings', () => {
 
     await store.newSession()
     expect(chat.state.live.thinkingEnabled).toBeUndefined()
-    expect(chat.state.live.selectedDeviceId).toBeUndefined()
 
     await store.switchSession(first)
     expect(chat.state.live).toMatchObject({
-      selectedDeviceId: 'NPU',
-      selectedDeviceUuid: 'u-npu',
       cloudProviderId: 'zai',
       requestedContextSize: 65536,
       contextSizeEdited: true,
@@ -389,7 +384,6 @@ describe('Agent Session Settings', () => {
       builtinToolPresetEnablement: { Flux: false },
     })
     expect(savedSettings(first)).toMatchObject({
-      device: { id: 'NPU', uuid: 'u-npu' },
       cloudProviderId: 'zai',
       contextSize: 65536,
       thinkingEnabled: false,
@@ -398,21 +392,31 @@ describe('Agent Session Settings', () => {
     })
   })
 
-  it('leaves an earlier session alone when the next one changes its device and thinking', async () => {
+  it('neither saves nor restores the device, which applies to every session', async () => {
     const store = await startedStore()
-    chat.edit({ selectedDeviceId: 'GPU.0', thinkingEnabled: true })
+    chat.edit({ selectedDeviceId: 'NPU', selectedDeviceUuid: 'u-npu' })
+    await store.generate('first')
+    const first = store.openSessionId
+    expect(savedSettings(first)?.device).toBeUndefined()
+
+    await store.newSession()
+    await store.switchSession(first)
+    expect(chat.state.live.selectedDeviceId).toBeUndefined()
+    expect(chat.state.live.selectedDeviceUuid).toBeUndefined()
+  })
+
+  it('leaves an earlier session alone when the next one changes its thinking', async () => {
+    const store = await startedStore()
+    chat.edit({ thinkingEnabled: true })
     await store.generate('first')
     const first = store.openSessionId
 
     await store.newSession()
-    chat.edit({ selectedDeviceId: 'NPU', thinkingEnabled: false })
+    chat.edit({ thinkingEnabled: false })
     await store.generate('second')
 
-    expect(savedSettings(first)).toMatchObject({ device: { id: 'GPU.0' }, thinkingEnabled: true })
-    expect(savedSettings(store.openSessionId)).toMatchObject({
-      device: { id: 'NPU' },
-      thinkingEnabled: false,
-    })
+    expect(savedSettings(first)).toMatchObject({ thinkingEnabled: true })
+    expect(savedSettings(store.openSessionId)).toMatchObject({ thinkingEnabled: false })
   })
 
   it('starts a Draft Session with the default capabilities and planning flag', async () => {
@@ -453,6 +457,64 @@ describe('Agent Session Settings', () => {
     const config = turnConfig.build?.(store.openSessionId) as unknown as { capabilities: string[] }
     expect(config.capabilities).toContain('mcp:blender')
     expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
+  })
+
+  describe('Mounted Folders', () => {
+    const notes = { hostPath: '/Users/ada/notes', access: 'read-only' as const }
+
+    it('keeps a Mounted Folder in the session it was added to', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes])
+      await store.generate('first')
+      const first = store.openSessionId
+
+      await store.newSession()
+      expect(store.mountedFolders).toEqual([])
+
+      await store.switchSession(first)
+      expect(store.mountedFolders).toEqual([notes])
+      expect(savedSettings(first)?.mountedFolders).toEqual([notes])
+    })
+
+    it('sends each folder with its sandbox name on a turn', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes, { hostPath: '/Volumes/usb/notes' }])
+
+      turnConfig.build?.(store.openSessionId)
+      expect(turnConfig.lastInput?.mountedFolders).toEqual([
+        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
+        { hostPath: '/Volumes/usb/notes', name: 'notes-2', access: 'read-only' },
+      ])
+    })
+
+    it('starts a Draft Session with the Default Settings’ folders', async () => {
+      chat.state.settingsPerPreset.Agent = {
+        ...chat.state.settingsPerPreset.Agent,
+        agentMountedFolders: [notes],
+      }
+      const store = await startedStore()
+
+      expect(store.mountedFolders).toEqual([notes])
+    })
+
+    it('saves the folders as the defaults', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes])
+      store.saveAsDefault()
+
+      expect(chat.state.settingsPerPreset.Agent.agentMountedFolders).toEqual([notes])
+    })
+
+    it('offers none to Game Agent', async () => {
+      const store = await startedStore()
+      store.setMountedFolders([notes])
+      await presetSwitchingMock.switchPreset('Game Agent')
+
+      expect(store.mountedFoldersSupported).toBe(false)
+      expect(store.mountedFolders).toEqual([])
+      turnConfig.build?.(store.openSessionId)
+      expect(turnConfig.lastInput?.mountedFolders ?? []).toEqual([])
+    })
   })
 
   it('moves the global defaults into the Default Settings once', async () => {

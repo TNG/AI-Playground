@@ -42,7 +42,14 @@ import {
   releaseTurnSession,
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
-import { reportAgentTurnEnd } from './agentTurnOutcome.ts'
+import { reportAgentTurnEnd, type AgentTurnEnd } from './agentTurnOutcome.ts'
+import { trackAgentTurnInSession } from '../session/sessionAgentTurns.ts'
+import {
+  claimSessionTurn,
+  releaseSessionTurn,
+  SESSION_BUSY_MESSAGE,
+} from '../session/sessionTurns.ts'
+import { takeSessionUpdate } from '../session/sessionUpdate.ts'
 import { noteAnswerTurn } from './notifier.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
@@ -341,6 +348,22 @@ const USAGE_SAMPLE_EVENTS = new Set([
   'compaction_end',
 ])
 
+/** The Session Update rides on the user message only: the system prompt is the KV-cache prefix. */
+async function withSessionUpdate(prompt: string, config: AgentModeTurnConfig): Promise<string> {
+  if (!config.sessionRef || config.taskRun) return prompt
+  try {
+    const update = await takeSessionUpdate(config.sessionRef, {
+      key: config.sessionId,
+      ownPreset: config.presetName,
+      workspaceDir: config.workspaceDir,
+    })
+    return update ? `${update}\n\n${prompt}` : prompt
+  } catch (error) {
+    logger.warn(`no Session Update for this turn: ${briefly(error)}`, LOG_SOURCE)
+    return prompt
+  }
+}
+
 export async function startAgentTurn(
   turnId: string,
   prompt: string,
@@ -350,6 +373,18 @@ export async function startAgentTurn(
   if (agentTurns.has(sessionId)) {
     return { success: false, error: 'This session already has a turn in flight.' }
   }
+  const sessionRef = config.sessionRef
+  if (
+    sessionRef &&
+    !claimSessionTurn(sessionRef, {
+      turnId,
+      kind: 'agent',
+      presetName: config.presetName,
+      harnessSessionId: sessionId,
+    })
+  ) {
+    return { success: false, error: SESSION_BUSY_MESSAGE }
+  }
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
@@ -357,8 +392,18 @@ export async function startAgentTurn(
   beginAgentTurnSnapshot(sessionId, turnId)
   emitAgentTurnState(sessionId, turnId, 'queued')
   const verbose = verboseLogging()
+  const inSession = config.sessionRef
+    ? trackAgentTurnInSession({
+        sessionRef: config.sessionRef,
+        presetName: config.presetName ?? '',
+        workspaceDir: config.workspaceDir,
+        prompt,
+        ...(config.taskRun ? { taskRun: config.taskRun } : {}),
+      })
+    : null
   const translator = createStreamTranslator({
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
+    model: config.readiness?.llmModelName ?? config.modelConfig.model,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
@@ -458,7 +503,10 @@ export async function startAgentTurn(
         const failure = modelCallError(current.session)
         if (failure) throw new Error(failure)
       }
-      await current.session.prompt(prompt)
+      const note = current.mountedFoldersNote
+      const withUpdate = await withSessionUpdate(prompt, config)
+      await current.session.prompt(note ? `${note}\n\n${withUpdate}` : withUpdate)
+      if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
       failIfModelErrored()
       // A session that plans first has only been asked for the plan so far; the
       // build is a second request, sent from here rather than by the user.
@@ -488,6 +536,7 @@ export async function startAgentTurn(
       workspaceDir: current.workspaceDir,
       sessionFilePath: current.session.getSessionStats().sessionFile ?? '',
       updatedAt: Date.now(),
+      mountedFolders: current.mountedFolders,
     })
     return { success: true }
   } catch (error) {
@@ -508,13 +557,15 @@ export async function startAgentTurn(
     finishTextRequest(turnId)
     if (agentTurns.get(sessionId) === turn) agentTurns.delete(sessionId)
     // Decided by the abort, not the thrown error: a stop or shutdown is never a failure.
-    reportAgentTurnEnd(
+    const end: AgentTurnEnd =
       failedWith !== undefined
         ? { sessionId, turnId, outcome: 'failed', error: failedWith }
         : abortController.signal.aborted
           ? { sessionId, turnId, outcome: 'cancelled' }
-          : { sessionId, turnId, outcome: 'completed', reply },
-    )
+          : { sessionId, turnId, outcome: 'completed', reply }
+    reportAgentTurnEnd(end)
+    if (inSession) await inSession.settle(end)
+    if (sessionRef) releaseSessionTurn(sessionRef, turnId)
     if (turn.live) await releaseTurnSession(turn.live)
     emitAgentTurnDone(sessionId, turnId)
   }

@@ -5,13 +5,13 @@ export { AgentTaskStepSchema, type AgentTaskStep } from './agentSessionIpc'
 
 /**
  * Wire shapes for the kernel-owned Agents file (`AI-Playground/agent-tasks.json`): the
- * Agent preset's named settings — a folder, a Settings Template and ordered Steps.
+ * Agent preset's named settings — its Session, a Settings Template and ordered Steps.
  */
 
 export const AgentTaskOutcomeSchema = z.object({
   kind: z.enum(['completed', 'failed', 'stopped']),
   at: z.number(),
-  /** Absent when a Scheduled Run could not start, so no Task Session exists. */
+  /** Absent when a Scheduled Run could not start, so no Harness Session exists. */
   sessionId: z.string().optional(),
   stepIndex: z.number().optional(),
   stepCount: z.number(),
@@ -27,6 +27,8 @@ export type AgentTaskOutcome = z.infer<typeof AgentTaskOutcomeSchema>
  */
 export const AgentTaskActiveRunSchema = z.object({
   sessionId: z.string(),
+  /** The Session the run is in; empty on a marker from before runs knew their Session. */
+  sessionRef: z.string(),
   stepIndex: z.number(),
   stepCount: z.number(),
   /** Set for a Scheduled Run, so a reattached one still toasts a failure. */
@@ -51,23 +53,50 @@ export const AgentTaskScheduleSchema = z.object({
 })
 export type AgentTaskSchedule = z.infer<typeof AgentTaskScheduleSchema>
 
+/** One Agent's Schedule in one Session; the Next Run is present only while it is enabled. */
+export const AgentSessionScheduleSchema = AgentTaskScheduleSchema.extend({
+  sessionRef: z.string().min(1),
+  nextRunAt: z.number().optional(),
+})
+export type AgentSessionSchedule = z.infer<typeof AgentSessionScheduleSchema>
+
 export const AgentTaskSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
-  workspaceDir: z.string(),
+  /** The Session the Agent was made in, for information only; absent when there is none. */
+  sessionRef: z.string().min(1).optional(),
+  /** Only on an Agent saved before Sessions. */
+  workspaceDir: z.string().optional(),
   settingsTemplate: AgentSessionSettingsSchema,
   steps: z.array(AgentTaskStepSchema),
   createdAt: z.number(),
   updatedAt: z.number(),
   lastOutcome: AgentTaskOutcomeSchema.optional(),
-  activeRun: AgentTaskActiveRunSchema.optional(),
-  schedule: AgentTaskScheduleSchema.optional(),
-  /** Present only while the Schedule is enabled. */
-  nextRunAt: z.number().optional(),
+  /** One per Session the Agent has a run in flight in. */
+  activeRuns: z.array(AgentTaskActiveRunSchema).optional(),
+  /** At most one per Session. */
+  schedules: z.array(AgentSessionScheduleSchema).optional(),
 })
 export type AgentTask = z.infer<typeof AgentTaskSchema>
 
+/** An old single `schedule` moves into the Agent's own Session, or is dropped without one. */
+function migrateLegacyAgent(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw
+  const { schedule, nextRunAt, activeRun, ...rest } = raw as Record<string, unknown>
+  const sessionRef = typeof rest.sessionRef === 'string' ? rest.sessionRef : undefined
+  const migrated: Record<string, unknown> = { ...rest }
+  if (schedule !== undefined && sessionRef && rest.schedules === undefined) {
+    const next = nextRunAt !== undefined ? { nextRunAt } : {}
+    migrated.schedules = [{ ...(schedule as object), sessionRef, ...next }]
+  }
+  if (activeRun !== undefined && rest.activeRuns === undefined) {
+    const run = activeRun as Record<string, unknown>
+    migrated.activeRuns = [{ ...run, sessionRef: run.sessionRef ?? sessionRef ?? '' }]
+  }
+  return migrated
+}
+
 export const AgentTasksFileSchema = z.object({
   schemaVersion: z.literal(1),
-  tasks: z.array(AgentTaskSchema),
+  tasks: z.array(z.preprocess(migrateLegacyAgent, AgentTaskSchema)),
 })

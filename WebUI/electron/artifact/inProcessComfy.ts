@@ -132,14 +132,31 @@ function toolOutput(result: ArtifactRunResult): Record<string, unknown> {
     }
     return { id: item.id, type: 'image', imageUrl: item.imageUrl, mode: 'imageGen', settings }
   })
+  const unfinished = (result.unfinished ?? []).map((item) => ({
+    id: item.id,
+    type: 'image',
+    state: item.state,
+    imageUrl: '',
+    mode: item.mode,
+    settings: item.settings || {},
+  }))
   if (result.state === 'cancelled') {
-    return { success: false, message: 'Generation cancelled.', images }
+    return {
+      success: false,
+      state: 'cancelled',
+      message: 'Generation cancelled.',
+      images,
+      ...(unfinished.length ? { unfinished } : {}),
+    }
   }
   if (result.state === 'failed') {
     return {
       success: false,
+      state: 'failed',
       message: `ComfyUI generation failed: ${result.error ?? 'unknown error'}`,
+      ...(result.error ? { error: result.error } : {}),
       images,
+      ...(unfinished.length ? { unfinished } : {}),
     }
   }
   return { images }

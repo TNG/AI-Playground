@@ -7,10 +7,15 @@ import { useI18N } from './assets/js/store/i18n'
 import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
 import { useConversations } from './assets/js/store/conversations'
+import { useSessions } from './assets/js/store/sessions'
+import { useSessionChat } from './assets/js/store/sessionChat'
+import { useSessionSettings } from './assets/js/store/sessionSettings'
+import { useSessionDefaultInputs } from './assets/js/store/sessionDefaultInputs'
 import { useAgentMode } from './assets/js/store/agentMode'
 import { useAgentTasks } from './assets/js/store/agentTasks'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
+import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
 import { useTextToSpeech } from './assets/js/store/textToSpeech'
@@ -94,6 +99,11 @@ startPermissionsAdapter()
 // runs on a legacy boot.
 await useConversations().init()
 
+// The Sessions panel lists what is on disk from first paint, with a Session open.
+await useSessions().init()
+// Non-agent chat presets write into the open Session's chat transcript.
+useSessionChat()
+
 // Same for agent-session records (step 8): the Sessions panel and a resumed
 // agent turn read a fully hydrated map. Instantiating the store here is safe —
 // its setup only wires IPC and chat transport, no backend work.
@@ -117,6 +127,7 @@ await useImageGenerationPresets().init()
 // any service start already sees the machine's flags.
 await Promise.all([
   useTheme().init(),
+  usePromptBarStyle().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),
   useTextToSpeech().init(),
@@ -129,6 +140,12 @@ await Promise.all([
 
 // Reads the Agent preset's saved defaults, which hydrate with textInference above.
 useAgentMode().adoptNotifyCapability()
+
+// Binds every other preset's settings to the open Session once the Default Settings
+// they copy from have hydrated (ADR-0004).
+await useSessionSettings().whenLoaded()
+// Edit, Video and Speech-to-Text presets start with the Session's newest matching artifact.
+useSessionDefaultInputs()
 
 // Relabel a parked chat tool's activity with its queue position (the
 // orchestrator's queue events, step 7). Ledger events (activity / error /

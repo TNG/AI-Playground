@@ -21,6 +21,7 @@ import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
 import type { LlamaCppVramInputs } from '../lib/vram/types'
+import type { GroupNameProblem } from '../lib/sessionGroupName'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
 import type { HomeAgentInboundMessage } from './homeAgentIpc'
@@ -36,6 +37,22 @@ import type {
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
+import type {
+  ArtifactMediaType,
+  AudioTurnRequest,
+  HarnessGameWorkspace,
+  HarnessSessionRef,
+  NewestArtifact,
+  SessionArtifact,
+  SessionDocument,
+  SessionGroup,
+  SessionLastPreset,
+  SessionSummary,
+  SessionTurn,
+  ShowMore,
+  ShowMoreSection,
+} from './sessionIpc'
+import type { PresetSessionSettings, SessionSettingsMap } from './sessionSettings'
 import type { SpeechSynthesisRequest } from './speechIpc'
 import type { ChannelMessageOwner, NotificationConfig } from './notificationsIpc'
 import type {
@@ -92,6 +109,9 @@ export type IpcMutationResult = IpcOk | IpcFail
 export type IpcDataResult<T> = { success: true; data: T } | IpcFail
 /** Success carries named fields beyond `success` itself (e.g. `{ url: string }`, `{ filepath: string }`). */
 export type IpcOkWith<Fields> = ({ success: true } & Fields) | IpcFail
+/** Like `IpcOkWith`, but a refused Session Group name says which rule it broke. */
+export type IpcGroupNameResult<Fields> =
+  ({ success: true } & Fields) | (IpcFail & { nameProblem?: GroupNameProblem })
 export type IpcStatusError = { status: 'error'; error: string }
 /** `GET /v1/models` from main. A failure keeps the provider status and body. */
 export type CloudModelListResult =
@@ -199,6 +219,188 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string[]],
     result: null as unknown as IpcMutationResult,
+  },
+  /** Every Session of the active root (demo or real), newest first, its Session Groups and "show more" choices. */
+  'sessions:list': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{
+      sessions: SessionSummary[]
+      groups: SessionGroup[]
+      showMore: ShowMore
+    }>,
+  },
+  /** Create a Session and lay out its Session Folder, optionally already in a Session Group. */
+  'sessions:create': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [groupId?: string],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** One Session's row plus its display timeline, and the artifact URLs whose file is gone. */
+  'sessions:open': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{
+      session: SessionDocument
+      missingFiles: string[]
+      lastPreset: SessionLastPreset | null
+    }>,
+  },
+  /** Give a Session a user-chosen title. */
+  'sessions:rename': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** Pin or unpin a Session; pushes `session-changed`. */
+  'sessions:pin': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** Name a new Session Group and move the Session into it; pushes `session-changed` and `session-groups-changed`. */
+  'sessions:createGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcGroupNameResult<{
+      group: SessionGroup
+      session: SessionSummary
+    }>,
+  },
+  /** Move a Session into a Session Group, or out of its own with `null`; pushes `session-changed`. */
+  'sessions:moveToGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | null],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** Rename a Session Group; a name taken by another Group, ignoring case, fails. Pushes `session-groups-changed`. */
+  'sessions:renameGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcGroupNameResult<{ group: SessionGroup }>,
+  },
+  /** Delete a Session Group; its Sessions stay and leave it, each pushing `session-changed`. Pushes `session-groups-changed`. */
+  'sessions:deleteGroup': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Expand or collapse a Session Group's header; pushes `session-groups-changed`. */
+  'sessions:setGroupExpanded': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean],
+    result: null as unknown as IpcOkWith<{ group: SessionGroup }>,
+  },
+  /** Remember whether a shortened panel section lists every Session; pushes `session-groups-changed`. */
+  'sessions:setShowMore': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ShowMoreSection, boolean],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete a Session and its whole Session Folder. */
+  'sessions:delete': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /**
+   * The Session's Harness Session for an agent preset (minted on first use) and its workspace;
+   * a games preset passes its game folder instead of working in `files/`.
+   */
+  'sessions:harnessSession': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, HarnessGameWorkspace?],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** A fresh Harness Session for one Task Run of the Session, working in its `files/`. */
+  'sessions:taskRunHarness': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** Save settled display messages into a Session's timeline, replacing ones with the same id. */
+  'sessions:saveTimelineMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Replace a Session's chat transcript (a removed or cleared message); other turns stay. */
+  'sessions:saveChatTranscript': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, unknown[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Settle a Text-to-Speech / Speech-to-Text turn: audio into files/, a History Entry, the timeline. */
+  'sessions:recordAudioTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AudioTurnRequest],
+    result: null as unknown as IpcOkWith<{ session: SessionDocument }>,
+  },
+  /** The gallery: every Session's artifacts whose file still exists, newest first. */
+  'sessions:listArtifacts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ artifacts: SessionArtifact[] }>,
+  },
+  /** Delete one artifact's file (session id, path in the Session Folder); its History Entry stays. */
+  'sessions:deleteArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** A Session's Session Settings, every preset's at once (ADR-0004). */
+  'sessions:readSettings': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ settings: SessionSettingsMap }>,
+  },
+  /** Replace one preset's Session Settings in a Session. */
+  'sessions:writePresetSettings': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, PresetSessionSettings],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Claim the Session for a turn the renderer runs itself (audio); fails while it has one. */
+  'sessions:beginTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, SessionTurn],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Release the Session from that turn (session id, turn id). */
+  'sessions:endTurn': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** The Session's newest artifact of a media type, across every preset; null when it has none. */
+  'sessions:newestArtifact': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, ArtifactMediaType],
+    result: null as unknown as IpcOkWith<{ artifact: NewestArtifact | null }>,
   },
   /** All preference sections at once; the file is small, so every store picks its own. */
   'preferences:read': {
@@ -977,6 +1179,13 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as string,
   },
+  /** The user's home folder, which the Mounted Folders picker refuses as too broad. */
+  getHomePath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as string,
+  },
   /** The OS platform (`process.platform`). */
   getPlatform: {
     kind: 'invoke',
@@ -990,6 +1199,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as boolean | undefined,
+  },
+  /** Whether a path is an existing folder, symlinks followed — what a Mounted Folder must be. */
+  isFolderPath: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as boolean,
   },
 
   // ── Media files: app-owned media dirs, renderer-supplied payloads ──
@@ -1154,6 +1370,13 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [SaveDialogOptions],
     result: null as unknown as SaveDialogResult | undefined,
+  },
+  /** Save a copy of a media URL's file where the user picks; cancelling is not a failure. */
+  saveMediaCopy: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
   },
   /** The OS message box over the caller's window; `response` is the button index. */
   showMessageBox: {

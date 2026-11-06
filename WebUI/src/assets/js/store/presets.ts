@@ -6,6 +6,7 @@ import { useBackendServices } from './backendServices'
 import { withDevPresets } from './devPresets'
 import { useProductMode } from './productMode'
 import { currentPresetName, renamePresetKeys } from '@/lib/presetRenames'
+import { lastUsedByMode } from '@/lib/promptBarModel'
 import {
   applyVariant,
   getFirstVariantName,
@@ -47,8 +48,10 @@ export const usePresets = defineStore(
     const activeVariantName = ref<Record<string, string>>({}) // preset name -> variant name
     const settingsPerPreset = ref<Record<string, Record<string, unknown>>>({})
     const lastUsedPresetName = ref<Record<string, string | null>>({}) // category -> preset name
+    // Modern prompt bar mode -> preset name; Chat and Agent share a category, so they need their own.
+    const lastUsedPresetPerMode = ref<Partial<Record<ModeType, string>>>({})
     // Per-preset memory of the last variant the user picked under each backend, so that
-    // toggling Backend in SettingsWorkflow restores the previous quality choice instead
+    // toggling Backend in SettingsWorkflowInferencing restores the previous quality choice instead
     // of always snapping to the first variant. Shape: { [presetName]: { [backend]: variantName } }
     const lastQualityVariantPerBackend = ref<Record<string, Record<string, string>>>({})
 
@@ -59,7 +62,12 @@ export const usePresets = defineStore(
     // the one-shot upload only slims the file-half fields out of the key.
     const variantPrefs = makeFileBackedPreference({
       section: 'presets',
-      refs: { settingsPerPreset, lastQualityVariantPerBackend, lastUsedPresetName },
+      refs: {
+        settingsPerPreset,
+        lastQualityVariantPerBackend,
+        lastUsedPresetName,
+        lastUsedPresetPerMode,
+      },
       legacyKey: 'presets',
       legacySlim: true,
     })
@@ -200,7 +208,7 @@ export const usePresets = defineStore(
     }
 
     // ========================================================================
-    // Backend selection helpers (used by SettingsWorkflow Backend dropdown)
+    // Backend selection helpers (used by SettingsWorkflowInferencing Backend dropdown)
     // ========================================================================
 
     /** Distinct backend ids present across the preset's variants, in stable order
@@ -493,6 +501,14 @@ export const usePresets = defineStore(
       lastUsedPresetName.value[category] = presetName
     }
 
+    function setLastUsedPresetForMode(mode: ModeType, presetName: string): void {
+      lastUsedPresetPerMode.value[mode] = presetName
+    }
+
+    const lastUsedPresetsByMode = computed(() =>
+      lastUsedByMode(lastUsedPresetPerMode.value, lastUsedPresetName.value),
+    )
+
     /**
      * Carry state stored under a preset's former name over to the name it ships
      * with now. Without it a rename reads as "preset gone": the picker falls back
@@ -505,6 +521,9 @@ export const usePresets = defineStore(
       }
       for (const [category, name] of Object.entries(lastUsedPresetName.value)) {
         if (name) lastUsedPresetName.value[category] = currentPresetName(name)
+      }
+      for (const [mode, name] of Object.entries(lastUsedPresetPerMode.value)) {
+        if (name) lastUsedPresetPerMode.value[mode as ModeType] = currentPresetName(name)
       }
       activeVariantName.value = renamePresetKeys(activeVariantName.value)
       settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
@@ -648,6 +667,7 @@ export const usePresets = defineStore(
       activeVariantName,
       settingsPerPreset,
       lastUsedPresetName,
+      lastUsedPresetPerMode,
       lastQualityVariantPerBackend,
 
       // Computed
@@ -661,6 +681,7 @@ export const usePresets = defineStore(
       audioPresets,
       selectableChatTypePresets,
       activePresetWithVariant,
+      lastUsedPresetsByMode,
 
       // Methods
       validatePreset,
@@ -681,6 +702,7 @@ export const usePresets = defineStore(
       getPresetsByCategories,
       getLastUsedPreset,
       setLastUsedPreset,
+      setLastUsedPresetForMode,
       migrateRenamedPresets,
       init,
       getDistinctBackendsForPreset,

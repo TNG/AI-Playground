@@ -22,6 +22,7 @@ vi.mock('../../observability/logger', () => ({
 
 const {
   deleteAgentTask,
+  forgetSessionInAgentTasks,
   readAgentTasks,
   resetAgentTaskFilesForTest,
   saveAgentTask,
@@ -33,7 +34,7 @@ function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   return {
     id,
     name: `Task ${id}`,
-    workspaceDir: '/work/project',
+    sessionRef: 'session-1',
     settingsTemplate: { backend: 'llamaCPP', model: 'Qwen-9B', capabilities: ['files'] },
     steps: [
       { id: 's1', prompt: 'first' },
@@ -97,8 +98,11 @@ describe('the kernel Tasks file', () => {
     ])
   })
 
-  it('round-trips a run marker and an app-closed outcome', async () => {
-    const activeRun = { sessionId: 'aipg-agent-1', stepIndex: 2, stepCount: 3 }
+  it('round-trips run markers and an app-closed outcome', async () => {
+    const activeRuns = [
+      { sessionId: 'aipg-agent-1', sessionRef: 'session-1', stepIndex: 2, stepCount: 3 },
+      { sessionId: 'aipg-agent-2', sessionRef: 'session-2', stepIndex: 1, stepCount: 3 },
+    ]
     const outcome = {
       kind: 'failed' as const,
       at: 9,
@@ -108,8 +112,8 @@ describe('the kernel Tasks file', () => {
       reason: 'app-closed' as const,
     }
 
-    await saveAgentTask(task('a', { activeRun }))
-    expect(await readAgentTasks()).toEqual([task('a', { activeRun })])
+    await saveAgentTask(task('a', { activeRuns }))
+    expect(await readAgentTasks()).toEqual([task('a', { activeRuns })])
 
     await saveAgentTask(task('a', { lastOutcome: outcome }))
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
@@ -129,12 +133,22 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
   })
 
-  it('round-trips a Schedule and its Next Run', async () => {
-    const schedule = { every: 2, unit: 'hours' as const, startAt: 1_000, enabled: true }
+  it('round-trips one Agent scheduled in two Sessions, each with its own Next Run', async () => {
+    const schedules = [
+      {
+        sessionRef: 'session-1',
+        every: 1,
+        unit: 'days' as const,
+        startAt: 1_000,
+        enabled: true,
+        nextRunAt: 86_401_000,
+      },
+      { sessionRef: 'session-2', every: 2, unit: 'hours' as const, startAt: 1_000, enabled: false },
+    ]
 
-    await saveAgentTask(task('a', { schedule, nextRunAt: 7_201_000 }))
+    await saveAgentTask(task('a', { schedules }))
 
-    expect(await readAgentTasks()).toEqual([task('a', { schedule, nextRunAt: 7_201_000 })])
+    expect(await readAgentTasks()).toEqual([task('a', { schedules })])
   })
 
   it('reads a file written before Schedules existed', async () => {
@@ -143,8 +157,84 @@ describe('the kernel Tasks file', () => {
     const [read] = await readAgentTasks()
 
     expect(read).toEqual(task('a'))
-    expect(read).not.toHaveProperty('schedule')
-    expect(read).not.toHaveProperty('nextRunAt')
+    expect(read).not.toHaveProperty('schedules')
+  })
+
+  it("moves an Agent's old Schedule into a Schedule in the Agent's Session", async () => {
+    const schedule = { every: 2, unit: 'hours', startAt: 1_000, enabled: true }
+    const old = { ...task('a'), schedule, nextRunAt: 7_201_000 }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(
+      task('a', {
+        schedules: [{ sessionRef: 'session-1', ...schedule, nextRunAt: 7_201_000 } as never],
+      }),
+    )
+  })
+
+  it('drops an old Schedule that has no Session to run in', async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const schedule = { every: 10, unit: 'minutes', startAt: 1, enabled: true }
+    const old = { ...legacy, schedule, nextRunAt: 601 }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(legacy)
+  })
+
+  it("moves an old run marker into the Agent's run markers, in the Session it ran in", async () => {
+    const activeRun = { sessionId: 'aipg-agent-1', stepIndex: 2, stepCount: 3 }
+    const old = { ...task('a'), activeRun }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    const [read] = await readAgentTasks()
+
+    expect(read).toEqual(task('a', { activeRuns: [{ ...activeRun, sessionRef: 'session-1' }] }))
+  })
+
+  it('writes the migrated shape back on the next upsert', async () => {
+    const schedule = { every: 2, unit: 'hours', startAt: 1_000, enabled: true }
+    const old = { ...task('a'), schedule, nextRunAt: 7_201_000 }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    await saveAgentTask(task('b'))
+
+    const raw = (await readRaw(files.real)) as { tasks: Record<string, unknown>[] }
+    expect(raw.tasks[0]).not.toHaveProperty('schedule')
+    expect(raw.tasks[0]).toMatchObject({ schedules: [{ sessionRef: 'session-1', every: 2 }] })
+  })
+
+  it('reads a Task saved before Tasks belonged to a Session, and keeps it on an upsert', async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const old = { ...legacy, workspaceDir: '/work/project' }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 1, tasks: [old] }), 'utf8')
+
+    await saveAgentTask(task('new'))
+
+    expect(await readAgentTasks()).toEqual([old, task('new')])
+  })
+
+  it("keeps a deleted Session's Agents and their Schedules in other Sessions", async () => {
+    const { sessionRef: _none, ...legacy } = task('old')
+    const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true, nextRunAt: 200 }
+    const here = { sessionRef: 'session-1', ...daily }
+    const there = { sessionRef: 'session-2', ...daily }
+    const outcome = { kind: 'completed' as const, at: 5, stepCount: 1 }
+    await saveAgentTask(task('a', { schedules: [here, there], lastOutcome: outcome }))
+    await saveAgentTask(task('b', { sessionRef: 'session-2', schedules: [there] }))
+    await saveAgentTask({ ...legacy, schedules: [here] })
+
+    await forgetSessionInAgentTasks('session-1')
+
+    const { sessionRef: _gone, ...keptA } = task('a', { schedules: [there], lastOutcome: outcome })
+    expect(await readAgentTasks()).toEqual([
+      keptA,
+      task('b', { sessionRef: 'session-2', schedules: [there] }),
+      legacy,
+    ])
   })
 
   it('deletes one Task and keeps the others', async () => {

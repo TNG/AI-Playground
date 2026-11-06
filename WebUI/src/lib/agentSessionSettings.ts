@@ -25,13 +25,12 @@ export function presetNameUsesSessionSettings(name: string | undefined): boolean
  */
 export const DEFAULT_CAPABILITIES_KEY = 'agentCapabilities'
 export const DEFAULT_PLANNING_THINKING_ONLY_KEY = 'agentPlanningThinkingOnly'
+export const DEFAULT_MOUNTED_FOLDERS_KEY = 'agentMountedFolders'
 
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
 const SESSION_OWNED_KEYS = [
   'backend',
   'selectedModels',
-  'selectedDeviceId',
-  'selectedDeviceUuid',
   'selectedEmbeddingModels',
   'contextSize',
   'requestedContextSize',
@@ -55,7 +54,6 @@ function isBackend(value: unknown): value is Backend {
 const BAG_DERIVED_SETTINGS = [
   'backend',
   'model',
-  'device',
   'embeddingModel',
   'contextSize',
   'contextSizeEdited',
@@ -92,12 +90,6 @@ export function sessionSettingsFromBag(
     const model = asRecord<string | null>(bag.selectedModels)?.[bag.backend]
     if (typeof model === 'string') settings.model = model
   }
-  if (typeof bag.selectedDeviceId === 'string') {
-    settings.device = {
-      id: bag.selectedDeviceId,
-      uuid: typeof bag.selectedDeviceUuid === 'string' ? bag.selectedDeviceUuid : null,
-    }
-  }
   const embeddingSlot = embeddingBackend ?? (bag.backend === 'cloud' ? undefined : bag.backend)
   const embedding = embeddingSlot
     ? asRecord<string | null>(bag.selectedEmbeddingModels)?.[embeddingSlot as string]
@@ -132,10 +124,6 @@ export function sessionSettingsToBag(
     if (settings.model !== undefined) {
       bag.selectedModels = { ...asRecord(base.selectedModels), [settings.backend]: settings.model }
     }
-  }
-  if (settings.device) {
-    bag.selectedDeviceId = settings.device.id
-    bag.selectedDeviceUuid = settings.device.uuid ?? null
   }
   const embeddingSlot =
     settings.backend && settings.backend !== 'cloud' ? settings.backend : embeddingBackend

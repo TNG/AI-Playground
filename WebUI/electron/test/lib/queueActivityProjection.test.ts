@@ -240,3 +240,14 @@ describe('queue activity projection', () => {
     expect(activities.chatActivity('session-b')).toBeNull()
   })
 })
+
+describe('a prompt held for its Session’s Agent Run', () => {
+  it('names the Agent it waits for', async () => {
+    const { agentRunQueuedLabel } = await import('@/lib/queueActivityProjection')
+    const enUS = (await import('@/assets/i18n/en-US.json')).default
+
+    expect(agentRunQueuedLabel(enUS, 'Morning news')).toBe(
+      'Queued, waiting for Agent Run Morning news',
+    )
+  })
+})

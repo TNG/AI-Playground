@@ -60,7 +60,14 @@ export function describeMediaAgentStep(step: {
 
 /** Condenses the nested loop's raw steps into the parent tool's result shape. */
 export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMediaAgentResult {
-  const images = result.steps.flatMap((step) => mediaEntriesOf(step.output))
+  const images = result.steps.flatMap((step) => {
+    const prompt = (step.input as { prompt?: unknown } | null)?.prompt
+    return mediaEntriesOf(step.output).map((entry) =>
+      typeof prompt === 'string' && prompt
+        ? { ...entry, settings: { ...entry.settings, prompt } }
+        : entry,
+    )
+  })
   const failures = result.steps
     .map((step) => (step.output as { success?: boolean; message?: string } | null) ?? {})
     .filter((output) => output.success === false)
@@ -84,10 +91,13 @@ export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<st
     summary: result.summary,
     steps: result.steps,
     images: result.images.map((item) => {
-      const entry: Record<string, string> = { id: item.id, type: item.type }
+      const entry: Record<string, unknown> = { id: item.id, type: item.type }
       if (item.imageUrl) entry.imageUrl = item.imageUrl
       if (item.videoUrl) entry.videoUrl = item.videoUrl
       if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
+      if (typeof item.settings?.prompt === 'string') {
+        entry.settings = { prompt: item.settings.prompt }
+      }
       return entry
     }),
   }

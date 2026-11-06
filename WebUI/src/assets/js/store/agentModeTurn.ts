@@ -13,6 +13,7 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
 import { getAgentToolSpecs } from '../tools/agentBridge'
@@ -77,13 +78,22 @@ function embeddingConfigOf(textInference: InferenceForTurn) {
   return embeddingModel ? { embeddingModel, embeddingBackend: textInference.embeddingBackend } : {}
 }
 
+function mountedFoldersOf(folders: ResolvedMountedFolder[] | undefined) {
+  return folders && folders.length > 0 ? { mountedFolders: folders } : {}
+}
+
 export async function buildTurnConfig(options: {
   sessionId: string
+  /** The Session a Harness Session belongs to. */
+  sessionRef?: string
+  /** A Task Run's Step: main gives it no Session Update and no `session_history`. */
+  taskRun?: AgentModeTurnConfig['taskRun']
   workspaceDir: string
   presetName: string
   instructions: string
   capabilities: string[]
   unsandboxed: boolean
+  mountedFolders?: ResolvedMountedFolder[]
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
@@ -106,6 +116,8 @@ export async function buildTurnConfig(options: {
     const model = textInference.activeModel ?? CLOUD_DEFAULT_MODEL
     return {
       sessionId: options.sessionId,
+      ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
+      ...(options.taskRun ? { taskRun: options.taskRun } : {}),
       workspaceDir: options.workspaceDir,
       modelConfig: {
         source: 'cloud',
@@ -125,6 +137,7 @@ export async function buildTurnConfig(options: {
       instructions: options.instructions,
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
+      ...mountedFoldersOf(options.mountedFolders),
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
       ...(options.answer ? { answer: options.answer } : {}),
       ...embeddingConfigOf(textInference),
@@ -134,13 +147,15 @@ export async function buildTurnConfig(options: {
   const baseUrl = textInference.localBackendUrl
   if (!baseUrl) {
     throw new Error(
-      'No local inference backend is available. Pick a local backend and model in the settings sidebar.',
+      'No local inference backend is available. Pick a local backend and model in the Inferencing tab.',
     )
   }
   const activeModel = textInference.activeModel
   const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
     sessionId: options.sessionId,
+    ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
+    ...(options.taskRun ? { taskRun: options.taskRun } : {}),
     workspaceDir: options.workspaceDir,
     modelConfig: {
       source: 'local',
@@ -159,6 +174,7 @@ export async function buildTurnConfig(options: {
     instructions: options.instructions,
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
+    ...mountedFoldersOf(options.mountedFolders),
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
     ...(options.answer ? { answer: options.answer } : {}),
     planningThinkingOnly:

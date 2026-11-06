@@ -9,7 +9,15 @@ import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
+import type {
+  ArtifactMediaType,
+  AudioTurnRequest,
+  HarnessGameWorkspace,
+  SessionTurn,
+  ShowMoreSection,
+} from '@/types/sessionIpc'
 import type { AgentTask } from '@/types/agentTaskIpc'
+import type { PresetSessionSettings } from '@/types/sessionSettings'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
@@ -120,6 +128,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWinSize: () => invoke('getWinSize'),
   setWinSize: (width: number, height: number) => invoke('setWinSize', width, height),
   showSaveDialog: (options: SaveDialogOptions) => invoke('showSaveDialog', options),
+  saveMediaCopy: (url: string) => invoke('saveMediaCopy', url),
   showMessageBox: (options: MessageBoxOptions) => invoke('showMessageBox', options),
   miniWindow: () => send('miniWindow'),
   getInitialPage: () => invoke('getInitialPage'),
@@ -138,6 +147,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   screenChange: (callback: (metrics: { width: number; height: number }) => void) =>
     onRaw('display-metrics-changed', callback),
   existsPath: (path: string) => invoke('existsPath', path),
+  isFolderPath: (path: string) => invoke('isFolderPath', path),
   addDocumentToRAGList: (doc: IndexedDocument, phisonKmConfig?: PhisonKmIngestConfig) =>
     invoke('addDocumentToRAGList', doc, phisonKmConfig),
   embedInputUsingRag: (embedInquiry: EmbedInquiry) => invoke('embedInputUsingRag', embedInquiry),
@@ -168,6 +178,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showModelInFolder: (modelPath: string) => invoke('showModelInFolder', modelPath),
   deleteModelPath: (modelPath: string) => invoke('deleteModelPath', modelPath),
   getPlatform: () => invoke('getPlatform'),
+  getHomePath: () => invoke('getHomePath'),
   demoMode: {
     leave: () => invoke('demoMode:leave'),
     enter: () => invoke('demoMode:enter'),
@@ -274,6 +285,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
     summarize: (request: ChatSummarizeRequest) => invoke('chat:summarize', request),
     answer: (payload: ChatAnswerPayload) => invoke('chat:answer', cloneForIpc(payload)),
     onAsk: (callback: (payload: ChatAskPayload) => void) => onPush('chat:ask', callback),
+  },
+  sessions: {
+    list: () => invoke('sessions:list'),
+    create: (groupId?: string) => invoke('sessions:create', groupId),
+    open: (id: string) => invoke('sessions:open', id),
+    rename: (id: string, title: string) => invoke('sessions:rename', id, title),
+    pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
+    createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),
+    moveToGroup: (id: string, groupId: string | null) =>
+      invoke('sessions:moveToGroup', id, groupId),
+    renameGroup: (groupId: string, name: string) => invoke('sessions:renameGroup', groupId, name),
+    deleteGroup: (groupId: string) => invoke('sessions:deleteGroup', groupId),
+    setGroupExpanded: (groupId: string, expanded: boolean) =>
+      invoke('sessions:setGroupExpanded', groupId, expanded),
+    setShowMore: (section: ShowMoreSection, shown: boolean) =>
+      invoke('sessions:setShowMore', section, shown),
+    delete: (id: string) => invoke('sessions:delete', id),
+    harnessSession: (id: string, presetName: string, game?: HarnessGameWorkspace) =>
+      invoke('sessions:harnessSession', id, presetName, game),
+    taskRunHarness: (id: string) => invoke('sessions:taskRunHarness', id),
+    saveTimelineMessages: (id: string, messages: unknown[]) =>
+      invoke('sessions:saveTimelineMessages', id, cloneForIpc(messages)),
+    saveChatTranscript: (id: string, messages: unknown[]) =>
+      invoke('sessions:saveChatTranscript', id, cloneForIpc(messages)),
+    recordAudioTurn: (turn: AudioTurnRequest) =>
+      invoke('sessions:recordAudioTurn', cloneForIpc(turn)),
+    listArtifacts: () => invoke('sessions:listArtifacts'),
+    deleteArtifact: (sessionId: string, relativePath: string) =>
+      invoke('sessions:deleteArtifact', sessionId, relativePath),
+    readSettings: (id: string) => invoke('sessions:readSettings', id),
+    writePresetSettings: (id: string, presetName: string, entry: PresetSessionSettings) =>
+      invoke('sessions:writePresetSettings', id, presetName, cloneForIpc(entry)),
+    beginTurn: (id: string, turn: SessionTurn) =>
+      invoke('sessions:beginTurn', id, cloneForIpc(turn)),
+    endTurn: (id: string, turnId: string) => invoke('sessions:endTurn', id, turnId),
+    newestArtifact: (id: string, mediaType: ArtifactMediaType) =>
+      invoke('sessions:newestArtifact', id, mediaType),
   },
   conversations: {
     bootstrap: () => invoke('conversations:bootstrap'),

@@ -460,7 +460,9 @@ async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number })
     steps: ['one', 'two', 'three'].map((prompt) => ({ id: prompt, prompt })),
     createdAt: 1,
     updatedAt: 1,
-    ...(activeRun ? { activeRun: { sessionId: TASK_SESSION, ...activeRun } } : {}),
+    ...(activeRun
+      ? { activeRuns: [{ sessionId: TASK_SESSION, sessionRef: 'session-1', ...activeRun }] }
+      : {}),
   })
 }
 

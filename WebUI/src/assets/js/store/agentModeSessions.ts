@@ -2,7 +2,7 @@ import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
-import type { AgentSessionSettings, AgentTaskStep } from '@/types/agentSessionIpc'
+import type { AgentSessionSettings, AgentTaskStep, AgentRunTag } from '@/types/agentSessionIpc'
 
 export type AgentSessionRecord = {
   id: string
@@ -37,6 +37,10 @@ export type AgentSessionRecord = {
   taskId?: string
   /** The Steps the session's prompts are carried out in (Agent preset only). */
   steps?: AgentTaskStep[]
+  /** The Session this Harness Session belongs to, once it is one. */
+  sessionRef?: string
+  /** Set when this Harness Session is one Task Run of its Session. */
+  taskRun?: AgentRunTag
 }
 
 /**
@@ -188,6 +192,8 @@ export function snapshotSession(options: {
   taskId?: string
   /** Names a new record instead of its first message. */
   title?: string
+  /** Kept only when the record has none. */
+  sessionRef?: string
 }): AgentSessionRecord | null {
   const plainMessages = JSON.parse(JSON.stringify(options.messages)) as UIMessage[]
   if (plainMessages.length === 0) return null
@@ -223,6 +229,10 @@ export function snapshotSession(options: {
       : existing?.steps
         ? { steps: existing.steps }
         : {}),
+    ...((existing?.sessionRef ?? options.sessionRef)
+      ? { sessionRef: existing?.sessionRef ?? options.sessionRef }
+      : {}),
+    ...(existing?.taskRun ? { taskRun: existing.taskRun } : {}),
   }
 }
 

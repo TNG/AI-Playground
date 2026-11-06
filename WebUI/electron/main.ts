@@ -234,6 +234,41 @@ import {
   wipeDemoConversations,
 } from './persist/conversationFiles'
 import { buildConversationsRegistry } from './kernel/registries/conversations'
+import { buildSessionsRegistry } from './kernel/registries/sessions'
+import { recordAudioTurn } from './session/sessionAudioTurn'
+import {
+  createSession,
+  createSessionGroup,
+  deleteSession,
+  listSessionGroups,
+  listSessions,
+  moveSessionToGroup,
+  openSession,
+  renameSessionGroup,
+  deleteSessionGroup,
+  setSessionGroupExpanded,
+  readShowMore,
+  setShowMore,
+  renameSession,
+  pinSession,
+  sessionsRootDir,
+  setSessionDeps,
+  wipeDemoSessions,
+} from './session/sessions'
+import {
+  deleteArtifact,
+  listAllArtifacts,
+  missingArtifactUrls,
+  newestArtifact,
+} from './session/sessionArtifacts'
+import { cleanUpHarnessSessionsOnDelete, harnessSessionFor } from './session/sessionHarness'
+import { dropSchedulesWithSession, taskRunHarnessFor } from './session/sessionTaskRuns'
+import { upsertTimelineMessages } from './session/sessionTimeline'
+import { saveChatTranscript } from './session/sessionChatTurn'
+import { setAppMediaPathResolver } from './agent/piCustomTools'
+import { readSessionSettings, writePresetSettings } from './session/sessionSettings'
+import { lastTurnPreset } from './session/sessionHistory'
+import { claimSessionTurn, inSessionTurn, releaseSessionTurn } from './session/sessionTurns'
 import { buildAgentModeRegistry } from './kernel/registries/agentMode'
 import { buildChatRegistry } from './kernel/registries/chat'
 import { buildComfyuiRegistry } from './kernel/registries/comfyui'
@@ -535,12 +570,12 @@ const audioDir = getAudioDir()
 fs.mkdirSync(audioDir, { recursive: true })
 
 /**
- * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media
- * and the game library (a game's icon lives next to its HTML, not in the media
- * folder — see gameLibrary.ts).
+ * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media,
+ * the game library (a game's icon lives next to its HTML, not in the media
+ * folder — see gameLibrary.ts) and the Session Folders.
  */
 function aipgMediaRoots(): Record<string, string> {
-  return { media: mediaDir, games: getGamesDir() }
+  return { media: mediaDir, games: getGamesDir(), sessions: sessionsRootDir() }
 }
 
 /** Resolve aipg-media://… to an absolute file path under a served root (no path traversal). */
@@ -1154,6 +1189,7 @@ appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })
+appShutdown.register({ name: 'demo sessions', run: () => wipeDemoSessions() })
 appShutdown.register({ name: 'demo agent sessions', run: () => wipeDemoAgentSessions() })
 appShutdown.register({ name: 'demo agent workspace', run: () => wipeDemoAgentWorkspace() })
 appShutdown.register({ name: 'demo agent tasks', run: () => wipeDemoAgentTasks() })
@@ -1264,6 +1300,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   }
   wireArtifactRunner(settings)
   wireConversations(settings)
+  wireSessions(settings)
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
   wireAgentTasks(settings)
@@ -1284,6 +1321,18 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
 function wireConversations(settings: LocalSettings): void {
   setConversationFileDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoConversations()
+}
+
+/** Same demo discipline for Sessions (ADR-0003). */
+function wireSessions(settings: LocalSettings): void {
+  setSessionDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  if (settings.isDemoModeEnabled) void wipeDemoSessions()
+  cleanUpHarnessSessionsOnDelete(async (harnessSessionId) => {
+    await deleteAgentSessionRecord(harnessSessionId)
+    await deleteAgentSession(harnessSessionId)
+  })
+  dropSchedulesWithSession()
+  setAppMediaPathResolver(getLocalPathFromAipgMediaUrl)
 }
 
 /** Same demo discipline for agent-session records (step 8, §6.1). */
@@ -1386,6 +1435,7 @@ function wireChatEngine(): void {
     // Tracing hooks: no-ops in laminar.ts unless a Laminar config is present.
     noteTimings: (timings) => noteLlamaCppChatTimings(timings),
     noteTraceContext: (context) => noteMainChatTurnContext(context),
+    localPathOf: getLocalPathFromAipgMediaUrl,
   })
   setRagRetrievalDeps({
     ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
@@ -1455,6 +1505,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
     readMediaAsDataUri: readAipgMediaAsDataUri,
     getPlatform: () => process.platform,
     devPresetsEnabled: () => isDeveloperMode(),
+    localPathOf: getLocalPathFromAipgMediaUrl,
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
@@ -1731,6 +1782,7 @@ function initEventHandle() {
       cancelArtifactRun,
       cancelActiveArtifactRun,
       handleMediaResponse,
+      inSessionTurn,
     }),
   )
 
@@ -1768,6 +1820,39 @@ function initEventHandle() {
       cancelChatTurn,
       handleChatAnswer,
       summarizeConversationText,
+    }),
+  )
+
+  registerInvokeHandlers(
+    buildSessionsRegistry({
+      listSessions,
+      createSession,
+      openSession,
+      renameSession,
+      pinSession,
+      listSessionGroups,
+      createSessionGroup,
+      moveSessionToGroup,
+      renameSessionGroup,
+      deleteSessionGroup,
+      setSessionGroupExpanded,
+      readShowMore,
+      setShowMore,
+      deleteSession,
+      harnessSessionFor,
+      taskRunHarnessFor,
+      upsertTimelineMessages,
+      saveChatTranscript,
+      recordAudioTurn,
+      listAllArtifacts,
+      missingArtifactUrls,
+      deleteArtifact,
+      readSessionSettings,
+      writePresetSettings,
+      lastTurnPreset,
+      claimSessionTurn,
+      releaseSessionTurn,
+      newestArtifact,
     }),
   )
 

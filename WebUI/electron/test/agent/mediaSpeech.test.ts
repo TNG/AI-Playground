@@ -54,13 +54,17 @@ type BuiltTool = {
 
 let workspaceDir: string
 
-async function buildTool(spec: AgentToolSpec): Promise<BuiltTool> {
+async function buildTool(
+  spec: AgentToolSpec,
+  overrides: Record<string, unknown> = {},
+): Promise<BuiltTool> {
   const host = {
     sessionId: 'session-1',
     workspaceDir,
     toolSpecs: [spec],
     agentDir: workspaceDir,
     keepModelsLoaded: false,
+    ...overrides,
   }
   const [tool] = (await buildSpeechTools(host, [spec])) as unknown as BuiltTool[]
   return tool
@@ -152,6 +156,30 @@ describe('mediaSpeech (agent speech tools)', () => {
     expect(fs.readFileSync(audio!.savedFilePath, 'utf8')).toBe('riff')
   })
 
+  it("names the clip's Session-Folder copy, so its card opens the Session Folder", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-files-'))
+    const game = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { sessionRef: 's1', workspace: 'game', filesDir },
+    })
+    const folder = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { sessionRef: 's2', workspace: 'files' },
+    })
+
+    const fromGame = await game.execute('c1', { text: 'hi' }, new AbortController().signal)
+    const fromFolder = await folder.execute('c2', { text: 'hi' }, new AbortController().signal)
+
+    expect(detailsOf(fromGame)?.audio?.url).toBe('aipg-media://sessions/s1/files/speech.wav')
+    expect(detailsOf(fromFolder)?.audio?.url).toBe(
+      'aipg-media://sessions/s2/files/generated/speech_1.wav',
+    )
+  })
+
   it('gives a failed synthesis no details', async () => {
     askRendererMock.mockRejectedValueOnce(new Error('no voice model'))
     const tool = await buildTool(SYNTHESIZE_SPEC)
@@ -175,6 +203,25 @@ describe('mediaSpeech (agent speech tools)', () => {
 
     expect(first.savedFilePath).toBe('generated/news_summary.wav')
     expect(second.savedFilePath).toBe('generated/news_summary_1.wav')
+  })
+
+  it("keeps a game Session's earlier file when a clip has the same name", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('new-take').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
+    fs.writeFileSync(path.join(filesDir, 'speech.wav'), 'earlier')
+    const tool = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { sessionRef: 'session-1', workspace: 'game', filesDir },
+    })
+
+    await run(tool, { text: 'one' })
+
+    expect(fs.readFileSync(path.join(filesDir, 'speech.wav'), 'utf8')).toBe('earlier')
+    expect(fs.readFileSync(path.join(filesDir, 'speech-1.wav'), 'utf8')).toBe('new-take')
   })
 
   it('reports empty text and an engine failure as a tool failure', async () => {

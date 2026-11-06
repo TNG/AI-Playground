@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { LOG_SOURCE } from './piAgentLog.ts'
+import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 const logger = appLoggerInstance
 
@@ -16,6 +17,8 @@ export type SessionPointer = {
   workspaceDir: string
   sessionFilePath: string
   updatedAt: number
+  /** The Mounted Folders the conversation's last turn ran with. */
+  mountedFolders?: ResolvedMountedFolder[]
 }
 
 function sessionStorePath(): string {

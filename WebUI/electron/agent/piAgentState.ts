@@ -3,6 +3,7 @@ import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-
 import type { AgentToolAccess } from './piToolOperations.ts'
 import type { PlanningEnd } from './planningPhase.ts'
 import type { InferenceTraceContext } from '../observability/laminarAttributes.ts'
+import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
 
 export type ActiveSession = {
   configKey: string
@@ -33,6 +34,10 @@ export type ActiveSession = {
   planHandoff: string | null
   /** Whether the plan step is still ahead: true until the first turn has run. */
   planPending: boolean
+  /** The realpathed Mounted Folders this session was built with. */
+  mountedFolders: ResolvedMountedFolder[]
+  /** What changed in them since the conversation's last turn, for the next prompt only. */
+  mountedFoldersNote?: string
 }
 
 /** One agent turn main holds open, from submission until it settles. */

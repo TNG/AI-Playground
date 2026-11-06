@@ -51,6 +51,10 @@ export function describeNextRun(
   const days = localDayNumber(at) - localDayNumber(now)
   if (days === 0) return strings.today.replace('{time}', time)
   if (days === 1) return strings.tomorrow.replace('{time}', time)
+  return formatRunTime(at, locale)
+}
+
+export function formatRunTime(at: number, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(at)
 }
 

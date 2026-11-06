@@ -21,26 +21,6 @@
           </span>
         </div>
 
-        <div v-if="step.state === 'running'" class="flex items-center gap-2 pl-6">
-          <span class="truncate text-muted-foreground">{{ step.label }}</span>
-          <span v-if="step.progress !== undefined" class="shrink-0 tabular-nums opacity-70">
-            {{ percent(step.progress) }}%
-          </span>
-        </div>
-        <div
-          v-if="step.state === 'running' && step.progress !== undefined"
-          class="ml-6 h-1 w-48 max-w-full overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          :aria-valuenow="percent(step.progress)"
-          aria-valuemin="0"
-          aria-valuemax="100"
-        >
-          <div
-            class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-            :style="{ width: `${percent(step.progress)}%` }"
-          ></div>
-        </div>
-
         <p v-if="step.error" class="pl-6 text-destructive">{{ step.error }}</p>
 
         <!-- Media as it lands, so a finished step is visible before the whole run is. -->
@@ -49,7 +29,7 @@
             <img
               v-if="item.type === 'image'"
               :src="item.imageUrl"
-              alt="Generated result"
+              :alt="languages.MEDIA_AGENT_RESULT_THUMBNAIL"
               class="size-12 rounded border border-border object-cover"
             />
             <video
@@ -93,6 +73,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useMediaAgentRuns, type MediaRunStep } from '@/assets/js/store/mediaAgentRuns'
 import type { MediaItem } from '@/assets/js/store/imageGenerationPresets'
 
@@ -104,6 +85,7 @@ const props = defineProps<{
 }>()
 
 const mediaRuns = useMediaAgentRuns()
+const languages = useI18N().state
 
 const run = computed(() => mediaRuns.run(props.toolCallId))
 
@@ -139,9 +121,5 @@ function mediaSummary(media: MediaItem[]): string {
   return [...counts.entries()]
     .map(([noun, count]) => `${count} ${noun}${count > 1 ? 's' : ''}`)
     .join(', ')
-}
-
-function percent(progress: number): number {
-  return Math.round(progress * 100)
 }
 </script>

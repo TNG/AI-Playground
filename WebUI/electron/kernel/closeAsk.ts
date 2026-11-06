@@ -41,8 +41,9 @@ export function askWindowToClose(
 }
 
 export function handleCloseAnswer(payload: CloseAnswerPayload): void {
-  if (payload?.answer !== 'keep' && payload?.answer !== 'quit') return
-  pending.get(payload.requestId)?.(payload.answer)
+  const answer = payload?.answer
+  if (answer !== 'keep' && answer !== 'minimize' && answer !== 'quit') return
+  pending.get(payload.requestId)?.(answer)
 }
 
 /**

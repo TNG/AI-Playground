@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "เปิดไว้ต่อ หรือออกและหยุดทั้งหมด?",
   "CLOSE_QUESTION_DONE": "ทุกอย่างเสร็จสิ้นแล้ว ไม่มีงานใดที่กำลังทำงานอยู่อีก",
   "CLOSE_KEEP_OPEN": "เปิดไว้ต่อ",
+  "CLOSE_MINIMIZE": "ย่อหน้าต่าง",
   "CLOSE_QUIT": "ออก",
   "CLOSE_MORE": "และอีก {count} รายการ",
   "CLOSE_ITEM_LINE": "{item}: {state}",

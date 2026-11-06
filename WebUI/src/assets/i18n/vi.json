@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "Giữ mở, hay thoát và dừng tất cả?",
   "CLOSE_QUESTION_DONE": "Mọi việc đã hoàn tất; không còn tác vụ nào đang chạy.",
   "CLOSE_KEEP_OPEN": "Giữ mở",
+  "CLOSE_MINIMIZE": "Thu nhỏ",
   "CLOSE_QUIT": "Thoát",
   "CLOSE_MORE": "và {count} mục khác",
   "CLOSE_ITEM_LINE": "{item}: {state}",

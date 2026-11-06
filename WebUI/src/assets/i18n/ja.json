@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "開いたままにしますか、それとも終了してすべて停止しますか？",
   "CLOSE_QUESTION_DONE": "すべて完了しました。実行中の処理はもうありません。",
   "CLOSE_KEEP_OPEN": "開いたままにする",
+  "CLOSE_MINIMIZE": "最小化",
   "CLOSE_QUIT": "終了",
   "CLOSE_MORE": "ほか {count} 件",
   "CLOSE_ITEM_LINE": "{item}: {state}",

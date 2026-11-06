@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "Keep it open, or quit and stop all of it?",
   "CLOSE_QUESTION_DONE": "Everything has finished; nothing is running any more.",
   "CLOSE_KEEP_OPEN": "Keep open",
+  "CLOSE_MINIMIZE": "Minimize",
   "CLOSE_QUIT": "Quit",
   "CLOSE_MORE": "and {count} more",
   "CLOSE_ITEM_LINE": "{item}: {state}",

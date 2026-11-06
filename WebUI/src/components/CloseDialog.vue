@@ -16,9 +16,12 @@
         </template>
         <p v-else id="close-dialog-heading">{{ i18nState.CLOSE_QUESTION_DONE }}</p>
         <p>{{ i18nState.CLOSE_QUESTION_ASK }}</p>
-        <div class="flex justify-center items-center gap-9 mt-2">
+        <div class="flex justify-center items-center gap-6 mt-2">
           <button @click="answer('quit')" class="bg-muted text-foreground py-1 px-4 rounded">
             {{ i18nState.CLOSE_QUIT }}
+          </button>
+          <button @click="answer('minimize')" class="bg-muted text-foreground py-1 px-4 rounded">
+            {{ i18nState.CLOSE_MINIMIZE }}
           </button>
           <button @click="answer('keep')" class="bg-primary text-foreground py-1 px-4 rounded">
             {{ i18nState.CLOSE_KEEP_OPEN }}

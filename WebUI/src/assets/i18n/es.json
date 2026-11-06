@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "¿Mantenerlo abierto, o salir y detenerlo todo?",
   "CLOSE_QUESTION_DONE": "Todo ha terminado; ya no hay nada en ejecución.",
   "CLOSE_KEEP_OPEN": "Mantener abierto",
+  "CLOSE_MINIMIZE": "Minimizar",
   "CLOSE_QUIT": "Salir",
   "CLOSE_MORE": "y {count} más",
   "CLOSE_ITEM_LINE": "{item}: {state}",

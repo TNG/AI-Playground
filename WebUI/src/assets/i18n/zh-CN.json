@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "保持打开，还是退出并全部停止？",
   "CLOSE_QUESTION_DONE": "所有工作均已完成，已没有正在运行的任务。",
   "CLOSE_KEEP_OPEN": "保持打开",
+  "CLOSE_MINIMIZE": "最小化",
   "CLOSE_QUIT": "退出",
   "CLOSE_MORE": "还有 {count} 项",
   "CLOSE_ITEM_LINE": "{item}：{state}",

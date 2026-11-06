@@ -15,6 +15,7 @@ function harness(initialWork: InFlightWorkItem[], answer: () => Promise<CloseAns
   const shown: CloseQuestion[] = []
   const schedules: ('suspended' | 'resumed')[] = []
   const quit = vi.fn()
+  const minimizeWindow = vi.fn()
   let refresh: (() => Promise<void>) | null = null
   const coordinator = createCloseCoordinator({
     listInFlightWork: async () => work,
@@ -30,6 +31,7 @@ function harness(initialWork: InFlightWorkItem[], answer: () => Promise<CloseAns
       }
     },
     quit,
+    minimizeWindow,
     suspendSchedules: () => schedules.push('suspended'),
     resumeSchedules: () => schedules.push('resumed'),
   })
@@ -38,7 +40,7 @@ function harness(initialWork: InFlightWorkItem[], answer: () => Promise<CloseAns
     work = next
     await refresh?.()
   }
-  return { coordinator, asked, shown, schedules, quit, workBecomes }
+  return { coordinator, asked, shown, schedules, quit, minimizeWindow, workBecomes }
 }
 
 function heldQuestion() {
@@ -91,6 +93,26 @@ describe('close coordinator', () => {
 
     await expect(coordinator.requestClose()).resolves.toBe('kept-open')
     expect(quit).not.toHaveBeenCalled()
+  })
+
+  it('Minimize keeps the app open, resumes Schedules and minimizes the window', async () => {
+    const { coordinator, quit, minimizeWindow, schedules } = harness(
+      [agentRunning],
+      async () => 'minimize',
+    )
+
+    await expect(coordinator.requestClose()).resolves.toBe('kept-open')
+    expect(quit).not.toHaveBeenCalled()
+    expect(minimizeWindow).toHaveBeenCalledOnce()
+    expect(schedules).toEqual(['suspended', 'resumed'])
+  })
+
+  it('Keep open does not minimize the window', async () => {
+    const { coordinator, minimizeWindow } = harness([agentRunning], async () => 'keep')
+
+    await coordinator.requestClose()
+
+    expect(minimizeWindow).not.toHaveBeenCalled()
   })
 
   it('Quit runs the shutdown', async () => {

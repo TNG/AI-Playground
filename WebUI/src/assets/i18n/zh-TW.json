@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "保持開啟，還是結束並全部停止？",
   "CLOSE_QUESTION_DONE": "所有工作皆已完成，已沒有正在執行的工作。",
   "CLOSE_KEEP_OPEN": "保持開啟",
+  "CLOSE_MINIMIZE": "最小化",
   "CLOSE_QUIT": "結束",
   "CLOSE_MORE": "還有 {count} 項",
   "CLOSE_ITEM_LINE": "{item}：{state}",

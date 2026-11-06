@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "열어 둘까요, 아니면 종료하고 모두 중지할까요?",
   "CLOSE_QUESTION_DONE": "모든 작업이 끝났습니다. 더 이상 실행 중인 작업이 없습니다.",
   "CLOSE_KEEP_OPEN": "열어 두기",
+  "CLOSE_MINIMIZE": "최소화",
   "CLOSE_QUIT": "종료",
   "CLOSE_MORE": "외 {count}개",
   "CLOSE_ITEM_LINE": "{item}: {state}",

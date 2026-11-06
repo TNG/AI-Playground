@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "Biarkan tetap terbuka, atau keluar dan hentikan semuanya?",
   "CLOSE_QUESTION_DONE": "Semuanya sudah selesai; tidak ada lagi yang berjalan.",
   "CLOSE_KEEP_OPEN": "Tetap buka",
+  "CLOSE_MINIMIZE": "Minimalkan",
   "CLOSE_QUIT": "Keluar",
   "CLOSE_MORE": "dan {count} lainnya",
   "CLOSE_ITEM_LINE": "{item}: {state}",

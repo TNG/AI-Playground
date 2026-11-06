@@ -14,6 +14,7 @@ export type CloseCoordinatorDeps = {
   /** Calls `refresh` periodically until the returned stop function runs. */
   whileAsking: (refresh: () => Promise<void>) => () => void
   quit: () => void
+  minimizeWindow: () => void
   suspendSchedules: () => void
   resumeSchedules: () => void
 }
@@ -56,8 +57,10 @@ export function createCloseCoordinator(deps: CloseCoordinatorDeps) {
     const work = await deps.listInFlightWork()
     if (work.length > 0) {
       deps.suspendSchedules()
-      if ((await ask(work)) === 'keep') {
+      const answer = await ask(work)
+      if (answer === 'keep' || answer === 'minimize') {
         deps.resumeSchedules()
+        if (answer === 'minimize') deps.minimizeWindow()
         return 'kept-open'
       }
     }

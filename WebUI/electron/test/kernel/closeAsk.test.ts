@@ -75,6 +75,7 @@ describe('a window reloaded while the close question is open', () => {
       showRefreshedQuestion: showRefreshedCloseQuestion,
       whileAsking: () => () => {},
       quit,
+      minimizeWindow: () => {},
       suspendSchedules: () => {},
       resumeSchedules: () => {},
     })
@@ -96,6 +97,15 @@ describe('a window reloaded while the close question is open', () => {
     handleCloseBridgeReady(webContents)
 
     expect(sent).toEqual([])
+  })
+
+  it('passes a Minimize answer through', async () => {
+    const asking = fakeWindow()
+    const answer = askWindowToClose(asking.win, question)
+
+    handleCloseAnswer({ requestId: asking.asked()[0].requestId, answer: 'minimize' })
+
+    await expect(answer).resolves.toBe('minimize')
   })
 
   it('asks nothing of another window', async () => {

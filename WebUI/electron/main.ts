@@ -505,6 +505,9 @@ const closeCoordinator = createCloseCoordinator({
   },
   suspendSchedules: () => holdSchedules(win, true),
   resumeSchedules: () => holdSchedules(win, false),
+  minimizeWindow: () => {
+    if (win && !win.isDestroyed()) win.minimize()
+  },
 })
 
 function cloudProviderKeyPath(providerId: string): string {

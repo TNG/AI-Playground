@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "Açık tutulsun mu, yoksa çıkılıp hepsi durdurulsun mu?",
   "CLOSE_QUESTION_DONE": "Her şey tamamlandı; artık çalışan bir şey yok.",
   "CLOSE_KEEP_OPEN": "Açık tut",
+  "CLOSE_MINIMIZE": "Simge durumuna küçült",
   "CLOSE_QUIT": "Çık",
   "CLOSE_MORE": "ve {count} tane daha",
   "CLOSE_ITEM_LINE": "{item}: {state}",

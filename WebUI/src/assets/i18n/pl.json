@@ -829,6 +829,7 @@
   "CLOSE_QUESTION_ASK": "Pozostawić otwarte, czy zakończyć i zatrzymać wszystko?",
   "CLOSE_QUESTION_DONE": "Wszystko się zakończyło; nic już nie działa.",
   "CLOSE_KEEP_OPEN": "Pozostaw otwarte",
+  "CLOSE_MINIMIZE": "Minimalizuj",
   "CLOSE_QUIT": "Zakończ",
   "CLOSE_MORE": "i {count} więcej",
   "CLOSE_ITEM_LINE": "{item}: {state}",

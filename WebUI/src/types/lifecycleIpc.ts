@@ -3,7 +3,7 @@ import type { ArtifactRunMode } from './artifactIpc'
 // In-flight Work (work the user started that has not finished) as the close question
 // names it: one item per piece of work, rendered by the window into the close dialog's lines.
 
-export type CloseChoice = 'keep' | 'quit'
+export type CloseChoice = 'keep' | 'minimize' | 'quit'
 
 export type InFlightWorkState =
   { status: 'running' } | { status: 'paused' } | { status: 'queued'; count?: number } | StepState

@@ -96,6 +96,23 @@ export async function revokePermissionGrant(key: string): Promise<void> {
   })
 }
 
+/** Puts a revoked grant back as it was, date included, over whatever holds the key now. */
+export async function restorePermissionGrant(grant: PermissionGrant): Promise<PermissionGrant> {
+  assertSafeGrantKey(grant.key)
+  return serialize(FILE_CHAIN, async () => {
+    const doc = await readDoc()
+    const restored: PermissionGrant = {
+      key: grant.key,
+      origin: grant.origin === 'pre-grant' ? 'pre-grant' : 'remember',
+      createdAt: typeof grant.createdAt === 'number' ? grant.createdAt : Date.now(),
+    }
+    doc.grants[grant.key] = restored
+    await atomicWriteJson(grantsFile(), doc)
+    emitStored('grants')
+    return restored
+  })
+}
+
 /**
  * One-shot leftover upload: merge keys that the file does not already own, so
  * a retried migrate of Pinia persist / localStorage memory-alerts cannot

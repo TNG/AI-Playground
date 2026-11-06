@@ -198,6 +198,7 @@ import {
   migrateGrants,
   requestDownloadConsent,
   requestVramWarningConsent,
+  restore as restorePermission,
   revoke as revokePermission,
 } from './permissions/permissionsService'
 import { setPermissionGrantsDeps, wipeDemoPermissionGrants } from './persist/grantsStore'
@@ -1769,6 +1770,7 @@ function initEventHandle() {
       listGrants,
       grantPermission,
       revokePermission,
+      restorePermission,
       migrateGrants,
       handlePermissionsPromptResponse,
     }),

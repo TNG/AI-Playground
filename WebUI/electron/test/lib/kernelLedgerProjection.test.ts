@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 
 const applyInferenceProfile = vi.hoisted(() => vi.fn())
+const listGrants = vi.hoisted(() => vi.fn())
 
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({ applyInferenceProfile }),
@@ -38,6 +39,8 @@ beforeEach(() => {
   taps = []
   snapshot = emptySnapshot()
   applyInferenceProfile.mockReset()
+  listGrants.mockReset()
+  listGrants.mockResolvedValue({ success: true, grants: [] })
   globalThis.window = {
     electronAPI: {
       onKernelEvent: (tap: Tap) => {
@@ -48,6 +51,7 @@ beforeEach(() => {
       },
       getKernelSnapshot: async () => snapshot,
       getLocaleSettings: async () => ({}),
+      permissions: { list: listGrants },
     },
   } as unknown as Window & typeof globalThis
 })
@@ -164,5 +168,18 @@ describe('kernel ledger projection', () => {
       llmModelName: 'Qwen3-9B',
       active: false,
     })
+  })
+
+  it('reloads permission grants when main stores the grants file', async () => {
+    const { startKernelLedgerProjection } = await import('@/lib/kernelLedgerProjection')
+    const { usePermissionGrants } = await import('@/assets/js/store/permissionGrants')
+    startKernelLedgerProjection()
+    await vi.waitFor(() => expect(taps.length).toBeGreaterThan(0))
+
+    const grant = { key: 'vram-warning:Pro Image', origin: 'remember' as const, createdAt: 1 }
+    listGrants.mockResolvedValue({ success: true, grants: [grant] })
+    emit({ type: 'stored', seq: 1, scope: { kind: 'global' }, kind: 'grants' })
+
+    await vi.waitFor(() => expect(usePermissionGrants().has(grant.key)).toBe(true))
   })
 })

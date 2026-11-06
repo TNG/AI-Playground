@@ -14,6 +14,7 @@ import type {
   migrateGrants,
   requestDownloadConsent,
   requestVramWarningConsent,
+  restore as restorePermission,
   revoke as revokePermission,
 } from '../../permissions/permissionsService'
 
@@ -24,6 +25,7 @@ export type PermissionsDeps = {
   listGrants: typeof listGrants
   grantPermission: typeof grantPermission
   revokePermission: typeof revokePermission
+  restorePermission: typeof restorePermission
   migrateGrants: typeof migrateGrants
   handlePermissionsPromptResponse: typeof handlePermissionsPromptResponse
 }
@@ -85,6 +87,17 @@ export function buildPermissionsRegistry(deps: PermissionsDeps) {
         if (typeof key !== 'string') throw new Error('grant key must be a string')
         await deps.revokePermission(key)
         return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'permissions:restore': async (_event, previous) => {
+      try {
+        if (!previous || typeof previous.key !== 'string') {
+          throw new Error('restore payload must be a grant')
+        }
+        const grant = await deps.restorePermission(previous)
+        return { success: true as const, grant }
       } catch (e) {
         return ipcFail(e)
       }

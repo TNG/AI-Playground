@@ -1,11 +1,9 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { fillTemplate, notificationSessionLabel } from '@/lib/notificationLabel'
-import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
   GESTURE_WORDING,
@@ -18,7 +16,7 @@ import { onGeneratedMedia } from './generatedMedia.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
-import { readAttachments, type ChannelMedia } from './notificationAttachments.ts'
+import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
 // The one sender of Notifications (docs/adr/0003): owns the delivery decision and
@@ -27,7 +25,9 @@ import { appLoggerInstance } from '../observability/logger.ts'
 
 const LOG_SOURCE = 'notifier'
 
-export type NotificationDelivery = { delivered: true } | { delivered: false; reason: string }
+/** `fileNotSentReason` says which 3D files the channel refused, and why, in a delivered Notification. */
+export type NotificationDelivery =
+  { delivered: true; fileNotSentReason?: string } | { delivered: false; reason: string }
 
 export type { ChannelMedia }
 
@@ -177,6 +177,11 @@ export async function sendNotification(
   return delivery
 }
 
+/** A document goes as a bare file: it never carries the text, which goes before it instead. */
+function takesCaption(media: ChannelMedia | undefined): boolean {
+  return media?.kind !== 'document'
+}
+
 async function deliver(
   body: { text: string; media?: ChannelMedia; attachments?: NotificationOptions['attachments'] },
   sessionId: string | undefined,
@@ -192,7 +197,8 @@ async function deliver(
       : { media: [] }
     if ('error' in attached) return { delivered: false, reason: attached.error }
     const title = sessionId ? await sessionLabel(sessionId) : ''
-    const header = sessionId ? fillTemplate(config.templates.header, { title }) : ''
+    const header =
+      sessionId && takesCaption(body.media) ? fillTemplate(config.templates.header, { title }) : ''
     const message: ChannelMessage = {
       text: [header, body.text].filter(Boolean).join('\n'),
       ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
@@ -200,8 +206,13 @@ async function deliver(
     const messages = body.media
       ? [{ ...message, media: body.media }]
       : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
-    for (const next of messages) {
+    const filesNotSent: string[] = []
+    for (const [index, next] of messages.entries()) {
       const result = await channel.send(kind, next)
+      if (!result.success && next.media && !takesCaption(next.media) && index > 0) {
+        filesNotSent.push(`${next.media.filename}: ${result.error}`)
+        continue
+      }
       if (!result.success) return { delivered: false, reason: result.error }
       if (sessionId && result.ref) {
         await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
@@ -214,7 +225,9 @@ async function deliver(
         )
       }
     }
-    return { delivered: true }
+    return filesNotSent.length > 0
+      ? { delivered: true, fileNotSentReason: filesNotSent.join('; ') }
+      : { delivered: true }
   } catch (error) {
     return { delivered: false, reason: error instanceof Error ? error.message : String(error) }
   }
@@ -228,7 +241,7 @@ const CAPTION_MAX_CHARS: Record<ChannelKind, number> = {
   discord: 2000,
 }
 
-/** The text captions the first attachment, or goes alone first when it is too long for a caption. */
+/** The text captions the first attachment, or goes alone first when too long or the first takes no caption. */
 function laidOut(
   kind: ChannelKind,
   message: ChannelMessage,
@@ -237,16 +250,11 @@ function laidOut(
   if (media.length === 0) return [message]
   const target = message.replyTo ? { replyTo: message.replyTo } : {}
   const uncaptioned = (item: ChannelMedia): ChannelMessage => ({ text: '', media: item, ...target })
-  if (message.text.length > CAPTION_MAX_CHARS[kind]) return [message, ...media.map(uncaptioned)]
   const [first, ...rest] = media
+  if (message.text.length > CAPTION_MAX_CHARS[kind] || !takesCaption(first)) {
+    return [message, ...media.map(uncaptioned)]
+  }
   return [{ ...message, media: first }, ...rest.map(uncaptioned)]
-}
-
-async function channelMedia(file: string): Promise<ChannelMedia | null> {
-  const kind = channelMediaKind(file)
-  if (!kind) return null
-  const base64 = (await fs.readFile(file)).toString('base64')
-  return { kind, base64, filename: path.basename(file) }
 }
 
 // Telegram refuses a message over 4096 characters; the header needs room too.
@@ -260,14 +268,15 @@ async function replyToAnswer(sessionId: string, turn: AnswerTurn, reply: string 
   }
   for (const file of turn.media) {
     if (turn.attached.has(file)) continue
-    const media = await channelMedia(file).catch((error) => {
+    const items = await channelMediaOf(file).catch((error) => {
       appLoggerInstance.warn(`generated media not readable: ${error}`, LOG_SOURCE)
-      return null
+      return []
     })
-    if (!media) continue
-    const delivery = await deliver({ text: '', media }, sessionId)
-    if (!delivery.delivered) {
-      appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
+    for (const media of items) {
+      const delivery = await deliver({ text: '', media }, sessionId)
+      if (!delivery.delivered) {
+        appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
+      }
     }
   }
 }

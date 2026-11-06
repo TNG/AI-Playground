@@ -146,6 +146,9 @@ class FakeBot:
     async def send_voice(self, **kwargs):
         return self._sent("send_voice", kwargs)
 
+    async def send_document(self, **kwargs):
+        return self._sent("send_document", kwargs)
+
 
 class ReplyParameters:
     def __init__(self, **kwargs) -> None:
@@ -156,6 +159,7 @@ class TelegramOutboundTest(unittest.TestCase):
     def setUp(self) -> None:
         fake_telegram = types.ModuleType("telegram")
         fake_telegram.ReplyParameters = ReplyParameters  # type: ignore[attr-defined]
+        fake_telegram.InputFile = lambda file, filename: (file.read(), filename)  # type: ignore[attr-defined]
         fake_telegram.InlineKeyboardButton = SimpleNamespace  # type: ignore[attr-defined]
         fake_telegram.InlineKeyboardMarkup = lambda rows: rows  # type: ignore[attr-defined]
         self._saved = sys.modules.get("telegram")
@@ -227,6 +231,18 @@ class TelegramOutboundTest(unittest.TestCase):
         self.assertEqual(method, "send_voice")
         self.assertEqual(kwargs["caption"], "summary")
         self.assertEqual(kwargs["voice"], b"OggS")
+        self.assertEqual(self.reply_target(0)["message_id"], 77)
+
+    def test_a_document_keeps_its_name_replies_and_returns_its_message_id(self) -> None:
+        glb = base64.b64encode(b"glTF").decode()
+        document = self.channel.send_document(
+            {"document": glb, "filename": "ship.glb", "reply_to_message_id": "77"}
+        )
+        self.assertEqual(document, {"status": "ok", "message_id": 501})
+        method, kwargs = self.bot.calls[0]
+        self.assertEqual(method, "send_document")
+        self.assertEqual(kwargs["document"], (b"glTF", "ship.glb"))
+        self.assertIsNone(kwargs["caption"])
         self.assertEqual(self.reply_target(0)["message_id"], 77)
 
 

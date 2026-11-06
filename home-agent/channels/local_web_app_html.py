@@ -821,7 +821,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       }
       if (action === 'document' && (d.base64 || d.filename)) {
         const name = d.filename || 'file'
-        if (d.base64) appendBotHtml(caption, true, [inlineDoc(d.base64, name)])
+        if (d.base64 && d.replyTo) appendAgentHtml(caption, [inlineDoc(d.base64, name)], d.replyTo)
+        else if (d.base64) appendBotHtml(caption, true, [inlineDoc(d.base64, name)])
         else appendBotHtml(caption + '📎 ' + escapeHtml(name))
         return
       }

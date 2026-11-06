@@ -7,7 +7,7 @@ import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './
 /** The Home Agent backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
   kind: ChannelKind,
-  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'typing',
+  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'document' | 'typing',
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 

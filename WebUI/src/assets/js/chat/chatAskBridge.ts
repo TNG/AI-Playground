@@ -2,8 +2,11 @@ import type {
   ChatAnswerPayload,
   ChatAskPayload,
   HomeAgentApplyResult,
+  Render3dThumbnailResult,
   SpeechClipPayload,
 } from '@/types/chatRequests'
+import { render3dThumbnail } from '@/lib/render3dThumbnail'
+import { base64ToBlob } from '@/lib/transcribe'
 import { readyTranscriptionForInput, synthesizeClip, transcribe } from '../speech/speechIO'
 import { useHomeAgent } from '../store/homeAgent'
 import { backendToService, useTextInference, type LlmBackend } from '../store/textInference'
@@ -15,19 +18,12 @@ import type { ConfigChange } from '../tools/configureHomeAgentLogic'
  *
  * The tool bodies run in main; what is answered here is the part that is
  * genuinely this window's — the speech engine seam (download prompt included),
- * Chromium's audio decoder, the Home Agent confirmation card, and writing an
- * approved settings change into the live stores.
+ * Chromium's audio decoder, the Home Agent confirmation card, writing an
+ * approved settings change into the live stores, and rendering a 3D screenshot.
  */
 
 function respond(payload: ChatAnswerPayload): void {
   void window.electronAPI.chat.answer(payload)
-}
-
-function base64ToBlob(base64: string, mediaType?: string): Blob {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], mediaType ? { type: mediaType } : undefined)
 }
 
 async function applyHomeAgentChanges(
@@ -105,7 +101,7 @@ async function handleRequest(request: ChatAskPayload): Promise<void> {
         // transcription, so `downloadPrompted` can be ignored (see SttReadyResult).
         await readyTranscriptionForInput()
         const result = await transcribe({
-          audio: base64ToBlob(request.audioBase64, request.mediaType),
+          audio: base64ToBlob(request.audioBase64, request.mediaType ?? ''),
         })
         respond({ requestId: request.requestId, result })
         break
@@ -117,6 +113,19 @@ async function handleRequest(request: ChatAskPayload): Promise<void> {
           summaryMarkdown: request.summaryMarkdown,
         })
         respond({ requestId: request.requestId, result: approved })
+        break
+      }
+      case 'render-3d-thumbnail': {
+        const url = URL.createObjectURL(base64ToBlob(request.modelBase64, 'model/gltf-binary'))
+        try {
+          const result = await render3dThumbnail(url)
+          respond({
+            requestId: request.requestId,
+            result: result satisfies Render3dThumbnailResult,
+          })
+        } finally {
+          URL.revokeObjectURL(url)
+        }
         break
       }
       case 'home-agent-apply': {

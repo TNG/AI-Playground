@@ -7,6 +7,7 @@ import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { ChatAskPayload } from '@/types/chatRequests'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
+import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
 
 // Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the
@@ -156,6 +157,9 @@ let typing: Array<{ kind: ChannelKind; typing: 'start' | 'stop' }> = []
 let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
 let windowShown = true
+let refusedFiles: string[] = []
+let thumbnail: FakeThumbnail = { base64: 'anBlZw==' }
+let thumbnailAsks: string[] = []
 
 let manager: typeof import('../../agent/piAgentManager')
 let notifier: typeof import('../../agent/notifier')
@@ -190,7 +194,11 @@ beforeAll(async () => {
     isDestroyed: () => false,
     webContents: {
       send: (channel: string, payload: unknown) => {
-        if (channel === 'chat:ask') asks.push(payload as ChatAskPayload)
+        const ask = payload as ChatAskPayload
+        if (channel === 'chat:ask' && ask.kind === 'render-3d-thumbnail') {
+          thumbnailAsks.push(ask.modelBase64)
+          queueMicrotask(() => chatAsk.handleChatAnswer(thumbnailAnswer(ask.requestId, thumbnail)))
+        } else if (channel === 'chat:ask') asks.push(ask)
         else if (channel === 'artifact:request') {
           const { requestId } = payload as { requestId: string }
           queueMicrotask(() => bridge.handleMediaResponse({ requestId, result: { models: [] } }))
@@ -215,6 +223,8 @@ beforeAll(async () => {
         media: message.media && `${message.media.kind}:${message.media.filename}`,
         buttons: message.buttons,
       })
+      if (refusedFiles.includes(message.media?.filename ?? ''))
+        return { success: false, error: 'too large' }
       return { success: true, ref: `msg-${sent.length}` }
     },
   })
@@ -244,6 +254,9 @@ beforeEach(() => {
   finalText = 'done'
   notifyAttachment = null
   clipBase64 = ''
+  refusedFiles = []
+  thumbnail = { base64: 'anBlZw==' }
+  thumbnailAsks = []
   fs.rmSync(tasksFile, { force: true })
   fs.rmSync(messageMapFile, { force: true })
   notifier.setNotificationConfig(CONFIG)
@@ -731,7 +744,67 @@ describe('the turn an Answer started', () => {
       { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
+      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
     ])
+    expect(thumbnailAsks).toEqual([Buffer.from('bytes').toString('base64')])
+  }, 30000)
+
+  it('sends a 3D model without its screenshot when the window cannot render one', async () => {
+    const config = answerTurn()
+    const generated = path.join(config.workspaceDir, 'generated')
+    fs.mkdirSync(generated, { recursive: true })
+    fs.writeFileSync(path.join(generated, 'ship.glb'), 'bytes')
+    thumbnail = { error: 'model load timed out' }
+    const { appLoggerInstance } = await import('../../observability/logger')
+    const warn = vi.spyOn(appLoggerInstance, 'warn')
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      SESSION,
+      async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb']),
+      config,
+    )
+    await settle()
+    const header = '🤖 Agent · "Morning news"'
+    expect(sent).toEqual([
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+    ])
+    expect(warn).toHaveBeenCalledWith(
+      '3D screenshot not rendered: model load timed out',
+      'notifier',
+    )
+    warn.mockRestore()
+  }, 30000)
+
+  it('logs a 3D model the channel refused and sends nothing else for it', async () => {
+    const config = answerTurn()
+    const generated = path.join(config.workspaceDir, 'generated')
+    fs.mkdirSync(generated, { recursive: true })
+    for (const file of ['ship.glb', 'cover.png']) {
+      fs.writeFileSync(path.join(generated, file), 'bytes')
+    }
+    refusedFiles = ['ship.glb']
+    const { appLoggerInstance } = await import('../../observability/logger')
+    const warn = vi.spyOn(appLoggerInstance, 'warn')
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      SESSION,
+      async () => {
+        media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb', 'generated/cover.png'])
+      },
+      config,
+    )
+    await settle()
+    const header = '🤖 Agent · "Morning news"'
+    expect(sent).toEqual([
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
+      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
+    ])
+    expect(warn).toHaveBeenCalledWith('answer media not delivered: too large', 'notifier')
+    warn.mockRestore()
   }, 30000)
 
   it('sends the speech the turn generated as a voice message under the Answer', async () => {
@@ -761,6 +834,32 @@ describe('the turn an Answer started', () => {
         replyTo: 'answer-77',
         media: 'voice:speech.wav',
       },
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+    ])
+  }, 30000)
+
+  it('does not send again at turn end a 3D model notify_user already sent during the turn', async () => {
+    const config = { ...answerTurn(), capabilities: ['media', 'notify'] }
+    const generated = path.join(config.workspaceDir, 'generated')
+    fs.mkdirSync(generated, { recursive: true })
+    fs.writeFileSync(path.join(generated, 'ship.glb'), 'bytes')
+    notifyAttachment = 'generated/ship.glb'
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      SESSION,
+      async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb']),
+      config,
+    )
+    await settle()
+    const header = '🤖 Agent · "Morning news"'
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: `${header}\nlisten`,
+        replyTo: 'answer-77',
+        media: 'photo:ship.jpg',
+      },
+      { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
       { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
   }, 30000)

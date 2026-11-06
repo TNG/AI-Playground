@@ -18,7 +18,8 @@ const NOTIFY_SCHEMA: Record<string, unknown> = {
       items: { type: 'string' },
       description:
         'Workspace-relative paths of files to send with the message, in order; the message ' +
-        `captions the first. Allowed: ${allowedAttachmentExtensions()}.`,
+        'captions the first; a 3D model arrives as a picture plus the file. ' +
+        `Allowed: ${allowedAttachmentExtensions()}.`,
     },
   },
   required: ['message'],
@@ -37,8 +38,9 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
         'Call it whenever the user asks to be notified, pinged, messaged, alerted or told about ' +
         'something ("let me know when it is done", "notify me if it fails"), even without naming ' +
         'a device or channel, and when a Task step says so. Do not call it otherwise. ' +
-        'To show the user a file (an image, video or speech clip you generated), pass it in ' +
-        `\`attachments\` (${allowedAttachmentExtensions()}); generated files are not sent ` +
+        'To show the user a file (an image, video, speech clip or 3D model you generated), pass ' +
+        `it in \`attachments\` (${allowedAttachmentExtensions()}); for a 3D model the user ` +
+        'receives a picture of it plus the file. Generated files are not sent ' +
         'unless attached, and the user cannot open a workspace path, so attach the file instead ' +
         'of naming its location.',
       promptSnippet: 'Notify the user on their Home Agent channel (Telegram, Slack, LAN chat)',
@@ -55,7 +57,12 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
             ? { attachments: { workspaceDir: host.workspaceDir, paths: attachments } }
             : {}),
         })
-        return textResult(delivery.delivered ? 'delivered' : `not delivered: ${delivery.reason}`)
+        if (!delivery.delivered) return textResult(`not delivered: ${delivery.reason}`)
+        return textResult(
+          delivery.fileNotSentReason
+            ? `delivered (3D file not sent: ${delivery.fileNotSentReason})`
+            : 'delivered',
+        )
       },
     }) as ToolDefinition,
   ]

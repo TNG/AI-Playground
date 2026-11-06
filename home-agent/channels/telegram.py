@@ -342,15 +342,16 @@ class TelegramChannel(ChannelBase):
             # Wrap in InputFile so Telegram clients show the real filename
             # (e.g. model.glb) instead of a random hash.
             input_file = InputFile(io.BytesIO(doc_bytes), filename=filename)
-            self._run_coro(
+            msg = self._run_coro(
                 self._app_instance.bot.send_document(  # type: ignore[union-attr]
                     chat_id=target,
                     document=input_file,
                     caption=caption or None,
+                    **_reply_parameters(payload),
                 ),
                 timeout=180,
             )
-            return {"status": "ok"}
+            return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
         except Exception as exc:
             return {"error": str(exc), "_http_status": 500}
 

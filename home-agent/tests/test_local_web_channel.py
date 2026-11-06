@@ -408,6 +408,30 @@ class TestAnswers(LocalWebChannelTestCase):
             ],
         )
 
+    def test_a_document_reaches_the_page_under_the_answer(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        sent = self.channel.send_document(
+            {"document": "Z2xURg==", "filename": "ship.glb", "reply_to": "1234567"}
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        self.assertEqual(
+            events,
+            [
+                {
+                    "action": "document",
+                    "base64": "Z2xURg==",
+                    "filename": "ship.glb",
+                    "caption": "",
+                    "replyTo": 1234567,
+                    "id": sent["message_id"],
+                }
+            ],
+        )
+
     def test_every_message_the_page_shows_has_an_id(self):
         for send in (
             lambda: self.channel.send_reply({"text": "hi"}),

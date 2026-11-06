@@ -1,9 +1,10 @@
-export type ChannelMediaKind = 'voice' | 'photo' | 'video'
+export type ChannelMediaKind = 'voice' | 'photo' | 'video' | 'model3d'
 
 const MEDIA_TYPES: Record<ChannelMediaKind, Record<string, string>> = {
   voice: { wav: 'audio/wav', mp3: 'audio/mpeg', ogg: 'audio/ogg' },
   photo: { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' },
   video: { mp4: 'video/mp4', webm: 'video/webm' },
+  model3d: { glb: 'model/gltf-binary' },
 }
 
 // Other spellings of the same audio types that platforms send.
@@ -16,9 +17,10 @@ const MIME_ALIASES: Record<string, ChannelMediaKind> = {
 const kinds = Object.entries(MEDIA_TYPES) as [ChannelMediaKind, Record<string, string>][]
 
 export const CHANNEL_MEDIA_EXTENSIONS: Record<ChannelMediaKind, readonly string[]> = {
-  voice: Object.keys(MEDIA_TYPES.voice),
   photo: Object.keys(MEDIA_TYPES.photo),
   video: Object.keys(MEDIA_TYPES.video),
+  voice: Object.keys(MEDIA_TYPES.voice),
+  model3d: Object.keys(MEDIA_TYPES.model3d),
 }
 
 const MIME_KINDS: Record<string, ChannelMediaKind> = {

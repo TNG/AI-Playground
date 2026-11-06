@@ -905,7 +905,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         'Not sent: you left the session before Agent Run “{name}” ended. Your prompt is back in that session’s prompt bar.')
       : (i18n.state.AGENT_RUN_QUEUED_PROMPT_DROPPED ??
         'Not sent: you left the session before Agent Run “{name}” ended.')
-    const userMessage = fill(template, { name })
+    const userMessage = fillTemplate(template, { name })
     errors.report(
       createAppError({
         category: 'validation',

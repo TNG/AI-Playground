@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
 import { appLoggerInstance } from '../observability/logger'
 import {
   agentLibraryMigrated,
@@ -9,6 +7,11 @@ import {
   saveAgentDraft,
   saveAgentTask,
 } from '../persist/agentTaskFiles'
+import {
+  readAgentPresetFiles,
+  removeAgentPresetFile,
+  type AgentPresetFile,
+} from '../persist/agentPresetFiles'
 import { bootstrapAgentSessions, saveAgentSession } from '../persist/agentSessionFiles'
 import { listSessions, pickSessionAgent } from '../session/sessions'
 import { lastTurnPreset } from '../session/sessionHistory'
@@ -24,14 +27,6 @@ import { sameAgentSetup } from '@/lib/agentSetup'
  */
 
 const LOG_SCOPE = 'agent-library-migration'
-
-type AgentPresetFile = {
-  file: string
-  name: string
-  agentId: string
-  description?: string
-  image?: string
-}
 
 export type AgentLibraryMigrationDeps = {
   /** The user presets folder (`Documents/AI Playground/presets`). */
@@ -54,35 +49,13 @@ export async function migrateAgentLibrary(deps: AgentLibraryMigrationDeps): Prom
   // Steps were the in-Session editor's; the Agent Library holds them now.
   for (const record of harness) await saveAgentSession(withoutAgentLink(record))
   await pickAgentsOfPresets(presets.filter((preset) => tasks.some((t) => t.id === preset.agentId)))
-  for (const preset of presets) await fs.rm(preset.file, { force: true })
+  for (const preset of presets) await removeAgentPresetFile(preset)
   if (presets.length > 0) deps.onPresetsChanged?.()
   await markAgentLibraryMigrated()
   appLoggerInstance.info(
     `migrated ${presets.length} agent preset(s), ${harness.length} harness session(s)`,
     LOG_SCOPE,
   )
-}
-
-async function readAgentPresetFiles(dir: string): Promise<AgentPresetFile[]> {
-  const names = await fs.readdir(dir).catch(() => [] as string[])
-  const presets: AgentPresetFile[] = []
-  for (const name of names.filter((entry) => entry.endsWith('.json'))) {
-    const file = path.join(dir, name)
-    try {
-      const raw = JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>
-      if (raw.type !== 'chat' || typeof raw.agentTaskId !== 'string') continue
-      presets.push({
-        file,
-        name: String(raw.name ?? ''),
-        agentId: raw.agentTaskId,
-        ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
-        ...(typeof raw.image === 'string' ? { image: raw.image } : {}),
-      })
-    } catch {
-      appLoggerInstance.warn(`unreadable preset skipped: ${name}`, LOG_SCOPE)
-    }
-  }
-  return presets
 }
 
 /** What the Agent already has wins; a preset's default icon path is not an Agent image. */

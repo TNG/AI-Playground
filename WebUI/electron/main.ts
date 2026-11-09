@@ -372,10 +372,10 @@ import {
   discardTrialRun,
   readTrialRuns,
   saveTrialRun,
-  setTrialRunDeps,
   trialRunHarnessFor,
   wipeTrialRuns,
 } from './agent/trialRuns'
+import { wireTrialRuns } from './agent/trialRunsWiring'
 import { saveGeneratedAudioFile } from './persist/audioFiles.ts'
 import {
   arcadeCatalog,
@@ -1402,17 +1402,6 @@ function wireAgentWorkspace(settings: LocalSettings): void {
 function wireAgentTasks(settings: LocalSettings): void {
   setAgentTaskFilesDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoAgentTasks()
-}
-
-/** No Trial Run outlives the app; wiped before the renderer reads Harness Session records. */
-async function wireTrialRuns(): Promise<void> {
-  setTrialRunDeps({
-    deleteHarnessSession: async (harnessSessionId) => {
-      await deleteAgentSessionRecord(harnessSessionId)
-      await deleteAgentSession(harnessSessionId)
-    },
-  })
-  await wipeTrialRuns()
 }
 
 /** Same demo discipline for the map of channel messages agents sent. */

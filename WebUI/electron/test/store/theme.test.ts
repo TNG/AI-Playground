@@ -243,9 +243,6 @@ describe('Colour roles', () => {
     expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'foreground' })
     expect(theme.canSave).toBe(false)
     theme.setRoleColor('text', '#111111')
-    theme.setColor('muted-foreground', '#555555')
-    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'card-foreground' })
-    theme.setRoleColor('panels', '#f4f4f4')
     expect(theme.canSave).toBe(true)
     expect(theme.saveDraft()).toBe(true)
     expect(theme.activeHexColors).toMatchObject({ background: '#ffffff', foreground: '#111111' })
@@ -295,22 +292,22 @@ describe('Readability guard', () => {
   it('names the unreadable pair of a draft and refuses to save it', () => {
     const theme = useTheme()
     theme.customize('dark')
-    theme.setColor('card', '#e0e0e0')
+    theme.setColor('background', '#e0e0e0')
     expect(theme.draftVerdict).toMatchObject({
       readable: false,
-      text: 'card-foreground',
-      background: 'card',
+      text: 'foreground',
+      background: 'background',
     })
-    expect(theme.draftWarning).toContain('text on panels and cards')
+    expect(theme.draftWarning).toContain('main text')
     expect(theme.saveDraft()).toBe(false)
-    expect(theme.activeHexColors.card).toBe('#000000')
+    expect(theme.activeHexColors.background).not.toBe('#e0e0e0')
   })
 
   it('clears the warning as soon as the draft is readable again', () => {
     const theme = useTheme()
     theme.customize('dark')
-    theme.setColor('card', '#e0e0e0')
-    theme.setColor('card', '#101010')
+    theme.setColor('background', '#e0e0e0')
+    theme.setColor('background', '#101010')
     expect(theme.draftWarning).toBe('')
     expect(theme.canSave).toBe(true)
   })
@@ -339,7 +336,7 @@ describe('Readability guard', () => {
   it('a reset drops the draft and its warning', () => {
     const theme = useTheme()
     const id = theme.customize('dark')
-    theme.setColor('card', '#e0e0e0')
+    theme.setColor('background', '#e0e0e0')
     theme.resetCustomTheme(id)
     expect(theme.hasUnsavedChanges).toBe(false)
     expect(theme.draftWarning).toBe('')
@@ -348,7 +345,7 @@ describe('Readability guard', () => {
   it('switching theme drops the draft', () => {
     const theme = useTheme()
     theme.selectTheme('dark')
-    theme.setColor('card', '#e0e0e0')
+    theme.setColor('background', '#e0e0e0')
     theme.selectTheme('light')
     expect(theme.hasUnsavedChanges).toBe(false)
     expect(theme.draftWarning).toBe('')
@@ -393,7 +390,7 @@ describe('Startup fallback', () => {
     const theme = useTheme()
     theme.selectTheme('bmg')
     theme.customize()
-    const colors = { ...theme.activeHexColors, 'muted-foreground': '#1e0d26' }
+    const colors = { ...theme.activeHexColors, foreground: theme.activeHexColors.background }
     const stored = { selected: unreadable.id, customThemes: [{ ...unreadable, colors }] }
     storedSections.value = { theme: JSON.parse(JSON.stringify(stored)) }
     setActivePinia(createPinia())
@@ -414,7 +411,7 @@ describe('Startup fallback', () => {
     expect(writes).toEqual([])
     expect(reported.value).toHaveLength(1)
     expect((reported.value[0] as AppError).userMessage).toBe(
-      'The theme “Night (hand-edited)” makes secondary text hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
+      'The theme “Night (hand-edited)” makes main text hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
     )
   })
 
@@ -431,18 +428,18 @@ describe('Startup fallback', () => {
     const { restarted } = await startWithUnreadableTheme()
     expect(restarted.selectedId).toBe(unreadable.id)
     expect(restarted.editedCustomTheme).toMatchObject(unreadable)
-    expect(restarted.draftHexColors['muted-foreground']).toBe('#1e0d26')
+    expect(restarted.draftHexColors.foreground).toBe(restarted.draftHexColors.background)
     expect(restarted.fallbackMessage).toBe(
-      'The theme “Night (hand-edited)” makes secondary text hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
+      'The theme “Night (hand-edited)” makes main text hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
     )
   })
 
   it('applies the Custom Theme once a saved edit makes it readable, without a copy', async () => {
     const { restarted } = await startWithUnreadableTheme()
-    restarted.setColor('muted-foreground', '#cccccc')
+    restarted.setColor('foreground', restarted.activeHexColors.foreground)
     expect(restarted.saveDraft()).toBe(true)
     expect(restarted.active).toBe(unreadable.id)
-    expect(restarted.activeHexColors['muted-foreground']).toBe('#cccccc')
+    expect(restarted.activeHexColors.foreground).not.toBe(restarted.activeHexColors.background)
     expect(restarted.validCustomThemes).toHaveLength(1)
     expect(restarted.fallbackMessage).toBe('')
   })
@@ -450,7 +447,7 @@ describe('Startup fallback', () => {
   it('refuses to save an edit that leaves it unreadable, without a copy', async () => {
     const { restarted } = await startWithUnreadableTheme()
     restarted.setColor('border', '#445566')
-    expect(restarted.draftVerdict).toMatchObject({ readable: false, text: 'muted-foreground' })
+    expect(restarted.draftVerdict).toMatchObject({ readable: false, text: 'foreground' })
     expect(restarted.saveDraft()).toBe(false)
     expect(restarted.validCustomThemes).toHaveLength(1)
     expect(restarted.active).toBe('bmg')

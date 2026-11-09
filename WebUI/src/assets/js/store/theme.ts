@@ -34,10 +34,7 @@ export type ReadabilityVerdict = { readable: true } | ({ readable: false } & Unr
 
 const pairLabelKeys: Record<CorePair['text'], string> = {
   foreground: 'SETTINGS_THEME_PAIR_FOREGROUND',
-  'card-foreground': 'SETTINGS_THEME_PAIR_CARD_FOREGROUND',
-  'popover-foreground': 'SETTINGS_THEME_PAIR_POPOVER_FOREGROUND',
   'primary-foreground': 'SETTINGS_THEME_PAIR_PRIMARY_FOREGROUND',
-  'muted-foreground': 'SETTINGS_THEME_PAIR_MUTED_FOREGROUND',
 }
 
 /** Floors at two decimals so a ratio just under the minimum never reads as 3.00. */

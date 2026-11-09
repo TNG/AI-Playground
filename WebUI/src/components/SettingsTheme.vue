@@ -124,9 +124,6 @@
         :style="{ backgroundColor: draft.background, borderColor: draft.border }"
       >
         <span :style="{ color: draft.foreground }">{{ languages.SETTINGS_THEME_ROLE_TEXT }}</span>
-        <span :style="{ color: draft['muted-foreground'] }">
-          {{ languages.SETTINGS_THEME_ROLE_MUTED_TEXT }}
-        </span>
         <div
           class="flex items-center justify-between gap-2 rounded-md border p-2"
           :style="{

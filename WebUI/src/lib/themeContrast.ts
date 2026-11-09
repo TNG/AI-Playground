@@ -23,10 +23,7 @@ export type TokenPair = { text: ThemeToken; background: ThemeToken }
 
 export const corePairs = [
   { text: 'foreground', background: 'background' },
-  { text: 'card-foreground', background: 'card' },
-  { text: 'popover-foreground', background: 'popover' },
   { text: 'primary-foreground', background: 'primary' },
-  { text: 'muted-foreground', background: 'background' },
 ] as const satisfies readonly TokenPair[]
 
 export type CorePair = (typeof corePairs)[number]

@@ -99,6 +99,21 @@
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <div v-if="mode === buttonModeFor('agent')" class="flex flex-none flex-col gap-1">
+            <Button variant="secondary" size="sm" class="h-7" @click="openLibrary(newAgent)">
+              <PlusIcon class="size-4" />
+              {{ i18nState.AGENT_LIBRARY_NEW_AGENT }}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              class="h-7"
+              @click="openLibrary(() => manageAgents())"
+            >
+              <Squares2X2Icon class="size-4" />
+              {{ i18nState.AGENT_LIBRARY_MANAGE }}
+            </Button>
+          </div>
           <p
             v-if="presetsForMode(mode).length === 0"
             class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
@@ -133,6 +148,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
+import { PlusIcon, Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
@@ -148,6 +164,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 
 defineProps<{
   modes: ModeType[]
@@ -180,6 +197,7 @@ const oemBranding = useOemBranding()
 const i18nState = useI18N().state
 const { gateOf, switchTo } = usePromptBarPresetSwitch()
 const demoMode = useDemoMode()
+const { newAgent, manageAgents } = useAgentLibraryEntry()
 
 function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
@@ -264,6 +282,11 @@ function onPickerOpenChange(mode: ModeType, open: boolean) {
 }
 
 // Hovering only opened the picker, so selecting a preset performs the mode switch too.
+async function openLibrary(open: () => unknown) {
+  closePicker()
+  await open()
+}
+
 async function selectPresetFromPicker(preset: Preset) {
   if (gateOf(preset).enabled) closePicker()
   await switchTo(preset.name)

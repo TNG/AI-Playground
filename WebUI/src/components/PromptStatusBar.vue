@@ -141,6 +141,7 @@
                 </Tooltip>
               </TooltipProvider>
             </DropdownMenuRadioGroup>
+            <AgentLibraryMenuItems v-if="bar.activeMode === 'agent'" />
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip v-else>
@@ -292,6 +293,7 @@ import ModelCapabilities from '@/components/ModelCapabilities.vue'
 import ModelVramFit from '@/components/ModelVramFit.vue'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
+import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuItems.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { promptBarModel, type HeaderChip, type SpeechBackend } from '@/lib/promptBarModel'

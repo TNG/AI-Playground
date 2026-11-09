@@ -425,6 +425,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readDrafts: () => invoke('agentMode:readDrafts'),
     saveDraft: (draft: AgentDraft) => invoke('agentMode:saveDraft', cloneForIpc(draft)),
     deleteDraft: (agentId: string) => invoke('agentMode:deleteDraft', agentId),
+    trialRunHarness: (agentId: string) => invoke('agentMode:trialRunHarness', agentId),
+    discardTrialRun: (agentId: string) => invoke('agentMode:discardTrialRun', agentId),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

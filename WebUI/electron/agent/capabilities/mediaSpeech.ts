@@ -1,7 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { jsonResult, jsonSchemaParameters, resolveWorkspaceFile } from '../piCustomTools.ts'
+import {
+  jsonResult,
+  jsonSchemaParameters,
+  resolveWorkspaceFile,
+  trialMediaUrl,
+} from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
 import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
@@ -81,6 +86,7 @@ function sessionClipUrl(
 ): string | undefined {
   const target = host.sessionMedia
   if (!target) return undefined
+  if (target.workspace === 'trial') return trialMediaUrl(target.agentId, `files/${relativePath}`)
   if (target.workspace === 'files')
     return sessionMediaUrl(target.sessionRef, `files/${relativePath}`)
   const copy = sessionCopies[0]

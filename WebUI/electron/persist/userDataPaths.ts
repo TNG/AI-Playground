@@ -160,6 +160,9 @@ export const getAgentDraftsFile = () => path.join(aipgUserDataRoot(), 'agent-dra
 
 export const getAgentDraftsDemoFile = () => getAgentDraftsFile().replace(/\.json$/, '-demo.json')
 
+/** One scratch folder per Agent for its Trial Run; nothing in it outlives the app. */
+export const getAgentTrialsDir = () => path.join(aipgUserDataRoot(), 'agent-trials')
+
 /**
  * Remembered / pre-granted consent decisions (architecture-target §4.7, step 13).
  * Own file, not a preference section: Permissions is request/response, not a

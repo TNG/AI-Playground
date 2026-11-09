@@ -313,17 +313,24 @@ export function workspaceFileToDataUri(workspaceDir: string, relativePath: strin
 /**
  * A turn in a Session: when the workspace is its `files/` folder media lands at its root;
  * when it is a game folder media lands in the game's `generated/` and in `filesDir` too,
- * served from the Session's copy.
+ * served from the Session's copy. A Trial Run's media lands in its scratch folder, so it goes
+ * when the Trial Run is thrown away.
  */
 export type SessionMediaTarget =
   | { sessionRef: string; workspace: 'files' }
   | { sessionRef: string; workspace: 'game'; filesDir: string }
+  | { workspace: 'trial'; agentId: string }
 
 let appMediaPath: ((url: string) => string | null) | null = null
 
 /** How an app-folder media URL maps to its file, so a Session's copy can move it out. */
 export function setAppMediaPathResolver(resolve: ((url: string) => string | null) | null): void {
   appMediaPath = resolve
+}
+
+export function trialMediaUrl(agentId: string, relativePath: string): string {
+  const encoded = [agentId, ...relativePath.split('/')].map(encodeURIComponent).join('/')
+  return `aipg-media://trials/${encoded}`
 }
 
 const MEDIA_URL_KEYS = ['imageUrl', 'videoUrl', 'model3dUrl'] as const
@@ -375,7 +382,13 @@ async function saveOne(
   return {
     saved,
     sessionCopy,
-    entry: { ...entry, [key]: sessionMediaUrl(sessionMedia.sessionRef, `files/${filesName}`) },
+    entry: {
+      ...entry,
+      [key]:
+        sessionMedia.workspace === 'trial'
+          ? trialMediaUrl(sessionMedia.agentId, `files/${filesName}`)
+          : sessionMediaUrl(sessionMedia.sessionRef, `files/${filesName}`),
+    },
   }
 }
 

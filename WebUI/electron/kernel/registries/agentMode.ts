@@ -33,6 +33,7 @@ import type {
   saveAgentTask,
 } from '../../persist/agentTaskFiles'
 import type { forgetSessionMessages } from '../../persist/channelMessageMap'
+import type { discardTrialRun, trialRunHarnessFor } from '../../agent/trialRuns'
 import type { appLoggerInstance } from '../../observability/logger'
 
 /** The Pi manager, session-record, workspace-state and Tasks seams the agentMode handlers close over. */
@@ -60,6 +61,8 @@ export type AgentModeDeps = {
   readAgentDrafts: typeof readAgentDrafts
   saveAgentDraft: typeof saveAgentDraft
   deleteAgentDraft: typeof deleteAgentDraft
+  trialRunHarnessFor: typeof trialRunHarnessFor
+  discardTrialRun: typeof discardTrialRun
   forgetSessionMessages: typeof forgetSessionMessages
   appLogger: typeof appLoggerInstance
 }
@@ -187,6 +190,21 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:deleteDraft': async (_event, agentId) => {
       try {
         await deps.deleteAgentDraft(agentId)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:trialRunHarness': async (_event, agentId) => {
+      try {
+        return { success: true as const, harness: await deps.trialRunHarnessFor(agentId) }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:discardTrialRun': async (_event, agentId) => {
+      try {
+        await deps.discardTrialRun(agentId)
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

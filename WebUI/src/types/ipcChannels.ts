@@ -570,6 +570,20 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
+  /** A fresh Harness Session in the Agent's scratch folder; its previous Trial Run is thrown away. */
+  'agentMode:trialRunHarness': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** Throw the Agent's Trial Run away, with its folder and Harness Session, by Agent id. */
+  'agentMode:discardTrialRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Copy an attached file into the workspace; the answer carries its relative path. */
   'agentMode:importAttachment': {
     kind: 'invoke',

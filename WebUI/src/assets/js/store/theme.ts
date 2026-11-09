@@ -1,10 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
-
-const knownThemes: Theme[] = ['dark', 'lnl', 'bmg', 'light']
-// Matches what the shipped settings.json used to seed on first launch.
-const defaultTheme: Theme = 'light'
+import { builtInThemes, fallbackBuiltInTheme, themeTokens } from '@/lib/builtInThemes'
 
 export const useTheme = defineStore('theme', () => {
   const selected = ref<Theme | null>(null)
@@ -18,12 +15,18 @@ export const useTheme = defineStore('theme', () => {
   })
   if (import.meta.hot) import.meta.hot.dispose(() => prefs.dispose())
 
+  const activeTheme = computed(
+    () => builtInThemes.find((t) => t.id === selected.value) ?? fallbackBuiltInTheme,
+  )
+
   return {
     selected,
-    availableThemes: knownThemes,
-    active: computed(() =>
-      selected.value && knownThemes.includes(selected.value) ? selected.value : defaultTheme,
-    ),
+    builtInThemes,
+    colorTokens: themeTokens,
+    active: computed(() => activeTheme.value.id),
+    /** What decorations and per-theme classes follow; a Built-in Theme is its own. */
+    baseTheme: computed(() => activeTheme.value.id),
+    activeColors: computed(() => activeTheme.value.colors),
     init: () => prefs.init(),
   }
 })

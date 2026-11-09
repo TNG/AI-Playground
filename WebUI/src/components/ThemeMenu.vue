@@ -13,8 +13,8 @@
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" class="min-w-48">
               <DropdownMenuRadioGroup :model-value="theme.active" @update:model-value="selectTheme">
-                <DropdownMenuRadioItem v-for="t in theme.availableThemes" :key="t" :value="t">
-                  {{ themeDisplayName[t] }}
+                <DropdownMenuRadioItem v-for="t in theme.builtInThemes" :key="t.id" :value="t.id">
+                  {{ t.name }}
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
@@ -43,14 +43,7 @@ const theme = useTheme()
 const languages = useI18N().state
 
 function selectTheme(value: unknown) {
-  const match = theme.availableThemes.find((t) => t === value)
-  if (match) theme.selected = match
-}
-
-const themeDisplayName: Record<Theme, string> = {
-  dark: 'Default',
-  lnl: 'Intel® Core™ Ultra',
-  bmg: 'Intel® Arc™',
-  light: 'Light',
+  const match = theme.builtInThemes.find((t) => t.id === value)
+  if (match) theme.selected = match.id
 }
 </script>

@@ -1,18 +1,18 @@
 <template>
-  <div v-if="theme.active === 'lnl'" class="lnl-grid lnl-top-grid"></div>
-  <div v-if="theme.active === 'lnl'" class="lnl-grid lnl-bottom-grid"></div>
-  <div v-if="theme.active === 'lnl'" class="lnl-gradient"></div>
+  <div v-if="theme.baseTheme === 'lnl'" class="lnl-grid lnl-top-grid"></div>
+  <div v-if="theme.baseTheme === 'lnl'" class="lnl-grid lnl-bottom-grid"></div>
+  <div v-if="theme.baseTheme === 'lnl'" class="lnl-gradient"></div>
   <div
-    v-if="theme.active === 'bmg'"
+    v-if="theme.baseTheme === 'bmg'"
     class="absolute -z-50 w-screen h-screen bg-cover bg-center bg-bmg"
   ></div>
   <div
-    v-if="theme.active === 'light'"
+    v-if="theme.baseTheme === 'light'"
     class="absolute -z-50 w-screen h-screen bg-cover bg-center bg-light"
   ></div>
   <header
     class="main-title text-2xl font-bold flex justify-between items-center px-4 border-b border-border/20 text-foreground bg-background/20"
-    :class="{ 'bg-muted/50': theme.active === 'light' }"
+    :class="{ 'bg-muted/50': theme.baseTheme === 'light' }"
   >
     <div class="flex items-center gap-4">
       <h1 class="select-none flex gap-2 items-baseline">
@@ -176,9 +176,9 @@
     v-if="globalSetup.loadingState === 'running'"
     class="flex-1 flex relative min-h-0"
     :class="{
-      'bg-black/50': theme.active === 'lnl',
-      'bg-black/80': theme.active === 'bmg',
-      'border-t border-border': theme.active === 'dark',
+      'bg-black/50': theme.baseTheme === 'lnl',
+      'bg-black/80': theme.baseTheme === 'bmg',
+      'border-t border-border': theme.baseTheme === 'dark',
     }"
   >
     <SessionsPanel />
@@ -228,9 +228,9 @@
   <footer
     class="flex-none px-4 py-1 flex justify-end items-center gap-4 text-xs text-muted-foreground select-none"
     :class="{
-      'bg-black/50': theme.active === 'lnl',
-      'bg-black/80': theme.active === 'bmg',
-      'border-t border-border': theme.active === 'dark',
+      'bg-black/50': theme.baseTheme === 'lnl',
+      'bg-black/80': theme.baseTheme === 'bmg',
+      'border-t border-border': theme.baseTheme === 'dark',
     }"
   >
     <a :href="userGuideUrl" target="_blank" class="hover:text-foreground">{{
@@ -316,6 +316,16 @@ import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { useConversations } from '@/assets/js/store/conversations'
 
 const theme = useTheme()
+
+watch(
+  () => theme.activeColors,
+  (colors) => {
+    const root = document.documentElement
+    for (const [token, value] of Object.entries(colors)) root.style.setProperty(`--${token}`, value)
+  },
+  { immediate: true },
+)
+
 const globalSetup = useGlobalSetup()
 const productModeStore = useProductMode()
 const demoMode = useDemoMode()
@@ -426,17 +436,13 @@ onMounted(async () => {
   // Which OEM's machine this is decides co-branded labels (e.g. Acer Game Agent).
   void oemBranding.initialize()
 
-  // Apply theme class to document root for CSS variables
+  // After useColorMode's own mount hook, which would otherwise leave its `dark` class behind.
   watch(
-    () => theme.active,
-    (newTheme) => {
+    () => theme.baseTheme,
+    (baseTheme) => {
       const root = document.documentElement
-      // Remove all theme classes
       root.classList.remove('dark', 'lnl', 'bmg', 'light')
-      // Add current theme class (light theme is default via :root, so no class needed)
-      if (newTheme !== 'light') {
-        root.classList.add(newTheme)
-      }
+      if (baseTheme !== 'light') root.classList.add(baseTheme)
     },
     { immediate: true },
   )

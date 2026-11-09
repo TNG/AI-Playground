@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "無題のセッション",
   "SESSIONS_PRESETS_USED": "使用したプリセット",
   "SESSIONS_SCHEDULED": "このセッションのエージェントはスケジュールで実行されます",
+  "SESSIONS_SCHEDULE_PAUSED": "このセッションのエージェントのスケジュールは一時停止中です",
   "SESSIONS_COLLAPSE": "セッションパネルを折りたたむ",
   "SESSIONS_EXPAND": "セッションパネルを展開",
   "SESSIONS_OPTIONS": "{title} のオプション",

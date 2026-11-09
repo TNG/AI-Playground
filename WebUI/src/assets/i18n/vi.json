@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Phiên chưa đặt tên",
   "SESSIONS_PRESETS_USED": "Các preset đã dùng",
   "SESSIONS_SCHEDULED": "Một tác tử trong phiên này chạy theo lịch",
+  "SESSIONS_SCHEDULE_PAUSED": "Một tác tử trong phiên này có lịch đang tạm dừng",
   "SESSIONS_COLLAPSE": "Thu gọn bảng Phiên",
   "SESSIONS_EXPAND": "Mở rộng bảng Phiên",
   "SESSIONS_OPTIONS": "Tùy chọn của {title}",

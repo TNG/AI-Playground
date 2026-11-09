@@ -79,6 +79,8 @@ type TrialRunFailureCode =
   | 'agent-library/trial-read-failed'
   | 'agent-library/trial-discard-failed'
 
+export type SessionScheduleState = 'active' | 'paused'
+
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'settings'
 
 export const SAVE_TASK_BLOCKER_KEYS = {
@@ -487,15 +489,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return false
   }
 
-  /** Sessions holding an enabled Schedule. */
-  const scheduledSessionIds = computed(
-    () =>
-      new Set(
-        tasks.value.flatMap((task) =>
-          (task.schedules ?? []).filter((entry) => entry.enabled).map((entry) => entry.sessionRef),
-        ),
-      ),
-  )
+  /** Sessions holding a Schedule; paused only when none of their Schedules is enabled. */
+  const scheduledSessions = computed(() => {
+    const states = new Map<string, SessionScheduleState>()
+    for (const entry of tasks.value.flatMap((task) => task.schedules ?? [])) {
+      if (entry.enabled) states.set(entry.sessionRef, 'active')
+      else if (!states.has(entry.sessionRef)) states.set(entry.sessionRef, 'paused')
+    }
+    return states
+  })
 
   /** How many Sessions hold a Schedule of the Agent, paused ones included. */
   function scheduledSessionCount(id: string): number {
@@ -1705,7 +1707,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     startTrialRun,
     stopTrialRun,
     runsInFlight,
-    scheduledSessionIds,
+    scheduledSessions,
     scheduledSessionCount,
     runningSessionCount,
     init,

@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Sesja bez tytułu",
   "SESSIONS_PRESETS_USED": "Użyte presety",
   "SESSIONS_SCHEDULED": "Agent w tej sesji działa według harmonogramu",
+  "SESSIONS_SCHEDULE_PAUSED": "Agent w tej sesji ma wstrzymany harmonogram",
   "SESSIONS_COLLAPSE": "Zwiń panel sesji",
   "SESSIONS_EXPAND": "Rozwiń panel sesji",
   "SESSIONS_OPTIONS": "Opcje: {title}",

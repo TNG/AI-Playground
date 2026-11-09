@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Untitled Session",
   "SESSIONS_PRESETS_USED": "Presets used",
   "SESSIONS_SCHEDULED": "An Agent in this Session runs on a schedule",
+  "SESSIONS_SCHEDULE_PAUSED": "An Agent in this Session has a paused schedule",
   "SESSIONS_COLLAPSE": "Collapse Sessions panel",
   "SESSIONS_EXPAND": "Expand Sessions panel",
   "SESSIONS_OPTIONS": "{title} options",

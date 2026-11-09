@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "제목 없는 세션",
   "SESSIONS_PRESETS_USED": "사용한 프리셋",
   "SESSIONS_SCHEDULED": "이 세션의 에이전트가 일정에 따라 실행됩니다",
+  "SESSIONS_SCHEDULE_PAUSED": "이 세션의 에이전트 일정이 일시 중지되었습니다",
   "SESSIONS_COLLAPSE": "세션 패널 접기",
   "SESSIONS_EXPAND": "세션 패널 펼치기",
   "SESSIONS_OPTIONS": "{title} 옵션",

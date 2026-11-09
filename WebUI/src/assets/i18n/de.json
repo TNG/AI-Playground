@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Unbenannte Sitzung",
   "SESSIONS_PRESETS_USED": "Verwendete Presets",
   "SESSIONS_SCHEDULED": "Ein Agent in dieser Sitzung läuft nach Zeitplan",
+  "SESSIONS_SCHEDULE_PAUSED": "Ein Agent in dieser Sitzung hat einen pausierten Zeitplan",
   "SESSIONS_COLLAPSE": "Sitzungsbereich einklappen",
   "SESSIONS_EXPAND": "Sitzungsbereich ausklappen",
   "SESSIONS_OPTIONS": "Optionen für {title}",

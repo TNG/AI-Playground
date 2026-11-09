@@ -546,7 +546,7 @@ describe('Schedules of one Agent in several Sessions', () => {
     expect(tasks.scheduledSessionCount('t3')).toBe(0)
   })
 
-  it('marks the Sessions holding an enabled Schedule', async () => {
+  it('marks every Session holding a Schedule, paused ones apart', async () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(
       task('t1', {
@@ -554,11 +554,17 @@ describe('Schedules of one Agent in several Sessions', () => {
         schedules: [
           saved(schedule(), NOW + HOUR, 'session-2'),
           saved(schedule({ enabled: false }), undefined, 'session-3'),
+          saved(schedule({ enabled: false }), undefined, 'session-4'),
         ],
       }),
+      task('t2', { schedules: [saved(schedule(), NOW + HOUR, 'session-4')] }),
     )
 
-    expect([...tasks.scheduledSessionIds]).toEqual(['session-2'])
+    expect(Object.fromEntries(tasks.scheduledSessions)).toEqual({
+      'session-2': 'active',
+      'session-3': 'paused',
+      'session-4': 'active',
+    })
   })
 })
 
@@ -705,7 +711,7 @@ describe('deleting an Agent', () => {
     expect(await tasks.deleteTask('t1')).toBe(true)
 
     expect(window.electronAPI.agentMode.deleteTask).toHaveBeenCalledWith('t1')
-    expect(tasks.scheduledSessionIds.size).toBe(0)
+    expect(tasks.scheduledSessions.size).toBe(0)
     expect(tasks.scheduledSessionCount('t1')).toBe(0)
   })
 })

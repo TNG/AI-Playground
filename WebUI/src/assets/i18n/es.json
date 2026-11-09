@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Sesión sin título",
   "SESSIONS_PRESETS_USED": "Presets usados",
   "SESSIONS_SCHEDULED": "Un agente de esta sesión se ejecuta según una programación",
+  "SESSIONS_SCHEDULE_PAUSED": "Un agente de esta sesión tiene una programación en pausa",
   "SESSIONS_COLLAPSE": "Contraer el panel de sesiones",
   "SESSIONS_EXPAND": "Expandir el panel de sesiones",
   "SESSIONS_OPTIONS": "Opciones de {title}",

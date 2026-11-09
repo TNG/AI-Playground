@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Sesi tanpa judul",
   "SESSIONS_PRESETS_USED": "Preset yang digunakan",
   "SESSIONS_SCHEDULED": "Sebuah agen di sesi ini berjalan sesuai jadwal",
+  "SESSIONS_SCHEDULE_PAUSED": "Sebuah agen di sesi ini memiliki jadwal yang dijeda",
   "SESSIONS_COLLAPSE": "Ciutkan panel Sesi",
   "SESSIONS_EXPAND": "Luaskan panel Sesi",
   "SESSIONS_OPTIONS": "Opsi {title}",

@@ -6,7 +6,7 @@
     :status="lifecycle.rowStatus(session.id)"
     :now
     :time-bucket
-    :scheduled="agentTasks.scheduledSessionIds.has(session.id)"
+    :scheduled="agentTasks.scheduledSessions.get(session.id)"
     :create-group="(name) => sessions.createGroup(session.id, name)"
     @open="lifecycle.openSession(session.id)"
     @open-schedules="ui.openAgentLibrary({ sessionRef: session.id })"

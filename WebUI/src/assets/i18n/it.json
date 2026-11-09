@@ -49,6 +49,7 @@
   "SESSIONS_UNTITLED": "Sessione senza titolo",
   "SESSIONS_PRESETS_USED": "Preset utilizzati",
   "SESSIONS_SCHEDULED": "Un agente di questa sessione viene eseguito secondo una pianificazione",
+  "SESSIONS_SCHEDULE_PAUSED": "Un agente di questa sessione ha una pianificazione in pausa",
   "SESSIONS_COLLAPSE": "Comprimi il pannello Sessioni",
   "SESSIONS_EXPAND": "Espandi il pannello Sessioni",
   "SESSIONS_OPTIONS": "Opzioni di {title}",

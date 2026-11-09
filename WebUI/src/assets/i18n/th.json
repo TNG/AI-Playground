@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "แสดงเซสชันของเอเจนต์ {name}",
   "AGENT_TASKS_PROBLEM": "ไม่สามารถใช้การตั้งค่าของเอเจนต์นี้ได้ในขณะนี้ {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "ไม่สามารถเรียกใช้เอเจนต์นี้ได้ {reason}",
+  "AGENT_CHAT_BLOCKED": "ไม่สามารถส่งถึงเอเจนต์นี้ได้ {reason}",
   "AGENT_TASK_STOP_RUN": "หยุดเอเจนต์",
   "AGENT_TASK_DELETE_FAILED": "ไม่สามารถลบเอเจนต์ได้",
   "AGENT_TASKS_SCHEDULE": "ตั้งเวลา {name}",

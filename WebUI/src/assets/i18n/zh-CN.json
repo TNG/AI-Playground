@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "显示智能体 {name} 的会话",
   "AGENT_TASKS_PROBLEM": "此智能体的设置目前无法使用。{reason}",
   "AGENT_TASKS_RUN_BLOCKED": "无法运行此智能体。{reason}",
+  "AGENT_CHAT_BLOCKED": "无法发送给此智能体。{reason}",
   "AGENT_TASK_STOP_RUN": "停止智能体",
   "AGENT_TASK_DELETE_FAILED": "无法删除智能体。",
   "AGENT_TASKS_SCHEDULE": "计划 {name}",

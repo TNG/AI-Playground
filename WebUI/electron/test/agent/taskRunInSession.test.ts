@@ -230,3 +230,77 @@ describe('a Task Run in its Session', () => {
     stop()
   }, 30000)
 })
+
+describe("an Agent's chat in its Session", () => {
+  async function agentChatConfig(sessionId: string): Promise<AgentModeTurnConfig> {
+    const { harnessSessionId, workspaceDir } = await harness.harnessSessionFor(
+      sessionId,
+      'agent:t-news',
+    )
+    return {
+      ...(await agentConfig(sessionId)),
+      sessionId: harnessSessionId,
+      workspaceDir,
+      agentChat: { agentId: 't-news', agentName: 'Morning digest' },
+    }
+  }
+
+  it('is its own Harness Session, apart from Agent Maker’s, keeping its context', async () => {
+    const session = await sessionWithHistory()
+    const chat = await agentChatConfig(session.id)
+
+    expect(chat.sessionId).not.toBe((await agentConfig(session.id)).sessionId)
+    await manager.startAgentTurn('t1', 'hello digest', chat)
+    await manager.startAgentTurn('t2', 'and again', chat)
+
+    expect(userTexts(bodies[0])).toHaveLength(1)
+    const second = userTexts(bodies[1])
+    expect(second).toHaveLength(2)
+    expect(second[0]).toContain('hello digest')
+  }, 30000)
+
+  it('gets a Session Update of Agent Maker’s turns and Agent Run Steps, not of its own', async () => {
+    const session = await sessionWithHistory()
+    const chat = await agentChatConfig(session.id)
+    await manager.startAgentTurn('t1', 'hello digest', chat)
+    await manager.startAgentTurn('t2', 'run step', await taskRunConfig(session.id))
+    await manager.startAgentTurn('t3', 'agent maker turn', await agentConfig(session.id))
+    bodies = []
+
+    await manager.startAgentTurn('t4', 'what did you miss', chat)
+
+    const latest = userTexts(bodies[0]).at(-1) ?? ''
+    expect(latest).toContain('Session Update')
+    expect(latest).toContain('run step')
+    expect(latest).toContain('agent maker turn')
+    expect(latest).not.toContain('hello digest')
+  }, 30000)
+
+  it('is news to Agent Maker, under the Agent’s name', async () => {
+    const session = await sessionWithHistory()
+    const maker = await agentConfig(session.id)
+    await manager.startAgentTurn('t1', 'catch up', maker)
+    await manager.startAgentTurn('t2', 'hello digest', await agentChatConfig(session.id))
+    bodies = []
+
+    await manager.startAgentTurn('t3', 'anything new', maker)
+
+    expect(userTexts(bodies[0]).at(-1)).toContain('Morning digest: \\"hello digest\\"')
+  }, 30000)
+
+  it('files its History Entries under Agent Maker, tagged with the Agent', async () => {
+    const session = await sessions.createSession()
+
+    await manager.startAgentTurn('t1', 'hello digest', await agentChatConfig(session.id))
+
+    expect(await history.readHistoryEntries(session.id)).toEqual([
+      expect.objectContaining({
+        preset: 'Agent',
+        prompt: 'hello digest',
+        agentId: 't-news',
+        agentName: 'Morning digest',
+      }),
+    ])
+    expect(await history.lastTurnPreset(session.id)).toEqual({ preset: 'Agent' })
+  }, 30000)
+})

@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "Tampilkan sesi agen {name}",
   "AGENT_TASKS_PROBLEM": "Pengaturan agen ini tidak dapat digunakan saat ini. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Tidak dapat menjalankan agen ini. {reason}",
+  "AGENT_CHAT_BLOCKED": "Tidak dapat mengirim ke agen ini. {reason}",
   "AGENT_TASK_STOP_RUN": "Hentikan agen",
   "AGENT_TASK_DELETE_FAILED": "Tidak dapat menghapus agen.",
   "AGENT_TASKS_SCHEDULE": "Jadwalkan {name}",

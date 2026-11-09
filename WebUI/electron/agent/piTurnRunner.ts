@@ -352,9 +352,12 @@ const USAGE_SAMPLE_EVENTS = new Set([
 async function withSessionUpdate(prompt: string, config: AgentModeTurnConfig): Promise<string> {
   if (!config.sessionRef || config.taskRun) return prompt
   try {
+    const agentId = config.agentChat?.agentId
     const update = await takeSessionUpdate(config.sessionRef, {
       key: config.sessionId,
-      ownPreset: config.presetName,
+      ...(agentId
+        ? { isOwn: (entry) => entry.agentId === agentId && !entry.taskName }
+        : { ownPreset: config.presetName }),
       workspaceDir: config.workspaceDir,
     })
     return update ? `${update}\n\n${prompt}` : prompt
@@ -399,6 +402,7 @@ export async function startAgentTurn(
         workspaceDir: config.workspaceDir,
         prompt,
         ...(config.taskRun ? { taskRun: config.taskRun } : {}),
+        ...(config.agentChat ? { agentChat: config.agentChat } : {}),
       })
     : null
   const translator = createStreamTranslator({

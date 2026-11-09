@@ -270,10 +270,14 @@ beforeEach(() => {
           },
         })),
         saveTimelineMessages: vi.fn(async () => ({ success: true })),
-        harnessSession: vi.fn(async (sessionRef: string) => ({
+        harnessSession: vi.fn(async (sessionRef: string, key: string) => ({
           success: true,
-          harness:
-            sessionRef === SESSION
+          harness: key.startsWith('agent:')
+            ? {
+                harnessSessionId: `chat-${key.slice(6)}-${sessionRef}`,
+                workspaceDir: '/work/files',
+              }
+            : sessionRef === SESSION
               ? { harnessSessionId: 'session-open', workspaceDir: '/work/open' }
               : { harnessSessionId: `harness-${sessionRef}`, workspaceDir: '/work/open' },
         })),
@@ -1865,6 +1869,135 @@ describe('an Agent picked in the prompt bar', () => {
     expect(storedPicks).toEqual({ 'session-3': 't2' })
   })
 })
+
+describe('chatting with a picked Agent', () => {
+  it('sends one turn to the Agent’s chat Harness Session in the open Session', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.pickAgent('t1')
+
+    expect(await tasks.chatWithPickedAgent('what is new?')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    await settleMicrotasks()
+    expect(sentPrompts()).toEqual(['what is new?'])
+    const config = sentConfig(0)
+    expect(config.sessionId).toBe(`chat-t1-${SESSION}`)
+    expect(config.sessionRef).toBe(SESSION)
+    expect(config.agentChat).toEqual({ agentId: 't1', agentName: 'Task t1' })
+    expect(config.taskRun).toBeUndefined()
+  })
+
+  it('keeps one chat Harness Session per Agent and Session', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
+    const sessions = useSessions(pinia)
+    await tasks.pickAgent('t1')
+    await tasks.chatWithPickedAgent('first')
+    await finishTurn(0)
+    await settleMicrotasks()
+    await tasks.chatWithPickedAgent('second')
+    await finishTurn(1)
+    await tasks.pickAgent('t2')
+    await tasks.chatWithPickedAgent('to the other Agent')
+    await finishTurn(2)
+    nextSessionId = 'session-2'
+    await sessions.create()
+    await tasks.pickAgent('t1')
+    await tasks.chatWithPickedAgent('elsewhere')
+    await turnIdOf(3)
+
+    expect(startTurn.mock.calls.map(([, , config]) => config.sessionId)).toEqual([
+      `chat-t1-${SESSION}`,
+      `chat-t1-${SESSION}`,
+      `chat-t2-${SESSION}`,
+      'chat-t1-session-2',
+    ])
+  })
+
+  it('runs on the Agent’s saved Settings Template, not the Session’s Agent Maker settings', async () => {
+    const folders = [{ hostPath: '/data/news', name: 'news' }]
+    const { agentMode, tasks } = await readyStores(
+      task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, mountedFolders: folders } }),
+    )
+    agentMode.setMountedFolders([{ hostPath: '/Users/ada/session-notes' }])
+    await tasks.pickAgent('t1')
+
+    await tasks.chatWithPickedAgent('hello')
+
+    await turnIdOf(0)
+    const config = sentConfig(0)
+    expect(config.modelConfig.model).toBe('Template-27B')
+    expect(config.capabilities).toEqual(['files', 'web'])
+    expect(config.mountedFolders?.map((folder) => folder.hostPath)).toEqual(['/data/news'])
+  })
+
+  it('shows its turns in the Session timeline under the Agent’s name', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+
+    await tasks.chatWithPickedAgent('hello')
+    await finishTurn(0)
+
+    await vi.waitFor(() => expect(timelineTagsOf(SESSION)).toContainEqual('Task t1'))
+  })
+
+  it('keeps its turns in the Session when the Agent is deleted', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+    await tasks.chatWithPickedAgent('hello')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(timelineTagsOf(SESSION)).toContainEqual('Task t1'))
+
+    expect(await tasks.deleteTask('t1')).toBe(true)
+
+    expect(window.electronAPI.agentMode.deleteSession).not.toHaveBeenCalled()
+    expect(agentMode.sessions[`chat-t1-${SESSION}`]?.sessionRef).toBe(SESSION)
+  })
+
+  it('is refused with the reason when the Settings Template has a problem', async () => {
+    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+
+    expect(await tasks.chatWithPickedAgent('hello')).toEqual(
+      expect.objectContaining({ ok: false, reason: 'settings-problems' }),
+    )
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('asks to download the Agent’s chat model first', async () => {
+    inference.missing = new Set(['Template-27B'])
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+
+    await tasks.chatWithPickedAgent('hello')
+
+    expect(requestDownload.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ repo_id: 'Template-27B' }),
+    ])
+    await turnIdOf(0)
+  })
+
+  it('sends nothing when no Agent is picked', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(await tasks.chatWithPickedAgent('hello')).toEqual({ ok: false, reason: 'no-task' })
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+})
+
+/** The labels the Session's saved timeline gives its agent turns. */
+function timelineTagsOf(sessionRef: string): string[] {
+  const save = vi.mocked(window.electronAPI.sessions.saveTimelineMessages)
+  return save.mock.calls
+    .filter(([ref]) => ref === sessionRef)
+    .flatMap(([, messages]) =>
+      (messages as { metadata?: { agentTurn?: { presetName: string } } }[]).map(
+        (message) => message.metadata?.agentTurn?.presetName ?? '',
+      ),
+    )
+}
 
 describe('running Steps from the prompt bar', () => {
   it('carries out the Steps one turn at a time in the Open Session, then ends', async () => {

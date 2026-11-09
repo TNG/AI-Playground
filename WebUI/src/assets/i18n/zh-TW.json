@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "顯示代理程式 {name} 的工作階段",
   "AGENT_TASKS_PROBLEM": "此代理程式的設定目前無法使用。{reason}",
   "AGENT_TASKS_RUN_BLOCKED": "無法執行此代理程式。{reason}",
+  "AGENT_CHAT_BLOCKED": "無法傳送給此代理程式。{reason}",
   "AGENT_TASK_STOP_RUN": "停止代理程式",
   "AGENT_TASK_DELETE_FAILED": "無法刪除代理程式。",
   "AGENT_TASKS_SCHEDULE": "排程 {name}",

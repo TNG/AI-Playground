@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "에이전트 {name}의 세션 보기",
   "AGENT_TASKS_PROBLEM": "이 에이전트의 설정을 지금은 사용할 수 없습니다. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "이 에이전트를 실행할 수 없습니다. {reason}",
+  "AGENT_CHAT_BLOCKED": "이 에이전트에 보낼 수 없습니다. {reason}",
   "AGENT_TASK_STOP_RUN": "에이전트 중지",
   "AGENT_TASK_DELETE_FAILED": "에이전트를 삭제할 수 없습니다.",
   "AGENT_TASKS_SCHEDULE": "{name} 예약",

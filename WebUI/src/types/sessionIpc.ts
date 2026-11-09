@@ -114,6 +114,9 @@ export const HistoryEntrySchema = z.object({
   response: z.string().optional(),
   taskName: z.string().optional(),
   stepIndex: z.number().int().nonnegative().optional(),
+  /** A turn of the chat with a saved Agent, which `preset` (Agent Maker) ran. */
+  agentId: z.string().optional(),
+  agentName: z.string().optional(),
 })
 
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>

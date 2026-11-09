@@ -60,6 +60,13 @@ export const AgentRunTagSchema = z.object({
 })
 export type AgentRunTag = z.infer<typeof AgentRunTagSchema>
 
+/** Marks a Harness Session as the chat with one saved Agent in its Session. */
+export const AgentChatTagSchema = z.object({
+  agentId: z.string().min(1),
+  agentName: z.string(),
+})
+export type AgentChatTag = z.infer<typeof AgentChatTagSchema>
+
 export const AgentSessionFileSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
@@ -79,6 +86,8 @@ export const AgentSessionFileSchema = z.object({
   sessionRef: z.string().optional(),
   /** Set when this Harness Session is one Task Run of its Session. */
   taskRun: AgentRunTagSchema.optional(),
+  /** Set when this Harness Session is the chat with a saved Agent in its Session. */
+  agentChat: AgentChatTagSchema.optional(),
   messages: z.array(z.unknown()),
 })
 export type AgentSessionFile = z.infer<typeof AgentSessionFileSchema>

@@ -12,6 +12,7 @@ import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { ensureMediaAgentEventWiring } from '@/assets/js/agents/mediaAgent'
 import { createAppError, isCancellation } from '@/assets/js/errors/appError'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { pendingVoiceTurn, speak, speakRepliesAvailable } from '@/assets/js/speech/speechIO'
 import { toolPartNameOf } from '@/lib/agentTranscript'
 import { messageText } from '@/lib/chatMessageText'
@@ -69,7 +70,25 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
 
   function submitAgent(prompt: string): void {
     options.scrollToBottom()
-    void agentTasks.submitPrompt(prompt)
+    if (agentTasks.pickedAgent) void chatWithPickedAgent(prompt)
+    else void agentTasks.submitPrompt(prompt)
+  }
+
+  async function chatWithPickedAgent(prompt: string): Promise<void> {
+    const result = await agentTasks.chatWithPickedAgent(prompt)
+    if (result.ok) return
+    promptStore.promptSubmitted = false
+    // A declined download is the user's own choice; a failed one was reported already.
+    if (!('message' in result) || result.reason.startsWith('download-')) return
+    errors.report(
+      createAppError({
+        category: 'validation',
+        code: 'agent-tasks/chat-blocked',
+        severity: 'warning',
+        surface: 'toast',
+        userMessage: fillTemplate(languages.AGENT_CHAT_BLOCKED ?? '', { reason: result.message }),
+      }),
+    )
   }
 
   // A run may be between Steps with no turn to stop, so the run is stopped instead.

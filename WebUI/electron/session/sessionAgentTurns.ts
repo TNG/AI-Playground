@@ -6,6 +6,7 @@ import type { AgentTurnEnd } from '../agent/agentTurnOutcome'
 import { appendHistoryEntry } from './sessionHistory'
 import { mutateSession, sessionDocumentOf, sessionPaths } from './sessions'
 import { afterTurn } from './sessionTitle'
+import type { AgentChatTag } from '@/types/agentSessionIpc'
 import type { ArtifactMediaType, HistoryArtifact } from '@/types/sessionIpc'
 
 const MEDIA_TYPES: Record<string, ArtifactMediaType> = {
@@ -34,6 +35,7 @@ export type AgentTurnInSession = {
   workspaceDir: string
   prompt: string
   taskRun?: { taskName: string; stepIndex: number }
+  agentChat?: AgentChatTag
 }
 
 /** Collects an agent turn's media while it runs; only files inside the Session Folder count. */
@@ -70,6 +72,7 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
           artifacts,
           ...(end.outcome === 'completed' && end.reply ? { response: end.reply } : {}),
           ...(turn.taskRun ? turn.taskRun : {}),
+          ...(turn.agentChat ? turn.agentChat : {}),
         })
         const file = await mutateSession(turn.sessionRef, (current) => ({
           ...current,

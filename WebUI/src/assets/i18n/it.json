@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "Mostra le sessioni dell'agente {name}",
   "AGENT_TASKS_PROBLEM": "Le impostazioni di questo agente non possono essere usate al momento. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "Impossibile eseguire questo agente. {reason}",
+  "AGENT_CHAT_BLOCKED": "Impossibile inviare a questo agente. {reason}",
   "AGENT_TASK_STOP_RUN": "Interrompi l'agente",
   "AGENT_TASK_DELETE_FAILED": "Impossibile eliminare l'agente.",
   "AGENT_TASKS_SCHEDULE": "Pianifica {name}",

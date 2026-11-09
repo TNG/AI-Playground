@@ -19,7 +19,12 @@ import type {
   TrialRunRecord,
 } from '@/types/agentTaskIpc'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
-import { useAgentMode, type SessionTurnInfo, type TurnOutcome } from './agentMode'
+import {
+  useAgentMode,
+  type SendToSessionResult,
+  type SessionTurnInfo,
+  type TurnOutcome,
+} from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
@@ -112,6 +117,11 @@ export type RunTaskResult =
   | { ok: false; reason: 'no-task' | 'running' | 'no-session' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
+
+export type ChatWithAgentResult = RunTaskResult | SendToSessionResult
+
+/** The Session's Harness Session key for the chat with one saved Agent. */
+const agentChatKey = (agentId: string) => `agent:${agentId}`
 
 export type SetScheduleResult =
   | { ok: true; task: AgentTask }
@@ -618,6 +628,48 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const agent = pickedAgent.value
     if (!agent) return { ok: false, reason: 'no-task' }
     return runTask(agent.id, prompt)
+  }
+
+  /**
+   * → with an Agent picked: a turn of its chat in the open Session, one Harness Session per
+   * (Agent, Session) that keeps its context and runs on the Agent's saved Settings Template.
+   */
+  async function chatWithPickedAgent(prompt: string): Promise<ChatWithAgentResult> {
+    const picked = pickedAgent.value
+    if (!picked) return { ok: false, reason: 'no-task' }
+    await agentMode.loadMcpServersFor(picked.settingsTemplate.capabilities ?? [])
+    const problems = taskProblems(picked.id)
+    if (problems.length > 0) {
+      const message = describeSettingsProblems(problems, i18n.state)
+      return { ok: false, reason: 'settings-problems', problems, message }
+    }
+    const refusal = await chatModelRefusal(picked.settingsTemplate, [{ id: 'prompt', prompt }])
+    if (refusal) return { ok: false, ...refusal }
+    const sessionRef = await sessionsStore.ensureOpenSession()
+    if (!sessionRef) return { ok: false, reason: 'no-session' }
+    // The download may have taken long enough for a delete to overtake it.
+    const agent = tasks.value.find((entry) => entry.id === picked.id)
+    if (!agent) return { ok: false, reason: 'no-task' }
+    const result = await window.electronAPI.sessions.harnessSession(
+      sessionRef,
+      agentChatKey(agent.id),
+    )
+    if (!result.success) return { ok: false, reason: 'no-session' }
+    const { harnessSessionId, workspaceDir } = result.harness
+    const settings = cloneForIpc(agent.settingsTemplate)
+    const agentChat = { agentId: agent.id, agentName: agent.name }
+    if (!agentMode.sessions[harnessSessionId]) {
+      agentMode.createSession({
+        id: harnessSessionId,
+        sessionRef,
+        workspaceDir,
+        settings,
+        presetName: AGENT_PRESET,
+        title: agent.name,
+        agentChat,
+      })
+    }
+    return agentMode.sendToSession(harnessSessionId, prompt, { settings, agentChat })
   }
 
   /** A deleted Agent's Sessions fall back to Agent Maker. */
@@ -1936,6 +1988,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     agentSettingsProblems,
     pickAgent,
     runPickedAgent,
+    chatWithPickedAgent,
     setSchedule,
     removeSchedule,
     taskSchedule,

@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "エージェント {name} のセッションを表示",
   "AGENT_TASKS_PROBLEM": "このエージェントの設定は現在使用できません。{reason}",
   "AGENT_TASKS_RUN_BLOCKED": "このエージェントを実行できません。{reason}",
+  "AGENT_CHAT_BLOCKED": "このエージェントに送信できません。{reason}",
   "AGENT_TASK_STOP_RUN": "エージェントを停止",
   "AGENT_TASK_DELETE_FAILED": "エージェントを削除できませんでした。",
   "AGENT_TASKS_SCHEDULE": "{name} をスケジュール",

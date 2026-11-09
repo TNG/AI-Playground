@@ -835,6 +835,7 @@
   "AGENT_TASKS_SHOW_SESSIONS": "Mostrar las sesiones del agente {name}",
   "AGENT_TASKS_PROBLEM": "La configuración de este agente no se puede usar ahora mismo. {reason}",
   "AGENT_TASKS_RUN_BLOCKED": "No se puede ejecutar este agente. {reason}",
+  "AGENT_CHAT_BLOCKED": "No se puede enviar a este agente. {reason}",
   "AGENT_TASK_STOP_RUN": "Detener el agente",
   "AGENT_TASK_DELETE_FAILED": "No se pudo eliminar el agente.",
   "AGENT_TASKS_SCHEDULE": "Programar {name}",

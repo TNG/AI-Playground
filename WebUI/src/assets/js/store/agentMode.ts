@@ -24,6 +24,7 @@ import {
 } from '@/lib/fileBackedPreferences'
 import {
   LegacyAgentSessionStateSchema,
+  type AgentChatTag,
   type AgentSessionBootstrap,
   type AgentSessionSettings,
   type AgentTaskStep,
@@ -82,6 +83,7 @@ import {
   snapshotSession,
   takeLegacyPlanningThinkingOnly,
   toggleCapabilityIds,
+  turnLabelOf,
   type AgentSessionRecord,
 } from './agentModeSessions'
 import {
@@ -928,6 +930,7 @@ export const useAgentMode = defineStore(
       /** Set for the one turn a channel Answer started. */
       answer?: AgentAnswerOrigin
       taskRun?: AgentModeTurnConfig['taskRun']
+      agentChat?: AgentChatTag
     }
     const turnContexts: Record<string, TurnContext> = {}
 
@@ -955,6 +958,7 @@ export const useAgentMode = defineStore(
         ],
         settings: { ...settings },
         stored: true,
+        ...(record.agentChat ? { agentChat: record.agentChat } : {}),
       }
     }
 
@@ -1004,6 +1008,7 @@ export const useAgentMode = defineStore(
         tools: stored.tools,
         answer: context.answer,
         taskRun: context.taskRun,
+        agentChat: context.agentChat,
       })
     }
 
@@ -1140,7 +1145,7 @@ export const useAgentMode = defineStore(
         if (!open && !runtime.processing.value) continue
         const record = sessions.value[id]
         const tag = {
-          presetName: open ? agentPresetName.value : (record?.presetName ?? AGENT_PRESET),
+          presetName: open ? agentPresetName.value : turnLabelOf(record),
           harnessSessionId: id,
           ...(record?.taskRun ? { taskRun: record.taskRun } : {}),
         }
@@ -1437,7 +1442,7 @@ export const useAgentMode = defineStore(
     function saveToSessionTimeline(record: AgentSessionRecord): void {
       if (!record.sessionRef || record.messages.length === 0) return
       const agentTurn = {
-        presetName: record.presetName ?? AGENT_PRESET,
+        presetName: turnLabelOf(record),
         harnessSessionId: record.id,
         ...(record.taskRun ? { taskRun: record.taskRun } : {}),
       }
@@ -1977,6 +1982,7 @@ export const useAgentMode = defineStore(
       title: string
       taskId?: string
       taskRun?: AgentSessionRecord['taskRun']
+      agentChat?: AgentChatTag
       steps?: AgentTaskStep[]
     }): string {
       const id = input.id ?? mintSessionId()
@@ -1997,6 +2003,7 @@ export const useAgentMode = defineStore(
         ...(input.steps ? { steps: cloneForIpc(input.steps) } : {}),
         ...(input.sessionRef ? { sessionRef: input.sessionRef } : {}),
         ...(input.taskRun ? { taskRun: input.taskRun } : {}),
+        ...(input.agentChat ? { agentChat: input.agentChat } : {}),
       })
       return id
     }
@@ -2045,9 +2052,15 @@ export const useAgentMode = defineStore(
         answer?: AgentAnswerOrigin
         /** A Task Run's Step. */
         taskRun?: AgentModeTurnConfig['taskRun']
+        /** The chat with a saved Agent, as the Agent is named now. */
+        agentChat?: AgentChatTag
         metadata?: AgentMessageMetadata
       } = {},
     ): Promise<SendToSessionResult> {
+      const stored = sessions.value[sessionId]
+      const renamed =
+        options.agentChat && stored && stored.agentChat?.agentName !== options.agentChat.agentName
+      if (renamed) rewriteSession(sessionId, { ...stored, agentChat: options.agentChat })
       const record = sessions.value[sessionId]
       const live =
         sessionId === openSessionId.value && !options.useStoredSettings && !options.settings

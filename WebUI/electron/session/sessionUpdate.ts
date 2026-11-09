@@ -13,7 +13,7 @@ const HEADER = 'Session Update — what happened in this Session since your last
 export type SessionUpdateConsumer = {
   /** Its cursor's key in `session.json` `updateCursors`. */
   key: string
-  /** Entries of this preset are the consumer's own turns, not news — except Task Run Steps. */
+  /** Entries of this preset are the consumer's own turns — except Task Run Steps and Agent chats. */
   ownPreset?: string
   isOwn?: (entry: HistoryEntry) => boolean
   /** Where the consumer opens files from; Session Folder paths inside it are shown relative to it. */
@@ -43,7 +43,7 @@ function outcomeOf(entry: HistoryEntry, artifactPath: (p: string) => string): st
 
 function updateLine(entry: HistoryEntry, artifactPath: (p: string) => string): string {
   const prompt = excerpt(entry.prompt, EXCERPT_CHARS)
-  return `[${clock(entry.timestamp)}] ${entry.preset}: "${prompt}" → ${outcomeOf(entry, artifactPath)}`
+  return `[${clock(entry.timestamp)}] ${entry.agentName ?? entry.preset}: "${prompt}" → ${outcomeOf(entry, artifactPath)}`
 }
 
 const omittedLine = (count: number) => `${count} earlier entries omitted — use \`session_history\``
@@ -104,7 +104,7 @@ async function asSeenFrom(
 }
 
 function isOwnTurn(entry: HistoryEntry, consumer: SessionUpdateConsumer): boolean {
-  if (entry.preset === consumer.ownPreset && !entry.taskName) return true
+  if (entry.preset === consumer.ownPreset && !entry.taskName && !entry.agentId) return true
   return consumer.isOwn?.(entry) ?? false
 }
 

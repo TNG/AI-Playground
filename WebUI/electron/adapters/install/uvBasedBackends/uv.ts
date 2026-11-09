@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { appLoggerInstance } from '../../../observability/logger.ts'
 import { isSharedAllUsersInstall, packagedResourcesRoot } from '../../../kernel/aipgRoot.ts'
 import { withSharedUvLinkMode } from './uvLinkMode.ts'
+import { applyOfflineUv, OFFLINE_PYTHON_VERSION, offlineUvMarkerPath } from './offlineUv.ts'
 import path from 'path'
 import fs from 'fs'
 import { spawn } from 'child_process'
@@ -108,6 +109,25 @@ const uv = (
       reject(error)
     })
   })
+
+const forProject = (command: string[], backend: string, extraEnv?: Record<string, string>) =>
+  applyOfflineUv(command, {
+    baseDir: aipgBaseDir,
+    project: backend,
+    markerExists: fs.existsSync(offlineUvMarkerPath(aipgBaseDir)),
+    extraEnv,
+  })
+
+const ensureOfflinePython = async (
+  backend: string,
+  logger: ReturnType<typeof loggerFor>,
+  extraEnv?: Record<string, string>,
+) => {
+  const applied = forProject(['python', 'install', OFFLINE_PYTHON_VERSION], backend, extraEnv)
+  if (!applied.command.includes('--offline')) return
+  logger.info(`Installing managed Python ${OFFLINE_PYTHON_VERSION} from the offline uv cache`)
+  await uv(applied.command, logger, { ...applied.env, UV_PYTHON_PREFERENCE: 'only-managed' })
+}
 
 const uvWithJsonOutput = (
   uvCommand: string[],
@@ -340,31 +360,31 @@ export const installBackend = async (
   const logger = loggerFor(`uv.sync.${backend}`)
   await assertUv(logger)
   await removeBrokenBackendVenv(backend, logger)
-  const uvVenvCommand = [
-    'venv',
-    '--directory',
-    aipgBaseDir,
-    '--project',
+  await ensureOfflinePython(backend, logger, extraEnv)
+  const uvVenv = forProject(
+    ['venv', '--directory', aipgBaseDir, '--project', backend, '--allow-existing', '--relocatable'],
     backend,
-    '--allow-existing',
-    '--relocatable',
-  ]
-  const uvSyncCommand = ['sync', '--directory', aipgBaseDir, '--project', backend]
+    extraEnv,
+  )
+  const uvSync = forProject(
+    ['sync', '--directory', aipgBaseDir, '--project', backend],
+    backend,
+    extraEnv,
+  )
   logger.info(
-    `Installing backend: ${backend} with ${JSON.stringify(uvVenvCommand)} and ${JSON.stringify(uvSyncCommand)}`,
+    `Installing backend: ${backend} with ${JSON.stringify(uvVenv.command)} and ${JSON.stringify(uvSync.command)}`,
   )
   try {
-    await uv(uvVenvCommand, logger, extraEnv)
-    return await uv(uvSyncCommand, logger, extraEnv)
+    await uv(uvVenv.command, logger, uvVenv.env)
+    return await uv(uvSync.command, logger, uvSync.env)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
 
-    if (isHashMismatchError(errorMessage)) {
+    if (isHashMismatchError(errorMessage) && !uvSync.command.includes('--offline')) {
       logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
       onCacheCorruptionDetected?.()
-      await uv(uvVenvCommand, logger, extraEnv)
-      const noCacheCommand = [...uvSyncCommand, '--no-cache']
-      return await uv(noCacheCommand, logger, extraEnv)
+      await uv(uvVenv.command, logger, uvVenv.env)
+      return await uv([...uvSync.command, '--no-cache'], logger, uvSync.env)
     }
 
     throw error
@@ -385,31 +405,31 @@ export const installBackendWithExtra = async (
   const logger = loggerFor(`uv.sync-extra.${backend}.${extra}`)
   await assertUv(logger)
   await removeBrokenBackendVenv(backend, logger)
-  const uvVenvCommand = [
-    'venv',
-    '--directory',
-    aipgBaseDir,
-    '--project',
+  await ensureOfflinePython(backend, logger, extraEnv)
+  const uvVenv = forProject(
+    ['venv', '--directory', aipgBaseDir, '--project', backend, '--allow-existing', '--relocatable'],
     backend,
-    '--allow-existing',
-    '--relocatable',
-  ]
-  const uvSyncCommand = ['sync', '--directory', aipgBaseDir, '--project', backend, '--extra', extra]
+    extraEnv,
+  )
+  const uvSync = forProject(
+    ['sync', '--directory', aipgBaseDir, '--project', backend, '--extra', extra],
+    backend,
+    extraEnv,
+  )
   logger.info(
-    `Installing backend w/ extra: ${backend} (${extra}) with ${JSON.stringify(uvVenvCommand)} and ${JSON.stringify(uvSyncCommand)}`,
+    `Installing backend w/ extra: ${backend} (${extra}) with ${JSON.stringify(uvVenv.command)} and ${JSON.stringify(uvSync.command)}`,
   )
   try {
-    await uv(uvVenvCommand, logger, extraEnv)
-    return await uv(uvSyncCommand, logger, extraEnv)
+    await uv(uvVenv.command, logger, uvVenv.env)
+    return await uv(uvSync.command, logger, uvSync.env)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
 
-    if (isHashMismatchError(errorMessage)) {
+    if (isHashMismatchError(errorMessage) && !uvSync.command.includes('--offline')) {
       logger.warn('Hash mismatch detected in UV cache during sync-extra, retrying with --no-cache')
       onCacheCorruptionDetected?.()
-      await uv(uvVenvCommand, logger, extraEnv)
-      const noCacheCommand = [...uvSyncCommand, '--no-cache']
-      return await uv(noCacheCommand, logger, extraEnv)
+      await uv(uvVenv.command, logger, uvVenv.env)
+      return await uv([...uvSync.command, '--no-cache'], logger, uvSync.env)
     }
 
     throw error
@@ -445,9 +465,10 @@ export const checkBackend = async (backend: string, extra?: UvExtra) => {
   // which pulls the CUDA index on Linux — and reports a spurious mismatch
   // against an xpu/cpu venv.
   if (extra) uvCommand.push('--extra', extra)
-  logger.info(`Checking backend: ${backend} with ${JSON.stringify(uvCommand)}`)
+  const applied = forProject(uvCommand, backend)
+  logger.info(`Checking backend: ${backend} with ${JSON.stringify(applied.command)}`)
 
-  return uv(uvCommand, logger)
+  return uv(applied.command, logger, applied.env)
 }
 
 export interface BackendCheckDetails {
@@ -533,10 +554,11 @@ export const checkBackendWithDetails = async (
   // Otherwise uv resolves the base deps (generic torch → CUDA index on Linux)
   // and reports a phantom xpu→cuda mismatch.
   if (extra) uvCommand.push('--extra', extra)
-  logger.info(`Checking backend with details: ${backend} with ${JSON.stringify(uvCommand)}`)
+  const applied = forProject(uvCommand, backend)
+  logger.info(`Checking backend with details: ${backend} with ${JSON.stringify(applied.command)}`)
 
   try {
-    const result = await uvWithJsonOutput(uvCommand, logger)
+    const result = await uvWithJsonOutput(applied.command, logger, applied.env)
     const parsedResult = z
       .object({
         sync: z.object({

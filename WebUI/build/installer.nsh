@@ -153,8 +153,12 @@
     ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Installed"
     ${If} $0 != "1"
       DetailPrint "Installing Microsoft Visual C++ Redistributable..."
+      IfFileExists "$EXEDIR\payload\vc_redist.x64.exe" 0 +3
+      StrCpy $1 "$EXEDIR\payload\vc_redist.x64.exe"
+      Goto +3
       inetc::get /CAPTION " " /BANNER "Downloading Microsoft Visual C++ Redistributable..." "https://aka.ms/vs/17/release/vc_redist.x64.exe" "$TEMP\vc_redist.x64.exe"
-      ExecWait "$TEMP\vc_redist.x64.exe /install /norestart"
+      StrCpy $1 "$TEMP\vc_redist.x64.exe"
+      ExecWait '"$1" /install /norestart'
     ${EndIf}
       
     SetDetailsPrint both
@@ -338,6 +342,30 @@
       Delete "$R1\install-config.json"
       Delete "$R1\shared-resources-dir.txt"
     ${endif}
+
+    ; Sibling payload from `npm run build:offline`. Absent for a normal install.
+    IfFileExists "$EXEDIR\payload\install-offline.cmd" 0 offlinePayloadDone
+    DetailPrint "Copying offline models and Python packages..."
+    StrCpy $R9 "$INSTDIR\resources"
+    ${if} $installMode != "CurrentUser"
+      ${if} $AipgShareState == "1"
+        StrCpy $R9 "$AipgSharedDir\resources"
+      ${else}
+        ReadEnvStr $R8 "LOCALAPPDATA"
+        ${if} $R8 != ""
+          StrCpy $R9 "$R8\ai-playground\resources"
+        ${endif}
+      ${endif}
+    ${endif}
+    nsExec::ExecToLog '"$EXEDIR\payload\install-offline.cmd" "$INSTDIR" "$R9"'
+    Pop $R8
+    ${if} $R8 != 0
+      DetailPrint "Offline payload setup failed (exit $R8)."
+      IfSilent +2
+      MessageBox MB_ICONSTOP "AI Playground could not finish the offline setup (exit $R8).$\r$\n$\r$\nThe installer is next to a payload folder. Setup stops so the app is not left half-installed."
+      Abort
+    ${endif}
+    offlinePayloadDone:
 
 !macroend
 

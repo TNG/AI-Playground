@@ -58,30 +58,50 @@ function Stop-VenvProcesses([string[]]$venvs) {
   if ($stopped) { Start-Sleep -Milliseconds 500 }
 }
 
+$cmd = Join-Path $env:SystemRoot 'System32\cmd.exe'
+
+# Every entry under $dir that is not a link, never descending into one. attrib /S walks into
+# junctions, so it would clear read-only bits on whatever a planted link points at.
+function Get-TreeEntries([string]$dir) {
+  $pending = New-Object System.Collections.Stack
+  $pending.Push((New-Object System.IO.DirectoryInfo (Get-LongPath $dir)))
+  while ($pending.Count -gt 0) {
+    $current = $pending.Pop()
+    try { $entries = @($current.EnumerateFileSystemInfos()) } catch { continue }
+    foreach ($entry in $entries) {
+      if (Test-ReparsePoint $entry) { continue }
+      $entry
+      if ($entry -is [System.IO.DirectoryInfo]) { $pending.Push($entry) }
+    }
+  }
+}
+
 function Remove-Venv([string]$venv) {
   $item = Get-Item -LiteralPath $venv -Force -ErrorAction SilentlyContinue
   if ($item -and (Test-ReparsePoint $item)) {
     # rd on a link removes the link only, never its target.
-    & cmd.exe /d /c rmdir $venv 2>$null | Out-Null
+    & $cmd /d /c rmdir $venv 2>$null | Out-Null
     if (Test-Path -LiteralPath $venv) { return 'it is a link that could not be removed' }
     return $null
   }
 
-  $longPath = Get-LongPath $venv
-  & attrib.exe -R /S /D (Join-Path $venv '*') 2>$null | Out-Null
-  & cmd.exe /d /c rd /s /q $longPath 2>$null | Out-Null
-  if (-not (Test-Path -LiteralPath $venv)) { return $null }
-  Start-Sleep -Milliseconds 500
-
-  # The retry, and rd does not say which file stopped it; Remove-Item does.
-  $reason = 'the folder could not be removed'
-  try {
-    Remove-Item -LiteralPath $longPath -Recurse -Force -ErrorAction Stop
-  } catch {
-    $reason = ($_.Exception.Message -replace '[\r\n\t]+', ' ').Trim()
+  # rd /s refuses read-only files but removes links inside the tree without following them.
+  foreach ($entry in Get-TreeEntries $venv) {
+    if ($entry.Attributes -band [System.IO.FileAttributes]::ReadOnly) {
+      try { $entry.Attributes = $entry.Attributes -band -bnot [System.IO.FileAttributes]::ReadOnly } catch {}
+    }
   }
-  if (Test-Path -LiteralPath $venv) { return $reason }
-  return $null
+  $longPath = Get-LongPath $venv
+  foreach ($attempt in 1..2) {
+    & $cmd /d /c rd /s /q $longPath 2>$null | Out-Null
+    if (-not (Test-Path -LiteralPath $venv)) { return $null }
+    Start-Sleep -Milliseconds 500
+  }
+
+  # rd does not say what stopped it; what it left behind is what was held open.
+  $leftover = Get-TreeEntries $venv | Where-Object { $_ -is [System.IO.FileInfo] } | Select-Object -First 1
+  if ($leftover) { return "could not delete $($leftover.FullName -replace '^\\\\\?\\', '')" }
+  return 'the folder could not be removed'
 }
 
 $roots = Get-Content -LiteralPath $RootsFile | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique

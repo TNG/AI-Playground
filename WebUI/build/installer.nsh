@@ -429,12 +429,14 @@
   Pop $0
 !macroend
 
-; Remove every backend .venv the app created. RMDir /r gives up on paths past
-; MAX_PATH (ComfyUI site-packages) and never reaches the per-user or shared
-; roots, so this runs before it. An update only clears $INSTDIR: the other roots
-; keep their environments for the new version. Nothing is left silently: a
-; blocked removal is reported. It is not retried elevated, because the script and
-; its roots file sit in the user-writable $PLUGINSDIR.
+; Remove the backend .venv folders under $INSTDIR and the per-user root. RMDir /r
+; gives up on paths past MAX_PATH (ComfyUI site-packages) and never reaches the
+; per-user root, so this runs before it. An update only clears $INSTDIR: the
+; per-user root keeps its environments for the new version. Nothing is left
+; silently: a blocked removal is reported. It is not retried elevated, because
+; the script and its roots file sit in the user-writable $PLUGINSDIR.
+; The shared root is left alone: every account can write to it, so a planted link
+; could redirect this (possibly elevated) delete onto another account's files.
 ;   $R6 roots file  $R5 report file  $R4 exit code  $R2 report text
 !macro aipgRemoveBackendVenvs
   InitPluginsDir
@@ -453,15 +455,11 @@
       ${if} $R8 != ""
         FileWriteUTF16LE $R9 "$R8\ai-playground\resources$\r$\n"
       ${endif}
-      !insertmacro aipgReadSharedResourcesDir $R3
-      ${if} $R3 != ""
-        FileWriteUTF16LE $R9 "$R3\resources$\r$\n"
-      ${endif}
     ${endif}
     FileClose $R9
 
     DetailPrint "Removing backend Python environments..."
-    nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-backend-venvs.ps1" -RootsFile "$R6" -ReportFile "$R5"'
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-backend-venvs.ps1" -RootsFile "$R6" -ReportFile "$R5"'
     Pop $R4
 
     ${if} $R4 != 0
@@ -534,13 +532,12 @@
     Delete "$R6"
   ${endif}
 
-  ; Reads sharedResourcesDir, so it must run before the HKLM key is deleted.
   !insertmacro aipgRemoveBackendVenvs
 
   ; Remove only the machine-wide install markers (mode + shared-folder path) so a
-  ; future reinstall re-prompts for the choices. Apart from their .venv folders,
-  ; the shared resources tree and each user's per-user working tree
-  ; (%LOCALAPPDATA%\ai-playground) are intentionally preserved — they may hold
+  ; future reinstall re-prompts for the choices. The shared resources tree and,
+  ; apart from the invoking user's .venv folders, each user's per-user working
+  ; tree (%LOCALAPPDATA%\ai-playground) are intentionally preserved — they may hold
   ; many GB of admin-provisioned models and cannot be safely enumerated for
   ; every user profile from a machine-wide uninstaller.
   ReadEnvStr $R0 "PUBLIC"

@@ -306,7 +306,7 @@ const bottomBarProps = computed(() => ({
   sttUnavailableHint: sttUnavailableHint.value,
   showSend: !isSttPreset.value && !downloadGroup.value,
   readyForNewSubmit: readyForNewSubmit.value,
-  canRunSteps: canRunSteps.value,
+  pickedAgentName: pickedAgentName.value,
   settingsBlocked: settingsProblems.value.length > 0,
   isSlashCommand: isSlashCommand.value,
   isStopping: isStopping.value,
@@ -317,7 +317,7 @@ const bottomBarEvents = {
   camera: handleCameraClick,
   record: handleRecordingClick,
   send: handleSubmitPromptClick,
-  runSteps: handleRunStepsClick,
+  runAgent: handleRunAgentClick,
   cancel: handleCancelClick,
 }
 
@@ -702,13 +702,13 @@ function handleSubmitPromptClick() {
 }
 
 /** A picked Agent can be run; Send then talks to it alone. */
-const canRunSteps = computed(
-  () => promptStore.getCurrentMode() === 'agent' && !!agentTasks.pickedAgent,
+const pickedAgentName = computed(() =>
+  promptStore.getCurrentMode() === 'agent' ? agentTasks.pickedAgent?.name : undefined,
 )
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
 
-async function handleRunStepsClick() {
+async function handleRunAgentClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   promptStore.promptSubmitted = true
   const text = prompt.value

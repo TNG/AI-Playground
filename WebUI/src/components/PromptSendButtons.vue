@@ -2,20 +2,20 @@
   <!-- Hidden for the STT preset, which submits via its own record/upload controls. -->
   <template v-if="showSend">
     <TooltipProvider v-if="readyForNewSubmit" :delay-duration="200">
-      <Tooltip v-if="canRunSteps">
+      <Tooltip v-if="pickedAgentName">
         <TooltipTrigger as-child>
           <Button
-            @click="emit('runSteps')"
-            :aria-label="languages?.AGENT_STEPS_RUN"
+            @click="emit('runAgent')"
+            :aria-label="languages?.AGENT_PICKED_RUN"
             :disabled="settingsBlocked || isSlashCommand"
             class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px] flex items-center justify-center"
           >
             <PlayIcon class="size-4" aria-hidden="true" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">{{ languages?.AGENT_STEPS_RUN_TIP }}</TooltipContent>
+        <TooltipContent side="top">{{ agentTip(languages?.AGENT_PICKED_RUN_TIP) }}</TooltipContent>
       </Tooltip>
-      <Tooltip :disabled="!canRunSteps">
+      <Tooltip :disabled="!pickedAgentName">
         <TooltipTrigger as-child>
           <Button
             @click="emit('send')"
@@ -27,7 +27,7 @@
             →
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="top">{{ languages?.AGENT_STEPS_SEND_TIP }}</TooltipContent>
+        <TooltipContent side="top">{{ agentTip(languages?.AGENT_PICKED_SEND_TIP) }}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
     <Button
@@ -56,11 +56,12 @@ import { getCurrentInstance } from 'vue'
 import { PlayIcon } from '@heroicons/vue/24/solid'
 import Button from '@/components/ui/button/Button.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { fillTemplate } from '@/lib/fillTemplate'
 
-defineProps<{
+const props = defineProps<{
   showSend: boolean
   readyForNewSubmit: boolean
-  canRunSteps: boolean
+  pickedAgentName?: string
   settingsBlocked: boolean
   isSlashCommand: boolean
   isStopping: boolean
@@ -68,9 +69,12 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'send'): void
-  (e: 'runSteps'): void
+  (e: 'runAgent'): void
   (e: 'cancel'): void
 }>()
 
 const languages = getCurrentInstance()?.appContext.config.globalProperties.languages
+
+const agentTip = (template: string | undefined) =>
+  fillTemplate(template ?? '', { agent: props.pickedAgentName ?? '' })
 </script>

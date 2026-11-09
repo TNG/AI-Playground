@@ -59,12 +59,12 @@
     <PromptSendButtons
       :show-send="showSend"
       :ready-for-new-submit="readyForNewSubmit"
-      :can-run-steps="canRunSteps"
+      :picked-agent-name="pickedAgentName"
       :settings-blocked="settingsBlocked"
       :is-slash-command="isSlashCommand"
       :is-stopping="isStopping"
       @send="emit('send')"
-      @run-steps="emit('runSteps')"
+      @run-agent="emit('runAgent')"
       @cancel="emit('cancel')"
     />
   </div>
@@ -105,7 +105,8 @@ defineProps<{
   sttUnavailableHint: string
   showSend: boolean
   readyForNewSubmit: boolean
-  canRunSteps: boolean
+  /** Set while an Agent is picked: ▶ runs it, Send chats with it. */
+  pickedAgentName?: string
   settingsBlocked: boolean
   isSlashCommand: boolean
   isStopping: boolean
@@ -116,7 +117,7 @@ const emit = defineEmits<{
   (e: 'camera'): void
   (e: 'record'): void
   (e: 'send'): void
-  (e: 'runSteps'): void
+  (e: 'runAgent'): void
   (e: 'cancel'): void
 }>()
 

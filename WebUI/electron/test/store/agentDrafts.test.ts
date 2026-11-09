@@ -324,6 +324,8 @@ beforeEach(() => {
           },
         })),
         discardTrialRun: vi.fn(async () => ({ success: true })),
+        readTrialRuns: vi.fn(async () => ({ success: true, trialRuns: [] })),
+        saveTrialRun: vi.fn(async () => ({ success: true })),
       },
       getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },

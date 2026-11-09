@@ -123,3 +123,19 @@ export const AgentDraftsFileSchema = z.object({
   schemaVersion: z.literal(1),
   drafts: z.array(AgentDraftSchema),
 })
+
+/**
+ * Where an Agent's Trial Run is, kept beside its scratch folder so a reloaded window can pick it
+ * up. `stepIndex` is 1-based; `stepCount` is where it stops, the last Step unless chosen earlier.
+ */
+export const TrialRunRecordSchema = z.object({
+  agentId: z.string().min(1),
+  harnessSessionId: z.string().min(1),
+  name: z.string(),
+  stepIndex: z.number(),
+  stepCount: z.number(),
+  startedAt: z.number(),
+  state: z.enum(['running', 'completed', 'failed', 'stopped']),
+  message: z.string().optional(),
+})
+export type TrialRunRecord = z.infer<typeof TrialRunRecordSchema>

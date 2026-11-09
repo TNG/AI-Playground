@@ -142,6 +142,25 @@ describe('collectInFlightWork', () => {
     expect(collectInFlightWork(sources({ rendererWork: [between] }))).toEqual([between])
   })
 
+  it('names a Trial Run in place of the agent turn that is its Step', () => {
+    const trialRun: InFlightWorkItem = {
+      kind: 'trial-run',
+      agentId: 'agent-1',
+      sessionId: 'trial-harness',
+      name: 'Morning news',
+      state: { status: 'step', index: 1, count: 2 },
+    }
+
+    const items = collectInFlightWork(
+      sources({
+        agentTurns: [{ sessionId: 'trial-harness', name: 'Morning news' }],
+        rendererWork: [trialRun],
+      }),
+    )
+
+    expect(items).toEqual([trialRun])
+  })
+
   it('keeps an agent turn in another session', () => {
     const items = collectInFlightWork(
       sources({

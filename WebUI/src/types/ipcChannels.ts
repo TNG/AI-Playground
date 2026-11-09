@@ -8,7 +8,7 @@ import type {
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
-import type { AgentDraft, AgentTask } from './agentTaskIpc'
+import type { AgentDraft, AgentTask, TrialRunRecord } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
 import type {
@@ -582,6 +582,20 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every Trial Run whose progress was kept, for a window picking them up after a reload. */
+  'agentMode:readTrialRuns': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ trialRuns: TrialRunRecord[] }>,
+  },
+  /** Keep where a Trial Run is; ignored once it was thrown away or a newer one replaced it. */
+  'agentMode:saveTrialRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [TrialRunRecord],
     result: null as unknown as IpcMutationResult,
   },
   /** Copy an attached file into the workspace; the answer carries its relative path. */

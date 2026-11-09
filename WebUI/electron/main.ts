@@ -368,6 +368,8 @@ import {
 } from './persist/userDataPaths.ts'
 import {
   discardTrialRun,
+  readTrialRuns,
+  saveTrialRun,
   setTrialRunDeps,
   trialRunHarnessFor,
   wipeTrialRuns,
@@ -1937,6 +1939,8 @@ function initEventHandle() {
       deleteAgentDraft,
       trialRunHarnessFor,
       discardTrialRun,
+      readTrialRuns,
+      saveTrialRun,
       forgetSessionMessages,
       appLogger: appLoggerInstance,
     }),

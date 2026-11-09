@@ -32,6 +32,7 @@
         v-if="globalSetup.loadingState === 'running' && showHomeAgentToggle"
         class="self-center"
       />
+      <TrialRunIndicator v-if="globalSetup.loadingState === 'running'" />
       <button
         v-if="showDebugSettings && !demoMode.enabled"
         :title="languages.COM_SETTINGS"
@@ -284,6 +285,7 @@ import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
 import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
 import ModelManager from '@/views/ModelManager.vue'
 import AgentLibrary from '@/views/AgentLibrary.vue'
+import TrialRunIndicator from '@/components/TrialRunIndicator.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
 import { debugSettingsVisible } from './assets/js/store/debugSettings.ts'

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { TrialRunRecord } from '@/types/agentTaskIpc'
 
 // Trial Run folders, driven against a real temp dir: one per Agent, the next
 // one throwing the previous away with its Harness Session, all gone at restart.
@@ -16,8 +17,14 @@ vi.mock('../../observability/logger', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const { discardTrialRun, setTrialRunDeps, trialRunHarnessFor, wipeTrialRuns } =
-  await import('../../agent/trialRuns')
+const {
+  discardTrialRun,
+  readTrialRuns,
+  saveTrialRun,
+  setTrialRunDeps,
+  trialRunHarnessFor,
+  wipeTrialRuns,
+} = await import('../../agent/trialRuns')
 
 const deletedHarnesses: string[] = []
 let tmpRoot = ''
@@ -92,4 +99,52 @@ describe('Trial Run folders', () => {
   it('refuses an Agent id that would leave the trials folder', async () => {
     await expect(trialRunHarnessFor('../escape')).rejects.toThrow()
   })
+
+  it('keeps where a Trial Run is, for a window that reloads', async () => {
+    const harness = await trialRunHarnessFor('agent-1')
+    const run = trialRecord('agent-1', harness.harnessSessionId)
+
+    await saveTrialRun(run)
+
+    expect(await readTrialRuns()).toEqual([run])
+  })
+
+  it('lists a Trial Run whose progress was never kept as nothing', async () => {
+    await trialRunHarnessFor('agent-1')
+
+    expect(await readTrialRuns()).toEqual([])
+  })
+
+  it('does not bring a thrown-away Trial Run back', async () => {
+    const harness = await trialRunHarnessFor('agent-1')
+    await discardTrialRun('agent-1')
+
+    await saveTrialRun(trialRecord('agent-1', harness.harnessSessionId))
+
+    expect(await readTrialRuns()).toEqual([])
+    expect(await exists(path.join(paths.trials, 'agent-1'))).toBe(false)
+  })
+
+  it('does not let the previous Trial Run overwrite the next', async () => {
+    const first = await trialRunHarnessFor('agent-1')
+    const second = await trialRunHarnessFor('agent-1')
+    const next = trialRecord('agent-1', second.harnessSessionId)
+    await saveTrialRun(next)
+
+    await saveTrialRun({ ...trialRecord('agent-1', first.harnessSessionId), state: 'stopped' })
+
+    expect(await readTrialRuns()).toEqual([next])
+  })
 })
+
+function trialRecord(agentId: string, harnessSessionId: string): TrialRunRecord {
+  return {
+    agentId,
+    harnessSessionId,
+    name: 'Morning news',
+    stepIndex: 2,
+    stepCount: 3,
+    startedAt: 100,
+    state: 'running',
+  }
+}

@@ -3,7 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
-import type { AgentDraft, AgentTask } from '@/types/agentTaskIpc'
+import type { AgentDraft, AgentTask, TrialRunRecord } from '@/types/agentTaskIpc'
+import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 
 // Trial Runs: the Agents store runs an Agent's Draft from the Agent Library in a
@@ -189,6 +190,9 @@ const openRecord = {
 
 let storedTasks: AgentTask[]
 let storedDrafts: AgentDraft[]
+/** Main's Trial Run folders: the Harness Session each Agent's holds, and its kept progress. */
+let trialFolders: Record<string, { harnessSessionId: string; run?: TrialRunRecord }>
+const reportInFlightWork = vi.fn((_work: InFlightWorkItem[]) => {})
 const kernelListeners = new Set<(event: KernelEvent) => void>()
 const pushKernelEvent = (event: KernelEvent) => {
   for (const listener of [...kernelListeners]) listener(event)
@@ -223,6 +227,7 @@ beforeEach(() => {
   seq = 10
   storedTasks = []
   storedDrafts = []
+  trialFolders = {}
   nextSessionId = SESSION
   activePreset.state!.preset = AGENT
   inference.live.activeModel = 'Live-9B'
@@ -328,15 +333,31 @@ beforeEach(() => {
         readDrafts: vi.fn(async () => ({ success: true, drafts: storedDrafts })),
         saveDraft: vi.fn(async () => ({ success: true })),
         deleteDraft: vi.fn(async () => ({ success: true })),
-        trialRunHarness: vi.fn(async (agentId: string) => ({
+        trialRunHarness: vi.fn(async (agentId: string) => {
+          const harnessSessionId = `aipg-agent-trial-${++trialHarnesses}`
+          trialFolders[agentId] = { harnessSessionId }
+          return {
+            success: true,
+            harness: { harnessSessionId, workspaceDir: `/trials/${agentId}/files` },
+          }
+        }),
+        discardTrialRun: vi.fn(async (agentId: string) => {
+          delete trialFolders[agentId]
+          return { success: true }
+        }),
+        readTrialRuns: vi.fn(async () => ({
           success: true,
-          harness: {
-            harnessSessionId: `aipg-agent-trial-${++trialHarnesses}`,
-            workspaceDir: `/trials/${agentId}/files`,
-          },
+          trialRuns: Object.values(trialFolders).flatMap((folder) =>
+            folder.run ? [structuredClone(folder.run)] : [],
+          ),
         })),
-        discardTrialRun: vi.fn(async () => ({ success: true })),
+        saveTrialRun: vi.fn(async (run: TrialRunRecord) => {
+          const folder = trialFolders[run.agentId]
+          if (folder?.harnessSessionId === run.harnessSessionId) folder.run = structuredClone(run)
+          return { success: true }
+        }),
       },
+      reportInFlightWork,
       getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
     },
@@ -651,5 +672,169 @@ describe('a Trial Run', () => {
       prompt: { agentRun: { name: 'Draft t1' } },
       footer: { actions: ['copy'] },
     })
+  })
+})
+
+const lastReport = () => reportInFlightWork.mock.calls.at(-1)?.[0] ?? []
+const trialWork = () => lastReport().filter((item) => item.kind === 'trial-run')
+
+function snapshotWith(agentTurns: KernelSnapshot['state']['agentTurns']): KernelSnapshot {
+  return {
+    scope: { kind: 'global' },
+    sequence: 5,
+    state: {
+      services: [],
+      agentTurns,
+      activeArtifactRun: null,
+      chatTurns: [],
+      activities: [],
+      inferenceProfile: null,
+    },
+  }
+}
+
+/** A new window over the same main: fresh stores, the Harness Session records main kept. */
+async function reloadWindow(
+  records: Record<string, unknown>[],
+  agentTurns: KernelSnapshot['state']['agentTurns'],
+) {
+  const { unregisterAgentModeIpc } = await import('@/assets/js/store/agentModeIpc')
+  unregisterAgentModeIpc()
+  kernelListeners.clear()
+  startTurn.mockClear()
+  pinia = createPinia()
+  setActivePinia(pinia)
+  vi.mocked(window.electronAPI.agentMode.bootstrapSessions).mockResolvedValue({
+    status: 'ok',
+    activeSessionId: 'session-open',
+    sessions: [openRecord, ...records],
+  } as never)
+  vi.mocked(window.electronAPI.getKernelSnapshot).mockResolvedValue(snapshotWith(agentTurns))
+  return readyStores()
+}
+
+describe('a Trial Run outliving the Agent Library', () => {
+  it('is In-flight Work while it runs, and no longer once it ended', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { tasks } = await readyStores()
+
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await turnIdOf(1)
+
+    expect(trialWork()).toEqual([
+      {
+        kind: 'trial-run',
+        agentId: 't1',
+        sessionId: tasks.trialRuns.t1.harnessSessionId,
+        name: 'Draft t1',
+        state: { status: 'step', index: 2, count: 2 },
+      },
+    ])
+
+    await finishTurn(1)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    expect(trialWork()).toEqual([])
+  })
+
+  it('is In-flight Work while its chat model is being downloaded', async () => {
+    inference.missing = new Set(['Template-27B'])
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks } = await readyStores()
+
+    const started = tasks.startTrialRun('t1')
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalled())
+
+    expect(trialWork()).toEqual([
+      { kind: 'trial-run', agentId: 't1', name: 'Draft t1', state: { status: 'starting' } },
+    ])
+    finishDownload()
+    await started
+  })
+
+  it('lists every Agent whose Trial Run is in flight, for the header', async () => {
+    storedDrafts = [draftOf('t1', ['one']), draftOf('t2', ['two'])]
+    const { tasks } = await readyStores()
+    expect(tasks.trialRunsInFlight).toEqual([])
+
+    await tasks.startTrialRun('t1')
+    await tasks.startTrialRun('t2')
+    await turnIdOf(1)
+    expect([...tasks.trialRunsInFlight].sort()).toEqual(['t1', 't2'])
+
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.trialRunsInFlight).toHaveLength(1))
+  })
+
+  it('is picked up by a reloaded window, and runs its next Step when the live one ends', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const first = await readyStores()
+    await first.tasks.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
+
+    const { tasks } = await reloadWindow(
+      [record],
+      [
+        {
+          sessionId: harness,
+          turnId,
+          state: 'running',
+          chunks: [],
+          toolProgress: {},
+          toolImages: {},
+        },
+      ],
+    )
+
+    expect(tasks.trialRuns.t1).toMatchObject({ state: 'running', stepIndex: 1, stepCount: 2 })
+    expect(tasks.trialRunsInFlight).toEqual(['t1'])
+    for (const chunk of [{ type: 'start' }, { type: 'finish' }]) {
+      pushEvent({ type: 'agent-chunk', sessionId: harness, turnId, chunk })
+    }
+    pushEvent({ type: 'agent-turn-done', sessionId: harness, turnId })
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['two'])
+    expect(sentConfig(0).sessionId).toBe(harness)
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+  })
+
+  it('ends as failed when the reload cut it off between Steps', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const first = await readyStores()
+    await first.tasks.startTrialRun('t1')
+    await turnIdOf(0)
+    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
+
+    const { tasks } = await reloadWindow([record], [])
+
+    expect(tasks.trialRuns.t1.state).toBe('failed')
+    expect(tasks.trialRunsInFlight).toEqual([])
+    expect(trialFolders.t1.run?.state).toBe('failed')
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('keeps the last Trial Run visible across a reload', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const first = await readyStores()
+    await first.tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(first.tasks.trialRuns.t1?.state).toBe('completed'))
+    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
+
+    const { tasks } = await reloadWindow([record], [])
+
+    expect(tasks.trialRuns.t1).toMatchObject({ state: 'completed', harnessSessionId: harness })
+    expect(trialRunItems(tasks.trialRunView('t1')!)).toHaveLength(1)
   })
 })

@@ -16,6 +16,7 @@ import type {
   AgentTaskOutcome,
   AgentTaskSchedule,
   AgentTaskStep,
+  TrialRunRecord,
 } from '@/types/agentTaskIpc'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 import { useAgentMode, type SessionTurnInfo, type TurnOutcome } from './agentMode'
@@ -138,20 +139,8 @@ export type SaveAgentPresetResult =
 
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
-/**
- * An Agent's Trial Run: the one in flight, or the last one, kept until the next starts.
- * `stepIndex` is 1-based; `stepCount` is where it stops, the last Step unless chosen earlier.
- */
-export type TrialRun = {
-  agentId: string
-  harnessSessionId: string
-  name: string
-  stepIndex: number
-  stepCount: number
-  startedAt: number
-  state: 'running' | 'completed' | 'failed' | 'stopped'
-  message?: string
-}
+/** An Agent's Trial Run: the one in flight, or the last one, kept until the next starts. */
+export type TrialRun = TrialRunRecord
 
 export type StartTrialRunResult =
   | { ok: true }
@@ -254,10 +243,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       name: agentMode.sessions[sessionId]?.title || undefined,
       state: { status: 'step' as const, index: run.stepIndex, count: run.stepCount },
     })),
+    ...trialRunWork.value,
   ])
-  watch(inFlightWork, (work) => window.electronAPI?.reportInFlightWork?.(work), {
-    immediate: true,
-  })
 
   let scheduleTicker: ReturnType<typeof setInterval> | undefined
   /** Main holds Schedules while it asks whether to quit. */
@@ -302,6 +289,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     await readDrafts()
     await settleInterruptedRuns()
+    await restoreTrialRuns()
     skipMissedSlots()
     clearInterval(scheduleTicker)
     scheduleTicker = setInterval(tickSchedules, SCHEDULE_TICK_MS)
@@ -853,12 +841,109 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** Each Agent's Trial Run, by Agent id; the last one stays until the next one starts. */
   const trialRuns = ref<Record<string, TrialRun>>({})
   /** The Agent as its Trial Run started, and the abort that keeps an ended run from sending. */
-  const trialContexts: Record<string, { plan: LibraryAgent; abort: AbortController }> = {}
+  const trialContexts: Record<
+    string,
+    { plan: Pick<LibraryAgent, 'steps' | 'settingsTemplate'>; abort: AbortController }
+  > = {}
   /** Agents whose Trial Run is still being checked, possibly waiting on a download. */
   const startingTrials = reactive(new Set<string>())
 
   function trialRunInFlight(agentId: string): boolean {
     return startingTrials.has(agentId) || trialRuns.value[agentId]?.state === 'running'
+  }
+
+  /** The Agents whose Trial Run is in flight, for the header indicator. */
+  const trialRunsInFlight = computed((): string[] => [
+    ...new Set([
+      ...startingTrials,
+      ...Object.values(trialRuns.value)
+        .filter((run) => run.state === 'running')
+        .map((run) => run.agentId),
+    ]),
+  ])
+
+  const trialRunWork = computed((): InFlightWorkItem[] =>
+    trialRunsInFlight.value.map((agentId) => {
+      const run = trialRuns.value[agentId]
+      if (run?.state !== 'running') {
+        const agent = libraryAgents.value.find((entry) => entry.id === agentId)
+        const name = agent?.name.trim() || undefined
+        return {
+          kind: 'trial-run',
+          agentId,
+          ...(name ? { name } : {}),
+          state: { status: 'starting' },
+        }
+      }
+      return {
+        kind: 'trial-run',
+        agentId,
+        sessionId: run.harnessSessionId,
+        name: run.name,
+        state: { status: 'step', index: run.stepIndex, count: run.stepCount },
+      }
+    }),
+  )
+
+  watch(inFlightWork, (work) => window.electronAPI?.reportInFlightWork?.(work), {
+    immediate: true,
+  })
+
+  /** Main keeps it beside the run's folder, so a reloaded window can pick the run up. */
+  function putTrialRun(run: TrialRun): void {
+    trialRuns.value = { ...trialRuns.value, [run.agentId]: run }
+    void window.electronAPI.agentMode
+      .saveTrialRun(cloneForIpc(run))
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+      .then((result) => {
+        if (!result.success) reportTrialRunFailure('agent-library/trial-save-failed', result.error)
+      })
+  }
+
+  function reportTrialRunFailure(code: string, message: string): void {
+    errors.report(
+      createAppError({
+        category: 'backend',
+        code,
+        surface: 'silent',
+        userMessage: message,
+        technicalMessage: message,
+      }),
+    )
+  }
+
+  /** After a reload: a run whose turn main still holds goes on; one cut off between Steps failed. */
+  async function restoreTrialRuns(): Promise<void> {
+    let records: TrialRunRecord[]
+    try {
+      const result = await window.electronAPI.agentMode.readTrialRuns()
+      if (!result.success) throw new Error(result.error)
+      records = result.trialRuns
+    } catch (error) {
+      reportTrialRunFailure('agent-library/trial-read-failed', extractMessage(error))
+      return
+    }
+    const running = records.filter((run) => run.state === 'running')
+    const live = running.length > 0 ? await liveAgentSessions() : new Set<string>()
+    for (const run of records) {
+      if (trialRuns.value[run.agentId]) continue
+      const record = agentMode.sessions[run.harnessSessionId]
+      trialRuns.value = { ...trialRuns.value, [run.agentId]: run }
+      if (run.state !== 'running') continue
+      if (!record?.steps || !record.settings || !live.has(run.harnessSessionId)) {
+        settleTrialRun(
+          run.agentId,
+          'failed',
+          i18n.state.AGENT_TASKS_OUTCOME_APP_CLOSED ?? 'The app closed during the run.',
+        )
+        continue
+      }
+      trialContexts[run.agentId] = {
+        plan: { steps: record.steps.slice(0, run.stepCount), settingsTemplate: record.settings },
+        abort: new AbortController(),
+      }
+      agentMode.quietSessionErrors(run.harnessSessionId)
+    }
   }
 
   function trialRunOfHarness(harnessSessionId: string): TrialRun | undefined {
@@ -949,18 +1034,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       plan: { ...plan, steps: plan.steps.slice(0, stepCount) },
       abort: new AbortController(),
     }
-    trialRuns.value = {
-      ...trialRuns.value,
-      [agentId]: {
-        agentId,
-        harnessSessionId: harness.harnessSessionId,
-        name,
-        stepIndex: 1,
-        stepCount,
-        startedAt,
-        state: 'running',
-      },
-    }
+    putTrialRun({
+      agentId,
+      harnessSessionId: harness.harnessSessionId,
+      name,
+      stepIndex: 1,
+      stepCount,
+      startedAt,
+      state: 'running',
+    })
     void sendTrialStep(agentId, 1)
     return { ok: true }
   }
@@ -969,7 +1051,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const run = trialRuns.value[agentId]
     const context = trialContexts[agentId]
     if (run?.state !== 'running' || !context) return
-    trialRuns.value = { ...trialRuns.value, [agentId]: { ...run, stepIndex } }
+    putTrialRun({ ...run, stepIndex })
     const steps = stepPrompts(context.plan.steps)
     const turn = stepIndex === 1 ? firstStepTurn('', steps) : stepTurn(stepIndex, steps)
     const result = await agentMode.sendToSession(run.harnessSessionId, turn, {
@@ -1004,10 +1086,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (run?.state !== 'running') return
     trialContexts[agentId]?.abort.abort()
     delete trialContexts[agentId]
-    trialRuns.value = {
-      ...trialRuns.value,
-      [agentId]: { ...run, state, ...(message !== undefined ? { message } : {}) },
-    }
+    putTrialRun({ ...run, state, ...(message !== undefined ? { message } : {}) })
     if (state !== 'completed') {
       agentMode.endAgentRun(run.harnessSessionId, {
         kind: state,
@@ -1040,17 +1119,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const result = await window.electronAPI.agentMode
       .discardTrialRun(agentId)
       .catch((error: unknown) => ({ success: false as const, error: String(error) }))
-    if (!result.success) {
-      errors.report(
-        createAppError({
-          category: 'backend',
-          code: 'agent-library/trial-discard-failed',
-          surface: 'silent',
-          userMessage: result.error,
-          technicalMessage: result.error,
-        }),
-      )
-    }
+    if (!result.success) reportTrialRunFailure('agent-library/trial-discard-failed', result.error)
   }
 
   /** The Chat preset an Agent was saved as, if any. */
@@ -1896,6 +1965,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     discardAgentDraft,
     trialRuns,
     trialRunInFlight,
+    trialRunsInFlight,
     trialRunView,
     startTrialRun,
     stopTrialRun,

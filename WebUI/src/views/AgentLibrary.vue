@@ -202,7 +202,7 @@ onMounted(() => {
         <AgentLibraryTrialRun
           v-if="wide"
           :agent="selected"
-          class="w-md flex-none border-l border-border xl:w-xl"
+          class="w-lg flex-none border-l border-border xl:w-2xl"
         />
       </main>
       <p v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">

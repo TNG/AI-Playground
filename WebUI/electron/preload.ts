@@ -16,7 +16,7 @@ import type {
   SessionTurn,
   ShowMoreSection,
 } from '@/types/sessionIpc'
-import type { AgentTask } from '@/types/agentTaskIpc'
+import type { AgentDraft, AgentTask } from '@/types/agentTaskIpc'
 import type { PresetSessionSettings } from '@/types/sessionSettings'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
@@ -421,6 +421,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readTasks: () => invoke('agentMode:readTasks'),
     saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
     deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
+    readDrafts: () => invoke('agentMode:readDrafts'),
+    saveDraft: (draft: AgentDraft) => invoke('agentMode:saveDraft', cloneForIpc(draft)),
+    deleteDraft: (agentId: string) => invoke('agentMode:deleteDraft', agentId),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

@@ -63,6 +63,9 @@ export type AgentSessionSchedule = z.infer<typeof AgentSessionScheduleSchema>
 export const AgentTaskSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
+  description: z.string().optional(),
+  /** A data URI, shown beside the Agent's name. */
+  image: z.string().optional(),
   /** The Session the Agent was made in, for information only; absent when there is none. */
   sessionRef: z.string().min(1).optional(),
   /** Only on an Agent saved before Sessions. */
@@ -99,4 +102,24 @@ function migrateLegacyAgent(raw: unknown): unknown {
 export const AgentTasksFileSchema = z.object({
   schemaVersion: z.literal(1),
   tasks: z.array(z.preprocess(migrateLegacyAgent, AgentTaskSchema)),
+})
+
+/**
+ * An Agent's unsaved edits, at most one per Agent. A new Agent exists only as a Draft
+ * until first saved, so `agentId` need not name a saved Agent.
+ */
+export const AgentDraftSchema = z.object({
+  agentId: z.string().min(1),
+  name: z.string(),
+  description: z.string().optional(),
+  image: z.string().optional(),
+  settingsTemplate: AgentSessionSettingsSchema,
+  steps: z.array(AgentTaskStepSchema),
+  updatedAt: z.number(),
+})
+export type AgentDraft = z.infer<typeof AgentDraftSchema>
+
+export const AgentDraftsFileSchema = z.object({
+  schemaVersion: z.literal(1),
+  drafts: z.array(AgentDraftSchema),
 })

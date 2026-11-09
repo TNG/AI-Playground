@@ -8,6 +8,7 @@ import type { SessionTurn } from '@/types/sessionIpc'
 import type { PromptRunTag } from '@/types/sessionTimeline'
 import type { RunProgress } from '@/lib/turnTypes'
 import type {
+  AgentDraft,
   AgentSessionSchedule,
   AgentTask,
   AgentTaskActiveRun,
@@ -39,6 +40,33 @@ import {
 } from '@/lib/sessionSettingsProblems'
 
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
+
+/** What the Agent Library edits on an Agent; it goes to the Agent's Draft. */
+export type AgentDraftEdit = Partial<
+  Pick<AgentDraft, 'name' | 'description' | 'image' | 'steps' | 'settingsTemplate'>
+>
+
+/** An Agent as the Agent Library lists it: its Draft over the saved Agent. */
+export type LibraryAgent = {
+  id: string
+  name: string
+  description?: string
+  image?: string
+  steps: AgentTaskStep[]
+  settingsTemplate: AgentSessionSettings
+  /** False while the Agent exists only as a Draft. */
+  saved: boolean
+  hasDraft: boolean
+}
+
+const DRAFT_FIELDS = ['name', 'description', 'image', 'steps', 'settingsTemplate'] as const
+
+/** The editable fields of a Draft or Agent, without the absent ones. */
+function editableFields(source: AgentDraftEdit): AgentDraftEdit {
+  return Object.fromEntries(
+    DRAFT_FIELDS.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]),
+  )
+}
 
 /** A prompt being carried out in its session's Steps; `stepIndex` is 1-based. */
 export type PromptRun = { stepIndex: number; stepCount: number; tag: PromptRunTag }
@@ -156,6 +184,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The Agents library, listed in every Session. */
   const tasks = ref<AgentTask[]>([])
 
+  /** Each Agent's unsaved edits, by Agent id; an Agent never saved exists only here. */
+  const drafts = ref<Record<string, AgentDraft>>({})
+
   /** Runs in flight by Harness Session; at most one per Agent and Session. */
   const runs = ref<Record<string, TaskRun>>({})
   /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
@@ -236,6 +267,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       reportReadFailure(error)
       return
     }
+    await readDrafts()
     await settleInterruptedRuns()
     skipMissedSlots()
     clearInterval(scheduleTicker)
@@ -528,6 +560,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     const preset = presetOfAgent(id)
     tasks.value = tasks.value.filter((task) => task.id !== id)
+    const { [id]: _draft, ...otherDrafts } = drafts.value
+    drafts.value = otherDrafts
     if (agentMode.openTaskId === id) agentMode.linkOpenSessionToAgent(undefined)
     if (preset) await presets.removeUserPreset(preset.name)
     return true
@@ -554,6 +588,178 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     })
     const ended = Object.values(runs.value).filter((run) => gone.has(run.sessionRef))
     await Promise.all(ended.map((run) => stopRun(run.sessionId)))
+  }
+
+  async function readDrafts(): Promise<void> {
+    try {
+      const result = await window.electronAPI.agentMode.readDrafts()
+      if (!result.success) throw new Error(result.error)
+      drafts.value = Object.fromEntries(result.drafts.map((draft) => [draft.agentId, draft]))
+    } catch (error) {
+      errors.report(
+        createAppError({
+          category: 'backend',
+          code: 'agent-library/drafts-read-failed',
+          surface: 'toast',
+          userMessage:
+            i18n.state.AGENT_LIBRARY_DRAFTS_READ_FAILED ??
+            'Could not read the unsaved agent edits.',
+          technicalMessage: extractMessage(error),
+          cause: error,
+        }),
+      )
+    }
+  }
+
+  /** Saved Agents in library order, then Agents that exist only as a Draft. */
+  const libraryAgents = computed((): LibraryAgent[] => {
+    const listed = tasks.value.map((task): LibraryAgent => {
+      const draft = drafts.value[task.id]
+      return {
+        id: task.id,
+        ...editableFields(task),
+        ...(draft ? editableFields(draft) : {}),
+        ...(draft ? { description: draft.description, image: draft.image } : {}),
+        saved: true,
+        hasDraft: !!draft,
+      } as LibraryAgent
+    })
+    const draftOnly = Object.values(drafts.value)
+      .filter((draft) => !tasks.value.some((task) => task.id === draft.agentId))
+      .sort((a, b) => a.updatedAt - b.updatedAt)
+      .map(
+        (draft): LibraryAgent =>
+          ({
+            id: draft.agentId,
+            ...editableFields(draft),
+            saved: false,
+            hasDraft: true,
+          }) as LibraryAgent,
+      )
+    return [...listed, ...draftOnly]
+  })
+
+  async function writeDraft(draft: AgentDraft): Promise<boolean> {
+    drafts.value = { ...drafts.value, [draft.agentId]: draft }
+    const result = await window.electronAPI.agentMode
+      .saveDraft(cloneForIpc(draft))
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+    if (result.success) return true
+    errors.report(
+      createAppError({
+        category: 'backend',
+        code: 'agent-library/draft-save-failed',
+        surface: 'toast',
+        userMessage:
+          i18n.state.AGENT_LIBRARY_DRAFT_SAVE_FAILED ?? 'Could not keep the agent edits.',
+        technicalMessage: result.error,
+      }),
+    )
+    return false
+  }
+
+  /** A new Agent, which exists only as this Draft until it is first saved. */
+  async function createAgentDraft(): Promise<AgentDraft> {
+    const draft: AgentDraft = {
+      agentId: crypto.randomUUID(),
+      name: '',
+      settingsTemplate: {},
+      steps: [],
+      updatedAt: Date.now(),
+    }
+    await writeDraft(draft)
+    return draft
+  }
+
+  /** Apply an edit to the Agent's Draft, starting one from the saved Agent when it has none. */
+  async function editDraft(id: string, edit: AgentDraftEdit): Promise<boolean> {
+    const base = drafts.value[id] ?? tasks.value.find((task) => task.id === id)
+    if (!base) return false
+    const merged = { ...editableFields(base), ...edit }
+    const draft: AgentDraft = {
+      agentId: id,
+      name: merged.name ?? '',
+      settingsTemplate: cloneForIpc(merged.settingsTemplate ?? {}),
+      steps: (merged.steps ?? []).map((step) => ({ id: step.id, prompt: step.prompt })),
+      updatedAt: Date.now(),
+      ...(merged.description !== undefined ? { description: merged.description } : {}),
+      ...(merged.image !== undefined ? { image: merged.image } : {}),
+    }
+    return writeDraft(draft)
+  }
+
+  /** Why the Agent's Draft cannot be saved yet; null when it can, or when there is none. */
+  function draftBlocker(id: string): SaveTaskBlocker | null {
+    const draft = drafts.value[id]
+    return draft ? saveBlocker(draft) : null
+  }
+
+  /**
+   * Replace the Agent's editable fields with its Draft and remove the Draft. Runs in flight keep
+   * the copy they started with; the next run uses the saved Agent.
+   */
+  async function saveAgentDraft(id: string): Promise<SaveTaskResult> {
+    const draft = drafts.value[id]
+    if (!draft) return { ok: false, reason: 'no-task' }
+    const blocker = saveBlocker(draft)
+    if (blocker) return { ok: false, reason: blocker }
+    const saved = tasks.value.find((task) => task.id === id)
+    const now = Date.now()
+    const {
+      description: _description,
+      image: _image,
+      ...kept
+    } = saved ?? {
+      id,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const task: AgentTask = {
+      ...kept,
+      name: draft.name.trim(),
+      ...(draft.description?.trim() ? { description: draft.description.trim() } : {}),
+      ...(draft.image ? { image: draft.image } : {}),
+      settingsTemplate: cloneForIpc(draft.settingsTemplate),
+      steps: draft.steps.map((step) => ({ id: step.id, prompt: step.prompt })),
+      updatedAt: saved ? Math.max(now, saved.updatedAt + 1) : now,
+    } as AgentTask
+    if (saved) replaceTask(task)
+    // Applied before the write, so a run marking or settling the Agent meanwhile writes it too.
+    if (!(await persistTask(task))) {
+      if (saved) restoreEditableFields(saved)
+      return { ok: false, reason: 'persist-failed' }
+    }
+    if (!saved) tasks.value = [...tasks.value, task]
+    await removeDraft(id)
+    return { ok: true, task }
+  }
+
+  /** Drop the Agent's Draft; the saved Agent shows again, and an unsaved one is gone. */
+  async function discardAgentDraft(id: string): Promise<boolean> {
+    return removeDraft(id)
+  }
+
+  async function removeDraft(id: string): Promise<boolean> {
+    if (!drafts.value[id]) return true
+    const result = await window.electronAPI.agentMode
+      .deleteDraft(id)
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+    if (!result.success) {
+      errors.report(
+        createAppError({
+          category: 'backend',
+          code: 'agent-library/draft-delete-failed',
+          surface: 'toast',
+          userMessage:
+            i18n.state.AGENT_LIBRARY_DRAFT_DELETE_FAILED ?? 'Could not remove the agent edits.',
+          technicalMessage: result.error,
+        }),
+      )
+      return false
+    }
+    const { [id]: _removed, ...rest } = drafts.value
+    drafts.value = rest
+    return true
   }
 
   /** The Chat preset an Agent was saved as, if any. */
@@ -1211,8 +1417,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   function restoreEditableFields(saved: AgentTask): void {
     const latest = tasks.value.find((entry) => entry.id === saved.id)
     if (!latest) return
-    const { name, steps, settingsTemplate, updatedAt } = saved
-    replaceTask({ ...latest, name, steps, settingsTemplate, updatedAt })
+    const { name, description, image, steps, settingsTemplate, updatedAt } = saved
+    const { description: _description, image: _image, ...rest } = latest
+    replaceTask({
+      ...rest,
+      name,
+      ...(description !== undefined ? { description } : {}),
+      ...(image !== undefined ? { image } : {}),
+      steps,
+      settingsTemplate,
+      updatedAt,
+    })
   }
 
   /** Set the open Session's Agent up as the Task is, for editing it. */
@@ -1331,6 +1546,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   return {
     tasks,
+    drafts,
+    libraryAgents,
+    createAgentDraft,
+    editDraft,
+    draftBlocker,
+    saveAgentDraft,
+    discardAgentDraft,
     openSessionAgents,
     runsInFlight,
     scheduledSessionIds,

@@ -8,7 +8,7 @@ import type {
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
-import type { AgentTask } from './agentTaskIpc'
+import type { AgentDraft, AgentTask } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
 import type {
@@ -535,8 +535,29 @@ export const CHANNELS = {
     args: [] as unknown as readonly [AgentTask],
     result: null as unknown as IpcMutationResult,
   },
-  /** Delete one Task; the sessions it created stay. */
+  /** Delete one Task and its Draft; the sessions it created stay. */
   'agentMode:deleteTask': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every Agent's Draft; an absent file reads as none, an unreadable one fails. */
+  'agentMode:readDrafts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ drafts: AgentDraft[] }>,
+  },
+  /** Insert an Agent's Draft, or replace the one it has. */
+  'agentMode:saveDraft': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentDraft],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete an Agent's Draft, by Agent id. */
+  'agentMode:deleteDraft': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],

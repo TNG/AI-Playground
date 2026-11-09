@@ -1,7 +1,19 @@
 import fs from 'node:fs/promises'
 import { appLoggerInstance } from '../observability/logger'
-import { getAgentTasksDemoFile, getAgentTasksFile } from './userDataPaths.ts'
-import { AgentTaskSchema, AgentTasksFileSchema, type AgentTask } from '@/types/agentTaskIpc'
+import {
+  getAgentDraftsDemoFile,
+  getAgentDraftsFile,
+  getAgentTasksDemoFile,
+  getAgentTasksFile,
+} from './userDataPaths.ts'
+import {
+  AgentDraftSchema,
+  AgentDraftsFileSchema,
+  AgentTaskSchema,
+  AgentTasksFileSchema,
+  type AgentDraft,
+  type AgentTask,
+} from '@/types/agentTaskIpc'
 import type { ShutdownCause } from '../kernel/shutdown'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 
@@ -78,14 +90,62 @@ export async function saveAgentTask(payload: unknown): Promise<void> {
   })
 }
 
+/** Deletes the Agent and its Draft; an Agent that was only ever a Draft is deleted too. */
 export async function deleteAgentTask(id: unknown): Promise<void> {
   if (typeof id !== 'string' || id.length === 0) throw new Error('task id must be a string')
   return serialize(FILE_CHAIN, async () => {
     const tasks = await readAgentTasks()
     const remaining = tasks.filter((entry) => entry.id !== id)
-    if (remaining.length === tasks.length) return
-    await writeTasks(remaining)
+    if (remaining.length !== tasks.length) await writeTasks(remaining)
+    await removeDraft(id)
   })
+}
+
+function draftsFile(): string {
+  return agentTaskFilesDeps?.isDemoMode() ? getAgentDraftsDemoFile() : getAgentDraftsFile()
+}
+
+/** Every Agent's Draft; an absent file is none, an unreadable one throws. */
+export async function readAgentDrafts(): Promise<AgentDraft[]> {
+  const read = await readJson(draftsFile(), LOG_SCOPE)
+  if (read.status === 'missing') return []
+  if (read.status === 'ok') {
+    const parsed = AgentDraftsFileSchema.safeParse(read.value)
+    if (parsed.success) return parsed.data.drafts
+  }
+  appLogger.warn('agent drafts file unreadable; not treated as absent', LOG_SCOPE)
+  throw new Error('agent drafts file unreadable')
+}
+
+async function writeDrafts(drafts: AgentDraft[]): Promise<void> {
+  await atomicWriteJson(draftsFile(), { schemaVersion: 1, drafts })
+}
+
+/** Insert an Agent's Draft, or replace the one it has. */
+export async function saveAgentDraft(payload: unknown): Promise<void> {
+  const parsed = AgentDraftSchema.safeParse(payload)
+  if (!parsed.success) throw new Error(`invalid draft: ${parsed.error.message}`)
+  const draft = parsed.data
+  return serialize(FILE_CHAIN, async () => {
+    const drafts = await readAgentDrafts()
+    const index = drafts.findIndex((entry) => entry.agentId === draft.agentId)
+    if (index >= 0) drafts[index] = draft
+    else drafts.push(draft)
+    await writeDrafts(drafts)
+  })
+}
+
+export async function deleteAgentDraft(agentId: unknown): Promise<void> {
+  if (typeof agentId !== 'string' || agentId.length === 0) {
+    throw new Error('agent id must be a string')
+  }
+  return serialize(FILE_CHAIN, () => removeDraft(agentId))
+}
+
+async function removeDraft(agentId: string): Promise<void> {
+  const drafts = await readAgentDrafts()
+  const remaining = drafts.filter((entry) => entry.agentId !== agentId)
+  if (remaining.length !== drafts.length) await writeDrafts(remaining)
 }
 
 /**
@@ -147,6 +207,7 @@ function withoutSession(task: AgentTask, sessionRef: string): AgentTask {
 export async function wipeDemoAgentTasks(): Promise<void> {
   try {
     await fs.rm(getAgentTasksDemoFile(), { force: true })
+    await fs.rm(getAgentDraftsDemoFile(), { force: true })
   } catch (error) {
     appLogger.warn(`demo agent tasks wipe failed: ${String(error)}`, LOG_SCOPE)
   }

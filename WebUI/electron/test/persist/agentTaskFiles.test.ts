@@ -2,18 +2,20 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentTask } from '@/types/agentTaskIpc'
+import type { AgentDraft, AgentTask } from '@/types/agentTaskIpc'
 
 // The kernel-owned Tasks file, driven against a real file in a temp dir: the
 // read/upsert/delete round trip, rejection of a corrupt file or an invalid
 // payload, and demo routing + wipe.
 
-const files = vi.hoisted(() => ({ real: '', demo: '' }))
+const files = vi.hoisted(() => ({ real: '', demo: '', drafts: '', draftsDemo: '' }))
 let tmpRoot = ''
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getAgentTasksFile: () => files.real,
   getAgentTasksDemoFile: () => files.demo,
+  getAgentDraftsFile: () => files.drafts,
+  getAgentDraftsDemoFile: () => files.draftsDemo,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -21,7 +23,10 @@ vi.mock('../../observability/logger', () => ({
 }))
 
 const {
+  deleteAgentDraft,
   deleteAgentTask,
+  readAgentDrafts,
+  saveAgentDraft,
   forgetSessionInAgentTasks,
   readAgentTasks,
   resetAgentTaskFilesForTest,
@@ -46,6 +51,19 @@ function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
   }
 }
 
+function draft(agentId: string, overrides: Partial<AgentDraft> = {}): AgentDraft {
+  return {
+    agentId,
+    name: `Draft ${agentId}`,
+    description: 'Checks the news',
+    image: 'data:image/png;base64,AAAA',
+    settingsTemplate: { backend: 'llamaCPP', model: 'Qwen-9B', capabilities: ['files'] },
+    steps: [{ id: 's1', prompt: 'edited' }],
+    updatedAt: 3,
+    ...overrides,
+  }
+}
+
 async function readRaw(file: string): Promise<Record<string, unknown> | null> {
   try {
     return JSON.parse(await fs.readFile(file, 'utf8'))
@@ -59,7 +77,10 @@ beforeEach(async () => {
   if (!tmpRoot) tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-agent-tasks-'))
   files.real = path.join(tmpRoot, 'agent-tasks.json')
   files.demo = path.join(tmpRoot, 'agent-tasks-demo.json')
-  for (const file of [files.real, files.demo]) await fs.rm(file, { force: true })
+  files.drafts = path.join(tmpRoot, 'agent-drafts.json')
+  files.draftsDemo = path.join(tmpRoot, 'agent-drafts-demo.json')
+  for (const file of [files.real, files.demo, files.drafts, files.draftsDemo])
+    await fs.rm(file, { force: true })
   setAgentTaskFilesDeps({ isDemoMode: () => false })
 })
 
@@ -298,5 +319,81 @@ describe('the kernel Tasks file', () => {
     expect(await readRaw(files.demo)).toBeNull()
     setAgentTaskFilesDeps({ isDemoMode: () => false })
     expect(await readAgentTasks()).toEqual([task('real')])
+  })
+})
+
+describe('the kernel Drafts file', () => {
+  it('round-trips an Agent with a description and an image', async () => {
+    const described = task('a', { description: 'Morning digest', image: 'data:image/png;base64,B' })
+    await saveAgentTask(described)
+
+    expect(await readAgentTasks()).toEqual([described])
+  })
+
+  it('reads an absent file as no Drafts', async () => {
+    expect(await readAgentDrafts()).toEqual([])
+  })
+
+  it('keeps Drafts across a restart, one per Agent', async () => {
+    await saveAgentDraft(draft('a'))
+    await saveAgentDraft(draft('b'))
+    await saveAgentDraft(draft('a', { name: 'Renamed' }))
+
+    resetAgentTaskFilesForTest()
+    setAgentTaskFilesDeps({ isDemoMode: () => false })
+
+    expect(await readAgentDrafts()).toEqual([draft('a', { name: 'Renamed' }), draft('b')])
+  })
+
+  it('keeps a Draft apart from the saved Agent', async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentDraft(draft('a'))
+
+    expect(await readAgentTasks()).toEqual([task('a')])
+  })
+
+  it('discards one Draft and keeps the others', async () => {
+    await saveAgentDraft(draft('a'))
+    await saveAgentDraft(draft('b'))
+
+    await deleteAgentDraft('a')
+
+    expect(await readAgentDrafts()).toEqual([draft('b')])
+  })
+
+  it("removes an Agent's Draft when the Agent is deleted", async () => {
+    await saveAgentTask(task('a'))
+    await saveAgentDraft(draft('a'))
+    await saveAgentDraft(draft('b'))
+
+    await deleteAgentTask('a')
+
+    expect(await readAgentDrafts()).toEqual([draft('b')])
+  })
+
+  it('removes the Draft of an Agent that was never saved', async () => {
+    await saveAgentDraft(draft('new'))
+
+    await deleteAgentTask('new')
+
+    expect(await readAgentDrafts()).toEqual([])
+  })
+
+  it('rejects a payload that is not a Draft', async () => {
+    await expect(saveAgentDraft({ agentId: 'a' })).rejects.toThrow(/invalid draft/)
+    expect(await readRaw(files.drafts)).toBeNull()
+  })
+
+  it('routes Drafts through the demo file and wipes it with the demo Agents', async () => {
+    await saveAgentDraft(draft('real'))
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    await saveAgentDraft(draft('demo'))
+    expect(await readAgentDrafts()).toEqual([draft('demo')])
+
+    await wipeDemoAgentTasks()
+
+    expect(await readRaw(files.draftsDemo)).toBeNull()
+    setAgentTaskFilesDeps({ isDemoMode: () => false })
+    expect(await readAgentDrafts()).toEqual([draft('real')])
   })
 })

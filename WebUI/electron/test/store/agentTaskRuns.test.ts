@@ -325,6 +325,9 @@ beforeEach(() => {
         readTasks: vi.fn(async () => ({ success: true, tasks: storedTasks })),
         saveTask,
         deleteTask,
+        readDrafts: vi.fn(async () => ({ success: true, drafts: [] })),
+        saveDraft: vi.fn(async () => ({ success: true })),
+        deleteDraft: vi.fn(async () => ({ success: true })),
       },
       getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
@@ -1679,6 +1682,45 @@ describe('updating an Agent while it runs', () => {
     expect(tasks.taskProblems('t1')).toEqual([{ field: 'model', value: 'Deleted-4B' }])
     expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'settings-problems' })
     expect(startTurn).not.toHaveBeenCalled()
+  })
+})
+
+describe('an Agent with a Draft', () => {
+  it('runs as saved until the Draft is saved', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.editDraft('t1', {
+      steps: [{ id: 'n1', prompt: 'drafted' }],
+      settingsTemplate: { ...TEMPLATE, model: 'Edited-9B' },
+    })
+
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    await turnIdOf(0)
+
+    expect(sentSteps()).toEqual(['one'])
+    expect(sentConfig(0)).toMatchObject({ modelConfig: { model: 'Template-27B' } })
+  })
+
+  it('keeps a run in flight on the Steps it started with when the Draft is saved', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+    await tasks.editDraft('t1', {
+      steps: [
+        { id: 'n1', prompt: 'first' },
+        { id: 'n2', prompt: 'second' },
+      ],
+    })
+
+    expect((await tasks.saveAgentDraft('t1')).ok).toBe(true)
+    await finishTurn(0)
+    await turnIdOf(1)
+    expect(sentSteps()).toEqual(['one', 'two'])
+
+    await finishTurn(1)
+    await settledOutcome(tasks, 't1')
+    expect(await tasks.runTask('t1')).toEqual({ ok: true })
+    await turnIdOf(2)
+    expect(sentSteps().at(-1)).toBe('first')
   })
 })
 

@@ -339,8 +339,11 @@ import {
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
 import {
+  deleteAgentDraft,
   deleteAgentTask,
+  readAgentDrafts,
   readAgentTasks,
+  saveAgentDraft,
   saveAgentTask,
   setAgentTaskFilesDeps,
   settleTaskRunsOnQuit,
@@ -1897,6 +1900,9 @@ function initEventHandle() {
       readAgentTasks,
       saveAgentTask,
       deleteAgentTask,
+      readAgentDrafts,
+      saveAgentDraft,
+      deleteAgentDraft,
       forgetSessionMessages,
       appLogger: appLoggerInstance,
     }),

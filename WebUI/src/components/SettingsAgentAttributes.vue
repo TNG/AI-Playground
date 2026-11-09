@@ -1,11 +1,13 @@
 <template>
   <TooltipProvider :delay-duration="200">
     <SettingsTabLayout
-      :read-only="readOnly"
-      :read-only-note="languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
-      @reset="onPresetReset"
+      :read-only="locked"
+      :read-only-note="readOnlyNote ?? languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
+      :template="!!template"
+      @reset="panel?.onPresetReset()"
     >
-      <section v-if="isManagedWorkspace" class="flex flex-col gap-2">
+      <!-- A Settings Template has no folder of its own: each run gets one. -->
+      <section v-if="!template && isManagedWorkspace" class="flex flex-col gap-2">
         <SettingsHeading>{{ languages.AGENT_SETTINGS_GAME_FOLDER }}</SettingsHeading>
         <div class="flex items-center gap-3">
           <Button
@@ -27,7 +29,7 @@
         </p>
       </section>
 
-      <section v-else class="flex flex-col gap-2">
+      <section v-else-if="!template" class="flex flex-col gap-2">
         <SettingsHeading>{{ languages.AGENT_SETTINGS_WORKSPACE_FOLDER }}</SettingsHeading>
         <span v-if="agentMode.workspaceDir" class="text-sm text-muted-foreground break-all">
           {{ agentMode.workspaceDir }}
@@ -75,7 +77,7 @@
         </p>
         <MountedFolderList
           :model-value="binding.mountedFolders"
-          :session-folder="agentMode.workspaceDir"
+          :session-folder="template ? undefined : agentMode.workspaceDir"
           :real-shell="showShellOption && agentMode.unsandboxed"
           @update:model-value="binding.setMountedFolders"
         />
@@ -152,10 +154,12 @@
         />
       </section>
 
-      <p class="text-xs text-amber-500">{{ languages.AGENT_SETTINGS_NEXT_TURN }}</p>
+      <p v-if="!template" class="text-xs text-amber-500">
+        {{ languages.AGENT_SETTINGS_NEXT_TURN }}
+      </p>
 
-      <template #reset-fallback>
-        <AgentPresetDefaultsActions @reset="refreshCapabilityCatalog" />
+      <template v-if="!template" #reset-fallback>
+        <AgentPresetDefaultsActions @reset="panel?.refreshCapabilityCatalog()" />
       </template>
     </SettingsTabLayout>
   </TooltipProvider>
@@ -180,41 +184,54 @@ import SettingsHeading from '@/components/SettingsHeading.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
+import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 
 const languages = useI18N().state
 const agentMode = useAgentMode()
 const mcp = useMcp()
 
-const { binding, capabilityCatalog, refreshCapabilityCatalog, onPresetReset, readOnly } =
-  useAgentSettingsPanel()
+const props = defineProps<{
+  /** An Agent's Settings Template instead of the open Session's settings. */
+  template?: AgentSettingsBinding
+  readOnly?: boolean
+  readOnlyNote?: string
+}>()
+
+const panel = props.template ? undefined : useAgentSettingsPanel()
+const binding = props.template ?? panel!.binding
+const locked = computed(() => (panel ? panel.readOnly.value : props.readOnly))
 const { problemClass, missingMcpServers, describeMissingMcpServer } = useSettingsProblemMarks(
   () => binding.problems,
 )
 
 // Game folders stay sandboxed: a game is plain HTML with no build step.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
-const showShellOption = computed(() => !isManagedWorkspace.value && developerMode())
+const showShellOption = computed(
+  () => !props.template && !isManagedWorkspace.value && developerMode(),
+)
 
 function toggleUnsandboxed(event: Event): void {
   agentMode.setUnsandboxed((event.target as HTMLInputElement).checked)
 }
 
 const hasMediaCapability = computed(() =>
-  capabilityCatalog.value.some((capability) => capability.id === 'media'),
+  binding.capabilityCatalog.some((capability) => capability.id === 'media'),
 )
 
 const ragEnabled = computed(
   () =>
-    capabilityCatalog.value.some((capability) => capability.id === 'rag') &&
+    binding.capabilityCatalog.some((capability) => capability.id === 'rag') &&
     binding.capabilities.includes('rag'),
 )
 
 // An extension that is not part of the session cannot answer its commands.
 const capabilityCommands = computed(() =>
-  capabilityCatalog.value
-    .filter((capability) => agentMode.isCapabilityEnabled(capability.id))
-    .flatMap((capability) => capability.commands),
+  props.template
+    ? []
+    : binding.capabilityCatalog
+        .filter((capability) => agentMode.isCapabilityEnabled(capability.id))
+        .flatMap((capability) => capability.commands),
 )
 
 onMounted(() => {

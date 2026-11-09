@@ -1,11 +1,12 @@
 <template>
   <SettingsTabLayout
-    :read-only="readOnly"
-    :read-only-note="languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
-    @reset="onPresetReset"
+    :read-only="locked"
+    :read-only-note="readOnlyNote ?? languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
+    :template="!!template"
+    @reset="panel?.onPresetReset()"
   >
     <!-- Agent Presets are chat presets, so this is also the way back to a plain chat preset. -->
-    <template #picker>
+    <template v-if="!template" #picker>
       <PresetSelector
         type="chat"
         :model-value="presetsStore.activePresetName || undefined"
@@ -31,7 +32,13 @@
       :class="problemClass('cloudProvider')"
       :label="languages.AGENT_SETTING_PROVIDER"
     >
-      <ProviderSelector />
+      <ProviderSelector
+        v-if="binding.template"
+        bound
+        :model-value="binding.template.cloudProviderId"
+        @update:model-value="binding.template.setCloudProviderId"
+      />
+      <ProviderSelector v-else />
     </SettingsRow>
     <!-- The picker's trigger is named after the selected model, so the row carries the
          stable name saying what the control is for. -->
@@ -43,7 +50,14 @@
     >
       <div class="flex items-center gap-2 min-w-0">
         <div class="flex-1 min-w-0">
-          <ModelSelector auto-select />
+          <ModelSelector
+            v-if="binding.template"
+            bound
+            :backend="binding.backend"
+            :model-value="binding.template.model"
+            @update:model-value="binding.template.setModel"
+          />
+          <ModelSelector v-else auto-select />
         </div>
         <CapabilityIcons v-if="binding.currentModel" :model="binding.currentModel" />
       </div>
@@ -110,16 +124,18 @@
       </label>
     </div>
 
-    <p class="text-xs text-amber-500">{{ languages.AGENT_SETTINGS_NEXT_TURN }}</p>
+    <p v-if="!template" class="text-xs text-amber-500">
+      {{ languages.AGENT_SETTINGS_NEXT_TURN }}
+    </p>
 
-    <template v-if="binding.backend !== 'cloud'" #machine>
+    <template v-if="!template && binding.backend !== 'cloud'" #machine>
       <SettingsRow role="group" :aria-label="languages.DEVICE" :label="languages.DEVICE">
         <DeviceSelector :backend="deviceServiceName" />
       </SettingsRow>
     </template>
 
-    <template #reset-fallback>
-      <AgentPresetDefaultsActions @reset="refreshCapabilityCatalog" />
+    <template v-if="!template" #reset-fallback>
+      <AgentPresetDefaultsActions @reset="panel?.refreshCapabilityCatalog()" />
     </template>
   </SettingsTabLayout>
 </template>
@@ -140,6 +156,7 @@ import ProviderSelector from '@/components/ProviderSelector.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
+import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 import { usePresetPicker } from '@/assets/js/presetPicker'
@@ -148,7 +165,16 @@ const languages = useI18N().state
 const textInference = useTextInference()
 const presetsStore = usePresets()
 
-const { binding, refreshCapabilityCatalog, onPresetReset, readOnly } = useAgentSettingsPanel()
+const props = defineProps<{
+  /** An Agent's Settings Template instead of the open Session's settings. */
+  template?: AgentSettingsBinding
+  readOnly?: boolean
+  readOnlyNote?: string
+}>()
+
+const panel = props.template ? undefined : useAgentSettingsPanel()
+const binding = props.template ?? panel!.binding
+const locked = computed(() => (panel ? panel.readOnly.value : props.readOnly))
 const { changePreset } = usePresetPicker({})
 const { problemClass } = useSettingsProblemMarks(() => binding.problems)
 

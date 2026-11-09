@@ -2220,6 +2220,7 @@ export const useAgentMode = defineStore(
       settingsProblems,
       problemsOf,
       loadMcpServersFor,
+      agentDefaults: readAgentDefaults,
       saveAsDefault,
       resetToDefault,
       migrateAgentDefaults,

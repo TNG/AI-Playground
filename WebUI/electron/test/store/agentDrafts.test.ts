@@ -87,6 +87,16 @@ vi.mock('@/assets/js/permissions/permissions', () => ({
 /** The presets' Default Settings bags, as textInference keeps them. */
 const settingsPerPreset = vi.hoisted(() => ({}) as Record<string, Record<string, unknown>>)
 
+/** What the backends can serve right now; an empty model list checks no model. */
+const availability = vi.hoisted(() => ({
+  models: [] as { name: string; type: string }[],
+  embeddingModels: [] as { name: string; type: string }[],
+  services: [] as unknown[],
+  cloudEnabled: false,
+  cloudProviderIds: [] as string[],
+  embeddingBackend: 'llamaCPP',
+}))
+
 vi.mock('@/assets/js/store/textInference', () => ({
   useTextInference: () => ({
     backend: 'llamaCPP',
@@ -103,14 +113,7 @@ vi.mock('@/assets/js/store/textInference', () => ({
     }),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
-    settingsAvailability: {
-      models: [],
-      embeddingModels: [],
-      services: [],
-      cloudEnabled: false,
-      cloudProviderIds: [],
-      embeddingBackend: 'llamaCPP',
-    },
+    settingsAvailability: availability,
   }),
   backendToAipgBackendName: { llamaCPP: 'llama_cpp', openVINO: 'openvino' },
 }))
@@ -209,6 +212,7 @@ beforeEach(() => {
   storedTasks = []
   storedDrafts = []
   missingModels = new Set()
+  availability.models = []
   openSessionSettings = SETTINGS
   requestDownload.mockImplementation(async () => {})
   openRecord = {
@@ -541,5 +545,72 @@ describe('deleting an Agent', () => {
 
     expect(storedDrafts).toEqual([])
     expect(tasks.libraryAgents).toEqual([])
+  })
+})
+
+describe('editing an Agent’s Settings Template', () => {
+  it('goes to its Draft, keeping the other settings and leaving every Session’s alone', async () => {
+    storedTasks = [savedAgent('a')]
+    const { agentMode, tasks } = await readyStores()
+    const sessionSettings = structuredClone(agentMode.openSessionSettings)
+
+    await tasks.editDraftSettings('a', { model: 'Other-9B' })
+    await tasks.editDraftSettings('a', { thinkingEnabled: false })
+
+    expect(storedDrafts).toEqual([
+      expect.objectContaining({
+        agentId: 'a',
+        settingsTemplate: { ...SETTINGS, model: 'Other-9B', thinkingEnabled: false },
+      }),
+    ])
+    expect(tasks.tasks).toEqual([savedAgent('a')])
+    expect(agentMode.openSessionSettings).toEqual(sessionSettings)
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+
+  it('adds, switches and removes Mounted Folders, saved with the Agent', async () => {
+    storedTasks = [savedAgent('a')]
+    const { tasks } = await readyStores()
+
+    await tasks.editDraftSettings('a', {
+      mountedFolders: [{ hostPath: '/data/notes' }, { hostPath: '/data/out' }],
+    })
+    await tasks.editDraftSettings('a', {
+      mountedFolders: [{ hostPath: '/data/notes', access: 'read-write' }],
+    })
+    expect((await tasks.saveAgentDraft('a')).ok).toBe(true)
+
+    expect(tasks.tasks[0].settingsTemplate).toEqual({
+      ...SETTINGS,
+      mountedFolders: [{ hostPath: '/data/notes', access: 'read-write' }],
+    })
+  })
+
+  it('blocks Save while a setting cannot be used, naming the problem', async () => {
+    storedTasks = [savedAgent('a')]
+    availability.models = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores()
+
+    await tasks.editDraftSettings('a', { model: 'Gone-9B' })
+
+    expect(tasks.draftSettingsProblems('a')).toEqual([{ field: 'model', value: 'Gone-9B' }])
+    expect(tasks.draftBlocker('a')).toBe('settings')
+    expect(await tasks.saveAgentDraft('a')).toEqual({ ok: false, reason: 'settings' })
+    expect(saveTask).not.toHaveBeenCalled()
+
+    await tasks.editDraftSettings('a', { model: 'Stored-27B' })
+
+    expect(tasks.draftSettingsProblems('a')).toEqual([])
+    expect(tasks.draftBlocker('a')).toBeNull()
+    expect((await tasks.saveAgentDraft('a')).ok).toBe(true)
+  })
+
+  it('names a missing name before unusable settings', async () => {
+    availability.models = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores()
+    const { agentId } = await tasks.createAgentDraft()
+    await tasks.editDraftSettings(agentId, { backend: 'llamaCPP', model: 'Gone-9B' })
+
+    expect(tasks.draftBlocker(agentId)).toBe('name')
   })
 })

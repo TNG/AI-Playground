@@ -71,13 +71,14 @@ function editableFields(source: AgentDraftEdit): AgentDraftEdit {
 /** A prompt being carried out in its session's Steps; `stepIndex` is 1-based. */
 export type PromptRun = { stepIndex: number; stepCount: number; tag: PromptRunTag }
 
-/** Why a draft cannot be saved yet. */
-export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step'
+/** Why a draft cannot be saved yet; `settings` only for an Agent Library Draft. */
+export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'settings'
 
 export const SAVE_TASK_BLOCKER_KEYS = {
   name: 'AGENT_TASK_BLOCKED_NAME',
   'no-steps': 'AGENT_TASK_BLOCKED_NO_STEPS',
   'empty-step': 'AGENT_TASK_BLOCKED_EMPTY_STEP',
+  settings: 'AGENT_LIBRARY_BLOCKED_SETTINGS',
 } as const satisfies Record<SaveTaskBlocker, string>
 
 /** An Agent Run in flight, in memory only; `skippedSlots` passed while it was paused. */
@@ -726,10 +727,24 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return writeDraft(draft)
   }
 
+  /** Change some of the Draft's Settings Template, keeping the rest. */
+  async function editDraftSettings(id: string, change: AgentSessionSettings): Promise<boolean> {
+    const base = drafts.value[id] ?? tasks.value.find((task) => task.id === id)
+    if (!base) return false
+    return editDraft(id, { settingsTemplate: { ...base.settingsTemplate, ...change } })
+  }
+
   /** Why the Agent's Draft cannot be saved yet; null when it can, or when there is none. */
   function draftBlocker(id: string): SaveTaskBlocker | null {
     const draft = drafts.value[id]
-    return draft ? saveBlocker(draft) : null
+    if (!draft) return null
+    return saveBlocker(draft) ?? (draftSettingsProblems(id).length > 0 ? 'settings' : null)
+  }
+
+  /** What in the Draft's Settings Template cannot be used right now. */
+  function draftSettingsProblems(id: string): SessionSettingsProblem[] {
+    const draft = drafts.value[id]
+    return draft ? agentMode.problemsOf(draft.settingsTemplate) : []
   }
 
   /**
@@ -739,7 +754,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   async function saveAgentDraft(id: string): Promise<SaveTaskResult> {
     const draft = drafts.value[id]
     if (!draft) return { ok: false, reason: 'no-task' }
-    const blocker = saveBlocker(draft)
+    const blocker = draftBlocker(id)
     if (blocker) return { ok: false, reason: blocker }
     const saved = tasks.value.find((task) => task.id === id)
     const now = Date.now()
@@ -1594,7 +1609,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     libraryAgents,
     createAgentDraft,
     editDraft,
+    editDraftSettings,
     draftBlocker,
+    draftSettingsProblems,
     saveAgentDraft,
     discardAgentDraft,
     openSessionAgents,

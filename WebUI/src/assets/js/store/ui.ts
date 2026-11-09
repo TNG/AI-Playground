@@ -2,7 +2,8 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
-export type AgentLibraryView = { agentId?: string }
+/** `sessionRef` narrows the Library to the Agents scheduled in that Session. */
+export type AgentLibraryView = { agentId?: string; sessionRef?: string }
 
 export const useUIStore = defineStore('ui', () => {
   // Model management overlay. Deliberately not tied to `promptArea.currentMode`:
@@ -31,6 +32,10 @@ export const useUIStore = defineStore('ui', () => {
     if (agentLibrary.value) agentLibrary.value = { ...agentLibrary.value, agentId }
   }
 
+  function clearLibrarySessionFilter() {
+    if (agentLibrary.value) agentLibrary.value = { agentId: agentLibrary.value.agentId }
+  }
+
   function closeAgentLibrary() {
     agentLibrary.value = null
   }
@@ -43,6 +48,7 @@ export const useUIStore = defineStore('ui', () => {
     agentLibrary,
     openAgentLibrary,
     selectLibraryAgent,
+    clearLibrarySessionFilter,
     closeAgentLibrary,
   }
 })

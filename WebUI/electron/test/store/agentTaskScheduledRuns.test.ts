@@ -513,6 +513,22 @@ describe('a Schedule reaching its Next Run', () => {
     })
   })
 
+  it('runs the saved Agent, never its Draft', async () => {
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    await tasks.editDraft('t1', {
+      name: 'Renamed in Draft',
+      steps: [{ id: 'd0', prompt: 'draft step' }],
+      settingsTemplate: { backend: 'llamaCPP', model: 'Draft-4B' },
+    })
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['t1 one'])
+    expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', stepIndex: 1 })
+    expect(agentMode.sessions[sentConfig(0).sessionId]).toMatchObject({ settings: TEMPLATE })
+  })
+
   it('moves the Next Run to the following slot and saves it', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'))
 

@@ -57,13 +57,15 @@
         <span class="text-xs text-muted-foreground shrink-0">{{ timeLabel }}</span>
         <Tooltip v-if="scheduled">
           <TooltipTrigger as-child>
-            <span
-              role="img"
-              :aria-label="languages.SESSIONS_SCHEDULED"
-              class="inline-flex flex-none"
+            <button
+              type="button"
+              :aria-label="languages.AGENT_LIBRARY_SESSION_SCHEDULES_OPEN"
+              class="inline-flex flex-none rounded hover:text-foreground"
+              @click.stop="emit('openSchedules')"
+              @keydown.enter.stop
             >
               <ClockIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
-            </span>
+            </button>
           </TooltipTrigger>
           <TooltipContent>{{ languages.SESSIONS_SCHEDULED }}</TooltipContent>
         </Tooltip>
@@ -281,6 +283,7 @@ const emit = defineEmits<{
   pin: [pinned: boolean]
   moveToGroup: [groupId: string | null]
   delete: []
+  openSchedules: []
 }>()
 
 const i18n = useI18N()

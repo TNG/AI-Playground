@@ -525,6 +525,135 @@ describe('Schedules of one Agent in several Sessions', () => {
   })
 })
 
+describe('scheduling an Agent from the Agent Library', () => {
+  it('adds the Schedule to the chosen Session, not the open one', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(task('t1'))
+    await openSession('session-2')
+    await openSession(SESSION)
+
+    expect(await tasks.addSchedule('t1', 'session-2', schedule())).toMatchObject({ ok: true })
+
+    expect(lastSavedTask('t1')?.schedules).toEqual([
+      saved(schedule(), NOW + 30 * MINUTE, 'session-2'),
+    ])
+    expect(tasks.taskSchedule('t1')).toEqual({})
+  })
+
+  it('refuses a Session that already schedules the Agent, paused or not', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', { schedules: [saved(schedule({ enabled: false }))] }),
+    )
+
+    expect(await tasks.addSchedule('t1', SESSION, schedule({ every: 3 }))).toEqual({
+      ok: false,
+      reason: 'already-scheduled',
+    })
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule({ enabled: false }) })
+  })
+
+  it('refuses a Session that does not exist', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(task('t1'))
+
+    expect(await tasks.addSchedule('t1', 'session-gone', schedule())).toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+
+  it('refuses an Agent that exists only as a Draft', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores()
+    const draft = await tasks.createAgentDraft()
+    await tasks.editDraft(draft.agentId, { name: 'Unsaved', steps: [{ id: 's', prompt: 'go' }] })
+
+    expect(await tasks.addSchedule(draft.agentId, SESSION, schedule())).toEqual({
+      ok: false,
+      reason: 'no-task',
+    })
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(tasks.schedulableSessions(draft.agentId)).toEqual([])
+  })
+
+  it('offers only the Sessions that do not schedule the Agent yet', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', { schedules: [saved(schedule({ enabled: false }), undefined, 'session-2')] }),
+    )
+    await openSession('session-2')
+    await openSession('session-3')
+
+    const offered = tasks.schedulableSessions('t1').map((session) => session.id)
+    expect(offered.sort()).toEqual([SESSION, 'session-3'])
+  })
+
+  it('lists each of the Agent’s Schedules with its Session and Next Run', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        schedules: [
+          saved(schedule(), NOW + HOUR),
+          saved(schedule({ enabled: false }), undefined, 'session-2'),
+        ],
+      }),
+    )
+
+    expect(tasks.agentSchedules('t1')).toEqual([
+      { sessionRef: SESSION, schedule: schedule(), nextRunAt: NOW + HOUR },
+      { sessionRef: 'session-2', schedule: schedule({ enabled: false }) },
+    ])
+    expect(tasks.agentSchedules('nope')).toEqual([])
+  })
+
+  it('lists the Agents scheduled in a Session, paused ones too', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }),
+      task('t2', { schedules: [saved(schedule({ enabled: false }))] }),
+      task('t3', { schedules: [saved(schedule(), NOW + HOUR, 'session-2')] }),
+    )
+
+    expect(tasks.agentsScheduledIn(SESSION)).toEqual(['t1', 't2'])
+    expect(tasks.agentsScheduledIn('session-2')).toEqual(['t3'])
+  })
+
+  it('pauses, changes and removes a chosen Session’s Schedule without saving the Draft', async () => {
+    vi.setSystemTime(NOW)
+    const { tasks } = await readyStores(
+      task('t1', {
+        schedules: [saved(schedule(), NOW + HOUR), saved(schedule(), NOW + HOUR, 'session-2')],
+      }),
+    )
+    await tasks.editDraft('t1', { steps: [{ id: 'd', prompt: 'draft only' }] })
+
+    await tasks.setSchedule('t1', schedule({ enabled: false }), 'session-2')
+    expect(lastSavedTask('t1')).toMatchObject({
+      steps: [{ prompt: 'one' }],
+      schedules: [
+        saved(schedule(), NOW + HOUR),
+        saved(schedule({ enabled: false }), undefined, 'session-2'),
+      ],
+    })
+
+    await tasks.setSchedule('t1', schedule({ every: 3 }), 'session-2')
+    expect(tasks.taskSchedule('t1', 'session-2').schedule).toEqual(schedule({ every: 3 }))
+
+    expect(await tasks.removeSchedule('t1', 'session-2')).toBe(true)
+    expect(lastSavedTask('t1')).toMatchObject({
+      steps: [{ prompt: 'one' }],
+      schedules: [saved(schedule(), NOW + HOUR)],
+    })
+    expect(tasks.libraryAgents.find((agent) => agent.id === 't1')).toMatchObject({
+      hasDraft: true,
+      steps: [{ prompt: 'draft only' }],
+    })
+  })
+})
+
 describe('deleting an Agent', () => {
   it('removes its Schedules in every Session', async () => {
     vi.setSystemTime(NOW)

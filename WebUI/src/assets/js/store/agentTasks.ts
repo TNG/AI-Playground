@@ -4,7 +4,7 @@ import { MODEL_DOWNLOAD_DECLINED, promptHasImageAttachment } from '@/types/agent
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
-import type { SessionTurn } from '@/types/sessionIpc'
+import type { SessionSummary, SessionTurn } from '@/types/sessionIpc'
 import type { PromptRunTag } from '@/types/sessionTimeline'
 import type { RunProgress } from '@/lib/turnTypes'
 import type {
@@ -118,6 +118,15 @@ export type SetScheduleResult =
 
 /** An Agent's Schedule in one Session; empty when it has none there. */
 export type TaskScheduleState = { schedule?: AgentTaskSchedule; nextRunAt?: number }
+
+export type AddScheduleResult = SetScheduleResult | { ok: false; reason: 'already-scheduled' }
+
+/** One of an Agent's Schedules, as the Agent Library lists it. */
+export type AgentScheduleEntry = {
+  sessionRef: string
+  schedule: AgentTaskSchedule
+  nextRunAt?: number
+}
 
 /** What the user gives an Agent's Chat preset; `image` is a data URI, the Agent preset's when unset. */
 export type AgentPresetDetails = { description: string; image?: string }
@@ -927,6 +936,43 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   }
 
+  // Agent Library Schedules: always for an explicit, existing Session, and only for a saved Agent.
+  /** Schedule a saved Agent in a Session that does not schedule it yet. */
+  async function addSchedule(
+    id: string,
+    sessionRef: string,
+    schedule: AgentTaskSchedule,
+  ): Promise<AddScheduleResult> {
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task) return { ok: false, reason: 'no-task' }
+    if (!sessionsStore.sessions[sessionRef]) return { ok: false, reason: 'no-session' }
+    if (scheduleIn(task, sessionRef)) return { ok: false, reason: 'already-scheduled' }
+    return setSchedule(id, schedule, sessionRef)
+  }
+
+  function agentSchedules(id: string): AgentScheduleEntry[] {
+    const task = tasks.value.find((entry) => entry.id === id)
+    return (task?.schedules ?? []).map(
+      ({ sessionRef, every, unit, startAt, enabled, nextRunAt }) => ({
+        sessionRef,
+        schedule: { every, unit, startAt, enabled },
+        ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+      }),
+    )
+  }
+
+  /** Existing Sessions a saved Agent can still be scheduled in, most recent first. */
+  function schedulableSessions(id: string): SessionSummary[] {
+    const task = tasks.value.find((entry) => entry.id === id)
+    if (!task) return []
+    return sessionsStore.orderedSessions.filter((session) => !scheduleIn(task, session.id))
+  }
+
+  /** Ids of the Agents with a Schedule in the Session, paused ones included. */
+  function agentsScheduledIn(sessionRef: string): string[] {
+    return tasks.value.filter((task) => scheduleIn(task, sessionRef)).map((task) => task.id)
+  }
+
   /** The Agent's run in a Session, the open one by default, or its last outcome. */
   function taskState(id: string, sessionRef = sessionsStore.openSessionId): TaskState {
     const run = sessionRef ? runIn(id, sessionRef) : undefined
@@ -1641,6 +1687,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     setSchedule,
     removeSchedule,
     taskSchedule,
+    addSchedule,
+    agentSchedules,
+    schedulableSessions,
+    agentsScheduledIn,
     taskState,
     taskProblems,
     loadProblemSources,

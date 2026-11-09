@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { PlusIcon } from '@heroicons/vue/24/outline'
-import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useAgentTasks, type LibraryAgent } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useUIStore } from '@/assets/js/store/ui'
 import { Button } from '@/components/ui/button'
 import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 
-defineProps<{ selectedId?: string }>()
+defineProps<{ selectedId?: string; agents?: LibraryAgent[] }>()
 
 const agentTasks = useAgentTasks()
 const i18n = useI18N().state
@@ -24,7 +24,7 @@ const { newAgent } = useAgentLibraryEntry()
       {{ i18n.AGENT_LIBRARY_NEW_AGENT }}
     </Button>
     <ul class="flex min-h-0 flex-col gap-1 overflow-y-auto">
-      <li v-for="agent in agentTasks.libraryAgents" :key="agent.id">
+      <li v-for="agent in agents ?? agentTasks.libraryAgents" :key="agent.id">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"

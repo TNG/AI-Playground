@@ -9,6 +9,7 @@
     :scheduled="agentTasks.scheduledSessionIds.has(session.id)"
     :create-group="(name) => sessions.createGroup(session.id, name)"
     @open="lifecycle.openSession(session.id)"
+    @open-schedules="ui.openAgentLibrary({ sessionRef: session.id })"
     @rename="(title) => sessions.rename(session.id, title)"
     @pin="(pinned) => sessions.setPinned(session.id, pinned)"
     @move-to-group="(groupId) => sessions.moveToGroup(session.id, groupId)"
@@ -20,6 +21,7 @@
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
+import { useUIStore } from '@/assets/js/store/ui'
 import SessionRow from '@/components/SessionRow.vue'
 import type { TimeLabelBucket } from '@/lib/sessionTimeLabel'
 import type { SessionSummary } from '@/types/sessionIpc'
@@ -29,4 +31,5 @@ defineProps<{ session: SessionSummary; now: number; timeBucket: TimeLabelBucket 
 const sessions = useSessions()
 const agentTasks = useAgentTasks()
 const lifecycle = useSessionLifecycle()
+const ui = useUIStore()
 </script>

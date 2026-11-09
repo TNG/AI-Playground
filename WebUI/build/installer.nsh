@@ -385,28 +385,28 @@
 !macroend
 
 
-; Append stop/delete steps for one LlamaCPP tree when ada.exe or its service
-; script is there. $R9 is the open script, $R7 becomes "1" when any tree matches.
-; A normal install has neither file, so uninstall does not show UAC.
-!macro appendPhisonAdaCleanupDir
+; Note one LlamaCPP tree when ada.exe or its service script is there. $R9 is
+; the open script, $R7 becomes "1" when any tree matches. A normal install has
+; neither file, so uninstall does not show UAC.
+; Nothing in a tree is run, nor is it the working directory, and ada.exe is only
+; deleted (DELETE 1) where no other account can write: a shared tree is writable
+; by every account, so a planted link could redirect this elevated delete.
+!macro appendPhisonAdaCleanupDir DELETE
   ${if} ${FileExists} "$R4\ada.exe"
   ${orif} ${FileExists} "$R4\wService_delete.bat"
     StrCpy $R7 "1"
-    FileWrite $R9 'cd /d "$R4"$\r$\n'
-    ${if} ${FileExists} "$R4\wService_delete.bat"
-      FileWrite $R9 'call "$R4\wService_delete.bat"$\r$\n'
-    ${endif}
-    FileWrite $R9 '"%SystemRoot%\System32\taskkill.exe" /F /IM ada.exe /T$\r$\n'
-    FileWrite $R9 'del /f /q "$R4\ada.exe"$\r$\n'
+    !if ${DELETE} == 1
+      FileWrite $R9 'del /f /q "$R4\ada.exe"$\r$\n'
+    !endif
   ${endif}
 !macroend
 
-!macro appendPhisonAdaCleanup LLAMA_CPP_DIR
+!macro appendPhisonAdaCleanup LLAMA_CPP_DIR DELETE
   StrCpy $R8 "${LLAMA_CPP_DIR}"
   StrCpy $R4 "$R8\llama-cpp-phison"
-  !insertmacro appendPhisonAdaCleanupDir
+  !insertmacro appendPhisonAdaCleanupDir ${DELETE}
   StrCpy $R4 "$R8\llama-cpp"
-  !insertmacro appendPhisonAdaCleanupDir
+  !insertmacro appendPhisonAdaCleanupDir ${DELETE}
 !macroend
 
 ; ${OUT} = HKLM sharedResourcesDir when it is a drive-letter path, else "". Never
@@ -496,31 +496,36 @@
   ; ada.exe is a Windows service. The uninstaller is asInvoker, so RMDir cannot
   ; stop it and the locked file is left behind. One elevated cmd stops the
   ; service, kills the process, and deletes the binary before that RMDir.
-  ; Trees outside $INSTDIR (per-user and shared resources) are not removed by
-  ; RMDir, so the same cmd deletes ada.exe there too. No prompt when it is absent.
+  ; The per-user tree is not removed by RMDir, so the same cmd deletes ada.exe
+  ; there too; a shared tree keeps its now-unregistered copy. No prompt when
+  ; ada.exe is absent.
   StrCpy $R7 "0"
   StrCpy $R6 "$TEMP\aipg-stop-ada.cmd"
   ClearErrors
   FileOpen $R9 $R6 w
   ${ifNot} ${Errors}
     FileWrite $R9 "@echo off$\r$\n"
-    !insertmacro appendPhisonAdaCleanup "$INSTDIR\resources\LlamaCPP"
+    ; What wService_delete.bat does, without running it from the tree.
+    FileWrite $R9 '"%SystemRoot%\System32\sc.exe" stop ada_service$\r$\n'
+    FileWrite $R9 '"%SystemRoot%\System32\sc.exe" delete ada_service$\r$\n'
+    FileWrite $R9 '"%SystemRoot%\System32\taskkill.exe" /F /IM ada.exe /T$\r$\n'
+    !insertmacro appendPhisonAdaCleanup "$INSTDIR\resources\LlamaCPP" 1
     ReadEnvStr $R8 "LOCALAPPDATA"
     ${if} $R8 != ""
-      !insertmacro appendPhisonAdaCleanup "$R8\ai-playground\resources\LlamaCPP"
+      !insertmacro appendPhisonAdaCleanup "$R8\ai-playground\resources\LlamaCPP" 1
     ${endif}
     ReadEnvStr $R5 "PUBLIC"
     ${if} $R5 == ""
       StrCpy $R5 "C:\Users\Public"
     ${endif}
-    ; Never a path read from %PUBLIC%: that file is user-writable, and the
-    ; cleanup script calls wService_delete.bat elevated.
+    ; Never a path read from %PUBLIC%: that file is user-writable, and this
+    ; script runs elevated.
     !insertmacro aipgReadSharedResourcesDir $R3
     ${if} $R3 != ""
-      !insertmacro appendPhisonAdaCleanup "$R3\resources\LlamaCPP"
+      !insertmacro appendPhisonAdaCleanup "$R3\resources\LlamaCPP" 0
     ${endif}
     StrCpy $R8 "$R5\AI Playground"
-    !insertmacro appendPhisonAdaCleanup "$R8\resources\LlamaCPP"
+    !insertmacro appendPhisonAdaCleanup "$R8\resources\LlamaCPP" 0
     FileClose $R9
     ${if} $R7 == "1"
       DetailPrint "Stopping aiDAPTIV service before removing ada.exe"

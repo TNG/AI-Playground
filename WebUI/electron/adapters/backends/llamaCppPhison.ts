@@ -17,6 +17,8 @@ export const LLAMACPP_SSD_OFFLOAD_EMBEDDING_CONFIG_NAME = 'aidaptiv_embedding_co
 export const LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT = 'wService_delete.bat'
 export const LLAMACPP_SSD_OFFLOAD_CREATE_SERVICE_SCRIPT = 'wService_create.bat'
 export const LLAMACPP_SSD_OFFLOAD_PROCESS_NAME = 'ada.exe'
+// The name wService_create.bat registers the service under.
+export const LLAMACPP_SSD_OFFLOAD_SERVICE_NAME = 'ada_service'
 
 const CONFIG_FILE_FLAG = '--config-file'
 
@@ -259,6 +261,22 @@ export function phisonCleanupDirs(serviceDir: string): string[] {
     getLlamaCppDirForVariant(serviceDir, 'ssd-offload'),
     getLlamaCppDirForVariant(serviceDir, 'standard'),
   ].filter((dir) => markers.some((name) => filesystem.existsSync(path.join(dir, name))))
+}
+
+/**
+ * Elevated teardown of the aiDAPTIV service and process. Nothing is run from the LlamaCPP tree:
+ * in a shared install every account can write there, so wService_delete.bat or a planted
+ * sc/taskkill next to it would run as administrator.
+ */
+export function stopSsdOffloadServiceCommands(systemRoot = process.env.SystemRoot): string[] {
+  const system32 = path.win32.join(systemRoot || 'C:\\Windows', 'System32')
+  const sc = path.win32.join(system32, 'sc.exe')
+  const taskkill = path.win32.join(system32, 'taskkill.exe')
+  return [
+    `"${sc}" stop ${LLAMACPP_SSD_OFFLOAD_SERVICE_NAME}`,
+    `"${sc}" delete ${LLAMACPP_SSD_OFFLOAD_SERVICE_NAME}`,
+    `"${taskkill}" /F /IM "${LLAMACPP_SSD_OFFLOAD_PROCESS_NAME}" /T`,
+  ]
 }
 
 export function migrateLegacySsdOffloadConfigFile(serviceDir: string, configPath: string): void {

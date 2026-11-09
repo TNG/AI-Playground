@@ -6,6 +6,20 @@
         <DialogDescription>{{ i18n.AGENT_TASK_SCHEDULE_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
       <form class="flex flex-col gap-4" @submit.prevent="save">
+        <div v-if="agents" class="flex flex-col gap-1.5">
+          <Label for="task-schedule-agent">{{ i18n.SESSION_SCHEDULES_AGENT }}</Label>
+          <select
+            id="task-schedule-agent"
+            v-model="pickedAgent"
+            required
+            class="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="" disabled>{{ i18n.SESSION_SCHEDULES_PICK_AGENT }}</option>
+            <option v-for="agent in agents" :key="agent.id" :value="agent.id">
+              {{ agent.name }}
+            </option>
+          </select>
+        </div>
         <div v-if="sessions" class="flex flex-col gap-1.5">
           <Label for="task-schedule-session">{{ i18n.AGENT_LIBRARY_SCHEDULE_SESSION }}</Label>
           <select
@@ -97,7 +111,10 @@
           <Button type="button" variant="ghost" @click="open = false">
             {{ i18n.COM_CANCEL }}
           </Button>
-          <Button type="submit" :disabled="problem !== null || busy || missingSession">
+          <Button
+            type="submit"
+            :disabled="problem !== null || busy || missingSession || missingAgent"
+          >
             {{ i18n.AGENT_TASK_SCHEDULE_SAVE }}
           </Button>
         </DialogFooter>
@@ -111,6 +128,7 @@ import { computed, ref, watch } from 'vue'
 import {
   AGENT_TASK_SCHEDULE_UNITS,
   MIN_SCHEDULE_MINUTES,
+  type AgentTask,
   type AgentTaskSchedule,
   type AgentTaskScheduleUnit,
 } from '@/types/agentTaskIpc'
@@ -144,6 +162,8 @@ const props = defineProps<{
   sessionRef?: string
   /** When given, the user picks the Session to add a Schedule to from these. */
   sessions?: SessionSummary[]
+  /** When given, the user picks the Agent to schedule in  from these. */
+  agents?: Pick<AgentTask, 'id' | 'name'>[]
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
@@ -152,11 +172,18 @@ const agentTasks = useAgentTasks()
 const i18nStore = useI18N()
 const i18n = i18nStore.state
 
-const task = computed(() => agentTasks.tasks.find((entry) => entry.id === props.taskId))
-const title = computed(() => i18n.AGENT_TASKS_SCHEDULE.replace('{name}', task.value?.name ?? ''))
+const pickedAgent = ref('')
+const taskId = computed(() => (props.agents ? pickedAgent.value || null : props.taskId))
+const task = computed(() => agentTasks.tasks.find((entry) => entry.id === taskId.value))
+const title = computed(() =>
+  props.agents && !task.value
+    ? i18n.SESSION_SCHEDULES_ADD_TITLE
+    : i18n.AGENT_TASKS_SCHEDULE.replace('{name}', task.value?.name ?? ''),
+)
 const hasSchedule = computed(
   () =>
     !props.sessions &&
+    !props.agents &&
     props.taskId !== null &&
     !!props.sessionRef &&
     agentTasks.taskSchedule(props.taskId, props.sessionRef).schedule !== undefined,
@@ -186,6 +213,7 @@ const startTouched = ref(false)
 const busy = ref(false)
 const pickedSession = ref('')
 const missingSession = computed(() => !!props.sessions && !pickedSession.value)
+const missingAgent = computed(() => !!props.agents && !pickedAgent.value)
 
 watch(open, (isOpen) => {
   if (isOpen) reset()
@@ -193,10 +221,11 @@ watch(open, (isOpen) => {
 
 function reset(): void {
   const existing =
-    props.taskId && props.sessionRef && !props.sessions
+    props.taskId && props.sessionRef && !props.sessions && !props.agents
       ? agentTasks.taskSchedule(props.taskId, props.sessionRef).schedule
       : undefined
   pickedSession.value = props.sessions?.length === 1 ? props.sessions[0].id : ''
+  pickedAgent.value = props.agents?.length === 1 ? props.agents[0].id : ''
   active.value = existing?.enabled ?? true
   every.value = existing?.every ?? 1
   unit.value = existing?.unit ?? 'days'
@@ -257,14 +286,17 @@ const preview = computed(() => {
 })
 
 async function save(): Promise<void> {
-  if (!props.taskId || problem.value || busy.value || missingSession.value) return
+  const id = taskId.value
+  if (!id || problem.value || busy.value || missingSession.value) return
   busy.value = true
   try {
     const result = props.sessions
-      ? await agentTasks.addSchedule(props.taskId, pickedSession.value, schedule.value)
-      : props.sessionRef
-        ? await agentTasks.setSchedule(props.taskId, schedule.value, props.sessionRef)
-        : undefined
+      ? await agentTasks.addSchedule(id, pickedSession.value, schedule.value)
+      : props.agents && props.sessionRef
+        ? await agentTasks.addSchedule(id, props.sessionRef, schedule.value)
+        : props.sessionRef
+          ? await agentTasks.setSchedule(id, schedule.value, props.sessionRef)
+          : undefined
     if (result?.ok) open.value = false
   } finally {
     busy.value = false

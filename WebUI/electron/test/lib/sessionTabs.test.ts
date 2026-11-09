@@ -10,16 +10,17 @@ const chatSession: SessionTabsInput = {
 }
 
 describe('sessionTabs', () => {
-  it('shows Viewport, Inferencing, Attributes and Artifacts for a plain Session', () => {
+  it('shows Viewport, Inferencing, Attributes, Artifacts and Agent Schedules for a plain Session', () => {
     expect(sessionTabs(chatSession).tabs).toEqual([
       'viewport',
       'inferencing',
       'attributes',
       'artifacts',
+      'schedules',
     ])
   })
 
-  it('shows the same four tabs under every preset, Agent Maker included', () => {
+  it('shows the same five tabs under every preset, Agent Maker included', () => {
     for (const presetKind of [
       'chat',
       'audio',
@@ -34,6 +35,7 @@ describe('sessionTabs', () => {
         'inferencing',
         'attributes',
         'artifacts',
+        'schedules',
       ])
     }
   })
@@ -54,7 +56,7 @@ describe('sessionTabs', () => {
   it("shows a picked Agent's Settings Template read-only under Agent Maker", () => {
     const view = sessionTabs({ ...chatSession, presetKind: 'agent-maker', agentPicked: true })
     expect(view.settings).toBe('picked-agent')
-    expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts'])
+    expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts', 'schedules'])
   })
 
   it("keeps the Session's settings for a Home Agent thread even with an Agent picked", () => {
@@ -106,7 +108,13 @@ describe('sessionTabs', () => {
   })
 
   it('keeps the current tab otherwise', () => {
-    for (const current of ['viewport', 'inferencing', 'attributes', 'artifacts'] as const) {
+    for (const current of [
+      'viewport',
+      'inferencing',
+      'attributes',
+      'artifacts',
+      'schedules',
+    ] as const) {
       const view = sessionTabs({ ...chatSession, current })
       expect(view.shown).toBe(current)
       expect(view.artifactsScope).toBeNull()
@@ -114,9 +122,11 @@ describe('sessionTabs', () => {
   })
 
   it('falls back to the Viewport when the current tab is no longer visible', () => {
-    expect(
-      sessionTabs({ ...chatSession, owner: 'home-agent-thread', current: 'artifacts' }).shown,
-    ).toBe('viewport')
+    for (const current of ['artifacts', 'schedules'] as const) {
+      expect(sessionTabs({ ...chatSession, owner: 'home-agent-thread', current }).shown).toBe(
+        'viewport',
+      )
+    }
   })
 })
 

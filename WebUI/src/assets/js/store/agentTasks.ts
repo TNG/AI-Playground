@@ -137,6 +137,9 @@ export type AgentScheduleEntry = {
   nextRunAt?: number
 }
 
+/** One Schedule in a Session, of any Agent, as the Session's Agent Schedules tab lists it. */
+export type SessionScheduleEntry = Omit<AgentScheduleEntry, 'sessionRef'> & { agentId: string }
+
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
 type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
@@ -934,6 +937,28 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return sessionsStore.orderedSessions.filter((session) => !scheduleIn(task, session.id))
   }
 
+  /** Every Agent's Schedule in the Session, in library order. */
+  function sessionSchedules(sessionRef: string): SessionScheduleEntry[] {
+    return tasks.value.flatMap((task) => {
+      const entry = scheduleIn(task, sessionRef)
+      if (!entry) return []
+      const { every, unit, startAt, enabled, nextRunAt } = entry
+      return [
+        {
+          agentId: task.id,
+          schedule: { every, unit, startAt, enabled },
+          ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+        },
+      ]
+    })
+  }
+
+  /** Saved Agents an existing Session can still schedule, in library order. */
+  function schedulableAgents(sessionRef: string): AgentTask[] {
+    if (!sessionsStore.sessions[sessionRef]) return []
+    return tasks.value.filter((task) => !scheduleIn(task, sessionRef))
+  }
+
   /** Ids of the Agents with a Schedule in the Session, paused ones included. */
   function agentsScheduledIn(sessionRef: string): string[] {
     return tasks.value.filter((task) => scheduleIn(task, sessionRef)).map((task) => task.id)
@@ -1467,6 +1492,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     addSchedule,
     agentSchedules,
     schedulableSessions,
+    sessionSchedules,
+    schedulableAgents,
     agentsScheduledIn,
     taskState,
     taskProblems,

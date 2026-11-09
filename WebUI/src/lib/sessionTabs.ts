@@ -1,12 +1,13 @@
 import { usesSessionSettings } from '@/lib/agentSessionSettings'
 
-export type SessionTabId = 'viewport' | 'inferencing' | 'attributes' | 'artifacts'
+export type SessionTabId = 'viewport' | 'inferencing' | 'attributes' | 'artifacts' | 'schedules'
 
 export const SESSION_TAB_LABELS = {
   viewport: 'SESSION_TAB_VIEWPORT',
   inferencing: 'SESSION_TAB_INFERENCING',
   attributes: 'SESSION_TAB_ATTRIBUTES',
   artifacts: 'SESSION_TAB_ARTIFACTS',
+  schedules: 'SESSION_TAB_SCHEDULES',
 } as const satisfies Record<SessionTabId, string>
 
 export type SessionTabsOwner = 'session' | 'home-agent-thread'
@@ -41,7 +42,7 @@ export type SessionTabsView = {
 export function sessionTabs(input: SessionTabsInput): SessionTabsView {
   const tabs: SessionTabId[] =
     input.owner === 'session'
-      ? ['viewport', 'inferencing', 'attributes', 'artifacts']
+      ? ['viewport', 'inferencing', 'attributes', 'artifacts', 'schedules']
       : ['viewport', 'inferencing', 'attributes']
   const wanted: SessionTabId =
     input.landing === 'open-session'

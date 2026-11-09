@@ -62,6 +62,18 @@
         <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
             <button
+              type="button"
+              :aria-label="languages.AGENT_LIBRARY_OPEN"
+              @click="uiStore.openAgentLibrary()"
+            >
+              <Squares2X2Icon class="size-6 text-foreground"></Squares2X2Icon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.AGENT_LIBRARY_TITLE }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
               id="app-settings-button"
               type="button"
               :aria-label="languages.COM_APP_SETTINGS"
@@ -201,6 +213,9 @@
       <template #artifacts>
         <SessionArtifacts v-if="sessionTabs.shown === 'artifacts'" />
       </template>
+      <template #schedules>
+        <SessionAgentSchedules v-if="sessionTabs.shown === 'schedules'" />
+      </template>
     </SessionTabView>
 
     <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
@@ -279,7 +294,12 @@ import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
-import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
+import {
+  CircleStackIcon,
+  Cog6ToothIcon,
+  ServerStackIcon,
+  Squares2X2Icon,
+} from '@heroicons/vue/24/solid'
 import ModelManager from '@/views/ModelManager.vue'
 import AgentLibrary from '@/views/AgentLibrary.vue'
 import TrialRunIndicator from '@/components/TrialRunIndicator.vue'
@@ -293,6 +313,7 @@ import SessionsPanel from '@/components/SessionsPanel.vue'
 import SessionTabView from '@/components/SessionTabView.vue'
 import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
+import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'

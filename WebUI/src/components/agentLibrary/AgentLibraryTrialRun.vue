@@ -34,7 +34,6 @@ watch(
 )
 
 const inFlight = computed(() => agentTasks.trialRunInFlight(props.agent.id))
-const running = computed(() => agentTasks.trialRuns[props.agent.id]?.state === 'running')
 
 const folders = computed(() =>
   resolveMountedFolders(props.agent.settingsTemplate.mountedFolders ?? []),
@@ -115,7 +114,7 @@ async function start(): Promise<void> {
         </select>
       </label>
       <Button
-        v-if="running"
+        v-if="inFlight"
         variant="secondary"
         size="sm"
         @click="agentTasks.stopTrialRun(agent.id)"
@@ -123,7 +122,7 @@ async function start(): Promise<void> {
         <StopIcon class="size-4" />
         {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP }}
       </Button>
-      <Button v-else size="sm" :disabled="inFlight" @click="requestRun">
+      <Button v-else size="sm" @click="requestRun">
         <PlayIcon class="size-4" />
         {{ i18n.AGENT_LIBRARY_TRIAL_RUN_START }}
       </Button>

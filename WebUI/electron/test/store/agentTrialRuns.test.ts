@@ -537,6 +537,28 @@ describe('a Trial Run', () => {
     expect(sentSteps()).toEqual(['one'])
   })
 
+  it('can be stopped while it waits on its chat model, and then does not start', async () => {
+    inference.missing = new Set(['Template-27B'])
+    let finishDownload = () => {}
+    requestDownload.mockImplementation(
+      () => new Promise<void>((resolve) => (finishDownload = resolve)),
+    )
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks } = await readyStores()
+    const started = tasks.startTrialRun('t1')
+    await vi.waitFor(() => expect(requestDownload).toHaveBeenCalled())
+
+    await tasks.stopTrialRun('t1')
+
+    expect(tasks.trialRunInFlight('t1')).toBe(false)
+    finishDownload()
+    expect(await started).toEqual({ ok: false, reason: 'stopped' })
+    await settleMicrotasks()
+    expect(window.electronAPI.agentMode.trialRunHarness).not.toHaveBeenCalled()
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(tasks.trialRuns.t1).toBeUndefined()
+  })
+
   it('is refused while the Agent already has one in flight', async () => {
     storedDrafts = [draftOf('t1', ['one'])]
     const { tasks } = await readyStores()

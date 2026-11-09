@@ -150,7 +150,7 @@ export type TrialRun = TrialRunRecord
 
 export type StartTrialRunResult =
   | { ok: true }
-  | { ok: false; reason: 'no-agent' | 'running' | 'no-steps' | 'empty-step' }
+  | { ok: false; reason: 'no-agent' | 'running' | 'stopped' | 'no-steps' | 'empty-step' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
   | { ok: false; reason: 'not-started'; message: string }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
@@ -876,8 +876,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     string,
     { plan: Pick<LibraryAgent, 'steps' | 'settingsTemplate'>; abort: AbortController }
   > = {}
-  /** Agents whose Trial Run is still being checked, possibly waiting on a download. */
-  const startingTrials = reactive(new Set<string>())
+  /** Agents whose Trial Run is still being checked, possibly waiting on a download; Stop aborts it. */
+  const startingTrials = reactive(new Map<string, AbortController>())
 
   function trialRunInFlight(agentId: string): boolean {
     return startingTrials.has(agentId) || trialRuns.value[agentId]?.state === 'running'
@@ -886,7 +886,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The Agents whose Trial Run is in flight, for the header indicator. */
   const trialRunsInFlight = computed((): string[] => [
     ...new Set([
-      ...startingTrials,
+      ...startingTrials.keys(),
       ...Object.values(trialRuns.value)
         .filter((run) => run.state === 'running')
         .map((run) => run.agentId),
@@ -1009,21 +1009,24 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     options: { lastStep?: number } = {},
   ): Promise<StartTrialRunResult> {
     if (trialRunInFlight(agentId)) return { ok: false, reason: 'running' }
-    startingTrials.add(agentId)
+    const starting = new AbortController()
+    startingTrials.set(agentId, starting)
     try {
-      return await beginTrialRun(agentId, options.lastStep)
+      return await beginTrialRun(agentId, options.lastStep, starting.signal)
     } finally {
-      startingTrials.delete(agentId)
+      if (startingTrials.get(agentId) === starting) startingTrials.delete(agentId)
     }
   }
 
   async function beginTrialRun(
     agentId: string,
     lastStep: number | undefined,
+    signal: AbortSignal,
   ): Promise<StartTrialRunResult> {
     const listed = libraryAgents.value.find((agent) => agent.id === agentId)
     if (!listed) return { ok: false, reason: 'no-agent' }
     await agentMode.loadMcpServersFor(listed.settingsTemplate.capabilities ?? [])
+    if (signal.aborted) return { ok: false, reason: 'stopped' }
     const checked = libraryAgents.value.find((agent) => agent.id === agentId)
     if (!checked) return { ok: false, reason: 'no-agent' }
     if (checked.steps.length === 0) return { ok: false, reason: 'no-steps' }
@@ -1035,6 +1038,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return { ok: false, reason: 'settings-problems', problems, message }
     }
     const refusal = await chatModelRefusal(checked.settingsTemplate, checked.steps)
+    if (signal.aborted) return { ok: false, reason: 'stopped' }
     if (refusal) return { ok: false, ...refusal }
     // Taken after the waits, so the edits made meanwhile are the ones that run.
     const agent = libraryAgents.value.find((entry) => entry.id === agentId)
@@ -1049,6 +1053,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     } catch (error) {
       return { ok: false, reason: 'not-started', message: extractMessage(error) }
     }
+    if (signal.aborted) return { ok: false, reason: 'stopped' }
     const name = plan.name.trim() || (i18n.state.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
     const stepCount = Math.min(Math.max(lastStep ?? plan.steps.length, 1), plan.steps.length)
     const startedAt = Date.now()
@@ -1126,7 +1131,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   }
 
+  /** Stop the Agent's Trial Run, or keep the one still starting from starting. */
   async function stopTrialRun(agentId: string): Promise<void> {
+    startingTrials.get(agentId)?.abort()
+    startingTrials.delete(agentId)
+    await stopRunningTrial(agentId)
+  }
+
+  async function stopRunningTrial(agentId: string): Promise<void> {
     const run = trialRuns.value[agentId]
     if (run?.state !== 'running') return
     // Settled first, so the stopped turn's own settle finds no run and no Step can follow.
@@ -1138,7 +1150,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   async function dropTrialRun(agentId: string): Promise<void> {
     const run = trialRuns.value[agentId]
     if (!run) return
-    await stopTrialRun(agentId)
+    await stopRunningTrial(agentId)
     const { [agentId]: _dropped, ...rest } = trialRuns.value
     trialRuns.value = rest
     await agentMode.deleteSession(run.harnessSessionId)
@@ -1146,6 +1158,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Throw the Agent's Trial Run away with its folder, as deleting the Agent does. */
   async function discardTrialRun(agentId: string): Promise<void> {
+    await stopTrialRun(agentId)
     await dropTrialRun(agentId)
     const result = await window.electronAPI.agentMode
       .discardTrialRun(agentId)

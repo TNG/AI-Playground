@@ -7,7 +7,7 @@ import SettingsAgentInferencing from '@/components/SettingsAgentInferencing.vue'
 import { useTemplateSettingsBinding } from '@/assets/js/agentTemplateSettings'
 import { describeSettingsProblems } from '@/lib/sessionSettingsProblems'
 
-const props = defineProps<{ agent: LibraryAgent }>()
+const props = defineProps<{ agent: LibraryAgent; part: 'inferencing' | 'attributes' }>()
 
 const agentTasks = useAgentTasks()
 const i18n = useI18N().state
@@ -30,10 +30,7 @@ const problemText = computed(() =>
 </script>
 
 <template>
-  <section class="flex max-w-3xl flex-col gap-2" aria-labelledby="agent-library-settings-heading">
-    <h2 id="agent-library-settings-heading" class="text-sm font-semibold">
-      {{ i18n.AGENT_LIBRARY_SETTINGS }}
-    </h2>
+  <div class="flex max-w-3xl flex-col gap-2">
     <p class="text-xs text-muted-foreground">{{ i18n.AGENT_LIBRARY_SETTINGS_HINT }}</p>
     <p
       v-if="problemText"
@@ -42,13 +39,7 @@ const problemText = computed(() =>
     >
       {{ problemText }}
     </p>
-    <div role="group" :aria-label="i18n.SESSION_TAB_INFERENCING">
-      <h3 class="text-sm font-medium text-muted-foreground">{{ i18n.SESSION_TAB_INFERENCING }}</h3>
-      <SettingsAgentInferencing :template="binding" />
-    </div>
-    <div role="group" :aria-label="i18n.SESSION_TAB_ATTRIBUTES">
-      <h3 class="text-sm font-medium text-muted-foreground">{{ i18n.SESSION_TAB_ATTRIBUTES }}</h3>
-      <SettingsAgentAttributes :template="binding" />
-    </div>
-  </section>
+    <SettingsAgentInferencing v-if="part === 'inferencing'" :template="binding" />
+    <SettingsAgentAttributes v-else :template="binding" />
+  </div>
 </template>

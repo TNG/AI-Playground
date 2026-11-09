@@ -11,6 +11,7 @@ import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { stepPrompts } from '@/lib/taskSteps'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import {
   describeSettingsProblems,
@@ -195,6 +196,8 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
         startedAt: run.startedAt,
         trigger: 'manual',
       },
+      steps: stepPrompts(record?.steps ?? []),
+      ...(run.input ? { input: run.input } : {}),
       saved: record?.messages ?? [],
       ...(live ? { live } : {}),
       ...(run.state === 'running'
@@ -203,16 +206,16 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     }
   }
 
-  /** Run the Agent's Draft (or the saved Agent), stopping after `lastStep` when given. */
+  /** Run the Agent's Draft (or saved Agent), `input` leading Step 1, ending after `lastStep`. */
   async function startTrialRun(
     agentId: string,
-    options: { lastStep?: number } = {},
+    options: { lastStep?: number; input?: string } = {},
   ): Promise<StartTrialRunResult> {
     if (trialRunInFlight(agentId)) return { ok: false, reason: 'running' }
     const starting = new AbortController()
     startingTrials.set(agentId, starting)
     try {
-      return await beginTrialRun(agentId, options.lastStep, starting.signal)
+      return await beginTrialRun(agentId, options, starting.signal)
     } finally {
       if (startingTrials.get(agentId) === starting) startingTrials.delete(agentId)
     }
@@ -223,7 +226,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
 
   async function beginTrialRun(
     agentId: string,
-    lastStep: number | undefined,
+    { lastStep, input }: { lastStep?: number; input?: string },
     signal: AbortSignal,
   ): Promise<StartTrialRunResult> {
     const listed = libraryAgent(agentId)
@@ -260,6 +263,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     const name = plan.name.trim() || (i18n.state.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
     const stepCount = Math.min(Math.max(lastStep ?? plan.steps.length, 1), plan.steps.length)
     const startedAt = Date.now()
+    const leading = input?.trim()
     agentMode.createSession({
       id: harness.harnessSessionId,
       workspaceDir: harness.workspaceDir,
@@ -281,6 +285,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
       stepCount,
       startedAt,
       state: 'running',
+      ...(leading ? { input: leading } : {}),
     })
     void sendTrialStep(agentId, 1)
     return { ok: true }
@@ -300,6 +305,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
         steps: context.plan.steps,
         settingsTemplate: context.plan.settingsTemplate,
         signal: context.abort.signal,
+        ...(run.input ? { prompt: run.input } : {}),
       },
       (message) => settleTrialRun(agentId, 'failed', message),
     )

@@ -23,6 +23,9 @@
         :aria-label="clip.name ?? languages.SESSION_TURN_INPUT_AUDIO"
       />
     </template>
+    <p v-if="prompt.step" class="text-xs font-medium text-muted-foreground">
+      {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(prompt.step) }) }}
+    </p>
     <p v-if="prompt.agentRun">{{ runLabel(prompt.agentRun) }}</p>
     <div v-if="controls" class="flex items-center gap-2">
       <Button

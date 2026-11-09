@@ -102,6 +102,8 @@ export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
 
 export type TurnPrompt = {
   text: string
+  /** Set on a Trial Run's Step, whose bubble is labelled with it. */
+  step?: number
   agentRun?: AgentRunIdentity
   placeholder?: string
   inputImageUrl?: string

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { PlayIcon, StopIcon } from '@heroicons/vue/24/solid'
 import { SAVE_TASK_BLOCKER_KEYS, type LibraryAgent } from '@/assets/js/store/agentTasks'
 import { useAgentTrialRuns, type StartTrialRunResult } from '@/assets/js/store/agentTrialRuns'
@@ -8,9 +8,11 @@ import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { trialRunItems } from '@/lib/trialRunTimeline'
+import { useStickToBottom } from '@/lib/useStickToBottom'
 
 const props = defineProps<{ agent: LibraryAgent }>()
 
@@ -19,8 +21,10 @@ const i18n = useI18N().state
 
 /** The Step the Trial Run ends after; 0 runs every Step. */
 const lastStep = ref(0)
+const input = ref('')
 const confirmingFolders = ref(false)
 const refusal = ref<string>()
+const panel = ref<HTMLElement | null>(null)
 
 watch(
   () => props.agent.steps.length,
@@ -40,6 +44,9 @@ const items = computed(() => {
   return view ? trialRunItems<PendingMediaTurn, PendingAudioTurn>(view) : []
 })
 
+const { scrollToBottom } = useStickToBottom(panel)
+onMounted(() => scrollToBottom(false))
+
 function refusalText(result: Exclude<StartTrialRunResult, { ok: true }>): string | undefined {
   if (result.reason === 'no-steps' || result.reason === 'empty-step') {
     return i18n[SAVE_TASK_BLOCKER_KEYS[result.reason]]
@@ -48,6 +55,7 @@ function refusalText(result: Exclude<StartTrialRunResult, { ok: true }>): string
 }
 
 function requestRun(): void {
+  if (inFlight.value) return
   refusal.value = undefined
   if (folders.value.length > 0) confirmingFolders.value = true
   else void start()
@@ -55,86 +63,117 @@ function requestRun(): void {
 
 async function start(): Promise<void> {
   confirmingFolders.value = false
-  const result = await agentTrialRuns.startTrialRun(
-    props.agent.id,
-    lastStep.value > 0 ? { lastStep: lastStep.value } : {},
-  )
+  const typed = input.value.trim()
+  const result = await agentTrialRuns.startTrialRun(props.agent.id, {
+    ...(lastStep.value > 0 ? { lastStep: lastStep.value } : {}),
+    ...(typed ? { input: typed } : {}),
+  })
   refusal.value = result.ok ? undefined : refusalText(result)
+  if (result.ok) {
+    input.value = ''
+    scrollToBottom(false)
+  }
 }
 </script>
 
 <template>
-  <section class="flex max-w-3xl flex-col gap-3" aria-labelledby="agent-library-trial-heading">
-    <div class="flex flex-col gap-1">
+  <section class="flex min-h-0 min-w-0 flex-col" aria-labelledby="agent-library-trial-heading">
+    <header class="flex flex-none flex-col gap-1 border-b border-border px-4 py-3">
       <h2 id="agent-library-trial-heading" class="text-sm font-semibold">
         {{ i18n.AGENT_LIBRARY_TRIAL_RUN }}
       </h2>
       <p class="text-xs text-muted-foreground">{{ i18n.AGENT_LIBRARY_TRIAL_RUN_HINT }}</p>
-    </div>
+    </header>
 
     <div
-      v-if="confirmingFolders"
-      role="group"
+      ref="panel"
+      role="log"
       :aria-label="i18n.AGENT_LIBRARY_TRIAL_RUN"
-      class="flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2"
+      class="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 py-4"
     >
-      <p class="text-sm">
-        {{
-          fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_FOLDERS_NOTICE, {
-            folders: folders.map((folder) => folder.hostPath).join(', '),
-          })
-        }}
+      <div v-if="items.length > 0" class="flex w-full flex-col gap-6">
+        <SessionTurnBlock
+          v-for="item in items"
+          :key="item.id"
+          :item="item"
+          :chat-key="`trial-run:${agent.id}`"
+        />
+      </div>
+      <p
+        v-else-if="!inFlight"
+        class="flex flex-1 items-center justify-center text-center text-sm text-muted-foreground"
+      >
+        {{ i18n.AGENT_LIBRARY_TRIAL_RUN_EMPTY }}
       </p>
-      <div class="flex justify-end gap-2">
-        <Button variant="secondary" size="sm" @click="confirmingFolders = false">
-          {{ i18n.AGENT_AGENTS_CANCEL }}
+    </div>
+
+    <footer class="flex flex-none flex-col gap-2 border-t border-border px-4 py-3">
+      <div
+        v-if="confirmingFolders"
+        role="group"
+        :aria-label="i18n.AGENT_LIBRARY_TRIAL_RUN"
+        class="flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2"
+      >
+        <p class="text-sm">
+          {{
+            fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_FOLDERS_NOTICE, {
+              folders: folders.map((folder) => folder.hostPath).join(', '),
+            })
+          }}
+        </p>
+        <div class="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" @click="confirmingFolders = false">
+            {{ i18n.AGENT_AGENTS_CANCEL }}
+          </Button>
+          <Button size="sm" :disabled="inFlight" @click="start">
+            {{ i18n.AGENT_LIBRARY_TRIAL_RUN_FOLDERS_CONFIRM }}
+          </Button>
+        </div>
+      </div>
+
+      <Textarea
+        :model-value="input"
+        rows="2"
+        class="max-h-40 min-h-0 resize-none text-sm"
+        :aria-label="i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT"
+        :placeholder="i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT"
+        :disabled="inFlight"
+        @update:model-value="(text) => (input = String(text))"
+        @keydown.enter.exact.prevent="requestRun"
+      />
+
+      <div class="flex flex-wrap items-center gap-2">
+        <label class="flex items-center gap-2 text-sm">
+          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP_AFTER }}
+          <select
+            v-model.number="lastStep"
+            :disabled="inFlight"
+            class="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option :value="0">{{ i18n.AGENT_LIBRARY_TRIAL_RUN_LAST_STEP }}</option>
+            <option v-for="(_step, index) in agent.steps" :key="index" :value="index + 1">
+              {{ fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_STEP, { number: String(index + 1) }) }}
+            </option>
+          </select>
+        </label>
+        <span v-if="refusal" role="status" class="min-w-0 flex-1 text-xs text-amber-500">
+          {{ refusal }}
+        </span>
+        <Button
+          v-if="inFlight"
+          variant="secondary"
+          size="sm"
+          class="ml-auto"
+          @click="agentTrialRuns.stopTrialRun(agent.id)"
+        >
+          <StopIcon class="size-4" />
+          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP }}
         </Button>
-        <Button size="sm" :disabled="inFlight" @click="start">
-          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_FOLDERS_CONFIRM }}
+        <Button v-else size="sm" class="ml-auto" :disabled="confirmingFolders" @click="requestRun">
+          <PlayIcon class="size-4" />
+          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_START }}
         </Button>
       </div>
-    </div>
-
-    <div v-else class="flex flex-wrap items-center gap-2">
-      <label class="flex items-center gap-2 text-sm">
-        {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP_AFTER }}
-        <select
-          v-model.number="lastStep"
-          :disabled="inFlight"
-          class="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          <option :value="0">{{ i18n.AGENT_LIBRARY_TRIAL_RUN_LAST_STEP }}</option>
-          <option v-for="(_step, index) in agent.steps" :key="index" :value="index + 1">
-            {{ fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_STEP, { number: String(index + 1) }) }}
-          </option>
-        </select>
-      </label>
-      <Button
-        v-if="inFlight"
-        variant="secondary"
-        size="sm"
-        @click="agentTrialRuns.stopTrialRun(agent.id)"
-      >
-        <StopIcon class="size-4" />
-        {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP }}
-      </Button>
-      <Button v-else size="sm" @click="requestRun">
-        <PlayIcon class="size-4" />
-        {{ i18n.AGENT_LIBRARY_TRIAL_RUN_START }}
-      </Button>
-      <span v-if="refusal" role="status" class="text-xs text-amber-500">{{ refusal }}</span>
-    </div>
-
-    <div v-if="items.length > 0" class="flex flex-col gap-6">
-      <SessionTurnBlock
-        v-for="item in items"
-        :key="item.id"
-        :item="item"
-        :chat-key="`trial-run:${agent.id}`"
-      />
-    </div>
-    <p v-else-if="!inFlight" class="text-xs text-muted-foreground">
-      {{ i18n.AGENT_LIBRARY_TRIAL_RUN_EMPTY }}
-    </p>
+    </footer>
   </section>
 </template>

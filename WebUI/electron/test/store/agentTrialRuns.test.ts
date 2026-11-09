@@ -672,7 +672,7 @@ describe('a Trial Run', () => {
     expect(sentSteps()).toEqual(['one'])
   })
 
-  it('shows as one Turn in the Agent Library, live and once it ended', async () => {
+  it('shows in the Agent Library as a conversation, one Step after another', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const { trials } = await readyStores()
     await trials.startTrialRun('t1')
@@ -680,20 +680,30 @@ describe('a Trial Run', () => {
     await turnIdOf(1)
 
     const running = trialRunItems(trials.trialRunView('t1')!)
-    expect(running).toHaveLength(1)
-    expect(running[0]).toMatchObject({
-      kind: 'agent',
-      details: { progress: { step: 2, count: 2 } },
-    })
+    expect(running).toMatchObject([
+      { prompt: { text: 'one', step: 1 } },
+      { prompt: { text: 'two', step: 2 } },
+    ])
 
     await finishTurn(1)
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     const ended = trialRunItems(trials.trialRunView('t1')!)
-    expect(ended).toHaveLength(1)
-    expect(ended[0]).toMatchObject({
-      kind: 'agent',
-      prompt: { agentRun: { name: 'Draft t1' } },
-      footer: { actions: ['copy'] },
+    expect(ended).toHaveLength(2)
+    expect(ended[1]).toMatchObject({ kind: 'agent', footer: { actions: ['copy'], text: 'done' } })
+  })
+
+  it('puts the input it was started with in front of Step 1, and shows it there', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { trials } = await readyStores()
+
+    await trials.startTrialRun('t1', { input: 'Only sports' })
+    await finishTurn(0)
+    await turnIdOf(1)
+
+    expect(sentPrompts()[0]).toContain('For this run the user added: "Only sports"')
+    expect(sentPrompts()[1]).not.toContain('Only sports')
+    expect(trialRunItems(trials.trialRunView('t1')!)[0]).toMatchObject({
+      prompt: { text: 'Only sports\n\none', step: 1 },
     })
   })
 })

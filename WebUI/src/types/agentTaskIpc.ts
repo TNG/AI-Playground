@@ -140,5 +140,7 @@ export const TrialRunRecordSchema = z.object({
   startedAt: z.number(),
   state: z.enum(['running', 'completed', 'failed', 'stopped']),
   message: z.string().optional(),
+  /** What the user typed in front of Step 1. */
+  input: z.string().optional(),
 })
 export type TrialRunRecord = z.infer<typeof TrialRunRecordSchema>

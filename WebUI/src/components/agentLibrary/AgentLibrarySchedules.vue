@@ -95,10 +95,7 @@ function add(): void {
 </script>
 
 <template>
-  <section class="flex flex-col gap-3" :aria-labelledby="`agent-library-schedules-${agent.id}`">
-    <h2 :id="`agent-library-schedules-${agent.id}`" class="text-sm font-medium">
-      {{ i18n.AGENT_LIBRARY_SCHEDULES }}
-    </h2>
+  <div class="flex flex-col gap-3">
     <p v-if="!agent.saved" class="text-sm text-muted-foreground">
       {{ i18n.AGENT_LIBRARY_SCHEDULES_SAVE_FIRST }}
     </p>
@@ -148,5 +145,5 @@ function add(): void {
         :sessions="adding ? addable : undefined"
       />
     </TooltipProvider>
-  </section>
+  </div>
 </template>

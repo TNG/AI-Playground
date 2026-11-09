@@ -1508,7 +1508,7 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
   },
-  /** The In-flight Work only the window knows (Prompt Runs, Task Runs); replaces the last report. */
+  /** The In-flight Work only the window knows (Task Runs, Trial Runs); replaces the last report. */
   'lifecycle:reportWork': {
     kind: 'send',
     owner: 'main',

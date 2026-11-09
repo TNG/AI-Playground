@@ -140,7 +140,7 @@ import {
 
 const props = defineProps<{
   taskId: string | null
-  /** The Session whose Schedule this edits; the open one when unset. */
+  /** The Session whose Schedule this edits; unset while adding one to a picked Session. */
   sessionRef?: string
   /** When given, the user picks the Session to add a Schedule to from these. */
   sessions?: SessionSummary[]
@@ -158,6 +158,7 @@ const hasSchedule = computed(
   () =>
     !props.sessions &&
     props.taskId !== null &&
+    !!props.sessionRef &&
     agentTasks.taskSchedule(props.taskId, props.sessionRef).schedule !== undefined,
 )
 
@@ -192,7 +193,7 @@ watch(open, (isOpen) => {
 
 function reset(): void {
   const existing =
-    props.taskId && !props.sessions
+    props.taskId && props.sessionRef && !props.sessions
       ? agentTasks.taskSchedule(props.taskId, props.sessionRef).schedule
       : undefined
   pickedSession.value = props.sessions?.length === 1 ? props.sessions[0].id : ''
@@ -261,15 +262,17 @@ async function save(): Promise<void> {
   try {
     const result = props.sessions
       ? await agentTasks.addSchedule(props.taskId, pickedSession.value, schedule.value)
-      : await agentTasks.setSchedule(props.taskId, schedule.value, props.sessionRef)
-    if (result.ok) open.value = false
+      : props.sessionRef
+        ? await agentTasks.setSchedule(props.taskId, schedule.value, props.sessionRef)
+        : undefined
+    if (result?.ok) open.value = false
   } finally {
     busy.value = false
   }
 }
 
 async function remove(): Promise<void> {
-  if (!props.taskId || busy.value) return
+  if (!props.taskId || !props.sessionRef || busy.value) return
   busy.value = true
   try {
     if (await agentTasks.removeSchedule(props.taskId, props.sessionRef)) open.value = false

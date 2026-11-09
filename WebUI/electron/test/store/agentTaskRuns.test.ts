@@ -32,7 +32,6 @@ const GAME_AGENT: ChatPreset = {
   systemPrompt: 'You make games.',
 } as ChatPreset
 
-
 const IMAGE_GEN = { type: 'comfy', category: 'create-images', name: 'Flux' }
 
 const activePreset = vi.hoisted(() => ({ state: null as { preset: unknown } | null }))
@@ -513,55 +512,6 @@ describe('deleting the Session a run is in', () => {
   })
 })
 
-describe('the Agents a Session holds', () => {
-  const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
-  const ids = (tasks: ReturnType<typeof useAgentTasks>) =>
-    tasks.openSessionAgents.map((agent) => agent.id)
-
-  it('are none for an Agent made in it that neither runs nor is scheduled', async () => {
-    const { tasks } = await readyStores(task('t1', ['one']))
-
-    expect(ids(tasks)).toEqual([])
-  })
-
-  it('include an Agent while its run is in flight in the Session, and not after', async () => {
-    const { tasks } = await readyStores(task('t1', ['one'], { sessionRef: 'session-made-in' }))
-
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    expect(ids(tasks)).toEqual(['t1'])
-
-    nextSessionId = 'session-2'
-    await useSessions(pinia).create()
-    expect(ids(tasks)).toEqual([])
-    await useSessions(pinia).open(SESSION)
-
-    await finishTurn(0)
-    await vi.waitFor(() => expect(ids(tasks)).toEqual([]))
-  })
-
-  it('include an Agent scheduled in the Session, wherever it was made', async () => {
-    const nextRunAt = Date.now() + 60_000
-    const { tasks } = await readyStores(
-      task('here', ['one'], {
-        sessionRef: 'session-2',
-        schedules: [{ sessionRef: SESSION, ...daily, nextRunAt }],
-      }),
-      task('there', ['one'], { schedules: [{ sessionRef: 'session-2', ...daily, nextRunAt }] }),
-    )
-
-    expect(ids(tasks)).toEqual(['here'])
-  })
-
-  it('include an Agent whose Schedule in the Session is paused, so it can be removed', async () => {
-    const { tasks } = await readyStores(
-      task('paused', ['one'], { schedules: [{ sessionRef: SESSION, ...daily, enabled: false }] }),
-    )
-
-    expect(ids(tasks)).toEqual(['paused'])
-  })
-})
-
 describe('running a Task', () => {
   it('creates the Task Session in the background, leaving the Open Session alone', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
@@ -584,27 +534,16 @@ describe('running a Task', () => {
     expect(JSON.stringify(agentMode.messages)).not.toContain('"one"')
   })
 
-  it('tags the run as started by hand, for the timeline to say so', async () => {
+  it('tags the run with its Agent and as started by hand, for the timeline to say so', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one']))
     await tasks.runTask('t1')
 
     await turnIdOf(0)
     expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
+      taskId: 't1',
       taskName: 'Task t1',
       trigger: 'manual',
     })
-  })
-
-  it('keeps the Steps on the Task Session, so opening it offers Run again', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-    await agentMode.switchSession(sessionId)
-
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['one', 'two'])
-    expect(agentMode.openTaskId).toBe('t1')
   })
 
   it('files the Agent Run under Agent Maker', async () => {
@@ -619,7 +558,7 @@ describe('running a Task', () => {
     expect(sentConfig(0)).toMatchObject({ presetName: 'Agent' })
   })
 
-  it('frames the Steps as the prompt bar Run does', async () => {
+  it('frames each Step with its place in the run', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))
 
     await tasks.runTask('t1')
@@ -1626,85 +1565,6 @@ describe('locking the Task Session', () => {
     expect(agentMode.sessions[earlier].taskId).toBe('t1')
     expect(tasks.openSessionSettingsReadOnly).toBe(false)
   })
-
-  it('names the Task the Open Session came from, until that Task is deleted', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
-    expect(tasks.openSessionTask).toBeUndefined()
-    await tasks.runTask('t1')
-    await finishTurn(0)
-    await settledOutcome(tasks, 't1')
-
-    await agentMode.switchSession(sentConfig(0).sessionId)
-    expect(tasks.openSessionTask).toMatchObject({ id: 't1', name: 'Task t1' })
-
-    expect(await tasks.deleteTask('t1')).toBe(true)
-    expect(tasks.openSessionTask).toBeUndefined()
-  })
-})
-
-describe('updating an Agent while it runs', () => {
-  it('leaves the run on the Steps and settings it started with; the next run uses the update', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-
-    await agentMode.startSessionFrom({
-      taskId: 't1',
-      settings: { ...TEMPLATE, model: 'Edited-9B' },
-      steps: [
-        { id: 'n1', prompt: 'first' },
-        { id: 'n2', prompt: 'second' },
-      ],
-    })
-    expect((await tasks.updateAgent('t1', 'Task t1')).ok).toBe(true)
-
-    expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
-    })
-    expect(lastSavedTask('t1')).toMatchObject({
-      steps: [{ prompt: 'first' }, { prompt: 'second' }],
-      activeRuns: [expect.objectContaining({ sessionId, stepIndex: 1 })],
-    })
-
-    await finishTurn(0)
-    await turnIdOf(1)
-    expect(sentSteps()).toEqual(['one', 'two'])
-    expect(sentConfig(1)).toMatchObject({
-      sessionId,
-      workspaceDir: '/work/task',
-      modelConfig: { model: 'Template-27B' },
-    })
-
-    await finishTurn(1)
-    await settledOutcome(tasks, 't1')
-    expect(lastSavedTask('t1')).toMatchObject({
-      steps: [{ prompt: 'first' }, { prompt: 'second' }],
-      lastOutcome: { kind: 'completed' },
-    })
-
-    expect(await tasks.runTask('t1')).toEqual({ ok: true })
-    await turnIdOf(2)
-    expect(sentSteps().at(-1)).toBe('first')
-    expect(sentConfig(2)).toMatchObject({ modelConfig: { model: 'Edited-9B' } })
-  })
-
-  it('saves an Agent whose settings have a problem, which then refuses Run now', async () => {
-    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
-    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
-    await agentMode.startSessionFrom({
-      taskId: 't1',
-      settings: { ...TEMPLATE, model: 'Deleted-4B' },
-      steps: [{ id: 'n1', prompt: 'one' }],
-    })
-
-    expect((await tasks.updateAgent('t1', 'Task t1')).ok).toBe(true)
-
-    expect(lastSavedTask('t1')?.settingsTemplate.model).toBe('Deleted-4B')
-    expect(tasks.taskProblems('t1')).toEqual([{ field: 'model', value: 'Deleted-4B' }])
-    expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'settings-problems' })
-    expect(startTurn).not.toHaveBeenCalled()
-  })
 })
 
 describe('an Agent with a Draft', () => {
@@ -1745,12 +1605,6 @@ describe('an Agent with a Draft', () => {
     expect(sentSteps().at(-1)).toBe('first')
   })
 })
-
-const STEPS = [
-  { id: 'p1', prompt: 'Search for today’s news' },
-  { id: 'p2', prompt: 'Summarise it by topic' },
-  { id: 'p3', prompt: 'Read the summary aloud' },
-]
 
 describe('an Agent picked in the prompt bar', () => {
   it('is remembered per Session', async () => {
@@ -1998,340 +1852,6 @@ function timelineTagsOf(sessionRef: string): string[] {
       ),
     )
 }
-
-describe('running Steps from the prompt bar', () => {
-  it('carries out the Steps one turn at a time in the Open Session, then ends', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-
-    const submitting = tasks.runSteps('Get news focused on Intel Corporation')
-    await turnIdOf(0)
-
-    expect(sentPrompts()[0]).toBe(
-      [
-        'Carry this out in 3 steps. I will send them one at a time; do only the current one, ' +
-          'then stop.',
-        '',
-        'For this run the user added: "Get news focused on Intel Corporation"',
-        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
-        '',
-        'Step 1 of 3: Search for today’s news',
-      ].join('\n'),
-    )
-    expect(sentConfig(0).sessionId).toBe('session-open')
-    expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 1, stepCount: 3 })
-
-    await finishTurn(0)
-    await submitting
-    await turnIdOf(1)
-    expect(sentPrompts()[1]).toBe('Step 2 of 3: Summarise it by topic')
-    expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 2, stepCount: 3 })
-
-    await finishTurn(1)
-    await turnIdOf(2)
-    expect(sentPrompts()[2]).toBe('Step 3 of 3: Read the summary aloud')
-
-    await finishTurn(2)
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-    await settleMicrotasks()
-    expect(startTurn).toHaveBeenCalledTimes(3)
-    expect(startTurn.mock.calls.every(([, , config]) => config.sessionId === 'session-open')).toBe(
-      true,
-    )
-  })
-
-  it('marks every Step prompt with one run, in flight until its last Step', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS.slice(0, 2))
-
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-    const runId = tasks.promptRunOf('session-open')!.tag.runId
-    expect(tasks.runsInFlight[runId]).toEqual({ step: 1, count: 2 })
-    await finishTurn(0)
-    await turnIdOf(1)
-    await finishTurn(1)
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-
-    const marks = agentMode.messages
-      .filter((message) => message.role === 'user')
-      .map((message) => (message.metadata as { agentRun?: { runId: string } })?.agentRun?.runId)
-    expect(marks).toEqual([undefined, runId, runId])
-    expect(tasks.runsInFlight).not.toHaveProperty(runId)
-  })
-
-  it('starts the Steps in a new session when the Open Session is a draft', async () => {
-    const { agentMode, tasks } = await readyStoresIn({ session: false })
-    vi.mocked(window.electronAPI.sessions.create).mockRejectedValue(new Error('no Sessions'))
-    await agentMode.newSession()
-    agentMode.setOpenSteps(STEPS.slice(0, 2))
-
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-
-    expect(sessionId).toBe(agentMode.openSessionId)
-    expect(agentMode.sessions[sessionId].title).toBe('Intel news')
-    expect(agentMode.sessions[sessionId].steps?.map((step) => step.prompt)).toEqual([
-      'Search for today’s news',
-      'Summarise it by topic',
-    ])
-    await finishTurn(0)
-    await turnIdOf(1)
-    expect(sentConfig(1).sessionId).toBe(sessionId)
-  })
-
-  it('sends a single Step without numbering it', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS.slice(0, 1))
-
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-
-    expect(sentPrompts()[0]).toBe(
-      [
-        'Carry this out in one step:',
-        '',
-        'For this run the user added: "Intel news"',
-        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
-        '',
-        'Search for today’s news',
-      ].join('\n'),
-    )
-    await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-    await settleMicrotasks()
-    expect(startTurn).toHaveBeenCalledTimes(1)
-  })
-
-  it('skips empty Steps', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps([STEPS[0], { id: 'blank', prompt: '  ' }, STEPS[1]])
-
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-
-    expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 1, stepCount: 2 })
-  })
-
-  it('starts from Step 1 when there is no prompt', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS.slice(0, 2))
-
-    void tasks.runSteps('  ')
-    await turnIdOf(0)
-
-    expect(sentPrompts()[0]).toBe(
-      'Carry this out in 2 steps. I will send them one at a time; do only the current one, ' +
-        'then stop.\n\nStep 1 of 2: Search for today’s news',
-    )
-  })
-
-  it('names a new session after Step 1 when there is no prompt', async () => {
-    nextSessionId = 'session-new'
-    const { agentMode, tasks } = await readyStoresIn({ session: false })
-    await agentMode.newSession()
-    agentMode.setOpenSteps(STEPS.slice(0, 2))
-
-    void tasks.runSteps('')
-    await turnIdOf(0)
-
-    expect(agentMode.sessions[sentConfig(0).sessionId].title).toBe('Search for today’s news')
-  })
-
-  it('names a new session after its Agent when there is no prompt', async () => {
-    nextSessionId = 'session-new'
-    const { agentMode, tasks } = await readyStoresIn({ session: false }, task('t1', ['one', 'two']))
-    await tasks.loadAgent('t1')
-
-    void tasks.runSteps('')
-    await turnIdOf(0)
-
-    expect(agentMode.sessions[sentConfig(0).sessionId].title).toBe('Task t1')
-  })
-
-  it('sends nothing when no Steps are set', async () => {
-    const { tasks } = await readyStores()
-
-    await tasks.runSteps('Intel news')
-
-    await settleMicrotasks()
-    expect(startTurn).not.toHaveBeenCalled()
-  })
-
-  it('keeps carrying out the Steps it started with when they are edited mid-run', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS.slice(0, 2))
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-
-    agentMode.setOpenSteps([STEPS[0], { id: 'src', prompt: 'Find a source' }, STEPS[1]])
-    await finishTurn(0)
-    await turnIdOf(1)
-
-    expect(sentPrompts()[1]).toBe('Step 2 of 2: Summarise it by topic')
-  })
-
-  it('ends without a further Step when a turn fails', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-
-    await failTurn(0, 'model crashed')
-
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-    await settleMicrotasks()
-    expect(startTurn).toHaveBeenCalledTimes(1)
-  })
-
-  it('ends when main refuses to start the first turn', async () => {
-    startTurn.mockImplementationOnce(async () => ({ success: false, error: 'busy' }))
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-
-    await tasks.runSteps('Intel news')
-
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-    expect(startTurn).toHaveBeenCalledTimes(1)
-  })
-
-  it('ignores another prompt while the Steps are being carried out', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-
-    await tasks.runSteps('something else')
-
-    await settleMicrotasks()
-    expect(startTurn).toHaveBeenCalledTimes(1)
-  })
-
-  it('stops the running turn and sends no further Step when stopped', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-    const turnId = await turnIdOf(0)
-
-    await tasks.stopPromptRun('session-open')
-
-    expect(tasks.promptRunOf('session-open')).toBeUndefined()
-    expect(window.electronAPI.agentMode.cancel).toHaveBeenCalledWith('session-open', turnId)
-    await finishTurn(0)
-    await settleMicrotasks()
-    expect(startTurn).toHaveBeenCalledTimes(1)
-  })
-
-  it('is refused in a session a Task run holds', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-    await agentMode.switchSession(sessionId)
-    agentMode.setOpenSteps(STEPS)
-
-    await tasks.runSteps('Intel news')
-
-    await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one'])
-    expect(tasks.promptRunOf(sessionId)).toBeUndefined()
-  })
-})
-
-describe('a prompt sent with Steps set', () => {
-  it.each([
-    ['a prompt', 'just chat'],
-    ['a slash command', '/compact'],
-  ])('sends %s as one plain turn', async (_case, prompt) => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-
-    void tasks.submitPrompt(prompt)
-    await turnIdOf(0)
-
-    expect(sentPrompts()).toEqual([prompt])
-    expect(tasks.promptRunOf('session-open')).toBeUndefined()
-  })
-
-  it('is ignored while the Steps are being carried out', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-
-    await tasks.submitPrompt('something else')
-
-    await settleMicrotasks()
-    expect(startTurn).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('a session carrying out Steps from the prompt bar', () => {
-  it('refuses anyone else sending into it between two Steps', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-    let releaseStep: () => void = () => {}
-    vi.mocked(window.electronAPI.existsPath).mockImplementationOnce(
-      () => new Promise((resolve) => (releaseStep = () => resolve(true))),
-    )
-
-    await finishTurn(0)
-    await vi.waitFor(() =>
-      expect(tasks.promptRunOf('session-open')).toMatchObject({ stepIndex: 2, stepCount: 3 }),
-    )
-    await settleMicrotasks()
-    const interloper = await agentMode.sendToSession('session-open', 'answer', {
-      useStoredSettings: true,
-    })
-    releaseStep()
-
-    expect(interloper).toMatchObject({ ok: false, reason: 'task-locked' })
-    await turnIdOf(1)
-    await settleMicrotasks()
-    expect(sentPrompts().slice(1)).toEqual(['Step 2 of 3: Summarise it by topic'])
-  })
-
-  it('accepts a send into it once the Steps are done', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS.slice(0, 1))
-    void tasks.runSteps('Intel news')
-    await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-
-    expect(await agentMode.sendToSession('session-open', 'answer')).toEqual({ ok: true })
-  })
-
-  it('lets a Held Answer go when a Step could not be sent', async () => {
-    const { agentMode, tasks } = await readyStores()
-    const ends: [string, string][] = []
-    agentMode.onHeldAnswerSettled((id, end) => ends.push([id, end]))
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
-
-    await finishTurn(0)
-
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-    await vi.waitFor(() =>
-      expect(ends).toEqual([
-        ['session-open', 'completed'],
-        ['session-open', 'failed'],
-      ]),
-    )
-  })
-
-  it('leaves the desktop prompt bar unlocked', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(STEPS)
-    void tasks.runSteps('Intel news')
-    await turnIdOf(0)
-
-    expect(tasks.isSessionLockedByTask('session-open')).toBe(false)
-  })
-})
 
 describe('a prompt sent while an Agent Run is in flight in its Session', () => {
   /** Main's one-turn-per-Session ledger, as its kernel event reports it. */

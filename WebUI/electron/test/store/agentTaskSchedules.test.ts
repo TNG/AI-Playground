@@ -219,6 +219,8 @@ const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
 
+const openSessionRef = () => useSessions().openSessionId ?? ''
+
 const openSession = (id: string) => useSessions().open(id)
 
 async function readyStores(...stored: AgentTask[]) {
@@ -260,12 +262,12 @@ describe('giving a Task a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1'))
 
-    expect(await tasks.setSchedule('t1', schedule())).toMatchObject({ ok: true })
+    expect(await tasks.setSchedule('t1', schedule(), openSessionRef())).toMatchObject({ ok: true })
 
     expect(lastSavedTask('t1')).toMatchObject({
       schedules: [saved(schedule(), NOW + 30 * MINUTE)],
     })
-    expect(tasks.taskSchedule('t1')).toEqual({
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
       schedule: schedule(),
       nextRunAt: NOW + 30 * MINUTE,
     })
@@ -275,10 +277,14 @@ describe('giving a Task a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1'))
 
-    await tasks.setSchedule('t1', schedule({ startAt: NOW - 5 * HOUR - 15 * MINUTE }))
+    await tasks.setSchedule(
+      't1',
+      schedule({ startAt: NOW - 5 * HOUR - 15 * MINUTE }),
+      openSessionRef(),
+    )
 
     // Slots at -5h15, -3h15, -1h15, then +45 minutes.
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 45 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 45 * MINUTE)
     expect(lastSavedTask('t1')?.schedules?.[0].nextRunAt).toBe(NOW + 45 * MINUTE)
   })
 
@@ -286,18 +292,26 @@ describe('giving a Task a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1'))
 
-    await tasks.setSchedule('t1', schedule({ every: 10, unit: 'minutes', startAt: NOW }))
+    await tasks.setSchedule(
+      't1',
+      schedule({ every: 10, unit: 'minutes', startAt: NOW }),
+      openSessionRef(),
+    )
 
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 10 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 10 * MINUTE)
   })
 
   it('replaces an earlier Schedule', async () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
-    await tasks.setSchedule('t1', schedule({ every: 1, unit: 'days', startAt: NOW + 3 * HOUR }))
+    await tasks.setSchedule(
+      't1',
+      schedule({ every: 1, unit: 'days', startAt: NOW + 3 * HOUR }),
+      openSessionRef(),
+    )
 
-    expect(tasks.taskSchedule('t1')).toEqual({
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
       schedule: schedule({ every: 1, unit: 'days', startAt: NOW + 3 * HOUR }),
       nextRunAt: NOW + 3 * HOUR,
     })
@@ -312,14 +326,14 @@ describe('giving a Task a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1'))
 
-    expect(await tasks.setSchedule('t1', schedule(overrides))).toEqual({
+    expect(await tasks.setSchedule('t1', schedule(overrides), openSessionRef())).toEqual({
       ok: false,
       reason: 'invalid',
       problem,
     })
 
     expect(saveTask).not.toHaveBeenCalled()
-    expect(tasks.taskSchedule('t1')).toEqual({})
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({})
   })
 
   it('is not held back by a missing model and starts no download', async () => {
@@ -328,7 +342,7 @@ describe('giving a Task a Schedule', () => {
     checkModelAlreadyLoaded.mockResolvedValue([{ ...missingModel, already_loaded: false }])
     const { tasks } = await readyStores(task('t1'))
 
-    expect(await tasks.setSchedule('t1', schedule())).toMatchObject({ ok: true })
+    expect(await tasks.setSchedule('t1', schedule(), openSessionRef())).toMatchObject({ ok: true })
 
     expect(lastSavedTask('t1')).toMatchObject({ schedules: [saved(schedule())] })
     expect(requestDownload).not.toHaveBeenCalled()
@@ -338,7 +352,9 @@ describe('giving a Task a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1'))
 
-    expect(await tasks.setSchedule('t1', schedule({ every: 5, unit: 'minutes' }))).toMatchObject({
+    expect(
+      await tasks.setSchedule('t1', schedule({ every: 5, unit: 'minutes' }), openSessionRef()),
+    ).toMatchObject({
       ok: true,
     })
   })
@@ -346,7 +362,10 @@ describe('giving a Task a Schedule', () => {
   it('refuses a Task that does not exist', async () => {
     const { tasks } = await readyStores(task('t1'))
 
-    expect(await tasks.setSchedule('nope', schedule())).toEqual({ ok: false, reason: 'no-task' })
+    expect(await tasks.setSchedule('nope', schedule(), openSessionRef())).toEqual({
+      ok: false,
+      reason: 'no-task',
+    })
     expect(saveTask).not.toHaveBeenCalled()
   })
 
@@ -355,12 +374,15 @@ describe('giving a Task a Schedule', () => {
     const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
     saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
 
-    expect(await tasks.setSchedule('t1', schedule({ every: 3 }))).toEqual({
+    expect(await tasks.setSchedule('t1', schedule({ every: 3 }), openSessionRef())).toEqual({
       ok: false,
       reason: 'persist-failed',
     })
 
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule(), nextRunAt: NOW + HOUR })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: schedule(),
+      nextRunAt: NOW + HOUR,
+    })
   })
 })
 
@@ -369,22 +391,24 @@ describe('pausing a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
-    await tasks.setSchedule('t1', schedule({ enabled: false }))
+    await tasks.setSchedule('t1', schedule({ enabled: false }), openSessionRef())
 
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule({ enabled: false }) })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: schedule({ enabled: false }),
+    })
     expect(lastSavedTask('t1')?.schedules).toEqual([saved(schedule({ enabled: false }))])
   })
 
   it('works out the Next Run again when re-enabled', async () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1'))
-    await tasks.setSchedule('t1', schedule({ enabled: false }))
+    await tasks.setSchedule('t1', schedule({ enabled: false }), openSessionRef())
 
     vi.setSystemTime(NOW + 3 * HOUR)
-    await tasks.setSchedule('t1', schedule())
+    await tasks.setSchedule('t1', schedule(), openSessionRef())
 
     // Slots at +30m, +2h30, +4h30.
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 4 * HOUR + 30 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 4 * HOUR + 30 * MINUTE)
   })
 })
 
@@ -393,9 +417,9 @@ describe('removing a Schedule', () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
-    expect(await tasks.removeSchedule('t1')).toBe(true)
+    expect(await tasks.removeSchedule('t1', openSessionRef())).toBe(true)
 
-    expect(tasks.taskSchedule('t1')).toEqual({})
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({})
     const written = lastSavedTask('t1')!
     expect(written).not.toHaveProperty('schedules')
     expect(written).toMatchObject({ name: 'Task t1', steps: [{ prompt: 'one' }] })
@@ -410,28 +434,28 @@ describe('a Schedule and the rest of the Task', () => {
       task('t2'),
     )
 
-    expect(tasks.taskSchedule('t1')).toEqual({
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
       schedule: schedule(),
       nextRunAt: NOW + 30 * MINUTE,
     })
-    expect(tasks.taskSchedule('t2')).toEqual({})
+    expect(tasks.taskSchedule('t2', openSessionRef())).toEqual({})
   })
 
-  it('keeps the Schedule and Next Run when the Agent is updated', async () => {
+  it('keeps the Schedule and Next Run when the Agent’s Draft is saved', async () => {
     vi.setSystemTime(NOW)
-    const { agentMode, tasks } = await readyStores(
-      task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }),
-    )
+    const { tasks } = await readyStores(task('t1', { schedules: [saved(schedule(), NOW + HOUR)] }))
 
-    await tasks.loadAgent('t1')
-    agentMode.setOpenSteps([{ id: 'n1', prompt: 'reworded' }])
-    expect((await tasks.updateAgent('t1', 'Task t1')).ok).toBe(true)
+    await tasks.editDraft('t1', { steps: [{ id: 'n1', prompt: 'reworded' }] })
+    expect((await tasks.saveAgentDraft('t1')).ok).toBe(true)
 
     expect(lastSavedTask('t1')).toMatchObject({
       steps: [{ prompt: 'reworded' }],
       schedules: [saved(schedule(), NOW + HOUR)],
     })
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule(), nextRunAt: NOW + HOUR })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: schedule(),
+      nextRunAt: NOW + HOUR,
+    })
   })
 })
 
@@ -442,13 +466,19 @@ describe('Schedules of one Agent in several Sessions', () => {
     const hourly = schedule({ every: 1, unit: 'hours' })
     const daily = schedule({ every: 1, unit: 'days', startAt: NOW + 3 * HOUR })
 
-    await tasks.setSchedule('t1', hourly)
+    await tasks.setSchedule('t1', hourly, openSessionRef())
     await openSession('session-2')
-    await tasks.setSchedule('t1', daily)
+    await tasks.setSchedule('t1', daily, openSessionRef())
 
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: daily, nextRunAt: NOW + 3 * HOUR })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: daily,
+      nextRunAt: NOW + 3 * HOUR,
+    })
     await openSession(SESSION)
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: hourly, nextRunAt: NOW + 30 * MINUTE })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: hourly,
+      nextRunAt: NOW + 30 * MINUTE,
+    })
     expect(lastSavedTask('t1')?.schedules).toEqual([
       saved(hourly, NOW + 30 * MINUTE),
       saved(daily, NOW + 3 * HOUR, 'session-2'),
@@ -463,7 +493,7 @@ describe('Schedules of one Agent in several Sessions', () => {
       }),
     )
 
-    await tasks.setSchedule('t1', schedule({ enabled: false }))
+    await tasks.setSchedule('t1', schedule({ enabled: false }), openSessionRef())
 
     expect(lastSavedTask('t1')?.schedules).toEqual([
       saved(schedule({ enabled: false })),
@@ -480,9 +510,9 @@ describe('Schedules of one Agent in several Sessions', () => {
     )
 
     await openSession('session-2')
-    expect(await tasks.removeSchedule('t1')).toBe(true)
+    expect(await tasks.removeSchedule('t1', openSessionRef())).toBe(true)
 
-    expect(tasks.taskSchedule('t1')).toEqual({})
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({})
     expect(lastSavedTask('t1')?.schedules).toEqual([saved(schedule(), NOW + HOUR)])
   })
 
@@ -491,13 +521,13 @@ describe('Schedules of one Agent in several Sessions', () => {
     const { sessionRef: _none, ...unbound } = task('t1')
     const { tasks } = await readyStores(unbound)
 
-    await tasks.setSchedule('t1', schedule())
+    await tasks.setSchedule('t1', schedule(), openSessionRef())
 
     expect(lastSavedTask('t1')).not.toHaveProperty('sessionRef')
     expect(lastSavedTask('t1')?.schedules).toEqual([saved(schedule(), NOW + 30 * MINUTE)])
   })
 
-  it('counts the other Sessions the Agent is scheduled in, paused ones too', async () => {
+  it('counts the Sessions the Agent is scheduled in, paused ones too', async () => {
     vi.setSystemTime(NOW)
     const { tasks } = await readyStores(
       task('t1', {
@@ -511,12 +541,9 @@ describe('Schedules of one Agent in several Sessions', () => {
       task('t3'),
     )
 
-    expect(tasks.otherScheduledSessions('t1')).toBe(2)
-    expect(tasks.otherScheduledSessions('t2')).toBe(1)
-    expect(tasks.otherScheduledSessions('t3')).toBe(0)
     expect(tasks.scheduledSessionCount('t1')).toBe(3)
-    await openSession('session-2')
-    expect(tasks.otherScheduledSessions('t2')).toBe(0)
+    expect(tasks.scheduledSessionCount('t2')).toBe(1)
+    expect(tasks.scheduledSessionCount('t3')).toBe(0)
   })
 
   it('marks the Sessions holding an enabled Schedule', async () => {
@@ -547,7 +574,7 @@ describe('scheduling an Agent from the Agent Library', () => {
     expect(lastSavedTask('t1')?.schedules).toEqual([
       saved(schedule(), NOW + 30 * MINUTE, 'session-2'),
     ])
-    expect(tasks.taskSchedule('t1')).toEqual({})
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({})
   })
 
   it('refuses a Session that already schedules the Agent, paused or not', async () => {
@@ -561,7 +588,9 @@ describe('scheduling an Agent from the Agent Library', () => {
       reason: 'already-scheduled',
     })
     expect(saveTask).not.toHaveBeenCalled()
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: schedule({ enabled: false }) })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: schedule({ enabled: false }),
+    })
   })
 
   it('refuses a Session that does not exist', async () => {
@@ -694,9 +723,9 @@ describe('slots across a daylight-saving change', () => {
     vi.setSystemTime(unit === 'days' ? berlin(30, 7) : berlin(30, 12))
     const { tasks } = await readyStores(task('t1'))
 
-    await tasks.setSchedule('t1', schedule({ every, unit, startAt: start }))
+    await tasks.setSchedule('t1', schedule({ every, unit, startAt: start }), openSessionRef())
 
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(expected)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(expected)
     expect(new Date(expected).getHours()).toBe(8)
   })
 
@@ -706,10 +735,14 @@ describe('slots across a daylight-saving change', () => {
     vi.setSystemTime(berlin(30, 7))
     const { tasks } = await readyStores(task('t1'))
 
-    await tasks.setSchedule('t1', schedule({ every: 24, unit: 'hours', startAt: start }))
+    await tasks.setSchedule(
+      't1',
+      schedule({ every: 24, unit: 'hours', startAt: start }),
+      openSessionRef(),
+    )
 
     // 48 hours after 08:00 CET is 09:00 CEST.
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(start + 48 * HOUR)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(start + 48 * HOUR)
     expect(new Date(start + 48 * HOUR).getHours()).toBe(9)
   })
 })

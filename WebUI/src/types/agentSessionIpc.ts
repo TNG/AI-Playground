@@ -53,6 +53,8 @@ export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>
 
 /** Marks a Harness Session as one Agent Run of its Session. */
 export const AgentRunTagSchema = z.object({
+  /** The saved Agent that ran; absent on a Trial Run. */
+  taskId: z.string().optional(),
   taskName: z.string(),
   startedAt: z.number(),
   trigger: z.enum(['manual', 'scheduled']).optional(),
@@ -78,9 +80,9 @@ export const AgentSessionFileSchema = z.object({
   presetName: z.string().optional(),
   responseLocale: z.string().optional(),
   settings: AgentSessionSettingsSchema.optional(),
-  /** The Agent this session was loaded from or saved as. */
+  /** The Agent this Harness Session is a run of; on older records, the one loaded into it. */
   taskId: z.string().optional(),
-  /** The Steps a prompt is carried out in; edited in the settings panel like any setting. */
+  /** The Steps a Trial Run carries out; on older records, those the in-Session editor held. */
   steps: z.array(AgentTaskStepSchema).optional(),
   /** The Session this Harness Session belongs to. */
   sessionRef: z.string().optional(),

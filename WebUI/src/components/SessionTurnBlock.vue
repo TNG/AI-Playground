@@ -13,7 +13,10 @@
         :queued="item.kind === 'agent' && item.queued"
         :not-run="item.kind === 'agent' && item.notRun"
         :can-resend="item.kind === 'agent' && item.canResend"
+        :controls="runControls"
         @resend="emit('resend')"
+        @stop="runControls && agentTasks.stopTask(runControls.agentId)"
+        @edit-agent="runControls && manageAgents(runControls.agentId)"
       />
     </template>
     <template #details>
@@ -126,6 +129,7 @@
 import { computed } from 'vue'
 import type { UIMessage } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
@@ -148,6 +152,8 @@ import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { agentRunControls } from '@/lib/sessionTimeline'
+import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import type { SessionTimelineItem, TurnFailurePart } from '@/lib/turnTypes'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
@@ -161,8 +167,16 @@ const emit = defineEmits<{ resend: [] }>()
 
 const textInference = useTextInference()
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
+const { manageAgents } = useAgentLibraryEntry()
 const confirmations = useConfirmations()
 const languages = useI18N().state
+
+// A deleted Agent has nothing left to edit; it cannot be running either.
+const runControls = computed(() => {
+  const controls = agentRunControls(props.item)
+  return controls && agentTasks.tasks.some((task) => task.id === controls.agentId) ? controls : null
+})
 
 const footerShown = computed(() => {
   if (props.item.kind === 'message') return false

@@ -91,11 +91,8 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
     )
   }
 
-  // A run may be between Steps with no turn to stop, so the run is stopped instead.
   function cancelAgent(): void {
-    const sessionId = agentMode.openSessionId
-    if (agentTasks.promptRunOf(sessionId)) void agentTasks.stopPromptRun(sessionId)
-    else void agentMode.stop()
+    void agentMode.stop()
   }
 
   function generateMedia(mode: WorkflowModeType) {

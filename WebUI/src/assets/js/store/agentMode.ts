@@ -68,7 +68,6 @@ import {
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { LiveAgentTurn } from '@/lib/turnTypes'
-import type { PromptRunTag } from '@/types/sessionTimeline'
 import type { ChannelKind } from './channels/types'
 import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
@@ -116,7 +115,7 @@ export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
 /** Stored with a user message; `origin` is the channel an Answer arrived on. */
-export type AgentMessageMetadata = { origin?: ChannelKind; agentRun?: PromptRunTag }
+export type AgentMessageMetadata = { origin?: ChannelKind }
 
 /** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
 export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
@@ -292,10 +291,6 @@ export const useAgentMode = defineStore(
      * has taken the Default Settings; the chat store's next load fills it.
      */
     const openSettings = ref<AgentSessionSettings | null>(null)
-    /** The open Harness Session's Steps (Agent preset only); a draft's live here until sent. */
-    const openSteps = ref<AgentTaskStep[]>([])
-    /** The Agent the open Harness Session was loaded from or saved as. */
-    const openTaskId = ref<string | undefined>(undefined)
 
     const sessionScoped = computed(() => usesSessionSettings(activeAgentPreset.value))
 
@@ -1426,9 +1421,6 @@ export const useAgentMode = defineStore(
         responseLocale: existing?.responseLocale ?? pendingResponseLocales[id],
         title: pendingTitles[id],
         settings: presetUsesSessionSettings(heldWith) && settings ? settings : undefined,
-        ...(open && presetUsesSessionSettings(heldWith)
-          ? { steps: openSteps.value, taskId: openTaskId.value }
-          : {}),
         sessionRef: harnessSessionRefs[id],
       })
       if (!record) return
@@ -1473,54 +1465,11 @@ export const useAgentMode = defineStore(
       if (!runtime.hasTurn()) {
         runtime.chat.messages = settleStreamingParts((record?.messages ?? []) as UIMessage[])
       }
-      applyOpenSessionAgent(record)
       applyOpenSessionSettings(
         heldBySession()
           ? settingsPort.value?.read(agentPresetName.value)?.settings
           : settingsOfRecord(record),
       )
-    }
-
-    function applyOpenSessionAgent(record: AgentSessionRecord | undefined): void {
-      openSteps.value = (record?.steps ?? []).map((step) => ({ ...step }))
-      openTaskId.value = record?.taskId
-    }
-
-    /** Edit the open Harness Session's Steps; a sent session's record keeps them. */
-    function setOpenSteps(steps: AgentTaskStep[]): void {
-      openSteps.value = steps.map((step) => ({ ...step }))
-      const session = sessions.value[openSessionId.value]
-      if (!session) return
-      rewriteSession(openSessionId.value, { ...session, steps: cloneForIpc(openSteps.value) })
-    }
-
-    /** Mark the open Harness Session as loaded from (or saved as) an Agent; `undefined` unlinks. */
-    function linkOpenSessionToAgent(taskId: string | undefined): void {
-      openTaskId.value = taskId
-      const session = sessions.value[openSessionId.value]
-      if (!session) return
-      const { taskId: _previous, ...rest } = session
-      rewriteSession(openSessionId.value, taskId ? { ...rest, taskId } : rest)
-    }
-
-    /**
-     * Set the open Harness Session up as an Agent is: its settings and Steps. Inside a Session
-     * that is the Session's own Harness Session; outside one, a new draft, stored on its first
-     * prompt like any other draft.
-     */
-    async function startSessionFrom(agent: {
-      taskId: string
-      settings: AgentSessionSettings
-      steps: AgentTaskStep[]
-    }): Promise<void> {
-      const inSession = heldBySession()
-      if (!inSession) openSessionId.value = mintSessionId()
-      sessionCapabilities.value = null
-      openSteps.value = agent.steps.map((step) => ({ ...step }))
-      openTaskId.value = agent.taskId
-      applyOpenSessionSettings(cloneForIpc(agent.settings))
-      if (inSession) writeSessionSettings(sessionSent.value)
-      await refreshCurrentGame()
     }
 
     function ensureOpenSessionId(): string {
@@ -1546,7 +1495,6 @@ export const useAgentMode = defineStore(
     function blankSession(): void {
       openSessionId.value = mintSessionId()
       sessionCapabilities.value = null
-      applyOpenSessionAgent(undefined)
       applyOpenSessionSettings(undefined)
     }
 
@@ -1777,7 +1725,6 @@ export const useAgentMode = defineStore(
       if (id === openSessionId.value) {
         openSessionId.value = mintSessionId()
         sessionCapabilities.value = null
-        applyOpenSessionAgent(undefined)
         applyOpenSessionSettings(undefined)
       } else {
         turns.release(id)
@@ -1787,10 +1734,8 @@ export const useAgentMode = defineStore(
 
     async function adoptWorkspace(dir: string): Promise<void> {
       // A draft Harness Session set up before its folder was picked keeps what was set up.
-      const draft =
-        sessionScoped.value && !sessions.value[openSessionId.value]
-          ? { settings: openSettings.value, steps: openSteps.value, taskId: openTaskId.value }
-          : null
+      const draftSettings =
+        sessionScoped.value && !sessions.value[openSessionId.value] ? openSettings.value : null
       workspaceDir.value = dir
       const latest = Object.values(sessions.value)
         .filter((s) => s.workspaceDir === dir)
@@ -1798,11 +1743,7 @@ export const useAgentMode = defineStore(
       openSessionId.value = latest?.id ?? ''
       sessionCapabilities.value = null
       restoreOpenSession()
-      if (!latest && draft) {
-        openSteps.value = draft.steps
-        openTaskId.value = draft.taskId
-        if (draft.settings) applyOpenSessionSettings(draft.settings)
-      }
+      if (!latest && draftSettings) applyOpenSessionSettings(draftSettings)
       await refreshCurrentGame()
     }
 
@@ -1821,7 +1762,6 @@ export const useAgentMode = defineStore(
       currentGame.value = null
       if (!openRuntime.value.hasTurn()) openRuntime.value.chat.messages = []
       openSettings.value = null
-      applyOpenSessionAgent(undefined)
     }
 
     /** In a Session, a games preset holds one game, so a new game is a new Session. */
@@ -1882,10 +1822,7 @@ export const useAgentMode = defineStore(
      * Resolves once the turn ended, with whether one was started at all. `title` names a session
      * this turn opens, when the message sent is not what the user typed.
      */
-    async function generate(
-      prompt: string,
-      options: { title?: string; metadata?: AgentMessageMetadata } = {},
-    ): Promise<boolean> {
+    async function generate(prompt: string, options: { title?: string } = {}): Promise<boolean> {
       if (await blockedBySettingsProblems()) return false
       // Game Agent never asks for a folder: the first turn of a game mints one.
       if (agentWorkspaceKind.value === 'games') {
@@ -1897,7 +1834,7 @@ export const useAgentMode = defineStore(
       const sessionId = ensureSessionId(openSessionId)
       if (options.title && !sessions.value[sessionId]) pendingTitles[sessionId] = options.title
       await runTurn(sessionId, liveTurnContext(), (chat) =>
-        chat.sendMessage({ text: `${prompt}${attached}`, metadata: options.metadata }),
+        chat.sendMessage({ text: `${prompt}${attached}` }),
       )
       return true
     }
@@ -2054,7 +1991,6 @@ export const useAgentMode = defineStore(
         taskRun?: AgentModeTurnConfig['taskRun']
         /** The chat with a saved Agent, as the Agent is named now. */
         agentChat?: AgentChatTag
-        metadata?: AgentMessageMetadata
       } = {},
     ): Promise<SendToSessionResult> {
       const stored = sessions.value[sessionId]
@@ -2131,10 +2067,9 @@ export const useAgentMode = defineStore(
       if (options.quietErrors) context.quietErrors = true
       if (options.answer) context.answer = options.answer
       if (options.taskRun) context.taskRun = options.taskRun
-      const metadata: AgentMessageMetadata | undefined =
-        options.answer || options.metadata
-          ? { ...options.metadata, ...(options.answer ? { origin: options.answer.channel } : {}) }
-          : undefined
+      const metadata: AgentMessageMetadata | undefined = options.answer
+        ? { origin: options.answer.channel }
+        : undefined
       runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
         (error) =>
           errors.report(error, {
@@ -2218,11 +2153,6 @@ export const useAgentMode = defineStore(
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
       openSessionSettings,
-      openSteps,
-      setOpenSteps,
-      openTaskId,
-      linkOpenSessionToAgent,
-      startSessionFrom,
       bindSessionSettingsPort,
       ensureOpenSessionId,
       sessionScoped,

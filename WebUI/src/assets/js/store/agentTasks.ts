@@ -5,7 +5,6 @@ import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionSummary, SessionTurn } from '@/types/sessionIpc'
-import type { PromptRunTag } from '@/types/sessionTimeline'
 import type { RunProgress } from '@/lib/turnTypes'
 import type { TrialRunView } from '@/lib/trialRunTimeline'
 import type {
@@ -36,7 +35,6 @@ import { useTextInference } from './textInference'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { sameAgentSetup } from '@/lib/agentSetup'
 import { firstStepTurn, stepPrompts, stepTurn } from '@/lib/taskSteps'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
@@ -74,9 +72,6 @@ function editableFields(source: AgentDraftEdit): AgentDraftEdit {
     DRAFT_FIELDS.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]),
   )
 }
-
-/** A prompt being carried out in its session's Steps; `stepIndex` is 1-based. */
-export type PromptRun = { stepIndex: number; stepCount: number; tag: PromptRunTag }
 
 /** Why a draft cannot be saved yet; `settings` only for an Agent Library Draft. */
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'settings'
@@ -220,10 +215,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     { plan: AgentTask; abort: AbortController; scheduled: boolean; prompt?: string }
   > = {}
 
-  /** Prompts being carried out in their session's Steps. Memory only: a reload ends them. */
-  const promptRuns = ref<Record<string, PromptRun>>({})
-  const promptRunContexts: Record<string, { steps: string[]; abort: AbortController }> = {}
-
   /** Runs (by `runSlot`) whose ▶ Run is still being checked, possibly waiting on a download. */
   const starting = reactive(new Set<string>())
   /** Runs (by `runSlot`) getting their Harness Session from main. */
@@ -240,12 +231,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const task = tasks.value.find((entry) => entry.id === taskId)
       return task && !runIn(taskId, sessionRef) ? [taskRunWorkItem(task)] : []
     }),
-    ...Object.entries(promptRuns.value).map(([sessionId, run]) => ({
-      kind: 'prompt-run' as const,
-      sessionId,
-      name: agentMode.sessions[sessionId]?.title || undefined,
-      state: { status: 'step' as const, index: run.stepIndex, count: run.stepCount },
-    })),
     ...trialRunWork.value,
   ])
 
@@ -255,20 +240,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
   /** The runs in flight, including between two Steps, by the key the timeline groups them by. */
-  const runsInFlight = computed<Record<string, RunProgress>>(() => ({
-    ...Object.fromEntries(
+  const runsInFlight = computed<Record<string, RunProgress>>(() =>
+    Object.fromEntries(
       Object.entries(runs.value).map(([id, run]) => [
         id,
         { step: run.stepIndex, count: run.stepCount },
       ]),
     ),
-    ...Object.fromEntries(
-      Object.values(promptRuns.value).map((run) => [
-        run.tag.runId,
-        { step: run.stepIndex, count: run.stepCount },
-      ]),
-    ),
-  }))
+  )
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(
@@ -485,29 +464,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   }
 
-  /** Add the draft to the library, with the panel's Session Settings as its template. */
-  async function saveTask(draft: TaskDraft): Promise<SaveTaskResult> {
-    const blocker = saveBlocker(draft)
-    if (blocker) return { ok: false, reason: blocker }
-    const name = draft.name.trim()
-    const sessionRef = sessionsStore.openSessionId
-    const settingsTemplate = cloneForIpc(agentMode.openSessionSettings)
-    const steps = draft.steps.map((step) => ({ id: step.id, prompt: step.prompt }))
-    const now = Date.now()
-    const task: AgentTask = {
-      id: crypto.randomUUID(),
-      name,
-      ...(sessionRef ? { sessionRef } : {}),
-      settingsTemplate,
-      steps,
-      createdAt: now,
-      updatedAt: now,
-    }
-    if (!(await persistTask(task))) return { ok: false, reason: 'persist-failed' }
-    tasks.value = [...tasks.value, task]
-    return { ok: true, task }
-  }
-
   /** Upsert one Task into the tasks file; a failure is toasted. */
   async function persistTask(task: AgentTask): Promise<boolean> {
     const result = await window.electronAPI.agentMode
@@ -526,13 +482,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return false
   }
 
-  /** Agents with a Schedule, paused or not, or a run in flight in the open Session. */
-  const openSessionAgents = computed(() => {
-    const open = sessionsStore.openSessionId
-    if (!open) return []
-    return tasks.value.filter((task) => !!runIn(task.id, open) || !!scheduleIn(task, open))
-  })
-
   /** Sessions holding an enabled Schedule. */
   const scheduledSessionIds = computed(
     () =>
@@ -546,15 +495,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** How many Sessions hold a Schedule of the Agent, paused ones included. */
   function scheduledSessionCount(id: string): number {
     return tasks.value.find((task) => task.id === id)?.schedules?.length ?? 0
-  }
-
-  /** How many Sessions other than `sessionRef` hold a Schedule of the Agent. */
-  function otherScheduledSessions(
-    id: string,
-    sessionRef = sessionsStore.openSessionId ?? '',
-  ): number {
-    const schedules = tasks.value.find((task) => task.id === id)?.schedules ?? []
-    return schedules.filter((entry) => entry.sessionRef !== sessionRef).length
   }
 
   /** How many Sessions the Agent has a run in flight in; deleting it is refused until none. */
@@ -586,7 +526,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     tasks.value = tasks.value.filter((task) => task.id !== id)
     const { [id]: _draft, ...otherDrafts } = drafts.value
     drafts.value = otherDrafts
-    if (agentMode.openTaskId === id) agentMode.linkOpenSessionToAgent(undefined)
     await forgetPicksOf(id)
     return true
   }
@@ -1175,11 +1114,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!result.success) reportTrialRunFailure('agent-library/trial-discard-failed', result.error)
   }
 
-  /** Set, pause or resume the Agent's Schedule in one Session, the open one by default. */
+  /** Set, pause or resume the Agent's Schedule in one Session. */
   async function setSchedule(
     id: string,
     schedule: AgentTaskSchedule,
-    sessionRef = sessionsStore.openSessionId,
+    sessionRef: string,
   ): Promise<SetScheduleResult> {
     const problem = scheduleProblem(schedule)
     if (problem) return { ok: false, reason: 'invalid', problem }
@@ -1196,12 +1135,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     })
   }
 
-  /** Remove the Agent's Schedule in a Session, the open one by default. */
-  async function removeSchedule(
-    id: string,
-    sessionRef = sessionsStore.openSessionId,
-  ): Promise<boolean> {
-    if (!sessionRef) return false
+  /** Remove the Agent's Schedule in a Session. */
+  async function removeSchedule(id: string, sessionRef: string): Promise<boolean> {
     return (await writeSchedule(id, sessionRef, undefined)).ok
   }
 
@@ -1220,10 +1155,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return { ok: false, reason: 'persist-failed' }
   }
 
-  /** The Agent's Schedule in a Session, the open one by default. */
-  function taskSchedule(id: string, sessionRef = sessionsStore.openSessionId): TaskScheduleState {
+  /** The Agent's Schedule in a Session. */
+  function taskSchedule(id: string, sessionRef: string): TaskScheduleState {
     const task = tasks.value.find((entry) => entry.id === id)
-    const entry = task && sessionRef ? scheduleIn(task, sessionRef) : undefined
+    const entry = task ? scheduleIn(task, sessionRef) : undefined
     if (!entry) return {}
     const { every, unit, startAt, enabled, nextRunAt } = entry
     return {
@@ -1285,13 +1220,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   function taskProblems(id: string): SessionSettingsProblem[] {
     const task = tasks.value.find((entry) => entry.id === id)
     return task ? agentMode.problemsOf(task.settingsTemplate) : []
-  }
-
-  /** List the MCP servers the Tasks use, so their problems include missing servers. */
-  async function loadProblemSources(): Promise<void> {
-    await agentMode.loadMcpServersFor(
-      tasks.value.flatMap((task) => task.settingsTemplate.capabilities ?? []),
-    )
   }
 
   /** Start an Agent Run in the open Session; refused while it cannot run or already runs there. */
@@ -1413,11 +1341,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       title: plan.name,
       taskId: plan.id,
       taskRun: {
+        taskId: plan.id,
         taskName: plan.name,
         startedAt: Date.now(),
         trigger: scheduled ? 'scheduled' : 'manual',
       },
-      steps: plan.steps,
     })
     runContexts[sessionId] = { plan, abort: new AbortController(), scheduled, prompt }
     runs.value = {
@@ -1604,33 +1532,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return runs.value[sessionId] !== undefined
   }
 
-  // Prompt runs lock too, so an Answer cannot slip in between their Steps.
   agentMode.setTaskLockLookup((sessionId) => {
-    const promptRun = promptRunContexts[sessionId]
-    if (promptRun) {
-      const taskName = agentMode.sessions[sessionId]?.title ?? ''
-      return { taskName, signal: promptRun.abort.signal }
-    }
     const run = runs.value[sessionId]
     if (!run) return undefined
     const taskName = tasks.value.find((task) => task.id === run.taskId)?.name ?? ''
     return { taskName, signal: runContexts[sessionId]?.abort.signal }
   })
 
-  /** The Agent the open Harness Session was loaded from or saved as, while it still exists. */
-  const openSessionTask = computed(() => {
-    const taskId = agentMode.openTaskId
-    return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
-  })
-
   /** The open Harness Session's Steps run with its Task's Settings Template: its own are locked. */
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 
   agentMode.onTurnSettled((sessionId, outcome) => {
-    if (promptRuns.value[sessionId]) {
-      void advancePromptRun(sessionId, outcome)
-      return
-    }
     const trialRun = trialRunOfHarness(sessionId)
     if (trialRun) {
       if (trialRun.state === 'running') advanceTrialRun(trialRun, outcome)
@@ -1748,78 +1660,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     )
   }
 
-  /** Why the open Harness Session cannot be saved as an Agent under `name` yet. */
-  function saveAgentBlocker(name: string): SaveTaskBlocker | null {
-    return saveBlocker({ name, steps: agentMode.openSteps })
-  }
-
-  /** Save the open Harness Session's folder, settings and Steps as a new Agent, and link it. */
-  async function saveAgent(name: string): Promise<SaveTaskResult> {
-    const result = await saveTask({ name, steps: agentMode.openSteps })
-    if (result.ok) agentMode.linkOpenSessionToAgent(result.task.id)
-    return result
-  }
-
-  /**
-   * Overwrite an Agent with the open Harness Session's folder, settings and Steps, keeping its
-   * identity, Schedule and last outcome. A run in flight keeps the copy it took at start.
-   */
-  async function updateAgent(id: string, name: string): Promise<SaveTaskResult> {
-    const current = tasks.value.find((task) => task.id === id)
-    if (!current) return { ok: false, reason: 'no-task' }
-    const steps = agentMode.openSteps.map((step) => ({ id: step.id, prompt: step.prompt }))
-    const blocker = saveBlocker({ name, steps })
-    if (blocker) return { ok: false, reason: blocker }
-    const settingsTemplate = cloneForIpc(agentMode.openSessionSettings)
-    const saved = tasks.value.find((task) => task.id === id)
-    if (!saved) return { ok: false, reason: 'no-task' }
-    const task = replaceTask({
-      ...saved,
-      name: name.trim(),
-      steps,
-      settingsTemplate,
-      updatedAt: Math.max(Date.now(), saved.updatedAt + 1),
-    })
-    // Applied before the write, so a run marking or settling the Agent meanwhile writes it too.
-    if (!(await persistTask(task))) {
-      restoreEditableFields(saved)
-      return { ok: false, reason: 'persist-failed' }
-    }
-    agentMode.linkOpenSessionToAgent(id)
-    return { ok: true, task }
-  }
-
-  /** Rename an Agent, leaving its settings and Steps as they were saved. */
-  async function renameAgent(id: string, name: string): Promise<SaveTaskResult> {
-    const saved = tasks.value.find((task) => task.id === id)
-    if (!saved) return { ok: false, reason: 'no-task' }
-    if (!name.trim()) return { ok: false, reason: 'name' }
-    if (name.trim() === saved.name) return { ok: true, task: saved }
-    const task = replaceTask({
-      ...saved,
-      name: name.trim(),
-      updatedAt: Math.max(Date.now(), saved.updatedAt + 1),
-    })
-    if (!(await persistTask(task))) {
-      restoreEditableFields(saved)
-      return { ok: false, reason: 'persist-failed' }
-    }
-    return { ok: true, task }
-  }
-
-  /** The open Harness Session's settings or Steps differ from the Agent it was loaded from. */
-  const openSessionAgentChanged = computed(() => {
-    const task = openSessionTask.value
-    if (!task) return false
-    return !sameAgentSetup(
-      { settings: task.settingsTemplate, steps: task.steps },
-      {
-        settings: agentMode.openSessionSettings ?? {},
-        steps: agentMode.openSteps,
-      },
-    )
-  })
-
   function restoreEditableFields(saved: AgentTask): void {
     const latest = tasks.value.find((entry) => entry.id === saved.id)
     if (!latest) return
@@ -1836,118 +1676,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     })
   }
 
-  /** Set the open Session's Agent up as the Task is, for editing it. */
-  async function loadAgent(id: string): Promise<boolean> {
-    const task = tasks.value.find((entry) => entry.id === id)
-    if (!task) return false
-    const plan = cloneForIpc(task)
-    await agentMode.startSessionFrom({
-      taskId: plan.id,
-      settings: plan.settingsTemplate,
-      steps: plan.steps,
-    })
-    return true
-  }
-
-  /** Unlink the open Harness Session from its Agent and drop its Steps; settings stay. */
-  function unloadAgent(): void {
-    agentMode.linkOpenSessionToAgent(undefined)
-    agentMode.setOpenSteps([])
-  }
-
-  /** Send a prompt from the prompt bar as one turn; the open Harness Session's Steps do not run. */
+  /** Send a prompt from the prompt bar to Agent Maker as one turn. */
   async function submitPrompt(prompt: string): Promise<void> {
     if (isSessionLockedByTask(agentMode.openSessionId)) return
-    if (promptRuns.value[agentMode.openSessionId]) return
     await agentMode.generate(prompt)
-  }
-
-  /**
-   * Carry out the open Harness Session's Steps, the prompt (which may be empty) leading the
-   * first one. Each Step is sent as the previous turn completes.
-   */
-  async function runSteps(prompt: string): Promise<void> {
-    if (isSessionLockedByTask(agentMode.openSessionId)) return
-    if (promptRuns.value[agentMode.openSessionId]) return
-    const steps = agentMode.sessionScoped ? stepPrompts(agentMode.openSteps) : []
-    if (steps.length === 0) return
-    const sessionId = agentMode.ensureOpenSessionId()
-    const title = prompt.trim() || openSessionTask.value?.name || steps[0]
-    const tag: PromptRunTag = {
-      runId: crypto.randomUUID(),
-      taskName: openSessionTask.value?.name ?? title,
-      startedAt: Date.now(),
-      trigger: 'manual',
-    }
-    promptRunContexts[sessionId] = { steps, abort: new AbortController() }
-    promptRuns.value = {
-      ...promptRuns.value,
-      [sessionId]: { stepIndex: 1, stepCount: steps.length, tag },
-    }
-    const turn = firstStepTurn(prompt, steps)
-    const started = await agentMode
-      .generate(turn, { title, metadata: { agentRun: tag } })
-      .catch((error) => {
-        endPromptRun(sessionId)
-        agentMode.releaseHeldAnswer(sessionId)
-        throw error
-      })
-    if (!started) {
-      endPromptRun(sessionId)
-      agentMode.releaseHeldAnswer(sessionId)
-    }
-  }
-
-  function promptRunOf(sessionId: string): PromptRun | undefined {
-    return promptRuns.value[sessionId]
-  }
-
-  function endPromptRun(sessionId: string): void {
-    if (!promptRuns.value[sessionId]) return
-    const { [sessionId]: _ended, ...rest } = promptRuns.value
-    promptRuns.value = rest
-    promptRunContexts[sessionId]?.abort.abort()
-    delete promptRunContexts[sessionId]
-  }
-
-  /** Ended first, so the stopped turn's own settle sends no further Step. */
-  async function stopPromptRun(sessionId: string): Promise<void> {
-    if (!promptRuns.value[sessionId]) return
-    endPromptRun(sessionId)
-    await agentMode.stopSession(sessionId)
-  }
-
-  async function advancePromptRun(sessionId: string, outcome: TurnOutcome): Promise<void> {
-    const run = promptRuns.value[sessionId]
-    const context = promptRunContexts[sessionId]
-    if (!run || !context) return
-    if (outcome.kind !== 'completed' || run.stepIndex >= run.stepCount) {
-      endPromptRun(sessionId)
-      return
-    }
-    const stepIndex = run.stepIndex + 1
-    promptRuns.value = { ...promptRuns.value, [sessionId]: { ...run, stepIndex } }
-    const result = await agentMode.sendToSession(sessionId, stepTurn(stepIndex, context.steps), {
-      signal: context.abort.signal,
-      metadata: { agentRun: run.tag },
-    })
-    if (result.ok) return
-    endPromptRun(sessionId)
-    if (result.reason === 'aborted') return
-    agentMode.releaseHeldAnswer(sessionId)
-    errors.report(
-      createAppError({
-        category: 'inference',
-        code: 'agent/step-not-sent',
-        severity: 'warning',
-        surface: 'toast',
-        userMessage: fillTemplate(
-          i18n.state.AGENT_STEPS_STEP_NOT_SENT ?? 'Step {step} was not sent: {reason}',
-          { step: stepIndex, reason: result.message },
-        ),
-        technicalMessage: `${result.reason}: ${result.message}`,
-      }),
-    )
   }
 
   return {
@@ -1967,21 +1699,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     trialRunView,
     startTrialRun,
     stopTrialRun,
-    openSessionAgents,
     runsInFlight,
     scheduledSessionIds,
     scheduledSessionCount,
-    otherScheduledSessions,
     runningSessionCount,
     init,
     setSchedulesHeld,
     saveBlocker,
-    saveTask,
-    saveAgentBlocker,
-    saveAgent,
-    updateAgent,
-    loadAgent,
-    unloadAgent,
     deleteTask,
     pickedAgentIn,
     pickedAgent,
@@ -1998,7 +1722,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     agentsScheduledIn,
     taskState,
     taskProblems,
-    loadProblemSources,
     runTask,
     stopTask,
     isSessionLockedByTask,
@@ -2007,15 +1730,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     takeUnsentPrompt,
     queuedPrompts,
     isAgentRunTurn,
-    openSessionTask,
-    openSessionAgentChanged,
-    renameAgent,
     openSessionSettingsReadOnly,
-    promptRuns,
-    promptRunOf,
     submitPrompt,
-    runSteps,
-    stopPromptRun,
   }
 })
 

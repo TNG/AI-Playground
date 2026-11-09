@@ -5,9 +5,10 @@ const known = ['Agent', 'Assistant', 'Flux']
 
 describe('the preset a Session reopens on', () => {
   it('is the preset and variant of its last turn', () => {
-    expect(
-      sessionReopenPreset({ preset: 'Flux', variant: 'fast' }, known, undefined),
-    ).toEqual({ preset: 'Flux', variant: 'fast' })
+    expect(sessionReopenPreset({ preset: 'Flux', variant: 'fast' }, known, undefined)).toEqual({
+      preset: 'Flux',
+      variant: 'fast',
+    })
   })
 
   it('is nothing for a Session with no turns', () => {

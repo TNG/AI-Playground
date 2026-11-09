@@ -22,22 +22,6 @@
       >
         <p class="flex-1 min-w-0">{{ queuedBehindRunNote }}</p>
       </div>
-      <div
-        v-else-if="promptRun"
-        role="status"
-        class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
-      >
-        <p class="flex-1 min-w-0">{{ promptRunNote }}</p>
-        <Button
-          variant="secondary"
-          size="sm"
-          class="h-7 px-2 text-xs"
-          @click="agentTasks.stopPromptRun(agentMode.openSessionId)"
-        >
-          <StopIcon class="size-3.5" aria-hidden="true" />
-          {{ languages?.AGENT_STEPS_STOP }}
-        </Button>
-      </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
       <div class="w-full flex flex-col">
@@ -265,7 +249,7 @@ import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useProductMode } from '@/assets/js/store/productMode'
-import { PaperClipIcon, MusicalNoteIcon, StopIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { PaperClipIcon, MusicalNoteIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -283,7 +267,6 @@ import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
 import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
-import { stepPrompts } from '@/lib/taskSteps'
 import { useAgentRunHold } from '@/lib/useAgentRunHold'
 import { createAppError } from '@/assets/js/errors/appError'
 import { fillTemplate } from '@/lib/fillTemplate'
@@ -535,25 +518,13 @@ const queuedBehindRunNote = computed(() =>
   agentRunQueuedLabel(languages ?? {}, queuedBehindRun.value ?? ''),
 )
 
-const promptRun = computed(() =>
-  promptStore.getCurrentMode() === 'agent'
-    ? agentTasks.promptRunOf(agentMode.openSessionId)
-    : undefined,
-)
-
-const promptRunNote = computed(() =>
-  (languages?.AGENT_STEPS_RUNNING ?? '')
-    .replace('{step}', String(promptRun.value?.stepIndex ?? ''))
-    .replace('{count}', String(promptRun.value?.stepCount ?? '')),
-)
-
 // Busy state follows only what the prompt bar would send to (`promptBusy`). For the
 // open conversation that includes any chat activity on it (backend prep, a queued
 // turn, RAG search, tool resolution, thinking), so send/stop matches the in-turn
 // activity indicator.
 const isProcessing = computed(() =>
   promptBusy(promptStore.getCurrentMode(), {
-    agentSession: agentMode.processing || promptRun.value !== undefined,
+    agentSession: agentMode.processing,
     conversation:
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,
@@ -730,12 +701,9 @@ function handleSubmitPromptClick() {
   promptStore.submitPrompt(prompt.value)
 }
 
-/** Agent Maker sessions with Steps can carry them out; Send then talks to the agent alone. */
+/** A picked Agent can be run; Send then talks to it alone. */
 const canRunSteps = computed(
-  () =>
-    promptStore.getCurrentMode() === 'agent' &&
-    (!!agentTasks.pickedAgent ||
-      (agentMode.sessionScoped && stepPrompts(agentMode.openSteps).length > 0)),
+  () => promptStore.getCurrentMode() === 'agent' && !!agentTasks.pickedAgent,
 )
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
@@ -744,11 +712,7 @@ async function handleRunStepsClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   promptStore.promptSubmitted = true
   const text = prompt.value
-  if (agentTasks.pickedAgent) {
-    await afterAgentRun(() => runPickedAgent(text), text)
-    return
-  }
-  await afterAgentRun(() => void agentTasks.runSteps(text), text)
+  await afterAgentRun(() => runPickedAgent(text), text)
 }
 
 async function runPickedAgent(text: string): Promise<void> {

@@ -842,11 +842,22 @@ export function timelineTurns(
   )
 }
 
+export type AgentRunControls = { agentId: string; stoppable: boolean }
+
+/** A saved Agent's run is stopped and its Agent opened for editing from its own Turn. */
+export function agentRunControls<M, A>(turn: SessionTimelineItem<M, A>): AgentRunControls | null {
+  if (turn.kind !== 'agent') return null
+  const agentId = turn.prompt?.agentRun?.agentId
+  if (!agentId) return null
+  return { agentId, stoppable: turn.streaming === true }
+}
+
 function openRun(key: string, id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {
   const agentRun: AgentRunIdentity = {
     trigger: taskRun.trigger ?? 'manual',
     name: taskRun.taskName,
     startedAt: taskRun.startedAt,
+    ...(taskRun.taskId ? { agentId: taskRun.taskId } : {}),
   }
   return {
     key,

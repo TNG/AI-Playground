@@ -1,17 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import enUS from '../../../src/assets/i18n/en-US.json'
-import {
-  SESSION_TAB_LABELS,
-  schedulesPanel,
-  sessionTabs,
-  sessionTabsPresetKind,
-  type SessionTabsInput,
-} from '@/lib/sessionTabs'
+import { sessionTabs, sessionTabsPresetKind, type SessionTabsInput } from '@/lib/sessionTabs'
 
 const chatSession: SessionTabsInput = {
   owner: 'session',
   presetKind: 'chat',
-  holdsScheduleOrRun: false,
   agentPicked: false,
   landing: 'keep',
   current: 'viewport',
@@ -27,61 +19,29 @@ describe('sessionTabs', () => {
     ])
   })
 
-  it('shows the same tabs for every preset kind that is not an Agent Preset', () => {
-    for (const presetKind of ['chat', 'audio', 'image', 'edit', 'video', 'agent-preset'] as const) {
-      const view = sessionTabs({ ...chatSession, presetKind })
-      expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts'])
-      expect(view.schedules).toBeNull()
-    }
-  })
-
-  it('calls the Agents tab "Agents"', () => {
-    expect(enUS[SESSION_TAB_LABELS.schedules]).toBe('Agents')
-  })
-
-  it('adds Agents with full editing under Agent Maker', () => {
-    const view = sessionTabs({ ...chatSession, presetKind: 'agent-maker' })
-    expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts', 'schedules'])
-    expect(view.schedules).toBe('full')
-  })
-
-  it('keeps a reduced Agents tab under any other preset when the Session holds a Schedule or a run', () => {
-    for (const presetKind of ['chat', 'audio', 'image', 'edit', 'video', 'agent-preset'] as const) {
-      const view = sessionTabs({ ...chatSession, presetKind, holdsScheduleOrRun: true })
-      expect(view.tabs.at(-1)).toBe('schedules')
-      expect(view.schedules).toBe('run-only')
-    }
-  })
-
-  it('keeps full editing under Agent Maker when the Session holds a Schedule or a run', () => {
-    expect(
-      sessionTabs({ ...chatSession, presetKind: 'agent-maker', holdsScheduleOrRun: true })
-        .schedules,
-    ).toBe('full')
-  })
-
-  it('limits Agents to one Agent under a saved Agent Preset', () => {
-    for (const holdsScheduleOrRun of [false, true]) {
-      const view = sessionTabs({
-        ...chatSession,
-        presetKind: 'saved-agent-preset',
-        holdsScheduleOrRun,
-      })
-      expect(view.tabs.at(-1)).toBe('schedules')
-      expect(view.schedules).toBe('one-agent')
+  it('shows the same four tabs under every preset, Agent Maker included', () => {
+    for (const presetKind of [
+      'chat',
+      'audio',
+      'image',
+      'edit',
+      'video',
+      'agent-maker',
+      'agent-preset',
+    ] as const) {
+      expect(sessionTabs({ ...chatSession, presetKind }).tabs).toEqual([
+        'viewport',
+        'inferencing',
+        'attributes',
+        'artifacts',
+      ])
     }
   })
 
   it('gives a Home Agent thread Viewport, Inferencing and Attributes only', () => {
     for (const presetKind of ['chat', 'agent-maker'] as const) {
-      const view = sessionTabs({
-        ...chatSession,
-        owner: 'home-agent-thread',
-        presetKind,
-        holdsScheduleOrRun: true,
-      })
+      const view = sessionTabs({ ...chatSession, owner: 'home-agent-thread', presetKind })
       expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes'])
-      expect(view.schedules).toBeNull()
     }
   })
 
@@ -94,7 +54,7 @@ describe('sessionTabs', () => {
   it("shows a picked Agent's Settings Template read-only under Agent Maker", () => {
     const view = sessionTabs({ ...chatSession, presetKind: 'agent-maker', agentPicked: true })
     expect(view.settings).toBe('picked-agent')
-    expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts', 'schedules'])
+    expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts'])
   })
 
   it("keeps the Session's settings for a Home Agent thread even with an Agent picked", () => {
@@ -154,16 +114,9 @@ describe('sessionTabs', () => {
   })
 
   it('falls back to the Viewport when the current tab is no longer visible', () => {
-    expect(sessionTabs({ ...chatSession, current: 'schedules' }).shown).toBe('viewport')
     expect(
       sessionTabs({ ...chatSession, owner: 'home-agent-thread', current: 'artifacts' }).shown,
     ).toBe('viewport')
-  })
-
-  it('keeps Agents shown while it stays visible after a preset switch', () => {
-    expect(
-      sessionTabs({ ...chatSession, holdsScheduleOrRun: true, current: 'schedules' }).shown,
-    ).toBe('schedules')
   })
 })
 
@@ -176,60 +129,10 @@ describe('sessionTabsPresetKind', () => {
     expect(sessionTabsPresetKind('video', null)).toBe('video')
   })
 
-  it('tells Agent Maker, its saved Agent Presets and the other Agent Presets apart', () => {
+  it('tells Agent Maker and the other Agent Presets apart', () => {
     expect(sessionTabsPresetKind('agent', { name: 'Agent', agentPreset: true })).toBe('agent-maker')
-    expect(
-      sessionTabsPresetKind('agent', { name: 'Logo maker', agentPreset: true, agentTaskId: 't1' }),
-    ).toBe('saved-agent-preset')
     expect(sessionTabsPresetKind('agent', { name: 'Game Agent', agentPreset: true })).toBe(
       'agent-preset',
     )
-  })
-})
-
-describe('schedulesPanel', () => {
-  it('offers the save bar, Steps and the whole library, editable, under Agent Maker', () => {
-    expect(schedulesPanel('full')).toEqual({
-      editSteps: true,
-      editNote: false,
-      agentList: {
-        listed: 'library',
-        load: true,
-        saveAsPreset: true,
-        manage: true,
-        run: true,
-        editSchedule: true,
-      },
-    })
-  })
-
-  it('lists only what the Session holds, to stop or unschedule, under another preset', () => {
-    expect(schedulesPanel('run-only')).toEqual({
-      editSteps: false,
-      editNote: true,
-      agentList: {
-        listed: 'this-session',
-        load: false,
-        saveAsPreset: false,
-        manage: false,
-        run: false,
-        editSchedule: false,
-      },
-    })
-  })
-
-  it('lets a saved Agent Preset run its own Agent and schedule it here, but not edit it', () => {
-    expect(schedulesPanel('one-agent')).toEqual({
-      editSteps: false,
-      editNote: true,
-      agentList: {
-        listed: 'preset-agent',
-        load: false,
-        saveAsPreset: false,
-        manage: false,
-        run: true,
-        editSchedule: true,
-      },
-    })
   })
 })

@@ -38,9 +38,9 @@ export type AgentSessionRecord = {
   responseLocale?: string
   /** The session's own Session Settings (Agent preset only). */
   settings?: AgentSessionSettings
-  /** The Agent this session was loaded from, saved as, or run by. */
+  /** The Agent this session is a run of. */
   taskId?: string
-  /** The Steps the session's prompts are carried out in (Agent preset only). */
+  /** The Steps a Trial Run carries out, so a reload can pick it up again. */
   steps?: AgentTaskStep[]
   /** The Session this Harness Session belongs to, once it is one. */
   sessionRef?: string
@@ -198,10 +198,6 @@ export function snapshotSession(options: {
   presetName: string
   responseLocale?: string
   settings?: AgentSessionSettings
-  /** Replaces the record's Steps; absent keeps them. */
-  steps?: AgentTaskStep[]
-  /** Kept only when the record has none. */
-  taskId?: string
   /** Names a new record instead of its first message. */
   title?: string
   /** Kept only when the record has none. */
@@ -235,12 +231,8 @@ export function snapshotSession(options: {
       : existing?.settings
         ? { settings: existing.settings }
         : {}),
-    ...((existing?.taskId ?? options.taskId) ? { taskId: existing?.taskId ?? options.taskId } : {}),
-    ...(options.steps
-      ? { steps: options.steps.map((step) => ({ ...step })) }
-      : existing?.steps
-        ? { steps: existing.steps }
-        : {}),
+    ...(existing?.taskId ? { taskId: existing.taskId } : {}),
+    ...(existing?.steps ? { steps: existing.steps } : {}),
     ...((existing?.sessionRef ?? options.sessionRef)
       ? { sessionRef: existing?.sessionRef ?? options.sessionRef }
       : {}),

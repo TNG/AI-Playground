@@ -32,8 +32,6 @@ const GAME_AGENT: ChatPreset = {
   systemPrompt: 'You make games.',
 } as ChatPreset
 
-const NEWS_PRESET: ChatPreset = { ...AGENT, name: 'Morning news', agentTaskId: 't-news' }
-
 const activePreset = vi.hoisted(() => ({ state: null as { preset: unknown } | null }))
 
 vi.mock('@/assets/js/store/presets', async () => {
@@ -42,7 +40,7 @@ vi.mock('@/assets/js/store/presets', async () => {
   const state = activePreset.state
   return {
     usePresets: () => ({
-      presets: [AGENT, GAME_AGENT, NEWS_PRESET],
+      presets: [AGENT, GAME_AGENT],
       get activePresetWithVariant() {
         return state.preset
       },

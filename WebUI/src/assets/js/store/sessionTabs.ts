@@ -36,7 +36,6 @@ export const useSessionTabs = defineStore('sessionTabs', () => {
   const context = computed<Omit<SessionTabsInput, 'landing' | 'current'>>(() => ({
     owner: owner.value,
     presetKind: sessionTabsPresetKind(promptStore.getCurrentMode(), agentMode.activeAgentPreset),
-    holdsScheduleOrRun: agentTasks.openSessionAgents.length > 0,
     agentPicked: agentTasks.pickedAgent !== undefined,
   }))
 
@@ -76,7 +75,6 @@ export const useSessionTabs = defineStore('sessionTabs', () => {
     tabs: computed(() => view.value.tabs),
     shown: computed(() => view.value.shown),
     settings: computed(() => view.value.settings),
-    schedules: computed(() => view.value.schedules),
     artifactsScope,
     sessionTurnInFlight,
     land,

@@ -97,6 +97,7 @@ export type TurnDetails = {
 export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
   trigger: NonNullable<AgentRunTag['trigger']>
   name: string
+  agentId?: string
 }
 
 export type TurnPrompt = {

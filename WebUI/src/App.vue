@@ -201,9 +201,6 @@
       <template #artifacts>
         <SessionArtifacts v-if="sessionTabs.shown === 'artifacts'" />
       </template>
-      <template #schedules>
-        <SchedulesPanel v-if="sessionTabs.schedules" :allowance="sessionTabs.schedules" />
-      </template>
     </SessionTabView>
 
     <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
@@ -296,7 +293,6 @@ import SessionsPanel from '@/components/SessionsPanel.vue'
 import SessionTabView from '@/components/SessionTabView.vue'
 import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
-import SchedulesPanel from '@/components/SchedulesPanel.vue'
 import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'

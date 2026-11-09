@@ -272,20 +272,30 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   async function init(): Promise<void> {
+    earlySettles ??= []
+    try {
+      if (!(await restoreLibrary())) return
+    } finally {
+      replayEarlySettles()
+    }
+    skipMissedSlots()
+    clearInterval(scheduleTicker)
+    scheduleTicker = setInterval(tickSchedules, SCHEDULE_TICK_MS)
+  }
+
+  async function restoreLibrary(): Promise<boolean> {
     try {
       const result = await window.electronAPI.agentMode.readTasks()
       if (!result.success) throw new Error(result.error)
       tasks.value = result.tasks
     } catch (error) {
       reportReadFailure(error)
-      return
+      return false
     }
     await readDrafts()
     await settleInterruptedRuns()
     await restoreTrialRuns()
-    skipMissedSlots()
-    clearInterval(scheduleTicker)
-    scheduleTicker = setInterval(tickSchedules, SCHEDULE_TICK_MS)
+    return true
   }
 
   /** No catch-up at launch: slots that fell while the app was closed are skipped. */
@@ -368,7 +378,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     for (const task of [...tasks.value]) {
       for (const activeRun of task.activeRuns ?? []) {
         const { sessionId, stepIndex, stepCount } = activeRun
-        if (live.has(sessionId)) {
+        if (turnStillHeard(sessionId, live)) {
           reattachRun(task, activeRun)
           continue
         }
@@ -951,7 +961,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const record = agentMode.sessions[run.harnessSessionId]
       trialRuns.value = { ...trialRuns.value, [run.agentId]: run }
       if (run.state !== 'running') continue
-      if (!record?.steps || !record.settings || !live.has(run.harnessSessionId)) {
+      if (!record?.steps || !record.settings || !turnStillHeard(run.harnessSessionId, live)) {
         settleTrialRun(
           run.agentId,
           'failed',
@@ -1571,7 +1581,30 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The open Harness Session's Steps run with its Task's Settings Template: its own are locked. */
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 
+  /** Turns that ended while `init` restored the runs, which may have been theirs. */
+  let earlySettles: [string, TurnOutcome][] | null = null
+
+  function replayEarlySettles(): void {
+    const settled = earlySettles ?? []
+    earlySettles = null
+    for (const [sessionId, outcome] of settled) onTurnSettled(sessionId, outcome)
+  }
+
+  /** Main or this window still holds the run's turn, or it ended while the runs were restored. */
+  function turnStillHeard(sessionId: string, live: Set<string>): boolean {
+    return (
+      live.has(sessionId) ||
+      !!agentMode.sessionTurns[sessionId] ||
+      !!earlySettles?.some(([settled]) => settled === sessionId)
+    )
+  }
+
   agentMode.onTurnSettled((sessionId, outcome) => {
+    if (earlySettles) earlySettles.push([sessionId, outcome])
+    else onTurnSettled(sessionId, outcome)
+  })
+
+  function onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
     const trialRun = trialRunOfHarness(sessionId)
     if (trialRun) {
       if (trialRun.state === 'running') advanceTrialRun(trialRun, outcome)
@@ -1588,7 +1621,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     } else {
       void settleRun(sessionId, { kind: 'stopped', stepIndex })
     }
-  })
+  }
 
   /** End the run and keep how it ended as the Task's only outcome. */
   async function settleRun(sessionId: string, end: RunEnd): Promise<void> {

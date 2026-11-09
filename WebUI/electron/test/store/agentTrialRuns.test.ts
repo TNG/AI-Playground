@@ -804,6 +804,53 @@ describe('a Trial Run outliving the Agent Library', () => {
     await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
   })
 
+  it('runs its next Step when the live one ended while the reloaded window was starting', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const first = await readyStores()
+    await first.tasks.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
+    const readTrialRuns = vi.mocked(window.electronAPI.agentMode.readTrialRuns)
+    const reads = readTrialRuns.mock.calls.length
+    const read = readTrialRuns.getMockImplementation()!
+    let releaseRead = () => {}
+    const held = new Promise<void>((resolve) => (releaseRead = resolve))
+    readTrialRuns.mockImplementationOnce(async () => {
+      await held
+      return read()
+    })
+
+    const reloading = reloadWindow(
+      [record],
+      [
+        {
+          sessionId: harness,
+          turnId,
+          state: 'running',
+          chunks: [],
+          toolProgress: {},
+          toolImages: {},
+        },
+      ],
+    )
+    await vi.waitFor(() => expect(readTrialRuns.mock.calls.length).toBeGreaterThan(reads))
+    for (const chunk of [{ type: 'start' }, { type: 'finish' }]) {
+      pushEvent({ type: 'agent-chunk', sessionId: harness, turnId, chunk })
+    }
+    pushEvent({ type: 'agent-turn-done', sessionId: harness, turnId })
+    vi.mocked(window.electronAPI.getKernelSnapshot).mockResolvedValue(snapshotWith([]))
+    await vi.waitFor(() => expect(useAgentMode(pinia).sessionTurns[harness]).toBeUndefined())
+    await settleMicrotasks()
+    releaseRead()
+    const { tasks } = await reloading
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['two'])
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+  })
+
   it('ends as failed when the reload cut it off between Steps', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()

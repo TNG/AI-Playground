@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "New Agent",
   "AGENT_LIBRARY_MANAGE": "Manage Agents…",
   "AGENT_LIBRARY_LIST": "Agents",
+  "AGENT_LIBRARY_FILTER": "Filter agents",
+  "AGENT_LIBRARY_FILTER_EMPTY": "No agents match",
   "AGENT_LIBRARY_EMPTY": "No agents yet. Create one with New Agent.",
   "AGENT_LIBRARY_UNNAMED": "Untitled agent",
   "AGENT_LIBRARY_DRAFT": "Draft",

@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "새 에이전트",
   "AGENT_LIBRARY_MANAGE": "에이전트 관리…",
   "AGENT_LIBRARY_LIST": "에이전트",
+  "AGENT_LIBRARY_FILTER": "에이전트 필터",
+  "AGENT_LIBRARY_FILTER_EMPTY": "일치하는 에이전트가 없습니다",
   "AGENT_LIBRARY_EMPTY": "아직 에이전트가 없습니다. ‘새 에이전트’로 만드세요.",
   "AGENT_LIBRARY_UNNAMED": "이름 없는 에이전트",
   "AGENT_LIBRARY_DRAFT": "초안",

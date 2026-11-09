@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentList,
   lastUsedByMode,
   presetsInMode,
   promptBarModel,
@@ -489,6 +490,42 @@ describe('promptBarModel preset picker', () => {
     it('is always a label in Classic', () => {
       expect(chipFor(gameAgent, 'classic')).toBe('label')
     })
+  })
+})
+
+describe('agentList', () => {
+  const named = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({ id: `a-${i + 1}`, name: `Agent ${i + 1}` }))
+
+  it('offers no filter for 8 Agents or fewer, and lists them all whatever was typed', () => {
+    const list = agentList(named(8), 'Agent 3')
+    expect(list.filterable).toBe(false)
+    expect(list.agents).toHaveLength(8)
+  })
+
+  it('offers a filter once there are more than 8 Agents', () => {
+    const list = agentList(named(9), '')
+    expect(list.filterable).toBe(true)
+    expect(list.agents).toHaveLength(9)
+  })
+
+  it('narrows a long list by name or description, ignoring case and surrounding spaces', () => {
+    const agents = [
+      ...named(8),
+      { id: 'a-digest', name: 'Morning Digest', description: 'Reads the news' },
+      { id: 'a-tidy', name: 'Tidy downloads', description: 'Sorts the DIGEST folder' },
+    ]
+    expect(agentList(agents, '  digest ').agents.map((agent) => agent.id)).toEqual([
+      'a-digest',
+      'a-tidy',
+    ])
+    expect(agentList(agents, 'NEWS').agents.map((agent) => agent.id)).toEqual(['a-digest'])
+  })
+
+  it('lists nothing when no Agent matches', () => {
+    const list = agentList(named(9), 'weather')
+    expect(list.filterable).toBe(true)
+    expect(list.agents).toEqual([])
   })
 })
 

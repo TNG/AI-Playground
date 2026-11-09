@@ -41,7 +41,7 @@
         side="top"
         align="start"
         :side-offset="8"
-        class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
+        class="z-[40010] w-auto max-w-[80vw] max-h-[var(--reka-popover-content-available-height)] overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-xl"
         @open-auto-focus.prevent
         @close-auto-focus.prevent
       >
@@ -52,6 +52,7 @@
           class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
           @pointerenter="cancelPickerClose"
           @pointerleave="schedulePickerClose"
+          @focusin="cancelPickerClose"
         >
           <TooltipProvider :delay-duration="200">
             <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
@@ -106,44 +107,64 @@
             <div
               role="group"
               :aria-label="i18nState.AGENT_LIBRARY_LIST"
-              class="flex flex-none gap-2 border-l border-border pl-2"
+              class="flex min-w-0 flex-col gap-1 border-l border-border pl-2"
             >
-              <Tooltip v-for="agent in agents" :key="agent.id">
-                <TooltipTrigger as-child>
-                  <button
-                    type="button"
-                    :aria-label="agent.name"
-                    :aria-pressed="pickedAgentId === agent.id"
-                    class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
-                    :class="
-                      pickedAgentId === agent.id
-                        ? 'border-primary ring-2 ring-primary'
-                        : 'border-transparent'
-                    "
-                    @click="selectAgentFromPicker(agent.id)"
-                  >
-                    <img
-                      v-if="agent.image"
-                      :src="agent.image"
-                      :alt="agent.name"
-                      class="absolute inset-0 w-full h-full object-cover"
-                    />
-                    <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
-                      <span
-                        class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
-                      >
-                        {{ agent.name }}
-                      </span>
-                    </div>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" class="z-[40011] max-w-[260px]">
-                  <p class="font-semibold">{{ agent.name }}</p>
-                  <p v-if="agent.description" class="mt-1 text-primary-foreground/80">
-                    {{ agent.description }}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+              <Input
+                v-if="agentView.filterable"
+                v-model="agentQuery"
+                type="search"
+                :placeholder="i18nState.AGENT_LIBRARY_FILTER"
+                :aria-label="i18nState.AGENT_LIBRARY_FILTER"
+                class="h-7 w-48 px-2 text-xs"
+                @focus="agentFilterFocused = true"
+                @blur="agentFilterFocused = false"
+                @keydown.enter.prevent="pickFirstMatch"
+              />
+              <div class="flex min-w-0 gap-2 overflow-x-auto pb-1">
+                <p
+                  v-if="agentView.agents.length === 0"
+                  role="status"
+                  class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
+                >
+                  {{ i18nState.AGENT_LIBRARY_FILTER_EMPTY }}
+                </p>
+                <Tooltip v-for="agent in agentView.agents" :key="agent.id">
+                  <TooltipTrigger as-child>
+                    <button
+                      type="button"
+                      :aria-label="agent.name"
+                      :aria-pressed="pickedAgentId === agent.id"
+                      class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
+                      :class="
+                        pickedAgentId === agent.id
+                          ? 'border-primary ring-2 ring-primary'
+                          : 'border-transparent'
+                      "
+                      @click="selectAgentFromPicker(agent.id)"
+                    >
+                      <img
+                        v-if="agent.image"
+                        :src="agent.image"
+                        :alt="agent.name"
+                        class="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                        <span
+                          class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
+                        >
+                          {{ agent.name }}
+                        </span>
+                      </div>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                    <p class="font-semibold">{{ agent.name }}</p>
+                    <p v-if="agent.description" class="mt-1 text-primary-foreground/80">
+                      {{ agent.description }}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           </TooltipProvider>
           <div v-if="mode === buttonModeFor('agent')" class="flex flex-none flex-col gap-1">
@@ -202,6 +223,7 @@ import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import Button from '@/components/ui/button/Button.vue'
+import { Input } from '@/components/ui/input'
 import PromptAttachButton from '@/components/PromptAttachButton.vue'
 import PromptAttachmentPreviews from '@/components/PromptAttachmentPreviews.vue'
 import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
@@ -213,7 +235,7 @@ import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/pr
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
-import { pickableAgents } from '@/lib/promptBarModel'
+import { agentList, pickableAgents } from '@/lib/promptBarModel'
 
 defineProps<{
   modes: ModeType[]
@@ -292,6 +314,8 @@ function openPicker(mode: ModeType) {
 
 function schedulePickerClose() {
   clearPickerTimers()
+  // Typing in the Agent filter must not lose the picker to a stray pointer move.
+  if (agentFilterFocused.value) return
   pickerCloseTimer = window.setTimeout(() => {
     pickerCloseTimer = null
     openPickerMode.value = null
@@ -350,6 +374,21 @@ async function selectAgentFromPicker(agentId: string) {
 }
 
 const agents = computed(() => pickableAgents(agentPick.agents.value))
+const agentQuery = ref('')
+const agentFilterFocused = ref(false)
+const agentView = computed(() => agentList(agents.value, agentQuery.value))
+
+async function pickFirstMatch() {
+  const first = agentView.value.agents[0]
+  if (first) await selectAgentFromPicker(first.id)
+}
+
+watch(openPickerMode, (mode) => {
+  if (mode === null) {
+    agentQuery.value = ''
+    agentFilterFocused.value = false
+  }
+})
 
 watch(
   () => demoMode.tourOpen,

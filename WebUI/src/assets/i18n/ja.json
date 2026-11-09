@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "新しいエージェント",
   "AGENT_LIBRARY_MANAGE": "エージェントを管理…",
   "AGENT_LIBRARY_LIST": "エージェント",
+  "AGENT_LIBRARY_FILTER": "エージェントを絞り込む",
+  "AGENT_LIBRARY_FILTER_EMPTY": "一致するエージェントはありません",
   "AGENT_LIBRARY_EMPTY": "エージェントはまだありません。「新しいエージェント」で作成してください。",
   "AGENT_LIBRARY_UNNAMED": "無題のエージェント",
   "AGENT_LIBRARY_DRAFT": "下書き",

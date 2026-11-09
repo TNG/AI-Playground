@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "Nuovo agente",
   "AGENT_LIBRARY_MANAGE": "Gestisci agenti…",
   "AGENT_LIBRARY_LIST": "Agenti",
+  "AGENT_LIBRARY_FILTER": "Filtra agenti",
+  "AGENT_LIBRARY_FILTER_EMPTY": "Nessun agente corrisponde",
   "AGENT_LIBRARY_EMPTY": "Nessun agente. Creane uno con «Nuovo agente».",
   "AGENT_LIBRARY_UNNAMED": "Agente senza nome",
   "AGENT_LIBRARY_DRAFT": "Bozza",

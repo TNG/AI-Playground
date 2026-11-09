@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "新增代理程式",
   "AGENT_LIBRARY_MANAGE": "管理代理程式…",
   "AGENT_LIBRARY_LIST": "代理程式",
+  "AGENT_LIBRARY_FILTER": "篩選代理程式",
+  "AGENT_LIBRARY_FILTER_EMPTY": "沒有符合的代理程式",
   "AGENT_LIBRARY_EMPTY": "尚無代理程式。使用「新增代理程式」建立一個。",
   "AGENT_LIBRARY_UNNAMED": "未命名代理程式",
   "AGENT_LIBRARY_DRAFT": "草稿",

@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "Yeni ajan",
   "AGENT_LIBRARY_MANAGE": "Ajanları yönet…",
   "AGENT_LIBRARY_LIST": "Ajanlar",
+  "AGENT_LIBRARY_FILTER": "Ajanları filtrele",
+  "AGENT_LIBRARY_FILTER_EMPTY": "Eşleşen ajan yok",
   "AGENT_LIBRARY_EMPTY": "Henüz ajan yok. Yeni ajan ile bir tane oluşturun.",
   "AGENT_LIBRARY_UNNAMED": "Adsız ajan",
   "AGENT_LIBRARY_DRAFT": "Taslak",

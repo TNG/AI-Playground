@@ -132,6 +132,26 @@ export function pickableAgents(agents: readonly PromptBarAgent[]): AgentEntry[] 
     }))
 }
 
+const AGENT_FILTER_THRESHOLD = 8
+
+export type AgentList = {
+  /** Whether the list is long enough to carry a filter field. */
+  filterable: boolean
+  agents: AgentEntry[]
+}
+
+/** The Agents a prompt bar lists, narrowed by the filter field once there are enough of them. */
+export function agentList(agents: readonly AgentEntry[], query: string): AgentList {
+  const filterable = agents.length > AGENT_FILTER_THRESHOLD
+  const needle = query.trim().toLocaleLowerCase()
+  if (!filterable || !needle) return { filterable, agents: [...agents] }
+  const matches = (text?: string) => !!text?.toLocaleLowerCase().includes(needle)
+  return {
+    filterable,
+    agents: agents.filter((agent) => matches(agent.name) || matches(agent.description)),
+  }
+}
+
 const MODERN_MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']
 
 export function presetsInMode(catalog: Preset[], mode: ModeType): Preset[] {

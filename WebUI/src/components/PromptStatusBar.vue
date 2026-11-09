@@ -83,7 +83,10 @@
           <!-- Whether the model plus its context fits the card (llama.cpp only) -->
           <ModelVramFit v-if="modelChip.source === 'chat'" :delay-duration="0" />
         </template>
-        <DropdownMenu v-if="bar.presetChip === 'dropdown'">
+        <DropdownMenu
+          v-if="bar.presetChip === 'dropdown'"
+          @update:open="(open: boolean) => !open && (agentQuery = '')"
+        >
           <DropdownMenuTrigger as-child>
             <button
               id="preset-dropdown"
@@ -101,7 +104,11 @@
               <ChevronDownIcon class="size-3.5 flex-none" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" class="z-[40010] min-w-48">
+          <DropdownMenuContent
+            side="top"
+            align="start"
+            class="z-[40010] min-w-48 flex flex-col max-h-[var(--reka-dropdown-menu-content-available-height)]"
+          >
             <DropdownMenuLabel v-if="bar.activeMode === 'agent'" class="text-xs">
               {{ languages.PROMPT_BAR_AGENT_PRESETS }}
             </DropdownMenuLabel>
@@ -149,12 +156,29 @@
               <DropdownMenuLabel class="text-xs">{{
                 languages.AGENT_LIBRARY_LIST
               }}</DropdownMenuLabel>
+              <DropdownMenuFilter
+                v-if="agentView.filterable"
+                v-model="agentQuery"
+                auto-focus
+                :placeholder="languages.AGENT_LIBRARY_FILTER"
+                :aria-label="languages.AGENT_LIBRARY_FILTER"
+                class="mx-1 mb-1 h-7 flex-none rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+              />
               <DropdownMenuRadioGroup
                 :model-value="pickedAgentId ?? ''"
+                :aria-label="languages.AGENT_LIBRARY_LIST"
+                class="min-h-0 overflow-y-auto"
                 @update:model-value="(id) => pickAgent(id as string)"
               >
+                <p
+                  v-if="agentView.agents.length === 0"
+                  role="status"
+                  class="px-2 py-1.5 text-xs text-muted-foreground"
+                >
+                  {{ languages.AGENT_LIBRARY_FILTER_EMPTY }}
+                </p>
                 <TooltipProvider :delay-duration="200">
-                  <Tooltip v-for="agent in bar.agents" :key="agent.id">
+                  <Tooltip v-for="agent in agentView.agents" :key="agent.id">
                     <TooltipTrigger as-child>
                       <DropdownMenuRadioItem :value="agent.id" class="gap-2">
                         <img
@@ -321,6 +345,7 @@ import { Context } from '@/components/ui/context'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuFilter,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -335,7 +360,12 @@ import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuItems.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
-import { promptBarModel, type HeaderChip, type SpeechBackend } from '@/lib/promptBarModel'
+import {
+  agentList,
+  promptBarModel,
+  type HeaderChip,
+  type SpeechBackend,
+} from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 
@@ -466,6 +496,9 @@ const bar = computed(() =>
 )
 
 const headerChips = computed(() => bar.value.headerChips)
+
+const agentQuery = ref('')
+const agentView = computed(() => agentList(bar.value.agents, agentQuery.value))
 
 async function pickPreset(name: string) {
   if (name) await agentPick.pickPreset(name)

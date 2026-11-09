@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "เอเจนต์ใหม่",
   "AGENT_LIBRARY_MANAGE": "จัดการเอเจนต์…",
   "AGENT_LIBRARY_LIST": "เอเจนต์",
+  "AGENT_LIBRARY_FILTER": "กรองเอเจนต์",
+  "AGENT_LIBRARY_FILTER_EMPTY": "ไม่มีเอเจนต์ที่ตรงกัน",
   "AGENT_LIBRARY_EMPTY": "ยังไม่มีเอเจนต์ สร้างได้ด้วย เอเจนต์ใหม่",
   "AGENT_LIBRARY_UNNAMED": "เอเจนต์ไม่มีชื่อ",
   "AGENT_LIBRARY_DRAFT": "ฉบับร่าง",

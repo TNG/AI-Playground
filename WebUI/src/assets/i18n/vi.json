@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "Tác tử mới",
   "AGENT_LIBRARY_MANAGE": "Quản lý tác tử…",
   "AGENT_LIBRARY_LIST": "Tác tử",
+  "AGENT_LIBRARY_FILTER": "Lọc tác tử",
+  "AGENT_LIBRARY_FILTER_EMPTY": "Không có tác tử nào khớp",
   "AGENT_LIBRARY_EMPTY": "Chưa có tác tử nào. Tạo một tác tử bằng Tác tử mới.",
   "AGENT_LIBRARY_UNNAMED": "Tác tử chưa đặt tên",
   "AGENT_LIBRARY_DRAFT": "Bản nháp",

@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "新建智能体",
   "AGENT_LIBRARY_MANAGE": "管理智能体…",
   "AGENT_LIBRARY_LIST": "智能体",
+  "AGENT_LIBRARY_FILTER": "筛选智能体",
+  "AGENT_LIBRARY_FILTER_EMPTY": "没有匹配的智能体",
   "AGENT_LIBRARY_EMPTY": "还没有智能体。使用“新建智能体”创建一个。",
   "AGENT_LIBRARY_UNNAMED": "未命名智能体",
   "AGENT_LIBRARY_DRAFT": "草稿",

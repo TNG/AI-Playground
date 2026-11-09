@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "Nowy agent",
   "AGENT_LIBRARY_MANAGE": "Zarządzaj agentami…",
   "AGENT_LIBRARY_LIST": "Agenci",
+  "AGENT_LIBRARY_FILTER": "Filtruj agentów",
+  "AGENT_LIBRARY_FILTER_EMPTY": "Brak pasujących agentów",
   "AGENT_LIBRARY_EMPTY": "Nie ma jeszcze agentów. Utwórz go przyciskiem „Nowy agent”.",
   "AGENT_LIBRARY_UNNAMED": "Agent bez nazwy",
   "AGENT_LIBRARY_DRAFT": "Szkic",

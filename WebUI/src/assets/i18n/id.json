@@ -1018,6 +1018,8 @@
   "AGENT_LIBRARY_NEW_AGENT": "Agen baru",
   "AGENT_LIBRARY_MANAGE": "Kelola agen…",
   "AGENT_LIBRARY_LIST": "Agen",
+  "AGENT_LIBRARY_FILTER": "Filter agen",
+  "AGENT_LIBRARY_FILTER_EMPTY": "Tidak ada agen yang cocok",
   "AGENT_LIBRARY_EMPTY": "Belum ada agen. Buat satu dengan Agen baru.",
   "AGENT_LIBRARY_UNNAMED": "Agen tanpa nama",
   "AGENT_LIBRARY_DRAFT": "Draf",

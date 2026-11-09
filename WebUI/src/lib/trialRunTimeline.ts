@@ -15,9 +15,10 @@ export type TrialRunView = {
 }
 
 /** A Trial Run as the timeline shows an Agent Run: one Turn. */
-export function trialRunItems(
-  view: TrialRunView,
-): SessionTimelineItem<PendingMedia, PendingAudio>[] {
+export function trialRunItems<
+  M extends PendingMedia = PendingMedia,
+  A extends PendingAudio = PendingAudio,
+>(view: TrialRunView): SessionTimelineItem<M, A>[] {
   const tag: AgentTurnTag = {
     presetName: view.presetName,
     harnessSessionId: view.harnessSessionId,
@@ -27,7 +28,7 @@ export function trialRunItems(
     ...message,
     metadata: { ...(message as { metadata?: object }).metadata, agentTurn: tag },
   }))
-  return sessionTimelineItems(timeline, {
+  return sessionTimelineItems<M, A>(timeline, {
     agents: view.live ? [{ tag, messages: view.live, live: true }] : [],
     agentRunsInFlight: view.progress ? { [view.harnessSessionId]: view.progress } : {},
   })

@@ -74,6 +74,11 @@ function editableFields(source: AgentDraftEdit): AgentDraftEdit {
 }
 
 /** Why a draft cannot be saved yet; `settings` only for an Agent Library Draft. */
+type TrialRunFailureCode =
+  | 'agent-library/trial-save-failed'
+  | 'agent-library/trial-read-failed'
+  | 'agent-library/trial-discard-failed'
+
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'settings'
 
 export const SAVE_TASK_BLOCKER_KEYS = {
@@ -892,7 +897,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       })
   }
 
-  function reportTrialRunFailure(code: string, message: string): void {
+  function reportTrialRunFailure(code: TrialRunFailureCode, message: string): void {
     errors.report(
       createAppError({
         category: 'backend',

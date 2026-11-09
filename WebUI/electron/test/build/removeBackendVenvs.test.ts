@@ -45,6 +45,24 @@ function writeDeepVenv(venv: string): void {
   expect(file.length).toBeGreaterThan(260)
 }
 
+// Node opens files with FILE_SHARE_DELETE, so the lock comes from another process holding the
+// file with FileShare.None, like a backend another account left running.
+async function holdOpen(file: string): Promise<void> {
+  writeFile(file)
+  const holder = spawn(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `$f = [IO.File]::Open('${file}', 'Open', 'Read', 'None'); 'locked'; Start-Sleep 60`,
+    ],
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] },
+  )
+  children.push(holder)
+  await new Promise((resolve) => holder.stdout?.once('data', resolve))
+}
+
 function run(roots: string[]): { exitCode: number; leftovers: string[] } {
   const dir = tempDir()
   const rootsFile = path.join(dir, 'roots.txt')
@@ -161,25 +179,29 @@ describe.skipIf(process.platform !== 'win32')('remove-backend-venvs.ps1 (uninsta
     expect(fs.existsSync(path.join(root, 'service', '.venv'))).toBe(false)
   })
 
+  it('does not delete through a junction inside a venv it cannot fully remove', async () => {
+    const root = path.join(tempDir(), 'resources')
+    const venv = path.join(root, 'ComfyUI', '.venv')
+    const outside = tempDir()
+    const keep = path.join(outside, 'keep.txt')
+    writeFile(keep)
+    fs.chmodSync(keep, 0o444)
+    fs.mkdirSync(path.join(venv, 'Lib'), { recursive: true })
+    fs.symlinkSync(outside, path.join(venv, 'Lib', 'planted'), 'junction')
+    // A file held open makes rd fail, which is when a recursive fallback would walk the junction.
+    await holdOpen(path.join(venv, 'Lib', 'held-open.dll'))
+
+    const result = run([root])
+
+    expect(result.exitCode).toBe(1)
+    expect(fs.existsSync(keep)).toBe(true)
+    expect(fs.statSync(keep).mode & 0o200).toBe(0)
+  })
+
   it('reports a venv it cannot remove, with the reason', async () => {
     const root = path.join(tempDir(), 'resources')
     const venv = path.join(root, 'ComfyUI', '.venv')
-    const locked = path.join(venv, 'Lib', 'held-open.dll')
-    writeFile(locked)
-    // Node opens files with FILE_SHARE_DELETE, so the lock comes from another process holding
-    // the file with FileShare.None, like a backend another account left running.
-    const holder = spawn(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        `$f = [IO.File]::Open('${locked}', 'Open', 'Read', 'None'); 'locked'; Start-Sleep 60`,
-      ],
-      { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] },
-    )
-    children.push(holder)
-    await new Promise((resolve) => holder.stdout?.once('data', resolve))
+    await holdOpen(path.join(venv, 'Lib', 'held-open.dll'))
 
     const result = run([root])
 

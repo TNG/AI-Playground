@@ -129,7 +129,7 @@ export const AgentDraftsFileSchema = z.object({
 
 /**
  * Where an Agent's Trial Run is, kept beside its scratch folder so a reloaded window can pick it
- * up. `stepIndex` is 1-based; `stepCount` is where it stops, the last Step unless chosen earlier.
+ * up. `stepIndex` is 1-based; `stepCount` is how many Steps it runs.
  */
 export const TrialRunRecordSchema = z.object({
   agentId: z.string().min(1),

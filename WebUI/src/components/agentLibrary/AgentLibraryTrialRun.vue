@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { PlayIcon, StopIcon } from '@heroicons/vue/24/solid'
 import { SAVE_TASK_BLOCKER_KEYS, type LibraryAgent } from '@/assets/js/store/agentTasks'
 import { useAgentTrialRuns, type StartTrialRunResult } from '@/assets/js/store/agentTrialRuns'
@@ -19,19 +19,10 @@ const props = defineProps<{ agent: LibraryAgent }>()
 const agentTrialRuns = useAgentTrialRuns()
 const i18n = useI18N().state
 
-/** The Step the Trial Run ends after; 0 runs every Step. */
-const lastStep = ref(0)
 const input = ref('')
 const confirmingFolders = ref(false)
 const refusal = ref<string>()
 const panel = ref<HTMLElement | null>(null)
-
-watch(
-  () => props.agent.steps.length,
-  (count) => {
-    if (lastStep.value > count) lastStep.value = 0
-  },
-)
 
 const inFlight = computed(() => agentTrialRuns.trialRunInFlight(props.agent.id))
 
@@ -64,10 +55,7 @@ function requestRun(): void {
 async function start(): Promise<void> {
   confirmingFolders.value = false
   const typed = input.value.trim()
-  const result = await agentTrialRuns.startTrialRun(props.agent.id, {
-    ...(lastStep.value > 0 ? { lastStep: lastStep.value } : {}),
-    ...(typed ? { input: typed } : {}),
-  })
+  const result = await agentTrialRuns.startTrialRun(props.agent.id, typed ? { input: typed } : {})
   refusal.value = result.ok ? undefined : refusalText(result)
   if (result.ok) {
     input.value = ''
@@ -143,19 +131,6 @@ async function start(): Promise<void> {
       />
 
       <div class="flex flex-wrap items-center gap-2">
-        <label class="flex items-center gap-2 text-sm">
-          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP_AFTER }}
-          <select
-            v-model.number="lastStep"
-            :disabled="inFlight"
-            class="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option :value="0">{{ i18n.AGENT_LIBRARY_TRIAL_RUN_LAST_STEP }}</option>
-            <option v-for="(_step, index) in agent.steps" :key="index" :value="index + 1">
-              {{ fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_STEP, { number: String(index + 1) }) }}
-            </option>
-          </select>
-        </label>
         <span v-if="refusal" role="status" class="min-w-0 flex-1 text-xs text-amber-500">
           {{ refusal }}
         </span>

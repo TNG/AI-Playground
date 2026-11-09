@@ -509,20 +509,6 @@ describe('a Trial Run', () => {
     expect(sentSteps()).toEqual(['one', 'two', 'three'])
   })
 
-  it('ends after the chosen Step', async () => {
-    storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
-    const { trials } = await readyStores()
-
-    await trials.startTrialRun('t1', { lastStep: 2 })
-    await finishTurn(0)
-    await finishTurn(1)
-
-    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
-    await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one', 'two'])
-    expect(trials.trialRuns.t1).toMatchObject({ stepIndex: 2, stepCount: 2 })
-  })
-
   it('stops when the user stops it', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const { trials } = await readyStores()

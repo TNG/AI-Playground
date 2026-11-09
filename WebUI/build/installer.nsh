@@ -209,7 +209,7 @@
         CreateDirectory "$R2"
         ; A junction here would make icacls /T edit the link target. Refuse the
         ; base, and unlink a resources junction before the tree walk.
-        nsExec::ExecToLog 'fsutil reparsepoint query "$R2"'
+        nsExec::ExecToLog '"$SYSDIR\fsutil.exe" reparsepoint query "$R2"'
         Pop $R3
         ${if} $R3 == 0
           DetailPrint "Shared resources folder is a link: $R2"
@@ -217,11 +217,11 @@
           MessageBox MB_ICONSTOP "The shared resources folder cannot be a shortcut or link.$\r$\n$\r$\nFolder: $R2"
           Abort
         ${endif}
-        nsExec::ExecToLog 'fsutil reparsepoint query "$R2\resources"'
+        nsExec::ExecToLog '"$SYSDIR\fsutil.exe" reparsepoint query "$R2\resources"'
         Pop $R3
         ${if} $R3 == 0
           DetailPrint "Removing link at $R2\resources"
-          nsExec::ExecToLog 'cmd /c rmdir "$R2\resources"'
+          nsExec::ExecToLog '"$SYSDIR\cmd.exe" /c rmdir "$R2\resources"'
           Pop $R3
           ${if} $R3 != 0
             DetailPrint "Failed to remove link at $R2\resources (exit $R3)."
@@ -233,7 +233,7 @@
         ; Owner must be BUILTIN\Administrators. The app rejects any other owner,
         ; which is how a folder a standard user created beforehand is ignored.
         ; S-1-5-32-544 = Administrators, S-1-5-18 = SYSTEM, S-1-5-32-545 = Users.
-        nsExec::ExecToLog 'icacls "$R2" /setowner "*S-1-5-32-544" /C'
+        nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$R2" /setowner "*S-1-5-32-544" /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to take ownership of $R2 (icacls exit $R3)."
@@ -276,7 +276,7 @@
         FileWrite $R3 '  exit 1$\r$\n'
         FileWrite $R3 '}$\r$\n'
         FileClose $R3
-        nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$R4" "$R2"'
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$R4" "$R2"'
         Pop $R3
         Delete "$R4"
         ${if} $R3 != 0
@@ -291,7 +291,7 @@
         ; which icacls does not treat as an inheritance flag.
         ; Shared installs run uv with UV_LINK_MODE=copy so new wheel files are
         ; created here and inherit this grant. Re-applied on every upgrade (/T).
-        nsExec::ExecToLog 'icacls "$R2" /setowner "*S-1-5-32-544" /C'
+        nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$R2" /setowner "*S-1-5-32-544" /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to take ownership of $R2 (icacls exit $R3)."
@@ -299,7 +299,7 @@
           MessageBox MB_ICONSTOP "AI Playground could not take ownership of the shared resources folder (icacls exit $R3).$\r$\n$\r$\nFolder: $R2$\r$\n$\r$\nSetup will stop so backends are not launched from a folder another account owns."
           Abort
         ${endif}
-        nsExec::ExecToLog 'icacls "$R2" /grant "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)M" /T /C'
+        nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$R2" /grant "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)M" /T /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to grant all users write access to $R2 (icacls exit $R3)."
@@ -396,7 +396,7 @@
     ${if} ${FileExists} "$R4\wService_delete.bat"
       FileWrite $R9 'call "$R4\wService_delete.bat"$\r$\n'
     ${endif}
-    FileWrite $R9 'taskkill /F /IM ada.exe /T$\r$\n'
+    FileWrite $R9 '"%SystemRoot%\System32\taskkill.exe" /F /IM ada.exe /T$\r$\n'
     FileWrite $R9 'del /f /q "$R4\ada.exe"$\r$\n'
   ${endif}
 !macroend
@@ -523,7 +523,7 @@
     FileClose $R9
     ${if} $R7 == "1"
       DetailPrint "Stopping aiDAPTIV service before removing ada.exe"
-      nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
+      nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
       Pop $R5
       ${if} $R5 != 0
         DetailPrint "Could not stop aiDAPTIV (ada.exe). Uninstall continues; ada.exe may remain if the service is still running."
@@ -560,10 +560,10 @@
     FileOpen $R9 $R6 w
     ${ifNot} ${Errors}
       FileWrite $R9 '@echo off$\r$\n'
-      FileWrite $R9 'reg delete "HKLM\Software\AI Playground" /f /reg:64$\r$\n'
+      FileWrite $R9 '"%SystemRoot%\System32\reg.exe" delete "HKLM\Software\AI Playground" /f /reg:64$\r$\n'
       FileClose $R9
       DetailPrint "Removing machine-wide install config"
-      nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
+      nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
       Pop $R1
       ${if} $R1 != 0
         DetailPrint "Could not remove HKLM\Software\AI Playground (exit $R1)."

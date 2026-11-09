@@ -341,6 +341,11 @@ afterEach(async () => {
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
+const { useUIStore } = await import('@/assets/js/store/ui')
+
+async function settleMicrotasks(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+}
 
 async function readyStores(options: { session?: boolean } = {}) {
   const agentMode = useAgentMode()
@@ -365,17 +370,68 @@ const stepsOf = (...prompts: string[]) =>
   prompts.map((prompt, index) => ({ id: `step-${index}`, prompt }))
 
 describe('creating an Agent', () => {
-  it('makes a Draft only, kept on disk and listed in the library', async () => {
+  it('makes a Draft only, listed in the library and kept on disk from its first edit', async () => {
     const { tasks } = await readyStores()
 
     const draft = await tasks.createAgentDraft()
 
     expect(tasks.tasks).toEqual([])
     expect(saveTask).not.toHaveBeenCalled()
-    expect(storedDrafts.map((entry) => entry.agentId)).toEqual([draft.agentId])
+    expect(storedDrafts).toEqual([])
     expect(tasks.libraryAgents).toEqual([
       expect.objectContaining({ id: draft.agentId, name: '', hasDraft: true, saved: false }),
     ])
+
+    await tasks.editDraft(draft.agentId, { name: 'Digest' })
+
+    expect(storedDrafts.map((entry) => [entry.agentId, entry.name])).toEqual([
+      [draft.agentId, 'Digest'],
+    ])
+  })
+
+  it('is gone when another Agent is selected before it was edited', async () => {
+    storedTasks = [savedAgent('a')]
+    const { tasks } = await readyStores()
+    const ui = useUIStore()
+    const draft = await tasks.createAgentDraft()
+    ui.openAgentLibrary({ agentId: draft.agentId })
+    await settleMicrotasks()
+
+    ui.selectLibraryAgent('a')
+    await settleMicrotasks()
+
+    expect(tasks.libraryAgents.map((agent) => agent.id)).toEqual(['a'])
+    expect(storedDrafts).toEqual([])
+    expect(deleteDraft).not.toHaveBeenCalled()
+  })
+
+  it('is gone when the Agent Library closes before it was edited', async () => {
+    const { tasks } = await readyStores()
+    const ui = useUIStore()
+    const draft = await tasks.createAgentDraft()
+    ui.openAgentLibrary({ agentId: draft.agentId })
+    await settleMicrotasks()
+
+    ui.closeAgentLibrary()
+    await settleMicrotasks()
+
+    expect(tasks.libraryAgents).toEqual([])
+  })
+
+  it('stays once edited, when another Agent is selected or the Library closes', async () => {
+    storedTasks = [savedAgent('a')]
+    const { tasks } = await readyStores()
+    const ui = useUIStore()
+    const draft = await tasks.createAgentDraft()
+    ui.openAgentLibrary({ agentId: draft.agentId })
+    await tasks.editDraft(draft.agentId, { name: 'Digest' })
+
+    ui.selectLibraryAgent('a')
+    ui.closeAgentLibrary()
+    await settleMicrotasks()
+
+    expect(tasks.libraryAgents.map((agent) => agent.id)).toEqual(['a', draft.agentId])
+    expect(storedDrafts.map((entry) => entry.agentId)).toEqual([draft.agentId])
   })
 
   it('is saved as a new Agent, with its description, image, Steps and settings', async () => {

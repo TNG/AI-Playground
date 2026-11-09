@@ -32,6 +32,7 @@ import { useMcp } from './mcp'
 import { usePresets } from './presets'
 import { useSessions } from './sessions'
 import { useTextInference } from './textInference'
+import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
@@ -207,12 +208,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const presets = usePresets()
   const sessionsStore = useSessions()
   const textInference = useTextInference()
+  const ui = useUIStore()
 
   /** The Agents library, listed in every Session. */
   const tasks = ref<AgentTask[]>([])
 
   /** Each Agent's unsaved edits, by Agent id; an Agent never saved exists only here. */
   const drafts = ref<Record<string, AgentDraft>>({})
+  /** New Agents not edited yet: their Drafts are not on disk, and go when the Library leaves them. */
+  const untouchedDrafts = new Set<string>()
 
   /** Runs in flight by Harness Session; at most one per Agent and Session. */
   const runs = ref<Record<string, TaskRun>>({})
@@ -700,6 +704,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   async function writeDraft(draft: AgentDraft): Promise<boolean> {
     drafts.value = { ...drafts.value, [draft.agentId]: draft }
+    untouchedDrafts.delete(draft.agentId)
     const result = await window.electronAPI.agentMode
       .saveDraft(cloneForIpc(draft))
       .catch((error: unknown) => ({ success: false as const, error: String(error) }))
@@ -726,9 +731,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       steps: [],
       updatedAt: Date.now(),
     }
-    await writeDraft(draft)
+    drafts.value = { ...drafts.value, [draft.agentId]: draft }
+    untouchedDrafts.add(draft.agentId)
     return draft
   }
+
+  watch(
+    () => ui.agentLibrary?.agentId,
+    (_selected, left) => {
+      if (left && untouchedDrafts.has(left)) forgetDraft(left)
+    },
+  )
 
   /** Apply an edit to the Agent's Draft, starting one from the saved Agent when it has none. */
   async function editDraft(id: string, edit: AgentDraftEdit): Promise<boolean> {
@@ -812,8 +825,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return removeDraft(id)
   }
 
+  function forgetDraft(id: string): void {
+    untouchedDrafts.delete(id)
+    const { [id]: _removed, ...rest } = drafts.value
+    drafts.value = rest
+  }
+
   async function removeDraft(id: string): Promise<boolean> {
     if (!drafts.value[id]) return true
+    if (untouchedDrafts.has(id)) {
+      forgetDraft(id)
+      return true
+    }
     const result = await window.electronAPI.agentMode
       .deleteDraft(id)
       .catch((error: unknown) => ({ success: false as const, error: String(error) }))
@@ -830,8 +853,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       )
       return false
     }
-    const { [id]: _removed, ...rest } = drafts.value
-    drafts.value = rest
+    forgetDraft(id)
     return true
   }
 

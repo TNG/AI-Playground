@@ -1,10 +1,6 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import fs from 'node:fs'
 import path from 'node:path'
 import { restoreTreeWritePermissions } from '../tools.ts'
-
-const execFileAsync = promisify(execFile)
 
 /**
  * Path to a venv's own interpreter. A venv is only usable if this exists — the
@@ -83,24 +79,17 @@ function toWindowsLongPath(target: string): string {
   return `\\\\?\\${resolved}`
 }
 
-async function clearWindowsReadOnly(target: string): Promise<void> {
-  try {
-    await execFileAsync('attrib', ['-R', '/S', '/D', target], { windowsHide: true })
-  } catch {
-    // Best-effort. Deep site-packages trees are still removed via the long-path prefix.
-  }
-}
-
 /**
- * Delete a venv tree. Windows removal clears the read-only bit and uses the
- * `\\?\` prefix so a deep ComfyUI site-packages path does not fail the way
- * `RMDir` does.
+ * Delete a venv tree. Windows removal uses the `\\?\` prefix so a deep ComfyUI
+ * site-packages path does not fail the way `RMDir` does. `fs.rm` clears
+ * read-only bits itself and unlinks junctions without entering them. Do not add
+ * `attrib -R /S <dir>\*`: it walks into a junction planted in a shared all-users
+ * venv and clears read-only bits wherever that points.
  */
 export async function removeVenvTree(venvDir: string): Promise<void> {
   if (!fs.existsSync(venvDir)) return
 
   await restoreTreeWritePermissions(venvDir)
-  if (process.platform === 'win32') await clearWindowsReadOnly(venvDir)
 
   const rmTarget = process.platform === 'win32' ? toWindowsLongPath(venvDir) : venvDir
   let lastError: unknown
@@ -113,7 +102,6 @@ export async function removeVenvTree(venvDir: string): Promise<void> {
       const code = (error as NodeJS.ErrnoException)?.code
       if (code === 'EACCES' || code === 'EPERM') {
         await restoreTreeWritePermissions(venvDir)
-        if (process.platform === 'win32') await clearWindowsReadOnly(venvDir)
       }
       if (attempt < 4) {
         await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)))

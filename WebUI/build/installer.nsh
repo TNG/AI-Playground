@@ -437,6 +437,7 @@
 ; the script and its roots file sit in the user-writable $PLUGINSDIR.
 ; The shared root is left alone: every account can write to it, so a planted link
 ; could redirect this (possibly elevated) delete onto another account's files.
+; Uninstalling a backend in the app removes its shared venv, unelevated.
 ;   $R6 roots file  $R5 report file  $R4 exit code  $R2 report text
 !macro aipgRemoveBackendVenvs
   InitPluginsDir

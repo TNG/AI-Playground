@@ -542,7 +542,7 @@ export const CHANNELS = {
     args: [] as unknown as readonly [AgentTask],
     result: null as unknown as IpcMutationResult,
   },
-  /** Delete one Task and its Draft; the sessions it created stay. */
+  /** Delete one Agent and its Draft; the sessions it created stay. */
   'agentMode:deleteTask': {
     kind: 'invoke',
     owner: 'main',
@@ -1508,7 +1508,7 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
   },
-  /** The In-flight Work only the window knows (Task Runs, Trial Runs); replaces the last report. */
+  /** The In-flight Work only the window knows (Agent Runs, Trial Runs); replaces the last report. */
   'lifecycle:reportWork': {
     kind: 'send',
     owner: 'main',

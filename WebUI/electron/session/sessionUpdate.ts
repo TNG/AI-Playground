@@ -13,7 +13,7 @@ const HEADER = 'Session Update — what happened in this Session since your last
 export type SessionUpdateConsumer = {
   /** Its cursor's key in `session.json` `updateCursors`. */
   key: string
-  /** Entries of this preset are the consumer's own turns — except Task Run Steps and Agent chats. */
+  /** Entries of this preset are the consumer's own turns — except Agent Run Steps and Agent chats. */
   ownPreset?: string
   isOwn?: (entry: HistoryEntry) => boolean
   /** Where the consumer opens files from; Session Folder paths inside it are shown relative to it. */

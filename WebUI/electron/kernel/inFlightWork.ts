@@ -11,7 +11,7 @@ export type InFlightWorkSources = {
   artifactRuns: OpenArtifactRun[]
   /** An enabled Schedule is not In-flight Work; only a Task Run's marker is. */
   tasks: Pick<AgentTask, 'id' | 'name' | 'activeRuns'>[]
-  /** What only the window knows: Trial Runs, and Task Runs whose marker is not on disk yet. */
+  /** What only the window knows: Trial Runs, and Agent Runs whose marker is not on disk yet. */
   rendererWork: InFlightWorkItem[]
 }
 
@@ -40,7 +40,7 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
       (request) => request.conversationKey === conversationKey && request.work !== 'summary',
     )?.state ?? fallback
   const items = stepRuns(sources)
-  // A Step of a Task Run or Trial Run is an agent turn; the run already names it.
+  // A Step of an Agent Run or Trial Run is an agent turn; the run already names it.
   const runSessions = new Set(
     items.flatMap((item) => ('sessionId' in item && item.sessionId ? [item.sessionId] : [])),
   )

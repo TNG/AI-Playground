@@ -3,7 +3,7 @@
     :read-only="locked"
     :read-only-note="readOnlyNote ?? languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
     :template="!!template"
-    @reset="panel?.onPresetReset()"
+    @reset="template || panel.onPresetReset()"
   >
     <!-- Agent Presets are chat presets, so this is also the way back to a plain chat preset. -->
     <template v-if="!template" #picker>
@@ -135,7 +135,7 @@
     </template>
 
     <template v-if="!template" #reset-fallback>
-      <AgentPresetDefaultsActions @reset="panel?.refreshCapabilityCatalog()" />
+      <AgentPresetDefaultsActions @reset="template || panel.refreshCapabilityCatalog()" />
     </template>
   </SettingsTabLayout>
 </template>
@@ -172,15 +172,15 @@ const props = defineProps<{
   readOnlyNote?: string
 }>()
 
-const panel = props.template ? undefined : useAgentSettingsPanel()
-const binding = props.template ?? panel!.binding
-const locked = computed(() => (panel ? panel.readOnly.value : props.readOnly))
+const panel = useAgentSettingsPanel()
+const binding = computed(() => props.template ?? panel.binding)
+const locked = computed(() => (props.template ? props.readOnly : panel.readOnly.value))
 const { changePreset } = usePresetPicker({})
-const { problemClass } = useSettingsProblemMarks(() => binding.problems)
+const { problemClass } = useSettingsProblemMarks(() => binding.value.problems)
 
 const contextSize = computed<number>({
-  get: () => binding.contextSize,
-  set: (value) => binding.setContextSize(value),
+  get: () => binding.value.contextSize,
+  set: (value) => binding.value.setContextSize(value),
 })
 const contextSizeField = useContextSizeField(contextSize)
 

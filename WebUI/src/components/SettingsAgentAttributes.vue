@@ -4,7 +4,7 @@
       :read-only="locked"
       :read-only-note="readOnlyNote ?? languages.AGENT_TASK_SESSION_SETTINGS_READ_ONLY"
       :template="!!template"
-      @reset="panel?.onPresetReset()"
+      @reset="template || panel.onPresetReset()"
     >
       <!-- A Settings Template has no folder of its own: each run gets one. -->
       <section v-if="!template && isManagedWorkspace" class="flex flex-col gap-2">
@@ -159,7 +159,7 @@
       </p>
 
       <template v-if="!template" #reset-fallback>
-        <AgentPresetDefaultsActions @reset="panel?.refreshCapabilityCatalog()" />
+        <AgentPresetDefaultsActions @reset="template || panel.refreshCapabilityCatalog()" />
       </template>
     </SettingsTabLayout>
   </TooltipProvider>
@@ -198,11 +198,11 @@ const props = defineProps<{
   readOnlyNote?: string
 }>()
 
-const panel = props.template ? undefined : useAgentSettingsPanel()
-const binding = props.template ?? panel!.binding
-const locked = computed(() => (panel ? panel.readOnly.value : props.readOnly))
+const panel = useAgentSettingsPanel()
+const binding = computed(() => props.template ?? panel.binding)
+const locked = computed(() => (props.template ? props.readOnly : panel.readOnly.value))
 const { problemClass, missingMcpServers, describeMissingMcpServer } = useSettingsProblemMarks(
-  () => binding.problems,
+  () => binding.value.problems,
 )
 
 // Game folders stay sandboxed: a game is plain HTML with no build step.
@@ -216,20 +216,20 @@ function toggleUnsandboxed(event: Event): void {
 }
 
 const hasMediaCapability = computed(() =>
-  binding.capabilityCatalog.some((capability) => capability.id === 'media'),
+  binding.value.capabilityCatalog.some((capability) => capability.id === 'media'),
 )
 
 const ragEnabled = computed(
   () =>
-    binding.capabilityCatalog.some((capability) => capability.id === 'rag') &&
-    binding.capabilities.includes('rag'),
+    binding.value.capabilityCatalog.some((capability) => capability.id === 'rag') &&
+    binding.value.capabilities.includes('rag'),
 )
 
 // An extension that is not part of the session cannot answer its commands.
 const capabilityCommands = computed(() =>
   props.template
     ? []
-    : binding.capabilityCatalog
+    : binding.value.capabilityCatalog
         .filter((capability) => agentMode.isCapabilityEnabled(capability.id))
         .flatMap((capability) => capability.commands),
 )

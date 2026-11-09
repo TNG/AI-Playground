@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "ไม่ได้กำหนดเวลาไว้ในเซสชันใด",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "บันทึกเอเจนต์เพื่อกำหนดเวลา",
   "AGENT_LIBRARY_SCHEDULE_ADD": "เพิ่มกำหนดการ",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "ทุกเซสชันกำหนดเวลาเอเจนต์นี้ไว้แล้ว",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "ยังไม่มีเซสชันสำหรับกำหนดเวลาให้เอเจนต์นี้",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "เซสชัน",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "เลือกเซสชัน",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "ทุก {count} {unit}",

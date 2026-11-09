@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "어떤 세션에도 예약되지 않았습니다.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "예약하려면 에이전트를 저장하세요.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "일정 추가",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "모든 세션이 이미 이 에이전트를 예약했습니다.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "이 에이전트를 예약할 세션이 아직 없습니다.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "세션",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "세션 선택",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "{count} {unit}마다",

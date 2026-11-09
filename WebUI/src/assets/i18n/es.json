@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "No está programado en ninguna sesión.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Guarda el agente para programarlo.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Añadir programación",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Todas las sesiones ya programan este agente.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Todavía no hay ninguna sesión en la que programar este agente.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Sesión",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Elige una sesión",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Cada {count} {unit}",

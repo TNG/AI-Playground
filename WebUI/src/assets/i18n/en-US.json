@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "Not scheduled in any Session.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Save the agent to schedule it.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Add schedule",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Every Session already schedules this agent.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "There is no Session to schedule this agent in yet.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Session",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Choose a Session",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Every {count} {unit}",

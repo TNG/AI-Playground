@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "In keiner Session geplant.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Speichere den Agenten, um ihn zu planen.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Zeitplan hinzufügen",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Jede Session plant diesen Agenten bereits.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Es gibt noch keine Sitzung, in der dieser Agent geplant werden kann.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Session",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Session auswählen",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Alle {count} {unit}",

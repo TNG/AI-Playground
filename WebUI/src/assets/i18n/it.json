@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "Non pianificato in nessuna sessione.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Salva l'agente per pianificarlo.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Aggiungi pianificazione",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Ogni sessione pianifica già questo agente.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Non c'è ancora nessuna sessione in cui pianificare questo agente.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Sessione",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Scegli una sessione",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Ogni {count} {unit}",

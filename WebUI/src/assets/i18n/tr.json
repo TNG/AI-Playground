@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "Hiçbir oturumda zamanlanmamış.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Zamanlamak için ajanı kaydedin.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Zamanlama ekle",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Her oturum bu ajanı zaten zamanlıyor.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Bu ajanı zamanlayabileceğiniz bir oturum henüz yok.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Oturum",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Bir oturum seçin",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Her {count} {unit}",

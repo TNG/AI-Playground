@@ -138,7 +138,7 @@ function add(): void {
           {{ i18n.AGENT_LIBRARY_SCHEDULE_ADD }}
         </Button>
         <span v-if="addable.length === 0" class="text-xs text-muted-foreground">
-          {{ i18n.AGENT_LIBRARY_SCHEDULE_NO_SESSIONS }}
+          {{ i18n.AGENT_LIBRARY_SCHEDULE_NO_SESSION }}
         </span>
       </div>
       <TaskScheduleDialog

@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "Nie zaplanowano w żadnej sesji.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Zapisz agenta, aby go zaplanować.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Dodaj harmonogram",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Każda sesja już planuje tego agenta.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Nie ma jeszcze sesji, w której można zaplanować tego agenta.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Sesja",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Wybierz sesję",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Co {count} {unit}",

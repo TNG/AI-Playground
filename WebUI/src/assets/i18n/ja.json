@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "どのセッションでもスケジュールされていません。",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "スケジュールするにはエージェントを保存してください。",
   "AGENT_LIBRARY_SCHEDULE_ADD": "スケジュールを追加",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "すべてのセッションがすでにこのエージェントをスケジュールしています。",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "このエージェントをスケジュールできるセッションはまだありません。",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "セッション",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "セッションを選択",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "{count} {unit}ごと",

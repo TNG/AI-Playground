@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "Tidak dijadwalkan di Session mana pun.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Simpan agen untuk menjadwalkannya.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Tambah jadwal",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Setiap Session sudah menjadwalkan agen ini.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Belum ada sesi untuk menjadwalkan agen ini.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Session",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Pilih Session",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Setiap {count} {unit}",

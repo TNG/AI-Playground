@@ -1044,7 +1044,7 @@
   "AGENT_LIBRARY_SCHEDULES_NONE": "Chưa được lên lịch trong phiên nào.",
   "AGENT_LIBRARY_SCHEDULES_SAVE_FIRST": "Lưu tác tử để lên lịch cho nó.",
   "AGENT_LIBRARY_SCHEDULE_ADD": "Thêm lịch",
-  "AGENT_LIBRARY_SCHEDULE_NO_SESSIONS": "Mọi phiên đều đã lên lịch cho tác tử này.",
+  "AGENT_LIBRARY_SCHEDULE_NO_SESSION": "Chưa có phiên nào để lên lịch cho tác tử này.",
   "AGENT_LIBRARY_SCHEDULE_SESSION": "Phiên",
   "AGENT_LIBRARY_SCHEDULE_PICK_SESSION": "Chọn một phiên",
   "AGENT_LIBRARY_SCHEDULE_EVERY": "Mỗi {count} {unit}",

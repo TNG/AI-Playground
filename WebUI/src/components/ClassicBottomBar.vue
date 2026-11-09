@@ -168,10 +168,6 @@
             </div>
           </TooltipProvider>
           <div v-if="mode === buttonModeFor('agent')" class="flex flex-none flex-col gap-1">
-            <Button variant="secondary" size="sm" class="h-7" @click="openLibrary(newAgent)">
-              <PlusIcon class="size-4" />
-              {{ i18nState.AGENT_LIBRARY_NEW_AGENT }}
-            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -216,7 +212,7 @@
 
 <script setup lang="ts">
 import { computed, ref, nextTick, watch } from 'vue'
-import { PlusIcon, Squares2X2Icon } from '@heroicons/vue/24/outline'
+import { Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
@@ -271,7 +267,7 @@ const { gateOf } = usePromptBarPresetSwitch()
 const agentPick = usePromptBarAgentPick()
 const { pickedAgentId, pickedPresetName } = agentPick
 const demoMode = useDemoMode()
-const { newAgent, manageAgents } = useAgentLibraryEntry()
+const { manageAgents } = useAgentLibraryEntry()
 
 function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])

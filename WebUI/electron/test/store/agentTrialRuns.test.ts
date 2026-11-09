@@ -369,6 +369,7 @@ afterEach(async () => {
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
+const { useAgentTrialRuns } = await import('@/assets/js/store/agentTrialRuns')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const { trialRunItems } = await import('@/lib/trialRunTimeline')
 
@@ -378,12 +379,14 @@ async function readyStores(...saved: AgentTask[]) {
 
 async function readyStoresIn(options: { session: boolean }, ...saved: AgentTask[]) {
   storedTasks = saved
+  const trials = useAgentTrialRuns(pinia)
   const agentMode = useAgentMode(pinia)
   await agentMode.init()
   if (options.session) await useSessions(pinia).create()
   const tasks = useAgentTasks(pinia)
   await tasks.init()
-  return { agentMode, tasks }
+  await trials.init()
+  return { agentMode, tasks, trials }
 }
 
 const sentPrompts = () => startTurn.mock.calls.map(([, prompt]) => prompt)
@@ -435,9 +438,9 @@ const draftOf = (
 describe('a Trial Run', () => {
   it('runs the Draft’s Steps, not the saved Agent’s', async () => {
     storedDrafts = [draftOf('t1', ['draft step'])]
-    const { tasks } = await readyStores(task('t1', ['saved step']))
+    const { trials } = await readyStores(task('t1', ['saved step']))
 
-    expect(await tasks.startTrialRun('t1')).toEqual({ ok: true })
+    expect(await trials.startTrialRun('t1')).toEqual({ ok: true })
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['draft step'])
@@ -445,9 +448,9 @@ describe('a Trial Run', () => {
   })
 
   it('runs a saved Agent that has no Draft', async () => {
-    const { tasks } = await readyStores(task('t1', ['saved step']))
+    const { trials } = await readyStores(task('t1', ['saved step']))
 
-    expect(await tasks.startTrialRun('t1')).toEqual({ ok: true })
+    expect(await trials.startTrialRun('t1')).toEqual({ ok: true })
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['saved step'])
@@ -455,19 +458,19 @@ describe('a Trial Run', () => {
 
   it('runs an Agent that exists only as a Draft', async () => {
     storedDrafts = [draftOf('new-1', ['first'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    expect(await tasks.startTrialRun('new-1')).toEqual({ ok: true })
+    expect(await trials.startTrialRun('new-1')).toEqual({ ok: true })
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['first'])
   })
 
   it('runs the Draft as it is when Run is pressed, unsaved Step edits included', async () => {
-    const { tasks } = await readyStores(task('t1', ['saved step']))
+    const { tasks, trials } = await readyStores(task('t1', ['saved step']))
     await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'just typed' }] })
 
-    await tasks.startTrialRun('t1')
+    await trials.startTrialRun('t1')
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['just typed'])
@@ -476,62 +479,62 @@ describe('a Trial Run', () => {
 
   it('belongs to no Session', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
-    const { agentMode, tasks } = await readyStores(task('t1', ['saved']))
+    const { agentMode, trials } = await readyStores(task('t1', ['saved']))
 
-    await tasks.startTrialRun('t1')
+    await trials.startTrialRun('t1')
     await finishTurn(0)
     await finishTurn(1)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
 
     expect(sentConfig(0).sessionRef).toBeUndefined()
     expect(sentConfig(1).sessionRef).toBeUndefined()
     expect(window.electronAPI.sessions.taskRunHarness).not.toHaveBeenCalled()
     expect(window.electronAPI.sessions.saveTimelineMessages).not.toHaveBeenCalled()
     expect(agentMode.liveTurnsIn(SESSION).map((turn) => turn.tag.harnessSessionId)).not.toContain(
-      tasks.trialRuns.t1.harnessSessionId,
+      trials.trialRuns.t1.harnessSessionId,
     )
     expect(Object.keys(useSessions(pinia).sessions)).toEqual([SESSION])
   })
 
   it('runs its Steps one after another and ends after the last', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    await tasks.startTrialRun('t1')
+    await trials.startTrialRun('t1')
     await finishTurn(0)
     await finishTurn(1)
     await finishTurn(2)
 
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     expect(sentSteps()).toEqual(['one', 'two', 'three'])
   })
 
   it('ends after the chosen Step', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    await tasks.startTrialRun('t1', { lastStep: 2 })
+    await trials.startTrialRun('t1', { lastStep: 2 })
     await finishTurn(0)
     await finishTurn(1)
 
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     await settleMicrotasks()
     expect(sentSteps()).toEqual(['one', 'two'])
-    expect(tasks.trialRuns.t1).toMatchObject({ stepIndex: 2, stepCount: 2 })
+    expect(trials.trialRuns.t1).toMatchObject({ stepIndex: 2, stepCount: 2 })
   })
 
   it('stops when the user stops it', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
-    const { tasks } = await readyStores()
-    await tasks.startTrialRun('t1')
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
     const turnId = await turnIdOf(0)
 
-    await tasks.stopTrialRun('t1')
+    await trials.stopTrialRun('t1')
     await settleMicrotasks()
 
-    expect(tasks.trialRuns.t1.state).toBe('stopped')
+    expect(trials.trialRuns.t1.state).toBe('stopped')
     expect(window.electronAPI.agentMode.cancel).toHaveBeenCalledWith(
-      tasks.trialRuns.t1.harnessSessionId,
+      trials.trialRuns.t1.harnessSessionId,
       turnId,
     )
     expect(sentSteps()).toEqual(['one'])
@@ -544,37 +547,37 @@ describe('a Trial Run', () => {
       () => new Promise<void>((resolve) => (finishDownload = resolve)),
     )
     storedDrafts = [draftOf('t1', ['one'])]
-    const { tasks } = await readyStores()
-    const started = tasks.startTrialRun('t1')
+    const { trials } = await readyStores()
+    const started = trials.startTrialRun('t1')
     await vi.waitFor(() => expect(requestDownload).toHaveBeenCalled())
 
-    await tasks.stopTrialRun('t1')
+    await trials.stopTrialRun('t1')
 
-    expect(tasks.trialRunInFlight('t1')).toBe(false)
+    expect(trials.trialRunInFlight('t1')).toBe(false)
     finishDownload()
     expect(await started).toEqual({ ok: false, reason: 'stopped' })
     await settleMicrotasks()
     expect(window.electronAPI.agentMode.trialRunHarness).not.toHaveBeenCalled()
     expect(startTurn).not.toHaveBeenCalled()
-    expect(tasks.trialRuns.t1).toBeUndefined()
+    expect(trials.trialRuns.t1).toBeUndefined()
   })
 
   it('is refused while the Agent already has one in flight', async () => {
     storedDrafts = [draftOf('t1', ['one'])]
-    const { tasks } = await readyStores()
-    await tasks.startTrialRun('t1')
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
     await turnIdOf(0)
 
-    expect(await tasks.startTrialRun('t1')).toEqual({ ok: false, reason: 'running' })
+    expect(await trials.startTrialRun('t1')).toEqual({ ok: false, reason: 'running' })
     expect(window.electronAPI.agentMode.trialRunHarness).toHaveBeenCalledTimes(1)
   })
 
   it('runs beside a Trial Run of another Agent', async () => {
     storedDrafts = [draftOf('t1', ['one']), draftOf('t2', ['two'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    await tasks.startTrialRun('t1')
-    expect(await tasks.startTrialRun('t2')).toEqual({ ok: true })
+    await trials.startTrialRun('t1')
+    expect(await trials.startTrialRun('t2')).toEqual({ ok: true })
 
     await turnIdOf(1)
     expect(sentSteps().sort()).toEqual(['one', 'two'])
@@ -582,53 +585,53 @@ describe('a Trial Run', () => {
 
   it('throws the previous Trial Run of the Agent away when the next one starts', async () => {
     storedDrafts = [draftOf('t1', ['one'])]
-    const { agentMode, tasks } = await readyStores()
-    await tasks.startTrialRun('t1')
+    const { agentMode, trials } = await readyStores()
+    await trials.startTrialRun('t1')
     await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
-    const previous = tasks.trialRuns.t1.harnessSessionId
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    const previous = trials.trialRuns.t1.harnessSessionId
     expect(agentMode.sessions[previous]).toBeDefined()
 
-    await tasks.startTrialRun('t1')
+    await trials.startTrialRun('t1')
 
-    expect(tasks.trialRuns.t1.harnessSessionId).not.toBe(previous)
+    expect(trials.trialRuns.t1.harnessSessionId).not.toBe(previous)
     expect(agentMode.sessions[previous]).toBeUndefined()
     expect(window.electronAPI.agentMode.deleteSession).toHaveBeenCalledWith(previous)
   })
 
   it('keeps the last Trial Run until the next one starts', async () => {
     storedDrafts = [draftOf('t1', ['one'])]
-    const { agentMode, tasks } = await readyStores()
-    await tasks.startTrialRun('t1')
+    const { agentMode, tasks, trials } = await readyStores()
+    await trials.startTrialRun('t1')
     await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
 
     await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'changed' }] })
 
-    const record = agentMode.sessions[tasks.trialRuns.t1.harnessSessionId]
+    const record = agentMode.sessions[trials.trialRuns.t1.harnessSessionId]
     expect(record.messages.length).toBeGreaterThan(0)
     expect(window.electronAPI.agentMode.deleteSession).not.toHaveBeenCalled()
   })
 
   it('is thrown away with the Agent', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
-    await tasks.startTrialRun('t1')
+    const { agentMode, tasks, trials } = await readyStores(task('t1', ['one']))
+    await trials.startTrialRun('t1')
     await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
-    const harness = tasks.trialRuns.t1.harnessSessionId
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    const harness = trials.trialRuns.t1.harnessSessionId
 
     await tasks.deleteTask('t1')
 
-    expect(tasks.trialRuns.t1).toBeUndefined()
+    expect(trials.trialRuns.t1).toBeUndefined()
     expect(agentMode.sessions[harness]).toBeUndefined()
     expect(window.electronAPI.agentMode.discardTrialRun).toHaveBeenCalledWith('t1')
   })
 
   it('is not started for a Draft without Steps', async () => {
     storedDrafts = [draftOf('t1', [])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    expect(await tasks.startTrialRun('t1')).toEqual({ ok: false, reason: 'no-steps' })
+    expect(await trials.startTrialRun('t1')).toEqual({ ok: false, reason: 'no-steps' })
     expect(window.electronAPI.agentMode.trialRunHarness).not.toHaveBeenCalled()
   })
 
@@ -639,9 +642,9 @@ describe('a Trial Run', () => {
       throw createCancellation({ technicalMessage: 'declined' })
     })
     storedDrafts = [draftOf('t1', ['one'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    const result = await tasks.startTrialRun('t1')
+    const result = await trials.startTrialRun('t1')
 
     expect(result).toMatchObject({ ok: false, reason: 'download-declined' })
     expect(requestDownload).toHaveBeenCalled()
@@ -650,8 +653,8 @@ describe('a Trial Run', () => {
 
   it('fails when a Step fails, keeping why', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
-    const { tasks } = await readyStores()
-    await tasks.startTrialRun('t1')
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
     const turnId = await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
     pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk: { type: 'start' } })
@@ -663,20 +666,20 @@ describe('a Trial Run', () => {
     })
     pushEvent({ type: 'agent-turn-done', sessionId, turnId })
 
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('failed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('failed'))
     await settleMicrotasks()
-    expect(tasks.trialRuns.t1.message).toContain('boom')
+    expect(trials.trialRuns.t1.message).toContain('boom')
     expect(sentSteps()).toEqual(['one'])
   })
 
   it('shows as one Turn in the Agent Library, live and once it ended', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
-    const { tasks } = await readyStores()
-    await tasks.startTrialRun('t1')
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
     await finishTurn(0)
     await turnIdOf(1)
 
-    const running = trialRunItems(tasks.trialRunView('t1')!)
+    const running = trialRunItems(trials.trialRunView('t1')!)
     expect(running).toHaveLength(1)
     expect(running[0]).toMatchObject({
       kind: 'agent',
@@ -684,8 +687,8 @@ describe('a Trial Run', () => {
     })
 
     await finishTurn(1)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
-    const ended = trialRunItems(tasks.trialRunView('t1')!)
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    const ended = trialRunItems(trials.trialRunView('t1')!)
     expect(ended).toHaveLength(1)
     expect(ended[0]).toMatchObject({
       kind: 'agent',
@@ -736,9 +739,9 @@ async function reloadWindow(
 describe('a Trial Run outliving the Agent Library', () => {
   it('is In-flight Work while it runs, and no longer once it ended', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    await tasks.startTrialRun('t1')
+    await trials.startTrialRun('t1')
     await finishTurn(0)
     await turnIdOf(1)
 
@@ -746,14 +749,14 @@ describe('a Trial Run outliving the Agent Library', () => {
       {
         kind: 'trial-run',
         agentId: 't1',
-        sessionId: tasks.trialRuns.t1.harnessSessionId,
+        sessionId: trials.trialRuns.t1.harnessSessionId,
         name: 'Draft t1',
         state: { status: 'step', index: 2, count: 2 },
       },
     ])
 
     await finishTurn(1)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     expect(trialWork()).toEqual([])
   })
 
@@ -764,9 +767,9 @@ describe('a Trial Run outliving the Agent Library', () => {
       () => new Promise<void>((resolve) => (finishDownload = resolve)),
     )
     storedDrafts = [draftOf('t1', ['one'])]
-    const { tasks } = await readyStores()
+    const { trials } = await readyStores()
 
-    const started = tasks.startTrialRun('t1')
+    const started = trials.startTrialRun('t1')
     await vi.waitFor(() => expect(requestDownload).toHaveBeenCalled())
 
     expect(trialWork()).toEqual([
@@ -778,27 +781,27 @@ describe('a Trial Run outliving the Agent Library', () => {
 
   it('lists every Agent whose Trial Run is in flight, for the header', async () => {
     storedDrafts = [draftOf('t1', ['one']), draftOf('t2', ['two'])]
-    const { tasks } = await readyStores()
-    expect(tasks.trialRunsInFlight).toEqual([])
+    const { trials } = await readyStores()
+    expect(trials.trialRunsInFlight).toEqual([])
 
-    await tasks.startTrialRun('t1')
-    await tasks.startTrialRun('t2')
+    await trials.startTrialRun('t1')
+    await trials.startTrialRun('t2')
     await turnIdOf(1)
-    expect([...tasks.trialRunsInFlight].sort()).toEqual(['t1', 't2'])
+    expect([...trials.trialRunsInFlight].sort()).toEqual(['t1', 't2'])
 
     await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.trialRunsInFlight).toHaveLength(1))
+    await vi.waitFor(() => expect(trials.trialRunsInFlight).toHaveLength(1))
   })
 
   it('is picked up by a reloaded window, and runs its next Step when the live one ends', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()
-    await first.tasks.startTrialRun('t1')
+    await first.trials.startTrialRun('t1')
     const turnId = await turnIdOf(0)
-    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const harness = first.trials.trialRuns.t1.harnessSessionId
     const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
 
-    const { tasks } = await reloadWindow(
+    const { trials } = await reloadWindow(
       [record],
       [
         {
@@ -812,8 +815,8 @@ describe('a Trial Run outliving the Agent Library', () => {
       ],
     )
 
-    expect(tasks.trialRuns.t1).toMatchObject({ state: 'running', stepIndex: 1, stepCount: 2 })
-    expect(tasks.trialRunsInFlight).toEqual(['t1'])
+    expect(trials.trialRuns.t1).toMatchObject({ state: 'running', stepIndex: 1, stepCount: 2 })
+    expect(trials.trialRunsInFlight).toEqual(['t1'])
     for (const chunk of [{ type: 'start' }, { type: 'finish' }]) {
       pushEvent({ type: 'agent-chunk', sessionId: harness, turnId, chunk })
     }
@@ -823,15 +826,15 @@ describe('a Trial Run outliving the Agent Library', () => {
     expect(sentSteps()).toEqual(['two'])
     expect(sentConfig(0).sessionId).toBe(harness)
     await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
   })
 
   it('runs its next Step when the live one ended while the reloaded window was starting', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()
-    await first.tasks.startTrialRun('t1')
+    await first.trials.startTrialRun('t1')
     const turnId = await turnIdOf(0)
-    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const harness = first.trials.trialRuns.t1.harnessSessionId
     const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
     const readTrialRuns = vi.mocked(window.electronAPI.agentMode.readTrialRuns)
     const reads = readTrialRuns.mock.calls.length
@@ -865,26 +868,26 @@ describe('a Trial Run outliving the Agent Library', () => {
     await vi.waitFor(() => expect(useAgentMode(pinia).sessionTurns[harness]).toBeUndefined())
     await settleMicrotasks()
     releaseRead()
-    const { tasks } = await reloading
+    const { trials } = await reloading
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['two'])
     await finishTurn(0)
-    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
   })
 
   it('ends as failed when the reload cut it off between Steps', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()
-    await first.tasks.startTrialRun('t1')
+    await first.trials.startTrialRun('t1')
     await turnIdOf(0)
-    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    const harness = first.trials.trialRuns.t1.harnessSessionId
     const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
 
-    const { tasks } = await reloadWindow([record], [])
+    const { trials } = await reloadWindow([record], [])
 
-    expect(tasks.trialRuns.t1.state).toBe('failed')
-    expect(tasks.trialRunsInFlight).toEqual([])
+    expect(trials.trialRuns.t1.state).toBe('failed')
+    expect(trials.trialRunsInFlight).toEqual([])
     expect(trialFolders.t1.run?.state).toBe('failed')
     await settleMicrotasks()
     expect(startTurn).not.toHaveBeenCalled()
@@ -893,15 +896,15 @@ describe('a Trial Run outliving the Agent Library', () => {
   it('keeps the last Trial Run visible across a reload', async () => {
     storedDrafts = [draftOf('t1', ['one'])]
     const first = await readyStores()
-    await first.tasks.startTrialRun('t1')
+    await first.trials.startTrialRun('t1')
     await finishTurn(0)
-    await vi.waitFor(() => expect(first.tasks.trialRuns.t1?.state).toBe('completed'))
-    const harness = first.tasks.trialRuns.t1.harnessSessionId
+    await vi.waitFor(() => expect(first.trials.trialRuns.t1?.state).toBe('completed'))
+    const harness = first.trials.trialRuns.t1.harnessSessionId
     const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
 
-    const { tasks } = await reloadWindow([record], [])
+    const { trials } = await reloadWindow([record], [])
 
-    expect(tasks.trialRuns.t1).toMatchObject({ state: 'completed', harnessSessionId: harness })
-    expect(trialRunItems(tasks.trialRunView('t1')!)).toHaveLength(1)
+    expect(trials.trialRuns.t1).toMatchObject({ state: 'completed', harnessSessionId: harness })
+    expect(trialRunItems(trials.trialRunView('t1')!)).toHaveLength(1)
   })
 })

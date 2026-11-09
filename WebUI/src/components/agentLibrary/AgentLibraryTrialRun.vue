@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { PlayIcon, StopIcon } from '@heroicons/vue/24/solid'
-import {
-  SAVE_TASK_BLOCKER_KEYS,
-  useAgentTasks,
-  type LibraryAgent,
-  type StartTrialRunResult,
-} from '@/assets/js/store/agentTasks'
+import { SAVE_TASK_BLOCKER_KEYS, type LibraryAgent } from '@/assets/js/store/agentTasks'
+import { useAgentTrialRuns, type StartTrialRunResult } from '@/assets/js/store/agentTrialRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
@@ -18,7 +14,7 @@ import { trialRunItems } from '@/lib/trialRunTimeline'
 
 const props = defineProps<{ agent: LibraryAgent }>()
 
-const agentTasks = useAgentTasks()
+const agentTrialRuns = useAgentTrialRuns()
 const i18n = useI18N().state
 
 /** The Step the Trial Run ends after; 0 runs every Step. */
@@ -33,14 +29,14 @@ watch(
   },
 )
 
-const inFlight = computed(() => agentTasks.trialRunInFlight(props.agent.id))
+const inFlight = computed(() => agentTrialRuns.trialRunInFlight(props.agent.id))
 
 const folders = computed(() =>
   resolveMountedFolders(props.agent.settingsTemplate.mountedFolders ?? []),
 )
 
 const items = computed(() => {
-  const view = agentTasks.trialRunView(props.agent.id)
+  const view = agentTrialRuns.trialRunView(props.agent.id)
   return view ? trialRunItems<PendingMediaTurn, PendingAudioTurn>(view) : []
 })
 
@@ -59,7 +55,7 @@ function requestRun(): void {
 
 async function start(): Promise<void> {
   confirmingFolders.value = false
-  const result = await agentTasks.startTrialRun(
+  const result = await agentTrialRuns.startTrialRun(
     props.agent.id,
     lastStep.value > 0 ? { lastStep: lastStep.value } : {},
   )
@@ -117,7 +113,7 @@ async function start(): Promise<void> {
         v-if="inFlight"
         variant="secondary"
         size="sm"
-        @click="agentTasks.stopTrialRun(agent.id)"
+        @click="agentTrialRuns.stopTrialRun(agent.id)"
       >
         <StopIcon class="size-4" />
         {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP }}

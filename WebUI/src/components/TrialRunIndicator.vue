@@ -42,6 +42,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useUIStore } from '@/assets/js/store/ui'
 import {
@@ -54,6 +55,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { fillTemplate } from '@/lib/fillTemplate'
 
 const agentTasks = useAgentTasks()
+const agentTrialRuns = useAgentTrialRuns()
 const uiStore = useUIStore()
 const i18n = useI18N().state
 
@@ -62,8 +64,8 @@ const pillClass =
 const dotClass = 'size-1.5 rounded-full bg-primary animate-pulse'
 
 const runs = computed(() =>
-  agentTasks.trialRunsInFlight.map((agentId) => {
-    const run = agentTasks.trialRuns[agentId]
+  agentTrialRuns.trialRunsInFlight.map((agentId) => {
+    const run = agentTrialRuns.trialRuns[agentId]
     const agent = agentTasks.libraryAgents.find((entry) => entry.id === agentId)
     const name =
       (run?.state === 'running' ? run.name : agent?.name.trim()) ||

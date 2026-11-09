@@ -33,12 +33,18 @@ export type SessionTabsInput = {
   presetKind: SessionTabsPresetKind
   /** The Session holds a Schedule, paused or not, or a running Agent Run. */
   holdsScheduleOrRun: boolean
+  /** A saved Agent is picked in the Session's prompt bar. */
+  agentPicked: boolean
   landing: SessionTabLanding
   current: SessionTabId
 }
 
+/** Whose settings Inferencing and Attributes show: the Session's, or the picked Agent's read-only. */
+export type SessionTabsSettings = 'session' | 'picked-agent'
+
 export type SessionTabsView = {
   tabs: SessionTabId[]
+  settings: SessionTabsSettings
   schedules: SchedulesAllowance | null
   shown: SessionTabId
   /** Set only when the landing decides the Artifacts scope; otherwise the tab keeps its own. */
@@ -68,6 +74,10 @@ export function sessionTabs(input: SessionTabsInput): SessionTabsView {
   const shown = tabs.includes(wanted) ? wanted : 'viewport'
   return {
     tabs,
+    settings:
+      input.owner === 'session' && input.presetKind === 'agent-maker' && input.agentPicked
+        ? 'picked-agent'
+        : 'session',
     schedules,
     shown,
     artifactsScope:

@@ -1824,6 +1824,32 @@ describe('an Agent picked in the prompt bar', () => {
     expect(sentPrompts()[1]).toBe(stepTurn(2, ['one', 'two']))
   })
 
+  it("blocks the prompt bar with its Settings Template's problems, not the Session's", async () => {
+    inference.catalog = [{ name: 'Live-9B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    expect(tasks.agentSettingsProblems).toEqual([])
+
+    await tasks.pickAgent('t1')
+
+    expect(tasks.agentSettingsProblems).toEqual([{ field: 'model', value: 'Template-27B' }])
+  })
+
+  it("leaves the Session's own Agent Maker settings as they were", async () => {
+    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    const before = { ...agentMode.openSessionSettings }
+    const sessionProblems = [{ field: 'model', value: 'Live-9B' }]
+    expect(tasks.agentSettingsProblems).toEqual(sessionProblems)
+
+    await tasks.pickAgent('t1')
+    expect(agentMode.openSessionSettings).toEqual(before)
+    expect(tasks.agentSettingsProblems).toEqual([])
+
+    await tasks.pickAgent(null)
+    expect(agentMode.openSessionSettings).toEqual(before)
+    expect(tasks.agentSettingsProblems).toEqual(sessionProblems)
+  })
+
   it('runs nothing with ▶ when no Agent is picked', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
 

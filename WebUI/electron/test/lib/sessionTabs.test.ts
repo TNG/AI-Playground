@@ -12,6 +12,7 @@ const chatSession: SessionTabsInput = {
   owner: 'session',
   presetKind: 'chat',
   holdsScheduleOrRun: false,
+  agentPicked: false,
   landing: 'keep',
   current: 'viewport',
 }
@@ -81,6 +82,40 @@ describe('sessionTabs', () => {
       })
       expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes'])
       expect(view.schedules).toBeNull()
+    }
+  })
+
+  it("shows the Session's own settings, editable, when no Agent is picked", () => {
+    for (const presetKind of ['chat', 'agent-maker', 'agent-preset'] as const) {
+      expect(sessionTabs({ ...chatSession, presetKind }).settings).toBe('session')
+    }
+  })
+
+  it("shows a picked Agent's Settings Template read-only under Agent Maker", () => {
+    const view = sessionTabs({ ...chatSession, presetKind: 'agent-maker', agentPicked: true })
+    expect(view.settings).toBe('picked-agent')
+    expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts', 'schedules'])
+  })
+
+  it("keeps the Session's settings for a Home Agent thread even with an Agent picked", () => {
+    const view = sessionTabs({
+      ...chatSession,
+      owner: 'home-agent-thread',
+      presetKind: 'agent-maker',
+      agentPicked: true,
+    })
+    expect(view.settings).toBe('session')
+  })
+
+  it('keeps the shown settings tab when an Agent is picked or unpicked', () => {
+    for (const agentPicked of [true, false]) {
+      const view = sessionTabs({
+        ...chatSession,
+        presetKind: 'agent-maker',
+        agentPicked,
+        current: 'attributes',
+      })
+      expect(view.shown).toBe('attributes')
     }
   })
 

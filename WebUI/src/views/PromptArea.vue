@@ -7,20 +7,10 @@
       <div
         v-if="settingsProblems.length > 0"
         role="alert"
-        :aria-label="
-          agentSettingsProblems.length > 0
-            ? 'Agent session settings unusable'
-            : 'Session settings unusable'
-        "
+        :aria-label="settingsProblemsLabel"
         class="w-full text-sm text-amber-500 flex flex-col gap-1"
       >
-        <p>
-          {{
-            agentSettingsProblems.length > 0
-              ? languages?.AGENT_SETTINGS_UNUSABLE
-              : languages?.SESSION_SETTINGS_UNUSABLE
-          }}
-        </p>
+        <p>{{ settingsProblemsNote }}</p>
         <p v-for="problem in settingsProblems" :key="`${problem.field}:${problem.value}`">
           {{ describeSettingsProblem(problem) }}
         </p>
@@ -698,9 +688,9 @@ function getTextAreaPlaceholder() {
   }
 }
 
-/** A sent Agent session whose stored settings cannot be used blocks Send (see agentMode). */
+/** A picked Agent's Settings Template, or a sent Agent session's stored settings, block Send. */
 const agentSettingsProblems = computed(() =>
-  promptStore.getCurrentMode() === 'agent' ? agentMode.settingsProblems : [],
+  promptStore.getCurrentMode() === 'agent' ? agentTasks.agentSettingsProblems : [],
 )
 
 /** Every other preset's Session Settings block the same way (ADR-0004). */
@@ -708,6 +698,22 @@ const settingsProblems = computed(() => [
   ...agentSettingsProblems.value,
   ...sessionSettings.problems,
 ])
+
+const settingsProblemsLabel = computed(() =>
+  agentSettingsProblems.value.length === 0
+    ? 'Session settings unusable'
+    : agentTasks.pickedAgent
+      ? 'Agent settings unusable'
+      : 'Agent session settings unusable',
+)
+
+const settingsProblemsNote = computed(() =>
+  agentSettingsProblems.value.length === 0
+    ? languages?.SESSION_SETTINGS_UNUSABLE
+    : agentTasks.pickedAgent
+      ? languages?.AGENT_LIBRARY_PICKED_UNUSABLE
+      : languages?.AGENT_SETTINGS_UNUSABLE,
+)
 
 function describeSettingsProblem(problem: SessionSettingsProblem): string {
   return describeProblem(problem, languages as unknown as Record<string, string>)

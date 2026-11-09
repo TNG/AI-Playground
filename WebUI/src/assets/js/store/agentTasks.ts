@@ -603,6 +603,16 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       : undefined,
   )
 
+  /** What blocks an agent prompt: the picked Agent's Settings Template, else the Session's settings. */
+  const agentSettingsProblems = computed((): SessionSettingsProblem[] =>
+    pickedAgent.value ? taskProblems(pickedAgent.value.id) : agentMode.settingsProblems,
+  )
+
+  // Listed so the template's problems include missing MCP servers before ▶ is pressed.
+  watch(pickedAgent, (agent) => {
+    if (agent) void agentMode.loadMcpServersFor(agent.settingsTemplate.capabilities ?? [])
+  })
+
   /** Pick a saved Agent in the open Session's prompt bar, or `null` for Agent Maker itself. */
   async function pickAgent(agentId: string | null): Promise<boolean> {
     if (agentId !== null && !tasks.value.some((task) => task.id === agentId)) return false
@@ -1987,6 +1997,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     deleteTask,
     pickedAgentIn,
     pickedAgent,
+    agentSettingsProblems,
     pickAgent,
     runPickedAgent,
     presetOfAgent,

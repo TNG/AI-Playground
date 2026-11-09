@@ -9,6 +9,7 @@ import {
 import {
   AgentDraftSchema,
   AgentDraftsFileSchema,
+  AGENT_TASKS_SCHEMA_VERSION,
   AgentTaskSchema,
   AgentTasksFileSchema,
   type AgentDraft,
@@ -62,7 +63,20 @@ export async function readAgentTasks(): Promise<AgentTask[]> {
 }
 
 async function writeTasks(tasks: AgentTask[]): Promise<void> {
-  await atomicWriteJson(tasksFile(), { schemaVersion: 1, tasks })
+  await atomicWriteJson(tasksFile(), { schemaVersion: AGENT_TASKS_SCHEMA_VERSION, tasks })
+}
+
+/** Whether the Agents file was written since the Agent Library migration; absent is not. */
+export async function agentLibraryMigrated(): Promise<boolean> {
+  const read = await readJson(tasksFile(), LOG_SCOPE)
+  if (read.status !== 'ok') return false
+  const parsed = AgentTasksFileSchema.safeParse(read.value)
+  return parsed.success && parsed.data.schemaVersion === AGENT_TASKS_SCHEMA_VERSION
+}
+
+/** Rewrites the Agents file at the current version, so the migration does not run again. */
+export async function markAgentLibraryMigrated(): Promise<void> {
+  return serialize(FILE_CHAIN, async () => writeTasks(await readAgentTasks()))
 }
 
 /** After a Quit, a saved Task keeps the run state on disk; everything else is the window's. */

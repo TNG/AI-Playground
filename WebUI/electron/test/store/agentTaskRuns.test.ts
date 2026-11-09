@@ -32,7 +32,6 @@ const GAME_AGENT: ChatPreset = {
   systemPrompt: 'You make games.',
 } as ChatPreset
 
-const NEWS_PRESET: ChatPreset = { ...AGENT, name: 'Morning news', agentTaskId: 't-news' }
 
 const IMAGE_GEN = { type: 'comfy', category: 'create-images', name: 'Flux' }
 
@@ -44,7 +43,7 @@ vi.mock('@/assets/js/store/presets', async () => {
   const state = activePreset.state
   return {
     usePresets: () => ({
-      presets: [AGENT, GAME_AGENT, NEWS_PRESET],
+      presets: [AGENT, GAME_AGENT],
       get activePresetWithVariant() {
         return state.preset
       },
@@ -461,17 +460,6 @@ describe('where an Agent Run runs', () => {
     expect(useSessions(pinia).openSessionId).toBe('session-new')
   })
 
-  it('runs an Agent Preset’s Agent in the current Session', async () => {
-    activePreset.state!.preset = NEWS_PRESET
-    const { tasks } = await readyStores(task('t-news', ['one'], { sessionRef: 'session-made-in' }))
-
-    expect(tasks.presetAgent?.id).toBe('t-news')
-    expect(await tasks.runTask(tasks.presetAgent!.id)).toEqual({ ok: true })
-
-    await turnIdOf(0)
-    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
-  })
-
   it('stays in the Session it started in when another one is opened', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')
@@ -615,7 +603,7 @@ describe('running a Task', () => {
     expect(agentMode.openTaskId).toBe('t1')
   })
 
-  it('files the Task Session under the Chat preset the Agent was saved as', async () => {
+  it('files the Agent Run under Agent Maker', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks(pinia)
 
@@ -623,8 +611,8 @@ describe('running a Task', () => {
 
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
-    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Morning news' })
-    expect(sentConfig(0)).toMatchObject({ presetName: 'Morning news' })
+    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Agent' })
+    expect(sentConfig(0)).toMatchObject({ presetName: 'Agent' })
   })
 
   it('frames the Steps as the prompt bar Run does', async () => {

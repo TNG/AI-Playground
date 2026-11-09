@@ -99,8 +99,11 @@ function migrateLegacyAgent(raw: unknown): unknown {
   return migrated
 }
 
+/** Version 2: the Agent Library migration has run (Agent Presets folded into their Agents). */
+export const AGENT_TASKS_SCHEMA_VERSION = 2
+
 export const AgentTasksFileSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(AGENT_TASKS_SCHEMA_VERSION)]),
   tasks: z.array(z.preprocess(migrateLegacyAgent, AgentTaskSchema)),
 })
 

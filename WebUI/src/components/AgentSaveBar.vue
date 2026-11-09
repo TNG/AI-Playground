@@ -6,18 +6,17 @@
           id="agent-save-bar-name"
           v-model="name"
           autocomplete="off"
-          :readonly="bound"
           :aria-label="i18n.AGENT_AGENTS_NAME"
           :aria-describedby="status ? 'agent-save-bar-status' : undefined"
           :placeholder="i18n.AGENT_AGENTS_UNTITLED"
-          class="flex h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring read-only:cursor-default read-only:border-transparent read-only:bg-transparent read-only:px-0 read-only:shadow-none read-only:focus-visible:ring-0"
+          class="flex h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm font-semibold text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           @keydown.enter.prevent="savePrimary"
         />
         <Button size="sm" class="h-8 flex-none" :disabled="!canSave" @click="savePrimary">
           {{ i18n.AGENT_AGENTS_SAVE }}
         </Button>
         <Button
-          v-if="loaded && dirty && !bound"
+          v-if="loaded && dirty"
           variant="secondary"
           size="sm"
           class="h-8 flex-none"
@@ -27,7 +26,7 @@
           {{ i18n.AGENT_AGENTS_SAVE_AS_NEW }}
         </Button>
         <AgentRowAction
-          v-if="loaded && !bound"
+          v-if="loaded"
           :label="i18n.AGENT_AGENTS_NEW"
           :disabled="agentMode.processing"
           @click="agentMode.newSession()"
@@ -74,8 +73,6 @@ const agentTasks = useAgentTasks()
 const i18n = useI18N().state
 
 const loaded = computed(() => agentTasks.openSessionTask)
-/** Under a preset saved from an Agent, Save updates that Agent and nothing else. */
-const bound = computed(() => !!agentTasks.presetAgent && !!loaded.value)
 const name = ref('')
 
 watch(

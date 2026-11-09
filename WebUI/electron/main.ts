@@ -61,6 +61,7 @@ import { WhisperBackendService } from './adapters/backends/whisperBackendService
 import { LLAMACPP_DEFAULT_PARAMETERS } from './adapters/backends/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './adapters/updateIntelPresets.ts'
 import {
+  getUserPresetsDir,
   invalidatePresetCatalog,
   loadPresetFiles,
   readPresetsFromDir,
@@ -132,6 +133,7 @@ import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
 import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
 import {
   openDirectory,
   openFileWithSystem,
@@ -2222,6 +2224,15 @@ app.whenReady().then(async () => {
     startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
+    if (!settings.isDemoModeEnabled) {
+      appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
+      await migrateAgentLibrary({
+        presetsDir: getUserPresetsDir(),
+        onPresetsChanged: invalidatePresetCatalog,
+      }).catch((error) =>
+        appLogger.error(`agent library migration failed: ${String(error)}`, 'electron-backend'),
+      )
+    }
     // After the registry: the renderer's stores call into it as they are created.
     appLogger.info('startup step: loading app window', 'electron-backend', true)
     await loadAppWindow(window)

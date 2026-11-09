@@ -25,7 +25,7 @@ import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { useMcp } from './mcp'
-import { usePresets, type ChatPreset } from './presets'
+import { usePresets } from './presets'
 import { useSessions } from './sessions'
 import { useTextInference } from './textInference'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
@@ -129,13 +129,6 @@ export type AgentScheduleEntry = {
   schedule: AgentTaskSchedule
   nextRunAt?: number
 }
-
-/** What the user gives an Agent's Chat preset; `image` is a data URI, the Agent preset's when unset. */
-export type AgentPresetDetails = { description: string; image?: string }
-
-export type SaveAgentPresetResult =
-  | { ok: true; preset: ChatPreset }
-  | { ok: false; reason: 'no-task' | 'name-taken' | 'no-base' | 'persist-failed' }
 
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
 
@@ -579,13 +572,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       )
       return false
     }
-    const preset = presetOfAgent(id)
     await discardTrialRun(id)
     tasks.value = tasks.value.filter((task) => task.id !== id)
     const { [id]: _draft, ...otherDrafts } = drafts.value
     drafts.value = otherDrafts
     if (agentMode.openTaskId === id) agentMode.linkOpenSessionToAgent(undefined)
-    if (preset) await presets.removeUserPreset(preset.name)
     await forgetPicksOf(id)
     return true
   }
@@ -1132,61 +1123,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!result.success) reportTrialRunFailure('agent-library/trial-discard-failed', result.error)
   }
 
-  /** The Chat preset an Agent was saved as, if any. */
-  function presetOfAgent(id: string): ChatPreset | undefined {
-    return presets.presets.find(
-      (preset): preset is ChatPreset => preset.type === 'chat' && preset.agentTaskId === id,
-    )
-  }
-
-  /** The Agent the active preset was saved from: its sessions are set up as that Agent. */
-  const presetAgent = computed(() => {
-    const taskId = agentMode.activeAgentPreset?.agentTaskId
-    return taskId ? tasks.value.find((task) => task.id === taskId) : undefined
-  })
-
-  /**
-   * Add the Agent to the Chat presets, or update the preset it already has. The preset keeps
-   * the name it was created with, since its sessions are filed under it.
-   */
-  async function saveAgentAsPreset(
-    id: string,
-    details: AgentPresetDetails,
-  ): Promise<SaveAgentPresetResult> {
-    const task = tasks.value.find((entry) => entry.id === id)
-    if (!task) return { ok: false, reason: 'no-task' }
-    const existing = presetOfAgent(id)
-    const name = existing?.name ?? task.name
-    if (!existing && presets.presets.some((preset) => preset.name === name)) {
-      return { ok: false, reason: 'name-taken' }
-    }
-    const base = presets.presets.find(
-      (preset): preset is ChatPreset => preset.type === 'chat' && preset.name === AGENT_PRESET,
-    )
-    if (!base) return { ok: false, reason: 'no-base' }
-    const { extendedDescription: _howTo, ...shared } = cloneForIpc(base)
-    const preset: ChatPreset = {
-      ...shared,
-      name,
-      description: details.description.trim(),
-      image: details.image ?? base.image,
-      agentTaskId: id,
-    }
-    if (!(await presets.addPreset(preset))) return { ok: false, reason: 'persist-failed' }
-    return { ok: true, preset }
-  }
-
-  async function removeAgentPreset(id: string): Promise<boolean> {
-    const preset = presetOfAgent(id)
-    return preset ? presets.removeUserPreset(preset.name) : true
-  }
-
-  agentMode.setPresetSessionStarter(async (presetName) => {
-    const preset = presets.presets.find((entry) => entry.name === presetName)
-    const taskId = preset?.type === 'chat' ? (preset as ChatPreset).agentTaskId : undefined
-    return taskId ? loadAgent(taskId) : false
-  })
-
   /** Set, pause or resume the Agent's Schedule in one Session, the open one by default. */
   async function setSchedule(
     id: string,
@@ -1421,7 +1357,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       sessionRef,
       workspaceDir: harness.workspaceDir,
       settings: cloneForIpc(plan.settingsTemplate),
-      presetName: presetOfAgent(id)?.name ?? AGENT_PRESET,
+      presetName: AGENT_PRESET,
       title: plan.name,
       taskId: plan.id,
       taskRun: {
@@ -2000,10 +1936,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     agentSettingsProblems,
     pickAgent,
     runPickedAgent,
-    presetOfAgent,
-    presetAgent,
-    saveAgentAsPreset,
-    removeAgentPreset,
     setSchedule,
     removeSchedule,
     taskSchedule,

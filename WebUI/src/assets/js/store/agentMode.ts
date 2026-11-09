@@ -543,13 +543,6 @@ export const useAgentMode = defineStore(
       )
     }
 
-    /** Opens a new session for a preset that starts its own way; false leaves it blank. */
-    let presetSessionStarter: ((presetName: string) => Promise<boolean>) | null = null
-
-    function setPresetSessionStarter(starter: (presetName: string) => Promise<boolean>): void {
-      presetSessionStarter = starter
-    }
-
     /**
      * Put the open Harness Session's settings into the live controls. Nothing starts here: the
      * backend and model are made ready by the next send.
@@ -1558,7 +1551,6 @@ export const useAgentMode = defineStore(
         await sessionsStore.create()
         return
       }
-      if (await presetSessionStarter?.(agentPresetName.value)) return
       blankSession()
     }
 
@@ -1876,7 +1868,6 @@ export const useAgentMode = defineStore(
         blankGame()
         return
       }
-      if (await presetSessionStarter?.(name)) return
       workspaceDir.value = ''
       blankSession()
       await refreshCurrentGame()
@@ -2219,7 +2210,6 @@ export const useAgentMode = defineStore(
       openTaskId,
       linkOpenSessionToAgent,
       startSessionFrom,
-      setPresetSessionStarter,
       bindSessionSettingsPort,
       ensureOpenSessionId,
       sessionScoped,

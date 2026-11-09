@@ -112,3 +112,19 @@ Preferences about the app itself rather than about how any preset runs — langu
 style, HuggingFace access, Permissions, developer toggles. Opened from the header, never from
 inside a Session.
 _Avoid_: global settings, preferences
+
+## Themes
+
+**Built-in Theme**:
+A Theme that ships with the app. The user can pick it but never change it; app updates may.
+_Avoid_: default theme, preset theme, standard theme
+
+**Custom Theme**:
+A Theme the user made by copying another one and changing its colours. The user can rename,
+recolour, reset and delete it.
+_Avoid_: user theme, edited theme
+
+**Base Theme**:
+The Built-in Theme a Custom Theme was made from. Resetting a Custom Theme gives it its Base
+Theme's colours again.
+_Avoid_: parent theme, template

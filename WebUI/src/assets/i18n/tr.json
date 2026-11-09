@@ -311,6 +311,8 @@
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Mod",
   "PROMPT_BAR_PRESET": "Ön Ayar",
+  "PROMPT_BAR_AGENT": "Ajan",
+  "PROMPT_BAR_AGENT_PRESETS": "Ajan ön ayarları",
   "PROMPT_BAR_OPEN_INFERENCING": "Inferencing ayarlarını aç",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "Lütfen geçerli ön ayar değişikliğinin tamamlanmasını bekleyin",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "{preset} ön ayarına geçildi",

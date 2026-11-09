@@ -31,6 +31,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:open'
       | 'sessions:rename'
       | 'sessions:pin'
+      | 'sessions:pickAgent'
       | 'sessions:createGroup'
       | 'sessions:moveToGroup'
       | 'sessions:renameGroup'

@@ -201,6 +201,15 @@ export const useSessions = defineStore('sessions', () => {
     if (result) remember(result.session)
   }
 
+  /** The Agent picked in the Session's prompt bar, `null` for Agent Maker; false when not kept. */
+  async function pickAgent(id: string, agentId: string | null): Promise<boolean> {
+    const result = await call('sessions/pick-agent-failed', () =>
+      window.electronAPI.sessions.pickAgent(id, agentId),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
   async function setPinned(id: string, pinned: boolean): Promise<void> {
     const result = await call('sessions/pin-failed', () =>
       window.electronAPI.sessions.pin(id, pinned),
@@ -341,6 +350,7 @@ export const useSessions = defineStore('sessions', () => {
     open,
     rename,
     setPinned,
+    pickAgent,
     createGroup,
     moveToGroup,
     renameGroup,

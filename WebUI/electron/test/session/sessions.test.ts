@@ -30,6 +30,7 @@ const {
   onSessionDeleted,
   openSession,
   pinSession,
+  pickSessionAgent,
   readShowMore,
   renameSession,
   renameSessionGroup,
@@ -256,6 +257,21 @@ describe('Session module', () => {
 
   it('fails to pin a Session that does not exist', async () => {
     await expect(pinSession('session-missing', true)).rejects.toThrow()
+  })
+
+  it('remembers the Agent picked in a Session across a re-open, and forgets it again', async () => {
+    const session = await createSession()
+    expect(await openSession(session.id)).not.toHaveProperty('pickedAgentId')
+
+    expect(await pickSessionAgent(session.id, 'agent-1')).toMatchObject({
+      id: session.id,
+      pickedAgentId: 'agent-1',
+    })
+    expect(await openSession(session.id)).toMatchObject({ pickedAgentId: 'agent-1' })
+    expect((await listSessions())[0]).toMatchObject({ pickedAgentId: 'agent-1' })
+
+    await pickSessionAgent(session.id, null)
+    expect(await openSession(session.id)).not.toHaveProperty('pickedAgentId')
   })
 
   it('deletes the whole Session Folder, artifacts included', async () => {

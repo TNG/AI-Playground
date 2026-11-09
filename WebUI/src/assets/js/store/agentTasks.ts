@@ -192,7 +192,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
   const runContexts: Record<
     string,
-    { plan: AgentTask; abort: AbortController; scheduled: boolean }
+    { plan: AgentTask; abort: AbortController; scheduled: boolean; prompt?: string }
   > = {}
 
   /** Prompts being carried out in their session's Steps. Memory only: a reload ends them. */
@@ -564,7 +564,45 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     drafts.value = otherDrafts
     if (agentMode.openTaskId === id) agentMode.linkOpenSessionToAgent(undefined)
     if (preset) await presets.removeUserPreset(preset.name)
+    await forgetPicksOf(id)
     return true
+  }
+
+  /** The saved Agent picked in the Session's prompt bar, whatever preset is active there. */
+  function pickedAgentIn(sessionRef: string | null | undefined): AgentTask | undefined {
+    const id = sessionRef ? sessionsStore.sessions[sessionRef]?.pickedAgentId : undefined
+    return id ? tasks.value.find((task) => task.id === id) : undefined
+  }
+
+  /** The open Session's picked Agent, in effect while Agent Maker is the active preset. */
+  const pickedAgent = computed((): AgentTask | undefined =>
+    presets.activePresetWithVariant?.name === AGENT_PRESET
+      ? pickedAgentIn(sessionsStore.openSessionId)
+      : undefined,
+  )
+
+  /** Pick a saved Agent in the open Session's prompt bar, or `null` for Agent Maker itself. */
+  async function pickAgent(agentId: string | null): Promise<boolean> {
+    if (agentId !== null && !tasks.value.some((task) => task.id === agentId)) return false
+    const sessionRef = await sessionsStore.ensureOpenSession()
+    if (!sessionRef) return false
+    if ((sessionsStore.sessions[sessionRef]?.pickedAgentId ?? null) === agentId) return true
+    return sessionsStore.pickAgent(sessionRef, agentId)
+  }
+
+  /** ▶ with an Agent picked: an Agent Run of it in the open Session, the prompt leading Step 1. */
+  async function runPickedAgent(prompt: string): Promise<RunTaskResult> {
+    const agent = pickedAgent.value
+    if (!agent) return { ok: false, reason: 'no-task' }
+    return runTask(agent.id, prompt)
+  }
+
+  /** A deleted Agent's Sessions fall back to Agent Maker. */
+  async function forgetPicksOf(agentId: string): Promise<void> {
+    const picked = Object.values(sessionsStore.sessions).filter(
+      (session) => session.pickedAgentId === agentId,
+    )
+    await Promise.all(picked.map((session) => sessionsStore.pickAgent(session.id, null)))
   }
 
   // Main drops a deleted Session's Schedules from the file; its runs stop, every Agent stays.
@@ -900,18 +938,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   /** Start an Agent Run in the open Session; refused while it cannot run or already runs there. */
-  async function runTask(id: string): Promise<RunTaskResult> {
+  async function runTask(id: string, prompt = ''): Promise<RunTaskResult> {
     const slot = runSlot(id, sessionsStore.openSessionId ?? '')
     if (starting.has(slot)) return { ok: false, reason: 'running' }
     starting.add(slot)
     try {
-      return await startManualRun(id)
+      return await startManualRun(id, prompt)
     } finally {
       starting.delete(slot)
     }
   }
 
-  async function startManualRun(id: string): Promise<RunTaskResult> {
+  async function startManualRun(id: string, prompt: string): Promise<RunTaskResult> {
     const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate.capabilities
     await agentMode.loadMcpServersFor(capabilities ?? [])
     // Looked up after the wait, which a delete or a second Run may have overtaken.
@@ -932,7 +970,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const task = tasks.value.find((entry) => entry.id === id)
     if (!task) return { ok: false, reason: 'no-task' }
     if (runsIn(id, sessionRef)) return { ok: false, reason: 'running' }
-    await startRun(task, sessionRef, false)
+    await startRun(task, sessionRef, false, prompt)
     return { ok: true }
   }
 
@@ -984,7 +1022,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   /** A run gets a fresh Harness Session in its Session, so it carries no earlier context. */
-  async function startRun(task: AgentTask, sessionRef: string, scheduled: boolean): Promise<void> {
+  async function startRun(
+    task: AgentTask,
+    sessionRef: string,
+    scheduled: boolean,
+    prompt = '',
+  ): Promise<void> {
     const id = task.id
     const slot = runSlot(id, sessionRef)
     const plan = cloneForIpc(task)
@@ -1019,7 +1062,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       },
       steps: plan.steps,
     })
-    runContexts[sessionId] = { plan, abort: new AbortController(), scheduled }
+    runContexts[sessionId] = { plan, abort: new AbortController(), scheduled, prompt }
     runs.value = {
       ...runs.value,
       [sessionId]: {
@@ -1159,7 +1202,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     })
     if (waiting) return
     const steps = stepPrompts(plan.steps)
-    const turn = stepIndex === 1 ? firstStepTurn('', steps) : stepTurn(stepIndex, steps)
+    const turn =
+      stepIndex === 1 ? firstStepTurn(context.prompt ?? '', steps) : stepTurn(stepIndex, steps)
     const result = await agentMode.sendToSession(sessionId, turn, {
       settings: cloneForIpc(plan.settingsTemplate),
       signal: abort.signal,
@@ -1569,6 +1613,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     loadAgent,
     unloadAgent,
     deleteTask,
+    pickedAgentIn,
+    pickedAgent,
+    pickAgent,
+    runPickedAgent,
     presetOfAgent,
     presetAgent,
     saveAgentAsPreset,

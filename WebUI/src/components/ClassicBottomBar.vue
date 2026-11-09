@@ -59,12 +59,12 @@
                 <button
                   type="button"
                   :aria-label="oemBranding.presetLabel(preset.name)"
-                  :aria-pressed="presetsStore.activePresetName === preset.name"
+                  :aria-pressed="isPicked(preset.name)"
                   :aria-disabled="!gateOf(preset).enabled"
                   :data-aipg-preset-name="preset.name"
                   class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
                   :class="[
-                    presetsStore.activePresetName === preset.name
+                    isPicked(preset.name)
                       ? 'border-primary ring-2 ring-primary'
                       : 'border-transparent',
                     gateOf(preset).enabled
@@ -98,6 +98,53 @@
                 </p>
               </TooltipContent>
             </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider
+            v-if="mode === buttonModeFor('agent') && agents.length > 0"
+            :delay-duration="200"
+          >
+            <div
+              role="group"
+              :aria-label="i18nState.AGENT_LIBRARY_LIST"
+              class="flex flex-none gap-2 border-l border-border pl-2"
+            >
+              <Tooltip v-for="agent in agents" :key="agent.id">
+                <TooltipTrigger as-child>
+                  <button
+                    type="button"
+                    :aria-label="agent.name"
+                    :aria-pressed="agentTasks.pickedAgent?.id === agent.id"
+                    class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
+                    :class="
+                      agentTasks.pickedAgent?.id === agent.id
+                        ? 'border-primary ring-2 ring-primary'
+                        : 'border-transparent'
+                    "
+                    @click="selectAgentFromPicker(agent.id)"
+                  >
+                    <img
+                      v-if="agent.image"
+                      :src="agent.image"
+                      :alt="agent.name"
+                      class="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                      <span
+                        class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
+                      >
+                        {{ agent.name }}
+                      </span>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                  <p class="font-semibold">{{ agent.name }}</p>
+                  <p v-if="agent.description" class="mt-1 text-primary-foreground/80">
+                    {{ agent.description }}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </TooltipProvider>
           <div v-if="mode === buttonModeFor('agent')" class="flex flex-none flex-col gap-1">
             <Button variant="secondary" size="sm" class="h-7" @click="openLibrary(newAgent)">
@@ -147,10 +194,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { computed, ref, nextTick, watch } from 'vue'
 import { PlusIcon, Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
@@ -165,6 +213,8 @@ import { mapModeToLabel } from '@/lib/utils.ts'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
+import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
+import { pickableAgents } from '@/lib/promptBarModel'
 
 defineProps<{
   modes: ModeType[]
@@ -195,7 +245,9 @@ const promptStore = usePromptStore()
 const presetsStore = usePresets()
 const oemBranding = useOemBranding()
 const i18nState = useI18N().state
-const { gateOf, switchTo } = usePromptBarPresetSwitch()
+const { gateOf } = usePromptBarPresetSwitch()
+const agentPick = usePromptBarAgentPick()
+const agentTasks = useAgentTasks()
 const demoMode = useDemoMode()
 const { newAgent, manageAgents } = useAgentLibraryEntry()
 
@@ -289,7 +341,19 @@ async function openLibrary(open: () => unknown) {
 
 async function selectPresetFromPicker(preset: Preset) {
   if (gateOf(preset).enabled) closePicker()
-  await switchTo(preset.name)
+  await agentPick.pickPreset(preset.name)
+}
+
+async function selectAgentFromPicker(agentId: string) {
+  closePicker()
+  await agentPick.pickAgent(agentId)
+}
+
+const agents = computed(() => pickableAgents(agentPick.agents.value))
+
+/** An Agent picked on Agent Maker is what is selected, not Agent Maker itself. */
+function isPicked(presetName: string): boolean {
+  return presetsStore.activePresetName === presetName && !agentTasks.pickedAgent
 }
 
 watch(

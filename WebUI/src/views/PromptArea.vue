@@ -295,6 +295,8 @@ import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
 import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
 import { stepPrompts } from '@/lib/taskSteps'
 import { useAgentRunHold } from '@/lib/useAgentRunHold'
+import { createAppError } from '@/assets/js/errors/appError'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -726,8 +728,8 @@ function handleSubmitPromptClick() {
 const canRunSteps = computed(
   () =>
     promptStore.getCurrentMode() === 'agent' &&
-    agentMode.sessionScoped &&
-    stepPrompts(agentMode.openSteps).length > 0,
+    (!!agentTasks.pickedAgent ||
+      (agentMode.sessionScoped && stepPrompts(agentMode.openSteps).length > 0)),
 )
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
@@ -736,7 +738,30 @@ async function handleRunStepsClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   promptStore.promptSubmitted = true
   const text = prompt.value
+  if (agentTasks.pickedAgent) {
+    await afterAgentRun(() => runPickedAgent(text), text)
+    return
+  }
   await afterAgentRun(() => void agentTasks.runSteps(text), text)
+}
+
+async function runPickedAgent(text: string): Promise<void> {
+  const result = await agentTasks.runPickedAgent(text)
+  promptStore.promptSubmitted = false
+  if (result.ok) {
+    if (prompt.value === text) prompt.value = ''
+    return
+  }
+  if (result.reason !== 'settings-problems') return
+  errors.report(
+    createAppError({
+      category: 'validation',
+      code: 'agent-tasks/run-blocked',
+      severity: 'warning',
+      surface: 'toast',
+      userMessage: fillTemplate(i18nState.AGENT_TASKS_RUN_BLOCKED, { reason: result.message }),
+    }),
+  )
 }
 
 // The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.

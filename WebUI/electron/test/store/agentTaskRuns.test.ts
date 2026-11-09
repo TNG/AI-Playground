@@ -191,6 +191,8 @@ const openRecord = {
 }
 
 let storedTasks: AgentTask[]
+/** Each Session's picked Agent as main keeps it in `session.json`. */
+let storedPicks: Record<string, string>
 const kernelListeners = new Set<(event: KernelEvent) => void>()
 const pushKernelEvent = (event: KernelEvent) => {
   for (const listener of [...kernelListeners]) listener(event)
@@ -223,6 +225,7 @@ beforeEach(() => {
   setActivePinia(pinia)
   seq = 10
   storedTasks = []
+  storedPicks = {}
   nextSessionId = SESSION
   activePreset.state!.preset = AGENT
   inference.live.activeModel = 'Live-9B'
@@ -276,6 +279,22 @@ beforeEach(() => {
               : { harnessSessionId: `harness-${sessionRef}`, workspaceDir: '/work/open' },
         })),
         delete: vi.fn(async () => ({ success: true })),
+        pickAgent: vi.fn(async (id: string, agentId: string | null) => {
+          if (agentId) storedPicks[id] = agentId
+          else delete storedPicks[id]
+          return {
+            success: true,
+            session: {
+              id,
+              title: '',
+              renamed: false,
+              createdAt: 1,
+              updatedAt: 1,
+              presetsUsed: [],
+              ...(agentId ? { pickedAgentId: agentId } : {}),
+            },
+          }
+        }),
         open: vi.fn(async (id: string) => ({
           success: true,
           session: {
@@ -285,6 +304,7 @@ beforeEach(() => {
             createdAt: 1,
             updatedAt: 1,
             presetsUsed: [],
+            ...(storedPicks[id] ? { pickedAgentId: storedPicks[id] } : {}),
             timeline: [],
           },
           missingFiles: [],
@@ -1729,6 +1749,98 @@ const STEPS = [
   { id: 'p2', prompt: 'Summarise it by topic' },
   { id: 'p3', prompt: 'Read the summary aloud' },
 ]
+
+describe('an Agent picked in the prompt bar', () => {
+  it('is remembered per Session', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
+    const sessions = useSessions(pinia)
+
+    expect(await tasks.pickAgent('t1')).toBe(true)
+    expect(tasks.pickedAgent?.id).toBe('t1')
+    expect(storedPicks).toEqual({ [SESSION]: 't1' })
+
+    nextSessionId = 'session-2'
+    await sessions.create()
+    expect(tasks.pickedAgent).toBeUndefined()
+
+    await sessions.open(SESSION)
+    expect(tasks.pickedAgent?.id).toBe('t1')
+  })
+
+  it('is cleared by picking Agent Maker again', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    await tasks.pickAgent('t1')
+    await tasks.pickAgent(null)
+
+    expect(tasks.pickedAgent).toBeUndefined()
+    expect(storedPicks).toEqual({})
+  })
+
+  it('cannot be an Agent that exists only as a Draft', async () => {
+    const { tasks } = await readyStores()
+    const draft = await tasks.createAgentDraft()
+
+    expect(await tasks.pickAgent(draft.agentId)).toBe(false)
+    expect(tasks.pickedAgent).toBeUndefined()
+    expect(storedPicks).toEqual({})
+  })
+
+  it('is only in effect while Agent Maker is the agent preset', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+
+    activePreset.state!.preset = GAME_AGENT
+    await settleMicrotasks()
+
+    expect(tasks.pickedAgent).toBeUndefined()
+    expect(tasks.pickedAgentIn(SESSION)?.id).toBe('t1')
+  })
+
+  it('runs its Steps in the open Session with ▶, the typed text leading Step 1', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
+    await tasks.pickAgent('t1')
+
+    expect(await tasks.runPickedAgent('only the headlines')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
+    expect(sentPrompts()[0]).toBe(firstStepTurn('only the headlines', ['one', 'two']))
+    expect(agentMode.liveTurnsIn(SESSION).map((turn) => turn.tag.taskRun?.taskName)).toContain(
+      'Task t1',
+    )
+    await finishTurn(0)
+    await turnIdOf(1)
+    expect(sentPrompts()[1]).toBe(stepTurn(2, ['one', 'two']))
+  })
+
+  it('runs nothing with ▶ when no Agent is picked', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+
+    expect(await tasks.runPickedAgent('hello')).toEqual({ ok: false, reason: 'no-task' })
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('falls back to Agent Maker in every Session that picked it when deleted', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
+    const sessions = useSessions(pinia)
+    await tasks.pickAgent('t1')
+    nextSessionId = 'session-2'
+    await sessions.create()
+    await tasks.pickAgent('t1')
+    nextSessionId = 'session-3'
+    await sessions.create()
+    await tasks.pickAgent('t2')
+
+    expect(await tasks.deleteTask('t1')).toBe(true)
+
+    expect(tasks.pickedAgentIn(SESSION)).toBeUndefined()
+    expect(tasks.pickedAgentIn('session-2')).toBeUndefined()
+    expect(tasks.pickedAgentIn('session-3')?.id).toBe('t2')
+    expect(storedPicks).toEqual({ 'session-3': 't2' })
+  })
+})
 
 describe('running Steps from the prompt bar', () => {
   it('carries out the Steps one turn at a time in the Open Session, then ends', async () => {

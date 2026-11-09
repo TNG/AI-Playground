@@ -33,6 +33,8 @@ export const SessionFileSchema = z.object({
   taskRunHarnessSessions: z.array(z.string()).default([]),
   /** Last History Entry id each Session Update consumer has seen. */
   updateCursors: z.record(z.string(), z.string()).default({}),
+  /** The Agent picked in the prompt bar, run on Agent Maker; absent means Agent Maker itself. */
+  pickedAgentId: z.string().optional(),
 })
 
 export type SessionFile = z.infer<typeof SessionFileSchema>
@@ -40,7 +42,15 @@ export type SessionFile = z.infer<typeof SessionFileSchema>
 /** One row of the Sessions panel. */
 export type SessionSummary = Pick<
   SessionFile,
-  'id' | 'title' | 'renamed' | 'pinned' | 'groupId' | 'createdAt' | 'updatedAt' | 'presetsUsed'
+  | 'id'
+  | 'title'
+  | 'renamed'
+  | 'pinned'
+  | 'groupId'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'presetsUsed'
+  | 'pickedAgentId'
 > & { unreadable?: boolean }
 
 /** What opening a Session hands the renderer: its row plus the display timeline. */

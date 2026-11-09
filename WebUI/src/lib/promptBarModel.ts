@@ -22,7 +22,7 @@ export type HeaderChip =
   | { kind: 'backend'; backend: LlmBackend | SpeechBackend | 'comfyui' }
   | DeviceChip
   | { kind: 'model'; name: string; id: string; source: 'chat' | 'comfy' }
-  | { kind: 'preset'; name: string; label: string; image?: string }
+  | { kind: 'preset'; name: string; label: string; image?: string; agentId?: string }
 
 export type PromptBarMachine = {
   chatBackend: LlmBackend
@@ -44,14 +44,30 @@ export type PromptBarInput = {
   lastUsed?: LastUsed
   presetGate?: (preset: Preset) => PresetGate
   style?: PromptBarStyle
+  /** The Agent Library, each Agent with its saved name, description and image. */
+  agents?: readonly PromptBarAgent[]
+  /** The open Session's picked Agent. */
+  pickedAgentId?: string
 }
+
+export type PromptBarAgent = AgentEntry & {
+  /** False while the Agent exists only as a Draft. */
+  saved: boolean
+}
+
+export type AgentEntry = { id: string; name: string; description?: string; image?: string }
 
 export type PromptBarModel = {
   headerChips: HeaderChip[]
   modes: ModeType[]
   activeMode: ModeType | null
   modePicks: Partial<Record<ModeType, string>>
+  /** In the agent mode, the Agent Presets. */
   presets: PresetEntry[]
+  /** In the agent mode, the saved Agents listed after the Agent Presets. */
+  agents: AgentEntry[]
+  /** The Agent run on Agent Maker in place of Agent Maker itself. */
+  pickedAgent?: AgentEntry
   presetChip: 'label' | 'dropdown'
 }
 
@@ -87,7 +103,33 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
       })
     : []
   const presetChip = input.style !== 'classic' && presets.length > 1 ? 'dropdown' : 'label'
-  return { headerChips: headerChips(input), modes, activeMode, modePicks, presets, presetChip }
+  const agents = activeMode === 'agent' ? pickableAgents(input.agents ?? []) : []
+  const pickedAgent =
+    input.activePreset?.name === MODE_DEFAULT_PRESET.agent
+      ? agents.find((agent) => agent.id === input.pickedAgentId)
+      : undefined
+  return {
+    headerChips: headerChips(input, pickedAgent),
+    modes,
+    activeMode,
+    modePicks,
+    presets,
+    agents,
+    ...(pickedAgent ? { pickedAgent } : {}),
+    presetChip,
+  }
+}
+
+/** The Agents a prompt bar offers: saved ones only, a Draft-only Agent cannot run yet. */
+export function pickableAgents(agents: readonly PromptBarAgent[]): AgentEntry[] {
+  return agents
+    .filter((agent) => agent.saved)
+    .map(({ id, name, description, image }) => ({
+      id,
+      name,
+      ...(description === undefined ? {} : { description }),
+      ...(image === undefined ? {} : { image }),
+    }))
 }
 
 const MODERN_MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']
@@ -122,7 +164,10 @@ function presetForModePick(
 // Agent Maker's preset identity stays `Agent`.
 const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { agent: 'Agent' }
 
-function headerChips({ activePreset: preset, presetLabel, machine }: PromptBarInput): HeaderChip[] {
+function headerChips(
+  { activePreset: preset, presetLabel, machine }: PromptBarInput,
+  pickedAgent: AgentEntry | undefined,
+): HeaderChip[] {
   if (!preset) return []
   const device = machine.device ? classifyInferenceDevice(machine.device) : undefined
   const chips: (HeaderChip | undefined)[] = []
@@ -146,12 +191,17 @@ function headerChips({ activePreset: preset, presetLabel, machine }: PromptBarIn
       machine.chatModel ? modelChip(machine.chatModel, 'chat') : undefined,
     )
   }
-  chips.push({
-    kind: 'preset',
-    name: preset.name,
-    label: presetLabel(preset.name),
-    image: preset.image,
-  })
+  chips.push(
+    pickedAgent
+      ? {
+          kind: 'preset',
+          name: preset.name,
+          label: pickedAgent.name,
+          image: pickedAgent.image,
+          agentId: pickedAgent.id,
+        }
+      : { kind: 'preset', name: preset.name, label: presetLabel(preset.name), image: preset.image },
+  )
   return chips.filter((chip) => !!chip)
 }
 

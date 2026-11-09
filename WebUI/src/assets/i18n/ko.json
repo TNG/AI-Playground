@@ -311,6 +311,8 @@
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "모드",
   "PROMPT_BAR_PRESET": "프리셋",
+  "PROMPT_BAR_AGENT": "에이전트",
+  "PROMPT_BAR_AGENT_PRESETS": "에이전트 프리셋",
   "PROMPT_BAR_OPEN_INFERENCING": "Inferencing 설정 열기",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "현재 프리셋 변경이 완료될 때까지 기다려 주세요",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "{preset}(으)로 전환했습니다",

@@ -292,6 +292,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
+    pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
     createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),
     moveToGroup: (id: string, groupId: string | null) =>
       invoke('sessions:moveToGroup', id, groupId),

@@ -311,6 +311,8 @@
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Modalità",
   "PROMPT_BAR_PRESET": "Preset",
+  "PROMPT_BAR_AGENT": "Agente",
+  "PROMPT_BAR_AGENT_PRESETS": "Preset agente",
   "PROMPT_BAR_OPEN_INFERENCING": "Apri le impostazioni di Inferencing",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "Attendi il completamento del cambio di preset in corso",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "Passato a {preset}",

@@ -89,7 +89,7 @@
               id="preset-dropdown"
               type="button"
               :class="presetChipClass"
-              :aria-label="`${languages.PROMPT_BAR_PRESET}: ${presetChip.label}`"
+              :aria-label="`${presetChip.agentId ? languages.PROMPT_BAR_AGENT : languages.PROMPT_BAR_PRESET}: ${presetChip.label}`"
             >
               <img
                 v-if="presetChip.image"
@@ -102,8 +102,11 @@
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" class="z-[40010] min-w-48">
+            <DropdownMenuLabel v-if="bar.activeMode === 'agent'" class="text-xs">
+              {{ languages.PROMPT_BAR_AGENT_PRESETS }}
+            </DropdownMenuLabel>
             <DropdownMenuRadioGroup
-              :model-value="presetChip.name"
+              :model-value="presetChip.agentId ? '' : presetChip.name"
               @update:model-value="(name) => pickPreset(name as string)"
             >
               <TooltipProvider :delay-duration="200">
@@ -141,6 +144,40 @@
                 </Tooltip>
               </TooltipProvider>
             </DropdownMenuRadioGroup>
+            <template v-if="bar.agents.length > 0">
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel class="text-xs">{{
+                languages.AGENT_LIBRARY_LIST
+              }}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                :model-value="presetChip.agentId ?? ''"
+                @update:model-value="(id) => pickAgent(id as string)"
+              >
+                <TooltipProvider :delay-duration="200">
+                  <Tooltip v-for="agent in bar.agents" :key="agent.id">
+                    <TooltipTrigger as-child>
+                      <DropdownMenuRadioItem :value="agent.id" class="gap-2">
+                        <img
+                          v-if="agent.image"
+                          :src="agent.image"
+                          alt=""
+                          class="size-6 rounded object-cover flex-none"
+                        />
+                        <span class="truncate">{{ agent.name }}</span>
+                      </DropdownMenuRadioItem>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      v-if="agent.description"
+                      side="right"
+                      class="z-[40011] max-w-[260px]"
+                    >
+                      <p class="font-semibold">{{ agent.name }}</p>
+                      <p class="mt-1 text-primary-foreground/80">{{ agent.description }}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </DropdownMenuRadioGroup>
+            </template>
             <AgentLibraryMenuItems v-if="bar.activeMode === 'agent'" />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -161,8 +198,8 @@
             class="w-64 bg-card border border-border text-foreground p-3 z-[200]"
           >
             <p class="text-sm font-semibold">{{ presetChip.label }}</p>
-            <p v-if="descriptionOf(presetChip.name)" class="mt-1 text-xs text-muted-foreground">
-              {{ descriptionOf(presetChip.name) }}
+            <p v-if="presetChipDescription" class="mt-1 text-xs text-muted-foreground">
+              {{ presetChipDescription }}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -284,8 +321,10 @@ import { Context } from '@/components/ui/context'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -298,6 +337,7 @@ import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { promptBarModel, type HeaderChip, type SpeechBackend } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 
 const promptStore = usePromptStore()
 const textInference = useTextInference()
@@ -313,7 +353,8 @@ const computeMetrics = useComputeMetrics()
 const agentMode = useAgentMode()
 const errors = useErrors()
 const promptBarStyle = usePromptBarStyle()
-const { gateOf, switchTo } = usePromptBarPresetSwitch()
+const { gateOf } = usePromptBarPresetSwitch()
+const agentPick = usePromptBarAgentPick()
 
 const presetChipClass =
   'flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-primary/60 bg-primary/10 px-1.5 text-left'
@@ -418,13 +459,19 @@ const bar = computed(() =>
     catalog: presetsStore.getPresetsByCategories([]),
     presetGate: gateOf,
     style: promptBarStyle.active,
+    agents: agentPick.agents.value,
+    pickedAgentId: agentPick.pickedAgentId.value,
   }),
 )
 
 const headerChips = computed(() => bar.value.headerChips)
 
 async function pickPreset(name: string) {
-  await switchTo(name)
+  if (name) await agentPick.pickPreset(name)
+}
+
+async function pickAgent(id: string) {
+  if (id) await agentPick.pickAgent(id)
 }
 
 function chipOf<K extends HeaderChip['kind']>(kind: K) {
@@ -436,6 +483,11 @@ function chipOf<K extends HeaderChip['kind']>(kind: K) {
 const deviceChip = chipOf('device')
 const modelChip = chipOf('model')
 const presetChip = chipOf('preset')
+const presetChipDescription = computed(() =>
+  presetChip.value?.agentId
+    ? bar.value.pickedAgent?.description
+    : descriptionOf(presetChip.value?.name ?? ''),
+)
 
 const BACKEND_NAMES = {
   llamaCPP: 'llama.cpp',

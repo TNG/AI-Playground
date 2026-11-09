@@ -311,6 +311,8 @@
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "Mode",
   "PROMPT_BAR_PRESET": "Preset",
+  "PROMPT_BAR_AGENT": "Agen",
+  "PROMPT_BAR_AGENT_PRESETS": "Preset agen",
   "PROMPT_BAR_OPEN_INFERENCING": "Buka pengaturan Inferencing",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "Harap tunggu hingga perubahan preset saat ini selesai",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "Beralih ke {preset}",

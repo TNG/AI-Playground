@@ -263,6 +263,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, boolean],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
+  /** Pick an Agent in a Session's prompt bar, or `null` for Agent Maker; pushes `session-changed`. */
+  'sessions:pickAgent': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | null],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
   /** Name a new Session Group and move the Session into it; pushes `session-changed` and `session-groups-changed`. */
   'sessions:createGroup': {
     kind: 'invoke',

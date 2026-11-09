@@ -311,6 +311,8 @@
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "モード",
   "PROMPT_BAR_PRESET": "プリセット",
+  "PROMPT_BAR_AGENT": "エージェント",
+  "PROMPT_BAR_AGENT_PRESETS": "エージェントプリセット",
   "PROMPT_BAR_OPEN_INFERENCING": "Inferencing の設定を開く",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "現在のプリセット変更が完了するまでお待ちください",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "{preset} に切り替えました",

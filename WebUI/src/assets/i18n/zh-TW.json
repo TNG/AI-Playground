@@ -311,6 +311,8 @@
   "MODE_VIDEO": "Video",
   "PROMPT_BAR_MODE": "模式",
   "PROMPT_BAR_PRESET": "預設集",
+  "PROMPT_BAR_AGENT": "代理程式",
+  "PROMPT_BAR_AGENT_PRESETS": "代理程式預設集",
   "PROMPT_BAR_OPEN_INFERENCING": "開啟 Inferencing 設定",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "請等待目前的預設切換完成",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "已切換至 {preset}",

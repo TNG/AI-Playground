@@ -25,6 +25,7 @@ import type {
   readShowMore,
   setShowMore,
   pinSession,
+  pickSessionAgent,
   renameSession,
   renameSessionGroup,
   setSessionGroupExpanded,
@@ -49,6 +50,7 @@ export type SessionsDeps = {
   openSession: typeof openSession
   renameSession: typeof renameSession
   pinSession: typeof pinSession
+  pickSessionAgent: typeof pickSessionAgent
   listSessionGroups: typeof listSessionGroups
   createSessionGroup: typeof createSessionGroup
   moveSessionToGroup: typeof moveSessionToGroup
@@ -146,6 +148,17 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         if (typeof pinned !== 'boolean') throw new Error('pinned must be a boolean')
         const session = await deps.pinSession(requireString(id, 'session id'), pinned)
+        return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:pickAgent': async (_event, id, agentId) => {
+      try {
+        const session = await deps.pickSessionAgent(
+          requireString(id, 'session id'),
+          agentId === null ? null : requireString(agentId, 'agent id'),
+        )
         return { success: true as const, session }
       } catch (e) {
         return ipcFail(e)

@@ -7,6 +7,7 @@ import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionSummary, SessionTurn } from '@/types/sessionIpc'
 import type { PromptRunTag } from '@/types/sessionTimeline'
 import type { RunProgress } from '@/lib/turnTypes'
+import type { TrialRunView } from '@/lib/trialRunTimeline'
 import type {
   AgentDraft,
   AgentSessionSchedule,
@@ -136,6 +137,28 @@ export type SaveAgentPresetResult =
   | { ok: false; reason: 'no-task' | 'name-taken' | 'no-base' | 'persist-failed' }
 
 type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
+
+/**
+ * An Agent's Trial Run: the one in flight, or the last one, kept until the next starts.
+ * `stepIndex` is 1-based; `stepCount` is where it stops, the last Step unless chosen earlier.
+ */
+export type TrialRun = {
+  agentId: string
+  harnessSessionId: string
+  name: string
+  stepIndex: number
+  stepCount: number
+  startedAt: number
+  state: 'running' | 'completed' | 'failed' | 'stopped'
+  message?: string
+}
+
+export type StartTrialRunResult =
+  | { ok: true }
+  | { ok: false; reason: 'no-agent' | 'running' | 'no-steps' | 'empty-step' }
+  | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
+  | { ok: false; reason: 'not-started'; message: string }
+  | ({ ok: false; message: string } & ModelDownloadRefusal)
 
 type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
 
@@ -569,6 +592,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return false
     }
     const preset = presetOfAgent(id)
+    await discardTrialRun(id)
     tasks.value = tasks.value.filter((task) => task.id !== id)
     const { [id]: _draft, ...otherDrafts } = drafts.value
     drafts.value = otherDrafts
@@ -822,6 +846,211 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const { [id]: _removed, ...rest } = drafts.value
     drafts.value = rest
     return true
+  }
+
+  // ── Trial Runs: an Agent's Draft run from the Agent Library, owned by no Session ──
+
+  /** Each Agent's Trial Run, by Agent id; the last one stays until the next one starts. */
+  const trialRuns = ref<Record<string, TrialRun>>({})
+  /** The Agent as its Trial Run started, and the abort that keeps an ended run from sending. */
+  const trialContexts: Record<string, { plan: LibraryAgent; abort: AbortController }> = {}
+  /** Agents whose Trial Run is still being checked, possibly waiting on a download. */
+  const startingTrials = reactive(new Set<string>())
+
+  function trialRunInFlight(agentId: string): boolean {
+    return startingTrials.has(agentId) || trialRuns.value[agentId]?.state === 'running'
+  }
+
+  function trialRunOfHarness(harnessSessionId: string): TrialRun | undefined {
+    return Object.values(trialRuns.value).find((run) => run.harnessSessionId === harnessSessionId)
+  }
+
+  /** What the Agent Library renders of the Agent's Trial Run, through `trialRunItems`. */
+  function trialRunView(agentId: string): TrialRunView | undefined {
+    const run = trialRuns.value[agentId]
+    if (!run) return undefined
+    const record = agentMode.sessions[run.harnessSessionId]
+    const live = agentMode.streamingMessagesOf(run.harnessSessionId)
+    return {
+      harnessSessionId: run.harnessSessionId,
+      presetName: AGENT_PRESET,
+      taskRun: record?.taskRun ?? {
+        taskName: run.name,
+        startedAt: run.startedAt,
+        trigger: 'manual',
+      },
+      saved: record?.messages ?? [],
+      ...(live ? { live } : {}),
+      ...(run.state === 'running'
+        ? { progress: { step: run.stepIndex, count: run.stepCount } }
+        : {}),
+    }
+  }
+
+  /** Run the Agent's Draft (or the saved Agent), stopping after `lastStep` when given. */
+  async function startTrialRun(
+    agentId: string,
+    options: { lastStep?: number } = {},
+  ): Promise<StartTrialRunResult> {
+    if (trialRunInFlight(agentId)) return { ok: false, reason: 'running' }
+    startingTrials.add(agentId)
+    try {
+      return await beginTrialRun(agentId, options.lastStep)
+    } finally {
+      startingTrials.delete(agentId)
+    }
+  }
+
+  async function beginTrialRun(
+    agentId: string,
+    lastStep: number | undefined,
+  ): Promise<StartTrialRunResult> {
+    const listed = libraryAgents.value.find((agent) => agent.id === agentId)
+    if (!listed) return { ok: false, reason: 'no-agent' }
+    await agentMode.loadMcpServersFor(listed.settingsTemplate.capabilities ?? [])
+    const checked = libraryAgents.value.find((agent) => agent.id === agentId)
+    if (!checked) return { ok: false, reason: 'no-agent' }
+    if (checked.steps.length === 0) return { ok: false, reason: 'no-steps' }
+    if (checked.steps.some((step) => !step.prompt.trim()))
+      return { ok: false, reason: 'empty-step' }
+    const problems = agentMode.problemsOf(checked.settingsTemplate)
+    if (problems.length > 0) {
+      const message = describeSettingsProblems(problems, i18n.state)
+      return { ok: false, reason: 'settings-problems', problems, message }
+    }
+    const refusal = await chatModelRefusal(checked.settingsTemplate, checked.steps)
+    if (refusal) return { ok: false, ...refusal }
+    // Taken after the waits, so the edits made meanwhile are the ones that run.
+    const agent = libraryAgents.value.find((entry) => entry.id === agentId)
+    if (!agent) return { ok: false, reason: 'no-agent' }
+    const plan = cloneForIpc(agent)
+    await dropTrialRun(agentId)
+    let harness: { harnessSessionId: string; workspaceDir: string }
+    try {
+      const result = await window.electronAPI.agentMode.trialRunHarness(agentId)
+      if (!result.success) throw new Error(result.error)
+      harness = result.harness
+    } catch (error) {
+      return { ok: false, reason: 'not-started', message: extractMessage(error) }
+    }
+    const name = plan.name.trim() || (i18n.state.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
+    const stepCount = Math.min(Math.max(lastStep ?? plan.steps.length, 1), plan.steps.length)
+    const startedAt = Date.now()
+    agentMode.createSession({
+      id: harness.harnessSessionId,
+      workspaceDir: harness.workspaceDir,
+      settings: cloneForIpc(plan.settingsTemplate),
+      presetName: AGENT_PRESET,
+      title: name,
+      taskRun: { taskName: name, startedAt, trigger: 'manual' },
+      steps: plan.steps,
+    })
+    trialContexts[agentId] = {
+      plan: { ...plan, steps: plan.steps.slice(0, stepCount) },
+      abort: new AbortController(),
+    }
+    trialRuns.value = {
+      ...trialRuns.value,
+      [agentId]: {
+        agentId,
+        harnessSessionId: harness.harnessSessionId,
+        name,
+        stepIndex: 1,
+        stepCount,
+        startedAt,
+        state: 'running',
+      },
+    }
+    void sendTrialStep(agentId, 1)
+    return { ok: true }
+  }
+
+  async function sendTrialStep(agentId: string, stepIndex: number): Promise<void> {
+    const run = trialRuns.value[agentId]
+    const context = trialContexts[agentId]
+    if (run?.state !== 'running' || !context) return
+    trialRuns.value = { ...trialRuns.value, [agentId]: { ...run, stepIndex } }
+    const steps = stepPrompts(context.plan.steps)
+    const turn = stepIndex === 1 ? firstStepTurn('', steps) : stepTurn(stepIndex, steps)
+    const result = await agentMode.sendToSession(run.harnessSessionId, turn, {
+      settings: cloneForIpc(context.plan.settingsTemplate),
+      signal: context.abort.signal,
+      quietErrors: true,
+      taskRun: { taskName: run.name, stepIndex },
+    })
+    if (!result.ok && result.reason !== 'aborted') {
+      settleTrialRun(agentId, 'failed', result.message)
+      agentMode.releaseHeldAnswer(run.harnessSessionId)
+    }
+  }
+
+  function advanceTrialRun(run: TrialRun, outcome: TurnOutcome): void {
+    if (outcome.kind === 'completed') {
+      if (run.stepIndex < run.stepCount) void sendTrialStep(run.agentId, run.stepIndex + 1)
+      else settleTrialRun(run.agentId, 'completed')
+    } else if (outcome.kind === 'error') {
+      settleTrialRun(run.agentId, 'failed', outcome.message)
+    } else {
+      settleTrialRun(run.agentId, 'stopped')
+    }
+  }
+
+  function settleTrialRun(
+    agentId: string,
+    state: Exclude<TrialRun['state'], 'running'>,
+    message?: string,
+  ): void {
+    const run = trialRuns.value[agentId]
+    if (run?.state !== 'running') return
+    trialContexts[agentId]?.abort.abort()
+    delete trialContexts[agentId]
+    trialRuns.value = {
+      ...trialRuns.value,
+      [agentId]: { ...run, state, ...(message !== undefined ? { message } : {}) },
+    }
+    if (state !== 'completed') {
+      agentMode.endAgentRun(run.harnessSessionId, {
+        kind: state,
+        ...(message !== undefined ? { message } : {}),
+      })
+    }
+  }
+
+  async function stopTrialRun(agentId: string): Promise<void> {
+    const run = trialRuns.value[agentId]
+    if (run?.state !== 'running') return
+    // Settled first, so the stopped turn's own settle finds no run and no Step can follow.
+    settleTrialRun(agentId, 'stopped')
+    await agentMode.stopSession(run.harnessSessionId)
+  }
+
+  /** Forget the Agent's Trial Run and its Harness Session here; main removes its folder. */
+  async function dropTrialRun(agentId: string): Promise<void> {
+    const run = trialRuns.value[agentId]
+    if (!run) return
+    await stopTrialRun(agentId)
+    const { [agentId]: _dropped, ...rest } = trialRuns.value
+    trialRuns.value = rest
+    await agentMode.deleteSession(run.harnessSessionId)
+  }
+
+  /** Throw the Agent's Trial Run away with its folder, as deleting the Agent does. */
+  async function discardTrialRun(agentId: string): Promise<void> {
+    await dropTrialRun(agentId)
+    const result = await window.electronAPI.agentMode
+      .discardTrialRun(agentId)
+      .catch((error: unknown) => ({ success: false as const, error: String(error) }))
+    if (!result.success) {
+      errors.report(
+        createAppError({
+          category: 'backend',
+          code: 'agent-library/trial-discard-failed',
+          surface: 'silent',
+          userMessage: result.error,
+          technicalMessage: result.error,
+        }),
+      )
+    }
   }
 
   /** The Chat preset an Agent was saved as, if any. */
@@ -1335,6 +1564,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       void advancePromptRun(sessionId, outcome)
       return
     }
+    const trialRun = trialRunOfHarness(sessionId)
+    if (trialRun) {
+      if (trialRun.state === 'running') advanceTrialRun(trialRun, outcome)
+      return
+    }
     const run = runs.value[sessionId]
     if (!run) return
     const { stepIndex, stepCount } = run
@@ -1660,6 +1894,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     draftSettingsProblems,
     saveAgentDraft,
     discardAgentDraft,
+    trialRuns,
+    trialRunInFlight,
+    trialRunView,
+    startTrialRun,
+    stopTrialRun,
     openSessionAgents,
     runsInFlight,
     scheduledSessionIds,

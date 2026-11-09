@@ -348,6 +348,14 @@ beforeEach(() => {
         readDrafts: vi.fn(async () => ({ success: true, drafts: [] })),
         saveDraft: vi.fn(async () => ({ success: true })),
         deleteDraft: vi.fn(async () => ({ success: true })),
+        trialRunHarness: vi.fn(async (agentId: string) => ({
+          success: true,
+          harness: {
+            harnessSessionId: 'aipg-agent-trial',
+            workspaceDir: `/trials/${agentId}/files`,
+          },
+        })),
+        discardTrialRun: vi.fn(async () => ({ success: true })),
       },
       getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },

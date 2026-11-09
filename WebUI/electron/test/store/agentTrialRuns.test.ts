@@ -1,0 +1,655 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import type { ChatPreset } from '@/assets/js/store/presets'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { AgentDraft, AgentTask } from '@/types/agentTaskIpc'
+import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
+
+// Trial Runs: the Agents store runs an Agent's Draft from the Agent Library in a
+// fresh Harness Session that belongs to no Session. Driven through the Agents
+// store against the real Agent Mode store, with a fake electronAPI and kernel
+// events delivered through the registered listener.
+
+const AGENT: ChatPreset = {
+  type: 'chat',
+  category: 'chat',
+  name: 'Agent',
+  backends: ['llamaCPP'],
+  agentPreset: true,
+  agentWorkspace: 'pick',
+  systemPrompt: 'You are the agent.',
+} as ChatPreset
+
+const GAME_AGENT: ChatPreset = {
+  type: 'chat',
+  category: 'chat',
+  name: 'Game Agent',
+  backends: ['llamaCPP'],
+  agentPreset: true,
+  agentWorkspace: 'games',
+  systemPrompt: 'You make games.',
+} as ChatPreset
+
+const NEWS_PRESET: ChatPreset = { ...AGENT, name: 'Morning news', agentTaskId: 't-news' }
+
+const activePreset = vi.hoisted(() => ({ state: null as { preset: unknown } | null }))
+
+vi.mock('@/assets/js/store/presets', async () => {
+  const { reactive } = await import('vue')
+  activePreset.state = reactive({ preset: AGENT as unknown })
+  const state = activePreset.state
+  return {
+    usePresets: () => ({
+      presets: [AGENT, GAME_AGENT, NEWS_PRESET],
+      get activePresetWithVariant() {
+        return state.preset
+      },
+    }),
+  }
+})
+
+vi.mock('@/assets/js/store/presetSwitching', () => ({
+  usePresetSwitching: () => ({ switchPreset: vi.fn(async () => ({ success: true })) }),
+}))
+
+const inference = vi.hoisted(() => {
+  const base = {
+    samplingRequestBody: {},
+    temperature: 0.7,
+    modelSupportsThinkingToggle: false,
+    thinkingEnabled: false,
+    thinkingActive: false,
+    localBackendUrl: 'http://127.0.0.1:39100',
+    modelSupportsVision: false,
+    effectiveContextWindow: 8192,
+    getCurrentDeviceId: () => '0',
+    getCurrentDeviceName: () => 'Arc B580',
+    activeLlmModel: null,
+    embeddingBackend: 'llamaCPP' as const,
+  }
+  return {
+    base,
+    live: { ...base, backend: 'llamaCPP', activeModel: 'Live-9B' },
+    catalog: [] as { name: string; type: string }[],
+    /** Models not on disk, as the models store would report them. */
+    missing: new Set<string>(),
+    cloudProviderIds: [] as string[],
+  }
+})
+
+const getMissingLlmModels = vi.hoisted(() =>
+  vi.fn(async (backend: string, model: string | undefined) =>
+    model && inference.missing.has(model) ? [{ repo_id: model, type: 'ggufLLM', backend }] : [],
+  ),
+)
+
+const requestDownload = vi.hoisted(() => vi.fn(async (_models: unknown[]) => {}))
+
+vi.mock('@/assets/js/permissions/permissions', () => ({
+  requestDownload: (models: unknown[]) => requestDownload(models),
+  requestVramWarning: vi.fn(async () => true),
+  notify: vi.fn(),
+}))
+
+vi.mock('@/assets/js/store/textInference', () => ({
+  useTextInference: () => ({
+    ...inference.live,
+    get activeModel() {
+      return inference.live.activeModel
+    },
+    settingsPerPreset: {},
+    ensureReadyForInference: vi.fn(),
+    getMissingLlmModels,
+    bindSessionSettings: vi.fn(),
+    loadSettingsForActivePreset: vi.fn(),
+    get settingsAvailability() {
+      return {
+        models: inference.catalog,
+        embeddingModels: [],
+        services: [],
+        cloudEnabled: inference.cloudProviderIds.length > 0,
+        cloudProviderIds: inference.cloudProviderIds,
+        embeddingBackend: 'llamaCPP',
+      }
+    },
+    inferenceForSettings: (_presetName: string, settings: AgentSessionSettings) => ({
+      inference: {
+        ...inference.base,
+        backend: settings.backend ?? 'llamaCPP',
+        activeModel: settings.model,
+        contextSize: settings.contextSize,
+      },
+      cloud: {
+        selectedProviderId: 'custom',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+      tools: { toolDelegationEnabled: true, builtinToolEnablement: {} },
+    }),
+  }),
+  backendToAipgBackendName: { llamaCPP: 'llama_cpp', openVINO: 'openvino' },
+}))
+
+vi.mock('@/assets/js/store/models', () => ({
+  useModels: () => ({ checkModelAlreadyLoaded: vi.fn().mockResolvedValue([]) }),
+}))
+
+vi.mock('@/assets/js/store/cloudMode', () => ({
+  useCloudMode: () => ({}),
+  CLOUD_DEFAULT_MODEL: 'test-model',
+}))
+
+vi.mock('@/assets/js/store/developerSettings', () => ({
+  useDeveloperSettings: () => ({ keepModelsLoaded: false }),
+}))
+
+const errorsReport = vi.hoisted(() => vi.fn())
+vi.mock('@/assets/js/store/demoMode', () => ({ useDemoMode: () => ({ enabled: false }) }))
+
+vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: errorsReport }) }))
+
+vi.mock('@/assets/js/store/i18n', () => ({
+  useI18N: () => ({ langName: 'en-US', state: {} }),
+}))
+
+vi.mock('@/assets/js/toast', () => ({ show: vi.fn() }))
+
+vi.mock('@/assets/js/tools/agentBridge', () => ({ getAgentToolSpecs: () => [] }))
+
+const TEMPLATE: AgentSessionSettings = {
+  backend: 'llamaCPP',
+  model: 'Template-27B',
+  contextSize: 32768,
+  planningThinkingOnly: false,
+  capabilities: ['files', 'web'],
+}
+
+const task = (id: string, prompts: string[], overrides: Partial<AgentTask> = {}): AgentTask => ({
+  id,
+  name: `Task ${id}`,
+  sessionRef: SESSION,
+  settingsTemplate: TEMPLATE,
+  steps: prompts.map((prompt, index) => ({ id: `${id}-s${index}`, prompt })),
+  createdAt: 1,
+  updatedAt: 1,
+  ...overrides,
+})
+
+const openRecord = {
+  id: 'session-open',
+  workspaceDir: '/work/open',
+  title: 'what I am doing',
+  messages: [{ id: 'open-u1', role: 'user', parts: [{ type: 'text', text: 'what I am doing' }] }],
+  createdAt: 1,
+  updatedAt: 2,
+  presetName: 'Agent',
+  settings: { backend: 'llamaCPP', model: 'Live-9B', capabilities: ['files'] },
+}
+
+let storedTasks: AgentTask[]
+let storedDrafts: AgentDraft[]
+const kernelListeners = new Set<(event: KernelEvent) => void>()
+const pushKernelEvent = (event: KernelEvent) => {
+  for (const listener of [...kernelListeners]) listener(event)
+}
+let seq = 10
+
+function pushEvent(payload: Record<string, unknown>): void {
+  pushKernelEvent({ ...payload, scope: { kind: 'global' }, seq: ++seq } as KernelEvent)
+}
+
+const startTurn = vi.fn(async (_turnId: string, _prompt: string, _config: AgentModeTurnConfig) => ({
+  success: true as boolean,
+  error: undefined as string | undefined,
+}))
+const saveSession = vi.fn(async (_record: Record<string, unknown>) => ({ success: true }))
+const saveTask = vi.fn(async (_task: AgentTask) => ({ success: true as boolean, error: '' }))
+const deleteTask = vi.fn(async (_id: string) => ({ success: true as boolean, error: '' }))
+
+const SESSION = 'session-1'
+let runHarnesses = 0
+let trialHarnesses = 0
+/** The id main gives the next Session the sessions store creates. */
+let nextSessionId = SESSION
+let pinia: ReturnType<typeof createPinia>
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  kernelListeners.clear()
+  // Explicit: a store action left running by the previous test re-activates its own pinia.
+  pinia = createPinia()
+  setActivePinia(pinia)
+  seq = 10
+  storedTasks = []
+  storedDrafts = []
+  nextSessionId = SESSION
+  activePreset.state!.preset = AGENT
+  inference.live.activeModel = 'Live-9B'
+  inference.catalog = []
+  inference.missing = new Set()
+  inference.cloudProviderIds = []
+  requestDownload.mockImplementation(async () => {})
+  startTurn.mockImplementation(async () => ({ success: true, error: undefined }))
+  const storage = new Map<string, string>()
+  const storageShim = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => void storage.set(key, value),
+    removeItem: (key: string) => void storage.delete(key),
+  }
+  globalThis.localStorage = storageShim as unknown as Storage
+  globalThis.sessionStorage = storageShim as unknown as Storage
+  globalThis.window = {
+    electronAPI: {
+      onKernelEvent: vi.fn((listener: (event: KernelEvent) => void) => {
+        kernelListeners.add(listener)
+        return () => kernelListeners.delete(listener)
+      }),
+      getKernelSnapshot: vi.fn(async (): Promise<KernelSnapshot> => ({
+        scope: { kind: 'global' },
+        sequence: 5,
+        state: {
+          services: [],
+          agentTurns: [],
+          activeArtifactRun: null,
+          chatTurns: [],
+          activities: [],
+          inferenceProfile: null,
+        },
+      })),
+      existsPath: vi.fn(async () => true),
+      isFolderPath: vi.fn(async () => true),
+      sessions: {
+        taskRunHarness: vi.fn(async () => ({
+          success: true,
+          harness: {
+            harnessSessionId: `aipg-agent-run-${++runHarnesses}`,
+            workspaceDir: '/work/task',
+          },
+        })),
+        saveTimelineMessages: vi.fn(async () => ({ success: true })),
+        harnessSession: vi.fn(async (sessionRef: string) => ({
+          success: true,
+          harness:
+            sessionRef === SESSION
+              ? { harnessSessionId: 'session-open', workspaceDir: '/work/open' }
+              : { harnessSessionId: `harness-${sessionRef}`, workspaceDir: '/work/open' },
+        })),
+        delete: vi.fn(async () => ({ success: true })),
+        open: vi.fn(async (id: string) => ({
+          success: true,
+          session: {
+            id,
+            title: '',
+            renamed: false,
+            createdAt: 1,
+            updatedAt: 1,
+            presetsUsed: [],
+            timeline: [],
+          },
+          missingFiles: [],
+          lastPreset: null,
+        })),
+        create: vi.fn(async () => ({
+          success: true,
+          session: {
+            id: nextSessionId,
+            title: '',
+            renamed: false,
+            createdAt: 1,
+            updatedAt: 1,
+            presetsUsed: [],
+          },
+        })),
+      },
+      agentMode: {
+        startTurn,
+        cancel: vi.fn(async () => {}),
+        saveSession,
+        onExecuteTool: vi.fn(() => () => {}),
+        submitToolResult: vi.fn(),
+        deleteSession: vi.fn(async () => ({ success: true })),
+        bootstrapSessions: vi.fn(async () => ({
+          status: 'ok',
+          activeSessionId: 'session-open',
+          sessions: [openRecord],
+        })),
+        migrateSessions: vi.fn(),
+        saveActiveSessionId: vi.fn(async () => ({ success: true })),
+        readWorkspaceState: vi.fn(async () => ({
+          success: true,
+          section: { workspaceDir: '/work/open', lastWorkspaceByKind: { pick: '/work/open' } },
+        })),
+        migrateWorkspaceState: vi.fn(async () => ({ success: true })),
+        writeWorkspaceState: vi.fn(async () => ({ success: true })),
+        readTasks: vi.fn(async () => ({ success: true, tasks: storedTasks })),
+        saveTask,
+        deleteTask,
+        readDrafts: vi.fn(async () => ({ success: true, drafts: storedDrafts })),
+        saveDraft: vi.fn(async () => ({ success: true })),
+        deleteDraft: vi.fn(async () => ({ success: true })),
+        trialRunHarness: vi.fn(async (agentId: string) => ({
+          success: true,
+          harness: {
+            harnessSessionId: `aipg-agent-trial-${++trialHarnesses}`,
+            workspaceDir: `/trials/${agentId}/files`,
+          },
+        })),
+        discardTrialRun: vi.fn(async () => ({ success: true })),
+      },
+      getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
+      games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
+    },
+  } as unknown as Window & typeof globalThis
+})
+
+afterEach(async () => {
+  const { unregisterAgentModeIpc } = await import('@/assets/js/store/agentModeIpc')
+  unregisterAgentModeIpc()
+})
+
+const { useAgentMode } = await import('@/assets/js/store/agentMode')
+const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
+const { useSessions } = await import('@/assets/js/store/sessions')
+const { trialRunItems } = await import('@/lib/trialRunTimeline')
+
+async function readyStores(...saved: AgentTask[]) {
+  return readyStoresIn({ session: true }, ...saved)
+}
+
+async function readyStoresIn(options: { session: boolean }, ...saved: AgentTask[]) {
+  storedTasks = saved
+  const agentMode = useAgentMode(pinia)
+  await agentMode.init()
+  if (options.session) await useSessions(pinia).create()
+  const tasks = useAgentTasks(pinia)
+  await tasks.init()
+  return { agentMode, tasks }
+}
+
+const sentPrompts = () => startTurn.mock.calls.map(([, prompt]) => prompt)
+/** A Step's turn carries the run's framing; its last line, minus `Step i of n: `, is the Step. */
+const sentSteps = () =>
+  sentPrompts().map((prompt) => (prompt.split('\n').at(-1) ?? '').replace(/^Step \d+ of \d+: /, ''))
+const sentConfig = (call: number) => startTurn.mock.calls[call][2]
+
+async function turnIdOf(call: number): Promise<string> {
+  await vi.waitFor(() => expect(startTurn.mock.calls.length).toBeGreaterThan(call))
+  return startTurn.mock.calls[call][0]
+}
+
+/** Let the turn the `call`-th `startTurn` started finish normally. */
+async function finishTurn(call: number): Promise<void> {
+  const turnId = await turnIdOf(call)
+  const sessionId = sentConfig(call).sessionId
+  for (const chunk of [
+    { type: 'start' },
+    { type: 'text-start', id: 't' },
+    { type: 'text-delta', id: 't', delta: 'done' },
+    { type: 'text-end', id: 't' },
+    { type: 'finish' },
+  ]) {
+    pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk })
+  }
+  pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+}
+
+/** Give the store time to send a further Step, if it (wrongly) would. */
+async function settleMicrotasks(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 10))
+}
+
+const draftOf = (
+  id: string,
+  prompts: string[],
+  overrides: Partial<AgentDraft> = {},
+): AgentDraft => ({
+  agentId: id,
+  name: `Draft ${id}`,
+  settingsTemplate: TEMPLATE,
+  steps: prompts.map((prompt, index) => ({ id: `${id}-d${index}`, prompt })),
+  updatedAt: 5,
+  ...overrides,
+})
+
+describe('a Trial Run', () => {
+  it('runs the Draft’s Steps, not the saved Agent’s', async () => {
+    storedDrafts = [draftOf('t1', ['draft step'])]
+    const { tasks } = await readyStores(task('t1', ['saved step']))
+
+    expect(await tasks.startTrialRun('t1')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['draft step'])
+    expect(window.electronAPI.agentMode.trialRunHarness).toHaveBeenCalledWith('t1')
+  })
+
+  it('runs a saved Agent that has no Draft', async () => {
+    const { tasks } = await readyStores(task('t1', ['saved step']))
+
+    expect(await tasks.startTrialRun('t1')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['saved step'])
+  })
+
+  it('runs an Agent that exists only as a Draft', async () => {
+    storedDrafts = [draftOf('new-1', ['first'])]
+    const { tasks } = await readyStores()
+
+    expect(await tasks.startTrialRun('new-1')).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['first'])
+  })
+
+  it('runs the Draft as it is when Run is pressed, unsaved Step edits included', async () => {
+    const { tasks } = await readyStores(task('t1', ['saved step']))
+    await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'just typed' }] })
+
+    await tasks.startTrialRun('t1')
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['just typed'])
+    expect(saveTask).not.toHaveBeenCalled()
+  })
+
+  it('belongs to no Session', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { agentMode, tasks } = await readyStores(task('t1', ['saved']))
+
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await finishTurn(1)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+
+    expect(sentConfig(0).sessionRef).toBeUndefined()
+    expect(sentConfig(1).sessionRef).toBeUndefined()
+    expect(window.electronAPI.sessions.taskRunHarness).not.toHaveBeenCalled()
+    expect(window.electronAPI.sessions.saveTimelineMessages).not.toHaveBeenCalled()
+    expect(agentMode.liveTurnsIn(SESSION).map((turn) => turn.tag.harnessSessionId)).not.toContain(
+      tasks.trialRuns.t1.harnessSessionId,
+    )
+    expect(Object.keys(useSessions(pinia).sessions)).toEqual([SESSION])
+  })
+
+  it('runs its Steps one after another and ends after the last', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
+    const { tasks } = await readyStores()
+
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await finishTurn(1)
+    await finishTurn(2)
+
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    expect(sentSteps()).toEqual(['one', 'two', 'three'])
+  })
+
+  it('ends after the chosen Step', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
+    const { tasks } = await readyStores()
+
+    await tasks.startTrialRun('t1', { lastStep: 2 })
+    await finishTurn(0)
+    await finishTurn(1)
+
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    await settleMicrotasks()
+    expect(sentSteps()).toEqual(['one', 'two'])
+    expect(tasks.trialRuns.t1).toMatchObject({ stepIndex: 2, stepCount: 2 })
+  })
+
+  it('stops when the user stops it', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { tasks } = await readyStores()
+    await tasks.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+
+    await tasks.stopTrialRun('t1')
+    await settleMicrotasks()
+
+    expect(tasks.trialRuns.t1.state).toBe('stopped')
+    expect(window.electronAPI.agentMode.cancel).toHaveBeenCalledWith(
+      tasks.trialRuns.t1.harnessSessionId,
+      turnId,
+    )
+    expect(sentSteps()).toEqual(['one'])
+  })
+
+  it('is refused while the Agent already has one in flight', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks } = await readyStores()
+    await tasks.startTrialRun('t1')
+    await turnIdOf(0)
+
+    expect(await tasks.startTrialRun('t1')).toEqual({ ok: false, reason: 'running' })
+    expect(window.electronAPI.agentMode.trialRunHarness).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs beside a Trial Run of another Agent', async () => {
+    storedDrafts = [draftOf('t1', ['one']), draftOf('t2', ['two'])]
+    const { tasks } = await readyStores()
+
+    await tasks.startTrialRun('t1')
+    expect(await tasks.startTrialRun('t2')).toEqual({ ok: true })
+
+    await turnIdOf(1)
+    expect(sentSteps().sort()).toEqual(['one', 'two'])
+  })
+
+  it('throws the previous Trial Run of the Agent away when the next one starts', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { agentMode, tasks } = await readyStores()
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    const previous = tasks.trialRuns.t1.harnessSessionId
+    expect(agentMode.sessions[previous]).toBeDefined()
+
+    await tasks.startTrialRun('t1')
+
+    expect(tasks.trialRuns.t1.harnessSessionId).not.toBe(previous)
+    expect(agentMode.sessions[previous]).toBeUndefined()
+    expect(window.electronAPI.agentMode.deleteSession).toHaveBeenCalledWith(previous)
+  })
+
+  it('keeps the last Trial Run until the next one starts', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { agentMode, tasks } = await readyStores()
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+
+    await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'changed' }] })
+
+    const record = agentMode.sessions[tasks.trialRuns.t1.harnessSessionId]
+    expect(record.messages.length).toBeGreaterThan(0)
+    expect(window.electronAPI.agentMode.deleteSession).not.toHaveBeenCalled()
+  })
+
+  it('is thrown away with the Agent', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    const harness = tasks.trialRuns.t1.harnessSessionId
+
+    await tasks.deleteTask('t1')
+
+    expect(tasks.trialRuns.t1).toBeUndefined()
+    expect(agentMode.sessions[harness]).toBeUndefined()
+    expect(window.electronAPI.agentMode.discardTrialRun).toHaveBeenCalledWith('t1')
+  })
+
+  it('is not started for a Draft without Steps', async () => {
+    storedDrafts = [draftOf('t1', [])]
+    const { tasks } = await readyStores()
+
+    expect(await tasks.startTrialRun('t1')).toEqual({ ok: false, reason: 'no-steps' })
+    expect(window.electronAPI.agentMode.trialRunHarness).not.toHaveBeenCalled()
+  })
+
+  it('asks before downloading the Draft’s chat model, and does not start when declined', async () => {
+    inference.missing = new Set(['Template-27B'])
+    requestDownload.mockImplementation(async () => {
+      const { createCancellation } = await import('@/assets/js/errors/appError')
+      throw createCancellation({ technicalMessage: 'declined' })
+    })
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks } = await readyStores()
+
+    const result = await tasks.startTrialRun('t1')
+
+    expect(result).toMatchObject({ ok: false, reason: 'download-declined' })
+    expect(requestDownload).toHaveBeenCalled()
+    expect(window.electronAPI.agentMode.trialRunHarness).not.toHaveBeenCalled()
+  })
+
+  it('fails when a Step fails, keeping why', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { tasks } = await readyStores()
+    await tasks.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
+    pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk: { type: 'start' } })
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId,
+      turnId,
+      chunk: { type: 'error', errorText: 'boom' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('failed'))
+    await settleMicrotasks()
+    expect(tasks.trialRuns.t1.message).toContain('boom')
+    expect(sentSteps()).toEqual(['one'])
+  })
+
+  it('shows as one Turn in the Agent Library, live and once it ended', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { tasks } = await readyStores()
+    await tasks.startTrialRun('t1')
+    await finishTurn(0)
+    await turnIdOf(1)
+
+    const running = trialRunItems(tasks.trialRunView('t1')!)
+    expect(running).toHaveLength(1)
+    expect(running[0]).toMatchObject({
+      kind: 'agent',
+      details: { progress: { step: 2, count: 2 } },
+    })
+
+    await finishTurn(1)
+    await vi.waitFor(() => expect(tasks.trialRuns.t1?.state).toBe('completed'))
+    const ended = trialRunItems(tasks.trialRunView('t1')!)
+    expect(ended).toHaveLength(1)
+    expect(ended[0]).toMatchObject({
+      kind: 'agent',
+      prompt: { agentRun: { name: 'Draft t1' } },
+      footer: { actions: ['copy'] },
+    })
+  })
+})

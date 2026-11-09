@@ -1175,6 +1175,12 @@ export const useAgentMode = defineStore(
       return live
     }
 
+    /** A Harness Session's messages while its turn streams; undefined once it has none. */
+    function streamingMessagesOf(id: string): readonly UIMessage[] | undefined {
+      const runtime = turns.runtimes.value[id]
+      return runtime?.processing.value ? (runtime.chat.messages as UIMessage[]) : undefined
+    }
+
     /** Agent Mode is on screen; a session is in view only while it is, and open. */
     const viewShown = ref(false)
     function setViewShown(shown: boolean): void {
@@ -2274,6 +2280,7 @@ export const useAgentMode = defineStore(
       openSession,
       setViewShown,
       liveTurnsIn,
+      streamingMessagesOf,
       sessionInView,
       deleteSession,
       restoreOpenSession,

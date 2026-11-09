@@ -10,7 +10,6 @@ const trial = {
   harnessSessionId: 'aipg-agent-trial',
   presetName: 'Agent',
   taskRun,
-  steps: ['Read the news', 'Summarize it'],
 }
 
 const message = (id: string, role: 'user' | 'assistant', text: string) => ({
@@ -27,31 +26,24 @@ const twoSteps = [
 ]
 
 describe('a Trial Run in the Agent Library', () => {
-  it('reads like a conversation: each Step is a prompt labelled with its number, then its answer', () => {
+  it('reads like a conversation: each Step is the prompt the model got, labelled with its number, then its answer', () => {
     const items = trialRunItems({ ...trial, saved: twoSteps })
 
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
       kind: 'agent',
-      prompt: { text: 'Read the news', step: 1 },
+      prompt: { text: 'Carry this out in 2 steps.\n\nStep 1 of 2: Read the news', step: 1 },
       answers: [{ id: 'a1' }],
       footer: { actions: ['copy'], text: 'Read it.' },
     })
     expect(items[1]).toMatchObject({
       kind: 'agent',
-      prompt: { text: 'Summarize it', step: 2 },
+      prompt: { text: 'Step 2 of 2: Summarize it', step: 2 },
       answers: [{ id: 'a2' }],
       footer: { actions: ['copy'], text: 'Three headlines.' },
     })
     expect(items[0]).not.toHaveProperty('runKey')
     expect(items[0]).not.toHaveProperty('prompt.agentRun')
-  })
-
-  it('puts the input the run was started with in front of Step 1', () => {
-    const items = trialRunItems({ ...trial, input: 'Only sports', saved: twoSteps })
-
-    expect(items[0]).toMatchObject({ prompt: { text: 'Only sports\n\nRead the news', step: 1 } })
-    expect(items[1]).toMatchObject({ prompt: { text: 'Summarize it', step: 2 } })
   })
 
   it('streams the Step in flight as the last Turn', () => {
@@ -65,7 +57,7 @@ describe('a Trial Run in the Agent Library', () => {
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({ streaming: false })
     expect(items[1]).toMatchObject({
-      prompt: { text: 'Summarize it', step: 2 },
+      prompt: { text: 'Step 2 of 2: Summarize it', step: 2 },
       streaming: true,
       footer: { actions: [] },
     })

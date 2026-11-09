@@ -7,10 +7,6 @@ export type TrialRunView = {
   harnessSessionId: string
   presetName: string
   taskRun: AgentRunTag
-  /** The Step prompts as the run sent them, in order. */
-  steps: readonly string[]
-  /** What the user typed in front of Step 1, if anything. */
-  input?: string
   /** The Harness Session record's messages, which carry no timeline tag of their own. */
   saved: readonly { id: string }[]
   /** The runtime's messages while a Step is streaming. */
@@ -19,7 +15,7 @@ export type TrialRunView = {
   progress?: RunProgress
 }
 
-/** A Trial Run as a conversation: one Turn per Step, its prompt labelled with the Step number. */
+/** A Trial Run as a conversation: one Turn per Step, its prompt as sent, labelled with the Step. */
 export function trialRunItems<
   M extends PendingMedia = PendingMedia,
   A extends PendingAudio = PendingAudio,
@@ -36,9 +32,7 @@ export function trialRunItems<
   for (const item of items) {
     if (item.kind !== 'agent' || !item.prompt) continue
     step++
-    const text = view.steps[step - 1] ?? item.prompt.text
-    const input = step === 1 ? view.input?.trim() : undefined
-    item.prompt = { ...item.prompt, text: input ? `${input}\n\n${text}` : text, step }
+    item.prompt = { ...item.prompt, step }
   }
   const end = view.taskRun.end
   const last = items.at(-1)

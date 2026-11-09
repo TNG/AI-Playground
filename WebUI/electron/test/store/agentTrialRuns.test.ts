@@ -667,8 +667,8 @@ describe('a Trial Run', () => {
 
     const running = trialRunItems(trials.trialRunView('t1')!)
     expect(running).toMatchObject([
-      { prompt: { text: 'one', step: 1 } },
-      { prompt: { text: 'two', step: 2 } },
+      { prompt: { text: sentPrompts()[0], step: 1 } },
+      { prompt: { text: sentPrompts()[1], step: 2 } },
     ])
 
     await finishTurn(1)
@@ -678,7 +678,7 @@ describe('a Trial Run', () => {
     expect(ended[1]).toMatchObject({ kind: 'agent', footer: { actions: ['copy'], text: 'done' } })
   })
 
-  it('puts the input it was started with in front of Step 1, and shows it there', async () => {
+  it('puts the input it was started with into Step 1, and shows Step 1 as sent', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const { trials } = await readyStores()
 
@@ -689,7 +689,7 @@ describe('a Trial Run', () => {
     expect(sentPrompts()[0]).toContain('For this run the user added: "Only sports"')
     expect(sentPrompts()[1]).not.toContain('Only sports')
     expect(trialRunItems(trials.trialRunView('t1')!)[0]).toMatchObject({
-      prompt: { text: 'Only sports\n\none', step: 1 },
+      prompt: { text: sentPrompts()[0], step: 1 },
     })
   })
 })

@@ -11,7 +11,6 @@ import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { stepPrompts } from '@/lib/taskSteps'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import {
   describeSettingsProblems,
@@ -196,8 +195,6 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
         startedAt: run.startedAt,
         trigger: 'manual',
       },
-      steps: stepPrompts(record?.steps ?? []),
-      ...(run.input ? { input: run.input } : {}),
       saved: record?.messages ?? [],
       ...(live ? { live } : {}),
       ...(run.state === 'running'

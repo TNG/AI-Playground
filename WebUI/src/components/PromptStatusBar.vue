@@ -106,7 +106,7 @@
               {{ languages.PROMPT_BAR_AGENT_PRESETS }}
             </DropdownMenuLabel>
             <DropdownMenuRadioGroup
-              :model-value="presetChip.agentId ? '' : presetChip.name"
+              :model-value="pickedPresetName ?? ''"
               @update:model-value="(name) => pickPreset(name as string)"
             >
               <TooltipProvider :delay-duration="200">
@@ -150,7 +150,7 @@
                 languages.AGENT_LIBRARY_LIST
               }}</DropdownMenuLabel>
               <DropdownMenuRadioGroup
-                :model-value="presetChip.agentId ?? ''"
+                :model-value="pickedAgentId ?? ''"
                 @update:model-value="(id) => pickAgent(id as string)"
               >
                 <TooltipProvider :delay-duration="200">
@@ -355,6 +355,7 @@ const errors = useErrors()
 const promptBarStyle = usePromptBarStyle()
 const { gateOf } = usePromptBarPresetSwitch()
 const agentPick = usePromptBarAgentPick()
+const { pickedAgentId, pickedPresetName } = agentPick
 
 const presetChipClass =
   'flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-primary/60 bg-primary/10 px-1.5 text-left'
@@ -460,7 +461,7 @@ const bar = computed(() =>
     presetGate: gateOf,
     style: promptBarStyle.active,
     agents: agentPick.agents.value,
-    pickedAgentId: agentPick.pickedAgentId.value,
+    pickedAgentId: pickedAgentId.value,
   }),
 )
 

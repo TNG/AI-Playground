@@ -59,12 +59,12 @@
                 <button
                   type="button"
                   :aria-label="oemBranding.presetLabel(preset.name)"
-                  :aria-pressed="isPicked(preset.name)"
+                  :aria-pressed="pickedPresetName === preset.name"
                   :aria-disabled="!gateOf(preset).enabled"
                   :data-aipg-preset-name="preset.name"
                   class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
                   :class="[
-                    isPicked(preset.name)
+                    pickedPresetName === preset.name
                       ? 'border-primary ring-2 ring-primary'
                       : 'border-transparent',
                     gateOf(preset).enabled
@@ -113,10 +113,10 @@
                   <button
                     type="button"
                     :aria-label="agent.name"
-                    :aria-pressed="agentTasks.pickedAgent?.id === agent.id"
+                    :aria-pressed="pickedAgentId === agent.id"
                     class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
                     :class="
-                      agentTasks.pickedAgent?.id === agent.id
+                      pickedAgentId === agent.id
                         ? 'border-primary ring-2 ring-primary'
                         : 'border-transparent'
                     "
@@ -198,7 +198,6 @@ import { computed, ref, nextTick, watch } from 'vue'
 import { PlusIcon, Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
-import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
@@ -248,7 +247,7 @@ const oemBranding = useOemBranding()
 const i18nState = useI18N().state
 const { gateOf } = usePromptBarPresetSwitch()
 const agentPick = usePromptBarAgentPick()
-const agentTasks = useAgentTasks()
+const { pickedAgentId, pickedPresetName } = agentPick
 const demoMode = useDemoMode()
 const { newAgent, manageAgents } = useAgentLibraryEntry()
 
@@ -351,11 +350,6 @@ async function selectAgentFromPicker(agentId: string) {
 }
 
 const agents = computed(() => pickableAgents(agentPick.agents.value))
-
-/** An Agent picked on Agent Maker is what is selected, not Agent Maker itself. */
-function isPicked(presetName: string): boolean {
-  return presetsStore.activePresetName === presetName && !agentTasks.pickedAgent
-}
 
 watch(
   () => demoMode.tourOpen,

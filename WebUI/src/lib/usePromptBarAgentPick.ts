@@ -2,7 +2,6 @@ import { computed } from 'vue'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
 import { usePresets } from '@/assets/js/store/presets'
-import { useSessions } from '@/assets/js/store/sessions'
 import { presetToMode } from '@/lib/presetModes'
 import type { PromptBarAgent } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
@@ -11,7 +10,6 @@ import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 export function usePromptBarAgentPick() {
   const agentTasks = useAgentTasks()
   const presetsStore = usePresets()
-  const sessions = useSessions()
   const { switchTo } = usePromptBarPresetSwitch()
 
   /** The Agent Library with each Agent's saved name, description and image, not its Draft's. */
@@ -23,7 +21,12 @@ export function usePromptBarAgentPick() {
     }),
   )
 
-  const pickedAgentId = computed(() => sessions.openSession?.pickedAgentId)
+  /** The open Session's picked Agent, in effect while Agent Maker is the active preset. */
+  const pickedAgentId = computed(() => agentTasks.pickedAgent?.id)
+  /** An Agent picked on Agent Maker is what is selected, not Agent Maker itself. */
+  const pickedPresetName = computed(() =>
+    pickedAgentId.value ? undefined : (presetsStore.activePresetName ?? undefined),
+  )
 
   async function pickAgent(agentId: string): Promise<void> {
     if (await switchTo(AGENT_PRESET, { announce: false })) await agentTasks.pickAgent(agentId)
@@ -38,5 +41,5 @@ export function usePromptBarAgentPick() {
     }
   }
 
-  return { agents, pickedAgentId, pickAgent, pickPreset }
+  return { agents, pickedAgentId, pickedPresetName, pickAgent, pickPreset }
 }

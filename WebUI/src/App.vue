@@ -64,7 +64,7 @@
               id="app-settings-button"
               type="button"
               :aria-label="languages.COM_APP_SETTINGS"
-              @click="openAppSettings"
+              @click="openAppSettings()"
             >
               <Cog6ToothIcon class="size-6 text-foreground"></Cog6ToothIcon>
             </button>
@@ -72,7 +72,10 @@
           <TooltipContent side="bottom">{{ languages.COM_APP_SETTINGS }}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <ThemeMenu />
+      <ThemeMenu
+        :can-customize="globalSetup.loadingState === 'running'"
+        @customize="openAppSettings('theme')"
+      />
       <button
         v-if="globalSetup.loadingState === 'running'"
         id="contextual-help-toggle"
@@ -183,7 +186,11 @@
   >
     <SessionsPanel />
 
-    <SideModalAppSettings :isVisible="showAppSettings" @close="showAppSettings = false" />
+    <SideModalAppSettings
+      :isVisible="showAppSettings"
+      :section="appSettingsSection"
+      @close="theme.guardUnsaved(() => (showAppSettings = false))"
+    />
 
     <SessionTabView>
       <template #viewport>
@@ -293,7 +300,9 @@ import SessionTabView from '@/components/SessionTabView.vue'
 import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
 import SchedulesPanel from '@/components/SchedulesPanel.vue'
-import SideModalAppSettings from '@/components/SideModalAppSettings.vue'
+import SideModalAppSettings, {
+  type AppSettingsSection,
+} from '@/components/SideModalAppSettings.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
@@ -317,11 +326,14 @@ import { useConversations } from '@/assets/js/store/conversations'
 
 const theme = useTheme()
 
+// Built-in Theme colours come from the stylesheet; only a Custom Theme overrides them on the root.
 watch(
-  () => theme.activeColors,
+  () => (theme.activeCustomTheme ? theme.activeColors : null),
   (colors) => {
     const root = document.documentElement
-    for (const [token, value] of Object.entries(colors)) root.style.setProperty(`--${token}`, value)
+    for (const token of theme.colorTokens)
+      if (colors) root.style.setProperty(`--${token}`, colors[token])
+      else root.style.removeProperty(`--${token}`)
   },
   { immediate: true },
 )
@@ -367,6 +379,7 @@ useModePromptHandlers({
 
 const isOpen = ref(false)
 const showAppSettings = ref(false)
+const appSettingsSection = ref<{ name: AppSettingsSection }>()
 const fullscreen = ref(false)
 
 const platformTitle = window.envVars.platformTitle
@@ -442,7 +455,7 @@ onMounted(async () => {
     (baseTheme) => {
       const root = document.documentElement
       root.classList.remove('dark', 'lnl', 'bmg', 'light')
-      if (baseTheme !== 'light') root.classList.add(baseTheme)
+      if (baseTheme && baseTheme !== 'light') root.classList.add(baseTheme)
     },
     { immediate: true },
   )
@@ -478,8 +491,10 @@ function openDevTools() {
   window.electronAPI.openDevTools()
 }
 
-function openAppSettings() {
+function openAppSettings(section?: AppSettingsSection) {
   if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
+  // A fresh object per request, so asking again while open scrolls again.
+  appSettingsSection.value = section && { name: section }
   showAppSettings.value = true
 }
 

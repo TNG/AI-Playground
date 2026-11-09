@@ -12,11 +12,29 @@
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" class="min-w-48">
-              <DropdownMenuRadioGroup :model-value="theme.active" @update:model-value="selectTheme">
+              <DropdownMenuRadioGroup
+                :model-value="theme.selectedId"
+                @update:model-value="selectTheme"
+              >
                 <DropdownMenuRadioItem v-for="t in theme.builtInThemes" :key="t.id" :value="t.id">
                   {{ t.name }}
                 </DropdownMenuRadioItem>
+                <DropdownMenuSeparator v-if="theme.validCustomThemes.length" />
+                <DropdownMenuRadioItem
+                  v-for="t in theme.validCustomThemes"
+                  :key="t.id"
+                  :value="t.id"
+                >
+                  {{ t.name }}
+                </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
+              <template v-if="canCustomize && !demoMode.enabled">
+                <DropdownMenuSeparator />
+                <DropdownMenuItem @select="emit('customize')">
+                  <PaintBrushIcon />
+                  {{ languages.THEME_CUSTOMIZE }}
+                </DropdownMenuItem>
+              </template>
             </DropdownMenuContent>
           </DropdownMenu>
         </span>
@@ -28,22 +46,29 @@
 
 <script setup lang="ts">
 import { SwatchIcon } from '@heroicons/vue/24/solid'
+import { PaintBrushIcon } from '@heroicons/vue/24/outline'
 import { useTheme } from '@/assets/js/store/theme'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
+defineProps<{ canCustomize: boolean }>()
+const emit = defineEmits<{ customize: [] }>()
+
 const theme = useTheme()
+const demoMode = useDemoMode()
 const languages = useI18N().state
 
 function selectTheme(value: unknown) {
-  const match = theme.builtInThemes.find((t) => t.id === value)
-  if (match) theme.selected = match.id
+  if (typeof value === 'string') theme.guardUnsaved(() => theme.selectTheme(value))
 }
 </script>

@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="item.kind === 'message'"
-    class="mx-auto w-full max-w-3xl text-sm text-muted-foreground whitespace-pre-wrap"
+    class="w-full text-sm text-muted-foreground whitespace-pre-wrap"
     :class="{ 'text-right': item.message.role === 'user' }"
   >
     {{ plainText(item.message) }}

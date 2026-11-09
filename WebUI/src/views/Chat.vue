@@ -6,7 +6,7 @@
     ref="chatPanel"
     class="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 relative"
   >
-    <div class="w-full max-w-4xl mx-auto flex flex-col gap-6">
+    <div class="w-full flex flex-col gap-6">
       <SessionMessage
         v-for="message in messages"
         :key="message.id"

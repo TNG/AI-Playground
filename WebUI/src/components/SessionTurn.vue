@@ -1,5 +1,5 @@
 <template>
-  <div class="mx-auto flex w-full max-w-3xl flex-col gap-6">
+  <div class="flex w-full flex-col gap-6">
     <slot name="prompt" />
     <div class="flex flex-col gap-3">
       <slot name="details" />

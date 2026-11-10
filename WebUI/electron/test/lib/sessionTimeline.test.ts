@@ -7,6 +7,7 @@ import {
   timelineTurns,
   withLiveAgentTurn,
 } from '@/lib/sessionTimeline'
+import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
@@ -116,6 +117,39 @@ describe('an Agent Run in the timeline', () => {
       prompt: { text: '', agentRun: { trigger: 'manual', name: 'Morning digest', startedAt: 500 } },
       answers: [{ id: 'r2' }, { id: 'r4' }],
     })
+  })
+
+  it("shows the user's input for the run under its header", () => {
+    const withInput: AgentTurnTag = {
+      ...runTag,
+      taskRun: { ...runTag.taskRun!, input: 'only news from Germany' },
+    }
+    const turns = timelineTurns([
+      runMessage('r1', 'user', undefined, withInput),
+      runMessage('r2', 'assistant', undefined, withInput),
+    ])
+
+    expect(turns[0]).toMatchObject({
+      prompt: { text: 'only news from Germany', agentRun: { name: 'Morning digest' } },
+    })
+  })
+
+  it("recovers the input of a run recorded before it was kept, from Step 1's prompt", () => {
+    const step1 = firstStepTurn('only "German" news', ['search', 'summarise'])
+    const turns = timelineTurns([
+      runMessage('r1', 'user', [{ type: 'text', text: step1 }]),
+      runMessage('r2', 'assistant'),
+      runMessage('r3', 'user', [{ type: 'text', text: stepTurn(2, ['search', 'summarise']) }]),
+    ])
+
+    expect(turns[0]).toMatchObject({ prompt: { text: 'only "German" news' } })
+  })
+
+  it('keeps only the header for a run started without input', () => {
+    const step1 = firstStepTurn('', ['search', 'summarise'])
+    const turns = timelineTurns([runMessage('r1', 'user', [{ type: 'text', text: step1 }])])
+
+    expect(turns[0]).toMatchObject({ prompt: { text: '', agentRun: { name: 'Morning digest' } } })
   })
 
   it('shows its Follow-ups as plain prompts to the Agent, apart from the run', () => {

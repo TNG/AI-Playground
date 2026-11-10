@@ -58,6 +58,8 @@ export const AgentRunTagSchema = z.object({
   taskName: z.string(),
   startedAt: z.number(),
   trigger: z.enum(['manual', 'scheduled']).optional(),
+  /** What the user typed for this run, folded into Step 1. */
+  input: z.string().optional(),
   end: z.object({ kind: z.enum(['failed', 'stopped']), message: z.string().optional() }).optional(),
 })
 export type AgentRunTag = z.infer<typeof AgentRunTagSchema>

@@ -549,6 +549,19 @@ describe('running a Task', () => {
     })
   })
 
+  it("keeps the user's input on the run, trimmed, for its Turn to show", async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
+    await tasks.runTask('t1', '  only news from Germany ')
+    await turnIdOf(0)
+    await tasks.runTask('t2', '   ')
+    await turnIdOf(1)
+
+    expect(agentMode.sessions[sentConfig(0).sessionId].taskRun?.input).toBe(
+      'only news from Germany',
+    )
+    expect(agentMode.sessions[sentConfig(1).sessionId].taskRun).not.toHaveProperty('input')
+  })
+
   it('files the Agent Run under Agent Maker', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks(pinia)

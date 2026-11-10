@@ -1123,6 +1123,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         taskName: plan.name,
         startedAt: Date.now(),
         trigger: scheduled ? 'scheduled' : 'manual',
+        ...(prompt.trim() ? { input: prompt.trim() } : {}),
       },
     })
     runContexts[sessionId] = { plan, abort: new AbortController(), scheduled, prompt }

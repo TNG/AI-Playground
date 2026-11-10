@@ -16,6 +16,7 @@ import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
+import { runInputOf } from '@/lib/taskSteps'
 import {
   generationFailure,
   oneLine,
@@ -756,8 +757,12 @@ export function timelineTurns(
     }
     if (run && isUIMessage(message)) {
       if (marked?.run.end) run.end = marked.run.end
-      if (message.role === 'user') run.steps.push({ prompt: message, answers: [] })
-      else {
+      if (message.role === 'user') {
+        if (run.steps.length === 0 && run.turn.prompt && !run.turn.prompt.text) {
+          run.turn.prompt.text = runInputOf(messageText(message)) ?? ''
+        }
+        run.steps.push({ prompt: message, answers: [] })
+      } else {
         if (run.steps.length === 0) run.steps.push({ answers: [] })
         run.steps.at(-1)!.answers.push(message)
         run.turn.answers.push(message)
@@ -918,7 +923,7 @@ function openRun(key: string, id: string, tag: AgentTurnTag, taskRun: AgentRunTa
       runKey: key,
       artifacts: [],
       audioArtifacts: [],
-      prompt: { text: '', agentRun },
+      prompt: { text: taskRun.input ?? '', agentRun },
       answers: [],
     },
   }

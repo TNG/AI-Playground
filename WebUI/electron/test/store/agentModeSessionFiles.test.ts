@@ -75,6 +75,7 @@ vi.mock('@ai-sdk/vue', () => ({
 }))
 
 const agentModeApi = {
+  sessionDocuments: vi.fn(async () => []),
   cancel: vi.fn(async () => {}),
   deleteSession: vi.fn(async (): Promise<{ success: boolean; error?: string }> => ({
     success: true,

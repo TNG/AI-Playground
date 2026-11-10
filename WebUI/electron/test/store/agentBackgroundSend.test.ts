@@ -183,6 +183,7 @@ beforeEach(() => {
       existsPath,
       isFolderPath: vi.fn(async () => true),
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn,
         cancel,
         saveSession,

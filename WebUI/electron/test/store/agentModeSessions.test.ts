@@ -98,6 +98,7 @@ const gamesList = vi.fn(async () => [{ dir: '/games/space-dodger' }])
 globalThis.window = {
   electronAPI: {
     agentMode: {
+      sessionDocuments: vi.fn(async () => []),
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       // Agent notifications ride the kernel stream; only the executeTool

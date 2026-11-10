@@ -227,6 +227,7 @@ function fakeWindow(): void {
   globalThis.window = {
     electronAPI: {
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         cancel: vi.fn(async () => {}),
         onExecuteTool: vi.fn(),
         bootstrapSessions: vi.fn(async () => bootstrap),

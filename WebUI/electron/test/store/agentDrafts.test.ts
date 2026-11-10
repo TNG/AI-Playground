@@ -280,6 +280,7 @@ beforeEach(() => {
         })),
       },
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn: vi.fn(async () => ({ success: true })),
         cancel: vi.fn(),
         saveSession: vi.fn(async () => ({ success: true })),

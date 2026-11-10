@@ -170,6 +170,7 @@ beforeEach(() => {
         saveTimelineMessages: vi.fn(async () => ({ success: true })),
       },
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn: vi.fn(async () => ({ success: true })),
         cancel: vi.fn(),
         saveSession: vi.fn(async () => ({ success: true })),

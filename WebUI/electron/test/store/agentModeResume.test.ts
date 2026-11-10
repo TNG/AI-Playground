@@ -74,6 +74,7 @@ beforeEach(() => {
       ),
       reportInFlightWork: vi.fn(),
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         onExecuteTool: vi.fn(),
         submitToolResult: vi.fn(),
         startTurn,

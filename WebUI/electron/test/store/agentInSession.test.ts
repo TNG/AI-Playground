@@ -109,6 +109,7 @@ const agentCancel = vi.fn(async () => {})
 globalThis.window = {
   electronAPI: {
     agentMode: {
+      sessionDocuments: vi.fn(async () => []),
       cancel: agentCancel,
       deleteSession: vi.fn(async () => ({ success: true })),
       saveSession: vi.fn(async () => ({ success: true })),

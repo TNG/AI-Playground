@@ -14,7 +14,7 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',

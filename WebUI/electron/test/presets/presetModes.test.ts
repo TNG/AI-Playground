@@ -93,12 +93,32 @@ describe('shipped agent presets', () => {
     (entry) => entry.preset.type === 'chat' && (entry.preset as ChatPreset).agentPreset,
   )
 
-  it('ships the Agent and Game Agent presets', () => {
+  it('ships Assistant, Game Agent and Quick Coder on the harness, and no Agent Maker', () => {
     expect(agentPresets.map((entry) => entry.preset.name).sort()).toEqual([
-      'Agent',
+      'Assistant',
       'Game Agent',
       'Quick Coder',
     ])
+  })
+
+  it('gives Assistant its own prompt, the Session Folder and a 32k context, in demo mode too', () => {
+    const demoDir = path.resolve(presetsDir, '../demo')
+    const demo = PresetSchema.parse(
+      JSON.parse(readFileSync(path.join(demoDir, 'assistant.json'), 'utf-8')),
+    ) as ChatPreset
+    const shipped = agentPresets.find((entry) => entry.preset.name === 'Assistant')
+      ?.preset as ChatPreset
+    for (const assistant of [shipped, demo]) {
+      expect(assistant.name).toBe('Assistant')
+      expect(assistant.agentPreset).toBe(true)
+      expect(assistant.agentOwnsPrompt).toBe(true)
+      expect(assistant.agentWorkspace).toBe('pick')
+      expect(assistant.agentCapabilities).toBeUndefined()
+      expect(assistant.contextSize).toBe(32768)
+      expect(assistant.systemPrompt).not.toMatch(/coding/i)
+      expect(assistant.systemPrompt?.length ?? 0).toBeGreaterThan(0)
+    }
+    expect(demo.systemPrompt).not.toBe(shipped.systemPrompt)
   })
 
   it('declares a workspace policy and tool calling', () => {

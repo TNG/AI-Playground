@@ -93,6 +93,11 @@ export const AgentModeTurnConfigSchema = z.object({
    */
   mediaAgent: MediaAgentCatalogSchema.optional(),
   instructions: z.string().optional(),
+  /**
+   * The preset's `agentOwnsPrompt`: `instructions` replace Pi's coding-agent prompt, and the
+   * file and shell tools come only with the `files` capability.
+   */
+  ownsPrompt: z.boolean().optional(),
   /** The agent preset this turn was held with, for labelling its trace. */
   presetName: z.string().optional(),
   capabilities: z.array(z.string()).optional(),

@@ -139,8 +139,10 @@ describe('sessionTabsPresetKind', () => {
     expect(sessionTabsPresetKind('video', null)).toBe('video')
   })
 
-  it('tells Agent Maker and the other Agent Presets apart', () => {
-    expect(sessionTabsPresetKind('agent', { name: 'Agent', agentPreset: true })).toBe('agent-maker')
+  it('tells Assistant and the other Agent Presets apart', () => {
+    expect(sessionTabsPresetKind('agent', { name: 'Assistant', agentPreset: true })).toBe(
+      'agent-maker',
+    )
     expect(sessionTabsPresetKind('agent', { name: 'Game Agent', agentPreset: true })).toBe(
       'agent-preset',
     )

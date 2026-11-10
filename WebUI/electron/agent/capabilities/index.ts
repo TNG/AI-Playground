@@ -2,6 +2,7 @@ import type { ExtensionFactory, ToolDefinition } from '@earendil-works/pi-coding
 import { appLoggerInstance } from '../../observability/logger.ts'
 import type { SkillSource } from '../piCustomTools.ts'
 import { createCapabilitiesExtension } from './core.ts'
+import { filesCapability } from './files.ts'
 import { gameStudioCapability, gameStudioQuickCapability } from './gameStudio.ts'
 import { mediaCapability } from './media.ts'
 import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
@@ -42,6 +43,7 @@ export { DEFAULT_CAPABILITY_IDS } from '@/types/agentCapabilities'
 
 /** Built-in capabilities, in the order their tools are registered. */
 const BUILT_IN_CAPABILITIES: AgentCapability[] = [
+  filesCapability,
   webDebugCapability,
   webCapability,
   mediaCapability,

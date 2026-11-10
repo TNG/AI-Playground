@@ -99,6 +99,26 @@ describe('buildTurnConfig readiness (step 15)', () => {
     })
   })
 
+  it('tells main when the preset owns its prompt', async () => {
+    const config = await buildTurnConfig({
+      sessionId: 'aipg-agent-1',
+      workspaceDir: '/tmp/ws',
+      presetName: 'Assistant',
+      instructions: 'Be helpful.',
+      ownsPrompt: true,
+      capabilities: [],
+      unsandboxed: false,
+      planningThinkingOnly: false,
+      textInference: localInference() as never,
+      cloudMode: {
+        selectedProviderId: 'openai',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+    })
+    expect(config.ownsPrompt).toBe(true)
+  })
+
   it('names the Session the turn belongs to, so main files its History Entry there', async () => {
     const config = await buildTurnConfig({
       sessionId: 'aipg-agent-1',

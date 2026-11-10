@@ -5,8 +5,8 @@ import { useOemBranding } from '@/assets/js/store/oemBranding'
 describe('presetLabel', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('shows the Agent preset as Agent Maker', () => {
-    expect(useOemBranding().presetLabel('Agent')).toBe('Agent Maker')
+  it('shows Assistant under its own name', () => {
+    expect(useOemBranding().presetLabel('Assistant')).toBe('Assistant')
   })
 
   it('leaves other presets their own name', () => {
@@ -17,6 +17,6 @@ describe('presetLabel', () => {
     const branding = useOemBranding()
     branding.vendor = 'acer'
     expect(branding.presetLabel('Quick Coder')).toBe('Acer Quick Coder')
-    expect(branding.presetLabel('Agent')).toBe('Agent Maker')
+    expect(branding.presetLabel('Assistant')).toBe('Assistant')
   })
 })

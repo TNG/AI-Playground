@@ -15,7 +15,7 @@ import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -184,7 +184,7 @@ const openRecord = {
   messages: [{ id: 'open-u1', role: 'user', parts: [{ type: 'text', text: 'what I am doing' }] }],
   createdAt: 1,
   updatedAt: 2,
-  presetName: 'Agent',
+  presetName: 'Assistant',
   settings: { backend: 'llamaCPP', model: 'Live-9B', capabilities: ['files'] },
 }
 
@@ -527,7 +527,7 @@ describe('running a Task', () => {
     expect(agentMode.sessions[sessionId]).toMatchObject({
       workspaceDir: '/work/task',
       title: 'Task t1',
-      presetName: 'Agent',
+      presetName: 'Assistant',
       taskId: 't1',
       settings: TEMPLATE,
     })
@@ -570,8 +570,8 @@ describe('running a Task', () => {
 
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
-    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Agent' })
-    expect(sentConfig(0)).toMatchObject({ presetName: 'Agent' })
+    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Assistant' })
+    expect(sentConfig(0)).toMatchObject({ presetName: 'Assistant' })
   })
 
   it('frames each Step with its place in the run', async () => {
@@ -646,7 +646,7 @@ describe('the settings a run uses', () => {
     for (const call of [0, 1]) {
       expect(sentConfig(call)).toMatchObject({
         workspaceDir: '/work/task',
-        presetName: 'Agent',
+        presetName: 'Assistant',
         capabilities: ['files', 'web'],
         modelConfig: { model: 'Template-27B' },
       })
@@ -788,7 +788,7 @@ describe('a run in the background', () => {
     await finishTurn(0)
 
     await turnIdOf(1)
-    expect(sentConfig(1)).toMatchObject({ sessionId, presetName: 'Agent' })
+    expect(sentConfig(1)).toMatchObject({ sessionId, presetName: 'Assistant' })
     expect(agentMode.sessions[sessionId]).toMatchObject({
       taskId: 't1',
       workspaceDir: '/work/task',
@@ -1300,7 +1300,7 @@ describe('the app closing during a run', () => {
           messages: [],
           createdAt: 1,
           updatedAt: 2,
-          presetName: 'Agent',
+          presetName: 'Assistant',
           settings: TEMPLATE,
           taskId: 't1',
           sessionRef: SESSION,
@@ -1337,7 +1337,7 @@ describe('the app closing during a run', () => {
           messages: [],
           createdAt: 1,
           updatedAt: 2,
-          presetName: 'Agent',
+          presetName: 'Assistant',
           settings: TEMPLATE,
           taskId: 't1',
         },
@@ -1407,7 +1407,7 @@ describe('the app closing during a run', () => {
       messages: [{ id: 'old-u1', role: 'user', parts: [{ type: 'text', text: 'one' }] }],
       createdAt: 1,
       updatedAt: 2,
-      presetName: 'Agent',
+      presetName: 'Assistant',
       settings: TEMPLATE,
       taskId: 't1',
     }
@@ -1861,7 +1861,7 @@ describe('following up on a picked Agent’s run', () => {
         messages: [{ id: 'old-u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
         createdAt: 1,
         updatedAt: 2,
-        presetName: 'Agent',
+        presetName: 'Assistant',
         sessionRef: SESSION,
         agentChat: FOLLOW_UP,
       },
@@ -1960,7 +1960,7 @@ function runRecord(
     messages: [{ id: `${id}-u1`, role: 'user', parts: [{ type: 'text', text: 'one' }] }],
     createdAt: run.startedAt,
     updatedAt: run.startedAt,
-    presetName: 'Agent',
+    presetName: 'Assistant',
     settings: TEMPLATE,
     taskId: 't1',
     sessionRef,

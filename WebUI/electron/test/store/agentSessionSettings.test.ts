@@ -13,7 +13,7 @@ type Bag = Record<string, unknown>
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP', 'openVINO'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -63,7 +63,7 @@ const chat = vi.hoisted(() => {
     binding: null as Binding | null,
     live: {} as Bag,
     settingsPerPreset: {} as Record<string, Bag>,
-    presetName: () => 'Agent',
+    presetName: () => 'Assistant',
     catalog: [] as { name: string; type: string }[],
   }
   const models = () => (state.live.selectedModels ?? {}) as Record<string, string | null>
@@ -71,7 +71,7 @@ const chat = vi.hoisted(() => {
   const apply = (bag: Bag) => {
     state.live = { backend: 'llamaCPP', ...JSON.parse(JSON.stringify(bag)) }
   }
-  const sessionScoped = () => state.presetName() === 'Agent'
+  const sessionScoped = () => state.presetName() === 'Assistant'
   return {
     state,
     store: {
@@ -255,7 +255,7 @@ beforeEach(() => {
   chat.state.presetName = () => activePreset.value.name
   chat.state.live = { backend: 'llamaCPP' }
   chat.state.settingsPerPreset = {
-    Agent: { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Default-9B' } },
+    Assistant: { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Default-9B' } },
   }
 })
 
@@ -315,7 +315,7 @@ describe('Agent Session Settings', () => {
 
     expect(savedSettings(first)).toMatchObject({ backend: 'llamaCPP', model: 'Default-9B' })
     expect(savedSettings(second)).toMatchObject({ backend: 'openVINO', model: 'Phi-4' })
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       backend: 'llamaCPP',
       selectedModels: { llamaCPP: 'Default-9B' },
     })
@@ -420,8 +420,8 @@ describe('Agent Session Settings', () => {
   })
 
   it('starts a Draft Session with the default capabilities and planning flag', async () => {
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       agentCapabilities: ['web', 'mcp:blender'],
       agentPlanningThinkingOnly: false,
     }
@@ -488,8 +488,8 @@ describe('Agent Session Settings', () => {
     })
 
     it('starts a Draft Session with the Default Settings’ folders', async () => {
-      chat.state.settingsPerPreset.Agent = {
-        ...chat.state.settingsPerPreset.Agent,
+      chat.state.settingsPerPreset.Assistant = {
+        ...chat.state.settingsPerPreset.Assistant,
         agentMountedFolders: [notes],
       }
       const store = await startedStore()
@@ -502,7 +502,7 @@ describe('Agent Session Settings', () => {
       store.setMountedFolders([notes])
       store.saveAsDefault()
 
-      expect(chat.state.settingsPerPreset.Agent.agentMountedFolders).toEqual([notes])
+      expect(chat.state.settingsPerPreset.Assistant.agentMountedFolders).toEqual([notes])
     })
 
     it('offers none to Game Agent', async () => {
@@ -524,7 +524,7 @@ describe('Agent Session Settings', () => {
     await store.init()
     await store.newSession()
 
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       agentCapabilities: ['web', 'mcp:old'],
       agentPlanningThinkingOnly: false,
     })
@@ -532,7 +532,7 @@ describe('Agent Session Settings', () => {
     store.defaultCapabilities = ['media']
     store.planningThinkingOnly = true
     await store.newSession()
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       agentCapabilities: ['web', 'mcp:old'],
       agentPlanningThinkingOnly: false,
     })
@@ -549,7 +549,7 @@ describe('Agent Session Settings', () => {
           title: 'old',
           createdAt: 1,
           updatedAt: 2,
-          presetName: 'Agent',
+          presetName: 'Assistant',
           capabilities: ['web', 'mcp:legacy'],
           messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
         },
@@ -581,12 +581,12 @@ describe('Agent Session Settings', () => {
     store.saveAsDefault()
 
     expect(saveSession).not.toHaveBeenCalled()
-    expect(chat.state.settingsPerPreset.Agent).toMatchObject({
+    expect(chat.state.settingsPerPreset.Assistant).toMatchObject({
       backend: 'openVINO',
       selectedModels: { openVINO: 'Phi-4' },
       thinkingEnabled: false,
     })
-    expect(chat.state.settingsPerPreset.Agent.agentCapabilities).toContain('mcp:blender')
+    expect(chat.state.settingsPerPreset.Assistant.agentCapabilities).toContain('mcp:blender')
 
     await store.newSession()
     expect(live()).toEqual({ backend: 'openVINO', model: 'Phi-4' })
@@ -639,7 +639,7 @@ describe('Agent Session Settings', () => {
     title: 'old',
     createdAt: 1,
     updatedAt: 2,
-    presetName: 'Agent',
+    presetName: 'Assistant',
     messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
     ...overrides,
   })
@@ -652,8 +652,8 @@ describe('Agent Session Settings', () => {
   }
 
   it('fills a record saved without settings from the defaults and stores it once', async () => {
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       thinkingEnabled: false,
     }
     await openedWith(oldRecord('aipg-agent-old'))
@@ -668,8 +668,8 @@ describe('Agent Session Settings', () => {
   })
 
   it('fills only the missing field and keeps what the session stored', async () => {
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       thinkingEnabled: false,
     }
     await openedWith(
@@ -685,8 +685,8 @@ describe('Agent Session Settings', () => {
 
   it('stops following the defaults once filled', async () => {
     const store = await openedWith(oldRecord('aipg-agent-old'))
-    chat.state.settingsPerPreset.Agent = {
-      ...chat.state.settingsPerPreset.Agent,
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
       selectedModels: { llamaCPP: 'Changed-27B' },
     }
     await store.newSession()

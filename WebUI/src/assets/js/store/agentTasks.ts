@@ -15,7 +15,7 @@ import type {
   AgentTaskSchedule,
   AgentTaskStep,
 } from '@/types/agentTaskIpc'
-import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
+import { AGENT_TEMPLATE_CAPABILITY_IDS, MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 import {
   useAgentMode,
   type SendToSessionResult,
@@ -740,7 +740,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const draft: AgentDraft = {
       agentId: crypto.randomUUID(),
       name: '',
-      settingsTemplate: {},
+      settingsTemplate: { capabilities: [...AGENT_TEMPLATE_CAPABILITY_IDS] },
       steps: [],
       updatedAt: Date.now(),
     }
@@ -1068,7 +1068,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function scheduledRefusal(task: AgentTask): string | null {
     if (!presets.presets.some((preset) => isHarnessChatPreset(preset.name))) {
-      return i18n.state.AGENT_TASK_PRESET_UNAVAILABLE ?? 'The Agent Maker preset is not available.'
+      return i18n.state.AGENT_TASK_PRESET_UNAVAILABLE ?? 'The Assistant preset is not available.'
     }
     const needsMcp = (task.settingsTemplate.capabilities ?? []).some((id) =>
       id.startsWith(MCP_CAPABILITY_PREFIX),

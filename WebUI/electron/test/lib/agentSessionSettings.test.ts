@@ -10,11 +10,11 @@ import {
 } from '@/lib/agentSessionSettings'
 
 describe('usesSessionSettings', () => {
-  it('is true for the Agent preset only', () => {
-    expect(usesSessionSettings({ name: 'Agent', agentPreset: true })).toBe(true)
+  it('is true for the Assistant preset only', () => {
+    expect(usesSessionSettings({ name: 'Assistant', agentPreset: true })).toBe(true)
     expect(usesSessionSettings({ name: 'Game Agent', agentPreset: true })).toBe(false)
     expect(usesSessionSettings({ name: 'Quick Coder', agentPreset: true })).toBe(false)
-    expect(usesSessionSettings({ name: 'Assistant' })).toBe(false)
+    expect(usesSessionSettings({ name: 'Agent', agentPreset: true })).toBe(false)
     expect(usesSessionSettings(null)).toBe(false)
   })
 })

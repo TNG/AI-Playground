@@ -309,3 +309,77 @@ describe('the Session Update and session_history for an agent preset', () => {
     expect(JSON.stringify(toolMessages)).toContain('Draft Image')
   }, 30000)
 })
+
+type OfferedTools = { tools?: Array<{ function?: { name?: string } }> }
+
+function offeredToolNames(body: Body | undefined): string[] {
+  return ((body as OfferedTools | undefined)?.tools ?? []).map((tool) => tool.function?.name ?? '')
+}
+
+function systemPrompt(body: Body | undefined): string {
+  const system = body?.messages?.find((message) => message.role === 'system')
+  return typeof system?.content === 'string' ? system.content : JSON.stringify(system?.content)
+}
+
+describe('the Assistant preset in a Session', () => {
+  const ASSISTANT_PROMPT = 'You are a friendly assistant. Answer plainly.'
+
+  async function assistantConfig(
+    sessionId: string,
+    capabilities?: string[],
+  ): Promise<AgentModeTurnConfig> {
+    const { harnessSessionId, workspaceDir } = await harness.harnessSessionFor(
+      sessionId,
+      'Assistant',
+    )
+    return {
+      sessionId: harnessSessionId,
+      sessionRef: sessionId,
+      presetName: 'Assistant',
+      ownsPrompt: true,
+      instructions: ASSISTANT_PROMPT,
+      workspaceDir,
+      modelConfig: { source: 'local', model: 'test-model', baseUrl: BACKEND, contextWindow: 32768 },
+      toolSpecs: [],
+      ...(capabilities ? { capabilities } : {}),
+    }
+  }
+
+  it('sends its own prompt instead of the coding agent, from the Session Folder', async () => {
+    const session = await sessions.createSession()
+    const config = await assistantConfig(session.id)
+    expect(config.workspaceDir).toBe(sessions.sessionPaths(session.id).filesDir)
+
+    await manager.startAgentTurn('t1', 'why is the sky blue?', config)
+
+    const prompt = systemPrompt(bodies[0])
+    expect(prompt).toContain(ASSISTANT_PROMPT)
+    expect(prompt).not.toContain('coding assistant operating inside pi')
+    expect(prompt).not.toContain('project workspace')
+    expect(prompt).not.toContain('<available_skills>')
+  }, 30000)
+
+  it('offers web tools by default, and no file, shell, notify or browser tools', async () => {
+    const session = await sessions.createSession()
+
+    await manager.startAgentTurn('t1', 'hello', await assistantConfig(session.id))
+
+    const offered = offeredToolNames(bodies[0])
+    expect(offered).toEqual(expect.arrayContaining(['web_search', 'web_fetch', 'session_history']))
+    for (const name of ['read', 'write', 'edit', 'bash', 'notify_user', 'browser']) {
+      expect(offered).not.toContain(name)
+    }
+  }, 30000)
+
+  it('gets file and shell tools, and where they work, once files is switched on', async () => {
+    const session = await sessions.createSession()
+
+    await manager.startAgentTurn('t1', 'hello', await assistantConfig(session.id, ['files', 'web']))
+
+    expect(offeredToolNames(bodies[0])).toEqual(expect.arrayContaining(['read', 'write', 'bash']))
+    const prompt = systemPrompt(bodies[0])
+    expect(prompt).toContain(ASSISTANT_PROMPT)
+    expect(prompt).toContain('project workspace')
+    expect(prompt).not.toContain('coding assistant operating inside pi')
+  }, 30000)
+})

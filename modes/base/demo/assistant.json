@@ -2,21 +2,21 @@
   "type": "chat",
   "category": "chat",
   "name": "Assistant",
-  "description": "General-purpose chat. Pick any model and filter it by capability (vision, reasoning, tools, NPU). Supports documents (RAG), tool calling, and a custom system prompt.",
+  "description": "General-purpose chat. It can generate images, search the web and your documents, and speak. Switch on file and shell tools, memory and more in its settings, or save the settings as an agent you can run again or on a schedule.",
   "displayPriority": 100,
   "tags": ["Chat", "Assistant", "General"],
   "backends": ["llamaCPP", "openVINO"],
+  "agentPreset": true,
+  "agentWorkspace": "pick",
+  "agentOwnsPrompt": true,
   "preferredModels": {
-    "openVINO": "OpenVINO/Qwen3-8B-int4-cw-ov",
+    "openVINO": "OpenVINO/Qwen3.5-9B-int4-ov",
     "llamaCPP": "unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf"
   },
   "systemPrompt": "You are a helpful AI assistant with access to tools. You can call functions to generate images, process workflows, and perform various tasks. Use tools when appropriate to help the user accomplish their goals.",
   "contextSize": 32768,
   "maxNewTokens": 8192,
-  "advancedMode": true,
-  "enableRAG": true,
-  "supportsPhisonKmRag": true,
-  "showTools": true,
-  "toolsEnabledByDefault": true,
+  "requiresToolCalling": true,
+  "requiresAgentic": true,
   "requiredModels": []
 }

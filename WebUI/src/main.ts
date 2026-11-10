@@ -142,9 +142,6 @@ await Promise.all([
   usePermissionGrants().init(),
 ])
 
-// Reads the Agent preset's saved defaults, which hydrate with textInference above.
-useAgentMode().adoptNotifyCapability()
-
 // Binds every other preset's settings to the open Session once the Default Settings
 // they copy from have hydrated (ADR-0004).
 await useSessionSettings().whenLoaded()

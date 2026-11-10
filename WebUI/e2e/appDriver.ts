@@ -454,11 +454,12 @@ export class AppDriver {
   }
 
   /**
-   * Select the general-purpose "Agent" preset on its defaults, a random backend and an
-   * {@link AGENT_CONTEXT} context. It works in the open Session's own folder, so there is
-   * no folder to pick. Returns false when the preset isn't offered in this product mode.
+   * Select the general-purpose "Assistant" preset on its defaults, a backend (`backend`'s
+   * picker label, or one at random) and an {@link AGENT_CONTEXT} context. It works in the
+   * open Session's own folder, so there is no folder to pick. Returns false when the
+   * preset, or the asked-for backend, isn't offered in this product mode.
    */
-  async prepareAgentPreset(): Promise<boolean> {
+  async prepareAgentPreset(backend?: string): Promise<boolean> {
     const selected = await test.step(`Select agent preset "${HARNESS_CHAT_PRESET}"`, () =>
       this.main.selectPreset('Chat', HARNESS_CHAT_PRESET))
     if (!selected) return false
@@ -466,14 +467,20 @@ export class AppDriver {
     // Reset before the context size below, never after — a reset would undo it.
     await this.resetPresetDefaults()
 
-    await test.step('Run the agent on a random backend', async () => {
-      await this.pickRandomBackend()
+    return test.step(`Run the agent on ${backend ?? 'a random backend'}`, async () => {
+      if (backend) {
+        const offered = await this.settings.availableBackends()
+        if (offered.length > 0 && !offered.includes(backend)) return false
+        if (offered.length > 0) await this.settings.selectBackend(backend)
+      } else {
+        await this.pickRandomBackend()
+      }
       // A no-op on OpenVINO GPU, which has no such setting to get wrong.
       await test.step(`Lower the context size to ${AppDriver.AGENT_CONTEXT}`, () =>
         this.settings.setContextSize(AppDriver.AGENT_CONTEXT))
       await this.settings.close()
+      return true
     })
-    return true
   }
 
   /** Send one prompt to the active agent preset and wait until its turn has finished cleanly. */
@@ -499,8 +506,12 @@ export class AppDriver {
    * Returns false when the preset isn't offered in this product mode so the caller
    * can skip.
    */
-  async runAgentPreset(opts: { prompt: string; imagePrompt: string }): Promise<boolean> {
-    if (!(await this.prepareAgentPreset())) return false
+  async runAgentPreset(opts: {
+    prompt: string
+    imagePrompt: string
+    backend?: string
+  }): Promise<boolean> {
+    if (!(await this.prepareAgentPreset(opts.backend))) return false
 
     let imagesBefore = 0
 

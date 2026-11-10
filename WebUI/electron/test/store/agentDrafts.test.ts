@@ -389,6 +389,22 @@ describe('creating an Agent', () => {
     ])
   })
 
+  it('starts its Settings Template with every capability, file and shell tools included', async () => {
+    const { tasks } = await readyStores()
+
+    const draft = await tasks.createAgentDraft()
+
+    expect([...(draft.settingsTemplate.capabilities ?? [])].sort()).toEqual([
+      'files',
+      'media',
+      'memory',
+      'notify',
+      'rag',
+      'web',
+      'web-debug',
+    ])
+  })
+
   it('is gone when another Agent is selected before it was edited', async () => {
     storedTasks = [savedAgent('a')]
     const { tasks } = await readyStores()

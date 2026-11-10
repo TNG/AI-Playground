@@ -18,6 +18,7 @@ export const RENAMED_PRESETS: Record<string, string> = {
   'Game Maker': 'Game Agent',
   'Game Maker Quick': 'Quick Coder',
   'Game Agent Quick': 'Quick Coder',
+  Agent: 'Assistant',
 }
 
 /** The current name for a stored one, unchanged when it was never renamed. */

@@ -1,7 +1,5 @@
-import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
-
 /** Shown names for presets whose identity stays the file name. */
-const PRESET_DISPLAY_NAMES: Record<string, string> = { [HARNESS_CHAT_PRESET]: 'Agent Maker' }
+const PRESET_DISPLAY_NAMES: Record<string, string> = {}
 
 /** The name to show. Sessions, files and settings still key on `presetName`. */
 export function presetDisplayName(presetName: string): string {

@@ -16,7 +16,7 @@ import {
   type SessionMediaTarget,
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
-import { enabledCapabilityIds } from '@/types/agentCapabilities'
+import { enabledCapabilityIds, FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { createAgentToolAccess } from './piToolOperations.ts'
 import {
@@ -65,6 +65,8 @@ import {
 
 const logger = appLoggerInstance
 
+const FALLBACK_OWN_PROMPT = 'You are a helpful assistant.'
+
 function configKeyOf(config: AgentModeTurnConfig): string {
   // The tool set is fixed at session construction, so a changed tool set needs a
   // rebuild — including the enabled capabilities, which decide what tools,
@@ -79,6 +81,7 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     // Part of the system prompt, which is fixed once the session exists: editing
     // the preset's instructions (or switching preset) has to rebuild.
     config.instructions ?? '',
+    config.ownsPrompt ?? false,
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
     config.mountedFolders ?? [],
@@ -249,6 +252,11 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const skillsDir = path.join(piAgentDir(), 'skills')
   const skills = writeAgentSkills(skillsDir, capabilities.skillSources)
 
+  // A preset can own the prompt the way a capability owns the session; it keeps the file
+  // and shell builtins only while the user has `files` switched on.
+  const presetOwnsPrompt = config.ownsPrompt === true && !capabilities.ownSession
+  const presetFileTools =
+    presetOwnsPrompt && enabledCapabilityIds(config).includes(FILES_CAPABILITY_ID)
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
@@ -262,7 +270,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
             ? { writableFiles: capabilities.ownSession.writableFiles }
             : {}),
         }
-      : {}),
+      : presetOwnsPrompt && !presetFileTools
+        ? { baseTools: [] }
+        : {}),
   })
 
   // Serve the workspace over localhost so the agent can preview/debug pages over
@@ -302,10 +312,20 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // coding-agent instructions, the workspace orientation, the skills index and
   // any AGENTS.md are replaced by the preset's own text, which is the point of
   // such a session. The orientation is the fallback for a preset whose
-  // instructions the user emptied, so the prompt is never blank.
+  // instructions the user emptied, so the prompt is never blank. A preset that owns its
+  // prompt gets the same replacement, plus what its enabled capabilities need.
+  const skillsSection = buildSkillsPromptSection(announcedSkills, access.skillsRoot)
   const ownPrompt = capabilities.ownSession
     ? (config.instructions ?? '').trim() || instructions
-    : undefined
+    : presetOwnsPrompt
+      ? [
+          (config.instructions ?? '').trim() || FALLBACK_OWN_PROMPT,
+          ...(presetFileTools ? [instructions, skillsSection] : []),
+          capabilities.dormantPromptSection,
+        ]
+          .filter((section) => section !== '')
+          .join('\n\n')
+      : undefined
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: workspaceDir,
     agentDir: piAgentDir(),
@@ -357,7 +377,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
       instructions,
       // The preset's own instructions come last so they read as the task the app
       // was opened for, after the environment it is working in.
-      buildSkillsPromptSection(announcedSkills, access.skillsRoot),
+      skillsSection,
       capabilities.dormantPromptSection,
       (config.instructions ?? '').trim(),
     ].filter((section) => section !== ''),

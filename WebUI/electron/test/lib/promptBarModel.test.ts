@@ -273,9 +273,9 @@ describe('promptBarModel modes', () => {
 
   describe('picking a mode', () => {
     const catalog = [
-      chat('Assistant'),
+      chat('Plain Chat'),
       chat('Reasoning'),
-      agent('Agent'),
+      agent('Assistant'),
       agent('Game Agent'),
       image('Fast'),
     ]
@@ -296,18 +296,18 @@ describe('promptBarModel modes', () => {
 
     it('falls back to the first preset when the last-used one left the catalog', () => {
       expect(picks({ agent: ['Removed Agent'], chat: [null] })).toMatchObject({
-        agent: 'Agent',
-        chat: 'Assistant',
+        agent: 'Assistant',
+        chat: 'Plain Chat',
       })
     })
 
-    it('falls back to Agent Maker for Agent, wherever it sits in the catalog', () => {
-      const reordered = [agent('Game Agent'), agent('Quick Coder'), agent('Agent')]
-      expect(promptBarModel(input({ catalog: reordered })).modePicks.agent).toBe('Agent')
+    it('falls back to Assistant for Agent mode, wherever it sits in the catalog', () => {
+      const reordered = [agent('Game Agent'), agent('Quick Coder'), agent('Assistant')]
+      expect(promptBarModel(input({ catalog: reordered })).modePicks.agent).toBe('Assistant')
     })
 
     it('never picks a gated preset, falling back to the mode’s first enabled one', () => {
-      const gated = new Set(['Assistant', 'Reasoning', 'Agent'])
+      const gated = new Set(['Plain Chat', 'Reasoning', 'Assistant'])
       const modePicks = promptBarModel(
         input({
           catalog: [chat('Home Agent'), ...catalog],
@@ -336,8 +336,8 @@ describe('promptBarModel modes', () => {
 
     it('offers no pick for a mode without presets', () => {
       expect(picks({ video: ['Fast'] })).toEqual({
-        chat: 'Assistant',
-        agent: 'Agent',
+        chat: 'Plain Chat',
+        agent: 'Assistant',
         imageGen: 'Fast',
       })
     })
@@ -354,10 +354,10 @@ describe('promptBarModel preset picker', () => {
   const agent = (name: string) => chat(name, { agentPreset: true })
   const gameAgent = agent('Game Agent')
   const catalog: Preset[] = [
-    chat('Assistant'),
+    chat('Plain Chat'),
     chat('aiDAPTIV', { requiresPhison: true }),
     chat('Home Agent'),
-    agent('Agent'),
+    agent('Assistant'),
     gameAgent,
     agent('Quick Coder'),
     { ...comfy('Fast', []), image: 'fast.png' },
@@ -372,7 +372,7 @@ describe('promptBarModel preset picker', () => {
       }),
     )
     expect(presets).toEqual([
-      { name: 'Agent', label: 'Agent', image: 'Agent.png', enabled: true },
+      { name: 'Assistant', label: 'Assistant', image: 'Assistant.png', enabled: true },
       { name: 'Game Agent', label: 'Acer Game Agent', image: 'Game Agent.png', enabled: true },
       { name: 'Quick Coder', label: 'Quick Coder', image: 'Quick Coder.png', enabled: true },
     ])
@@ -389,7 +389,7 @@ describe('promptBarModel preset picker', () => {
       }),
     )
     expect(presets.map(({ name, enabled, reason }) => ({ name, enabled, reason }))).toEqual([
-      { name: 'Assistant', enabled: true, reason: undefined },
+      { name: 'Plain Chat', enabled: true, reason: undefined },
       { name: 'aiDAPTIV', enabled: true, reason: undefined },
       { name: 'Home Agent', enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' },
     ])
@@ -412,7 +412,7 @@ describe('promptBarModel preset picker', () => {
         input({ catalog, activePreset: agentMaker, agents: [digest, draftOnly, tidy] }),
       )
       expect(model.presets.map((preset) => preset.name)).toEqual([
-        'Agent',
+        'Assistant',
         'Game Agent',
         'Quick Coder',
       ])
@@ -444,7 +444,7 @@ describe('promptBarModel preset picker', () => {
       })
       expect(model.headerChips.at(-1)).toEqual({
         kind: 'preset',
-        name: 'Agent',
+        name: 'Assistant',
         label: 'Morning digest',
         image: 'digest.png',
         agentId: 'a-digest',
@@ -467,9 +467,9 @@ describe('promptBarModel preset picker', () => {
         expect(model.pickedAgent).toBeUndefined()
         expect(model.headerChips.at(-1)).toEqual({
           kind: 'preset',
-          name: 'Agent',
-          label: 'Agent',
-          image: 'Agent.png',
+          name: 'Assistant',
+          label: 'Assistant',
+          image: 'Assistant.png',
         })
       }
     })

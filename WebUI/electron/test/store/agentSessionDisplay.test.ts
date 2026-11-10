@@ -92,9 +92,9 @@ describe('sessionDisplayTitle', () => {
     })
   })
 
-  it('falls back to Agent for a session archived before presets', () => {
+  it('falls back to Assistant for a session archived before presets', () => {
     expect(sessionDisplayTitle({ title: 'from before presets' })).toEqual({
-      mode: 'Agent',
+      mode: 'Assistant',
       name: 'from before presets',
     })
   })

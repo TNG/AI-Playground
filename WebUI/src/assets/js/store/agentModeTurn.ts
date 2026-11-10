@@ -93,6 +93,8 @@ export async function buildTurnConfig(options: {
   followedRun?: AgentModeTurnConfig['followedRun']
   presetName: string
   instructions: string
+  /** The preset's `agentOwnsPrompt`. */
+  ownsPrompt?: boolean
   capabilities: string[]
   unsandboxed: boolean
   mountedFolders?: ResolvedMountedFolder[]
@@ -139,6 +141,7 @@ export async function buildTurnConfig(options: {
       mediaAgent,
       presetName: options.presetName,
       instructions: options.instructions,
+      ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       ...mountedFoldersOf(options.mountedFolders),
@@ -178,6 +181,7 @@ export async function buildTurnConfig(options: {
     mediaAgent,
     presetName: options.presetName,
     instructions: options.instructions,
+    ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
     ...mountedFoldersOf(options.mountedFolders),

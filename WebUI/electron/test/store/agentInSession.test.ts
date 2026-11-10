@@ -10,7 +10,7 @@ import type { ChatPreset } from '@/assets/js/store/presets'
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -29,7 +29,7 @@ const GAME_AGENT: ChatPreset = {
 const ASSISTANT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Assistant',
+  name: 'Plain Chat',
   backends: ['llamaCPP'],
 } as ChatPreset
 
@@ -158,8 +158,8 @@ describe('the Agent preset in a Session', () => {
   it("opens the Session's Harness Session, working in the Session's files folder", async () => {
     await openSessionRef('s1')
 
-    expect(harnessSession).toHaveBeenCalledWith('s1', 'Agent')
-    expect(store.openSessionId).toBe('aipg-agent-s1-Agent')
+    expect(harnessSession).toHaveBeenCalledWith('s1', 'Assistant')
+    expect(store.openSessionId).toBe('aipg-agent-s1-Assistant')
     expect(store.workspaceDir).toBe('/sessions/s1/files')
   })
 
@@ -171,7 +171,7 @@ describe('the Agent preset in a Session', () => {
     await selectPreset(ASSISTANT)
     await selectPreset(AGENT)
 
-    expect(store.openSessionId).toBe('aipg-agent-s1-Agent')
+    expect(store.openSessionId).toBe('aipg-agent-s1-Assistant')
     expect(store.messages.map((message) => message.id)).toEqual([
       'u-remember plum',
       'a-remember plum',
@@ -185,7 +185,7 @@ describe('the Agent preset in a Session', () => {
     await selectPreset(GAME_AGENT)
     await selectPreset(AGENT)
 
-    expect(store.openSessionId).toBe('aipg-agent-s1-Agent')
+    expect(store.openSessionId).toBe('aipg-agent-s1-Assistant')
     expect(store.workspaceDir).toBe('/sessions/s1/files')
     expect(store.messages).toHaveLength(2)
   })
@@ -196,7 +196,7 @@ describe('the Agent preset in a Session', () => {
 
     await openSessionRef('s2')
 
-    expect(store.openSessionId).toBe('aipg-agent-s2-Agent')
+    expect(store.openSessionId).toBe('aipg-agent-s2-Assistant')
     expect(store.workspaceDir).toBe('/sessions/s2/files')
     expect(agentCancel).not.toHaveBeenCalled()
   })
@@ -209,7 +209,9 @@ describe('the Agent preset in a Session', () => {
     expect(saveTimelineMessages).toHaveBeenLastCalledWith('s1', [
       expect.objectContaining({
         id: 'u-build a page',
-        metadata: { agentTurn: { presetName: 'Agent', harnessSessionId: 'aipg-agent-s1-Agent' } },
+        metadata: {
+          agentTurn: { presetName: 'Assistant', harnessSessionId: 'aipg-agent-s1-Assistant' },
+        },
       }),
       expect.objectContaining({ id: 'a-build a page', role: 'assistant' }),
     ])
@@ -229,13 +231,13 @@ describe('the Agent preset in a Session', () => {
     })
     await openSessionRef('s1')
     store.setCapabilities(['files'])
-    expect(held.Agent).toEqual({ settings: { capabilities: ['files'] }, sent: false })
+    expect(held.Assistant).toEqual({ settings: { capabilities: ['files'] }, sent: false })
 
     await store.generate('build a page')
 
-    expect(held.Agent.sent).toBe(true)
-    expect(held.Agent.settings.capabilities).toEqual(['files'])
-    expect(store.sessions['aipg-agent-s1-Agent'].settings).toBeUndefined()
+    expect(held.Assistant.sent).toBe(true)
+    expect(held.Assistant.settings.capabilities).toEqual(['files'])
+    expect(store.sessions['aipg-agent-s1-Assistant'].settings).toBeUndefined()
   })
 
   it('records the Session on the Harness Session it belongs to', async () => {
@@ -243,10 +245,10 @@ describe('the Agent preset in a Session', () => {
 
     await store.generate('build a page')
 
-    expect(store.sessions['aipg-agent-s1-Agent']).toMatchObject({
+    expect(store.sessions['aipg-agent-s1-Assistant']).toMatchObject({
       sessionRef: 's1',
       workspaceDir: '/sessions/s1/files',
-      presetName: 'Agent',
+      presetName: 'Assistant',
     })
   })
 })

@@ -60,7 +60,6 @@ import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
   WEB_CAPABILITY_ID,
-  NOTIFY_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
   PLANNING_PHASE_CAPABILITY_IDS,
   OFFER_GAME_AGENT_TOOL,
@@ -243,8 +242,6 @@ export const useAgentMode = defineStore(
     const mcpServerIds = ref<string[]>([])
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
-    /** Set once `notify` has been added to default lists saved before it existed. */
-    const notifyCapabilityAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -809,28 +806,6 @@ export const useAgentMode = defineStore(
       }
     }
 
-    /**
-     * Existing sessions keep their lists (docs/adr/0001); only the defaults new sessions
-     * start from gain `notify`. Needs the Agent preset's settings hydrated.
-     */
-    function adoptNotifyCapability(): void {
-      if (notifyCapabilityAdopted.value) return
-      notifyCapabilityAdopted.value = true
-      if (!defaultCapabilities.value.includes(NOTIFY_CAPABILITY_ID)) {
-        defaultCapabilities.value = [...defaultCapabilities.value, NOTIFY_CAPABILITY_ID]
-      }
-      const bags = textInference.settingsPerPreset ?? {}
-      const stored = bags[HARNESS_CHAT_PRESET]?.[DEFAULT_CAPABILITIES_KEY]
-      if (!Array.isArray(stored) || stored.includes(NOTIFY_CAPABILITY_ID)) return
-      textInference.settingsPerPreset = {
-        ...bags,
-        [HARNESS_CHAT_PRESET]: {
-          ...bags[HARNESS_CHAT_PRESET],
-          [DEFAULT_CAPABILITIES_KEY]: [...stored, NOTIFY_CAPABILITY_ID],
-        },
-      }
-    }
-
     function migrateMcpServerIds(): void {
       const migrated = migrateMcpServerIdsIntoCapabilities(
         mcpServerIds.value,
@@ -968,6 +943,7 @@ export const useAgentMode = defineStore(
           activeAgentPreset.value?.systemPrompt?.trim() ?? '',
           sessionResponseLocale(sessionId),
         ),
+        ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
         mountedFolders: resolveMountedFolders(mountedFolders.value),
@@ -985,7 +961,8 @@ export const useAgentMode = defineStore(
 
     function storedTurnConfig(sessionId: string, context: TurnContext) {
       const preset = presetsStore.presets.find((entry) => entry.name === context.presetName)
-      const systemPrompt = preset?.type === 'chat' ? (preset as ChatPreset).systemPrompt : ''
+      const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
+      const systemPrompt = chatPreset?.systemPrompt ?? ''
       const settings = context.settings ?? {}
       const stored = textInference.inferenceForSettings(context.presetName, settings)
       return buildTurnConfig({
@@ -993,10 +970,8 @@ export const useAgentMode = defineStore(
         sessionRef: harnessSessionRefs[sessionId] ?? sessions.value[sessionId]?.sessionRef,
         workspaceDir: context.workspaceDir,
         presetName: context.presetName,
-        instructions: withResponseLanguage(
-          systemPrompt?.trim() ?? '',
-          sessionResponseLocale(sessionId),
-        ),
+        instructions: withResponseLanguage(systemPrompt.trim(), sessionResponseLocale(sessionId)),
+        ownsPrompt: chatPreset?.agentOwnsPrompt === true,
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
         mountedFolders: resolveMountedFolders(settings.mountedFolders ?? []),
@@ -2147,8 +2122,6 @@ export const useAgentMode = defineStore(
       migrateMcpServerIds,
       adoptWebCapability,
       webCapabilityAdopted,
-      adoptNotifyCapability,
-      notifyCapabilityAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
@@ -2231,7 +2204,6 @@ export const useAgentMode = defineStore(
       pick: [
         'mcpServerIds',
         'webCapabilityAdopted',
-        'notifyCapabilityAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',

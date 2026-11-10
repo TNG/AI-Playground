@@ -365,6 +365,10 @@ function systemPrompt(body: Body | undefined): string {
 
 describe('the Assistant preset in a Session', () => {
   const ASSISTANT_PROMPT = 'You are a friendly assistant. Answer plainly.'
+  const PIXEL = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  )
 
   async function assistantConfig(
     sessionId: string,
@@ -520,11 +524,6 @@ describe('the Assistant preset in a Session', () => {
   }, 30000)
 
   describe('with an attached image', () => {
-    const PIXEL = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-      'base64',
-    )
-
     function imageParts(body: Body | undefined): unknown[] {
       const user = (body?.messages ?? []).filter((message) => message.role === 'user').at(-1)
       return Array.isArray(user?.content)
@@ -674,6 +673,55 @@ describe('the Assistant preset in a Session', () => {
         (message) => (message as { id: string }).id,
       )
       expect(ids).toEqual(['u2', 'a2'])
+    }, 30000)
+
+    it('regenerates the latest turn from the Harness Session as it was before it', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+
+      expect(
+        await manager.startAgentTurn('t3', 'and the word pear', { ...config, rewindTurnId: 't2' }),
+      ).toEqual({ success: true })
+
+      expect(JSON.stringify(bodies[2].messages)).toBe(JSON.stringify(bodies[1].messages))
+      expect(transcriptText(bodies[2])).not.toContain('reply 2')
+      await manager.startAgentTurn('t4', 'which words?', config)
+      const next = transcriptText(bodies.at(-1))
+      expect(next).not.toContain('reply 2')
+      expect(next).toContain('reply 3')
+      expect(next.match(/and the word pear/g)).toHaveLength(1)
+    }, 30000)
+
+    it('regenerates a turn with the image that was attached to it', async () => {
+      const session = await sessions.createSession()
+      const base = await assistantConfig(session.id)
+      const config = { ...base, modelConfig: { ...base.modelConfig, supportsVision: true } }
+      importAttachment(config.workspaceDir, 'cat.png', new Uint8Array(PIXEL))
+      const prompt = 'what is this? @attachments/cat.png'
+      await manager.startAgentTurn('t1', prompt, config)
+
+      await manager.startAgentTurn('t2', prompt, { ...config, rewindTurnId: 't1' })
+
+      expect(bodies).toHaveLength(2)
+      expect(JSON.stringify(bodies[1].messages)).toBe(JSON.stringify(bodies[0].messages))
+      expect(transcriptText(bodies[1])).toContain('image_url')
+    }, 30000)
+
+    it('refuses to regenerate a turn that is not the latest one', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+
+      const result = await manager.startAgentTurn('t3', 'remember the word plum', {
+        ...config,
+        rewindTurnId: 't1',
+      })
+
+      expect(result.success).toBe(false)
+      expect(bodies).toHaveLength(2)
     }, 30000)
 
     it('deletes a turn of a Harness Session that is no longer the live one', async () => {

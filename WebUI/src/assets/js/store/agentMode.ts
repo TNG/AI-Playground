@@ -90,6 +90,7 @@ import {
   createAgentTurnRuntimes,
   latestTurnMetadata,
   type AgentSessionRuntime,
+  type RegenerateBody,
 } from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
@@ -2034,6 +2035,8 @@ export const useAgentMode = defineStore(
         taskRun?: AgentModeTurnConfig['taskRun']
         /** A Follow-up to a saved Agent's run, the Agent named as it is now. */
         followUp?: AgentFollowUpTag
+        /** Regenerate this latest Turn: its prompt is sent again and `prompt` is unused. */
+        regenerate?: HarnessTurnRef
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -2114,15 +2117,59 @@ export const useAgentMode = defineStore(
               ...(options.followUp ? { followUp: options.followUp } : {}),
             }
           : undefined
-      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
-        (error) =>
-          errors.report(error, {
-            category: 'inference',
-            code: 'agent/turn-failed',
-            surface: 'silent',
-          }),
+      const redo = options.regenerate
+      if (redo) {
+        const forgotten = await forgetAnswers(redo)
+        if (!forgotten.ok) return forgotten
+      }
+      runTurn(sessionId, context, (chat) =>
+        redo?.promptId
+          ? chat.regenerate({
+              messageId: redo.promptId,
+              body: { rewindTurnId: redo.turnIds[0] } satisfies RegenerateBody,
+            })
+          : chat.sendMessage({ text: prompt, metadata }),
+      ).catch((error) =>
+        errors.report(error, {
+          category: 'inference',
+          code: 'agent/turn-failed',
+          surface: 'silent',
+        }),
       )
       return { ok: true }
+    }
+
+    /** The answers Regenerate replaces leave the Session's timeline; the new turn takes their place. */
+    async function forgetAnswers(ref: HarnessTurnRef): Promise<SendToSessionResult> {
+      const id = ref.harnessSessionId
+      const sessionRef = harnessSessionRefs[id] ?? sessions.value[id]?.sessionRef
+      const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
+      if (!sessionRef || answerIds.length === 0) return { ok: true }
+      const result = await window.electronAPI.agentMode.deleteTurns({
+        sessionRef,
+        harnessSessionId: id,
+        turnIds: [],
+        messageIds: answerIds,
+      })
+      if (!result.success) return refuseSend('busy', result.error ?? 'Failed to regenerate.')
+      sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
+      return { ok: true }
+    }
+
+    function isSessionProcessing(id: string): boolean {
+      return !!turns.runtimeOf(id)?.processing.value
+    }
+
+    /** Regenerate the latest Assistant Turn from its Harness Session as it was before it. */
+    async function regenerateTurn(ref: HarnessTurnRef): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const result = await sendToSession(ref.harnessSessionId, '', { regenerate: ref })
+      if (result.ok) return
+      errors.report(new Error(result.message), {
+        category: 'inference',
+        code: 'agent/regenerate-failed',
+        userMessage: result.message,
+      })
     }
 
     /**
@@ -2168,6 +2215,8 @@ export const useAgentMode = defineStore(
 
     return {
       deleteTurns,
+      regenerateTurn,
+      isSessionProcessing,
       workspaceDir,
       agentPresetName,
       activeAgentPreset,

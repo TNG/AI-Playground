@@ -365,6 +365,45 @@ describe('sending to a session that is not open', () => {
   })
 })
 
+describe('regenerating the latest turn', () => {
+  it('sends its prompt again, rewinding past the harness turn it replaces', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+    await store.sendToSession(id, 'name a fruit')
+    await finishTurn(id, 0, 'plum')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    const [prompt, answer] = lastSaved(id)?.messages as Array<{ id: string }>
+
+    await store.regenerateTurn({
+      harnessSessionId: id,
+      promptId: prompt.id,
+      messageIds: [prompt.id, answer.id],
+      turnIds: ['h1'],
+    })
+    await turnIdOf(1)
+
+    expect(startTurn.mock.calls[1][1]).toBe('name a fruit')
+    expect(sentConfig(1)).toMatchObject({ sessionId: id, rewindTurnId: 'h1' })
+    await finishTurn(id, 1, 'pear')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+    const messages = JSON.stringify(lastSaved(id)?.messages)
+    expect(messages.match(/name a fruit/g)).toHaveLength(1)
+    expect(messages).toContain('pear')
+    expect(messages).not.toContain('plum')
+  })
+
+  it('sends a plain prompt without a rewind', async () => {
+    const store = await readyStore()
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'name a fruit')
+    await turnIdOf(0)
+
+    expect(sentConfig(0)).not.toHaveProperty('rewindTurnId')
+  })
+})
+
 describe('an Answer from a channel', () => {
   it('is stored with the channel it came from', async () => {
     const store = await readyStore()

@@ -87,7 +87,11 @@ const newestAnswer = computed(
   () => props.footer.actions.includes('regenerate') && !props.footer.rerun,
 )
 const regenerateBlocked = computed(
-  () => openAiCompatibleChat.processing || (!!props.footer.rerun && imageGeneration.processing),
+  () =>
+    openAiCompatibleChat.processing ||
+    (!!props.footer.rerun && imageGeneration.processing) ||
+    (!!props.footer.harnessTurn &&
+      agentMode.isSessionProcessing(props.footer.harnessTurn.harnessSessionId)),
 )
 const conversationEnergy = computed(() =>
   estimateConversationEnergy(openAiCompatibleChat.messages ?? []),
@@ -170,6 +174,7 @@ async function rerunMedia(rerun: MediaRerun) {
 
 function regenerate() {
   if (props.footer.rerun) void rerunMedia(props.footer.rerun)
+  else if (props.footer.harnessTurn) void agentMode.regenerateTurn(props.footer.harnessTurn)
   else if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
 }
 

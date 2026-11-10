@@ -253,6 +253,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     })
   }
   const last = items.at(-1)
+  for (const item of items) {
+    if (item.kind !== 'agent' || item === last) continue
+    item.footer.actions = item.footer.actions.filter((action) => action !== 'regenerate')
+  }
   if (last?.kind === 'chat') last.footer = chatAnswerFooter(last.answers, true)
   if (last?.kind === 'media') {
     const rerun = mediaRerun(last.media, last.prompt.text)
@@ -370,7 +374,11 @@ function withAnswers(
       turn.footer = agentFooter(
         resultText(turn),
         agentTurnHasChatAffordances(turn.presetName)
-          ? { answer: turn.answers.at(-1), harnessTurn: harnessTurnOf(turn) }
+          ? {
+              answer: turn.answers.at(-1),
+              harnessTurn: harnessTurnOf(turn),
+              latest: turn === turns.at(-1),
+            }
           : undefined,
       )
     }
@@ -383,6 +391,7 @@ function harnessTurnOf(turn: AgentTurn): HarnessTurnRef | undefined {
   if (turn.runKey) return undefined
   return {
     harnessSessionId: turn.harnessSessionId,
+    ...(turn.prompt ? { promptId: turn.id } : {}),
     messageIds: [...(turn.prompt ? [turn.id] : []), ...turn.answers.map((answer) => answer.id)],
     turnIds: harnessTurnIds(turn.answers),
   }

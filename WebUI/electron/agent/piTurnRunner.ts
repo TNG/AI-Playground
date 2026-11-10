@@ -68,7 +68,7 @@ import {
 } from '../chat/chatReadiness.ts'
 import { turnAttachments } from './workspaceAttachments.ts'
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
-import { markHarnessTurn } from './harnessTurns.ts'
+import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
 import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
 import type { LlamaCppTimings } from '../chat/turnEngine.ts'
 import { documentsLine } from './sessionDocuments.ts'
@@ -520,6 +520,9 @@ export async function startAgentTurn(
       lastSample = fingerprint
       translator.update(summary)
     }
+    const rewound = config.rewindTurnId
+      ? rewindHarnessTurn(current.session, config.rewindTurnId)
+      : undefined
     const planning = watchPlanningPhase(current)
     markHarnessTurn(current.session, turnId)
     const calls: LlamaCppTimings[] = []
@@ -544,15 +547,17 @@ export async function startAgentTurn(
       }
       await collectAgentCallTimings(calls, async () => {
         const note = current.mountedFoldersNote
-        const withUpdate = await withSessionUpdate(prompt, config, current.replayedEntryIds)
-        const { images } = turnAttachments(
-          current.workspaceDir,
-          prompt,
-          config.modelConfig.supportsVision === true,
-        )
-        const documents = current.documentSearch ? documentsLine(current.workspaceDir) : ''
+        // A regenerated turn resends what the replaced one was sent, so its request is the same.
+        const sent = rewound?.text ?? prompt
+        const withUpdate = await withSessionUpdate(sent, config, current.replayedEntryIds)
+        const images =
+          rewound?.images ??
+          turnAttachments(current.workspaceDir, prompt, config.modelConfig.supportsVision === true)
+            .images
+        const documents =
+          current.documentSearch && !rewound ? documentsLine(current.workspaceDir) : ''
         const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
-        await current.session.prompt(text, { images })
+        await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
         if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
         failIfModelErrored()
         // A session that plans first has only been asked for the plan so far; the

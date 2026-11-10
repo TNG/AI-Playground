@@ -144,6 +144,8 @@ export const AgentModeTurnConfigSchema = z.object({
   followUp: AgentFollowUpTagSchema.optional(),
   /** The run a Follow-up continues, whose Steps may predate its Session Update cursor. */
   followedRun: AgentRunTagSchema.pick({ taskName: true, startedAt: true }).optional(),
+  /** Regenerate: the latest harness turn, which this one replaces from just before it. */
+  rewindTurnId: z.string().optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

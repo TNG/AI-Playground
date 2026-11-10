@@ -116,7 +116,13 @@ export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'delete'
 export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
 
 /** What Delete takes out of a Harness Session: its messages, and the harness turns behind them. */
-export type HarnessTurnRef = { harnessSessionId: string; messageIds: string[]; turnIds: string[] }
+export type HarnessTurnRef = {
+  harnessSessionId: string
+  /** The prompt the Turn opened with, which Regenerate sends again. */
+  promptId?: string
+  messageIds: string[]
+  turnIds: string[]
+}
 
 export type TurnFooter = {
   actions: TurnFooterAction[]

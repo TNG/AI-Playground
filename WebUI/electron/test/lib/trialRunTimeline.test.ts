@@ -46,6 +46,16 @@ describe('a Trial Run in the Agent Library', () => {
     expect(items[0]).not.toHaveProperty('prompt.agentRun')
   })
 
+  it('offers neither Regenerate nor Delete on its last Step', () => {
+    const steps = twoSteps.map((entry, index) =>
+      entry.role === 'assistant' ? { ...entry, metadata: { harnessTurnId: `t${index}` } } : entry,
+    )
+    const items = trialRunItems({ ...trial, presetName: 'Assistant', saved: steps })
+
+    expect(items[1]).toMatchObject({ footer: { actions: ['copy', 'speak'] } })
+    expect(items[1]).not.toHaveProperty('footer.harnessTurn')
+  })
+
   it('streams the Step in flight as the last Turn', () => {
     const items = trialRunItems({
       ...trial,

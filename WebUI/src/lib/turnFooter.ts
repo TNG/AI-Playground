@@ -33,13 +33,16 @@ export function harnessTurnIds(answers: UIMessage[]): string[] {
 /** An agent Turn's Copy takes its answer, not the text it wrote between tool calls. */
 export function agentFooter(
   answerText: string,
-  assistant?: { answer: UIMessage | undefined; harnessTurn?: HarnessTurnRef },
+  assistant?: { answer: UIMessage | undefined; harnessTurn?: HarnessTurnRef; latest?: boolean },
 ): TurnFooter {
   if (!assistant) return { actions: answerText ? ['copy'] : [], text: answerText }
   const messageId = assistant.answer?.id
+  const turn = assistant.harnessTurn
+  const regenerate = !!assistant.latest && !!turn?.promptId && turn.turnIds.length > 0
   const actions: TurnFooterAction[] = [
     ...(answerText ? (['copy'] as const) : []),
     ...(answerText && messageId ? (['speak'] as const) : []),
+    ...(regenerate ? (['regenerate'] as const) : []),
     ...(assistant.harnessTurn ? (['delete'] as const) : []),
   ]
   const metrics = answerMetrics(assistant.answer)

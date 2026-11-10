@@ -1415,7 +1415,7 @@ describe('the footer of every Turn', () => {
     }
   }
 
-  it('offers Copy, Speak and Delete of its answer on an Assistant Turn', () => {
+  it('offers Copy, Speak, Regenerate and Delete of its answer on an Assistant Turn', () => {
     const items = sessionTimelineItems(
       [
         assistantMessage('u1', 'user', 'why?'),
@@ -1428,16 +1428,69 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'delete'],
+        actions: ['copy', 'speak', 'regenerate', 'delete'],
         text: 'The sky scatters blue light.',
         messageId: 'a1',
         harnessTurn: {
           harnessSessionId: 'aipg-agent-2',
+          promptId: 'u1',
           messageIds: ['u1', 'a1'],
           turnIds: ['t1'],
         },
       },
     })
+  })
+
+  it('offers Regenerate on the latest Assistant Turn only', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue light.', { harnessTurnId: 't1' }),
+        assistantMessage('u2', 'user', 'and at sunset?'),
+        assistantMessage('a2', 'assistant', 'Red light.', { harnessTurnId: 't2' }),
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[1])).toEqual(['copy', 'speak', 'regenerate', 'delete'])
+  })
+
+  it('offers no Regenerate on an Assistant Turn a later Turn followed', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue light.', { harnessTurnId: 't1' }),
+        user('u2', 'a red bike'),
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+  })
+
+  it('offers no Regenerate while a media Turn runs after the Assistant Turn', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue light.', { harnessTurnId: 't1' }),
+      ],
+      { media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' } },
+    )
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+  })
+
+  it('offers no Regenerate while the Assistant Turn is running', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue', { harnessTurnId: 't1' }),
+      ],
+      { agents: [{ tag: assistantTurn, messages: [], live: true }] },
+    )
+
+    expect(actionsOf(items[0])).toEqual([])
   })
 
   it("carries an Assistant answer's metrics and memory peaks", () => {

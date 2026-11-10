@@ -46,6 +46,41 @@ function omitHarnessTurns(manager: SessionManager, turnIds: ReadonlySet<string>)
   return omit.length > 0
 }
 
+type PromptImages = NonNullable<NonNullable<Parameters<AgentSession['prompt']>[1]>['images']>
+
+/** The user message a rewound turn opened with, exactly as the model was sent it. */
+export type RewoundPrompt = { text: string; images: PromptImages }
+
+/**
+ * Moves the Harness Session's leaf to just before its latest turn, so the turn's reply is
+ * off the branch and the history ahead of it is untouched. Throws for any other turn.
+ */
+export function rewindHarnessTurn(session: AgentSession, turnId: string): RewoundPrompt {
+  const branch = session.sessionManager.getBranch()
+  const markers = branch.flatMap((entry, index) =>
+    turnMarkerId(entry) === undefined ? [] : [index],
+  )
+  const at = markers.at(-1)
+  if (at === undefined || turnMarkerId(branch[at]) !== turnId) {
+    throw new Error('Only the latest reply can be regenerated.')
+  }
+  const opening = branch
+    .slice(at + 1)
+    .find((entry) => entry.type === 'message' && entry.message.role === 'user')
+  if (opening?.type !== 'message' || opening.message.role !== 'user') {
+    throw new Error('The reply to regenerate has no prompt.')
+  }
+  const { content } = opening.message
+  const parts = typeof content === 'string' ? [{ type: 'text' as const, text: content }] : content
+  const text = parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+  const images = parts.filter((part) => part.type === 'image')
+  const parentId = branch[at].parentId
+  if (parentId) session.sessionManager.branch(parentId)
+  else session.sessionManager.resetLeaf()
+  session.refreshContext()
+  return { text, images }
+}
+
 /** Deletes turns from a Harness Session and their messages from the Session's timeline. */
 export async function deleteAgentTurns(
   request: DeleteAgentTurnsRequest,

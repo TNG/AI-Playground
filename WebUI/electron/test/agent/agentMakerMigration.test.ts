@@ -381,6 +381,16 @@ describe('the Agent Library on upgrade', () => {
     expect((await taskFiles.readAgentTasks())[0].settingsTemplate.capabilities).toEqual(['media'])
   })
 
+  it('gives a template that followed the defaults the set Agent Maker ran it with', async () => {
+    await writeAgentsFile(2, [agent('t-bare', { settingsTemplate: {} })])
+
+    await migrate()
+
+    expect(
+      [...(await taskFiles.readAgentTasks())[0].settingsTemplate.capabilities!].sort(),
+    ).toEqual(['files', 'media', 'notify', 'rag', 'web', 'web-debug'])
+  })
+
   it('gives Agents of a pre-Library install the tools too, after the Library migration', async () => {
     await writeAgentsFile(1, [agent('t-news')])
 

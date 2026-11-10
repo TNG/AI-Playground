@@ -61,6 +61,7 @@ import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
+  MCP_CAPABILITY_PREFIX,
   WEB_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
   PLANNING_PHASE_CAPABILITY_IDS,
@@ -248,6 +249,8 @@ export const useAgentMode = defineStore(
     const mcpServerIds = ref<string[]>([])
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
+    /** Set once defaults saved before Assistant ran on the harness were cut to the lean set. */
+    const leanDefaultsAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -809,6 +812,24 @@ export const useAgentMode = defineStore(
       webCapabilityAdopted.value = true
       if (!defaultCapabilities.value.includes(WEB_CAPABILITY_ID)) {
         defaultCapabilities.value = [...defaultCapabilities.value, WEB_CAPABILITY_ID]
+      }
+    }
+
+    function adoptLeanDefaults(): void {
+      if (leanDefaultsAdopted.value) return
+      leanDefaultsAdopted.value = true
+      const lean = (ids: string[]) => [
+        ...DEFAULT_CAPABILITY_IDS,
+        ...ids.filter((id) => id.startsWith(MCP_CAPABILITY_PREFIX)),
+      ]
+      defaultCapabilities.value = lean(defaultCapabilities.value)
+      const bags = textInference.settingsPerPreset
+      const bag = bags?.[HARNESS_CHAT_PRESET]
+      const stored = bag?.[DEFAULT_CAPABILITIES_KEY]
+      if (!bag || !Array.isArray(stored)) return
+      textInference.settingsPerPreset = {
+        ...bags,
+        [HARNESS_CHAT_PRESET]: { ...bag, [DEFAULT_CAPABILITIES_KEY]: lean(stored as string[]) },
       }
     }
 
@@ -2242,10 +2263,12 @@ export const useAgentMode = defineStore(
       migrateMcpServerIds,
       adoptWebCapability,
       webCapabilityAdopted,
+      leanDefaultsAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
       migratePlanningThinkingOnly,
+      adoptLeanDefaults,
       planningThinkingOnly,
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
@@ -2326,6 +2349,7 @@ export const useAgentMode = defineStore(
       pick: [
         'mcpServerIds',
         'webCapabilityAdopted',
+        'leanDefaultsAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',

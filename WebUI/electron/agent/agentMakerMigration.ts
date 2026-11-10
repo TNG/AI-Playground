@@ -31,7 +31,8 @@ import {
 const LOG_SCOPE = 'agent-maker-migration'
 
 export const AGENT_MAKER_PRESET = 'Agent'
-const ASSISTANT = HARNESS_CHAT_PRESET
+
+const AGENT_MAKER_DEFAULT_CAPABILITY_IDS = ['media', 'web-debug', 'rag', 'web', 'notify']
 
 /** Keys only a chat-engine bag has; an agent-shaped bag never holds them. */
 const CHAT_BAG_KEYS = ['selectedModels', 'selectedEmbeddingModels', 'requestedContextSize']
@@ -49,9 +50,9 @@ export async function migrateAgentMakerSessions(): Promise<void> {
     refiled += 1
   }
   for (const record of records) await saveAgentSession(refiledRecord(record))
-  if (!(await agentMakerMerged())) await markAgentMakerMerged(withFilesCapability)
+  if (!(await agentMakerMerged())) await markAgentMakerMerged(templateWithFiles)
   appLoggerInstance.info(
-    `refiled ${refiled} session(s) and ${records.length} harness session(s) under ${ASSISTANT}`,
+    `refiled ${refiled} session(s) and ${records.length} harness session(s) under ${HARNESS_CHAT_PRESET}`,
     LOG_SCOPE,
   )
 }
@@ -69,7 +70,7 @@ function holdsAgentMaker(file: SessionFile, records: AgentSessionRecordWire[]): 
     AGENT_MAKER_PRESET in file.harnessWorkspaces ||
     AGENT_MAKER_PRESET in file.settings ||
     file.presetsUsed.includes(AGENT_MAKER_PRESET) ||
-    chatShapedAssistantBag(parseSessionSettings(file.settings)[ASSISTANT]) !== undefined
+    chatShapedAssistantBag(parseSessionSettings(file.settings)[HARNESS_CHAT_PRESET]) !== undefined
   )
 }
 
@@ -118,8 +119,8 @@ export function refiledSession(
     file.harnessSessions
   const { [AGENT_MAKER_PRESET]: _workspace, ...harnessWorkspaces } = file.harnessWorkspaces
   const retired = [...file.retiredHarnessSessions]
-  if (agentHarness && harnessSessions[ASSISTANT]) retired.push(agentHarness)
-  else if (agentHarness) harnessSessions[ASSISTANT] = agentHarness
+  if (agentHarness && harnessSessions[HARNESS_CHAT_PRESET]) retired.push(agentHarness)
+  else if (agentHarness) harnessSessions[HARNESS_CHAT_PRESET] = agentHarness
   const interactive = records.find((record) => record.id === agentHarness)
   return {
     ...file,
@@ -133,7 +134,7 @@ export function refiledSession(
 }
 
 function renamed(presetName: string): string {
-  return presetName === AGENT_MAKER_PRESET ? ASSISTANT : presetName
+  return presetName === AGENT_MAKER_PRESET ? HARNESS_CHAT_PRESET : presetName
 }
 
 function retaggedMessage(message: unknown): unknown {
@@ -142,7 +143,10 @@ function retaggedMessage(message: unknown): unknown {
   if (metadata?.agentTurn?.presetName !== AGENT_MAKER_PRESET) return message
   return {
     ...(message as object),
-    metadata: { ...metadata, agentTurn: { ...metadata.agentTurn, presetName: ASSISTANT } },
+    metadata: {
+      ...metadata,
+      agentTurn: { ...metadata.agentTurn, presetName: HARNESS_CHAT_PRESET },
+    },
   }
 }
 
@@ -159,7 +163,7 @@ function assistantBag(
   entry: PresetSessionSettings | undefined,
 ): { key: string; bag: SessionSettingsBag } | undefined {
   if (!entry) return undefined
-  const keys = [entry.variant ? `${ASSISTANT}:${entry.variant}` : '', ASSISTANT]
+  const keys = [entry.variant ? `${HARNESS_CHAT_PRESET}:${entry.variant}` : '', HARNESS_CHAT_PRESET]
   const key = keys.find((candidate) => candidate && entry.bags[candidate])
   return key ? { key, bag: entry.bags[key] } : undefined
 }
@@ -182,7 +186,7 @@ function mergedSettings(
   const parsed = parseSessionSettings(raw)
   const agentEntry = parsed[AGENT_MAKER_PRESET]
   const agentBag = agentEntry?.bags[AGENT_MAKER_PRESET]
-  const assistantEntry = parsed[ASSISTANT]
+  const assistantEntry = parsed[HARNESS_CHAT_PRESET]
   const assistant = assistantBag(assistantEntry)
   const chatShaped = chatShapedAssistantBag(assistantEntry) !== undefined
   if (!agentEntry && !chatShaped && picked.length === 0) return raw
@@ -215,12 +219,12 @@ function mergedSettings(
   const { [AGENT_MAKER_PRESET]: _agent, ...rest } = raw
   const bags = { ...assistantEntry?.bags }
   if (assistant) delete bags[assistant.key]
-  bags[ASSISTANT] = { values, fromDefaults }
+  bags[HARNESS_CHAT_PRESET] = { values, fromDefaults }
   const merged: PresetSessionSettings = {
     ...(assistantEntry?.variant ? { variant: assistantEntry.variant } : {}),
     bags,
   }
-  return { ...rest, [ASSISTANT]: merged }
+  return { ...rest, [HARNESS_CHAT_PRESET]: merged }
 }
 
 function withFiles(capabilities: string[]): string[] {
@@ -235,11 +239,19 @@ function withFilesCapability(settings: AgentSessionSettings): AgentSessionSettin
     : settings
 }
 
+/** A template without capabilities followed Agent Maker's defaults, which are now lean. */
+function templateWithFiles(settings: AgentSessionSettings): AgentSessionSettings {
+  return {
+    ...settings,
+    capabilities: withFiles(settings.capabilities ?? [...AGENT_MAKER_DEFAULT_CAPABILITY_IDS]),
+  }
+}
+
 /** In a Session a record works in its Session Folder; a picked folder is mounted instead. */
 export function refiledRecord(record: AgentSessionRecordWire): AgentSessionRecordWire {
   return {
     ...record,
-    presetName: ASSISTANT,
+    presetName: HARNESS_CHAT_PRESET,
     ...(record.sessionRef ? { workspaceDir: sessionPaths(record.sessionRef).filesDir } : {}),
     ...(record.capabilities ? { capabilities: withFiles(record.capabilities) } : {}),
     ...(record.settings ? { settings: withFilesCapability(record.settings) } : {}),

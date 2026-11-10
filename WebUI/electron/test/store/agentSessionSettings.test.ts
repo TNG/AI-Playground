@@ -442,6 +442,35 @@ describe('Agent Session Settings', () => {
     expect(store.effectivePlanningThinkingOnly).toBe(false)
   })
 
+  it('starts Draft Sessions lean after an upgrade, keeping MCP servers', async () => {
+    const upgraded = ['media', 'web-debug', 'rag', 'web', 'notify', 'mcp:blender']
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
+      agentCapabilities: upgraded,
+    }
+    const store = useAgentMode()
+    store.defaultCapabilities = upgraded
+    store.adoptLeanDefaults()
+    await store.init()
+    await store.newSession()
+
+    expect([...store.capabilities].sort()).toEqual(['mcp:blender', 'media', 'rag', 'web'])
+  })
+
+  it('adopts the lean defaults only once', async () => {
+    const store = useAgentMode()
+    store.adoptLeanDefaults()
+    chat.state.settingsPerPreset.Assistant = {
+      ...chat.state.settingsPerPreset.Assistant,
+      agentCapabilities: ['media', 'notify'],
+    }
+    store.adoptLeanDefaults()
+    await store.init()
+    await store.newSession()
+
+    expect(store.capabilities).toEqual(['media', 'notify'])
+  })
+
   it('keeps a capability or planning change in its own session', async () => {
     const store = await startedStore()
     store.setCapabilityEnabled('mcp:blender', true)

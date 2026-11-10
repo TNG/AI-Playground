@@ -33,7 +33,7 @@ export const SessionFileSchema = z.object({
   taskRunHarnessSessions: z.array(z.string()).default([]),
   /** Last History Entry id each Session Update consumer has seen. */
   updateCursors: z.record(z.string(), z.string()).default({}),
-  /** The Agent picked in the prompt bar, run on Agent Maker; absent means Agent Maker itself. */
+  /** The Agent picked in the prompt bar, run on Assistant; absent means Assistant itself. */
   pickedAgentId: z.string().optional(),
 })
 
@@ -114,7 +114,7 @@ export const HistoryEntrySchema = z.object({
   response: z.string().optional(),
   taskName: z.string().optional(),
   stepIndex: z.number().int().nonnegative().optional(),
-  /** A Follow-up to a saved Agent, which `preset` (Agent Maker) ran; older: a chat with it. */
+  /** A Follow-up to a saved Agent, which `preset` (Assistant) ran; older: a chat with it. */
   agentId: z.string().optional(),
   agentName: z.string().optional(),
   followUp: z.boolean().optional(),

@@ -219,7 +219,7 @@ describe('takeSessionUpdate', () => {
     expect(update).not.toContain('step')
   })
 
-  it('tells Agent Maker about a Follow-up as the Agent’s turn', async () => {
+  it('tells Assistant about a Follow-up as the Agent’s turn', async () => {
     const { id } = await createSession()
     await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })
     await appendHistoryEntry(id, {

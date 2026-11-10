@@ -546,7 +546,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return id ? tasks.value.find((task) => task.id === id) : undefined
   }
 
-  /** The open Session's picked Agent, in effect while Agent Maker is the active preset. */
+  /** The open Session's picked Agent, in effect while Assistant is the active preset. */
   const pickedAgent = computed((): AgentTask | undefined =>
     isHarnessChatPreset(presets.activePresetWithVariant?.name)
       ? pickedAgentIn(sessionsStore.openSessionId)
@@ -563,7 +563,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (agent) void agentMode.loadMcpServersFor(agent.settingsTemplate.capabilities ?? [])
   })
 
-  /** Pick a saved Agent in the open Session's prompt bar, or `null` for Agent Maker itself. */
+  /** Pick a saved Agent in the open Session's prompt bar, or `null` for Assistant itself. */
   async function pickAgent(agentId: string | null): Promise<boolean> {
     if (agentId !== null && !tasks.value.some((task) => task.id === agentId)) return false
     const sessionRef = await sessionsStore.ensureOpenSession()
@@ -635,7 +635,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   const neverRun = (agent: AgentTask) => neverRunRefusal(agent.name, i18n.state)
 
-  /** A deleted Agent's Sessions fall back to Agent Maker. */
+  /** A deleted Agent's Sessions fall back to Assistant. */
   async function forgetPicksOf(agentId: string): Promise<void> {
     const picked = Object.values(sessionsStore.sessions).filter(
       (session) => session.pickedAgentId === agentId,
@@ -1468,7 +1468,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     })
   }
 
-  /** Send a prompt from the prompt bar to Agent Maker as one turn. */
+  /** Send a prompt from the prompt bar to Assistant as one turn. */
   async function submitPrompt(prompt: string): Promise<void> {
     if (isSessionLockedByTask(agentMode.openSessionId)) return
     await agentMode.generate(prompt)

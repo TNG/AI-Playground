@@ -370,7 +370,7 @@ const sessions = useSessions()
 const conversations = useConversations()
 const sessionTabs = useSessionTabs()
 
-// Agent Maker sessions can notify over Home Agent; the games presets cannot.
+// Assistant sessions can notify over Home Agent; the games presets cannot.
 const showHomeAgentToggle = computed(() => {
   const mode = promptStore.getCurrentMode()
   if (mode === 'chat' || mode === 'imageGen') return true

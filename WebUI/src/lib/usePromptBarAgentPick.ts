@@ -6,7 +6,7 @@ import { presetToMode } from '@/lib/presetModes'
 import type { PromptBarAgent } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 
-/** Picking an Agent or an Agent Preset in the prompt bar; an Agent runs on Agent Maker. */
+/** Picking an Agent or an Agent Preset in the prompt bar; an Agent runs on Assistant. */
 export function usePromptBarAgentPick() {
   const agentTasks = useAgentTasks()
   const presetsStore = usePresets()
@@ -21,9 +21,9 @@ export function usePromptBarAgentPick() {
     }),
   )
 
-  /** The open Session's picked Agent, in effect while Agent Maker is the active preset. */
+  /** The open Session's picked Agent, in effect while Assistant is the active preset. */
   const pickedAgentId = computed(() => agentTasks.pickedAgent?.id)
-  /** An Agent picked on Agent Maker is what is selected, not Agent Maker itself. */
+  /** An Agent picked on Assistant is what is selected, not Assistant itself. */
   const pickedPresetName = computed(() =>
     pickedAgentId.value ? undefined : (presetsStore.activePresetName ?? undefined),
   )

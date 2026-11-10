@@ -396,7 +396,7 @@ describe('promptBarModel preset picker', () => {
   })
 
   describe('the Agents of the agent dropdown', () => {
-    const agentMaker = catalog[3]
+    const assistant = catalog[3]
     const digest = {
       id: 'a-digest',
       name: 'Morning digest',
@@ -409,7 +409,7 @@ describe('promptBarModel preset picker', () => {
 
     it('come after the Agent Presets as their own group, saved Agents only', () => {
       const model = promptBarModel(
-        input({ catalog, activePreset: agentMaker, agents: [digest, draftOnly, tidy] }),
+        input({ catalog, activePreset: assistant, agents: [digest, draftOnly, tidy] }),
       )
       expect(model.presets.map((preset) => preset.name)).toEqual([
         'Assistant',
@@ -434,7 +434,7 @@ describe('promptBarModel preset picker', () => {
 
     it('show a picked Agent on the header chip, by its current name and image', () => {
       const model = promptBarModel(
-        input({ catalog, activePreset: agentMaker, agents: [digest], pickedAgentId: 'a-digest' }),
+        input({ catalog, activePreset: assistant, agents: [digest], pickedAgentId: 'a-digest' }),
       )
       expect(model.pickedAgent).toEqual({
         id: 'a-digest',
@@ -462,7 +462,7 @@ describe('promptBarModel preset picker', () => {
     it('fall back to Agent Maker when the picked Agent is gone or only a Draft', () => {
       for (const pickedAgentId of ['a-deleted', 'a-new']) {
         const model = promptBarModel(
-          input({ catalog, activePreset: agentMaker, agents: [draftOnly], pickedAgentId }),
+          input({ catalog, activePreset: assistant, agents: [draftOnly], pickedAgentId }),
         )
         expect(model.pickedAgent).toBeUndefined()
         expect(model.headerChips.at(-1)).toEqual({

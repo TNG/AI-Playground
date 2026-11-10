@@ -361,6 +361,7 @@ import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuIte
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { hasChatAffordances } from '@/lib/chatAffordances'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import {
   agentList,
   promptBarModel,
@@ -589,8 +590,8 @@ const currentModel = computed(() =>
   textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
 )
 
-// The merged Assistant preset shows per-capability icons on its model chip.
-const isAssistantPreset = computed(() => presetChip.value?.name === 'Assistant')
+// Assistant shows per-capability icons on its model chip.
+const isAssistantPreset = computed(() => isHarnessChatPreset(presetChip.value?.name))
 
 const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)
 const contextMaxTokens = computed(() => textInference.effectiveContextWindow)

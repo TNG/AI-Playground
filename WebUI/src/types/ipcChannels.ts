@@ -264,7 +264,7 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, boolean],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
-  /** Pick an Agent in a Session's prompt bar, or `null` for Agent Maker; pushes `session-changed`. */
+  /** Pick an Agent in a Session's prompt bar, or `null` for Assistant; pushes `session-changed`. */
   'sessions:pickAgent': {
     kind: 'invoke',
     owner: 'main',

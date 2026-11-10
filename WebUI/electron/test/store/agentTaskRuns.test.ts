@@ -563,7 +563,7 @@ describe('running a Task', () => {
     expect(agentMode.sessions[sentConfig(1).sessionId].taskRun).not.toHaveProperty('input')
   })
 
-  it('files the Agent Run under Agent Maker', async () => {
+  it('files the Agent Run under Assistant', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks(pinia)
 
@@ -1640,7 +1640,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(tasks.pickedAgent?.id).toBe('t1')
   })
 
-  it('is cleared by picking Agent Maker again', async () => {
+  it('is cleared by picking Assistant again', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
 
     await tasks.pickAgent('t1')
@@ -1659,7 +1659,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(storedPicks).toEqual({})
   })
 
-  it('is only in effect while Agent Maker is the agent preset', async () => {
+  it('is only in effect while Assistant is the agent preset', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
     await tasks.pickAgent('t1')
 
@@ -1697,7 +1697,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(tasks.agentSettingsProblems).toEqual([{ field: 'model', value: 'Template-27B' }])
   })
 
-  it("leaves the Session's own Agent Maker settings as they were", async () => {
+  it("leaves the Session's own Assistant settings as they were", async () => {
     inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
     const { agentMode, tasks } = await readyStores(task('t1', ['one']))
     const before = { ...agentMode.openSessionSettings }
@@ -1721,7 +1721,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(startTurn).not.toHaveBeenCalled()
   })
 
-  it('falls back to Agent Maker in every Session that picked it when deleted', async () => {
+  it('falls back to Assistant in every Session that picked it when deleted', async () => {
     const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
     const sessions = useSessions(pinia)
     await tasks.pickAgent('t1')

@@ -411,7 +411,7 @@ describe('an Agent Run in the timeline', () => {
   })
 })
 
-describe('Run steps in the open Agent Maker conversation', () => {
+describe('Run steps in the open Assistant conversation', () => {
   const agentRun = { runId: 'p1', taskName: 'Digest', startedAt: 7, trigger: 'manual' as const }
   const stepMessage = (id: string, text: string) => ({
     ...agentMessage(id, 'user', text),

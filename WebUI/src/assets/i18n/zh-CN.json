@@ -745,7 +745,7 @@
   "MODEL_MANAGER_CAP_CODING": "编程预设",
   "MODEL_MANAGER_CAP_CODING_HINT": "在 Game Agent 和 Quick Coder 中显示此模型。这些预设只显示标记为编程用途的模型。",
   "MODEL_MANAGER_CAP_AGENTIC": "智能体",
-  "MODEL_MANAGER_CAP_AGENTIC_HINT": "在 Agent、Game Agent 和 Quick Coder 中包含此模型。这些预设只显示标记为可进行多步骤工具调用的模型。",
+  "MODEL_MANAGER_CAP_AGENTIC_HINT": "在 Game Agent 和 Quick Coder 中包含此模型，并允许 Assistant 使用此模型调用其文件和 Shell 工具。这些预设只显示标记为可进行多步骤工具调用的模型。",
   "MODEL_MANAGER_CAP_NPU": "支持 NPU",
   "MODEL_MANAGER_CAP_LARGE_MOE": "大型 MoE（SSD 卸载）",
   "MODEL_MANAGER_CAP_LARGE_MOE_HINT": "vRAM 装不下的 Mixture-of-Experts 模型。它只能通过 Phison Pascari aiDAPTIV 加载，在没有该硬件的机器上会从所有选择器中隐藏。",

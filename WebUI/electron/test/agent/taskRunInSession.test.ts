@@ -261,7 +261,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
       ...run,
       taskRun: { taskName: 'Morning digest', stepIndex: 2 },
     })
-    await manager.startAgentTurn('t3', 'agent maker turn', await agentConfig(session.id))
+    await manager.startAgentTurn('t3', 'assistant turn', await agentConfig(session.id))
     bodies = []
 
     await manager.startAgentTurn('t4', 'what did you miss', followUpTo(run))
@@ -269,7 +269,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
 
     const first = userTexts(bodies[0]).at(-1) ?? ''
     expect(first).toContain('Session Update')
-    expect(first).toContain('agent maker turn')
+    expect(first).toContain('assistant turn')
     expect(first).not.toContain('a castle')
     expect(first).not.toContain('first step')
     expect(first).not.toContain('second step')
@@ -302,7 +302,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     expect(update).not.toContain('legacy step')
   }, 30000)
 
-  it('is news to Agent Maker, under the Agent’s name', async () => {
+  it('is news to Assistant, under the Agent’s name', async () => {
     const session = await sessionWithHistory()
     const maker = await agentConfig(session.id)
     await manager.startAgentTurn('t1', 'catch up', maker)
@@ -316,7 +316,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     expect(userTexts(bodies[0]).at(-1)).toContain('Morning digest: \\"hello digest\\"')
   }, 30000)
 
-  it('files its History Entry under Agent Maker, marked as a Follow-up of the Agent', async () => {
+  it('files its History Entry under Assistant, marked as a Follow-up of the Agent', async () => {
     const session = await sessions.createSession()
     const run = await taskRunConfig(session.id)
     await manager.startAgentTurn('t1', 'summarise the news', run)

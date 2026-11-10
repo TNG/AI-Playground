@@ -68,7 +68,7 @@ export type PromptBarModel = {
   presets: PresetEntry[]
   /** In the agent mode, the saved Agents listed after the Agent Presets. */
   agents: AgentEntry[]
-  /** The Agent run on Agent Maker in place of Agent Maker itself. */
+  /** The Agent run on Assistant in place of Assistant itself. */
   pickedAgent?: AgentEntry
   presetChip: 'label' | 'dropdown'
   /** The mic and camera buttons. */

@@ -69,7 +69,7 @@ import {
   RAG_PREPARE_EMBEDDING_MODEL,
   SCREENSHOT_WINDOW_QUERY,
 } from '@/types/agentCapabilities'
-import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
+import { harnessTurnRefusal, type AgentAnswerOrigin, type GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { HarnessTurnRef, LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
@@ -1038,6 +1038,10 @@ export const useAgentMode = defineStore(
 
     const turns = createAgentTurnRuntimes({
       errors,
+      describeTurnError: (message) => {
+        const refusal = harnessTurnRefusal(message)
+        return refusal ? i18n.state[refusal] : undefined
+      },
       storeTools: {
         [OFFER_GAME_AGENT_TOOL]: (input, sessionId) => offerGameAgent(input, sessionId),
         [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
@@ -1724,10 +1728,10 @@ export const useAgentMode = defineStore(
       const sessionRef = sessionRefOf(id)
       const result = await requestTurnDeletion(id, ref.turnIds, ref.messageIds)
       if (!result.success) {
-        errors.report(new Error(result.error ?? 'Failed to delete the message.'), {
+        errors.report(new Error(result.error), {
           category: 'unknown',
           code: 'agent/delete-turn-failed',
-          userMessage: result.error ?? 'Failed to delete the message.',
+          userMessage: i18n.state[harnessTurnRefusal(result.error) ?? 'AGENT_DELETE_TURN_FAILED'],
         })
         return
       }
@@ -1815,10 +1819,11 @@ export const useAgentMode = defineStore(
       removeAttachment,
       clearAttachments,
       importAttachments,
-    } = createWorkspaceAttachments(errors)
+    } = createWorkspaceAttachments(errors, i18n.state)
 
     const { sessionDocuments, indexingDocuments, attachDocuments } = createSessionDocuments({
       workspaceDir,
+      languages: i18n.state,
       workspaceReady,
       embedding: () => {
         const model = textInference.activeEmbeddingModel

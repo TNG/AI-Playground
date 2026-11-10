@@ -2,7 +2,7 @@
   <MarkdownRenderer
     v-if="part.type === 'text'"
     role="region"
-    aria-label="Assistant reply"
+    :aria-label="languages.AGENT_REPLY_ARIA"
     :content="part.text ?? ''"
   />
   <ChatReasoningDisplay

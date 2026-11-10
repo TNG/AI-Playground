@@ -1,12 +1,16 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import type { GameLibraryEntry } from '@/types/agentIpc'
 import { developerMode } from './debugSettings'
+import { fillTemplate } from '@/lib/fillTemplate'
+
+type Languages = Record<string, string>
 
 export type WorkspaceAttachment = { name: string; bytes: ArrayBuffer }
 
-export function createWorkspaceAttachments(errors: {
-  report: (error: unknown, overrides: Record<string, unknown>) => void
-}) {
+export function createWorkspaceAttachments(
+  errors: { report: (error: unknown, overrides: Record<string, unknown>) => void },
+  languages: Languages,
+) {
   /**
    * Files the user attached for the next turn, still in memory.
    *
@@ -57,7 +61,7 @@ export function createWorkspaceAttachments(errors: {
         errors.report(new Error(result.error ?? `Failed to attach ${attachment.name}.`), {
           category: 'unknown',
           code: 'agent/attachment-failed',
-          userMessage: `Could not attach ${attachment.name}.`,
+          userMessage: fillTemplate(languages.AGENT_ATTACH_FAILED, { file: attachment.name }),
           surface: 'toast',
         })
       }
@@ -93,8 +97,9 @@ export function createSessionDocuments(options: {
   /** Resolves once the model is on disk; false when the user declined the download. */
   prepareEmbedding: (embedding: DocumentEmbedding) => Promise<boolean>
   errors: { report: (error: unknown, overrides: Record<string, unknown>) => void }
+  languages: Languages
 }) {
-  const { workspaceDir, errors } = options
+  const { workspaceDir, errors, languages } = options
   const sessionDocuments = ref<string[]>([])
   const indexingDocuments = ref<string[]>([])
 
@@ -115,7 +120,7 @@ export function createSessionDocuments(options: {
         errors.report(new Error(result.error ?? `Failed to attach ${file.name}.`), {
           category: 'unknown',
           code: 'agent/attachment-failed',
-          userMessage: `Could not attach ${file.name}.`,
+          userMessage: fillTemplate(languages.AGENT_ATTACH_FAILED, { file: file.name }),
           surface: 'toast',
         })
       }

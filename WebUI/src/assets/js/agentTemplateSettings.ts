@@ -1,5 +1,6 @@
 import { computed, onMounted, reactive } from 'vue'
 import { type LlmBackend, useTextInference } from '@/assets/js/store/textInference'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
@@ -30,6 +31,7 @@ export type TemplateSettingsSource = {
  */
 export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
   const textInference = useTextInference()
+  const i18nState = useI18N().state
   const agentMode = useAgentMode()
   const presets = usePresets()
 
@@ -140,6 +142,7 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
       gateCapabilityCatalog(
         capabilityCatalog.value,
         catalogModelToolUse(backend.value, resolved.value.inference.activeLlmModel),
+        (reason) => i18nState[reason],
       ),
     ),
     mountedFoldersSupported: true,

@@ -103,6 +103,19 @@ export const DeleteAgentTurnsRequestSchema = z.object({
 })
 export type DeleteAgentTurnsRequest = z.infer<typeof DeleteAgentTurnsRequestSchema>
 
+/** Why main refuses to edit a Harness Session's turns, sent as the i18n key the renderer shows. */
+export const HARNESS_TURN_REFUSALS = {
+  running: 'AGENT_TURN_EDIT_RUNNING',
+  notLatest: 'AGENT_REGENERATE_NOT_LATEST',
+  noPrompt: 'AGENT_REGENERATE_NO_PROMPT',
+} as const
+
+export type HarnessTurnRefusal = (typeof HARNESS_TURN_REFUSALS)[keyof typeof HARNESS_TURN_REFUSALS]
+
+export function harnessTurnRefusal(text: string | undefined): HarnessTurnRefusal | undefined {
+  return Object.values(HARNESS_TURN_REFUSALS).find((key) => key === text)
+}
+
 export const AgentModeTurnConfigSchema = z.object({
   /** The Harness Session (`aipg-agent-*`) the turn continues. */
   sessionId: z.string().min(1),

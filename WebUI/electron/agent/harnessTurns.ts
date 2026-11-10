@@ -4,8 +4,7 @@ import { loadPi } from './piRuntime.ts'
 import { piSessionDir, readSessionStore } from './piSessionStore.ts'
 import { active, agentTurns } from './piAgentState.ts'
 import { removeTimelineMessages } from '../session/sessionTimeline.ts'
-import type { DeleteAgentTurnsRequest } from '@/types/agentIpc'
-import type { IpcMutationResult } from '@/types/ipcChannels'
+import { HARNESS_TURN_REFUSALS, type DeleteAgentTurnsRequest } from '@/types/agentIpc'
 
 /** Opens each turn in the Harness Session; it is not model context, so the KV cache is kept. */
 export const HARNESS_TURN_ENTRY = 'aipg-turn'
@@ -62,13 +61,13 @@ export function rewindHarnessTurn(session: AgentSession, turnId: string): Rewoun
   )
   const at = markers.at(-1)
   if (at === undefined || turnMarkerId(branch[at]) !== turnId) {
-    throw new Error('Only the latest reply can be regenerated.')
+    throw new Error(HARNESS_TURN_REFUSALS.notLatest)
   }
   const opening = branch
     .slice(at + 1)
     .find((entry) => entry.type === 'message' && entry.message.role === 'user')
   if (opening?.type !== 'message' || opening.message.role !== 'user') {
-    throw new Error('The reply to regenerate has no prompt.')
+    throw new Error(HARNESS_TURN_REFUSALS.noPrompt)
   }
   const { content } = opening.message
   const parts = typeof content === 'string' ? [{ type: 'text' as const, text: content }] : content
@@ -82,33 +81,24 @@ export function rewindHarnessTurn(session: AgentSession, turnId: string): Rewoun
 }
 
 /** Deletes turns from a Harness Session and their messages from the Session's timeline. */
-export async function deleteAgentTurns(
-  request: DeleteAgentTurnsRequest,
-): Promise<IpcMutationResult> {
+export async function deleteAgentTurns(request: DeleteAgentTurnsRequest): Promise<void> {
   const { harnessSessionId, sessionRef } = request
-  if (agentTurns.has(harnessSessionId)) {
-    return { success: false, error: 'A turn is still running in this conversation.' }
-  }
-  try {
-    const turnIds = new Set(request.turnIds)
-    if (turnIds.size > 0) {
-      if (active?.sessionId === harnessSessionId) {
-        if (omitHarnessTurns(active.session.sessionManager, turnIds)) {
-          active.session.refreshContext()
-        }
-      } else {
-        const file = readSessionStore()[harnessSessionId]?.sessionFilePath
-        if (file && fs.existsSync(file)) {
-          const pi = await loadPi()
-          omitHarnessTurns(pi.SessionManager.open(file, piSessionDir()), turnIds)
-        }
+  if (agentTurns.has(harnessSessionId)) throw new Error(HARNESS_TURN_REFUSALS.running)
+  const turnIds = new Set(request.turnIds)
+  if (turnIds.size > 0) {
+    if (active?.sessionId === harnessSessionId) {
+      if (omitHarnessTurns(active.session.sessionManager, turnIds)) {
+        active.session.refreshContext()
+      }
+    } else {
+      const file = readSessionStore()[harnessSessionId]?.sessionFilePath
+      if (file && fs.existsSync(file)) {
+        const pi = await loadPi()
+        omitHarnessTurns(pi.SessionManager.open(file, piSessionDir()), turnIds)
       }
     }
-    if (sessionRef && request.messageIds.length > 0) {
-      await removeTimelineMessages(sessionRef, request.messageIds)
-    }
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+  if (sessionRef && request.messageIds.length > 0) {
+    await removeTimelineMessages(sessionRef, request.messageIds)
   }
 }

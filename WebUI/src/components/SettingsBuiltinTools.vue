@@ -39,7 +39,7 @@
           </div>
           <Checkbox
             id="builtin-tool-delegation"
-            aria-label="Media specialist agent"
+            :aria-label="languages.SETTINGS_TOOLS_DELEGATION_ARIA"
             :disabled="!toolsEnabled"
             :model-value="settings.delegationEnabled()"
             @click="settings.setDelegationEnabled(!settings.delegationEnabled())"
@@ -69,7 +69,9 @@
                  and non-expandable while the tool is disabled. -->
               <CollapsibleTrigger
                 v-if="presetsForTool(builtinTool.name).length"
-                :aria-label="`${builtinTool.label} workflows`"
+                :aria-label="
+                  fillTemplate(languages.SETTINGS_TOOLS_WORKFLOWS_ARIA, { tool: builtinTool.label })
+                "
                 :disabled="!isToolActive(builtinTool.name)"
                 class="flex items-center gap-1.5 text-xs"
                 :class="
@@ -108,7 +110,9 @@
           <CollapsibleContent
             v-if="presetsForTool(builtinTool.name).length"
             role="group"
-            :aria-label="`${builtinTool.label} workflows`"
+            :aria-label="
+              fillTemplate(languages.SETTINGS_TOOLS_WORKFLOWS_ARIA, { tool: builtinTool.label })
+            "
             class="flex flex-col gap-1.5 pl-4 pt-1"
           >
             <div
@@ -240,7 +244,7 @@
 
           <div class="flex items-center gap-3">
             <CollapsibleTrigger
-              aria-label="Speech tools"
+              :aria-label="languages.SETTINGS_TOOLS_SPEECH_TOOLS_ARIA"
               :disabled="!toolsEnabled"
               class="flex items-center gap-1.5 text-xs"
               :class="
@@ -258,7 +262,7 @@
             </CollapsibleTrigger>
             <Checkbox
               id="builtin-tool-speech"
-              aria-label="Speech"
+              :aria-label="languages.SETTINGS_TOOLS_SPEECH_ARIA"
               :disabled="!toolsEnabled"
               :model-value="isSpeechEnabled"
               @click="toggleSpeech"
@@ -350,6 +354,7 @@ import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { storeMediaToolSettings, type MediaToolSettings } from '@/lib/mediaToolSettings'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 // `media` is the Agent Mode slice: the media tools and their workflows, without
 // Chat's master switch (an agent's tools hang off its Media generation

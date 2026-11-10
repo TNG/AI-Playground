@@ -1,5 +1,6 @@
 import { computed, onMounted, reactive } from 'vue'
 import { type LlmBackend, useTextInference } from '@/assets/js/store/textInference'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
@@ -17,6 +18,7 @@ export function useAgentSettingsPanel() {
   const agentMode = useAgentMode()
   const agentTasks = useAgentTasks()
   const textInference = useTextInference()
+  const i18nState = useI18N().state
   const cloudMode = useCloudMode()
 
   const readOnly = computed(() => agentMode.sessionScoped && agentTasks.openSessionSettingsReadOnly)
@@ -51,6 +53,7 @@ export function useAgentSettingsPanel() {
     gateCapabilityCatalog(
       capabilityCatalog.value,
       catalogModelToolUse(textInference.backend, currentModel.value),
+      (reason) => i18nState[reason],
     ),
   )
 

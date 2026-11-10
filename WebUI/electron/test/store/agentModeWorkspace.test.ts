@@ -80,7 +80,10 @@ const report = vi.fn()
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
-  useI18N: () => ({ langName: 'en-US', state: {} }),
+  useI18N: () => ({
+    langName: 'en-US',
+    state: { AGENT_ATTACH_FAILED: 'Could not attach {file}.' },
+  }),
 }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
@@ -323,7 +326,10 @@ describe('agentMode attachments', () => {
     await store.attachFiles([file('player.png')])
     await store.generate('use this')
 
-    expect(report).toHaveBeenCalled()
+    expect(report).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userMessage: 'Could not attach player.png.' }),
+    )
     const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(sent.text).toBe('use this')
     expect(store.attachments).toEqual([])

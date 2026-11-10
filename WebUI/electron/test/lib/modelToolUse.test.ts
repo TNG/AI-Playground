@@ -9,14 +9,16 @@ const catalog = ['files', 'media', 'rag', 'web', 'memory'].map((id) => ({
   commands: [],
 }))
 
+const text = (key: string) => `<${key}>`
+
 const reasons = (entries: { id: string; unavailableReason?: string }[]) =>
   Object.fromEntries(entries.map((entry) => [entry.id, entry.unavailableReason]))
 
 describe('gateCapabilityCatalog', () => {
   it('disables file and shell editing, with a reason, for a model not suited to agent work', () => {
     const use = catalogModelToolUse('llamaCPP', { supportsToolCalling: true })
-    expect(reasons(gateCapabilityCatalog(catalog, use))).toEqual({
-      files: 'Needs a model suited to agent work.',
+    expect(reasons(gateCapabilityCatalog(catalog, use, text))).toEqual({
+      files: '<AGENT_CAPABILITY_NOT_AGENTIC>',
       media: undefined,
       rag: undefined,
       web: undefined,
@@ -29,25 +31,25 @@ describe('gateCapabilityCatalog', () => {
       supportsToolCalling: true,
       supportsAgentic: true,
     })
-    expect(Object.values(reasons(gateCapabilityCatalog(catalog, agentic)))).toEqual(
+    expect(Object.values(reasons(gateCapabilityCatalog(catalog, agentic, text)))).toEqual(
       catalog.map(() => undefined),
     )
     const cloud = catalogModelToolUse('cloud', undefined)
-    expect(Object.values(reasons(gateCapabilityCatalog(catalog, cloud)))).toEqual(
+    expect(Object.values(reasons(gateCapabilityCatalog(catalog, cloud, text)))).toEqual(
       catalog.map(() => undefined),
     )
   })
 
   it('disables every capability for an untagged user-added model, which gets no tools', () => {
     const use = catalogModelToolUse('llamaCPP', {})
-    for (const reason of Object.values(reasons(gateCapabilityCatalog(catalog, use)))) {
-      expect(reason).toBe('This model cannot call tools.')
+    for (const reason of Object.values(reasons(gateCapabilityCatalog(catalog, use, text)))) {
+      expect(reason).toBe('<AGENT_CAPABILITY_NO_TOOL_CALLING>')
     }
   })
 
   it("keeps main's own reason when it has one", () => {
     const withReason = [{ ...catalog[0], unavailableReason: 'Not here.' }]
     const use = catalogModelToolUse('llamaCPP', { supportsToolCalling: true })
-    expect(gateCapabilityCatalog(withReason, use)[0].unavailableReason).toBe('Not here.')
+    expect(gateCapabilityCatalog(withReason, use, text)[0].unavailableReason).toBe('Not here.')
   })
 })

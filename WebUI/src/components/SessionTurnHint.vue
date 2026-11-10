@@ -51,7 +51,7 @@ const kindLabel = computed(
   () =>
     ({
       chat: languages.SESSION_TURN_HINT_CHAT,
-      agent: languages.SESSION_TURN_HINT_AGENT,
+      agent: languages.SESSION_TURN_HINT_ASSISTANT,
       image: languages.SESSION_TURN_HINT_IMAGE,
       video: languages.SESSION_TURN_HINT_VIDEO,
       tts: languages.SESSION_TURN_HINT_TTS,

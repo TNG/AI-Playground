@@ -284,6 +284,7 @@ type SessionRuntime = AgentSessionRuntime & {
 function createSessionRuntime(options: {
   sessionId: string
   errors: ErrorSink
+  describeTurnError?: (message: string) => string | undefined
   initialMessages: UIMessage[]
   finishedTurns: Set<string>
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
@@ -419,7 +420,9 @@ function createSessionRuntime(options: {
         options.errors.report(error, {
           category: 'inference',
           code: 'agent/turn-failed',
-          userMessage: `Agent turn failed: ${extractMessage(error)}`,
+          userMessage:
+            options.describeTurnError?.(extractMessage(error)) ??
+            `Agent turn failed: ${extractMessage(error)}`,
           surface: options.quietTurnErrors?.(sessionId) ? 'silent' : 'toast',
         })
       },
@@ -576,6 +579,8 @@ function createSessionRuntime(options: {
  */
 export function createAgentTurnRuntimes(options: {
   errors: ErrorSink
+  /** The user's wording for a turn error main sent as a known reason. */
+  describeTurnError?: (message: string) => string | undefined
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   /** Tools the store implements itself (e.g. offer_game_agent); media tools execute in main. */
   storeTools?: Record<string, StoreTool>
@@ -611,6 +616,7 @@ export function createAgentTurnRuntimes(options: {
       createSessionRuntime({
         sessionId,
         errors: options.errors,
+        describeTurnError: options.describeTurnError,
         initialMessages: options.initialMessages?.(sessionId) ?? [],
         finishedTurns,
         buildTurnConfig: options.buildTurnConfig,

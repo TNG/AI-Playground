@@ -239,7 +239,8 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     },
     'agentMode:deleteTurns': async (_event, request) => {
       try {
-        return await deps.deleteAgentTurns(DeleteAgentTurnsRequestSchema.parse(request))
+        await deps.deleteAgentTurns(DeleteAgentTurnsRequestSchema.parse(request))
+        return { success: true as const }
       } catch (e) {
         return ipcFail(e)
       }

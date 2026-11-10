@@ -208,6 +208,7 @@ import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { checklistCapabilities } from '@/lib/agentSettingsSections'
+import { FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 
 const languages = useI18N().state
@@ -231,7 +232,11 @@ const { problemClass, missingMcpServers, describeMissingMcpServer } = useSetting
 // Game folders stay sandboxed: a game is plain HTML with no build step.
 const isManagedWorkspace = computed(() => agentMode.agentWorkspaceKind === 'games')
 const showShellOption = computed(
-  () => !props.template && !isManagedWorkspace.value && developerMode(),
+  () =>
+    !props.template &&
+    !isManagedWorkspace.value &&
+    developerMode() &&
+    binding.value.capabilities.includes(FILES_CAPABILITY_ID),
 )
 
 function toggleUnsandboxed(event: Event): void {

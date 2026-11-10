@@ -14,8 +14,8 @@ export const HEAVY_CAPABILITY_IDS: readonly string[] = [
   GAME_STUDIO_QUICK_ID,
 ]
 
-export const NO_TOOL_CALLING_REASON = 'This model cannot call tools.'
-export const NOT_AGENTIC_REASON = 'Needs a model suited to agent work.'
+/** Why the model rules a capability out, as the i18n key the renderer shows. */
+export type ModelGateReason = 'AGENT_CAPABILITY_NO_TOOL_CALLING' | 'AGENT_CAPABILITY_NOT_AGENTIC'
 
 type ModelFlags = { supportsToolCalling?: boolean; supportsAgentic?: boolean }
 
@@ -39,10 +39,12 @@ export function catalogModelToolUse(
   }
 }
 
-/** Why the model rules a capability out, or undefined when it may run. */
-export function capabilityModelGateReason(id: string, use: ModelToolUse): string | undefined {
-  if (!use.toolCalling) return NO_TOOL_CALLING_REASON
-  if (!use.agentic && HEAVY_CAPABILITY_IDS.includes(id)) return NOT_AGENTIC_REASON
+export function capabilityModelGateReason(
+  id: string,
+  use: ModelToolUse,
+): ModelGateReason | undefined {
+  if (!use.toolCalling) return 'AGENT_CAPABILITY_NO_TOOL_CALLING'
+  if (!use.agentic && HEAVY_CAPABILITY_IDS.includes(id)) return 'AGENT_CAPABILITY_NOT_AGENTIC'
   return undefined
 }
 
@@ -50,10 +52,11 @@ export function capabilityModelGateReason(id: string, use: ModelToolUse): string
 export function gateCapabilityCatalog<T extends { id: string; unavailableReason?: string }>(
   catalog: readonly T[],
   use: ModelToolUse,
+  reasonText: (reason: ModelGateReason) => string,
 ): T[] {
   return catalog.map((capability) => {
     if (capability.unavailableReason) return capability
     const reason = capabilityModelGateReason(capability.id, use)
-    return reason ? { ...capability, unavailableReason: reason } : capability
+    return reason ? { ...capability, unavailableReason: reasonText(reason) } : capability
   })
 }

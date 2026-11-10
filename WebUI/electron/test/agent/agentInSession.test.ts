@@ -667,14 +667,12 @@ describe('the Assistant preset in a Session', () => {
         { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
       ] as never)
 
-      expect(
-        await manager.deleteAgentTurns({
-          sessionRef: session.id,
-          harnessSessionId: config.sessionId,
-          turnIds: ['t1'],
-          messageIds: ['u1', 'a1'],
-        }),
-      ).toEqual({ success: true })
+      await manager.deleteAgentTurns({
+        sessionRef: session.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t1'],
+        messageIds: ['u1', 'a1'],
+      })
       await manager.startAgentTurn('t3', 'which words?', config)
 
       const lastRequest = transcriptText(bodies.at(-1))

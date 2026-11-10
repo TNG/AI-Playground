@@ -18,14 +18,11 @@
       <p class="text-xs">Try: “a one-button endless runner where I dodge asteroids”.</p>
     </template>
     <template v-else>
-      <p class="text-sm">
-        The agent works on files in this Session's folder — it can write code, run shell commands,
-        debug web pages and generate media.
+      <p class="text-sm">{{ languages.AGENT_EMPTY_STATE_ASSISTANT }}</p>
+      <p v-if="showsWorkspace" class="text-xs break-all">
+        {{ fillTemplate(languages.AGENT_EMPTY_STATE_WORKSPACE, { path: agentMode.workspaceDir }) }}
       </p>
-      <p v-if="agentMode.workspaceDir" class="text-xs break-all">
-        Workspace: <span class="text-foreground/80">{{ agentMode.workspaceDir }}</span>
-      </p>
-      <p class="text-xs">Configure model and tools in the Inferencing and Attributes tabs.</p>
+      <p class="text-xs">{{ languages.AGENT_EMPTY_STATE_CONFIGURE }}</p>
     </template>
   </div>
 </template>
@@ -34,7 +31,12 @@
 import { computed } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { agentEmptyStateKind } from '@/lib/presetModes'
+import { fillTemplate } from '@/lib/fillTemplate'
+import { FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
 
 const agentMode = useAgentMode()
 const emptyStateKind = computed(() => agentEmptyStateKind(agentMode.activeAgentPreset?.name))
+const showsWorkspace = computed(
+  () => !!agentMode.workspaceDir && agentMode.isCapabilityEnabled(FILES_CAPABILITY_ID),
+)
 </script>

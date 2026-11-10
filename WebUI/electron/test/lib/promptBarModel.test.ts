@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentList,
   lastUsedByMode,
   presetsInMode,
   promptBarModel,
@@ -394,6 +395,86 @@ describe('promptBarModel preset picker', () => {
     ])
   })
 
+  describe('the Agents of the agent dropdown', () => {
+    const agentMaker = catalog[3]
+    const digest = {
+      id: 'a-digest',
+      name: 'Morning digest',
+      description: 'Reads the news',
+      image: 'digest.png',
+      saved: true,
+    }
+    const draftOnly = { id: 'a-new', name: 'Unsaved idea', saved: false }
+    const tidy = { id: 'a-tidy', name: 'Tidy downloads', saved: true }
+
+    it('come after the Agent Presets as their own group, saved Agents only', () => {
+      const model = promptBarModel(
+        input({ catalog, activePreset: agentMaker, agents: [digest, draftOnly, tidy] }),
+      )
+      expect(model.presets.map((preset) => preset.name)).toEqual([
+        'Agent',
+        'Game Agent',
+        'Quick Coder',
+      ])
+      expect(model.agents).toEqual([
+        {
+          id: 'a-digest',
+          name: 'Morning digest',
+          description: 'Reads the news',
+          image: 'digest.png',
+        },
+        { id: 'a-tidy', name: 'Tidy downloads' },
+      ])
+    })
+
+    it('are not listed outside the agent mode', () => {
+      const model = promptBarModel(input({ catalog, agents: [digest] }))
+      expect(model.agents).toEqual([])
+    })
+
+    it('show a picked Agent on the header chip, by its current name and image', () => {
+      const model = promptBarModel(
+        input({ catalog, activePreset: agentMaker, agents: [digest], pickedAgentId: 'a-digest' }),
+      )
+      expect(model.pickedAgent).toEqual({
+        id: 'a-digest',
+        name: 'Morning digest',
+        description: 'Reads the news',
+        image: 'digest.png',
+      })
+      expect(model.headerChips.at(-1)).toEqual({
+        kind: 'preset',
+        name: 'Agent',
+        label: 'Morning digest',
+        image: 'digest.png',
+        agentId: 'a-digest',
+      })
+    })
+
+    it('leave the pick out of effect under another Agent Preset', () => {
+      const model = promptBarModel(
+        input({ catalog, activePreset: gameAgent, agents: [digest], pickedAgentId: 'a-digest' }),
+      )
+      expect(model.pickedAgent).toBeUndefined()
+      expect(model.headerChips.at(-1)).toMatchObject({ kind: 'preset', label: 'Game Agent' })
+    })
+
+    it('fall back to Agent Maker when the picked Agent is gone or only a Draft', () => {
+      for (const pickedAgentId of ['a-deleted', 'a-new']) {
+        const model = promptBarModel(
+          input({ catalog, activePreset: agentMaker, agents: [draftOnly], pickedAgentId }),
+        )
+        expect(model.pickedAgent).toBeUndefined()
+        expect(model.headerChips.at(-1)).toEqual({
+          kind: 'preset',
+          name: 'Agent',
+          label: 'Agent',
+          image: 'Agent.png',
+        })
+      }
+    })
+  })
+
   describe('the header preset chip', () => {
     const chipFor = (activePreset: Preset, style: PromptBarInput['style']) =>
       promptBarModel(input({ catalog, activePreset, style })).presetChip
@@ -409,6 +490,42 @@ describe('promptBarModel preset picker', () => {
     it('is always a label in Classic', () => {
       expect(chipFor(gameAgent, 'classic')).toBe('label')
     })
+  })
+})
+
+describe('agentList', () => {
+  const named = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({ id: `a-${i + 1}`, name: `Agent ${i + 1}` }))
+
+  it('offers no filter for 8 Agents or fewer, and lists them all whatever was typed', () => {
+    const list = agentList(named(8), 'Agent 3')
+    expect(list.filterable).toBe(false)
+    expect(list.agents).toHaveLength(8)
+  })
+
+  it('offers a filter once there are more than 8 Agents', () => {
+    const list = agentList(named(9), '')
+    expect(list.filterable).toBe(true)
+    expect(list.agents).toHaveLength(9)
+  })
+
+  it('narrows a long list by name or description, ignoring case and surrounding spaces', () => {
+    const agents = [
+      ...named(8),
+      { id: 'a-digest', name: 'Morning Digest', description: 'Reads the news' },
+      { id: 'a-tidy', name: 'Tidy downloads', description: 'Sorts the DIGEST folder' },
+    ]
+    expect(agentList(agents, '  digest ').agents.map((agent) => agent.id)).toEqual([
+      'a-digest',
+      'a-tidy',
+    ])
+    expect(agentList(agents, 'NEWS').agents.map((agent) => agent.id)).toEqual(['a-digest'])
+  })
+
+  it('lists nothing when no Agent matches', () => {
+    const list = agentList(named(9), 'weather')
+    expect(list.filterable).toBe(true)
+    expect(list.agents).toEqual([])
   })
 })
 

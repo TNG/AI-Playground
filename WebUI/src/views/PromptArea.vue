@@ -7,20 +7,10 @@
       <div
         v-if="settingsProblems.length > 0"
         role="alert"
-        :aria-label="
-          agentSettingsProblems.length > 0
-            ? 'Agent session settings unusable'
-            : 'Session settings unusable'
-        "
+        :aria-label="settingsProblemsLabel"
         class="w-full text-sm text-amber-500 flex flex-col gap-1"
       >
-        <p>
-          {{
-            agentSettingsProblems.length > 0
-              ? languages?.AGENT_SETTINGS_UNUSABLE
-              : languages?.SESSION_SETTINGS_UNUSABLE
-          }}
-        </p>
+        <p>{{ settingsProblemsNote }}</p>
         <p v-for="problem in settingsProblems" :key="`${problem.field}:${problem.value}`">
           {{ describeSettingsProblem(problem) }}
         </p>
@@ -31,22 +21,6 @@
         class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
       >
         <p class="flex-1 min-w-0">{{ queuedBehindRunNote }}</p>
-      </div>
-      <div
-        v-else-if="promptRun"
-        role="status"
-        class="w-full flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
-      >
-        <p class="flex-1 min-w-0">{{ promptRunNote }}</p>
-        <Button
-          variant="secondary"
-          size="sm"
-          class="h-7 px-2 text-xs"
-          @click="agentTasks.stopPromptRun(agentMode.openSessionId)"
-        >
-          <StopIcon class="size-3.5" aria-hidden="true" />
-          {{ languages?.AGENT_STEPS_STOP }}
-        </Button>
       </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
@@ -275,7 +249,7 @@ import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useProductMode } from '@/assets/js/store/productMode'
-import { PaperClipIcon, MusicalNoteIcon, StopIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { PaperClipIcon, MusicalNoteIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { Label } from '@/components/ui/label'
 import { useDropZone, useEventListener } from '@vueuse/core'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -293,8 +267,9 @@ import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { promptBusy, promptOnBusyChange } from '@/lib/promptBusy'
 import { agentRunQueuedLabel } from '@/lib/queueActivityProjection'
-import { stepPrompts } from '@/lib/taskSteps'
 import { useAgentRunHold } from '@/lib/useAgentRunHold'
+import { createAppError } from '@/assets/js/errors/appError'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 const instance = getCurrentInstance()
 const audioRecorder = useAudioRecorder()
@@ -331,7 +306,7 @@ const bottomBarProps = computed(() => ({
   sttUnavailableHint: sttUnavailableHint.value,
   showSend: !isSttPreset.value && !downloadGroup.value,
   readyForNewSubmit: readyForNewSubmit.value,
-  canRunSteps: canRunSteps.value,
+  pickedAgentName: pickedAgentName.value,
   settingsBlocked: settingsProblems.value.length > 0,
   isSlashCommand: isSlashCommand.value,
   isStopping: isStopping.value,
@@ -342,7 +317,7 @@ const bottomBarEvents = {
   camera: handleCameraClick,
   record: handleRecordingClick,
   send: handleSubmitPromptClick,
-  runSteps: handleRunStepsClick,
+  runAgent: handleRunAgentClick,
   cancel: handleCancelClick,
 }
 
@@ -543,16 +518,9 @@ const queuedBehindRunNote = computed(() =>
   agentRunQueuedLabel(languages ?? {}, queuedBehindRun.value ?? ''),
 )
 
-const promptRun = computed(() =>
-  promptStore.getCurrentMode() === 'agent'
-    ? agentTasks.promptRunOf(agentMode.openSessionId)
-    : undefined,
-)
-
-const promptRunNote = computed(() =>
-  (languages?.AGENT_STEPS_RUNNING ?? '')
-    .replace('{step}', String(promptRun.value?.stepIndex ?? ''))
-    .replace('{count}', String(promptRun.value?.stepCount ?? '')),
+// Between two Steps no turn is in flight, yet the run still holds the Session.
+const openSessionRunning = computed(
+  () => !!sessions.openSessionId && !!agentTasks.agentRunIn(sessions.openSessionId),
 )
 
 // Busy state follows only what the prompt bar would send to (`promptBusy`). For the
@@ -561,12 +529,12 @@ const promptRunNote = computed(() =>
 // activity indicator.
 const isProcessing = computed(() =>
   promptBusy(promptStore.getCurrentMode(), {
-    agentSession: agentMode.processing || promptRun.value !== undefined,
+    agentSession: agentMode.processing,
     conversation:
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,
     audioTurn: sessionAudio.processing,
-    sessionTurn: sessionTabs.sessionTurnInFlight && !agentTasks.isAgentRunTurn(sessions.openTurn),
+    sessionTurn: sessionTabs.sessionTurnInFlight || openSessionRunning.value,
   }),
 )
 
@@ -696,9 +664,9 @@ function getTextAreaPlaceholder() {
   }
 }
 
-/** A sent Agent session whose stored settings cannot be used blocks Send (see agentMode). */
+/** A picked Agent's Settings Template, or a sent Agent session's stored settings, block Send. */
 const agentSettingsProblems = computed(() =>
-  promptStore.getCurrentMode() === 'agent' ? agentMode.settingsProblems : [],
+  promptStore.getCurrentMode() === 'agent' ? agentTasks.agentSettingsProblems : [],
 )
 
 /** Every other preset's Session Settings block the same way (ADR-0004). */
@@ -706,6 +674,22 @@ const settingsProblems = computed(() => [
   ...agentSettingsProblems.value,
   ...sessionSettings.problems,
 ])
+
+const settingsProblemsLabel = computed(() =>
+  agentSettingsProblems.value.length === 0
+    ? 'Session settings unusable'
+    : agentTasks.pickedAgent
+      ? 'Agent settings unusable'
+      : 'Agent session settings unusable',
+)
+
+const settingsProblemsNote = computed(() =>
+  agentSettingsProblems.value.length === 0
+    ? languages?.SESSION_SETTINGS_UNUSABLE
+    : agentTasks.pickedAgent
+      ? languages?.AGENT_LIBRARY_PICKED_UNUSABLE
+      : languages?.AGENT_SETTINGS_UNUSABLE,
+)
 
 function describeSettingsProblem(problem: SessionSettingsProblem): string {
   return describeProblem(problem, languages as unknown as Record<string, string>)
@@ -722,27 +706,47 @@ function handleSubmitPromptClick() {
   promptStore.submitPrompt(prompt.value)
 }
 
-/** Agent Maker sessions with Steps can carry them out; Send then talks to the agent alone. */
-const canRunSteps = computed(
-  () =>
-    promptStore.getCurrentMode() === 'agent' &&
-    agentMode.sessionScoped &&
-    stepPrompts(agentMode.openSteps).length > 0,
+/** A picked Agent can be run; Send then talks to it alone. */
+const pickedAgentName = computed(() =>
+  promptStore.getCurrentMode() === 'agent' ? agentTasks.pickedAgent?.name : undefined,
 )
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
 
-async function handleRunStepsClick() {
+async function handleRunAgentClick() {
   if (settingsProblems.value.length > 0 || isSlashCommand.value) return
   promptStore.promptSubmitted = true
   const text = prompt.value
-  await afterAgentRun(() => void agentTasks.runSteps(text), text)
+  await afterAgentRun(() => runPickedAgent(text), text)
+}
+
+async function runPickedAgent(text: string): Promise<void> {
+  const result = await agentTasks.runPickedAgent(text)
+  promptStore.promptSubmitted = false
+  if (result.ok) {
+    if (prompt.value === text) prompt.value = ''
+    return
+  }
+  if (result.reason !== 'settings-problems') return
+  errors.report(
+    createAppError({
+      category: 'validation',
+      code: 'agent-tasks/run-blocked',
+      severity: 'warning',
+      surface: 'toast',
+      userMessage: fillTemplate(i18nState.AGENT_TASKS_RUN_BLOCKED, { reason: result.message }),
+    }),
+  )
 }
 
 // The mode's own Stop knows its Tasks and runs; a turn from another mode goes by its engine.
 async function handleCancelClick() {
   if (queuedBehindRun.value && sessions.openSessionId) {
     agentTasks.cancelQueuedPrompt(sessions.openSessionId)
+    return
+  }
+  if (openSessionRunning.value && sessions.openSessionId) {
+    await agentTasks.stopRunIn(sessions.openSessionId)
     return
   }
   const turn = sessions.openTurn

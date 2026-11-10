@@ -63,6 +63,9 @@ export type AgentSessionSchedule = z.infer<typeof AgentSessionScheduleSchema>
 export const AgentTaskSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
+  description: z.string().optional(),
+  /** A data URI, shown beside the Agent's name. */
+  image: z.string().optional(),
   /** The Session the Agent was made in, for information only; absent when there is none. */
   sessionRef: z.string().min(1).optional(),
   /** Only on an Agent saved before Sessions. */
@@ -96,7 +99,48 @@ function migrateLegacyAgent(raw: unknown): unknown {
   return migrated
 }
 
+/** Version 2: the Agent Library migration has run (Agent Presets folded into their Agents). */
+export const AGENT_TASKS_SCHEMA_VERSION = 2
+
 export const AgentTasksFileSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(AGENT_TASKS_SCHEMA_VERSION)]),
   tasks: z.array(z.preprocess(migrateLegacyAgent, AgentTaskSchema)),
 })
+
+/**
+ * An Agent's unsaved edits, at most one per Agent. A new Agent exists only as a Draft
+ * until first saved, so `agentId` need not name a saved Agent.
+ */
+export const AgentDraftSchema = z.object({
+  agentId: z.string().min(1),
+  name: z.string(),
+  description: z.string().optional(),
+  image: z.string().optional(),
+  settingsTemplate: AgentSessionSettingsSchema,
+  steps: z.array(AgentTaskStepSchema),
+  updatedAt: z.number(),
+})
+export type AgentDraft = z.infer<typeof AgentDraftSchema>
+
+export const AgentDraftsFileSchema = z.object({
+  schemaVersion: z.literal(1),
+  drafts: z.array(AgentDraftSchema),
+})
+
+/**
+ * Where an Agent's Trial Run is, kept beside its scratch folder so a reloaded window can pick it
+ * up. `stepIndex` is 1-based; `stepCount` is how many Steps it runs.
+ */
+export const TrialRunRecordSchema = z.object({
+  agentId: z.string().min(1),
+  harnessSessionId: z.string().min(1),
+  name: z.string(),
+  stepIndex: z.number(),
+  stepCount: z.number(),
+  startedAt: z.number(),
+  state: z.enum(['running', 'completed', 'failed', 'stopped']),
+  message: z.string().optional(),
+  /** What the user typed in front of Step 1. */
+  input: z.string().optional(),
+})
+export type TrialRunRecord = z.infer<typeof TrialRunRecordSchema>

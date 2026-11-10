@@ -212,8 +212,8 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   Attributes tab's `LoadImage` inputs (accessible name = the field label); chat vision/RAG
   presets attach a fixture via the prompt-area "+" input (`aria-label="Attach image or document"`).
 - **Settings are tabs, not a sidebar.** The open Session's view (`SessionTabView.vue`) is a
-  `tablist` named "Session" whose tabs are Viewport, Inferencing, Attributes, Artifacts and
-  (for agents) Agents; each panel is a `tabpanel` named after its tab. Every mode and Agent
+  `tablist` named "Session" whose tabs are Viewport, Inferencing, Attributes and Artifacts
+  (a Home Agent thread has no Artifacts); each panel is a `tabpanel` named after its tab. Every mode and Agent
   Preset puts its settings in Inferencing and Attributes, so a page object finds a control with
   `sessionTabPanel(page, 'Inferencing' | 'Attributes')` and shows it with `showSessionTab` (both
   in `pages/uiControls.ts`). There is no per-mode "<Mode> Settings" region or button any more:
@@ -558,7 +558,7 @@ There is **no Vue Router**. Navigation is state-driven:
 - `App.vue` checks `globalSetup.loadingState` (`verifyBackend` → `manageInstallations` → `loading` → `running`/`failed`)
 - Once running, the main area is **one view in every mode**: `SessionTimeline.vue`, the open Session's timeline, which is never remounted or restyled by a mode or preset switch. `sessionTimelineItems()` (`src/lib/sessionTimeline.ts`) lays every live turn over the saved timeline — the streaming chat turn, the open and running Harness Sessions (`agentMode.liveTurnsIn`, Task Runs included), the in-flight media run and the running audio turn — so each one shows whichever mode is active. Chat and agent messages, live or settled, render through one `SessionMessage.vue` (shared `SessionUserBubble` / `SessionAssistantBubble`, which `MediaTurnBlock` / `AudioTurnBlock` use too; the answer body is `ChatMessageParts` or `AgentMessageParts` by the engine that produced it). Mode only decides the edges: the prompt bar's submit/cancel per mode (`src/lib/useModePromptHandlers.ts`, registered once from `App.vue`), the Game Agent bar, the agent empty state and status line. `Chat.vue` remains only for a conversation that is no Session's (a Home Agent thread). Turns settle ( a panel run settles into its Session Folder and Session History from `electron/session/sessionMediaTurn.ts`, a TTS/STT turn — driven by `store/sessionAudio.ts` — from `electron/session/sessionAudioTurn.ts` over `sessions:recordAudioTurn`)
 - Each mode maps to a preset category (`chat`, `audio`, `create-images`, `edit-images`, `create-videos`). `chat`, `agent` and `audio` all run on `chat`-type presets; `audio` holds the speech presets (Text to Speech / Speech to Text) and gets its own settings tabs (`SettingsAudioInferencing.vue` / `SettingsAudioAttributes.vue`)
-- `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) and **Agents** (`SchedulesPanel.vue`: the library under Agent Maker, its own Agent under an Agent Preset, otherwise only while the Session holds a Schedule or a running Agent Run). Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; the only sidebar left is App Settings (`SideModalAppSettings.vue`)
+- `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) — the same tabs under every preset. Agents are made, edited and scheduled in the Agent Library overlay (`views/AgentLibrary.vue`, ADR 0007), never in a Session; an Agent Run's Turn offers Stop while it runs and Edit Agent. Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; the only sidebar left is App Settings (`SideModalAppSettings.vue`)
 - **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
   with `agentPreset: true` (Agent, Game Agent) renders Agent Mode, so there is no Agent mode
   button — it is entered by picking one of those presets from the chat list.
@@ -1421,27 +1421,27 @@ Trace-wide facts go on the trace as metadata (`lmnr.association.properties.metad
 what the Traces page filters on), per-call numbers go on the LLM span. Ours are namespaced
 `aipg.*` so they can never collide with a reserved `lmnr.*` / `gen_ai.*` key.
 
-| Where          | Key                                                                   | Value                                                        |
-| -------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
-| trace metadata | `backend`                                                             | `llamaCPP` / `openVINO` / `cloud`                            |
-| trace metadata | `device`                                                              | selected device id (`GPU.0`, `NPU`, …), local only           |
-| trace metadata | `deviceName`                                                          | that device's display name (`Intel Arc B580`, …), local only |
-| trace metadata | `hostname`                                                            | `os.hostname()` of the machine that produced the trace       |
-| trace metadata | `cloudProvider`                                                       | provider id, cloud only                                      |
-| trace metadata | `backendVersion`                                                      | llama.cpp build number / OVMS version, local only            |
-| trace metadata | `serverArgs`                                                          | the running LLM server's whole command line, local only      |
-| trace metadata | `preset`                                                              | preset the turn was held with, both surfaces                 |
-| trace metadata | `agentType`                                                           | `agent` / `game-agent` / `quick-coder`, agent only           |
-| trace metadata | `capabilities`                                                        | capability ids, sorted and comma-joined, agent only          |
-| trace metadata | `appSession`                                                          | our `aipg-agent-*` session id, agent only                    |
-| trace metadata | `game`, `gameId`                                                      | the game's title as of this turn, and its folder slug        |
-| trace metadata | `genTps`, `prefillTps`, `llmCalls`                                    | the whole run's two speeds, and how many calls made them     |
+| Where          | Key                                                                   | Value                                                                                 |
+| -------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| trace metadata | `backend`                                                             | `llamaCPP` / `openVINO` / `cloud`                                                     |
+| trace metadata | `device`                                                              | selected device id (`GPU.0`, `NPU`, …), local only                                    |
+| trace metadata | `deviceName`                                                          | that device's display name (`Intel Arc B580`, …), local only                          |
+| trace metadata | `hostname`                                                            | `os.hostname()` of the machine that produced the trace                                |
+| trace metadata | `cloudProvider`                                                       | provider id, cloud only                                                               |
+| trace metadata | `backendVersion`                                                      | llama.cpp build number / OVMS version, local only                                     |
+| trace metadata | `serverArgs`                                                          | the running LLM server's whole command line, local only                               |
+| trace metadata | `preset`                                                              | preset the turn was held with, both surfaces                                          |
+| trace metadata | `agentType`                                                           | `agent` / `game-agent` / `quick-coder`, agent only                                    |
+| trace metadata | `capabilities`                                                        | capability ids, sorted and comma-joined, agent only                                   |
+| trace metadata | `appSession`                                                          | our `aipg-agent-*` session id, agent only                                             |
+| trace metadata | `game`, `gameId`                                                      | the game's title as of this turn, and its folder slug                                 |
+| trace metadata | `genTps`, `prefillTps`, `llmCalls`                                    | the whole run's two speeds, and how many calls made them                              |
 | trace metadata | `gpuUtilPeak`, `gpuMemPeakMib`, `hostMemPeakMib`                      | peak GPU util / GPU memory / host RAM (Windows GPU util+memory are WDDM, not xpu-smi) |
-| LLM span       | `aipg.thinking`, `aipg.reasoning_effort`                              | what the turn actually asked the template for                |
-| LLM span       | `gen_ai.request.temperature` / `top_p` / `max_tokens`                 | the sampling that rode the request                           |
-| LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                   |
-| LLM span       | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n`                 | what those speeds were computed from                         |
-| LLM span       | `aipg.gpu.*`, `aipg.host.*`                                           | util / vRAM / RAM last+peak over the call (`docs/compute-resource-metrics.md`) |
+| LLM span       | `aipg.thinking`, `aipg.reasoning_effort`                              | what the turn actually asked the template for                                         |
+| LLM span       | `gen_ai.request.temperature` / `top_p` / `max_tokens`                 | the sampling that rode the request                                                    |
+| LLM span       | `aipg.prefill_tokens_per_second`, `aipg.generation_tokens_per_second` | the two speeds, kept apart                                                            |
+| LLM span       | `aipg.prompt_ms`, `aipg.predicted_ms`, `aipg.cache_n`                 | what those speeds were computed from                                                  |
+| LLM span       | `aipg.gpu.*`, `aipg.host.*`                                           | util / vRAM / RAM last+peak over the call (`docs/compute-resource-metrics.md`)        |
 
 Both surfaces feed one stamper (`electron/observability/laminarAttributes.ts`), which the span processor
 calls on span start (metadata) and span end (the numbers). The facts reach it differently

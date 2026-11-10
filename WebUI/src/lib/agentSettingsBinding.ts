@@ -34,4 +34,14 @@ export type AgentSettingsBinding = {
   problems: readonly SessionSettingsProblem[]
   /** Game Agent and Quick Coder keep their model settings in Chat's, so a change there shows here. */
   sharedWithChat: boolean
+  /** Set when bound to an Agent's Settings Template: the model pickers write here, not to Chat. */
+  template?: AgentTemplateChoices
+}
+
+/** The model and provider picks of a Settings Template, which the live controls keep in Chat. */
+export type AgentTemplateChoices = {
+  model: string
+  setModel: (model: string) => void
+  cloudProviderId: string
+  setCloudProviderId: (providerId: string) => void
 }

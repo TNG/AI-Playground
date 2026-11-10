@@ -18,7 +18,13 @@ export type InFlightWorkItem =
   | { kind: 'home-agent-turn'; state: InFlightWorkState }
   | { kind: 'media-run'; mode: ArtifactRunMode; state: InFlightWorkState }
   | { kind: 'task-run'; taskId: string; sessionId?: string; name?: string; state: TaskRunWorkState }
-  | { kind: 'prompt-run'; sessionId: string; name?: string; state: StepState }
+  | {
+      kind: 'trial-run'
+      agentId: string
+      sessionId?: string
+      name?: string
+      state: TaskRunWorkState
+    }
 
 /** A Task Run is `starting` while its models are checked, before its first Step exists. */
 export type TaskRunWorkState = StepState | { status: 'starting' }

@@ -24,8 +24,21 @@ import type {
   readAgentWorkspaceState,
   writeAgentWorkspaceState,
 } from '../../persist/workspaceStateFiles'
-import type { deleteAgentTask, readAgentTasks, saveAgentTask } from '../../persist/agentTaskFiles'
+import type {
+  deleteAgentDraft,
+  deleteAgentTask,
+  readAgentDrafts,
+  readAgentTasks,
+  saveAgentDraft,
+  saveAgentTask,
+} from '../../persist/agentTaskFiles'
 import type { forgetSessionMessages } from '../../persist/channelMessageMap'
+import type {
+  discardTrialRun,
+  readTrialRuns,
+  saveTrialRun,
+  trialRunHarnessFor,
+} from '../../agent/trialRuns'
 import type { appLoggerInstance } from '../../observability/logger'
 
 /** The Pi manager, session-record, workspace-state and Tasks seams the agentMode handlers close over. */
@@ -50,6 +63,13 @@ export type AgentModeDeps = {
   readAgentTasks: typeof readAgentTasks
   saveAgentTask: typeof saveAgentTask
   deleteAgentTask: typeof deleteAgentTask
+  readAgentDrafts: typeof readAgentDrafts
+  saveAgentDraft: typeof saveAgentDraft
+  deleteAgentDraft: typeof deleteAgentDraft
+  trialRunHarnessFor: typeof trialRunHarnessFor
+  discardTrialRun: typeof discardTrialRun
+  readTrialRuns: typeof readTrialRuns
+  saveTrialRun: typeof saveTrialRun
   forgetSessionMessages: typeof forgetSessionMessages
   appLogger: typeof appLoggerInstance
 }
@@ -154,6 +174,59 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:deleteTask': async (_event, id) => {
       try {
         await deps.deleteAgentTask(id)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:readDrafts': async () => {
+      try {
+        return { success: true as const, drafts: await deps.readAgentDrafts() }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:saveDraft': async (_event, draft) => {
+      try {
+        await deps.saveAgentDraft(draft)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:deleteDraft': async (_event, agentId) => {
+      try {
+        await deps.deleteAgentDraft(agentId)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:trialRunHarness': async (_event, agentId) => {
+      try {
+        return { success: true as const, harness: await deps.trialRunHarnessFor(agentId) }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:discardTrialRun': async (_event, agentId) => {
+      try {
+        await deps.discardTrialRun(agentId)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:readTrialRuns': async () => {
+      try {
+        return { success: true as const, trialRuns: await deps.readTrialRuns() }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:saveTrialRun': async (_event, run) => {
+      try {
+        await deps.saveTrialRun(run)
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

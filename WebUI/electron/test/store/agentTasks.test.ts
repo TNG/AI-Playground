@@ -20,7 +20,7 @@ const AGENT: ChatPreset = {
 } as ChatPreset
 
 const catalogRef = vi.hoisted(() => ({
-  state: null as { presets: ChatPreset[]; active: ChatPreset | null; saved: boolean } | null,
+  state: null as { presets: ChatPreset[]; active: ChatPreset | null } | null,
 }))
 
 const catalog = new Proxy({} as NonNullable<typeof catalogRef.state>, {
@@ -28,19 +28,9 @@ const catalog = new Proxy({} as NonNullable<typeof catalogRef.state>, {
   set: (_target, key, value) => Reflect.set(catalogRef.state!, key, value),
 })
 
-const addPreset = vi.fn(async (preset: ChatPreset) => {
-  if (!catalog.saved) return false
-  catalog.presets = [...catalog.presets.filter((entry) => entry.name !== preset.name), preset]
-  return true
-})
-const removeUserPreset = vi.fn(async (name: string) => {
-  catalog.presets = catalog.presets.filter((entry) => entry.name !== name)
-  return true
-})
-
 vi.mock('@/assets/js/store/presets', async () => {
   const { reactive } = await import('vue')
-  catalogRef.state = reactive({ presets: [] as ChatPreset[], active: null, saved: true })
+  catalogRef.state = reactive({ presets: [] as ChatPreset[], active: null })
   return {
     usePresets: () => ({
       get presets() {
@@ -49,8 +39,6 @@ vi.mock('@/assets/js/store/presets', async () => {
       get activePresetWithVariant() {
         return catalog.active
       },
-      addPreset,
-      removeUserPreset,
     }),
   }
 })
@@ -179,9 +167,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
   for (const key of Object.keys(settingsPerPreset)) delete settingsPerPreset[key]
-  catalog.presets = [{ ...AGENT, image: 'data:image/png;base64,AGENT', extendedDescription: 'How' }]
+  catalog.presets = [AGENT]
   catalog.active = AGENT
-  catalog.saved = true
   storedTasks = []
   missingModels = new Set()
   openSessionSettings = SETTINGS
@@ -285,6 +272,19 @@ beforeEach(() => {
         readTasks,
         saveTask,
         deleteTask: vi.fn(async () => ({ success: true })),
+        readDrafts: vi.fn(async () => ({ success: true, drafts: [] })),
+        saveDraft: vi.fn(async () => ({ success: true })),
+        deleteDraft: vi.fn(async () => ({ success: true })),
+        trialRunHarness: vi.fn(async (agentId: string) => ({
+          success: true,
+          harness: {
+            harnessSessionId: 'aipg-agent-trial',
+            workspaceDir: `/trials/${agentId}/files`,
+          },
+        })),
+        discardTrialRun: vi.fn(async () => ({ success: true })),
+        readTrialRuns: vi.fn(async () => ({ success: true, trialRuns: [] })),
+        saveTrialRun: vi.fn(async () => ({ success: true })),
       },
       getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
@@ -301,6 +301,8 @@ const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
 
+const openSessionRef = () => useSessions().openSessionId ?? ''
+
 async function readyStores(options: { session?: boolean } = {}) {
   const agentMode = useAgentMode()
   await agentMode.init()
@@ -310,81 +312,7 @@ async function readyStores(options: { session?: boolean } = {}) {
   return { agentMode, tasks }
 }
 
-const draftOf = (name: string, ...prompts: string[]) => ({
-  name,
-  steps: prompts.map((prompt, index) => ({ id: `step-${index}`, prompt })),
-})
-
-describe('saving a Task', () => {
-  it.each([
-    ['an empty name', draftOf('  ', 'go'), 'name'],
-    ['no Steps', draftOf('Docs'), 'no-steps'],
-    ['an empty Step', draftOf('Docs', 'go', ' \n '), 'empty-step'],
-  ])('refuses %s without persisting', async (_case, draft, reason) => {
-    const { tasks } = await readyStores()
-
-    expect(await tasks.saveTask(draft)).toEqual({ ok: false, reason })
-    expect(saveTask).not.toHaveBeenCalled()
-    expect(tasks.tasks).toEqual([])
-  })
-
-  it('saves with no Session open, owned by none', async () => {
-    const { tasks } = await readyStores({ session: false })
-
-    const result = await tasks.saveTask(draftOf('Docs', 'go'))
-
-    expect(result.ok).toBe(true)
-    const saved = saveTask.mock.calls[0][0]
-    expect(saved.name).toBe('Docs')
-    expect(saved.sessionRef).toBeUndefined()
-    expect(tasks.tasks).toEqual([saved])
-  })
-
-  it('persists the Steps in the open Session, with its Session Settings', async () => {
-    const { tasks } = await readyStores()
-
-    const result = await tasks.saveTask(draftOf(' Docs ', 'rename', `sprite${ATTACHMENT_LINE}`))
-
-    expect(result.ok).toBe(true)
-    expect(saveTask).toHaveBeenCalledTimes(1)
-    const saved = saveTask.mock.calls[0][0]
-    expect(saved).toMatchObject({
-      name: 'Docs',
-      sessionRef: SESSION,
-      settingsTemplate: SETTINGS,
-      steps: [{ prompt: 'rename' }, { prompt: `sprite${ATTACHMENT_LINE}` }],
-    })
-    expect(saved.lastOutcome).toBeUndefined()
-    expect(tasks.tasks).toEqual([saved])
-  })
-
-  it('captures what the panel holds now, not what the session was sent with', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setCapabilityEnabled('web', false)
-    agentMode.setPlanningThinkingOnly(true)
-
-    await tasks.saveTask(draftOf('Docs', 'go'))
-
-    expect(saveTask.mock.calls[0][0].settingsTemplate).toMatchObject({
-      model: 'Stored-27B',
-      capabilities: ['files'],
-      planningThinkingOnly: true,
-    })
-  })
-
-  it('keeps the list unchanged and reports when the file cannot be written', async () => {
-    saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
-    const { tasks } = await readyStores()
-
-    const result = await tasks.saveTask(draftOf('Docs', 'go'))
-
-    expect(result).toEqual({ ok: false, reason: 'persist-failed' })
-    expect(tasks.tasks).toEqual([])
-    expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'agent-tasks/save-failed', surface: 'toast' }),
-    )
-  })
-
+describe('the saved Agents', () => {
   it('tells the user when the saved Tasks cannot be read', async () => {
     readTasks.mockImplementationOnce(
       async () => ({ success: false, error: 'agent tasks file unreadable' }) as never,
@@ -436,310 +364,13 @@ const savedTask = (id: string, overrides: Partial<AgentTask> = {}): AgentTask =>
   ...overrides,
 })
 
-const stepsOf = (...prompts: string[]) => draftOf('', ...prompts).steps
-
-describe('the Open Session’s Steps', () => {
-  it('start empty and are kept on the session’s record once edited', async () => {
-    const { agentMode } = await readyStores()
-    expect(agentMode.openSteps).toEqual([])
-
-    agentMode.setOpenSteps(stepsOf('search the news', 'summarise it'))
-
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual([
-      'search the news',
-      'summarise it',
-    ])
-    expect(agentMode.sessions[openRecord.id].steps?.map((step) => step.prompt)).toEqual([
-      'search the news',
-      'summarise it',
-    ])
-  })
-
-  it('are cleared by a new session and come back with the session they belong to', async () => {
-    const { agentMode } = await readyStores({ session: false })
-    agentMode.setOpenSteps(stepsOf('search the news'))
-
-    await agentMode.newSession()
-    expect(agentMode.openSteps).toEqual([])
-
-    await agentMode.switchSession(openRecord.id)
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['search the news'])
-  })
-})
-
-describe('saving the Open Session as an Agent', () => {
-  it('says why it cannot be saved yet', async () => {
-    const { agentMode, tasks } = await readyStores()
-
-    expect(tasks.saveAgentBlocker(' ')).toBe('name')
-    expect(tasks.saveAgentBlocker('News')).toBe('no-steps')
-    agentMode.setOpenSteps(stepsOf('search', ' '))
-    expect(tasks.saveAgentBlocker('News')).toBe('empty-step')
-  })
-
-  it('saves the Session, the panel’s settings and the Steps, and links the session', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('search the news', 'summarise it'))
-    agentMode.setCapabilityEnabled('web', false)
-
-    const result = await tasks.saveAgent(' News ')
-
-    expect(result.ok).toBe(true)
-    const saved = saveTask.mock.calls[0][0]
-    expect(saved).toMatchObject({
-      name: 'News',
-      sessionRef: SESSION,
-      settingsTemplate: { model: 'Stored-27B', capabilities: ['files'] },
-      steps: [{ prompt: 'search the news' }, { prompt: 'summarise it' }],
-    })
-    expect(agentMode.openTaskId).toBe(saved.id)
-    expect(agentMode.sessions[openRecord.id].taskId).toBe(saved.id)
-    expect(tasks.openSessionTask?.id).toBe(saved.id)
-  })
-
-  it('leaves the session unlinked when the file cannot be written', async () => {
-    saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('search the news'))
-
-    expect(await tasks.saveAgent('News')).toEqual({ ok: false, reason: 'persist-failed' })
-    expect(agentMode.openTaskId).toBeUndefined()
-  })
-
-  it('keeps the Steps it saved even when they are edited afterwards', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('search the news'))
-    await tasks.saveAgent('News')
-
-    agentMode.setOpenSteps(stepsOf('search the news', 'find a source'))
-
-    expect(tasks.tasks[0].steps.map((step) => step.prompt)).toEqual(['search the news'])
-  })
-})
-
-describe('an Agent’s Mounted Folders', () => {
-  const notes = { hostPath: '/Users/ada/notes', access: 'read-write' as const }
-  const photos = { hostPath: '/Users/ada/photos', name: 'pics' }
-
-  it('are copied from the Session it is saved from', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('tidy the notes'))
-    agentMode.setMountedFolders([notes])
-
-    await tasks.saveAgent('Tidy')
-
-    expect(saveTask.mock.calls[0][0].settingsTemplate.mountedFolders).toEqual([notes])
-  })
-
-  it('are copied when the Session only shows its Default Settings’ folders', async () => {
-    settingsPerPreset.Agent = { agentMountedFolders: [notes] }
-    const { agentMode, tasks } = await readyStores({ session: false })
-    await agentMode.newSession()
-    agentMode.setOpenSteps(stepsOf('tidy the notes'))
-    expect(agentMode.mountedFolders).toEqual([notes])
-
-    await tasks.saveAgent('Tidy')
-
-    expect(saveTask.mock.calls[0][0].settingsTemplate.mountedFolders).toEqual([notes])
-  })
-
-  it('stay as saved when the Session’s folders change afterwards', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('tidy the notes'))
-    agentMode.setMountedFolders([notes])
-    await tasks.saveAgent('Tidy')
-
-    agentMode.setMountedFolders([photos])
-
-    expect(tasks.tasks[0].settingsTemplate.mountedFolders).toEqual([notes])
-  })
-
-  it('leave the Session it was saved from alone when the Agent is edited', async () => {
-    const { agentMode, tasks } = await readyStores()
-    const sessionId = agentMode.openSessionId
-    agentMode.setOpenSteps(stepsOf('tidy the notes'))
-    agentMode.setMountedFolders([notes])
-    const saved = await tasks.saveAgent('Tidy')
-    if (!saved.ok) throw new Error('not saved')
-
-    await tasks.loadAgent(saved.task.id)
-    agentMode.setMountedFolders([photos])
-    await tasks.updateAgent(saved.task.id, 'Tidy')
-    await agentMode.switchSession(sessionId)
-
-    expect(tasks.tasks[0].settingsTemplate.mountedFolders).toEqual([photos])
-    expect(agentMode.mountedFolders).toEqual([notes])
-  })
-})
-
-describe('updating an Agent', () => {
-  const outcome = { kind: 'completed' as const, at: 5, sessionId: 'session-run', stepCount: 1 }
-
-  it('overwrites it in place, keeping its identity, position, schedule and last outcome', async () => {
-    const schedules = [
-      { sessionRef: 'session-2', every: 1, unit: 'days' as const, startAt: 100, enabled: true },
-    ]
-    storedTasks = [
-      savedTask('task-1'),
-      savedTask('task-2', { createdAt: 10, updatedAt: 11, lastOutcome: outcome, schedules }),
-      savedTask('task-3'),
-    ]
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('search', 'find a source', 'summarise'))
-
-    const result = await tasks.updateAgent('task-2', ' Nightly news ')
-
-    expect(result.ok).toBe(true)
-    const saved = saveTask.mock.calls.at(-1)![0]
-    expect(saved).toMatchObject({
-      id: 'task-2',
-      name: 'Nightly news',
-      sessionRef: SESSION,
-      settingsTemplate: SETTINGS,
-      createdAt: 10,
-      lastOutcome: outcome,
-      schedules,
-    })
-    expect(saved.steps.map((step) => step.prompt)).toEqual(['search', 'find a source', 'summarise'])
-    expect(saved.updatedAt).toBeGreaterThan(11)
-    expect(tasks.tasks.map((task) => task.id)).toEqual(['task-1', 'task-2', 'task-3'])
-    expect(agentMode.openTaskId).toBe('task-2')
-  })
-
-  it('keeps the Session it was made in when updated from another one, or from none', async () => {
-    const { sessionRef: _none, ...legacy } = savedTask('old')
-    storedTasks = [savedTask('theirs', { sessionRef: 'session-2' }), legacy]
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('changed'))
-
-    expect((await tasks.updateAgent('theirs', 'Theirs')).ok).toBe(true)
-    expect((await tasks.updateAgent('old', 'Old')).ok).toBe(true)
-
-    const saved = saveTask.mock.calls.map(([task]) => task)
-    expect(saved.find((task) => task.id === 'theirs')?.sessionRef).toBe('session-2')
-    expect(saved.find((task) => task.id === 'old')?.sessionRef).toBeUndefined()
-  })
-
-  it.each([
-    ['an empty name', ' ', ['go'], 'name'],
-    ['no Steps', 'News', [], 'no-steps'],
-    ['an empty Step', 'News', ['  '], 'empty-step'],
-  ])('is refused with %s', async (_case, name, prompts, reason) => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf(...prompts))
-
-    expect(await tasks.updateAgent('task-1', name)).toEqual({ ok: false, reason })
-    expect(saveTask).not.toHaveBeenCalled()
-  })
-
-  it('deselects the Agent and clears its Steps', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    await tasks.loadAgent('task-1')
-
-    tasks.unloadAgent()
-
-    expect(agentMode.openTaskId).toBeUndefined()
-    expect(tasks.openSessionTask).toBeUndefined()
-    expect(agentMode.openSteps).toEqual([])
-    expect(tasks.tasks[0]).toEqual(savedTask('task-1'))
-  })
-
-  it('refuses an Agent that does not exist', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('go'))
-
-    expect(await tasks.updateAgent('missing', 'News')).toEqual({ ok: false, reason: 'no-task' })
-  })
-
-  it('puts the saved Agent back when the file cannot be written', async () => {
-    saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('changed'))
-
-    expect(await tasks.updateAgent('task-1', 'Renamed')).toEqual({
-      ok: false,
-      reason: 'persist-failed',
-    })
-    expect(tasks.tasks[0]).toEqual(savedTask('task-1'))
-    expect(agentMode.openTaskId).toBeUndefined()
-  })
-})
-
-describe('loading an Agent', () => {
-  const NPU_SETTINGS: AgentSessionSettings = {
-    ...SETTINGS,
-    backend: 'openVINO',
-    model: 'Saved-NPU',
-    capabilities: ['files'],
-  }
-
-  it('opens a new Draft Session set up as the Agent is', async () => {
-    storedTasks = [
-      savedTask('task-1', {
-        settingsTemplate: NPU_SETTINGS,
-        steps: [
-          { id: 's1', prompt: 'search the news' },
-          { id: 's2', prompt: 'summarise it' },
-        ],
-      }),
-    ]
-    const { agentMode, tasks } = await readyStores({ session: false })
-
-    expect(await tasks.loadAgent('task-1')).toBe(true)
-
-    expect(agentMode.openSessionId).not.toBe(openRecord.id)
-    expect(agentMode.sessions[agentMode.openSessionId]).toBeUndefined()
-    expect(agentMode.workspaceDir).toBe('/work/open')
-    expect(agentMode.openSessionSettings).toMatchObject({ model: 'Saved-NPU', backend: 'openVINO' })
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual([
-      'search the news',
-      'summarise it',
-    ])
-    expect(agentMode.openTaskId).toBe('task-1')
-    expect(tasks.openSessionTask?.id).toBe('task-1')
-  })
-
-  it('works on a copy, so editing the loaded Steps leaves the Agent alone', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    await tasks.loadAgent('task-1')
-
-    agentMode.setOpenSteps(stepsOf('go', 'and more'))
-
-    expect(tasks.tasks[0]).toEqual(savedTask('task-1'))
-    expect(saveTask).not.toHaveBeenCalled()
-  })
-
-  it('leaves the session it came from untouched', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('my own step'))
-
-    await tasks.loadAgent('task-1')
-    await agentMode.switchSession(openRecord.id)
-
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['my own step'])
-    expect(agentMode.openTaskId).toBeUndefined()
-  })
-
-  it('refuses an Agent that does not exist', async () => {
-    const { agentMode, tasks } = await readyStores()
-
-    expect(await tasks.loadAgent('missing')).toBe(false)
-    expect(agentMode.openSessionId).toBe(openRecord.id)
-  })
-})
-
 describe('scheduling an Agent made in another Session', () => {
-  it('sets the Schedule in the open Session, leaving the Agent where it was made', async () => {
+  it('sets the Schedule in the Session given, leaving the Agent where it was made', async () => {
     storedTasks = [savedTask('old', { sessionRef: 'session-made-in' })]
     const { tasks } = await readyStores()
 
     const schedule = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
-    expect(await tasks.setSchedule('old', schedule)).toMatchObject({ ok: true })
+    expect(await tasks.setSchedule('old', schedule, openSessionRef())).toMatchObject({ ok: true })
 
     expect(saveTask.mock.calls.at(-1)![0]).toMatchObject({
       sessionRef: 'session-made-in',
@@ -749,7 +380,7 @@ describe('scheduling an Agent made in another Session', () => {
 })
 
 describe('deleting a Session', () => {
-  it('keeps every Agent and preset, dropping the Schedules that ran in it', async () => {
+  it('keeps every Agent, dropping the Schedules that ran in it', async () => {
     const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true }
     const nextRunAt = Date.now() + 60_000
     const here = { sessionRef: SESSION, ...daily, nextRunAt }
@@ -759,14 +390,12 @@ describe('deleting a Session', () => {
       savedTask('theirs', { sessionRef: 'session-2', schedules: [here] }),
     ]
     const { tasks } = await readyStores()
-    await tasks.saveAgentAsPreset('mine', { description: 'x' })
 
     await useSessions().remove(SESSION)
 
     await vi.waitFor(() => expect(tasks.tasks[0].schedules).toEqual([there]))
     const { sessionRef: _gone, ...mine } = savedTask('mine', { schedules: [there] })
     expect(tasks.tasks).toEqual([mine, savedTask('theirs', { sessionRef: 'session-2' })])
-    expect(removeUserPreset).not.toHaveBeenCalled()
     expect(window.electronAPI.agentMode.deleteTask).not.toHaveBeenCalled()
   })
 })
@@ -800,17 +429,6 @@ describe('deleting a Task', () => {
     expect(Object.keys(agentMode.sessions)).toEqual(
       expect.arrayContaining([openRecord.id, runSession.id]),
     )
-  })
-
-  it('unlinks the Open Session when it was loaded from the deleted Agent', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    await tasks.loadAgent('task-1')
-
-    await tasks.deleteTask('task-1')
-
-    expect(agentMode.openTaskId).toBeUndefined()
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['go'])
   })
 
   it('keeps the Task and reports when the file cannot be written', async () => {
@@ -851,202 +469,5 @@ describe('a Task’s state', () => {
     const { tasks } = await readyStores()
 
     expect(tasks.taskState('task-1')).toEqual({ idle: lastOutcome })
-  })
-})
-
-describe('saving an Agent whose chat model is not downloaded', () => {
-  it('saves without asking for a download', async () => {
-    missingModels = new Set(['Stored-27B'])
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('go'))
-
-    expect((await tasks.saveAgent('News')).ok).toBe(true)
-    expect(getMissingLlmModels).not.toHaveBeenCalled()
-    expect(requestDownload).not.toHaveBeenCalled()
-    expect(saveTask).toHaveBeenCalledTimes(1)
-  })
-
-  it('updates without asking for a download', async () => {
-    storedTasks = [savedTask('task-1')]
-    missingModels = new Set(['Stored-27B'])
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('go'))
-
-    expect((await tasks.updateAgent('task-1', 'Renamed')).ok).toBe(true)
-    expect(requestDownload).not.toHaveBeenCalled()
-    expect(saveTask.mock.calls.at(-1)![0].name).toBe('Renamed')
-  })
-})
-
-describe('renaming an Agent', () => {
-  it('changes only its name, whatever the Open Session holds', async () => {
-    storedTasks = [savedTask('task-1'), savedTask('task-2')]
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps(stepsOf('something else entirely'))
-
-    const result = await tasks.renameAgent('task-2', ' Nightly ')
-
-    expect(result.ok).toBe(true)
-    expect(saveTask.mock.calls.at(-1)![0]).toMatchObject({
-      ...savedTask('task-2'),
-      name: 'Nightly',
-      updatedAt: expect.any(Number),
-    })
-    expect(tasks.tasks[1].steps).toEqual(savedTask('task-2').steps)
-    expect(agentMode.openTaskId).toBeUndefined()
-  })
-
-  it('refuses an empty name and writes nothing for the same name', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { tasks } = await readyStores()
-
-    expect(await tasks.renameAgent('task-1', '  ')).toEqual({ ok: false, reason: 'name' })
-    expect((await tasks.renameAgent('task-1', 'Task task-1')).ok).toBe(true)
-    expect(saveTask).not.toHaveBeenCalled()
-  })
-
-  it('puts the old name back when the file cannot be written', async () => {
-    saveTask.mockImplementation(async () => ({ success: false, error: 'disk full' }))
-    storedTasks = [savedTask('task-1')]
-    const { tasks } = await readyStores()
-
-    expect(await tasks.renameAgent('task-1', 'New')).toEqual({
-      ok: false,
-      reason: 'persist-failed',
-    })
-    expect(tasks.tasks[0].name).toBe('Task task-1')
-  })
-})
-
-describe('unsaved changes to a loaded Agent', () => {
-  it('are none right after loading, and show once a Step or setting changes', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    expect(tasks.openSessionAgentChanged).toBe(false)
-
-    await tasks.loadAgent('task-1')
-    expect(tasks.openSessionAgentChanged).toBe(false)
-
-    agentMode.setOpenSteps(stepsOf('go', 'and more'))
-    expect(tasks.openSessionAgentChanged).toBe(true)
-
-    agentMode.setOpenSteps(stepsOf('go'))
-    expect(tasks.openSessionAgentChanged).toBe(false)
-
-    agentMode.setCapabilityEnabled('web', false)
-    expect(tasks.openSessionAgentChanged).toBe(true)
-  })
-
-  it('are gone once the Agent is updated', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { agentMode, tasks } = await readyStores()
-    await tasks.loadAgent('task-1')
-    agentMode.setOpenSteps(stepsOf('go', 'and more'))
-
-    await tasks.updateAgent('task-1', 'Task task-1')
-
-    expect(tasks.openSessionAgentChanged).toBe(false)
-  })
-})
-
-describe('saving an Agent as a Chat preset', () => {
-  const ICON = 'data:image/png;base64,ICON'
-
-  it('adds an agent preset named after the Agent, bound to it, with its description and icon', async () => {
-    storedTasks = [savedTask('task-1', { name: 'Morning news' })]
-    const { tasks } = await readyStores()
-
-    const result = await tasks.saveAgentAsPreset('task-1', {
-      description: '  Reads the news  ',
-      image: ICON,
-    })
-
-    expect(result.ok).toBe(true)
-    const preset = tasks.presetOfAgent('task-1')
-    expect(preset).toMatchObject({
-      type: 'chat',
-      name: 'Morning news',
-      agentPreset: true,
-      agentWorkspace: 'pick',
-      systemPrompt: 'You are the agent.',
-      description: 'Reads the news',
-      image: ICON,
-      agentTaskId: 'task-1',
-    })
-    expect(preset?.extendedDescription).toBeUndefined()
-  })
-
-  it('uses the Agent preset’s icon when none is chosen', async () => {
-    storedTasks = [savedTask('task-1')]
-    const { tasks } = await readyStores()
-
-    await tasks.saveAgentAsPreset('task-1', { description: 'x' })
-
-    expect(tasks.presetOfAgent('task-1')?.image).toBe('data:image/png;base64,AGENT')
-  })
-
-  it('refuses a name another preset already has', async () => {
-    storedTasks = [savedTask('task-1', { name: 'Agent' })]
-    const { tasks } = await readyStores()
-
-    expect(await tasks.saveAgentAsPreset('task-1', { description: 'x' })).toEqual({
-      ok: false,
-      reason: 'name-taken',
-    })
-    expect(addPreset).not.toHaveBeenCalled()
-  })
-
-  it('keeps the preset’s name when it is updated after the Agent was renamed', async () => {
-    storedTasks = [savedTask('task-1', { name: 'Morning news' })]
-    const { tasks } = await readyStores()
-    await tasks.saveAgentAsPreset('task-1', { description: 'first' })
-    await tasks.renameAgent('task-1', 'Evening news')
-
-    const result = await tasks.saveAgentAsPreset('task-1', { description: 'second' })
-
-    expect(result.ok).toBe(true)
-    expect(catalog.presets.filter((preset) => preset.agentTaskId === 'task-1')).toEqual([
-      expect.objectContaining({ name: 'Morning news', description: 'second' }),
-    ])
-  })
-
-  it('reports when the preset file cannot be written', async () => {
-    storedTasks = [savedTask('task-1')]
-    catalog.saved = false
-    const { tasks } = await readyStores()
-
-    expect(await tasks.saveAgentAsPreset('task-1', { description: 'x' })).toEqual({
-      ok: false,
-      reason: 'persist-failed',
-    })
-    expect(tasks.presetOfAgent('task-1')).toBeUndefined()
-  })
-
-  it('is removed with the Agent', async () => {
-    storedTasks = [savedTask('task-1', { name: 'Morning news' })]
-    const { tasks } = await readyStores()
-    await tasks.saveAgentAsPreset('task-1', { description: 'x' })
-
-    await tasks.deleteTask('task-1')
-
-    expect(removeUserPreset).toHaveBeenCalledWith('Morning news')
-    expect(tasks.presetOfAgent('task-1')).toBeUndefined()
-  })
-
-  it('starts each new session of the preset set up as its Agent', async () => {
-    storedTasks = [
-      savedTask('task-1', { name: 'Morning news', steps: [{ id: 's1', prompt: 'read' }] }),
-    ]
-    const { agentMode, tasks } = await readyStores({ session: false })
-    const saved = await tasks.saveAgentAsPreset('task-1', { description: 'x' })
-    if (!saved.ok) throw new Error('not saved')
-    catalog.active = saved.preset
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    await agentMode.newSession()
-
-    expect(agentMode.openTaskId).toBe('task-1')
-    expect(agentMode.openSteps.map((step) => step.prompt)).toEqual(['read'])
-    expect(tasks.presetAgent?.id).toBe('task-1')
   })
 })

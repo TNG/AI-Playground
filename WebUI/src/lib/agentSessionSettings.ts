@@ -4,14 +4,11 @@ import { llmBackendTypes } from '@/types/shared'
 /** A chat preset's saved-settings bag, as `textInference.settingsPerPreset` stores it. */
 export type SettingsBag = Record<string, unknown>
 
-/** The one gate for per-session settings: the folder-picking Agent preset and those saved from it. */
+/** The one gate for per-session settings: the folder-picking Agent preset. */
 export function usesSessionSettings(
-  preset: { name: string; agentPreset?: boolean; agentTaskId?: string } | null | undefined,
+  preset: { name: string; agentPreset?: boolean } | null | undefined,
 ): boolean {
-  return (
-    preset?.agentPreset === true &&
-    (presetNameUsesSessionSettings(preset.name) || preset.agentTaskId !== undefined)
-  )
+  return preset?.agentPreset === true && presetNameUsesSessionSettings(preset.name)
 }
 
 /** The same gate by name, for session records read before the preset catalog has loaded. */

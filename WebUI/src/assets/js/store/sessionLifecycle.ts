@@ -8,6 +8,7 @@ import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
 import { downloadPercent } from '@/lib/downloadPercent'
+import { sessionReopenPreset } from '@/lib/sessionReopenPreset'
 import { sessionRowStatus, type SessionRowStatus } from '@/lib/sessionRowStatus'
 import type { SessionTabLanding } from '@/lib/sessionTabs'
 import type { SessionDownload } from '@/assets/js/store/recordRows'
@@ -31,10 +32,15 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     landing: SessionTabLanding = 'open-session',
   ): Promise<void> {
     if (id === sessions.openSessionId) return sessionTabs.land(landing)
-    const last = await sessions.open(id)
+    const opened = await sessions.open(id)
     if (sessions.openSessionId === id) sessionTabs.land(landing)
-    if (!last || sessions.openSessionId !== id) return
-    if (!presets.presets.some((preset) => preset.name === last.preset)) return
+    if (sessions.openSessionId !== id) return
+    const last = sessionReopenPreset(
+      opened,
+      presets.presets.map((preset) => preset.name),
+      sessions.sessions[id]?.pickedAgentId,
+    )
+    if (!last) return
     await sessionSettings.whenLoaded()
     const sameVariant = !last.variant || presets.activeVariantName[last.preset] === last.variant
     if (presets.activePresetName === last.preset && sameVariant) return

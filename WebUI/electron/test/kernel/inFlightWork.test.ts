@@ -112,34 +112,23 @@ describe('collectInFlightWork', () => {
     expect(items.map((item) => item.kind)).toEqual(['task-run'])
   })
 
-  it("leaves out the agent turn that is a Prompt Run's Step", () => {
+  it('names a Trial Run in place of the agent turn that is its Step', () => {
+    const trialRun: InFlightWorkItem = {
+      kind: 'trial-run',
+      agentId: 'agent-1',
+      sessionId: 'trial-harness',
+      name: 'Morning news',
+      state: { status: 'step', index: 1, count: 2 },
+    }
+
     const items = collectInFlightWork(
       sources({
-        agentTurns: [{ sessionId: 's-2', name: 'Asteroids' }],
-        textRequests: [{ conversationKey: 's-2', state: 'running' }],
-        rendererWork: [
-          {
-            kind: 'prompt-run',
-            sessionId: 's-2',
-            name: 'Asteroids',
-            state: { status: 'step', index: 1, count: 3 },
-          },
-        ],
+        agentTurns: [{ sessionId: 'trial-harness', name: 'Morning news' }],
+        rendererWork: [trialRun],
       }),
     )
 
-    expect(items.map((item) => item.kind)).toEqual(['prompt-run'])
-  })
-
-  it('names a Prompt Run between two Steps, when no agent turn is open', () => {
-    const between: InFlightWorkItem = {
-      kind: 'prompt-run',
-      sessionId: 's-2',
-      name: 'Asteroids',
-      state: { status: 'step', index: 2, count: 3 },
-    }
-
-    expect(collectInFlightWork(sources({ rendererWork: [between] }))).toEqual([between])
+    expect(items).toEqual([trialRun])
   })
 
   it('keeps an agent turn in another session', () => {

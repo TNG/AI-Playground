@@ -8,7 +8,7 @@ import type {
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
-import type { AgentTask } from './agentTaskIpc'
+import type { AgentDraft, AgentTask, TrialRunRecord } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
 import type {
@@ -261,6 +261,13 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string, boolean],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** Pick an Agent in a Session's prompt bar, or `null` for Agent Maker; pushes `session-changed`. */
+  'sessions:pickAgent': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | null],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /** Name a new Session Group and move the Session into it; pushes `session-changed` and `session-groups-changed`. */
@@ -535,11 +542,60 @@ export const CHANNELS = {
     args: [] as unknown as readonly [AgentTask],
     result: null as unknown as IpcMutationResult,
   },
-  /** Delete one Task; the sessions it created stay. */
+  /** Delete one Agent and its Draft; the sessions it created stay. */
   'agentMode:deleteTask': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every Agent's Draft; an absent file reads as none, an unreadable one fails. */
+  'agentMode:readDrafts': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ drafts: AgentDraft[] }>,
+  },
+  /** Insert an Agent's Draft, or replace the one it has. */
+  'agentMode:saveDraft': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [AgentDraft],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete an Agent's Draft, by Agent id. */
+  'agentMode:deleteDraft': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** A fresh Harness Session in the Agent's scratch folder; its previous Trial Run is thrown away. */
+  'agentMode:trialRunHarness': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ harness: HarnessSessionRef }>,
+  },
+  /** Throw the Agent's Trial Run away, with its folder and Harness Session, by Agent id. */
+  'agentMode:discardTrialRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Every Trial Run whose progress was kept, for a window picking them up after a reload. */
+  'agentMode:readTrialRuns': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ trialRuns: TrialRunRecord[] }>,
+  },
+  /** Keep where a Trial Run is; ignored once it was thrown away or a newer one replaced it. */
+  'agentMode:saveTrialRun': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [TrialRunRecord],
     result: null as unknown as IpcMutationResult,
   },
   /** Copy an attached file into the workspace; the answer carries its relative path. */
@@ -1452,7 +1508,7 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
   },
-  /** The In-flight Work only the window knows (Prompt Runs, Task Runs); replaces the last report. */
+  /** The In-flight Work only the window knows (Agent Runs, Trial Runs); replaces the last report. */
   'lifecycle:reportWork': {
     kind: 'send',
     owner: 'main',

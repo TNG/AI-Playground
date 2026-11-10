@@ -8,7 +8,6 @@ function itemLabel(item: InFlightWorkItem, t: Strings): string {
     name ? fillTemplate(t[namedKey], { name }) : t[unnamedKey]
   switch (item.kind) {
     case 'agent-turn':
-    case 'prompt-run':
       return named(item.name, 'CLOSE_ITEM_AGENT', 'CLOSE_ITEM_AGENT_UNNAMED')
     case 'chat-turn':
       return named(item.name, 'CLOSE_ITEM_CHAT', 'CLOSE_ITEM_CHAT_UNNAMED')
@@ -22,6 +21,8 @@ function itemLabel(item: InFlightWorkItem, t: Strings): string {
           : t.CLOSE_ITEM_IMAGE_GEN
     case 'task-run':
       return named(item.name, 'CLOSE_ITEM_TASK', 'CLOSE_ITEM_AGENT_UNNAMED')
+    case 'trial-run':
+      return named(item.name, 'CLOSE_ITEM_TRIAL_RUN', 'CLOSE_ITEM_TRIAL_RUN_UNNAMED')
   }
 }
 

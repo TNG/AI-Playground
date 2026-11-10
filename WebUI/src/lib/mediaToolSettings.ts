@@ -1,3 +1,6 @@
+import { isToolEnabled } from '@/lib/builtinToolEnablement'
+import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+
 /**
  * The media tools' settings — delegation, built-in tool enablement, per-workflow
  * enablement and default workflows — behind one interface, so the media tools panel
@@ -65,5 +68,34 @@ export function storeMediaToolSettings(store: MediaToolStore): MediaToolSettings
       store.setWorkflowPresetEnabled(presetName, enabled),
     defaultWorkflow: (slot, available) => store.getDefaultWorkflow(slot, available),
     setDefaultWorkflow: (slot, presetName) => store.setDefaultWorkflow(slot, presetName),
+  }
+}
+
+/** Reads and writes an Agent's Settings Template instead of the chat store's live values. */
+export function templateMediaToolSettings(
+  read: () => AgentSessionSettings,
+  edit: (change: AgentSessionSettings) => void,
+): MediaToolSettings {
+  return {
+    delegationEnabled: () => read().toolDelegationEnabled ?? true,
+    setDelegationEnabled: (enabled) => edit({ toolDelegationEnabled: enabled }),
+    isToolEnabled: (toolName) => isToolEnabled(read().builtinToolEnablement ?? {}, toolName),
+    setToolEnabled: (toolName, enabled) =>
+      edit({ builtinToolEnablement: { ...read().builtinToolEnablement, [toolName]: enabled } }),
+    isWorkflowEnabled: (presetName) =>
+      isWorkflowEnabled(read().builtinToolPresetEnablement ?? {}, presetName),
+    setWorkflowEnabled: (presetName, enabled) =>
+      edit({
+        builtinToolPresetEnablement: {
+          ...read().builtinToolPresetEnablement,
+          [presetName]: enabled,
+        },
+      }),
+    defaultWorkflow: (slot, available) =>
+      resolveDefaultWorkflow(read().builtinToolDefaultPresets ?? {}, slot, available),
+    setDefaultWorkflow: (slot, presetName) =>
+      edit({
+        builtinToolDefaultPresets: { ...read().builtinToolDefaultPresets, [slot]: presetName },
+      }),
   }
 }

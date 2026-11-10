@@ -97,10 +97,13 @@ export type TurnDetails = {
 export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
   trigger: NonNullable<AgentRunTag['trigger']>
   name: string
+  agentId?: string
 }
 
 export type TurnPrompt = {
   text: string
+  /** Set on a Trial Run's Step, whose bubble is labelled with it. */
+  step?: number
   agentRun?: AgentRunIdentity
   placeholder?: string
   inputImageUrl?: string

@@ -57,15 +57,25 @@
         <span class="text-xs text-muted-foreground shrink-0">{{ timeLabel }}</span>
         <Tooltip v-if="scheduled">
           <TooltipTrigger as-child>
-            <span
-              role="img"
-              :aria-label="languages.SESSIONS_SCHEDULED"
-              class="inline-flex flex-none"
+            <button
+              type="button"
+              :aria-label="languages.AGENT_LIBRARY_SESSION_SCHEDULES_OPEN"
+              class="inline-flex flex-none rounded hover:text-foreground"
+              @click.stop="emit('openSchedules')"
+              @keydown.enter.stop
             >
-              <ClockIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
-            </span>
+              <ClockIcon
+                class="size-3.5 text-muted-foreground"
+                :class="{ 'opacity-50': scheduled === 'paused' }"
+                aria-hidden="true"
+              />
+            </button>
           </TooltipTrigger>
-          <TooltipContent>{{ languages.SESSIONS_SCHEDULED }}</TooltipContent>
+          <TooltipContent>{{
+            scheduled === 'paused'
+              ? languages.SESSIONS_SCHEDULE_PAUSED
+              : languages.SESSIONS_SCHEDULED
+          }}</TooltipContent>
         </Tooltip>
         <span
           v-if="presetIcons.length > 0"
@@ -257,6 +267,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
+import type { SessionScheduleState } from '@/assets/js/store/agentTasks'
 import type { GroupNameRefusal } from '@/assets/js/store/sessions'
 import { sessionRowMarker, type SessionRowStatus } from '@/lib/sessionRowStatus'
 import { sessionTimeLabel, type TimeLabelBucket } from '@/lib/sessionTimeLabel'
@@ -270,8 +281,8 @@ const props = defineProps<{
   status: SessionRowStatus
   now: number
   timeBucket: TimeLabelBucket
-  /** One of the Session's Tasks has an enabled Schedule. */
-  scheduled?: boolean
+  /** The Session holds a Schedule: `paused` when none of them is enabled. */
+  scheduled?: SessionScheduleState
   createGroup: (name: string) => Promise<GroupNameRefusal | null>
 }>()
 
@@ -281,6 +292,7 @@ const emit = defineEmits<{
   pin: [pinned: boolean]
   moveToGroup: [groupId: string | null]
   delete: []
+  openSchedules: []
 }>()
 
 const i18n = useI18N()

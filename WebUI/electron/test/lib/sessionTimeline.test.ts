@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { ArtifactRunsState, ArtifactRunView } from '@/lib/artifactRunProjection'
-import { sessionTimelineItems, timelineTurns, withLiveAgentTurn } from '@/lib/sessionTimeline'
+import {
+  agentRunControls,
+  sessionTimelineItems,
+  timelineTurns,
+  withLiveAgentTurn,
+} from '@/lib/sessionTimeline'
 import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
@@ -250,6 +255,38 @@ describe('an Agent Run in the timeline', () => {
     const [turn] = timelineTurns([runMessage('s1', 'user', undefined, stopped)])
 
     expect(turn.kind === 'agent' && turn.result).toEqual([{ kind: 'failure', state: 'cancelled' }])
+  })
+
+  describe('its controls', () => {
+    const ofAgent = { ...runTag, taskRun: { ...runTag.taskRun!, taskId: 't-digest' } }
+    const steps = [
+      runMessage('s1', 'user', undefined, ofAgent),
+      runMessage('a1', 'assistant', undefined, ofAgent),
+    ]
+
+    it('offers Edit Agent for the Agent it ran once it ended', () => {
+      const [turn] = sessionTimelineItems(steps, {})
+
+      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest' })
+    })
+
+    it('offers Edit Agent alone while in flight, since Stop is the prompt bar’s', () => {
+      const [turn] = sessionTimelineItems(steps, {
+        agentRunsInFlight: { 'aipg-agent-run': { step: 1, count: 2 } },
+      })
+
+      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest' })
+    })
+
+    it('offers neither on a turn that ran no saved Agent', () => {
+      const [chat] = timelineTurns([agentMessage('u1', 'user', 'hello')])
+      const [trial] = sessionTimelineItems([runMessage('s1', 'user')], {
+        agentRunsInFlight: { 'aipg-agent-run': { step: 1, count: 2 } },
+      })
+
+      expect(agentRunControls(chat)).toBeNull()
+      expect(agentRunControls(trial)).toBeNull()
+    })
   })
 
   it('stays one Turn, where it started, when another turn lands between two Steps', () => {

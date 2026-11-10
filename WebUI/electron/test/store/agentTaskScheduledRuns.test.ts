@@ -308,6 +308,19 @@ beforeEach(() => {
         readTasks: vi.fn(async () => ({ success: true, tasks: storedTasks })),
         saveTask,
         deleteTask: vi.fn(async () => ({ success: true })),
+        readDrafts: vi.fn(async () => ({ success: true, drafts: [] })),
+        saveDraft: vi.fn(async () => ({ success: true })),
+        deleteDraft: vi.fn(async () => ({ success: true })),
+        trialRunHarness: vi.fn(async (agentId: string) => ({
+          success: true,
+          harness: {
+            harnessSessionId: 'aipg-agent-trial',
+            workspaceDir: `/trials/${agentId}/files`,
+          },
+        })),
+        discardTrialRun: vi.fn(async () => ({ success: true })),
+        readTrialRuns: vi.fn(async () => ({ success: true, trialRuns: [] })),
+        saveTrialRun: vi.fn(async () => ({ success: true })),
       },
       getLocaleSettings: vi.fn(async () => ({ languageOverride: null })),
       games: { read: vi.fn(async () => null), list: vi.fn(async () => []) },
@@ -324,6 +337,8 @@ afterEach(async () => {
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
+
+const openSessionRef = () => useSessions().openSessionId ?? ''
 
 async function readyStores(...saved: AgentTask[]) {
   storedTasks = saved
@@ -486,7 +501,7 @@ describe('a Scheduled Run in its Session', () => {
     await turnIdOf(0)
     await settleMicrotasks()
     expect(startTurn).toHaveBeenCalledTimes(1)
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 30 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 30 * MINUTE)
   })
 })
 
@@ -510,12 +525,28 @@ describe('a Schedule reaching its Next Run', () => {
     })
   })
 
+  it('runs the saved Agent, never its Draft', async () => {
+    const { agentMode, tasks } = await readyStores(scheduledTask('t1'))
+    await tasks.editDraft('t1', {
+      name: 'Renamed in Draft',
+      steps: [{ id: 'd0', prompt: 'draft step' }],
+      settingsTemplate: { backend: 'llamaCPP', model: 'Draft-4B' },
+    })
+
+    await runClockTo(NOW + 10 * MINUTE)
+
+    await turnIdOf(0)
+    expect(sentSteps()).toEqual(['t1 one'])
+    expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', stepIndex: 1 })
+    expect(agentMode.sessions[sentConfig(0).sessionId]).toMatchObject({ settings: TEMPLATE })
+  })
+
   it('moves the Next Run to the following slot and saves it', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'))
 
     await runClockTo(NOW + 10 * MINUTE)
 
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 20 * MINUTE)
     expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
   })
 
@@ -527,7 +558,7 @@ describe('a Schedule reaching its Next Run', () => {
 
     expect(startTurn).not.toHaveBeenCalled()
     expect(saveTask).not.toHaveBeenCalled()
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 10 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 10 * MINUTE)
   })
 
   it('runs every Step of the Scheduled Run, one after another', async () => {
@@ -635,7 +666,7 @@ describe('a slot that finds a Task Run in flight', () => {
     })
     expect(savedRuns('t1')).toEqual([expect.not.objectContaining({ scheduled: true })])
     expect(lastSavedTask('t1')).not.toHaveProperty('lastOutcome')
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 20 * MINUTE)
     expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
     expect(errorsReport).not.toHaveBeenCalled()
   })
@@ -651,7 +682,7 @@ describe('a slot that finds a Task Run in flight', () => {
 
     expect(startTurn).toHaveBeenCalledTimes(1)
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 30 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 30 * MINUTE)
   })
 
   it('is not made up when the run ends before the next slot', async () => {
@@ -741,7 +772,6 @@ describe('one Agent scheduled in two Sessions', () => {
     expect(tasks.taskState('t1', 'session-2')).toMatchObject({
       running: { sessionRef: 'session-2', stepIndex: 1 },
     })
-    expect(tasks.openSessionAgents).toEqual([])
   })
 
   it('counts a run in another Session as one that keeps the Agent from being deleted', async () => {
@@ -792,7 +822,7 @@ describe('a slot that was missed', () => {
 
     expect(startTurn).not.toHaveBeenCalled()
     expect(tasks.taskState('t1')).toEqual({ idle: undefined })
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 20 * MINUTE)
     expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 20 * MINUTE)
   })
 
@@ -802,7 +832,7 @@ describe('a slot that was missed', () => {
     )
 
     // Slots at -2h03, …, -3m, then +7m.
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 7 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 7 * MINUTE)
     expect(savedSchedule('t1')?.nextRunAt).toBe(NOW + 7 * MINUTE)
     await vi.advanceTimersByTimeAsync(TICK)
     await settleMicrotasks()
@@ -812,7 +842,7 @@ describe('a slot that was missed', () => {
   it('leaves a future Next Run alone at launch', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'))
 
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 10 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 10 * MINUTE)
     expect(saveTask).not.toHaveBeenCalled()
   })
 
@@ -848,7 +878,7 @@ describe('running a scheduled Task by hand', () => {
     await finishTurn(0)
     await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle'))
 
-    expect(tasks.taskSchedule('t1')).toEqual({
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
       schedule: every10Minutes(),
       nextRunAt: NOW + 10 * MINUTE,
     })
@@ -879,7 +909,7 @@ describe('running a scheduled Task by hand', () => {
     expect(await running).toEqual({ ok: true })
     await turnIdOf(0)
     expect(Object.keys(agentMode.sessions)).toHaveLength(sessionsBefore + 1)
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 20 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 20 * MINUTE)
   })
 })
 
@@ -1025,7 +1055,7 @@ describe('a Scheduled Run that cannot start', () => {
     )
     await runClockTo(NOW + 10 * MINUTE)
 
-    await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
+    await tasks.setSchedule('t1', every10Minutes({ enabled: false }), openSessionRef())
     harnessMinted(true)
     await settleMicrotasks()
 
@@ -1045,7 +1075,7 @@ describe('a Scheduled Run that cannot start', () => {
 
     await turnIdOf(0)
     expect(sentSteps()).toEqual(['t1 one'])
-    expect(tasks.taskSchedule('t1')).toEqual({
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
       schedule: every10Minutes(),
       nextRunAt: NOW + 30 * MINUTE,
     })
@@ -1172,17 +1202,19 @@ describe('a Schedule that must not fire', () => {
     await settleMicrotasks()
 
     expect(startTurn).not.toHaveBeenCalled()
-    expect(tasks.taskSchedule('t1')).toEqual({ schedule: every10Minutes({ enabled: false }) })
+    expect(tasks.taskSchedule('t1', openSessionRef())).toEqual({
+      schedule: every10Minutes({ enabled: false }),
+    })
   })
 
   it('stops firing once paused, and fires again once resumed', async () => {
     const { tasks } = await readyStores(task('t1', { steps: [{ id: 's', prompt: 'x' }] }))
-    await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
+    await tasks.setSchedule('t1', every10Minutes({ enabled: false }), openSessionRef())
     await runClockTo(NOW + 30 * MINUTE)
     await settleMicrotasks()
     expect(startTurn).not.toHaveBeenCalled()
 
-    await tasks.setSchedule('t1', every10Minutes())
+    await tasks.setSchedule('t1', every10Minutes(), openSessionRef())
     await runClockTo(NOW + 40 * MINUTE)
 
     await turnIdOf(0)
@@ -1192,7 +1224,7 @@ describe('a Schedule that must not fire', () => {
   it('never fires once removed', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'))
 
-    await tasks.removeSchedule('t1')
+    await tasks.removeSchedule('t1', openSessionRef())
     await runClockTo(NOW + HOUR)
     await settleMicrotasks()
 
@@ -1312,7 +1344,7 @@ describe('a Task Run whose Task Session is paused', () => {
     expect(startTurn).toHaveBeenCalledTimes(1)
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
     expect(tasks.taskState('t1')).toMatchObject({ running: { skippedSlots: 3 } })
-    expect(tasks.taskSchedule('t1').nextRunAt).toBe(NOW + 50 * MINUTE)
+    expect(tasks.taskSchedule('t1', openSessionRef()).nextRunAt).toBe(NOW + 50 * MINUTE)
   })
 
   it('keeps the count once it runs again, but not in the saved Task', async () => {
@@ -1408,7 +1440,7 @@ describe('reporting In-flight Work to the close question', () => {
   it('reports nothing merely because a Schedule is enabled', async () => {
     const { tasks } = await readyStores(task('t1'))
 
-    await tasks.setSchedule('t1', every10Minutes())
+    await tasks.setSchedule('t1', every10Minutes(), openSessionRef())
     await settleMicrotasks()
 
     expect(lastReport()).toEqual([])
@@ -1418,8 +1450,8 @@ describe('reporting In-flight Work to the close question', () => {
     await settleMicrotasks()
     expect(lastReport()).toEqual([])
 
-    await tasks.setSchedule('t1', every10Minutes({ enabled: false }))
-    await tasks.removeSchedule('t2')
+    await tasks.setSchedule('t1', every10Minutes({ enabled: false }), openSessionRef())
+    await tasks.removeSchedule('t2', openSessionRef())
     await tasks.deleteTask('t1')
     await settleMicrotasks()
 
@@ -1483,43 +1515,6 @@ describe('reporting In-flight Work to the close question', () => {
     expect(lastReport()).toEqual([
       expect.objectContaining({ kind: 'task-run', state: { status: 'step', index: 1, count: 2 } }),
     ])
-  })
-  it('reports a Prompt Run under its session, between its Steps too, and not after', async () => {
-    const { agentMode, tasks } = await readyStores()
-    agentMode.setOpenSteps([
-      { id: 'p1', prompt: 'one' },
-      { id: 'p2', prompt: 'two' },
-    ])
-
-    const submitting = tasks.runSteps('')
-    await turnIdOf(0)
-    await settleMicrotasks()
-    expect(lastReport()).toEqual([
-      expect.objectContaining({
-        kind: 'prompt-run',
-        sessionId: 'session-open',
-        name: 'what I am doing',
-        state: { status: 'step', index: 1, count: 2 },
-      }),
-    ])
-    reportInFlightWork.mockClear()
-
-    await finishTurn(0)
-    await submitting
-    await turnIdOf(1)
-    await settleMicrotasks()
-    expect(reportInFlightWork).not.toHaveBeenCalledWith([])
-    expect(lastReport()).toEqual([
-      expect.objectContaining({
-        kind: 'prompt-run',
-        state: { status: 'step', index: 2, count: 2 },
-      }),
-    ])
-
-    await finishTurn(1)
-    await vi.waitFor(() => expect(tasks.promptRunOf('session-open')).toBeUndefined())
-    await settleMicrotasks()
-    expect(lastReport()).toEqual([])
   })
   it('reports a Scheduled Run and not after, even while the Schedule stays on', async () => {
     const { tasks } = await readyStores(scheduledTask('t1', { steps: [{ id: 's', prompt: 'x' }] }))

@@ -2,7 +2,12 @@ import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
-import type { AgentSessionSettings, AgentTaskStep, AgentRunTag } from '@/types/agentSessionIpc'
+import type {
+  AgentChatTag,
+  AgentSessionSettings,
+  AgentTaskStep,
+  AgentRunTag,
+} from '@/types/agentSessionIpc'
 
 export type AgentSessionRecord = {
   id: string
@@ -33,14 +38,16 @@ export type AgentSessionRecord = {
   responseLocale?: string
   /** The session's own Session Settings (Agent preset only). */
   settings?: AgentSessionSettings
-  /** The Agent this session was loaded from, saved as, or run by. */
+  /** The Agent this session is a run of. */
   taskId?: string
-  /** The Steps the session's prompts are carried out in (Agent preset only). */
+  /** The Steps a Trial Run carries out, so a reload can pick it up again. */
   steps?: AgentTaskStep[]
   /** The Session this Harness Session belongs to, once it is one. */
   sessionRef?: string
   /** Set when this Harness Session is one Task Run of its Session. */
   taskRun?: AgentRunTag
+  /** Set when this Harness Session is the chat with a saved Agent in its Session. */
+  agentChat?: AgentChatTag
 }
 
 /**
@@ -55,6 +62,11 @@ export const AGENT_PRESET = 'Agent'
 function isGamesPreset(name: string): boolean {
   const current = currentPresetName(name)
   return current === GAME_AGENT_PRESET || current === QUICK_CODER_PRESET
+}
+
+/** What the timeline calls a Harness Session's turns: the Agent it chats with, else its preset. */
+export function turnLabelOf(record: AgentSessionRecord | undefined): string {
+  return record?.agentChat?.agentName ?? record?.presetName ?? AGENT_PRESET
 }
 
 export function mintSessionId(): string {
@@ -186,10 +198,6 @@ export function snapshotSession(options: {
   presetName: string
   responseLocale?: string
   settings?: AgentSessionSettings
-  /** Replaces the record's Steps; absent keeps them. */
-  steps?: AgentTaskStep[]
-  /** Kept only when the record has none. */
-  taskId?: string
   /** Names a new record instead of its first message. */
   title?: string
   /** Kept only when the record has none. */
@@ -223,16 +231,13 @@ export function snapshotSession(options: {
       : existing?.settings
         ? { settings: existing.settings }
         : {}),
-    ...((existing?.taskId ?? options.taskId) ? { taskId: existing?.taskId ?? options.taskId } : {}),
-    ...(options.steps
-      ? { steps: options.steps.map((step) => ({ ...step })) }
-      : existing?.steps
-        ? { steps: existing.steps }
-        : {}),
+    ...(existing?.taskId ? { taskId: existing.taskId } : {}),
+    ...(existing?.steps ? { steps: existing.steps } : {}),
     ...((existing?.sessionRef ?? options.sessionRef)
       ? { sessionRef: existing?.sessionRef ?? options.sessionRef }
       : {}),
     ...(existing?.taskRun ? { taskRun: existing.taskRun } : {}),
+    ...(existing?.agentChat ? { agentChat: existing.agentChat } : {}),
   }
 }
 

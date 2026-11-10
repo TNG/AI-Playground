@@ -61,6 +61,7 @@ import { WhisperBackendService } from './adapters/backends/whisperBackendService
 import { LLAMACPP_DEFAULT_PARAMETERS } from './adapters/backends/llamaCppBackendService'
 import { filterPartnerPresets, updateIntelPresets } from './adapters/updateIntelPresets.ts'
 import {
+  getUserPresetsDir,
   invalidatePresetCatalog,
   loadPresetFiles,
   readPresetsFromDir,
@@ -132,6 +133,7 @@ import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
 import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
 import {
   openDirectory,
   openFileWithSystem,
@@ -251,6 +253,7 @@ import {
   setShowMore,
   renameSession,
   pinSession,
+  pickSessionAgent,
   sessionsRootDir,
   setSessionDeps,
   wipeDemoSessions,
@@ -339,8 +342,11 @@ import {
   writeAgentWorkspaceState,
 } from './persist/workspaceStateFiles'
 import {
+  deleteAgentDraft,
   deleteAgentTask,
+  readAgentDrafts,
   readAgentTasks,
+  saveAgentDraft,
   saveAgentTask,
   setAgentTaskFilesDeps,
   settleTaskRunsOnQuit,
@@ -356,7 +362,20 @@ import {
 } from './persist/ragDocumentFiles'
 
 import { llmServerBaseUrl } from './adapters/llmServerSnapshot'
-import { getAudioDir, getGamesDir, getMediaDir } from './persist/userDataPaths.ts'
+import {
+  getAgentTrialsDir,
+  getAudioDir,
+  getGamesDir,
+  getMediaDir,
+} from './persist/userDataPaths.ts'
+import {
+  discardTrialRun,
+  readTrialRuns,
+  saveTrialRun,
+  trialRunHarnessFor,
+  wipeTrialRuns,
+} from './agent/trialRuns'
+import { wireTrialRuns } from './agent/trialRunsWiring'
 import { saveGeneratedAudioFile } from './persist/audioFiles.ts'
 import {
   arcadeCatalog,
@@ -575,7 +594,12 @@ fs.mkdirSync(audioDir, { recursive: true })
  * folder — see gameLibrary.ts) and the Session Folders.
  */
 function aipgMediaRoots(): Record<string, string> {
-  return { media: mediaDir, games: getGamesDir(), sessions: sessionsRootDir() }
+  return {
+    media: mediaDir,
+    games: getGamesDir(),
+    sessions: sessionsRootDir(),
+    trials: getAgentTrialsDir(),
+  }
 }
 
 /** Resolve aipg-media://… to an absolute file path under a served root (no path traversal). */
@@ -1176,6 +1200,8 @@ setRagAccess({
 // Before the agent, whose aborted turns the window would otherwise record as failed.
 appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
+// After the agent, so no Trial Run turn still writes into a folder being removed.
+appShutdown.register({ name: 'trial runs', run: () => wipeTrialRuns() })
 appShutdown.register({ name: 'MCP servers', run: () => stopAllMcpServers() })
 appShutdown.register({ name: 'backend services', run: () => serviceRegistry?.stopAllServices() })
 appShutdown.register({
@@ -1304,6 +1330,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   wireAgentSessions(settings)
   wireAgentWorkspace(settings)
   wireAgentTasks(settings)
+  await wireTrialRuns()
   wireChannelMessageMap(settings)
   wireMediaRecords(settings)
   wirePreferences(settings)
@@ -1830,6 +1857,7 @@ function initEventHandle() {
       openSession,
       renameSession,
       pinSession,
+      pickSessionAgent,
       listSessionGroups,
       createSessionGroup,
       moveSessionToGroup,
@@ -1897,6 +1925,13 @@ function initEventHandle() {
       readAgentTasks,
       saveAgentTask,
       deleteAgentTask,
+      readAgentDrafts,
+      saveAgentDraft,
+      deleteAgentDraft,
+      trialRunHarnessFor,
+      discardTrialRun,
+      readTrialRuns,
+      saveTrialRun,
       forgetSessionMessages,
       appLogger: appLoggerInstance,
     }),
@@ -2178,6 +2213,15 @@ app.whenReady().then(async () => {
     startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
+    if (!settings.isDemoModeEnabled) {
+      appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
+      await migrateAgentLibrary({
+        presetsDir: getUserPresetsDir(),
+        onPresetsChanged: invalidatePresetCatalog,
+      }).catch((error) =>
+        appLogger.error(`agent library migration failed: ${String(error)}`, 'electron-backend'),
+      )
+    }
     // After the registry: the renderer's stores call into it as they are created.
     appLogger.info('startup step: loading app window', 'electron-backend', true)
     await loadAppWindow(window)

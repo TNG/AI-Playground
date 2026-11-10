@@ -13,6 +13,7 @@ import { useSessionSettings } from './assets/js/store/sessionSettings'
 import { useSessionDefaultInputs } from './assets/js/store/sessionDefaultInputs'
 import { useAgentMode } from './assets/js/store/agentMode'
 import { useAgentTasks } from './assets/js/store/agentTasks'
+import { useAgentTrialRuns } from './assets/js/store/agentTrialRuns'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
 import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
@@ -104,11 +105,14 @@ await useSessions().init()
 // Non-agent chat presets write into the open Session's chat transcript.
 useSessionChat()
 
+// Before Agent Mode resumes turns, so a Trial Run's Step ending meanwhile is not missed.
+const agentTrialRuns = useAgentTrialRuns()
 // Same for agent-session records (step 8): the Sessions panel and a resumed
 // agent turn read a fully hydrated map. Instantiating the store here is safe —
 // its setup only wires IPC and chat transport, no backend work.
 await useAgentMode().init()
 await useAgentTasks().init()
+await agentTrialRuns.init()
 
 // Same for the generated-media gallery (step 8): the history strip hydrates
 // from the record files under media/records/, and the one-shot localStorage

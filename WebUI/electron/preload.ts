@@ -16,7 +16,7 @@ import type {
   SessionTurn,
   ShowMoreSection,
 } from '@/types/sessionIpc'
-import type { AgentTask } from '@/types/agentTaskIpc'
+import type { AgentDraft, AgentTask, TrialRunRecord } from '@/types/agentTaskIpc'
 import type { PresetSessionSettings } from '@/types/sessionSettings'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
 import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
@@ -292,6 +292,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
+    pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
     createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),
     moveToGroup: (id: string, groupId: string | null) =>
       invoke('sessions:moveToGroup', id, groupId),
@@ -421,6 +422,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readTasks: () => invoke('agentMode:readTasks'),
     saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
     deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
+    readDrafts: () => invoke('agentMode:readDrafts'),
+    saveDraft: (draft: AgentDraft) => invoke('agentMode:saveDraft', cloneForIpc(draft)),
+    deleteDraft: (agentId: string) => invoke('agentMode:deleteDraft', agentId),
+    trialRunHarness: (agentId: string) => invoke('agentMode:trialRunHarness', agentId),
+    discardTrialRun: (agentId: string) => invoke('agentMode:discardTrialRun', agentId),
+    readTrialRuns: () => invoke('agentMode:readTrialRuns'),
+    saveTrialRun: (run: TrialRunRecord) => invoke('agentMode:saveTrialRun', cloneForIpc(run)),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     listCapabilities: (options: {

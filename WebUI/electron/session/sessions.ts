@@ -62,7 +62,8 @@ export function sessionPaths(id: string): SessionFolderPaths {
 }
 
 function summaryOf(file: SessionFile): SessionSummary {
-  const { id, title, renamed, pinned, groupId, createdAt, updatedAt, presetsUsed } = file
+  const { id, title, renamed, pinned, groupId, createdAt, updatedAt, presetsUsed, pickedAgentId } =
+    file
   return {
     id,
     title,
@@ -72,6 +73,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     createdAt,
     updatedAt,
     presetsUsed,
+    ...(pickedAgentId === undefined ? {} : { pickedAgentId }),
   }
 }
 
@@ -183,6 +185,18 @@ export async function renameSession(id: string, title: string): Promise<SessionS
 
 export async function pinSession(id: string, pinned: boolean): Promise<SessionSummary> {
   const file = await mutateSession(id, (current) => ({ ...current, pinned }))
+  emitSessionChanged(sessionDocumentOf(file))
+  return summaryOf(file)
+}
+
+/** Pick an Agent in the Session's prompt bar, or `null` for Agent Maker itself. */
+export async function pickSessionAgent(
+  id: string,
+  agentId: string | null,
+): Promise<SessionSummary> {
+  const file = await mutateSession(id, ({ pickedAgentId: _previous, ...current }) =>
+    agentId === null ? current : { ...current, pickedAgentId: agentId },
+  )
   emitSessionChanged(sessionDocumentOf(file))
   return summaryOf(file)
 }

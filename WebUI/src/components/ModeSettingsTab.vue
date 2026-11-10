@@ -6,7 +6,8 @@
     <SettingsChatAttributes v-else />
   </template>
   <template v-else-if="mode === 'agent'">
-    <SettingsAgentInferencing v-if="tab === 'inferencing'" />
+    <PickedAgentSettings v-if="pickedAgent" :key="pickedAgent.id" :agent="pickedAgent" :tab="tab" />
+    <SettingsAgentInferencing v-else-if="tab === 'inferencing'" />
     <SettingsAgentAttributes v-else />
   </template>
   <template v-else-if="mode === 'imageGen' || mode === 'imageEdit' || mode === 'video'">
@@ -24,6 +25,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useSessionTabs } from '@/assets/js/store/sessionTabs'
+import PickedAgentSettings from '@/components/PickedAgentSettings.vue'
 import SettingsAgentAttributes from '@/components/SettingsAgentAttributes.vue'
 import SettingsAgentInferencing from '@/components/SettingsAgentInferencing.vue'
 import SettingsAudioAttributes from '@/components/SettingsAudioAttributes.vue'
@@ -34,8 +39,15 @@ import SettingsWorkflowAttributes from '@/components/SettingsWorkflowAttributes.
 import SettingsWorkflowInferencing from '@/components/SettingsWorkflowInferencing.vue'
 import { MODE_TO_CATEGORIES } from '@/lib/presetModes'
 
+const sessionTabs = useSessionTabs()
+const agentTasks = useAgentTasks()
+
 defineProps<{
   mode: ModeType
   tab: 'inferencing' | 'attributes'
 }>()
+
+const pickedAgent = computed(() =>
+  sessionTabs.settings === 'picked-agent' ? agentTasks.pickedAgent : undefined,
+)
 </script>

@@ -374,6 +374,45 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     setAppMediaPathResolver(null)
   })
 
+  it("moves a Trial Run's media into its scratch folder, served from there", async () => {
+    const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
+    fs.writeFileSync(path.join(appMedia, 'robot.png'), 'png-bytes')
+    setAppMediaPathResolver((url) => path.join(appMedia, decodeURIComponent(new URL(url).pathname)))
+    const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trial-files-'))
+    submitArtifactRunMock.mockImplementationOnce(async () => ({
+      state: 'completed',
+      items: [
+        {
+          id: 'item-0',
+          type: 'image',
+          imageUrl: 'aipg-media://media/robot.png',
+          mode: 'imageGen',
+          state: 'done',
+          settings: {},
+        },
+      ] as ArtifactRunResult['items'],
+    }))
+    const tool = await buildTool(
+      GENERATE_SPEC,
+      hostWith({
+        workspaceDir: filesDir,
+        sessionMedia: { workspace: 'trial', agentId: 'agent-3' },
+      }),
+    )
+    const output = (await tool.execute(
+      'call-1',
+      { prompt: 'a robot' },
+      new AbortController().signal,
+    )) as { content: Array<{ text: string }>; details: { items: unknown[] } }
+
+    expect(output.details.items).toMatchObject([
+      { workspacePath: 'robot.png', imageUrl: 'aipg-media://trials/agent-3/files/robot.png' },
+    ])
+    expect(fs.readFileSync(path.join(filesDir, 'robot.png'), 'utf8')).toBe('png-bytes')
+    expect(fs.existsSync(path.join(appMedia, 'robot.png'))).toBe(false)
+    setAppMediaPathResolver(null)
+  })
+
   it("keeps a Session's earlier file when the agent's media has the same name", async () => {
     const appMedia = fs.mkdtempSync(path.join(os.tmpdir(), 'app-media-'))
     fs.writeFileSync(path.join(appMedia, 'ComfyUI_00001_.png'), 'agent-bytes')

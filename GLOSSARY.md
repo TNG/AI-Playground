@@ -33,8 +33,8 @@ _Avoid_: favourite, starred
 A Session that is neither pinned nor in a Session Group, listed by when it was last used.
 
 **Harness Session**:
-The agent harness's own conversation inside a Session, one per Agent Preset used there; it carries
-that preset's full context across its turns.
+The agent harness's own conversation inside a Session: one per Agent Preset or Agent chatted with
+there, carrying its full context across its turns, plus a fresh one for each Agent Run.
 _Avoid_: Pi session, agent session
 
 **Session History**:
@@ -63,12 +63,18 @@ _Avoid_: session summary, recap
 
 **Agent**:
 A named, repeatable piece of work, available to every Session: an ordered list of Steps run with
-its own Settings Template, by hand or on a Schedule. The Session it was made in does not own it.
+its own Settings Template, by hand or on a Schedule. It is made in the Agent Library and no Session
+owns it.
 _Avoid_: Task, job, automation
 
+**Agent Library**:
+The one place, opened over whatever Session is showing, where Agents are created, edited,
+scheduled and tried out. It belongs to no Session, and leaving it loses nothing.
+_Avoid_: Agent Maker, Agents view, agent manager
+
 **Agent Preset**:
-A chat preset that runs on the agent harness — Agent Maker, Game Agent, Quick Coder, or an Agent
-saved as a preset.
+A chat preset that runs on the agent harness — Agent Maker, Game Agent, Quick Coder. Picked from
+the same list as the Agents, but an Agent is not an Agent Preset.
 _Avoid_: agent (on its own, for a preset)
 
 **Step**:
@@ -78,14 +84,25 @@ One prompt of an Agent, sent as its own turn.
 The settings an Agent's runs use, fixed on the Agent rather than taken from the Session.
 
 **Schedule**:
-The recurring interval at which an Agent runs by itself in one Session. An Agent can have a
-Schedule in several Sessions; a Schedule ends with its Session or its Agent.
+The recurring interval at which an Agent runs by itself in one existing Session, set in the Agent
+Library. An Agent can have Schedules in several Sessions but at most one per Session; a Schedule
+ends with its Session or its Agent.
 
 **Agent Run**:
 One execution of an Agent's Steps inside the Session it was started or scheduled in, in a fresh
 Harness Session that starts with no context from the Session. Its result is its final answer and
 the Artifacts it produced.
 _Avoid_: Task Run, Task Session, scheduled session
+
+**Draft**:
+An Agent's unsaved edits, kept until they are saved or discarded. Only Trial Runs use it;
+Schedules and every other run keep using the saved Agent until the Draft is saved.
+_Avoid_: working copy, pending changes
+
+**Trial Run**:
+A run of an Agent's Draft started in the Agent Library, to try it out. It belongs to no Session
+and is thrown away, with its Artifacts, when the next Trial Run of that Agent starts or the app quits.
+_Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:
 A folder on the user's machine that Agent Maker's turns or an Agent's runs can reach besides the

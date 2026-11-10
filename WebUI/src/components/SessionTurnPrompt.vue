@@ -23,7 +23,16 @@
         :aria-label="clip.name ?? languages.SESSION_TURN_INPUT_AUDIO"
       />
     </template>
+    <p v-if="prompt.step" class="text-xs font-medium text-muted-foreground">
+      {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(prompt.step) }) }}
+    </p>
     <p v-if="prompt.agentRun">{{ runLabel(prompt.agentRun) }}</p>
+    <div v-if="controls" class="flex items-center gap-2">
+      <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="emit('editAgent')">
+        <PencilSquareIcon class="size-3.5" aria-hidden="true" />
+        {{ languages.AGENT_LIBRARY_EDIT_AGENT }}
+      </Button>
+    </div>
     <MarkdownRenderer v-if="prompt.text" :content="prompt.text" :on-copy="copyText" />
     <p v-else-if="prompt.placeholder" class="text-muted-foreground italic">
       {{ prompt.placeholder }}
@@ -88,6 +97,7 @@ import {
   DocumentDuplicateIcon,
   DevicePhoneMobileIcon,
   ExclamationCircleIcon,
+  PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
@@ -98,6 +108,7 @@ import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/fillTemplate'
+import type { AgentRunControls } from '@/lib/sessionTimeline'
 import { formatRunTime } from '@/lib/taskSchedule'
 import type { AgentRunIdentity, TurnPrompt } from '@/lib/turnTypes'
 
@@ -106,9 +117,10 @@ defineProps<{
   queued?: boolean
   notRun?: boolean
   canResend?: boolean
+  controls?: AgentRunControls | null
 }>()
 
-const emit = defineEmits<{ resend: [] }>()
+const emit = defineEmits<{ resend: []; editAgent: [] }>()
 
 const sessions = useSessions()
 const i18nStore = useI18N()

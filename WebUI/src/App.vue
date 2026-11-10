@@ -32,6 +32,7 @@
         v-if="globalSetup.loadingState === 'running' && showHomeAgentToggle"
         class="self-center"
       />
+      <TrialRunIndicator v-if="globalSetup.loadingState === 'running'" />
       <button
         v-if="showDebugSettings && !demoMode.enabled"
         :title="languages.COM_SETTINGS"
@@ -58,6 +59,18 @@
         <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
       </button>
       <TooltipProvider :delay-duration="200">
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.AGENT_LIBRARY_OPEN"
+              @click="uiStore.openAgentLibrary()"
+            >
+              <Squares2X2Icon class="size-6 text-foreground"></Squares2X2Icon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.AGENT_LIBRARY_TITLE }}</TooltipContent>
+        </Tooltip>
         <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
             <button
@@ -208,7 +221,7 @@
         <SessionArtifacts v-if="sessionTabs.shown === 'artifacts'" />
       </template>
       <template #schedules>
-        <SchedulesPanel v-if="sessionTabs.schedules" :allowance="sessionTabs.schedules" />
+        <SessionAgentSchedules v-if="sessionTabs.shown === 'schedules'" />
       </template>
     </SessionTabView>
 
@@ -216,6 +229,7 @@
          decides, and the download / delete dialogs this view opens must be able
          to appear on top of it. -->
     <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
+    <AgentLibrary v-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
     <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
     <preset-requirements-dialog
       v-show="dialogStore.presetRequirementsDialogVisible"
@@ -287,8 +301,15 @@ import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
-import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
+import {
+  CircleStackIcon,
+  Cog6ToothIcon,
+  ServerStackIcon,
+  Squares2X2Icon,
+} from '@heroicons/vue/24/solid'
 import ModelManager from '@/views/ModelManager.vue'
+import AgentLibrary from '@/views/AgentLibrary.vue'
+import TrialRunIndicator from '@/components/TrialRunIndicator.vue'
 import { useColorMode } from '@vueuse/core'
 import { useDemoMode } from './assets/js/store/demoMode.ts'
 import { debugSettingsVisible } from './assets/js/store/debugSettings.ts'
@@ -299,7 +320,7 @@ import SessionsPanel from '@/components/SessionsPanel.vue'
 import SessionTabView from '@/components/SessionTabView.vue'
 import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
-import SchedulesPanel from '@/components/SchedulesPanel.vue'
+import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
 import SideModalAppSettings, {
   type AppSettingsSection,
 } from '@/components/SideModalAppSettings.vue'

@@ -18,7 +18,7 @@
         <div v-if="$slots.default" class="flex flex-col gap-4">
           <slot />
         </div>
-        <SessionSettingsActions @reset="emit('reset')">
+        <SessionSettingsActions v-if="!template" @reset="emit('reset')">
           <slot name="reset-fallback" />
         </SessionSettingsActions>
       </fieldset>
@@ -48,6 +48,8 @@ defineProps<{
   /** Locks the Session Settings and their default buttons, e.g. while an Agent Run holds the Session. */
   readOnly?: boolean
   readOnlyNote?: string
+  /** An Agent's Settings Template: no Session to reset or take defaults from. */
+  template?: boolean
 }>()
 
 const emit = defineEmits<{

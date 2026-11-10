@@ -41,7 +41,7 @@
         side="top"
         align="start"
         :side-offset="8"
-        class="z-[40010] w-auto max-w-[80vw] rounded-lg border border-border bg-card p-2 shadow-xl"
+        class="z-[40010] w-auto max-w-[80vw] max-h-[var(--reka-popover-content-available-height)] overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-xl"
         @open-auto-focus.prevent
         @close-auto-focus.prevent
       >
@@ -52,6 +52,7 @@
           class="flex gap-2 overflow-x-auto max-w-[76vw] pb-1"
           @pointerenter="cancelPickerClose"
           @pointerleave="schedulePickerClose"
+          @focusin="cancelPickerClose"
         >
           <TooltipProvider :delay-duration="200">
             <Tooltip v-for="preset in presetsForMode(mode)" :key="preset.name">
@@ -59,12 +60,12 @@
                 <button
                   type="button"
                   :aria-label="oemBranding.presetLabel(preset.name)"
-                  :aria-pressed="presetsStore.activePresetName === preset.name"
+                  :aria-pressed="pickedPresetName === preset.name"
                   :aria-disabled="!gateOf(preset).enabled"
                   :data-aipg-preset-name="preset.name"
                   class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
                   :class="[
-                    presetsStore.activePresetName === preset.name
+                    pickedPresetName === preset.name
                       ? 'border-primary ring-2 ring-primary'
                       : 'border-transparent',
                     gateOf(preset).enabled
@@ -99,6 +100,84 @@
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <TooltipProvider
+            v-if="mode === buttonModeFor('agent') && agents.length > 0"
+            :delay-duration="200"
+          >
+            <div
+              role="group"
+              :aria-label="i18nState.AGENT_LIBRARY_LIST"
+              class="flex min-w-0 flex-col gap-1 border-l border-border pl-2"
+            >
+              <Input
+                v-if="agentView.filterable"
+                v-model="agentQuery"
+                type="search"
+                :placeholder="i18nState.AGENT_LIBRARY_FILTER"
+                :aria-label="i18nState.AGENT_LIBRARY_FILTER"
+                class="h-7 w-48 px-2 text-xs"
+                @focus="agentFilterFocused = true"
+                @blur="agentFilterFocused = false"
+                @keydown.enter.prevent="pickFirstMatch"
+              />
+              <div class="flex min-w-0 gap-2 overflow-x-auto pb-1">
+                <p
+                  v-if="agentView.agents.length === 0"
+                  role="status"
+                  class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
+                >
+                  {{ i18nState.AGENT_LIBRARY_FILTER_EMPTY }}
+                </p>
+                <Tooltip v-for="agent in agentView.agents" :key="agent.id">
+                  <TooltipTrigger as-child>
+                    <button
+                      type="button"
+                      :aria-label="agent.name"
+                      :aria-pressed="pickedAgentId === agent.id"
+                      class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
+                      :class="
+                        pickedAgentId === agent.id
+                          ? 'border-primary ring-2 ring-primary'
+                          : 'border-transparent'
+                      "
+                      @click="selectAgentFromPicker(agent.id)"
+                    >
+                      <img
+                        v-if="agent.image"
+                        :src="agent.image"
+                        :alt="agent.name"
+                        class="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                        <span
+                          class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
+                        >
+                          {{ agent.name }}
+                        </span>
+                      </div>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                    <p class="font-semibold">{{ agent.name }}</p>
+                    <p v-if="agent.description" class="mt-1 text-primary-foreground/80">
+                      {{ agent.description }}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+          </TooltipProvider>
+          <div v-if="mode === buttonModeFor('agent')" class="flex flex-none flex-col gap-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              class="h-7"
+              @click="openLibrary(() => manageAgents())"
+            >
+              <Squares2X2Icon class="size-4" />
+              {{ i18nState.AGENT_LIBRARY_MANAGE }}
+            </Button>
+          </div>
           <p
             v-if="presetsForMode(mode).length === 0"
             class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
@@ -120,25 +199,27 @@
     <PromptSendButtons
       :show-send="showSend"
       :ready-for-new-submit="readyForNewSubmit"
-      :can-run-steps="canRunSteps"
+      :picked-agent-name="pickedAgentName"
       :settings-blocked="settingsBlocked"
       :is-slash-command="isSlashCommand"
       :is-stopping="isStopping"
       @send="emit('send')"
-      @run-steps="emit('runSteps')"
+      @run-agent="emit('runAgent')"
       @cancel="emit('cancel')"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { computed, ref, nextTick, watch } from 'vue'
+import { Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
 import Button from '@/components/ui/button/Button.vue'
+import { Input } from '@/components/ui/input'
 import PromptAttachButton from '@/components/PromptAttachButton.vue'
 import PromptAttachmentPreviews from '@/components/PromptAttachmentPreviews.vue'
 import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
@@ -148,6 +229,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/presetModes'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
+import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
+import { agentList, pickableAgents } from '@/lib/promptBarModel'
 
 defineProps<{
   modes: ModeType[]
@@ -159,7 +243,8 @@ defineProps<{
   sttUnavailableHint: string
   showSend: boolean
   readyForNewSubmit: boolean
-  canRunSteps: boolean
+  /** Set while an Agent is picked: ▶ runs it, Send chats with it. */
+  pickedAgentName?: string
   settingsBlocked: boolean
   isSlashCommand: boolean
   isStopping: boolean
@@ -170,7 +255,7 @@ const emit = defineEmits<{
   (e: 'camera'): void
   (e: 'record'): void
   (e: 'send'): void
-  (e: 'runSteps'): void
+  (e: 'runAgent'): void
   (e: 'cancel'): void
 }>()
 
@@ -178,8 +263,11 @@ const promptStore = usePromptStore()
 const presetsStore = usePresets()
 const oemBranding = useOemBranding()
 const i18nState = useI18N().state
-const { gateOf, switchTo } = usePromptBarPresetSwitch()
+const { gateOf } = usePromptBarPresetSwitch()
+const agentPick = usePromptBarAgentPick()
+const { pickedAgentId, pickedPresetName } = agentPick
 const demoMode = useDemoMode()
+const { manageAgents } = useAgentLibraryEntry()
 
 function presetsForMode(mode: ModeType): Preset[] {
   return presetsStore.getPresetsByCategories(MODE_TO_CATEGORIES[mode], MODE_TO_PRESET_TYPE[mode])
@@ -222,6 +310,8 @@ function openPicker(mode: ModeType) {
 
 function schedulePickerClose() {
   clearPickerTimers()
+  // Typing in the Agent filter must not lose the picker to a stray pointer move.
+  if (agentFilterFocused.value) return
   pickerCloseTimer = window.setTimeout(() => {
     pickerCloseTimer = null
     openPickerMode.value = null
@@ -264,10 +354,37 @@ function onPickerOpenChange(mode: ModeType, open: boolean) {
 }
 
 // Hovering only opened the picker, so selecting a preset performs the mode switch too.
+async function openLibrary(open: () => unknown) {
+  closePicker()
+  await open()
+}
+
 async function selectPresetFromPicker(preset: Preset) {
   if (gateOf(preset).enabled) closePicker()
-  await switchTo(preset.name)
+  await agentPick.pickPreset(preset.name)
 }
+
+async function selectAgentFromPicker(agentId: string) {
+  closePicker()
+  await agentPick.pickAgent(agentId)
+}
+
+const agents = computed(() => pickableAgents(agentPick.agents.value))
+const agentQuery = ref('')
+const agentFilterFocused = ref(false)
+const agentView = computed(() => agentList(agents.value, agentQuery.value))
+
+async function pickFirstMatch() {
+  const first = agentView.value.agents[0]
+  if (first) await selectAgentFromPicker(first.id)
+}
+
+watch(openPickerMode, (mode) => {
+  if (mode === null) {
+    agentQuery.value = ''
+    agentFilterFocused.value = false
+  }
+})
 
 watch(
   () => demoMode.tourOpen,

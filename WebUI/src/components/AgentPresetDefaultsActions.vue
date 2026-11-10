@@ -1,10 +1,6 @@
 <template>
-  <!-- A saved Agent Preset is bound to its Agent, whose save bar is in Schedules. -->
   <template v-if="agentMode.sessionScoped">
-    <div
-      v-if="!agentTasks.presetAgent"
-      class="border-t border-border pt-4 flex flex-wrap items-center gap-2"
-    >
+    <div class="border-t border-border pt-4 flex flex-wrap items-center gap-2">
       <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="saveAsDefault">
         {{ named(languages.SESSION_SETTINGS_SAVE_AS_DEFAULT_NAMED) }}
       </Button>
@@ -22,7 +18,6 @@
 
 <script setup lang="ts">
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useTextInference } from '@/assets/js/store/textInference'
@@ -33,7 +28,6 @@ import * as toast from '@/assets/js/toast'
 const emit = defineEmits<{ reset: [] }>()
 
 const agentMode = useAgentMode()
-const agentTasks = useAgentTasks()
 const textInference = useTextInference()
 const oemBranding = useOemBranding()
 const languages = useI18N().state

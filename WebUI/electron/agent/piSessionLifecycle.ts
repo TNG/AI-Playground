@@ -6,6 +6,7 @@ import type {
   ExtensionUIContext,
 } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
 import { isDeveloperMode } from '../kernel/developerMode.ts'
 import { loadPi } from './piRuntime.ts'
 import {
@@ -147,7 +148,7 @@ function sessionMediaOf(
   sessionRef: string | undefined,
   workspaceDir: string,
 ): SessionMediaTarget | undefined {
-  if (!sessionRef) return undefined
+  if (!sessionRef) return trialMediaOf(workspaceDir)
   const { filesDir } = sessionPaths(sessionRef)
   try {
     if (fs.realpathSync(filesDir) === workspaceDir) return { sessionRef, workspace: 'files' }
@@ -155,6 +156,19 @@ function sessionMediaOf(
     // Not created yet, so not the workspace either.
   }
   return { sessionRef, workspace: 'game', filesDir }
+}
+
+/** A Trial Run works in `agent-trials/<agentId>/files`; its media stays there. */
+function trialMediaOf(workspaceDir: string): SessionMediaTarget | undefined {
+  let root: string
+  try {
+    root = fs.realpathSync(getAgentTrialsDir())
+  } catch {
+    return undefined
+  }
+  const [agentId, files, ...rest] = path.relative(root, workspaceDir).split(path.sep)
+  if (!agentId || agentId.startsWith('.') || files !== 'files' || rest.length > 0) return undefined
+  return { workspace: 'trial', agentId }
 }
 
 async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession> {

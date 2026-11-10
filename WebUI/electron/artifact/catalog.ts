@@ -181,7 +181,7 @@ export function buildPresetCatalog(
   return catalog
 }
 
-function getUserPresetsDir(): string {
+export function getUserPresetsDir(): string {
   return path.join(app.getPath('documents'), 'AI Playground', 'presets')
 }
 

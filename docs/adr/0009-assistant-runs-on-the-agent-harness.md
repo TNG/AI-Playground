@@ -11,8 +11,8 @@ tools, different settings and different ways of handling documents, and users ha
 engine they wanted before they typed. Assistant now runs on Pi, in its own Harness Session per
 Session, with the chat UI on top (mic, camera, Speak, Regenerate, Delete, metrics), and Agent Maker
 is merged into it: its Sessions, settings and Agents' Settings Templates are refiled under
-Assistant, and the file and shell tools it always had become the `files` capability, off by
-default. The chat turn engine stays, for Home Agent threads and for aiDAPTIV. Injected RAG is
+Assistant, and the file and shell tools it always had become the `files` capability, on by
+default and withheld from models not suited to agent work. The chat turn engine stays, for Home Agent threads and for aiDAPTIV. Injected RAG is
 gone from Assistant: a document attached in a Session belongs to that Session, is kept in its
 Session Folder and is searched with the `rag` tool, which the model calls when it needs it. The
 global document list is kept only for aiDAPTIV.

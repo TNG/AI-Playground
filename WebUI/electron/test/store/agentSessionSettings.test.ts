@@ -442,7 +442,7 @@ describe('Agent Session Settings', () => {
     expect(store.effectivePlanningThinkingOnly).toBe(false)
   })
 
-  it('starts Draft Sessions lean after an upgrade, keeping MCP servers', async () => {
+  it('starts Draft Sessions with the current defaults after an upgrade, keeping MCP servers', async () => {
     const upgraded = ['media', 'web-debug', 'rag', 'web', 'notify', 'mcp:blender']
     chat.state.settingsPerPreset.Assistant = {
       ...chat.state.settingsPerPreset.Assistant,
@@ -450,21 +450,21 @@ describe('Agent Session Settings', () => {
     }
     const store = useAgentMode()
     store.defaultCapabilities = upgraded
-    store.adoptLeanDefaults()
+    store.adoptDefaultCapabilities()
     await store.init()
     await store.newSession()
 
-    expect([...store.capabilities].sort()).toEqual(['mcp:blender', 'media', 'rag', 'web'])
+    expect([...store.capabilities].sort()).toEqual(['files', 'mcp:blender', 'media', 'rag', 'web'])
   })
 
-  it('adopts the lean defaults only once', async () => {
+  it('adopts the defaults only once', async () => {
     const store = useAgentMode()
-    store.adoptLeanDefaults()
+    store.adoptDefaultCapabilities()
     chat.state.settingsPerPreset.Assistant = {
       ...chat.state.settingsPerPreset.Assistant,
       agentCapabilities: ['media', 'notify'],
     }
-    store.adoptLeanDefaults()
+    store.adoptDefaultCapabilities()
     await store.init()
     await store.newSession()
 

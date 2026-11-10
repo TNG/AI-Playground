@@ -413,7 +413,7 @@ describe('the Assistant preset in a Session', () => {
 
   it('sends its own prompt instead of the coding agent, from the Session Folder', async () => {
     const session = await sessions.createSession()
-    const config = await assistantConfig(session.id)
+    const config = await assistantConfig(session.id, ['web'])
     expect(config.workspaceDir).toBe(sessions.sessionPaths(session.id).filesDir)
 
     await manager.startAgentTurn('t1', 'why is the sky blue?', config)
@@ -425,16 +425,17 @@ describe('the Assistant preset in a Session', () => {
     expect(prompt).not.toContain('<available_skills>')
   }, 30000)
 
-  it('offers web tools by default, and no file, shell, notify or browser tools', async () => {
+  it('offers file and web tools by default, and no notify or browser tools', async () => {
     const session = await sessions.createSession()
 
     await manager.startAgentTurn('t1', 'hello', await assistantConfig(session.id))
 
     const offered = offeredToolNames(bodies[0])
-    expect(offered).toEqual(expect.arrayContaining(['web_search', 'web_fetch', 'session_history']))
-    for (const name of ['read', 'write', 'edit', 'bash', 'notify_user', 'browser']) {
-      expect(offered).not.toContain(name)
-    }
+    expect(offered).toEqual(
+      expect.arrayContaining(['read', 'write', 'edit', 'bash', 'web_search', 'web_fetch']),
+    )
+    for (const name of ['notify_user', 'browser']) expect(offered).not.toContain(name)
+    expect(systemPrompt(bodies[0])).not.toContain('coding assistant operating inside pi')
   }, 30000)
 
   it('transcribes an audio clip attached into the Session Folder', async () => {

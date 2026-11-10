@@ -143,7 +143,7 @@ await Promise.all([
 ])
 
 // Needs both the agent store's persisted defaults and the hydrated Default Settings.
-useAgentMode().adoptLeanDefaults()
+useAgentMode().adoptDefaultCapabilities()
 
 // Binds every other preset's settings to the open Session once the Default Settings
 // they copy from have hydrated (ADR-0004).

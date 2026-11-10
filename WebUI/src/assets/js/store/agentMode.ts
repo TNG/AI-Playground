@@ -24,7 +24,7 @@ import {
 } from '@/lib/fileBackedPreferences'
 import {
   LegacyAgentSessionStateSchema,
-  type AgentChatTag,
+  type AgentFollowUpTag,
   type AgentSessionBootstrap,
   type AgentSessionSettings,
   type AgentTaskStep,
@@ -115,7 +115,7 @@ export type TurnOutcome =
   { kind: 'completed' } | { kind: 'error'; message: string } | { kind: 'stopped' }
 
 /** Stored with a user message; `origin` is the channel an Answer arrived on. */
-export type AgentMessageMetadata = { origin?: ChannelKind }
+export type AgentMessageMetadata = { origin?: ChannelKind; followUp?: AgentFollowUpTag }
 
 /** The Task run holding a session; its Steps are sent with `signal`, which is how it is let in. */
 export type SessionTaskLock = { taskName: string; signal: AbortSignal | undefined }
@@ -925,7 +925,7 @@ export const useAgentMode = defineStore(
       /** Set for the one turn a channel Answer started. */
       answer?: AgentAnswerOrigin
       taskRun?: AgentModeTurnConfig['taskRun']
-      agentChat?: AgentChatTag
+      followUp?: AgentFollowUpTag
     }
     const turnContexts: Record<string, TurnContext> = {}
 
@@ -953,7 +953,6 @@ export const useAgentMode = defineStore(
         ],
         settings: { ...settings },
         stored: true,
-        ...(record.agentChat ? { agentChat: { ...record.agentChat } } : {}),
       }
     }
 
@@ -977,6 +976,11 @@ export const useAgentMode = defineStore(
         cloudMode,
         answer: turnContexts[sessionId]?.answer,
       })
+    }
+
+    function followedRunOf(record: AgentSessionRecord | undefined) {
+      const run = record?.taskRun
+      return run ? { taskName: run.taskName, startedAt: run.startedAt } : undefined
     }
 
     function storedTurnConfig(sessionId: string, context: TurnContext) {
@@ -1003,7 +1007,8 @@ export const useAgentMode = defineStore(
         tools: stored.tools,
         answer: context.answer,
         taskRun: context.taskRun,
-        agentChat: context.agentChat,
+        followUp: context.followUp,
+        followedRun: context.followUp ? followedRunOf(sessions.value[sessionId]) : undefined,
       })
     }
 
@@ -1919,7 +1924,6 @@ export const useAgentMode = defineStore(
       title: string
       taskId?: string
       taskRun?: AgentSessionRecord['taskRun']
-      agentChat?: AgentChatTag
       steps?: AgentTaskStep[]
     }): string {
       const id = input.id ?? mintSessionId()
@@ -1940,7 +1944,6 @@ export const useAgentMode = defineStore(
         ...(input.steps ? { steps: cloneForIpc(input.steps) } : {}),
         ...(input.sessionRef ? { sessionRef: input.sessionRef } : {}),
         ...(input.taskRun ? { taskRun: input.taskRun } : {}),
-        ...(input.agentChat ? { agentChat: input.agentChat } : {}),
       })
       return id
     }
@@ -1989,14 +1992,10 @@ export const useAgentMode = defineStore(
         answer?: AgentAnswerOrigin
         /** A Task Run's Step. */
         taskRun?: AgentModeTurnConfig['taskRun']
-        /** The chat with a saved Agent, as the Agent is named now. */
-        agentChat?: AgentChatTag
+        /** A Follow-up to a saved Agent's run, the Agent named as it is now. */
+        followUp?: AgentFollowUpTag
       } = {},
     ): Promise<SendToSessionResult> {
-      const stored = sessions.value[sessionId]
-      const renamed =
-        options.agentChat && stored && stored.agentChat?.agentName !== options.agentChat.agentName
-      if (renamed) rewriteSession(sessionId, { ...stored, agentChat: options.agentChat })
       const record = sessions.value[sessionId]
       const live =
         sessionId === openSessionId.value && !options.useStoredSettings && !options.settings
@@ -2067,9 +2066,14 @@ export const useAgentMode = defineStore(
       if (options.quietErrors) context.quietErrors = true
       if (options.answer) context.answer = options.answer
       if (options.taskRun) context.taskRun = options.taskRun
-      const metadata: AgentMessageMetadata | undefined = options.answer
-        ? { origin: options.answer.channel }
-        : undefined
+      if (options.followUp) context.followUp = options.followUp
+      const metadata: AgentMessageMetadata | undefined =
+        options.answer || options.followUp
+          ? {
+              ...(options.answer ? { origin: options.answer.channel } : {}),
+              ...(options.followUp ? { followUp: options.followUp } : {}),
+            }
+          : undefined
       runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
         (error) =>
           errors.report(error, {

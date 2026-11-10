@@ -13,8 +13,12 @@ const HEADER = 'Session Update — what happened in this Session since your last
 export type SessionUpdateConsumer = {
   /** Its cursor's key in `session.json` `updateCursors`. */
   key: string
-  /** Entries of this preset are the consumer's own turns — except Agent Run Steps and Agent chats. */
+  /** Entries of this preset are the consumer's own turns — except Agent Run Steps and Follow-ups. */
   ownPreset?: string
+  /** Entries of this Harness Session are its own: an Agent Run's Steps and its Follow-ups. */
+  harnessSessionId?: string
+  /** A Follow-up's run, whose Steps may predate `harnessSessionId` and Session Update cursors. */
+  run?: { taskName: string; startedAt: number }
   isOwn?: (entry: HistoryEntry) => boolean
   /** Where the consumer opens files from; Session Folder paths inside it are shown relative to it. */
   workspaceDir?: string
@@ -105,7 +109,49 @@ async function asSeenFrom(
 
 function isOwnTurn(entry: HistoryEntry, consumer: SessionUpdateConsumer): boolean {
   if (entry.preset === consumer.ownPreset && !entry.taskName && !entry.agentId) return true
+  if (consumer.harnessSessionId && entry.harnessSessionId === consumer.harnessSessionId) return true
+  if (isLegacyStepOf(entry, consumer.run)) return true
   return consumer.isOwn?.(entry) ?? false
+}
+
+function isLegacyStepOf(entry: HistoryEntry, run: SessionUpdateConsumer['run']): boolean {
+  return (
+    !!run &&
+    !entry.harnessSessionId &&
+    entry.taskName === run.taskName &&
+    entry.timestamp >= run.startedAt
+  )
+}
+
+function firstUnseen(entries: HistoryEntry[], consumer: SessionUpdateConsumer, cursor?: string) {
+  if (cursor) return entries.findIndex((entry) => entry.id === cursor) + 1
+  if (!consumer.run) return 0
+  const since = consumer.run.startedAt
+  const index = entries.findIndex((entry) => entry.timestamp >= since)
+  return index < 0 ? entries.length : index
+}
+
+async function advanceCursor(
+  sessionId: string,
+  key: string,
+  entries: HistoryEntry[],
+  cursor?: string,
+) {
+  const newest = entries.at(-1)
+  if (!newest || newest.id === cursor) return
+  await mutateSession(sessionId, (current) => ({
+    ...current,
+    updateCursors: { ...current.updateCursors, [key]: newest.id },
+  }))
+}
+
+/** Mark everything so far as seen without reporting it: an Agent Run starts with no context. */
+export async function skipSessionUpdate(
+  sessionId: string,
+  consumer: Pick<SessionUpdateConsumer, 'key'>,
+): Promise<void> {
+  const [file, entries] = await Promise.all([readSession(sessionId), readHistoryEntries(sessionId)])
+  await advanceCursor(sessionId, consumer.key, entries, file.updateCursors[consumer.key])
 }
 
 /**
@@ -118,15 +164,10 @@ export async function takeSessionUpdate(
 ): Promise<string | null> {
   const [file, entries] = await Promise.all([readSession(sessionId), readHistoryEntries(sessionId)])
   const cursor = file.updateCursors[consumer.key]
-  const start = cursor ? entries.findIndex((entry) => entry.id === cursor) + 1 : 0
-  const missed = entries.slice(start).filter((entry) => !isOwnTurn(entry, consumer))
-  const newest = entries.at(-1)
-  if (newest && newest.id !== cursor) {
-    await mutateSession(sessionId, (current) => ({
-      ...current,
-      updateCursors: { ...current.updateCursors, [consumer.key]: newest.id },
-    }))
-  }
+  const missed = entries
+    .slice(firstUnseen(entries, consumer, cursor))
+    .filter((entry) => !isOwnTurn(entry, consumer))
+  await advanceCursor(sessionId, consumer.key, entries, cursor)
   return buildSessionUpdate(await asSeenFrom(sessionId, missed, consumer.workspaceDir))
 }
 

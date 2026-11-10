@@ -60,6 +60,7 @@
       :show-send="showSend"
       :ready-for-new-submit="readyForNewSubmit"
       :picked-agent-name="pickedAgentName"
+      :agent-composer="agentComposer"
       :settings-blocked="settingsBlocked"
       :is-slash-command="isSlashCommand"
       :is-stopping="isStopping"
@@ -92,6 +93,7 @@ import PromptAttachButton from '@/components/PromptAttachButton.vue'
 import PromptAttachmentPreviews from '@/components/PromptAttachmentPreviews.vue'
 import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
 import PromptSendButtons from '@/components/PromptSendButtons.vue'
+import type { AgentComposerState } from '@/lib/agentComposer'
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { promptBarModel } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
@@ -105,8 +107,9 @@ defineProps<{
   sttUnavailableHint: string
   showSend: boolean
   readyForNewSubmit: boolean
-  /** Set while an Agent is picked: ▶ runs it, Send chats with it. */
+  /** Set while an Agent is picked: ▶ runs it, Send follows up on its latest run. */
   pickedAgentName?: string
+  agentComposer?: AgentComposerState
   settingsBlocked: boolean
   isSlashCommand: boolean
   isStopping: boolean

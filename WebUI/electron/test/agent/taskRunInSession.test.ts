@@ -231,76 +231,111 @@ describe('a Task Run in its Session', () => {
   }, 30000)
 })
 
-describe("an Agent's chat in its Session", () => {
-  async function agentChatConfig(sessionId: string): Promise<AgentModeTurnConfig> {
-    const { harnessSessionId, workspaceDir } = await harness.harnessSessionFor(
-      sessionId,
-      'agent:t-news',
-    )
-    return {
-      ...(await agentConfig(sessionId)),
-      sessionId: harnessSessionId,
-      workspaceDir,
-      agentChat: { agentId: 't-news', agentName: 'Morning digest' },
-    }
+describe('a Follow-up to an Agent Run in its Session', () => {
+  const FOLLOW_UP = { agentId: 't-news', agentName: 'Morning digest' }
+
+  function followUpTo(run: AgentModeTurnConfig): AgentModeTurnConfig {
+    const { taskRun: _step, ...rest } = run
+    return { ...rest, followUp: FOLLOW_UP }
   }
 
-  it('is its own Harness Session, apart from Agent Maker’s, keeping its context', async () => {
+  it('continues the run’s Harness Session, its Steps still in context', async () => {
     const session = await sessionWithHistory()
-    const chat = await agentChatConfig(session.id)
+    const run = await taskRunConfig(session.id)
+    await manager.startAgentTurn('t1', 'summarise the news', run)
 
-    expect(chat.sessionId).not.toBe((await agentConfig(session.id)).sessionId)
-    await manager.startAgentTurn('t1', 'hello digest', chat)
-    await manager.startAgentTurn('t2', 'and again', chat)
+    await manager.startAgentTurn('t2', 'why that headline?', followUpTo(run))
 
-    expect(userTexts(bodies[0])).toHaveLength(1)
-    const second = userTexts(bodies[1])
-    expect(second).toHaveLength(2)
-    expect(second[0]).toContain('hello digest')
+    const users = userTexts(bodies[1])
+    expect(users).toHaveLength(2)
+    expect(users[0]).toContain('summarise the news')
+    expect(users[1]).toContain('why that headline?')
+    expect(JSON.stringify(bodies[1].messages)).not.toContain('plum')
   }, 30000)
 
-  it('gets a Session Update of Agent Maker’s turns and Agent Run Steps, not of its own', async () => {
+  it('gets a Session Update of the turns since the run, not of its Steps or Follow-ups', async () => {
     const session = await sessionWithHistory()
-    const chat = await agentChatConfig(session.id)
-    await manager.startAgentTurn('t1', 'hello digest', chat)
-    await manager.startAgentTurn('t2', 'run step', await taskRunConfig(session.id))
+    const run = await taskRunConfig(session.id)
+    await manager.startAgentTurn('t1', 'first step', run)
+    await manager.startAgentTurn('t2', 'second step', {
+      ...run,
+      taskRun: { taskName: 'Morning digest', stepIndex: 2 },
+    })
     await manager.startAgentTurn('t3', 'agent maker turn', await agentConfig(session.id))
     bodies = []
 
-    await manager.startAgentTurn('t4', 'what did you miss', chat)
+    await manager.startAgentTurn('t4', 'what did you miss', followUpTo(run))
+    await manager.startAgentTurn('t5', 'and now?', followUpTo(run))
 
-    const latest = userTexts(bodies[0]).at(-1) ?? ''
-    expect(latest).toContain('Session Update')
-    expect(latest).toContain('run step')
-    expect(latest).toContain('agent maker turn')
-    expect(latest).not.toContain('hello digest')
+    const first = userTexts(bodies[0]).at(-1) ?? ''
+    expect(first).toContain('Session Update')
+    expect(first).toContain('agent maker turn')
+    expect(first).not.toContain('a castle')
+    expect(first).not.toContain('first step')
+    expect(first).not.toContain('second step')
+    expect(userTexts(bodies[1]).at(-1)).not.toContain('Session Update')
+  }, 30000)
+
+  it('hears only what happened since a run from before Follow-ups, not its Steps', async () => {
+    const session = await sessionWithHistory()
+    const run = await taskRunConfig(session.id)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const startedAt = Date.now()
+    const legacy = { kind: 'agent' as const, status: 'completed' as const, artifacts: [] }
+    await history.appendHistoryEntry(session.id, {
+      ...legacy,
+      preset: 'Agent',
+      prompt: 'legacy step',
+      taskName: 'Morning digest',
+      stepIndex: 1,
+    })
+    await history.appendHistoryEntry(session.id, { ...legacy, preset: 'Agent', prompt: 'a tower' })
+
+    await manager.startAgentTurn('t1', 'what did you miss', {
+      ...followUpTo(run),
+      followedRun: { taskName: 'Morning digest', startedAt },
+    })
+
+    const update = userTexts(bodies[0]).at(-1) ?? ''
+    expect(update).toContain('a tower')
+    expect(update).not.toContain('a castle')
+    expect(update).not.toContain('legacy step')
   }, 30000)
 
   it('is news to Agent Maker, under the Agent’s name', async () => {
     const session = await sessionWithHistory()
     const maker = await agentConfig(session.id)
     await manager.startAgentTurn('t1', 'catch up', maker)
-    await manager.startAgentTurn('t2', 'hello digest', await agentChatConfig(session.id))
+    const run = await taskRunConfig(session.id)
+    await manager.startAgentTurn('t2', 'summarise the news', run)
+    await manager.startAgentTurn('t3', 'hello digest', followUpTo(run))
     bodies = []
 
-    await manager.startAgentTurn('t3', 'anything new', maker)
+    await manager.startAgentTurn('t4', 'anything new', maker)
 
     expect(userTexts(bodies[0]).at(-1)).toContain('Morning digest: \\"hello digest\\"')
   }, 30000)
 
-  it('files its History Entries under Agent Maker, tagged with the Agent', async () => {
+  it('files its History Entry under Agent Maker, marked as a Follow-up of the Agent', async () => {
     const session = await sessions.createSession()
+    const run = await taskRunConfig(session.id)
+    await manager.startAgentTurn('t1', 'summarise the news', run)
 
-    await manager.startAgentTurn('t1', 'hello digest', await agentChatConfig(session.id))
+    await manager.startAgentTurn('t2', 'hello digest', followUpTo(run))
 
     expect(await history.readHistoryEntries(session.id)).toEqual([
+      expect.objectContaining({ taskName: 'Morning digest', harnessSessionId: run.sessionId }),
       expect.objectContaining({
         preset: 'Agent',
         prompt: 'hello digest',
         agentId: 't-news',
         agentName: 'Morning digest',
+        followUp: true,
+        harnessSessionId: run.sessionId,
       }),
     ])
+    const [step] = await history.readHistoryEntries(session.id)
+    expect(step).not.toHaveProperty('followUp')
     expect(await history.lastTurnPreset(session.id)).toEqual({ preset: 'Agent' })
   }, 30000)
 })

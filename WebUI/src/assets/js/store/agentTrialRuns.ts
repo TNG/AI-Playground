@@ -3,14 +3,17 @@ import { computed, reactive, ref } from 'vue'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { TrialRunRecord } from '@/types/agentTaskIpc'
 import type { TrialRunView } from '@/lib/trialRunTimeline'
-import { useAgentMode, type TurnOutcome } from './agentMode'
+import { useAgentMode, type SendToSessionResult, type TurnOutcome } from './agentMode'
 import { AGENT_PRESET } from './agentModeSessions'
 import { useAgentTasks, type LibraryAgent, type ModelDownloadRefusal } from './agentTasks'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
+import { agentComposerState, type AgentComposerState } from '@/lib/agentComposer'
+import { sameAgentSetup } from '@/lib/agentSetup'
 import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { agentDisplayName, neverRunRefusal, type NeverRunRefusal } from '@/lib/agentNames'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import {
   describeSettingsProblems,
@@ -26,6 +29,9 @@ export type StartTrialRunResult =
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
   | { ok: false; reason: 'not-started'; message: string }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
+
+export type TrialFollowUpResult =
+  SendToSessionResult | { ok: false; reason: 'running' } | NeverRunRefusal
 
 type TrialRunFailureCode =
   | 'agent-library/trial-save-failed'
@@ -48,11 +54,20 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   > = {}
   /** Agents whose Trial Run is still being checked, possibly waiting on a download; Stop aborts it. */
   const startingTrials = reactive(new Map<string, AbortController>())
+  const sendingFollowUps = reactive(new Set<string>())
   /** Turns that ended before `init` restored the runs, which may have been theirs. */
   let earlySettles: [string, TurnOutcome][] | null = []
 
   function trialRunInFlight(agentId: string): boolean {
-    return startingTrials.has(agentId) || trialRuns.value[agentId]?.state === 'running'
+    const run = trialRuns.value[agentId]
+    return startingTrials.has(agentId) || run?.state === 'running' || followUpInFlight(agentId)
+  }
+
+  function followUpInFlight(agentId: string): boolean {
+    const run = trialRuns.value[agentId]
+    return (
+      sendingFollowUps.has(agentId) || (!!run && !!agentMode.sessionTurns[run.harnessSessionId])
+    )
   }
 
   /** The Agents whose Trial Run is in flight, for the header indicator. */
@@ -257,7 +272,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
       return { ok: false, reason: 'not-started', message: extractMessage(error) }
     }
     if (signal.aborted) return { ok: false, reason: 'stopped' }
-    const name = plan.name.trim() || (i18n.state.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
+    const name = agentDisplayName(plan.name, i18n.state)
     const startedAt = Date.now()
     const leading = input?.trim()
     agentMode.createSession({
@@ -325,11 +340,61 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     }
   }
 
-  /** Stop the Agent's Trial Run, or keep the one still starting from starting. */
+  /** Stop the Agent's Trial Run or its Follow-up, or keep the one still starting from starting. */
   async function stopTrialRun(agentId: string): Promise<void> {
     startingTrials.get(agentId)?.abort()
     startingTrials.delete(agentId)
     await stopRunningTrial(agentId)
+    const run = trialRuns.value[agentId]
+    if (run && agentMode.sessionTurns[run.harnessSessionId]) {
+      await agentMode.stopSession(run.harnessSessionId)
+    }
+  }
+
+  /** Continue the Agent's Trial Run's Harness Session, on the Draft snapshot it started with. */
+  async function followUpTrialRun(agentId: string, prompt: string): Promise<TrialFollowUpResult> {
+    const run = trialRuns.value[agentId]
+    if (!run) return neverRun(agentId)
+    if (trialRunInFlight(agentId)) return { ok: false, reason: 'running' }
+    const settings = agentMode.sessions[run.harnessSessionId]?.settings
+    if (!settings) return neverRun(agentId)
+    const agentName = libraryAgent(agentId)?.name.trim() || run.name
+    sendingFollowUps.add(agentId)
+    try {
+      return await agentMode.sendToSession(run.harnessSessionId, prompt, {
+        settings: cloneForIpc(settings),
+        followUp: { agentId, agentName },
+      })
+    } finally {
+      sendingFollowUps.delete(agentId)
+    }
+  }
+
+  function neverRun(agentId: string): NeverRunRefusal {
+    return neverRunRefusal(libraryAgent(agentId)?.name ?? '', i18n.state)
+  }
+
+  /**
+   * Which of Run and Send Enter triggers in the Agent's Trial Run panel (ADR 0008): Run once the
+   * Steps and Settings Template a new Trial Run would use differ from the ones this one ran on.
+   */
+  function trialComposer(agentId: string): AgentComposerState {
+    const run = trialRuns.value[agentId]
+    if (!run) return agentComposerState({ agentEdited: false })
+    const ran = agentMode.sessions[run.harnessSessionId]
+    const next = libraryAgent(agentId)
+    const agentEdited =
+      !!ran &&
+      !!next &&
+      !sameAgentSetup(
+        { settings: ran.settings ?? {}, steps: ran.steps ?? [] },
+        { settings: next.settingsTemplate, steps: next.steps },
+      )
+    return agentComposerState({
+      latestRun: { harnessSessionId: run.harnessSessionId, startedAt: run.startedAt },
+      latestTurn: { harnessSessionId: run.harnessSessionId, ranBy: run.name },
+      agentEdited,
+    })
   }
 
   async function stopRunningTrial(agentId: string): Promise<void> {
@@ -368,6 +433,8 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     init,
     startTrialRun,
     stopTrialRun,
+    followUpTrialRun,
+    trialComposer,
   }
 })
 

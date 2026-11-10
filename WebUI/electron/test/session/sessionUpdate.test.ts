@@ -18,8 +18,13 @@ vi.mock('../../observability/logger', () => ({
 const { createSession, readSession, resetSessionsForTest, setSessionDeps, sessionPaths } =
   await import('../../session/sessions')
 const { appendHistoryEntry } = await import('../../session/sessionHistory')
-const { buildSessionUpdate, takeSessionUpdate, listSessionHistory, getSessionHistoryEntry } =
-  await import('../../session/sessionUpdate')
+const {
+  buildSessionUpdate,
+  takeSessionUpdate,
+  skipSessionUpdate,
+  listSessionHistory,
+  getSessionHistoryEntry,
+} = await import('../../session/sessionUpdate')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-update-'))
@@ -151,6 +156,67 @@ describe('takeSessionUpdate', () => {
     await appendHistoryEntry(id, agentTurn)
 
     expect(await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })).toBeNull()
+  })
+
+  it("counts a run's Steps and its Follow-ups as a Follow-up's own turns", async () => {
+    const { id } = await createSession()
+    const run = { key: 'aipg-agent-run', harnessSessionId: 'aipg-agent-run' }
+    const step = { ...agentTurn, taskName: 'Digest', harnessSessionId: run.key }
+    const followUp = { agentId: 't1', agentName: 'Digest', followUp: true }
+    await appendHistoryEntry(id, imageTurn)
+    await skipSessionUpdate(id, run)
+    await appendHistoryEntry(id, { ...step, stepIndex: 1, prompt: 'step one' })
+    await appendHistoryEntry(id, { ...step, stepIndex: 2, prompt: 'step two' })
+    await appendHistoryEntry(id, { ...imageTurn, prompt: 'a blue fox' })
+
+    const first = await takeSessionUpdate(id, run)
+    expect(first).toContain('a blue fox')
+    expect(first).not.toContain('a red fox')
+    expect(first).not.toContain('step')
+
+    await appendHistoryEntry(id, { ...agentTurn, ...followUp, harnessSessionId: run.key })
+    const otherRun = { ...agentTurn, taskName: 'Other', harnessSessionId: 'aipg-agent-other' }
+    await appendHistoryEntry(id, { ...otherRun, stepIndex: 1, prompt: 'the other agent' })
+
+    const second = await takeSessionUpdate(id, run)
+    expect(second).toContain('the other agent')
+    expect(second).not.toContain('describe that image')
+  })
+
+  it('tells a Follow-up to a run from before Follow-ups only what happened since it started', async () => {
+    const { id } = await createSession()
+    await appendHistoryEntry(id, { ...imageTurn, prompt: 'before the run' })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const startedAt = Date.now()
+    const legacyStep = { ...agentTurn, taskName: 'Digest' }
+    await appendHistoryEntry(id, { ...legacyStep, stepIndex: 1, prompt: 'step one' })
+    await appendHistoryEntry(id, { ...legacyStep, stepIndex: 2, prompt: 'step two' })
+    await appendHistoryEntry(id, { ...imageTurn, prompt: 'a blue fox' })
+
+    const update = await takeSessionUpdate(id, {
+      key: 'aipg-agent-legacy',
+      harnessSessionId: 'aipg-agent-legacy',
+      run: { taskName: 'Digest', startedAt },
+    })
+    expect(update).toContain('a blue fox')
+    expect(update).not.toContain('before the run')
+    expect(update).not.toContain('step')
+  })
+
+  it('tells Agent Maker about a Follow-up as the Agent’s turn', async () => {
+    const { id } = await createSession()
+    await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })
+    await appendHistoryEntry(id, {
+      ...agentTurn,
+      agentId: 't1',
+      agentName: 'Digest',
+      followUp: true,
+      harnessSessionId: 'aipg-agent-run',
+    })
+
+    expect(await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })).toContain(
+      'Digest: "describe that image"',
+    )
   })
 
   it('keeps an independent cursor per consumer, stored in session.json', async () => {

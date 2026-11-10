@@ -33,8 +33,9 @@ _Avoid_: favourite, starred
 A Session that is neither pinned nor in a Session Group, listed by when it was last used.
 
 **Harness Session**:
-The agent harness's own conversation inside a Session: one per Agent Preset or Agent chatted with
-there, carrying its full context across its turns, plus a fresh one for each Agent Run.
+The agent harness's own conversation inside a Session: one per Agent Preset chatted with there,
+carrying its full context across its turns, plus a fresh one for each Agent Run, which its
+Follow-ups continue.
 _Avoid_: Pi session, agent session
 
 **Session History**:
@@ -90,9 +91,15 @@ ends with its Session or its Agent.
 
 **Agent Run**:
 One execution of an Agent's Steps inside the Session it was started or scheduled in, in a fresh
-Harness Session that starts with no context from the Session. Its result is its final answer and
+Harness Session that starts with no context from the Session. Prompts sent to the Agent afterwards
+continue that Harness Session, until its Steps are run again. Its result is its final answer and
 the Artifacts it produced.
 _Avoid_: Task Run, Task Session, scheduled session
+
+**Follow-up**:
+A prompt sent to an Agent without running its Steps. It continues the Harness Session of the
+Agent's latest Agent Run or Trial Run; an Agent that has not run yet takes none.
+_Avoid_: Agent chat, chat with agent
 
 **Draft**:
 An Agent's unsaved edits, kept until they are saved or discarded. Only Trial Runs use it;
@@ -100,8 +107,9 @@ Schedules and every other run keep using the saved Agent until the Draft is save
 _Avoid_: working copy, pending changes
 
 **Trial Run**:
-A run of an Agent's Draft started in the Agent Library, to try it out. It belongs to no Session
-and is thrown away, with its Artifacts, when the next Trial Run of that Agent starts or the app quits.
+A run of an Agent's Draft started in the Agent Library, to try it out. It belongs to no Session;
+it and its Follow-ups are thrown away, with their Artifacts, when the next Trial Run of that Agent
+starts or the app quits.
 _Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:

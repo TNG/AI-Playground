@@ -307,6 +307,7 @@ const bottomBarProps = computed(() => ({
   showSend: !isSttPreset.value && !downloadGroup.value,
   readyForNewSubmit: readyForNewSubmit.value,
   pickedAgentName: pickedAgentName.value,
+  agentComposer: agentComposer.value,
   settingsBlocked: settingsProblems.value.length > 0,
   isSlashCommand: isSlashCommand.value,
   isStopping: isStopping.value,
@@ -633,6 +634,17 @@ watch(
 )
 
 function getTextAreaPlaceholder() {
+  const composer = agentComposer.value
+  const agent = pickedAgentName.value ?? ''
+  if (composer?.reason === 'other-turn') {
+    return fillTemplate(languages?.AGENT_COMPOSER_RAN_SINCE ?? '', {
+      preset: composer.ranSince ?? '',
+      agent,
+    })
+  }
+  if (composer?.reason === 'agent-edited') {
+    return fillTemplate(languages?.AGENT_COMPOSER_EDITED ?? '', { agent })
+  }
   // The TTS preset runs in 'chat' mode but takes literal text to speak, not a
   // chat prompt — so it needs its own placeholder.
   const active = presetsStore.activePreset
@@ -706,9 +718,13 @@ function handleSubmitPromptClick() {
   promptStore.submitPrompt(prompt.value)
 }
 
-/** A picked Agent can be run; Send then talks to it alone. */
+/** A picked Agent can be run; Send then follows up on its latest run. */
 const pickedAgentName = computed(() =>
   promptStore.getCurrentMode() === 'agent' ? agentTasks.pickedAgent?.name : undefined,
+)
+
+const agentComposer = computed(() =>
+  pickedAgentName.value !== undefined ? agentTasks.pickedAgentComposer : undefined,
 )
 
 const isSlashCommand = computed(() => prompt.value.trim().startsWith('/'))
@@ -821,7 +837,8 @@ function handleCameraClick() {
 function fastGenerate(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    handleSubmitPromptClick()
+    if (agentComposer.value?.primary !== 'run') handleSubmitPromptClick()
+    else if (readyForNewSubmit.value) void handleRunAgentClick()
   }
 }
 

@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { PlayIcon, StopIcon } from '@heroicons/vue/24/solid'
 import { SAVE_TASK_BLOCKER_KEYS, type LibraryAgent } from '@/assets/js/store/agentTasks'
-import { useAgentTrialRuns, type StartTrialRunResult } from '@/assets/js/store/agentTrialRuns'
+import {
+  useAgentTrialRuns,
+  type StartTrialRunResult,
+  type TrialFollowUpResult,
+} from '@/assets/js/store/agentTrialRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
+import PromptSendButtons from '@/components/PromptSendButtons.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { agentDisplayName } from '@/lib/agentNames'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { trialRunItems } from '@/lib/trialRunTimeline'
@@ -22,9 +27,18 @@ const i18n = useI18N().state
 const input = ref('')
 const confirmingFolders = ref(false)
 const refusal = ref<string>()
+const stopping = ref(false)
 const panel = ref<HTMLElement | null>(null)
 
 const inFlight = computed(() => agentTrialRuns.trialRunInFlight(props.agent.id))
+
+const composer = computed(() => agentTrialRuns.trialComposer(props.agent.id))
+const agentName = computed(() => agentDisplayName(props.agent.name, i18n))
+const placeholder = computed(() =>
+  composer.value.primary === 'send'
+    ? i18n.AGENT_LIBRARY_TRIAL_RUN_FOLLOW_UP_INPUT
+    : i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT,
+)
 
 const folders = computed(() =>
   resolveMountedFolders(props.agent.settingsTemplate.mountedFolders ?? []),
@@ -38,15 +52,22 @@ const items = computed(() => {
 const { scrollToBottom } = useStickToBottom(panel)
 onMounted(() => scrollToBottom(false))
 
-function refusalText(result: Exclude<StartTrialRunResult, { ok: true }>): string | undefined {
-  if (result.reason === 'no-steps' || result.reason === 'empty-step') {
+function refusalText(
+  result: Exclude<StartTrialRunResult | TrialFollowUpResult, { ok: true }>,
+): string | undefined {
+  if ('reason' in result && (result.reason === 'no-steps' || result.reason === 'empty-step')) {
     return i18n[SAVE_TASK_BLOCKER_KEYS[result.reason]]
   }
   return 'message' in result ? result.message : undefined
 }
 
+function onEnter(): void {
+  if (composer.value.primary === 'run') requestRun()
+  else void sendFollowUp()
+}
+
 function requestRun(): void {
-  if (inFlight.value) return
+  if (inFlight.value || confirmingFolders.value) return
   refusal.value = undefined
   if (folders.value.length > 0) confirmingFolders.value = true
   else void start()
@@ -60,6 +81,29 @@ async function start(): Promise<void> {
   if (result.ok) {
     input.value = ''
     scrollToBottom(false)
+  }
+}
+
+async function sendFollowUp(): Promise<void> {
+  const typed = input.value.trim()
+  if (inFlight.value || confirmingFolders.value || !typed) return
+  refusal.value = undefined
+  input.value = ''
+  const result = await agentTrialRuns.followUpTrialRun(props.agent.id, typed)
+  if (result.ok) {
+    scrollToBottom(false)
+    return
+  }
+  input.value = typed
+  refusal.value = refusalText(result)
+}
+
+async function stop(): Promise<void> {
+  stopping.value = true
+  try {
+    await agentTrialRuns.stopTrialRun(props.agent.id)
+  } finally {
+    stopping.value = false
   }
 }
 </script>
@@ -123,31 +167,36 @@ async function start(): Promise<void> {
         :model-value="input"
         rows="2"
         class="max-h-40 min-h-0 resize-none text-sm"
-        :aria-label="i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT"
-        :placeholder="i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT"
+        :aria-label="placeholder"
+        :placeholder="placeholder"
         :disabled="inFlight"
         @update:model-value="(text) => (input = String(text))"
-        @keydown.enter.exact.prevent="requestRun"
+        @keydown.enter.exact.prevent="onEnter"
       />
 
       <div class="flex flex-wrap items-center gap-2">
         <span v-if="refusal" role="status" class="min-w-0 flex-1 text-xs text-amber-500">
           {{ refusal }}
         </span>
-        <Button
-          v-if="inFlight"
-          variant="secondary"
-          size="sm"
-          class="ml-auto"
-          @click="agentTrialRuns.stopTrialRun(agent.id)"
-        >
-          <StopIcon class="size-4" />
-          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_STOP }}
-        </Button>
-        <Button v-else size="sm" class="ml-auto" :disabled="confirmingFolders" @click="requestRun">
-          <PlayIcon class="size-4" />
-          {{ i18n.AGENT_LIBRARY_TRIAL_RUN_START }}
-        </Button>
+        <div class="ml-auto flex items-center gap-2">
+          <PromptSendButtons
+            show-send
+            :ready-for-new-submit="!inFlight"
+            :picked-agent-name="agentName"
+            :agent-composer="composer"
+            :settings-blocked="confirmingFolders"
+            :is-slash-command="false"
+            :is-stopping="stopping"
+            :labels="{
+              run: i18n.AGENT_LIBRARY_TRIAL_RUN_START,
+              send: i18n.AGENT_LIBRARY_TRIAL_RUN_SEND,
+              stop: i18n.AGENT_LIBRARY_TRIAL_RUN_STOP,
+            }"
+            @run-agent="requestRun"
+            @send="sendFollowUp"
+            @cancel="stop"
+          />
+        </div>
       </div>
     </footer>
   </section>

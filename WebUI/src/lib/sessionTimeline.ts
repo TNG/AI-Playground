@@ -16,6 +16,7 @@ import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage } from '@/lib/sessionChat'
+import { runInputOf } from '@/lib/taskSteps'
 import {
   generationFailure,
   oneLine,
@@ -30,6 +31,7 @@ import {
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
 import { agentFooter, audioFooter, chatAnswerFooter, noFooter } from '@/lib/turnFooter'
+import type { LatestTurn } from '@/lib/agentComposer'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
   AgentRunIdentity,
@@ -112,6 +114,16 @@ function promptOf(message: TimelineMessage): string {
 function agentTagOf(value: unknown): AgentTurnTag | null {
   const tag = (value as { metadata?: { agentTurn?: AgentTurnTag } } | null)?.metadata?.agentTurn
   return tag && typeof tag.harnessSessionId === 'string' ? tag : null
+}
+
+/** The Agent a Follow-up prompt was sent to, by name; undefined for any other message. */
+export function followUpAgentName(message: unknown): string | undefined {
+  const { role, metadata } = message as {
+    role?: unknown
+    metadata?: { followUp?: { agentName?: unknown } }
+  }
+  const name = metadata?.followUp?.agentName
+  return role === 'user' && typeof name === 'string' ? name : undefined
 }
 
 /** An Agent Run fills its own Harness Session; Run steps marks each Step prompt it sends. */
@@ -717,10 +729,19 @@ export function timelineTurns(
   const prompts = new Map<string, UIMessage>()
   const runs = new Map<string, AgentRun>()
   const latestRun = new Map<string, AgentRun>()
+  // A Follow-up and its answers continue a run's Harness Session but are not its Steps.
+  const followingUp = new Map<string, string>()
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     const tag = agentTagOf(message)
-    const marked = tag && isUIMessage(message) ? runTagOf(tag, message) : null
+    if (tag && isUIMessage(message) && message.role === 'user') {
+      const agentName = followUpAgentName(message)
+      if (agentName !== undefined) followingUp.set(tag.harnessSessionId, agentName)
+      else followingUp.delete(tag.harnessSessionId)
+    }
+    const followUp = tag ? followingUp.get(tag.harnessSessionId) : undefined
+    const marked =
+      tag && followUp === undefined && isUIMessage(message) ? runTagOf(tag, message) : null
     let run = marked ? runs.get(marked.key) : undefined
     if (tag && marked && !run) {
       run = openRun(marked.key, message.id, tag, marked.run)
@@ -736,8 +757,12 @@ export function timelineTurns(
     }
     if (run && isUIMessage(message)) {
       if (marked?.run.end) run.end = marked.run.end
-      if (message.role === 'user') run.steps.push({ prompt: message, answers: [] })
-      else {
+      if (message.role === 'user') {
+        if (run.steps.length === 0 && run.turn.prompt && !run.turn.prompt.text) {
+          run.turn.prompt.text = runInputOf(messageText(message)) ?? ''
+        }
+        run.steps.push({ prompt: message, answers: [] })
+      } else {
         if (run.steps.length === 0) run.steps.push({ answers: [] })
         run.steps.at(-1)!.answers.push(message)
         run.turn.answers.push(message)
@@ -757,11 +782,11 @@ export function timelineTurns(
         turns.push({
           kind: 'agent',
           id: message.id,
-          hint: agentHint(tag.presetName, []),
+          hint: agentHint(followUp ?? tag.presetName, []),
           details: EMPTY_DETAILS,
           result: [],
           footer: noFooter(),
-          presetName: tag.presetName,
+          presetName: followUp ?? tag.presetName,
           harnessSessionId: tag.harnessSessionId,
           artifacts: [],
           audioArtifacts: [],
@@ -842,6 +867,31 @@ export function timelineTurns(
   )
 }
 
+/**
+ * The turn holding the timeline's last message; a run's turn sits where its first message is.
+ * `agentChatName` names the Agent of a Harness Session that was a chat with it, before Follow-ups.
+ */
+export function latestTurnOf(
+  timeline: readonly unknown[],
+  agentChatName: (harnessSessionId: string) => string | undefined = () => undefined,
+): LatestTurn | undefined {
+  const last = timeline.filter(isTimelineMessage).at(-1)
+  if (!last) return undefined
+  const tag = agentTagOf(last)
+  if (tag) {
+    const ranBy =
+      followUpAgentName(last) ??
+      tag.taskRun?.taskName ??
+      agentChatName(tag.harnessSessionId) ??
+      tag.presetName
+    return { harnessSessionId: tag.harnessSessionId, ranBy }
+  }
+  const turn = timelineTurns(timeline)
+    .filter((candidate) => candidate.kind !== 'agent' && candidate.kind !== 'message')
+    .at(-1)
+  return turn && 'hint' in turn ? { ranBy: turn.hint.preset } : undefined
+}
+
 export type AgentRunControls = { agentId: string }
 
 /** A saved Agent's run opens its Agent for editing from its own Turn; Stop is the prompt bar's. */
@@ -873,7 +923,7 @@ function openRun(key: string, id: string, tag: AgentTurnTag, taskRun: AgentRunTa
       runKey: key,
       artifacts: [],
       audioArtifacts: [],
-      prompt: { text: '', agentRun },
+      prompt: { text: taskRun.input ?? '', agentRun },
       answers: [],
     },
   }

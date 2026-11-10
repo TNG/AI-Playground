@@ -38,6 +38,13 @@ import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { neverRunRefusal, type NeverRunRefusal } from '@/lib/agentNames'
+import {
+  agentComposerState,
+  type AgentComposerState,
+  type LatestAgentRun,
+} from '@/lib/agentComposer'
+import { latestTurnOf } from '@/lib/sessionTimeline'
 import { taskRunWorkItem } from '@/lib/inFlightWorkItem'
 import {
   describeSettingsProblems,
@@ -115,10 +122,7 @@ export type RunTaskResult =
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
 
-export type ChatWithAgentResult = RunTaskResult | SendToSessionResult
-
-/** The Session's Harness Session key for the chat with one saved Agent. */
-const agentChatKey = (agentId: string) => `agent:${agentId}`
+export type FollowUpResult = RunTaskResult | SendToSessionResult | NeverRunRefusal
 
 export type SetScheduleResult =
   | { ok: true; task: AgentTask }
@@ -575,13 +579,41 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return runTask(agent.id, prompt)
   }
 
+  /** The Harness Session of the Agent's latest Agent Run in the Session, scheduled ones included. */
+  function latestRunOf(agentId: string, sessionRef: string): LatestAgentRun | undefined {
+    const runs = Object.values(agentMode.sessions).flatMap((record) =>
+      record.sessionRef === sessionRef && record.taskRun?.taskId === agentId
+        ? [{ startedAt: record.taskRun.startedAt, harnessSessionId: record.id }]
+        : [],
+    )
+    return runs.sort((a, b) => a.startedAt - b.startedAt).at(-1)
+  }
+
+  /** Which of ▶ and → Enter triggers with an Agent picked, from its runs and the Session timeline. */
+  const pickedAgentComposer = computed((): AgentComposerState | undefined => {
+    const agent = pickedAgent.value
+    const open = sessionsStore.openSessionId
+    if (!agent) return undefined
+    const latestRun = open ? latestRunOf(agent.id, open) : undefined
+    return agentComposerState({
+      latestRun,
+      latestTurn: latestTurnOf(
+        sessionsStore.openTimeline,
+        (id) => agentMode.sessions[id]?.agentChat?.agentName,
+      ),
+      agentEdited: !!latestRun && agent.updatedAt > latestRun.startedAt,
+    })
+  })
+
   /**
-   * → with an Agent picked: a turn of its chat in the open Session, one Harness Session per
-   * (Agent, Session) that keeps its context and runs on the Agent's saved Settings Template.
+   * → with an Agent picked: a Follow-up, continuing the Harness Session of its latest Agent Run in
+   * the open Session on the Agent's saved Settings Template; refused when it has not run there.
    */
-  async function chatWithPickedAgent(prompt: string): Promise<ChatWithAgentResult> {
+  async function followUpPickedAgent(prompt: string): Promise<FollowUpResult> {
     const picked = pickedAgent.value
     if (!picked) return { ok: false, reason: 'no-task' }
+    const open = sessionsStore.openSessionId
+    if (!open || !latestRunOf(picked.id, open)) return neverRun(picked)
     await agentMode.loadMcpServersFor(picked.settingsTemplate.capabilities ?? [])
     const problems = taskProblems(picked.id)
     if (problems.length > 0) {
@@ -590,32 +622,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     const refusal = await chatModelRefusal(picked.settingsTemplate, [{ id: 'prompt', prompt }])
     if (refusal) return { ok: false, ...refusal }
-    const sessionRef = await sessionsStore.ensureOpenSession()
-    if (!sessionRef) return { ok: false, reason: 'no-session' }
-    // The download may have taken long enough for a delete to overtake it.
+    // The download may have taken long enough for a delete or a new run to overtake it.
     const agent = tasks.value.find((entry) => entry.id === picked.id)
     if (!agent) return { ok: false, reason: 'no-task' }
-    const result = await window.electronAPI.sessions.harnessSession(
-      sessionRef,
-      agentChatKey(agent.id),
-    )
-    if (!result.success) return { ok: false, reason: 'no-session' }
-    const { harnessSessionId, workspaceDir } = result.harness
-    const settings = cloneForIpc(agent.settingsTemplate)
-    const agentChat = { agentId: agent.id, agentName: agent.name }
-    if (!agentMode.sessions[harnessSessionId]) {
-      agentMode.createSession({
-        id: harnessSessionId,
-        sessionRef,
-        workspaceDir,
-        settings,
-        presetName: AGENT_PRESET,
-        title: agent.name,
-        agentChat,
-      })
-    }
-    return agentMode.sendToSession(harnessSessionId, prompt, { settings, agentChat })
+    const harnessSessionId = latestRunOf(agent.id, open)?.harnessSessionId
+    if (!harnessSessionId) return neverRun(agent)
+    return agentMode.sendToSession(harnessSessionId, prompt, {
+      settings: cloneForIpc(agent.settingsTemplate),
+      followUp: { agentId: agent.id, agentName: agent.name },
+    })
   }
+
+  const neverRun = (agent: AgentTask) => neverRunRefusal(agent.name, i18n.state)
 
   /** A deleted Agent's Sessions fall back to Agent Maker. */
   async function forgetPicksOf(agentId: string): Promise<void> {
@@ -1105,6 +1123,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         taskName: plan.name,
         startedAt: Date.now(),
         trigger: scheduled ? 'scheduled' : 'manual',
+        ...(prompt.trim() ? { input: prompt.trim() } : {}),
       },
     })
     runContexts[sessionId] = { plan, abort: new AbortController(), scheduled, prompt }
@@ -1482,7 +1501,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     agentSettingsProblems,
     pickAgent,
     runPickedAgent,
-    chatWithPickedAgent,
+    followUpPickedAgent,
+    pickedAgentComposer,
     setSchedule,
     removeSchedule,
     taskSchedule,

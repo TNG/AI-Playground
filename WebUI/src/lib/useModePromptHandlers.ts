@@ -70,23 +70,26 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
 
   function submitAgent(prompt: string): void {
     options.scrollToBottom()
-    if (agentTasks.pickedAgent) void chatWithPickedAgent(prompt)
+    if (agentTasks.pickedAgent) void followUpPickedAgent(prompt)
     else void agentTasks.submitPrompt(prompt)
   }
 
-  async function chatWithPickedAgent(prompt: string): Promise<void> {
-    const result = await agentTasks.chatWithPickedAgent(prompt)
+  async function followUpPickedAgent(prompt: string): Promise<void> {
+    const result = await agentTasks.followUpPickedAgent(prompt)
     if (result.ok) return
     promptStore.promptSubmitted = false
-    // A declined download is the user's own choice; a failed one was reported already.
-    if (!('message' in result) || result.reason.startsWith('download-')) return
+    // Download refusals were already answered or reported; never-run is the disabled Send's tooltip.
+    if (!('message' in result) || result.reason === 'never-run') return
+    if (result.reason.startsWith('download-')) return
     errors.report(
       createAppError({
         category: 'validation',
-        code: 'agent-tasks/chat-blocked',
+        code: 'agent-tasks/follow-up-blocked',
         severity: 'warning',
         surface: 'toast',
-        userMessage: fillTemplate(languages.AGENT_CHAT_BLOCKED ?? '', { reason: result.message }),
+        userMessage: fillTemplate(languages.AGENT_FOLLOW_UP_BLOCKED ?? '', {
+          reason: result.message,
+        }),
       }),
     )
   }

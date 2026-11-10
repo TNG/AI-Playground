@@ -114,9 +114,12 @@ export const HistoryEntrySchema = z.object({
   response: z.string().optional(),
   taskName: z.string().optional(),
   stepIndex: z.number().int().nonnegative().optional(),
-  /** A turn of the chat with a saved Agent, which `preset` (Agent Maker) ran. */
+  /** A Follow-up to a saved Agent, which `preset` (Agent Maker) ran; older: a chat with it. */
   agentId: z.string().optional(),
   agentName: z.string().optional(),
+  followUp: z.boolean().optional(),
+  /** The Harness Session the turn ran in; absent on entries from before it was recorded. */
+  harnessSessionId: z.string().optional(),
 })
 
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>

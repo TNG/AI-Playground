@@ -48,6 +48,10 @@ export function indexedDocument(
   return doc
 }
 
+export function forgetIndexedDocument(realPath: string): void {
+  index.delete(realPath)
+}
+
 /** Tests only. */
 export function resetDocumentIndex(): void {
   index.clear()

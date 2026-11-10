@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "Zur neu zu generierenden Antwort gibt es keinen Prompt.",
   "AGENT_DELETE_TURN_FAILED": "Die Nachricht konnte nicht gelöscht werden.",
   "AGENT_ATTACH_FAILED": "{file} konnte nicht angehängt werden.",
+  "AGENT_DOCUMENT_REMOVE": "{file} entfernen",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "{file} konnte nicht entfernt werden.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Dieses Modell kann keine Tools aufrufen.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Benötigt ein Modell, das für Agentenarbeit geeignet ist.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Fragen Sie den Assistant, was Sie möchten. Mit den aktivierten Tools kann er im Web suchen, in angehängten Dokumenten nachschlagen und Bilder, Videos oder Sprache erstellen.",

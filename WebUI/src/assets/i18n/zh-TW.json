@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "要重新產生的回覆沒有提示詞。",
   "AGENT_DELETE_TURN_FAILED": "無法刪除該訊息。",
   "AGENT_ATTACH_FAILED": "無法附加 {file}。",
+  "AGENT_DOCUMENT_REMOVE": "移除 {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "無法移除 {file}。",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "此模型無法呼叫工具。",
   "AGENT_CAPABILITY_NOT_AGENTIC": "需要適合代理工作的模型。",
   "AGENT_EMPTY_STATE_ASSISTANT": "向 Assistant 提出任何問題。藉由你開啟的工具，它可以搜尋網頁、查閱你附加的文件，並產生影像、影片或語音。",

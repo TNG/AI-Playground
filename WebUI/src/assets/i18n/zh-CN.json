@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "要重新生成的回复没有提示词。",
   "AGENT_DELETE_TURN_FAILED": "无法删除该消息。",
   "AGENT_ATTACH_FAILED": "无法附加 {file}。",
+  "AGENT_DOCUMENT_REMOVE": "移除 {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "无法移除 {file}。",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "此模型无法调用工具。",
   "AGENT_CAPABILITY_NOT_AGENTIC": "需要适合智能体工作的模型。",
   "AGENT_EMPTY_STATE_ASSISTANT": "向 Assistant 提出任何问题。借助你开启的工具，它可以搜索网页、查阅你附加的文档，并生成图像、视频或语音。",

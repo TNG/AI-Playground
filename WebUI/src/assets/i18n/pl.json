@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "Odpowiedź do ponownego wygenerowania nie ma promptu.",
   "AGENT_DELETE_TURN_FAILED": "Nie udało się usunąć wiadomości.",
   "AGENT_ATTACH_FAILED": "Nie udało się dołączyć pliku {file}.",
+  "AGENT_DOCUMENT_REMOVE": "Usuń {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "Nie udało się usunąć pliku {file}.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Ten model nie potrafi wywoływać narzędzi.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Wymaga modelu przystosowanego do pracy agenta.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Zapytaj Assistant o cokolwiek. Dzięki włączonym narzędziom może przeszukiwać internet, sprawdzać dołączone dokumenty i tworzyć obrazy, wideo lub mowę.",

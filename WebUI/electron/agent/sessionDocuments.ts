@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATTACHMENTS_DIR } from './workspaceAttachments.ts'
-import { documentExtension, indexedDocument } from './documentIndex.ts'
+import { documentExtension, forgetIndexedDocument, indexedDocument } from './documentIndex.ts'
 import { realFileInside } from './hostPathContainment.ts'
 import { ragAccess } from './ragAccess.ts'
 import type { DocumentEmbedding } from '@/types/rag'
@@ -27,16 +27,31 @@ export function documentsLine(workspaceDir: string): string {
   return `Documents attached to this Session (search them with the rag tool): ${documents.join(', ')}`
 }
 
+function attachedDocument(workspaceDir: string, relativePath: string) {
+  const candidate = realFileInside(workspaceDir, relativePath)
+  const realPath = candidate && realFileInside(path.join(workspaceDir, ATTACHMENTS_DIR), candidate)
+  const extension = realPath ? documentExtension(realPath) : undefined
+  if (!realPath || !extension) throw new Error(`Not an attached document: ${relativePath}`)
+  return { realPath, extension }
+}
+
+/** Deletes the Session's copy; the user's original was never touched. */
+export async function removeSessionDocument(
+  workspaceDir: string,
+  relativePath: string,
+): Promise<void> {
+  const { realPath } = attachedDocument(workspaceDir, relativePath)
+  forgetIndexedDocument(realPath)
+  await fs.promises.unlink(realPath)
+}
+
 /** Embeds on attach, so the first `rag` call only has to embed the question. */
 export async function indexSessionDocument(
   workspaceDir: string,
   relativePath: string,
   { model: embeddingModel, backend }: DocumentEmbedding,
 ): Promise<void> {
-  const candidate = realFileInside(workspaceDir, relativePath)
-  const realPath = candidate && realFileInside(path.join(workspaceDir, ATTACHMENTS_DIR), candidate)
-  const extension = realPath ? documentExtension(realPath) : undefined
-  if (!realPath || !extension) throw new Error(`Not an attached document: ${relativePath}`)
+  const { realPath, extension } = attachedDocument(workspaceDir, relativePath)
   const doc = await indexedDocument(realPath, extension, fs.statSync(realPath).mtimeMs)
   if (!doc.splitDB || doc.splitDB.length === 0) return
   const backendBaseUrl = await ragAccess().ensureEmbeddingServer(backend, embeddingModel)

@@ -82,7 +82,10 @@ vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report }) }))
 vi.mock('@/assets/js/store/i18n', () => ({
   useI18N: () => ({
     langName: 'en-US',
-    state: { AGENT_ATTACH_FAILED: 'Could not attach {file}.' },
+    state: {
+      AGENT_ATTACH_FAILED: 'Could not attach {file}.',
+      AGENT_DOCUMENT_REMOVE_FAILED: 'Could not remove {file}.',
+    },
   }),
 }))
 
@@ -119,6 +122,13 @@ const sessionDocuments = vi.fn(async (dir: string) =>
   (savedFiles.get(dir) ?? []).filter((file) => /\.(pdf|docx?|md|txt)$/.test(file)),
 )
 const indexDocument = vi.fn(async (..._args: unknown[]) => ({ success: true }))
+const removeSessionDocument = vi.fn(async (dir: string, file: string) => {
+  savedFiles.set(
+    dir,
+    (savedFiles.get(dir) ?? []).filter((saved) => saved !== file),
+  )
+  return { success: true as boolean, error: undefined as string | undefined }
+})
 const embedding = { activeEmbeddingModel: 'bge-small' as string | null }
 
 // Only what these tests actually reach, hence the cast.
@@ -130,6 +140,7 @@ globalThis.window = {
       importAttachment,
       sessionDocuments,
       indexDocument,
+      removeSessionDocument,
       // Agent notifications ride the kernel stream; only the executeTool
       // request stays on the agentMode surface. No kernel API is stubbed, so
       // the projection stays inert in these tests.
@@ -410,6 +421,35 @@ describe('agentMode session documents', () => {
     await store.attachFiles([document('report.pdf')])
 
     expect(indexDocument).not.toHaveBeenCalled()
+    expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
+  })
+
+  it('deletes the Session copy of a document removed again, and drops its chip', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await store.attachFiles([document('report.pdf'), document('notes.md')])
+
+    await store.removeSessionDocument('attachments/report.pdf')
+
+    expect(removeSessionDocument).toHaveBeenCalledWith(
+      '/sessions/s1/files',
+      'attachments/report.pdf',
+    )
+    expect(store.sessionDocuments).toEqual(['attachments/notes.md'])
+  })
+
+  it('reports a document it could not remove and keeps its chip', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await store.attachFiles([document('report.pdf')])
+    removeSessionDocument.mockResolvedValueOnce({ success: false, error: 'EBUSY' })
+
+    await store.removeSessionDocument('attachments/report.pdf')
+
+    expect(report).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ code: 'agent/document-remove-failed', surface: 'toast' }),
+    )
     expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
   })
 

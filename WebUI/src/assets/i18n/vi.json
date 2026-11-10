@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "Câu trả lời cần tạo lại không có lời nhắc.",
   "AGENT_DELETE_TURN_FAILED": "Không xóa được tin nhắn.",
   "AGENT_ATTACH_FAILED": "Không thể đính kèm {file}.",
+  "AGENT_DOCUMENT_REMOVE": "Xóa {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "Không thể xóa {file}.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Mô hình này không thể gọi công cụ.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Cần một mô hình phù hợp với công việc của tác tử.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Hãy hỏi Assistant bất cứ điều gì. Với các công cụ bạn bật, nó có thể tìm kiếm trên web, tra cứu trong tài liệu bạn đính kèm và tạo hình ảnh, video hoặc giọng nói.",

@@ -627,6 +627,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string, DocumentEmbedding],
     result: null as unknown as IpcMutationResult,
   },
+  /** Delete an attached document's Session copy, so later turns no longer see it. */
+  'agentMode:removeSessionDocument': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */
   'agentMode:mediaFileAction': {
     kind: 'invoke',

@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "再生成する返信にプロンプトがありません。",
   "AGENT_DELETE_TURN_FAILED": "メッセージを削除できませんでした。",
   "AGENT_ATTACH_FAILED": "{file} を添付できませんでした。",
+  "AGENT_DOCUMENT_REMOVE": "{file} を削除",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "{file} を削除できませんでした。",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "このモデルはツールを呼び出せません。",
   "AGENT_CAPABILITY_NOT_AGENTIC": "エージェント作業に適したモデルが必要です。",
   "AGENT_EMPTY_STATE_ASSISTANT": "Assistant に何でも聞いてください。有効にしたツールに応じて、Web 検索、添付したドキュメントの参照、画像・動画・音声の作成ができます。",

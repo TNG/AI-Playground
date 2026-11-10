@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "Balasan yang akan dibuat ulang tidak memiliki prompt.",
   "AGENT_DELETE_TURN_FAILED": "Gagal menghapus pesan.",
   "AGENT_ATTACH_FAILED": "Tidak dapat melampirkan {file}.",
+  "AGENT_DOCUMENT_REMOVE": "Hapus {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "Tidak dapat menghapus {file}.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Model ini tidak dapat memanggil alat.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Memerlukan model yang cocok untuk pekerjaan agen.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Tanyakan apa saja kepada Assistant. Dengan alat yang Anda aktifkan, ia dapat mencari di web, mencari informasi dalam dokumen yang Anda lampirkan, serta membuat gambar, video, atau suara.",

@@ -154,7 +154,30 @@ export function createSessionDocuments(options: {
     await indexDocuments(dir, saved)
   }
 
-  return { sessionDocuments, indexingDocuments, attachDocuments, refreshSessionDocuments }
+  async function removeDocument(file: string): Promise<void> {
+    const dir = workspaceDir.value
+    if (!dir) return
+    const result = await window.electronAPI.agentMode.removeSessionDocument(dir, file)
+    if (!result.success) {
+      errors.report(new Error(result.error ?? `Failed to remove ${file}.`), {
+        category: 'unknown',
+        code: 'agent/document-remove-failed',
+        userMessage: fillTemplate(languages.AGENT_DOCUMENT_REMOVE_FAILED, {
+          file: file.split('/').pop() ?? file,
+        }),
+        surface: 'toast',
+      })
+    }
+    await refreshSessionDocuments()
+  }
+
+  return {
+    sessionDocuments,
+    indexingDocuments,
+    attachDocuments,
+    removeDocument,
+    refreshSessionDocuments,
+  }
 }
 
 export async function isGameFolder(dir: string): Promise<boolean> {

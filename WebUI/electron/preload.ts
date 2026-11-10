@@ -440,6 +440,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     sessionDocuments: (workspaceDir: string) => invoke('agentMode:sessionDocuments', workspaceDir),
     indexDocument: (workspaceDir: string, relativePath: string, embedding: DocumentEmbedding) =>
       invoke('agentMode:indexDocument', workspaceDir, relativePath, embedding),
+    removeSessionDocument: (workspaceDir: string, relativePath: string) =>
+      invoke('agentMode:removeSessionDocument', workspaceDir, relativePath),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

@@ -35,7 +35,7 @@
   <div
     v-for="file in sessionDocuments"
     :key="file"
-    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md"
+    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
     :aria-busy="agentMode.indexingDocuments.includes(file)"
   >
     <ArrowPathIcon
@@ -45,6 +45,15 @@
     />
     <DocumentTextIcon v-else class="size-4 flex-none" aria-hidden="true" />
     <span class="truncate max-w-40">{{ documentName(file) }}</span>
+    <button
+      type="button"
+      :disabled="agentMode.indexingDocuments.includes(file)"
+      :aria-label="fillTemplate(languages.AGENT_DOCUMENT_REMOVE, { file: documentName(file) })"
+      class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-destructive disabled:hidden"
+      @click="agentMode.removeSessionDocument(file)"
+    >
+      <XMarkIcon class="size-4" aria-hidden="true" />
+    </button>
   </div>
   <div
     v-for="(file, index) in agentMode.attachments"
@@ -75,10 +84,13 @@ import {
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { usePromptStore } from '@/assets/js/store/promptArea'
+import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const promptArea = usePromptStore()
+const languages = useI18N().state
 
 const attachmentPreview = computed(() =>
   openAiCompatibleChat.fileInput.map((part, id) => ({ id, url: part.url, part })),

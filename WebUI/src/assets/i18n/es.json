@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "La respuesta que se va a regenerar no tiene ninguna instrucción.",
   "AGENT_DELETE_TURN_FAILED": "No se pudo eliminar el mensaje.",
   "AGENT_ATTACH_FAILED": "No se pudo adjuntar {file}.",
+  "AGENT_DOCUMENT_REMOVE": "Quitar {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "No se pudo quitar {file}.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Este modelo no puede llamar a herramientas.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Necesita un modelo adecuado para el trabajo de agente.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Pregunta lo que quieras a Assistant. Con las herramientas que actives, puede buscar en la web, consultar los documentos que adjuntes y crear imágenes, vídeo o voz.",

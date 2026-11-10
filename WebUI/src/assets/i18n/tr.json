@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "Yeniden oluşturulacak yanıtın istemi yok.",
   "AGENT_DELETE_TURN_FAILED": "Mesaj silinemedi.",
   "AGENT_ATTACH_FAILED": "{file} eklenemedi.",
+  "AGENT_DOCUMENT_REMOVE": "{file} öğesini kaldır",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "{file} kaldırılamadı.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Bu model araç çağıramaz.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Ajan çalışmasına uygun bir model gerekir.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Assistant'a istediğinizi sorun. Açtığınız araçlarla web'de arama yapabilir, eklediğiniz belgelerde bilgi arayabilir ve görüntü, video veya konuşma oluşturabilir.",

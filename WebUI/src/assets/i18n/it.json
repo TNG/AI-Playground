@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "La risposta da rigenerare non ha un prompt.",
   "AGENT_DELETE_TURN_FAILED": "Impossibile eliminare il messaggio.",
   "AGENT_ATTACH_FAILED": "Impossibile allegare {file}.",
+  "AGENT_DOCUMENT_REMOVE": "Rimuovi {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "Impossibile rimuovere {file}.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "Questo modello non può chiamare strumenti.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Richiede un modello adatto al lavoro da agente.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Chiedi qualsiasi cosa ad Assistant. Con gli strumenti che attivi può cercare sul web, consultare i documenti che alleghi e creare immagini, video o voce.",

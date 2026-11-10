@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "คำตอบที่จะสร้างใหม่ไม่มีพรอมต์",
   "AGENT_DELETE_TURN_FAILED": "ลบข้อความไม่สำเร็จ",
   "AGENT_ATTACH_FAILED": "แนบ {file} ไม่ได้",
+  "AGENT_DOCUMENT_REMOVE": "นำ {file} ออก",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "นำ {file} ออกไม่ได้",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "โมเดลนี้เรียกใช้เครื่องมือไม่ได้",
   "AGENT_CAPABILITY_NOT_AGENTIC": "ต้องใช้โมเดลที่เหมาะกับงานของเอเจนต์",
   "AGENT_EMPTY_STATE_ASSISTANT": "ถาม Assistant ได้ทุกเรื่อง ด้วยเครื่องมือที่คุณเปิดไว้ มันสามารถค้นหาเว็บ ค้นข้อมูลในเอกสารที่คุณแนบ และสร้างภาพ วิดีโอ หรือเสียงพูดได้",

@@ -963,6 +963,8 @@
   "AGENT_REGENERATE_NO_PROMPT": "The reply to regenerate has no prompt.",
   "AGENT_DELETE_TURN_FAILED": "Failed to delete the message.",
   "AGENT_ATTACH_FAILED": "Could not attach {file}.",
+  "AGENT_DOCUMENT_REMOVE": "Remove {file}",
+  "AGENT_DOCUMENT_REMOVE_FAILED": "Could not remove {file}.",
   "AGENT_CAPABILITY_NO_TOOL_CALLING": "This model cannot call tools.",
   "AGENT_CAPABILITY_NOT_AGENTIC": "Needs a model suited to agent work.",
   "AGENT_EMPTY_STATE_ASSISTANT": "Ask the Assistant anything. With the tools you turn on, it can search the web, look things up in documents you attach and create images, video or speech.",

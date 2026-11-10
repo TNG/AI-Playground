@@ -1821,7 +1821,12 @@ export const useAgentMode = defineStore(
       importAttachments,
     } = createWorkspaceAttachments(errors, i18n.state)
 
-    const { sessionDocuments, indexingDocuments, attachDocuments } = createSessionDocuments({
+    const {
+      sessionDocuments,
+      indexingDocuments,
+      attachDocuments,
+      removeDocument: removeSessionDocument,
+    } = createSessionDocuments({
       workspaceDir,
       languages: i18n.state,
       workspaceReady,
@@ -2331,6 +2336,7 @@ export const useAgentMode = defineStore(
       attachments,
       sessionDocuments,
       indexingDocuments,
+      removeSessionDocument,
       attachFiles,
       removeAttachment,
       clearAttachments,

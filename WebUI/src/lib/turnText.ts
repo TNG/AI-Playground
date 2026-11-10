@@ -1,10 +1,10 @@
+import { modelLabel, readableModelName } from '@/assets/js/models/library'
 import { artifactPhaseLabel, type ArtifactPhaseLabels } from '@/lib/artifactRunProjection'
 import type { ArtifactKind, TurnDetails, TurnLiveStatus, TurnSummary } from '@/lib/turnTypes'
 
+/** The model picker's name, whether the model was stamped as a repo path or a served `---` id. */
 export function modelDisplayName(model: string): string {
-  return model.endsWith('.gguf')
-    ? (model.split('/').at(-1)?.slice(0, -'.gguf'.length) ?? model)
-    : model
+  return modelLabel(readableModelName(model))
 }
 
 /** Words for the Turn Details summary; `{count}`, `{duration}` and `{seed}` are filled in. */

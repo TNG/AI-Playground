@@ -731,8 +731,21 @@ describe('the hint on every Turn', () => {
     ])
 
     expect(turn).toMatchObject({
-      hint: { kind: 'chat', icon: 'chat', preset: 'Reasoning', detail: 'Qwen3-8B-Q4_K_M' },
+      hint: { kind: 'chat', icon: 'chat', preset: 'Reasoning', detail: 'Qwen3-8B-Q4_K_M.gguf' },
     })
+  })
+
+  it('names a served model id the way the model picker does', () => {
+    const [turn] = timelineTurns([
+      chatMessage('u1', 'user', 'hi'),
+      answer('a1', {
+        chatTurn: true,
+        preset: 'Assistant',
+        model: 'unsloth---Qwen3.5-9B-GGUF---Qwen3.5-9B-Q4_K_M.gguf',
+      }),
+    ])
+
+    expect(turn).toMatchObject({ hint: { detail: 'Qwen3.5-9B-Q4_K_M.gguf' } })
   })
 
   it('names a chat Turn saved before presets were recorded by its model', () => {

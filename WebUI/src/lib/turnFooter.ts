@@ -1,6 +1,7 @@
 import type { UIMessage } from 'ai'
 import type { AipgMetadata } from '@/assets/js/store/openAiCompatibleChat'
 import { messageHasVisibleContent, messageText } from '@/lib/chatMessageText'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import type { HarnessTurnRef, TurnFooter, TurnFooterAction, TurnMetrics } from '@/lib/turnTypes'
 import type { AudioTurnData } from '@/types/sessionTimeline'
 
@@ -39,11 +40,13 @@ export function agentFooter(
   const messageId = assistant.answer?.id
   const turn = assistant.harnessTurn
   const regenerate = !!assistant.latest && !!turn?.promptId && turn.turnIds.length > 0
+  // Without a turn marker the answer cannot be taken out of what the model sees.
+  const deletable = !!turn && (turn.turnIds.length > 0 || turn.messageIds.length <= 1)
   const actions: TurnFooterAction[] = [
     ...(answerText ? (['copy'] as const) : []),
     ...(answerText && messageId ? (['speak'] as const) : []),
     ...(regenerate ? (['regenerate'] as const) : []),
-    ...(assistant.harnessTurn ? (['delete'] as const) : []),
+    ...(deletable ? (['delete'] as const) : []),
   ]
   const metrics = answerMetrics(assistant.answer)
   return {
@@ -60,10 +63,14 @@ export function chatAnswerFooter(answers: UIMessage[], last = false): TurnFooter
   const answer = answers.at(-1)
   if (!answer || !answers.some(messageHasVisibleContent)) return noFooter()
   const text = answersText(answers)
+  // Assistant's chat-engine turns are replayed into its Harness Session, out of Delete's reach.
+  const replayed = answers.some((message) =>
+    isHarnessChatPreset((message.metadata as { preset?: string } | undefined)?.preset),
+  )
   const actions: TurnFooterAction[] = [
     ...(text ? (['copy', 'speak'] as const) : []),
     ...(last ? (['regenerate'] as const) : []),
-    'delete',
+    ...(replayed ? [] : (['delete'] as const)),
   ]
   const metrics = answerMetrics(answer)
   return { actions, text, messageId: answer.id, ...(metrics ? { metrics } : {}) }

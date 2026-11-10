@@ -953,7 +953,7 @@ export const useAgentMode = defineStore(
         ],
         settings: { ...settings },
         stored: true,
-        ...(record.agentChat ? { agentChat: record.agentChat } : {}),
+        ...(record.agentChat ? { agentChat: { ...record.agentChat } } : {}),
       }
     }
 

@@ -14,3 +14,16 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm test
       - run: npm run verify:pi
+  # The uninstaller's venv removal is Windows-only, so the Linux job skips its suite.
+  test-windows-uninstaller:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./WebUI
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci --legacy-peer-deps
+      - run: npx vitest run electron/test/build/removeBackendVenvs.test.ts

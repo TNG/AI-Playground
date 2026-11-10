@@ -5,6 +5,7 @@ import path from 'node:path'
 import {
   isUsableVenv,
   removeBrokenVenv,
+  removeVenvTree,
   requireUsableVenv,
   venvInterpreterPath,
   venvIsUsable,
@@ -149,5 +150,40 @@ describe('removeBrokenVenv', () => {
     fs.writeFileSync(path.join(venvDir, 'pyvenv.cfg'), `home = ${home}\n`)
     expect(await removeBrokenVenv(venvDir)).toBe(false)
     expect(fs.existsSync(venvInterpreterPath(venvDir))).toBe(true)
+  })
+})
+
+describe.skipIf(process.platform !== 'win32')('removeVenvTree on Windows', () => {
+  function readOnlyFile(file: string): string {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, '')
+    fs.chmodSync(file, 0o444)
+    return file
+  }
+  const isReadOnly = (file: string) => (fs.statSync(file).mode & 0o200) === 0
+
+  it('removes read-only files without entering a junction planted in the venv', async () => {
+    const venvDir = path.join(createTempDir(), '.venv')
+    readOnlyFile(path.join(venvDir, 'Lib', 'site-packages', 'locked.pyd'))
+    const keep = readOnlyFile(path.join(createTempDir(), 'keep.txt'))
+    fs.symlinkSync(path.dirname(keep), path.join(venvDir, 'Lib', 'planted'), 'junction')
+
+    await removeVenvTree(venvDir)
+
+    expect(fs.existsSync(venvDir)).toBe(false)
+    expect(fs.existsSync(keep)).toBe(true)
+    expect(isReadOnly(keep)).toBe(true)
+  })
+
+  it('unlinks a venv that is itself a junction and keeps its target', async () => {
+    const keep = readOnlyFile(path.join(createTempDir(), 'keep.txt'))
+    const venvDir = path.join(createTempDir(), '.venv')
+    fs.symlinkSync(path.dirname(keep), venvDir, 'junction')
+
+    await removeVenvTree(venvDir)
+
+    expect(fs.existsSync(venvDir)).toBe(false)
+    expect(fs.existsSync(keep)).toBe(true)
+    expect(isReadOnly(keep)).toBe(true)
   })
 })

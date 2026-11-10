@@ -210,7 +210,7 @@
         CreateDirectory "$R2"
         ; A junction here would make icacls /T edit the link target. Refuse the
         ; base, and unlink a resources junction before the tree walk.
-        nsExec::ExecToLog 'fsutil reparsepoint query "$R2"'
+        nsExec::ExecToLog '"$SYSDIR\fsutil.exe" reparsepoint query "$R2"'
         Pop $R3
         ${if} $R3 == 0
           DetailPrint "Shared resources folder is a link: $R2"
@@ -218,11 +218,11 @@
           MessageBox MB_ICONSTOP "The shared resources folder cannot be a shortcut or link.$\r$\n$\r$\nFolder: $R2"
           Abort
         ${endif}
-        nsExec::ExecToLog 'fsutil reparsepoint query "$R2\resources"'
+        nsExec::ExecToLog '"$SYSDIR\fsutil.exe" reparsepoint query "$R2\resources"'
         Pop $R3
         ${if} $R3 == 0
           DetailPrint "Removing link at $R2\resources"
-          nsExec::ExecToLog 'cmd /c rmdir "$R2\resources"'
+          nsExec::ExecToLog '"$SYSDIR\cmd.exe" /c rmdir "$R2\resources"'
           Pop $R3
           ${if} $R3 != 0
             DetailPrint "Failed to remove link at $R2\resources (exit $R3)."
@@ -234,7 +234,7 @@
         ; Owner must be BUILTIN\Administrators. The app rejects any other owner,
         ; which is how a folder a standard user created beforehand is ignored.
         ; S-1-5-32-544 = Administrators, S-1-5-18 = SYSTEM, S-1-5-32-545 = Users.
-        nsExec::ExecToLog 'icacls "$R2" /setowner "*S-1-5-32-544" /C'
+        nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$R2" /setowner "*S-1-5-32-544" /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to take ownership of $R2 (icacls exit $R3)."
@@ -277,7 +277,7 @@
         FileWrite $R3 '  exit 1$\r$\n'
         FileWrite $R3 '}$\r$\n'
         FileClose $R3
-        nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$R4" "$R2"'
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$R4" "$R2"'
         Pop $R3
         Delete "$R4"
         ${if} $R3 != 0
@@ -292,7 +292,7 @@
         ; which icacls does not treat as an inheritance flag.
         ; Shared installs run uv with UV_LINK_MODE=copy so new wheel files are
         ; created here and inherit this grant. Re-applied on every upgrade (/T).
-        nsExec::ExecToLog 'icacls "$R2" /setowner "*S-1-5-32-544" /C'
+        nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$R2" /setowner "*S-1-5-32-544" /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to take ownership of $R2 (icacls exit $R3)."
@@ -300,7 +300,7 @@
           MessageBox MB_ICONSTOP "AI Playground could not take ownership of the shared resources folder (icacls exit $R3).$\r$\n$\r$\nFolder: $R2$\r$\n$\r$\nSetup will stop so backends are not launched from a folder another account owns."
           Abort
         ${endif}
-        nsExec::ExecToLog 'icacls "$R2" /grant "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)M" /T /C'
+        nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$R2" /grant "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)M" /T /C'
         Pop $R3
         ${if} $R3 != 0
           DetailPrint "Failed to grant all users write access to $R2 (icacls exit $R3)."
@@ -388,78 +388,151 @@
 !macroend
 
 
-; Append stop/delete steps for one LlamaCPP tree when ada.exe or its service
-; script is there. $R9 is the open script, $R7 becomes "1" when any tree matches.
-; A normal install has neither file, so uninstall does not show UAC.
-!macro appendPhisonAdaCleanupDir
+; Note one LlamaCPP tree when ada.exe or its service script is there. $R9 is
+; the open script, $R7 becomes "1" when any tree matches. A normal install has
+; neither file, so uninstall does not show UAC.
+; Nothing in a tree is run, nor is it the working directory, and ada.exe is only
+; deleted (DELETE 1) where no other account can write: a shared tree is writable
+; by every account, so a planted link could redirect this elevated delete.
+!macro appendPhisonAdaCleanupDir DELETE
   ${if} ${FileExists} "$R4\ada.exe"
   ${orif} ${FileExists} "$R4\wService_delete.bat"
     StrCpy $R7 "1"
-    FileWrite $R9 'cd /d "$R4"$\r$\n'
-    ${if} ${FileExists} "$R4\wService_delete.bat"
-      FileWrite $R9 'call "$R4\wService_delete.bat"$\r$\n'
-    ${endif}
-    FileWrite $R9 'taskkill /F /IM ada.exe /T$\r$\n'
-    FileWrite $R9 'del /f /q "$R4\ada.exe"$\r$\n'
+    !if ${DELETE} == 1
+      FileWrite $R9 'del /f /q "$R4\ada.exe"$\r$\n'
+    !endif
   ${endif}
 !macroend
 
-!macro appendPhisonAdaCleanup LLAMA_CPP_DIR
+!macro appendPhisonAdaCleanup LLAMA_CPP_DIR DELETE
   StrCpy $R8 "${LLAMA_CPP_DIR}"
   StrCpy $R4 "$R8\llama-cpp-phison"
-  !insertmacro appendPhisonAdaCleanupDir
+  !insertmacro appendPhisonAdaCleanupDir ${DELETE}
   StrCpy $R4 "$R8\llama-cpp"
-  !insertmacro appendPhisonAdaCleanupDir
+  !insertmacro appendPhisonAdaCleanupDir ${DELETE}
+!macroend
+
+; ${OUT} = HKLM sharedResourcesDir when it is a drive-letter path, else "". Never
+; a UNC or relative path: callers delete under it, some of them elevated.
+!macro aipgReadSharedResourcesDir OUT
+  Push $0
+  SetRegView 64
+  ClearErrors
+  ReadRegStr ${OUT} HKLM "Software\AI Playground" "sharedResourcesDir"
+  SetRegView lastused
+  StrCpy $0 ${OUT} 1 1
+  ${if} $0 != ":"
+    StrCpy ${OUT} ""
+  ${endif}
+  StrCpy $0 ${OUT} 1 2
+  ${if} $0 != "\"
+  ${andif} $0 != "/"
+    StrCpy ${OUT} ""
+  ${endif}
+  Pop $0
+!macroend
+
+; Remove the backend .venv folders under $INSTDIR and the per-user root. RMDir /r
+; gives up on paths past MAX_PATH (ComfyUI site-packages) and never reaches the
+; per-user root, so this runs before it. An update only clears $INSTDIR: the
+; per-user root keeps its environments for the new version. Nothing is left
+; silently: a blocked removal is reported. It is not retried elevated, because
+; the script and its roots file sit in the user-writable $PLUGINSDIR.
+; The shared root is left alone: every account can write to it, so a planted link
+; could redirect this (possibly elevated) delete onto another account's files.
+; Uninstalling a backend in the app removes its shared venv, unelevated.
+;   $R6 roots file  $R5 report file  $R4 exit code  $R2 report text
+!macro aipgRemoveBackendVenvs
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\remove-backend-venvs.ps1" "${BUILD_RESOURCES_DIR}\remove-backend-venvs.ps1"
+  StrCpy $R6 "$PLUGINSDIR\aipg-venv-roots.txt"
+  StrCpy $R5 "$PLUGINSDIR\aipg-venv-leftovers.txt"
+  ClearErrors
+  FileOpen $R9 $R6 w
+  ${if} ${Errors}
+    DetailPrint "Could not prepare Python environment removal; backend .venv folders may remain."
+  ${else}
+    FileWriteWord $R9 0xFEFF
+    FileWriteUTF16LE $R9 "$INSTDIR\resources$\r$\n"
+    ${ifNot} ${isUpdated}
+      ReadEnvStr $R8 "LOCALAPPDATA"
+      ${if} $R8 != ""
+        FileWriteUTF16LE $R9 "$R8\ai-playground\resources$\r$\n"
+      ${endif}
+    ${endif}
+    FileClose $R9
+
+    DetailPrint "Removing backend Python environments..."
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-backend-venvs.ps1" -RootsFile "$R6" -ReportFile "$R5"'
+    Pop $R4
+
+    ${if} $R4 != 0
+      ClearErrors
+      FileOpen $R9 $R5 r
+      ${if} ${Errors}
+        DetailPrint "Python environment removal failed (exit $R4); backend .venv folders may remain."
+        IfSilent +2
+        MessageBox MB_OK|MB_ICONEXCLAMATION "AI Playground could not remove its Python environments (exit $R4). Backend .venv folders may remain under $INSTDIR\resources and %LOCALAPPDATA%\ai-playground\resources."
+      ${else}
+        StrCpy $R2 ""
+        ${do}
+          ClearErrors
+          FileReadUTF16LE $R9 $R1
+          ${if} ${Errors}
+            ${break}
+          ${endif}
+          StrCpy $R2 "$R2$R1"
+        ${loop}
+        FileClose $R9
+        ${if} $R2 != ""
+        ${andIfNot} ${Silent}
+          MessageBox MB_OK|MB_ICONEXCLAMATION "These AI Playground Python environments could not be removed:$\r$\n$\r$\n$R2$\r$\nClose any program using them and delete the folders manually."
+        ${endif}
+      ${endif}
+    ${endif}
+    Delete "$R5"
+    Delete "$R6"
+  ${endif}
 !macroend
 
 !macro customUnInstall
   ; ada.exe is a Windows service. The uninstaller is asInvoker, so RMDir cannot
   ; stop it and the locked file is left behind. One elevated cmd stops the
   ; service, kills the process, and deletes the binary before that RMDir.
-  ; Trees outside $INSTDIR (per-user and shared resources) are not removed by
-  ; RMDir, so the same cmd deletes ada.exe there too. No prompt when it is absent.
+  ; The per-user tree is not removed by RMDir, so the same cmd deletes ada.exe
+  ; there too; a shared tree keeps its now-unregistered copy. No prompt when
+  ; ada.exe is absent.
   StrCpy $R7 "0"
   StrCpy $R6 "$TEMP\aipg-stop-ada.cmd"
   ClearErrors
   FileOpen $R9 $R6 w
   ${ifNot} ${Errors}
     FileWrite $R9 "@echo off$\r$\n"
-    !insertmacro appendPhisonAdaCleanup "$INSTDIR\resources\LlamaCPP"
+    ; What wService_delete.bat does, without running it from the tree.
+    FileWrite $R9 '"%SystemRoot%\System32\sc.exe" stop ada_service$\r$\n'
+    FileWrite $R9 '"%SystemRoot%\System32\sc.exe" delete ada_service$\r$\n'
+    FileWrite $R9 '"%SystemRoot%\System32\taskkill.exe" /F /IM ada.exe /T$\r$\n'
+    !insertmacro appendPhisonAdaCleanup "$INSTDIR\resources\LlamaCPP" 1
     ReadEnvStr $R8 "LOCALAPPDATA"
     ${if} $R8 != ""
-      !insertmacro appendPhisonAdaCleanup "$R8\ai-playground\resources\LlamaCPP"
+      !insertmacro appendPhisonAdaCleanup "$R8\ai-playground\resources\LlamaCPP" 1
     ${endif}
     ReadEnvStr $R5 "PUBLIC"
     ${if} $R5 == ""
       StrCpy $R5 "C:\Users\Public"
     ${endif}
-    ; Only a drive-letter path from HKLM. Never a path read from %PUBLIC%:
-    ; that file is user-writable, and the cleanup script calls wService_delete.bat
-    ; elevated.
-    SetRegView 64
-    ClearErrors
-    ReadRegStr $R3 HKLM "Software\AI Playground" "sharedResourcesDir"
-    SetRegView lastused
+    ; Never a path read from %PUBLIC%: that file is user-writable, and this
+    ; script runs elevated.
+    !insertmacro aipgReadSharedResourcesDir $R3
     ${if} $R3 != ""
-      StrCpy $R8 $R3 2
-      ${if} $R8 != "\\"
-      ${andif} $R8 != "//"
-        StrCpy $R8 $R3 1 1
-        ${if} $R8 == ":"
-          StrCpy $R8 $R3 1 2
-          ${if} $R8 == "\"
-          ${orif} $R8 == "/"
-            !insertmacro appendPhisonAdaCleanup "$R3\resources\LlamaCPP"
-          ${endif}
-        ${endif}
-      ${endif}
+      !insertmacro appendPhisonAdaCleanup "$R3\resources\LlamaCPP" 0
     ${endif}
     StrCpy $R8 "$R5\AI Playground"
-    !insertmacro appendPhisonAdaCleanup "$R8\resources\LlamaCPP"
+    !insertmacro appendPhisonAdaCleanup "$R8\resources\LlamaCPP" 0
     FileClose $R9
     ${if} $R7 == "1"
       DetailPrint "Stopping aiDAPTIV service before removing ada.exe"
-      nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
+      nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
       Pop $R5
       ${if} $R5 != 0
         DetailPrint "Could not stop aiDAPTIV (ada.exe). Uninstall continues; ada.exe may remain if the service is still running."
@@ -468,12 +541,14 @@
     Delete "$R6"
   ${endif}
 
+  !insertmacro aipgRemoveBackendVenvs
+
   ; Remove only the machine-wide install markers (mode + shared-folder path) so a
-  ; future reinstall re-prompts for the choices. The shared resources tree and
-  ; each user's per-user working tree (%LOCALAPPDATA%\ai-playground) are
-  ; intentionally preserved — they may hold many GB of admin-provisioned models
-  ; and cannot be safely enumerated for every user profile from a machine-wide
-  ; uninstaller.
+  ; future reinstall re-prompts for the choices. The shared resources tree and,
+  ; apart from the invoking user's .venv folders, each user's per-user working
+  ; tree (%LOCALAPPDATA%\ai-playground) are intentionally preserved — they may hold
+  ; many GB of admin-provisioned models and cannot be safely enumerated for
+  ; every user profile from a machine-wide uninstaller.
   ReadEnvStr $R0 "PUBLIC"
   ${if} $R0 == ""
     StrCpy $R0 "C:\Users\Public"
@@ -494,10 +569,10 @@
     FileOpen $R9 $R6 w
     ${ifNot} ${Errors}
       FileWrite $R9 '@echo off$\r$\n'
-      FileWrite $R9 'reg delete "HKLM\Software\AI Playground" /f /reg:64$\r$\n'
+      FileWrite $R9 '"%SystemRoot%\System32\reg.exe" delete "HKLM\Software\AI Playground" /f /reg:64$\r$\n'
       FileClose $R9
       DetailPrint "Removing machine-wide install config"
-      nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
+      nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Start-Process -FilePath $\'$R6$\' -Verb RunAs -WindowStyle Hidden -Wait"'
       Pop $R1
       ${if} $R1 != 0
         DetailPrint "Could not remove HKLM\Software\AI Playground (exit $R1)."

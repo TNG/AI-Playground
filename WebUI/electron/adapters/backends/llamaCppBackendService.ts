@@ -1238,32 +1238,20 @@ export class LlamaCppBackendService implements ApiService {
       return
     }
 
-    const dirs = llamaCppPhison.phisonCleanupDirs(this.serviceDir)
-    if (dirs.length === 0) {
+    if (llamaCppPhison.phisonCleanupDirs(this.serviceDir).length === 0) {
       return
     }
 
-    // One elevated session for every tree that still has the service. taskkill
-    // returns non-zero when ada.exe is not running; the batch runs every line.
-    const commands: string[] = []
-    for (const dir of dirs) {
-      const deleteScriptPath = path.join(
-        dir,
-        llamaCppPhison.LLAMACPP_SSD_OFFLOAD_DELETE_SERVICE_SCRIPT,
-      )
-      commands.push(`cd /d "${dir}"`)
-      if (filesystem.existsSync(deleteScriptPath)) {
-        commands.push(`call "${deleteScriptPath}"`)
-      }
-      commands.push(`taskkill /F /IM "${llamaCppPhison.LLAMACPP_SSD_OFFLOAD_PROCESS_NAME}" /T`)
-    }
-
+    // sc and taskkill return non-zero when there is nothing to stop; the batch runs every line.
     try {
       this.appLogger.info(
         `Stopping SSD offload Windows service and ${llamaCppPhison.LLAMACPP_SSD_OFFLOAD_PROCESS_NAME} before cleanup`,
         this.name,
       )
-      await this.runElevatedBatch(commands, dirs[0])
+      await this.runElevatedBatch(
+        llamaCppPhison.stopSsdOffloadServiceCommands(),
+        path.join(process.env.SystemRoot || 'C:\\Windows', 'System32'),
+      )
     } catch (error) {
       this.appLogger.warn(
         `Failed to stop SSD offload artifacts before cleanup: ${error}`,

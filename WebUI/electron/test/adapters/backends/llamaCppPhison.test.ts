@@ -18,6 +18,7 @@ import {
   getSsdOffloadConfigPath,
   getSsdOffloadEmbeddingConfigPath,
   getZipPathForVariant,
+  stopSsdOffloadServiceCommands,
   migrateLegacyPhisonIntoSeparateDirectory,
   migrateLegacySsdOffloadConfigFile,
   phisonCleanupDirs,
@@ -393,5 +394,15 @@ describe('llamaCppPhison helpers', () => {
         '--jinja',
       ])
     })
+  })
+})
+
+describe('stopSsdOffloadServiceCommands', () => {
+  it('stops and deletes ada_service with System32 tools, never a script from the tree', () => {
+    expect(stopSsdOffloadServiceCommands('C:\\Windows')).toEqual([
+      '"C:\\Windows\\System32\\sc.exe" stop ada_service',
+      '"C:\\Windows\\System32\\sc.exe" delete ada_service',
+      '"C:\\Windows\\System32\\taskkill.exe" /F /IM "ada.exe" /T',
+    ])
   })
 })

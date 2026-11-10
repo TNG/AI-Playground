@@ -13,8 +13,13 @@ function answersText(answers: UIMessage[]): string {
 }
 
 /** An agent Turn's Copy takes its answer, not the text it wrote between tool calls. */
-export function agentFooter(answerText: string): TurnFooter {
-  return { actions: answerText ? ['copy'] : [], text: answerText }
+export function agentFooter(
+  answerText: string,
+  speak?: { messageId: string | undefined },
+): TurnFooter {
+  if (!answerText) return { actions: [], text: answerText }
+  if (!speak?.messageId) return { actions: ['copy'], text: answerText }
+  return { actions: ['copy', 'speak'], text: answerText, messageId: speak.messageId }
 }
 
 /** Regenerate redoes only the newest answer of a conversation, so only `last` offers it. */

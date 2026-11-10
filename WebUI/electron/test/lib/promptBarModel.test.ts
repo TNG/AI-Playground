@@ -544,3 +544,26 @@ describe('lastUsedByMode', () => {
     })
   })
 })
+
+describe('promptBarModel capture buttons', () => {
+  const chat = (name: string, extra: Partial<ChatPreset> = {}) =>
+    ({ ...assistant, name, ...extra }) as ChatPreset
+  const captureFor = (activePreset: Preset | null) =>
+    promptBarModel(input({ activePreset })).capture
+
+  it('shows mic and camera for Assistant on the agent harness', () => {
+    expect(captureFor(chat('Assistant', { agentPreset: true }))).toBe(true)
+  })
+
+  it('shows them for a plain chat preset', () => {
+    expect(captureFor(chat('aiDAPTIV'))).toBe(true)
+  })
+
+  it('keeps them off Game Agent, Quick Coder, the speech presets and the media modes', () => {
+    expect(captureFor(chat('Game Agent', { agentPreset: true }))).toBe(false)
+    expect(captureFor(chat('Quick Coder', { agentPreset: true }))).toBe(false)
+    expect(captureFor(chat('Text to Speech', { category: 'audio', ttsPreset: true }))).toBe(false)
+    expect(captureFor(comfy('Fast', []))).toBe(false)
+    expect(captureFor(null)).toBe(false)
+  })
+})

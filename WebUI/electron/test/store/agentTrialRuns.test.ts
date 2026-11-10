@@ -675,7 +675,10 @@ describe('a Trial Run', () => {
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     const ended = trialRunItems(trials.trialRunView('t1')!)
     expect(ended).toHaveLength(2)
-    expect(ended[1]).toMatchObject({ kind: 'agent', footer: { actions: ['copy'], text: 'done' } })
+    expect(ended[1]).toMatchObject({
+      kind: 'agent',
+      footer: { actions: ['copy', 'speak'], text: 'done' },
+    })
   })
 
   it('puts the input it was started with into Step 1, and shows Step 1 as sent', async () => {

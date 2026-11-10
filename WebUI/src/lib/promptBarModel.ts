@@ -1,6 +1,7 @@
 import type { Preset } from '@/lib/presetSchemas'
 import { MODE_TO_CATEGORIES, presetToMode } from '@/lib/presetModes'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { hasChatAffordances } from '@/lib/chatAffordances'
 import type { PresetGate, PresetGateReason } from '@/lib/presetGate'
 import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import type { llmBackendTypes } from '@/types/shared'
@@ -70,6 +71,8 @@ export type PromptBarModel = {
   /** The Agent run on Agent Maker in place of Agent Maker itself. */
   pickedAgent?: AgentEntry
   presetChip: 'label' | 'dropdown'
+  /** The mic and camera buttons. */
+  capture: boolean
 }
 
 export type PresetEntry = {
@@ -118,6 +121,7 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
     agents,
     ...(pickedAgent ? { pickedAgent } : {}),
     presetChip,
+    capture: hasChatAffordances(input.activePreset),
   }
 }
 

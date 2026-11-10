@@ -996,7 +996,9 @@ async function handleChatAudioUpload(audioFiles: File[]) {
 async function handleImageFiles(imageFiles: File[]) {
   if (imageFiles.length === 0) return
 
-  if (promptStore.getCurrentMode() === 'chat') {
+  if (promptStore.getCurrentMode() === 'agent') {
+    await agentMode.attachFiles(imageFiles)
+  } else if (promptStore.getCurrentMode() === 'chat') {
     await handleChatImageUpload(imageFiles)
   } else {
     await handleComfyUIImageUpload(imageFiles)

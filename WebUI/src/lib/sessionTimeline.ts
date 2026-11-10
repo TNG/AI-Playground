@@ -31,6 +31,7 @@ import {
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
 import { agentFooter, audioFooter, chatAnswerFooter, noFooter } from '@/lib/turnFooter'
+import { agentTurnHasChatAffordances } from '@/lib/chatAffordances'
 import type { LatestTurn } from '@/lib/agentComposer'
 import { modelDisplayName } from '@/lib/turnText'
 import type {
@@ -358,7 +359,13 @@ function withAnswers(
     else if (turn.kind === 'chat' || turn.kind === 'agent') {
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
-    if (turn.kind === 'agent') turn.footer = agentFooter(resultText(turn))
+    if (turn.kind === 'agent') {
+      const speak = agentTurnHasChatAffordances(turn.presetName)
+      turn.footer = agentFooter(
+        resultText(turn),
+        speak ? { messageId: turn.answers.at(-1)?.id } : undefined,
+      )
+    }
   }
   return turns
 }

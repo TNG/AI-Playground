@@ -25,6 +25,21 @@ vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
 }))
 
+type AskRenderer = typeof import('../../chat/chatAsk.ts').askRenderer
+const askedRenderer: Parameters<AskRenderer>[0][] = []
+vi.mock('../../chat/chatAsk.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../chat/chatAsk.ts')>()
+  return {
+    ...actual,
+    askRenderer: async (...args: Parameters<AskRenderer>) => {
+      const [question] = args
+      if (question.kind !== 'speech-transcribe') return actual.askRenderer(...args)
+      askedRenderer.push(question)
+      return { text: 'buy oat milk' }
+    },
+  }
+})
+
 const BACKEND = 'http://fake-llm.test/v1'
 
 type Body = { messages?: Array<{ role: string; content?: unknown }> }
@@ -377,6 +392,41 @@ describe('the Assistant preset in a Session', () => {
     for (const name of ['read', 'write', 'edit', 'bash', 'notify_user', 'browser']) {
       expect(offered).not.toContain(name)
     }
+  }, 30000)
+
+  it('transcribes an audio clip attached into the Session Folder', async () => {
+    const { importAttachment } = await import('../../agent/workspaceAttachments')
+    const session = await sessions.createSession()
+    const config = {
+      ...(await assistantConfig(session.id, ['media'])),
+      toolSpecs: [
+        {
+          name: 'transcribeAudio',
+          description: 'transcribe audio',
+          inputSchema: {
+            type: 'object',
+            properties: { sourceAudioPath: { type: 'string' } },
+            required: ['sourceAudioPath'],
+          },
+        },
+      ],
+    }
+    const clip = importAttachment(config.workspaceDir, 'note.wav', new Uint8Array([82, 73, 70, 70]))
+    expect(clip.path).toBe('attachments/note.wav')
+    const filesDir = sessions.sessionPaths(session.id).filesDir
+    expect(fs.readFileSync(path.join(filesDir, 'attachments', 'note.wav'))).toEqual(
+      Buffer.from('RIFF'),
+    )
+    toolCall = { name: 'transcribeAudio', args: { sourceAudioPath: '@attachments/note.wav' } }
+    askedRenderer.length = 0
+
+    await manager.startAgentTurn('t1', 'what does @attachments/note.wav say?', config)
+
+    expect(askedRenderer).toEqual([
+      expect.objectContaining({ audioBase64: Buffer.from('RIFF').toString('base64') }),
+    ])
+    const toolMessages = (bodies.at(-1)?.messages ?? []).filter((m) => m.role === 'tool')
+    expect(JSON.stringify(toolMessages)).toContain('buy oat milk')
   }, 30000)
 
   it('gets file and shell tools, and where they work, once files is switched on', async () => {

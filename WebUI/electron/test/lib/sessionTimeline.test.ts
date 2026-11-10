@@ -325,14 +325,16 @@ describe('an Agent Run in the timeline', () => {
     expect(turn).toMatchObject({ details: { progress: { step: 2, count: 3 } } })
   })
 
-  it('offers no Copy while in flight, and Copy of its answer alone once it ended', () => {
+  it('offers no Copy while in flight, and Copy and Speak of its answer alone once it ended', () => {
     const [running] = sessionTimelineItems(twoSteps, {
       agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
     })
     const [ended] = sessionTimelineItems(twoSteps, {})
 
     expect(running).toMatchObject({ footer: { actions: [] } })
-    expect(ended).toMatchObject({ footer: { actions: ['copy'], text: 'Dawn over the hills.' } })
+    expect(ended).toMatchObject({
+      footer: { actions: ['copy', 'speak'], text: 'Dawn over the hills.' },
+    })
   })
 
   it('shows why a failed run ended beside the Artifacts it already made', () => {
@@ -1389,15 +1391,48 @@ describe('the footer of every Turn', () => {
     expect(items[0]).toMatchObject({ footer: { metrics: { timings } } })
   })
 
-  it('offers only Copy on an Agent Preset Turn, without metrics', () => {
+  it('carries no metrics on an agent Turn', () => {
     const answer = {
       ...agentMessage('a1', 'assistant', 'built it'),
       metadata: { agentTurn, timings },
     }
     const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game'), answer], {})
 
-    expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'built it' } })
+    expect(items[0]).toMatchObject({ footer: { text: 'built it' } })
     expect(items[0]).not.toHaveProperty('footer.metrics')
+  })
+
+  it('offers Copy and Speak of its answer on an Assistant Turn', () => {
+    const assistantTurn = { presetName: 'Assistant', harnessSessionId: 'aipg-agent-2' }
+    const answer = {
+      id: 'a1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'The sky scatters blue light.' }],
+      metadata: { agentTurn: assistantTurn },
+    }
+    const prompt = { ...answer, id: 'u1', role: 'user', parts: [{ type: 'text', text: 'why?' }] }
+    const items = sessionTimelineItems([prompt, answer], {})
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'speak'],
+        text: 'The sky scatters blue light.',
+        messageId: 'a1',
+      },
+    })
+  })
+
+  it('offers no Speak on a Game Agent Turn', () => {
+    const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
+    const answer = {
+      id: 'a1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'built it' }],
+      metadata: { agentTurn: gameTurn },
+    }
+    const items = sessionTimelineItems([answer], {})
+
+    expect(actionsOf(items[0])).toEqual(['copy'])
   })
 
   it('offers no Copy on an Agent Preset Turn still streaming its answer', () => {
@@ -1421,7 +1456,7 @@ describe('the footer of every Turn', () => {
     const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game'), answer], {})
 
     expect(items[0]).toMatchObject({
-      footer: { actions: ['copy'], text: 'Let me look.\n\nbuilt it' },
+      footer: { actions: ['copy', 'speak'], text: 'Let me look.\n\nbuilt it' },
     })
   })
 

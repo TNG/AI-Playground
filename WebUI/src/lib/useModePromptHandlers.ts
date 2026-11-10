@@ -1,4 +1,5 @@
 import { nextTick, onMounted, onUnmounted, watch } from 'vue'
+import type { UIMessage } from 'ai'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
@@ -16,6 +17,7 @@ import { fillTemplate } from '@/lib/fillTemplate'
 import { pendingVoiceTurn, speak, speakRepliesAvailable } from '@/assets/js/speech/speechIO'
 import { toolPartNameOf } from '@/lib/agentTranscript'
 import { messageText } from '@/lib/chatMessageText'
+import { hasChatAffordances } from '@/lib/chatAffordances'
 import { useAgentRunHold } from '@/lib/useAgentRunHold'
 
 const MEDIA_MODES: WorkflowModeType[] = ['imageGen', 'imageEdit', 'video']
@@ -146,17 +148,30 @@ export function useModePromptHandlers(options: { scrollToBottom: () => void }) {
   )
 
   // Auto-play the assistant reply when the user's input came from speech.
+  function speakVoiceReply(messages: UIMessage[] | undefined): void {
+    if (!speakRepliesAvailable() || !textInference.speakRepliesAllowed()) return
+    if (!pendingVoiceTurn.value) return
+    pendingVoiceTurn.value = false
+    const last = messages?.at(-1)
+    if (!last || last.role !== 'assistant') return
+    const text = messageText(last)
+    if (text.trim().length > 0) void speak({ text, messageId: last.id })
+  }
+
   watch(
     () => chat.processing,
     (processing, wasProcessing) => {
-      if (!(wasProcessing && !processing)) return
-      if (!speakRepliesAvailable() || !textInference.speakRepliesAllowed()) return
-      if (!pendingVoiceTurn.value) return
-      pendingVoiceTurn.value = false
-      const last = chat.messages?.at(-1)
-      if (!last || last.role !== 'assistant') return
-      const text = messageText(last)
-      if (text.trim().length > 0) void speak({ text, messageId: last.id })
+      if (wasProcessing && !processing) speakVoiceReply(chat.messages)
+    },
+  )
+
+  // Opening another Harness Session also flips `processing`, which is not a turn ending.
+  watch(
+    () => [agentMode.processing, agentMode.openSessionId] as const,
+    ([processing, sessionId], [wasProcessing, wasSessionId]) => {
+      if (!(wasProcessing && !processing) || sessionId !== wasSessionId) return
+      if (!hasChatAffordances(agentMode.activeAgentPreset)) return
+      speakVoiceReply(agentMode.messages)
     },
   )
 

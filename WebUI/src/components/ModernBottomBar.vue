@@ -48,6 +48,7 @@
       @attach="(e: Event) => emit('attach', e)"
     />
     <PromptCaptureButtons
+      v-if="model.capture"
       :downloading="downloading"
       :stt-available="sttAvailable"
       :stt-unavailable-hint="sttUnavailableHint"

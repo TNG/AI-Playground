@@ -190,6 +190,7 @@
   </div>
   <div class="absolute bottom-4 right-3 flex gap-2">
     <PromptCaptureButtons
+      v-if="hasChatAffordances(presetsStore.activePreset)"
       :downloading="downloading"
       :stt-available="sttAvailable"
       :stt-unavailable-hint="sttUnavailableHint"
@@ -234,6 +235,7 @@ import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 import { agentList, pickableAgents } from '@/lib/promptBarModel'
+import { hasChatAffordances } from '@/lib/chatAffordances'
 
 defineProps<{
   modes: ModeType[]

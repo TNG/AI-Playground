@@ -1,39 +1,34 @@
 import { type Locator, type Page } from '@playwright/test'
 import { sessionTabPanel, setRekaToggle, showSessionTab } from './uiControls'
 
-/** Built-in tool names — the `#builtin-tool-<name>` checkbox id suffixes (see
- *  SettingsBuiltinTools.vue `builtinTools`, keyed to `aipgTools`). */
-export const BUILTIN_TOOLS = [
-  'comfyUI',
-  'comfyUiImageEdit',
-  'visualizeObjectDetections',
-  'captureScreenshot',
-  'browseWeb',
+/** Built-in tool rows, by accessible name (SettingsBuiltinTools.vue `allBuiltinTools`). */
+const BUILTIN_TOOLS = [
+  'Generate media',
+  'Transform image',
+  'Visualize detections',
+  'Capture screenshot',
+  'Browse the web',
 ] as const
 
 /** Preset-backed tools that expose per-workflow switches inside a collapsible. */
-const WORKFLOW_TOOLS = ['comfyUI', 'comfyUiImageEdit'] as const
+const WORKFLOW_TOOLS = ['Generate media', 'Transform image'] as const
 
 /**
- * The two speech tools are NOT in `BUILTIN_TOOLS`: they are children of a
- * collapsible "Speech" group (SettingsBuiltinTools.vue `speechChildren`), not
- * top-level rows. reka unmounts collapsed content, so their switches do not exist
- * until the group is expanded — treating them like a normal built-in tool made
- * every toggle wait 15s for an element that was never mounted.
+ * The two speech tools are children of a collapsible "Speech" group, not top-level
+ * rows. reka unmounts collapsed content, so their switches only exist once the group
+ * is expanded.
  */
-const SPEECH_TOOLS = ['synthesizeTextToSpeech', 'transcribeAudio'] as const
+const SPEECH_TOOLS = ['Text To Speech', 'Speech To Text'] as const
 
 /**
- * Page object for the tool-selection controls in the Chat Attributes tab
- * (SettingsChatAttributes.vue → SettingsBuiltinTools.vue + SettingsMcp.vue). Lets the agentic
- * specs enforce a deterministic tool set so the model's context isn't bloated by tool
- * schemas it doesn't need (the default 8192-token window fills fast when every
- * built-in tool, MCP server and ComfyUI workflow is advertised).
+ * Page object for the tool selection in the Attributes tab (SettingsBuiltinTools.vue,
+ * plus SettingsMcp.vue's master switch on chat presets). Covers both shapes of it: the
+ * chat presets' "Built-in tools" panel (Home Agent) and the Media tools slice under
+ * Assistant's Media generation capability, which shows only the media rows and has no
+ * master switch of its own.
  *
- * Settings persist to disk across spec launches, so each profile is *enforced* (read
- * current state, change if it differs) rather than assumed. The section only renders
- * when the active chat model supports tool calling, so the agentic "Assistant" preset
- * must be active and the open Session's view showing.
+ * Settings persist across spec launches, so the selection is *enforced* (read current
+ * state, change if it differs) rather than assumed.
  */
 export class ToolSettingsPage {
   constructor(private readonly page: Page) {}
@@ -42,92 +37,60 @@ export class ToolSettingsPage {
     return sessionTabPanel(this.page, 'Attributes')
   }
 
-  /** Master "Built-in tools" checkbox (SettingsBuiltinTools.vue `id="tools"`). */
+  /** The chat presets' "Built-in tools" master switch (absent in the Media tools slice). */
   private get builtinMasterToggle(): Locator {
-    return this.region.locator('#tools')
+    return this.region.getByRole('checkbox', { name: 'Built-in tools', exact: true })
   }
 
-  /** Master "MCP tools" checkbox. */
+  /** The chat presets' "MCP tools" master switch. */
   private get mcpMasterToggle(): Locator {
-    return this.region.locator('#mcp-tools')
+    return this.region.getByRole('checkbox', { name: 'MCP tools', exact: true })
   }
 
-  private builtinToolToggle(name: string): Locator {
-    return this.region.locator(`#builtin-tool-${name}`)
+  private toolToggle(name: string): Locator {
+    return this.region.getByRole('checkbox', { name, exact: true })
   }
 
-  /** True when the tools section is present (i.e. the model supports tool calling). */
+  private workflowGroup(toolName: string): Locator {
+    return this.region.getByRole('group', { name: `${toolName} workflows`, exact: true })
+  }
+
+  /** True when a tool selection is shown (on chat presets, only for a tool-calling model). */
   async isAvailable(): Promise<boolean> {
     await showSessionTab(this.page, 'Attributes')
-    return this.builtinMasterToggle.isVisible().catch(() => false)
+    return this.toolToggle('Generate media')
+      .isVisible()
+      .catch(() => false)
   }
 
-  /** The header row of a preset-backed tool, located via its checkbox's ancestor. */
-  private toolHeader(toolName: string): Locator {
-    return this.builtinToolToggle(toolName).locator(
-      'xpath=ancestor::div[contains(@class,"justify-between")][1]',
-    )
-  }
-
-  private workflowSwitches(toolName: string): Locator {
-    return this.region.locator(`[id^="builtin-tool-${toolName}-preset-"]`)
-  }
-
-  /** Expand a tool's per-workflow list (reka Collapsible unmounts it while closed). */
-  private async expandWorkflows(toolName: string): Promise<void> {
-    const anySwitch = this.workflowSwitches(toolName).first()
-    if (await anySwitch.isVisible().catch(() => false)) return
-    const trigger = this.toolHeader(toolName).getByRole('button', { name: /enabled/ })
+  /** Expand a collapsible (reka unmounts its content while closed). */
+  private async expand(trigger: Locator, content: Locator): Promise<void> {
+    if (await content.isVisible().catch(() => false)) return
     if (!(await trigger.isVisible().catch(() => false))) return
-    await trigger.click()
-    await anySwitch.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {})
+    if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
+    await content.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {})
   }
 
-  /** Header row of the "Speech" group, located via its own master checkbox. */
-  private get speechHeader(): Locator {
-    return this.region
-      .locator('#builtin-tool-speech')
-      .locator('xpath=ancestor::div[contains(@class,"justify-between")][1]')
-  }
-
-  /** Expand the "Speech" group so its two sub-tool switches are mounted. */
-  private async expandSpeech(): Promise<void> {
-    const firstChild = this.builtinToolToggle(SPEECH_TOOLS[0])
-    if (await firstChild.isVisible().catch(() => false)) return
-    const trigger = this.speechHeader.getByRole('button', { name: /enabled/ })
-    if (!(await trigger.isVisible().catch(() => false))) return
-    await trigger.click()
-    await firstChild.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {})
-  }
-
-  /** Set both speech sub-tools, expanding the group first. */
   private async setSpeechTools(enabled: boolean): Promise<void> {
-    await this.expandSpeech()
+    await this.expand(
+      this.region.getByRole('button', { name: 'Speech tools', exact: true }),
+      this.region.getByRole('switch', { name: SPEECH_TOOLS[0], exact: true }),
+    )
     for (const name of SPEECH_TOOLS) {
-      const toggle = this.builtinToolToggle(name)
+      const toggle = this.region.getByRole('switch', { name, exact: true })
       if (!(await toggle.isVisible().catch(() => false))) continue
       await setRekaToggle(toggle, enabled)
     }
   }
 
-  /** Enable exactly one workflow of a tool (by name), disabling all others. */
-  private async keepOnlyWorkflow(toolName: string, keepName: string): Promise<void> {
-    await this.expandWorkflows(toolName)
-    const switches = this.workflowSwitches(toolName)
-    const count = await switches.count()
-    const prefix = `builtin-tool-${toolName}-preset-`
-    for (let i = 0; i < count; i++) {
-      const toggle = switches.nth(i)
-      const id = (await toggle.getAttribute('id')) ?? ''
-      const workflowName = id.slice(prefix.length)
-      await setRekaToggle(toggle, workflowName === keepName)
-    }
-  }
-
   /** Re-enable every workflow of a tool (undo any prior trimming). */
   private async enableAllWorkflows(toolName: string): Promise<void> {
-    await this.expandWorkflows(toolName)
-    const switches = this.workflowSwitches(toolName)
+    const group = this.workflowGroup(toolName)
+    await this.expand(
+      this.region.getByRole('button', { name: `${toolName} workflows`, exact: true }),
+      group,
+    )
+    const switches = group.getByRole('switch')
     const count = await switches.count()
     for (let i = 0; i < count; i++) {
       await setRekaToggle(switches.nth(i), true)
@@ -135,38 +98,22 @@ export class ToolSettingsPage {
   }
 
   /**
-   * Minimal set for the fast agentic smoke (haiku → image via "Draft Image"): enable
-   * only the "Generate media" tool with only the "Draft Image" workflow; turn MCP and
-   * every other built-in tool off. Returns false when the tools section isn't shown.
-   */
-  async applyMinimalImageTools(): Promise<boolean> {
-    if (!(await this.isAvailable())) return false
-    await setRekaToggle(this.builtinMasterToggle, true)
-    if (await this.mcpMasterToggle.isVisible().catch(() => false)) {
-      await setRekaToggle(this.mcpMasterToggle, false)
-    }
-    for (const name of BUILTIN_TOOLS) {
-      await setRekaToggle(this.builtinToolToggle(name), name === 'comfyUI')
-    }
-    await this.setSpeechTools(false)
-    await this.keepOnlyWorkflow('comfyUI', 'Draft Image')
-    return true
-  }
-
-  /**
-   * App defaults for the full agentic flow: all built-in tools on except Capture
-   * screenshot, MCP on, and every workflow re-enabled. Enforced (not assumed) so a
-   * prior fast run that trimmed tools/workflows on disk doesn't leak in. Returns false
-   * when the tools section isn't shown.
+   * App defaults: every shown tool on except Capture screenshot, MCP on where the
+   * preset has the switch, and every workflow re-enabled. Returns false when no tool
+   * selection is shown.
    */
   async applyDefaultTools(): Promise<boolean> {
     if (!(await this.isAvailable())) return false
-    await setRekaToggle(this.builtinMasterToggle, true)
+    if (await this.builtinMasterToggle.isVisible().catch(() => false)) {
+      await setRekaToggle(this.builtinMasterToggle, true)
+    }
     if (await this.mcpMasterToggle.isVisible().catch(() => false)) {
       await setRekaToggle(this.mcpMasterToggle, true)
     }
     for (const name of BUILTIN_TOOLS) {
-      await setRekaToggle(this.builtinToolToggle(name), name !== 'captureScreenshot')
+      const toggle = this.toolToggle(name)
+      if (!(await toggle.isVisible().catch(() => false))) continue
+      await setRekaToggle(toggle, name !== 'Capture screenshot')
     }
     await this.setSpeechTools(true)
     for (const toolName of WORKFLOW_TOOLS) {

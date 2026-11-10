@@ -15,8 +15,8 @@ import { test, expect } from './fixtures'
 /**
  * The smallest chat model per backend, as of the current `WebUI/external/models.json`:
  * Qwen3.5-4B Q4_K_M (~2.5 GB) on llama.cpp and Qwen3.5-4B int4 on OpenVINO. Both
- * call tools and think, and both have a context window large enough that the Chat
- * settings' tool section fits. They are still the smallest LLMs left in the catalog,
+ * call tools and think, and both have a context window large enough for Assistant's
+ * default capabilities. They are still the smallest LLMs left in the catalog,
  * which is what keeps this download-bound spec from pulling a 9B.
  *
  * Hard-coded rather than derived: the library sorts by *on-disk* size, which is blank
@@ -37,7 +37,7 @@ const TARGETS = {
      * The picker offers exactly one of these, decided by the inference device:
      * ModelSelector hides `npuSupport` models on GPU and everything else on NPU.
      * Qwen3.5-9B is the GPU OpenVINO model; `Qwen3-8B-int4-cw-ov` is the NPU build
-     * the Assistant preset pins. The unload step above may have switched devices,
+     * Assistant switches to on the NPU. The unload step above may have switched devices,
      * so the restore takes whichever of the two this device is listing.
      */
     presetDefaults: ['Qwen3.5-9B-int4-ov', 'Qwen3-8B-int4-cw-ov'],
@@ -57,7 +57,7 @@ test('the model library lists, filters and round-trips a model through download,
   await app.installAllBackends()
 
   // Which backend the library is exercised for decides which model is downloaded, so
-  // it is settled first. As in the chat preset specs: llama.cpp on NVIDIA (where the
+  // it is settled first. As in the preset specs: llama.cpp on NVIDIA (where the
   // app filters OpenVINO out and the picker may not even be shown), and a random one
   // of the two on Intel/OpenVINO modes.
   const presetActive = await app.main.selectPreset('Chat', 'Assistant')
@@ -251,8 +251,8 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('Put the "Assistant" preset back on its default model', async () => {
-    // The model picked in Chat settings is saved *per preset* and outlives this spec.
-    // Restore the preset's own default explicitly, the way the Text-to-Speech flow
+    // The model picked in the Inferencing tab outlives this spec. Restore the preset's
+    // own default explicitly, the way the Text-to-Speech flow
     // re-pins its voice, so a later spec is not left on the 4B this one downloaded.
     //
     // Whichever build this device offers: the step above deliberately moved the

@@ -1,5 +1,10 @@
 <template>
-  <div v-if="servers.length > 0" class="flex flex-col gap-2">
+  <div
+    v-if="servers.length > 0"
+    role="group"
+    :aria-label="i18n.AGENT_SECTION_MCP_SERVERS"
+    class="flex flex-col gap-2"
+  >
     <label v-for="server in servers" :key="server.id" class="flex items-start gap-2 text-sm">
       <input
         type="checkbox"
@@ -22,6 +27,7 @@
 
 <script setup lang="ts">
 import { toggleCapabilityIds } from '@/assets/js/store/agentModeSessions'
+import { useI18N } from '@/assets/js/store/i18n'
 import { mcpCapabilityId } from '@/types/agentCapabilities'
 
 defineProps<{
@@ -29,6 +35,8 @@ defineProps<{
 }>()
 
 const capabilities = defineModel<string[]>({ required: true })
+
+const i18n = useI18N().state
 
 function isEnabled(serverId: string): boolean {
   return capabilities.value.includes(mcpCapabilityId(serverId))

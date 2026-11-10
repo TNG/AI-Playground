@@ -195,6 +195,11 @@ export class MainPage {
     }
   }
 
+  /** The "Source Docs" badge on the last assistant turn, shown when it searched documents. */
+  get sourceDocsBadge(): Locator {
+    return this.assistantResponses.last().getByRole('button', { name: 'Source Docs' })
+  }
+
   /** The collapsible "reasoning" trace toggle(s) in the last assistant turn. */
   get reasoningBlocks(): Locator {
     return this.assistantResponses.last().getByRole('button', { name: /Reasoning/i })

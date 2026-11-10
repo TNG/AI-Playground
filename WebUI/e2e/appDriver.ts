@@ -9,12 +9,13 @@ import { DownloadDialogPage } from './pages/DownloadDialogPage'
 import { McpSettingsPage } from './pages/McpSettingsPage'
 import { ModelManagerPage } from './pages/ModelManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
+import {
+  AssistantSettingsPage,
+  ASSISTANT_DEFAULT_CAPABILITIES,
+} from './pages/AssistantSettingsPage'
 import { sessionTabPanel, setRekaToggle } from './pages/uiControls'
 import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
-
-/** The chat preset that puts the assistant in agentic mode (built-in + MCP tools on). */
-const AGENTIC_PRESET = 'Assistant'
 
 /** The preset the Home Agent runs its channel turns on (its own agentic preset,
  *  distinct from "Assistant"; see modes/base/presets/home-agent-chat.json). */
@@ -23,7 +24,7 @@ const HOME_AGENT_PRESET = 'Home Agent'
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
 /** A real 768x512 PNG used as the input for edit / image-to-video / reference presets. */
 export const FIXTURE_IMAGE = path.join(FIXTURES_DIR, 'input.png')
-/** A small text document used as the RAG source for the "Assistant" preset's RAG flow. */
+/** A small text document attached to an Assistant Session for its document search. */
 export const FIXTURE_DOC = path.join(FIXTURES_DIR, 'sample.txt')
 /** Same fact as {@link FIXTURE_DOC} but as a PDF, to cover the PDF ingestion path. */
 export const FIXTURE_DOC_PDF = path.join(FIXTURES_DIR, 'sample.pdf')
@@ -72,12 +73,10 @@ export class AppDriver {
   private static readonly AGENT_GAME_CONTEXT = 32768
 
   /**
-   * Context size the "Agent" preset is run at. Its own default is 128k, the size
-   * its preferred 9B is tuned for, and that is simply more KV cache than a laptop
-   * GPU has: llama.cpp refuses the load outright ("not enough memory to run … with
-   * a context size of 131072"), so the turn dies in ensureReadyForInference before
-   * the agent starts. 8k matches what the agentic smoke runs the Assistant preset
-   * at, and is enough for the two short turns this drives.
+   * Context size {@link prepareAgentPreset} runs Assistant at. Its own default is 32k,
+   * which a laptop GPU may not hold next to the 9B's weights, and llama.cpp then refuses
+   * the load outright, so the turn dies in ensureReadyForInference before the agent
+   * starts. 8k is enough for the two short turns the smoke drives.
    */
   private static readonly AGENT_CONTEXT = 8192
 
@@ -90,6 +89,7 @@ export class AppDriver {
   readonly mcp: McpSettingsPage
   readonly models: ModelManagerPage
   readonly tools: ToolSettingsPage
+  readonly assistant: AssistantSettingsPage
 
   constructor(private readonly window: Page) {
     this.wizard = new SetupWizardPage(window)
@@ -101,6 +101,7 @@ export class AppDriver {
     this.mcp = new McpSettingsPage(window)
     this.models = new ModelManagerPage(window)
     this.tools = new ToolSettingsPage(window)
+    this.assistant = new AssistantSettingsPage(window)
   }
 
   /**
@@ -203,10 +204,10 @@ export class AppDriver {
   }
 
   /**
-   * Drive one chat preset: select it, optionally attach a fixture (image for a
-   * vision preset, document for a RAG preset), send a prompt and assert a non-empty,
-   * well-formed text reply. Skips the test if the preset isn't available in the
-   * current product mode.
+   * Drive one chat preset: select it, optionally attach a fixture (an image for a
+   * vision model, a document to search), send a prompt and assert a non-empty,
+   * well-formed text reply, and the Source Docs badge when a document was attached.
+   * Skips the test if the preset isn't available in the current product mode.
    */
   async runChatPreset(opts: {
     preset: string
@@ -238,6 +239,12 @@ export class AppDriver {
       await this.main.waitForAssistantAnswer()
       expect(await this.main.lastAssistantText()).not.toEqual('')
       await this.main.assertWellFormedResponse()
+      if (opts.attach === 'document') {
+        await expect(
+          this.main.sourceDocsBadge,
+          'an answer drawn from the attached document should show its sources',
+        ).toBeVisible()
+      }
     })
   }
 
@@ -491,17 +498,13 @@ export class AppDriver {
   }
 
   /**
-   * Drive the general-purpose "Agent" preset through the same two turns the fast
-   * agentic smoke runs on the Assistant preset: write a haiku, then turn it into an
-   * image. The preset keeps its own defaults — its model per backend, its default
-   * capabilities (media + web-debug) — so this covers it close to how it ships. Two
-   * things are chosen for it: the backend, at random like the other preset specs,
-   * and the context size, cut to {@link AGENT_CONTEXT} because the shipped 128k
-   * cannot be allocated on a laptop GPU and the model then refuses to load at all
-   * (where the backend exposes a context size at all — OpenVINO on GPU does not).
+   * Drive Assistant through the fast agentic smoke's two turns: write a haiku, then turn
+   * it into an image. The preset keeps its own defaults (model per backend, default
+   * capabilities); the backend is the asked-for one or random, and the context size is
+   * {@link AGENT_CONTEXT} (where the backend exposes one — OpenVINO on GPU does not).
    *
-   * Unlike the game presets, this one works in the open Session's folder; nothing here
-   * asserts on its contents, the transcript and the generated image are the subject.
+   * Assistant works in the open Session's folder; nothing here asserts on its contents,
+   * the transcript and the generated image are the subject.
    *
    * Returns false when the preset isn't offered in this product mode so the caller
    * can skip.
@@ -521,9 +524,7 @@ export class AppDriver {
       // would otherwise surface much later as "the agent produced no image".
       await this.startAgentTurn(opts.prompt)
       // The preset's default model is pulled on first use, via the same download
-      // dialog the turn poller clears. Agent Mode renders its own transcript (no
-      // "Assistant reply" region for MainPage to read), so the reply is asserted as
-      // transcript text rather than through waitForAssistantAnswer.
+      // dialog the turn poller clears.
       await this.waitForAgenticMediaTurn(MainPage.TEXT_TIMEOUT)
       await this.agent.assertNoTurnError()
       expect(
@@ -783,7 +784,7 @@ export class AppDriver {
   }
 
   /**
-   * Open the Chat settings and select the first inference device whose label contains
+   * Open the Inferencing tab and select the first inference device whose label contains
    * `substring` (e.g. 'NPU'). Returns false when the active backend exposes no matching
    * device (or no device picker at all). Selecting a device restarts the backend, so
    * callers should resolve any model-download dialog before asserting the next turn.
@@ -801,9 +802,9 @@ export class AppDriver {
    * Assistant-on-NPU smoke: pin the OpenVINO chat backend, switch its inference device
    * to the NPU, then run a single text turn (compose a haiku) and assert a non-empty,
    * well-formed reply. Skips when OpenVINO isn't offered in this product mode or the
-   * machine exposes no NPU device — NPU hardware is environment-specific. Expects the
-   * agentic "Assistant" preset to already be active. (The default-GPU override applied
-   * by {@link installAllBackends} is irrelevant here — the NPU device is picked after.)
+   * machine exposes no NPU device — NPU hardware is environment-specific. Expects
+   * Assistant to already be active. (The default-GPU override applied by
+   * {@link installAllBackends} is irrelevant here — the NPU device is picked after.)
    */
   async runNpuHaiku(prompt: string): Promise<void> {
     // OpenVINO (OVMS) is the only backend that exposes the NPU as an inference device.
@@ -824,24 +825,20 @@ export class AppDriver {
   }
 
   /**
-   * Enforce a deterministic tool selection for an agentic turn, so the model's context
-   * isn't bloated by tool schemas it doesn't need. Expects the agentic "Assistant"
-   * preset to already be active. `'minimal-image'` (fast smoke) enables only "Generate
-   * media" with only the "Draft Image" workflow and turns MCP + all other tools off;
-   * `'defaults'` (full flow) restores app defaults (all built-in tools except Capture
-   * screenshot, MCP on, all workflows enabled). No-op if the tools section isn't shown.
+   * Enforce Assistant's shipped tool selection, since Session Settings saved as the
+   * default by an earlier run would otherwise leak in: its default capabilities (media,
+   * document search, web) and no MCP server, and in the Media tools slice every tool but
+   * Capture screenshot with every workflow enabled. Expects Assistant to be active.
    */
-  async configureAgenticTools(profile: 'minimal-image' | 'defaults'): Promise<void> {
-    await test.step(`Enforce agentic tool selection: ${profile}`, async () => {
-      await this.settings.open()
-      const applied =
-        profile === 'minimal-image'
-          ? await this.tools.applyMinimalImageTools()
-          : await this.tools.applyDefaultTools()
+  async configureAgenticTools(): Promise<void> {
+    await test.step("Enforce Assistant's default tool selection", async () => {
+      await this.settings.open('Attributes')
+      await this.assistant.enforceCapabilities(ASSISTANT_DEFAULT_CAPABILITIES)
+      const applied = await this.tools.applyDefaultTools()
       if (!applied) {
         test.info().annotations.push({
           type: 'tools',
-          description: 'tools section not shown (model without tool calling?) — skipped',
+          description: 'media tools not shown (model without tool calling?) — skipped',
         })
       }
       await this.settings.close()
@@ -889,8 +886,8 @@ export class AppDriver {
    * turn: raise max-new-tokens to its ceiling and turn thinking off. A heavy-context
    * agentic turn (the 'defaults' tool set fills a large part of the window) can otherwise
    * spend its whole output budget inside <think> and finish with an empty reply, which
-   * reads as "no assistant response". Expects the Chat "Assistant" preset active; each
-   * control is a best-effort no-op when the model/preset doesn't expose it.
+   * reads as "no assistant response". Works on Assistant and on a chat preset (Home
+   * Agent); each control is a best-effort no-op when the model/preset doesn't expose it.
    */
   async relaxChatGenerationBudget(): Promise<void> {
     await test.step('Raise max tokens and disable thinking for a reliable final answer', async () => {
@@ -899,17 +896,22 @@ export class AppDriver {
       const maxTokens = region.getByLabel('Max Tokens')
       if (await maxTokens.isVisible().catch(() => false)) {
         await maxTokens.fill('32768')
+        // Assistant's field applies on change, which fires when it loses focus.
+        await maxTokens.blur()
       }
-      const thinking = region.locator('#thinking')
-      if (await thinking.isVisible().catch(() => false)) {
-        await setRekaToggle(thinking, false)
+      const chatThinking = region.getByRole('checkbox', { name: 'Thinking', exact: true })
+      const agentThinking = region.getByRole('checkbox', { name: /^Think before acting/ })
+      if (await chatThinking.isVisible().catch(() => false)) {
+        await setRekaToggle(chatThinking, false)
+      } else if (await agentThinking.isVisible().catch(() => false)) {
+        await agentThinking.setChecked(false)
       }
       await this.settings.close()
     })
   }
 
   /**
-   * Switch to agentic mode (Chat + "Assistant" preset), enable MCP tools and connect
+   * Select the "Assistant" preset, enable MCP tools and connect
    * one MCP server by its mcp.json displayName (e.g. "DateTime MCP", "Blender MCP"),
    * leaving the Viewport tab shown and the preset active. Returns false when the preset,
    * the MCP section, or the server itself is unavailable in this environment (e.g.
@@ -917,7 +919,7 @@ export class AppDriver {
    */
   async connectMcpServerOrSkip(displayName: string): Promise<boolean> {
     return test.step(`Enable MCP tools and connect "${displayName}"`, async () => {
-      if (!(await this.main.selectPreset('Chat', AGENTIC_PRESET))) return false
+      if (!(await this.main.selectPreset('Chat', HARNESS_CHAT_PRESET))) return false
       await this.settings.open()
       const connected = await this.mcp.connectServer(displayName)
       await this.settings.close()

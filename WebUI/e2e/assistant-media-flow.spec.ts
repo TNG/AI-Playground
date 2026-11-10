@@ -1,8 +1,9 @@
 import { test, expect } from './fixtures'
 import { MainPage } from './pages/MainPage'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 
-// The chat preset that puts the assistant in agentic mode (built-in tools on).
-const AGENTIC_PRESET = 'Assistant'
+// Assistant on the agent harness, through its media capability: generate an image,
+// edit it, then animate it into a video, one turn each.
 
 const PROMPTS = {
   // Directive + demands a short explicit answer so the reasoning model closes the turn
@@ -27,23 +28,20 @@ test.describe('Assistant — agentic media flow', () => {
 
     await app.installAllBackends()
 
-    await test.step('Switch to agentic mode (Chat + "Assistant" preset)', async () => {
-      await app.main.selectPreset('Chat', AGENTIC_PRESET)
+    await test.step(`Select the "${HARNESS_CHAT_PRESET}" preset`, async () => {
+      await app.main.selectPreset('Chat', HARNESS_CHAT_PRESET)
     })
 
     // Back to the preset's shipped defaults (model included) before this flow sets
     // its own tools and generation budget — see AppDriver.resetPresetDefaults.
     await app.resetPresetDefaults()
 
-    // Enforce the app-default tool selection (all built-in tools except Capture
-    // screenshot, MCP on, all workflows enabled). Enforced rather than assumed because
-    // settings persist to disk, so a prior fast-smoke run that trimmed tools/workflows
-    // would otherwise leak into this flow.
-    await app.configureAgenticTools('defaults')
+    // Enforce Assistant's default capabilities and media tools (every workflow on).
+    // Enforced rather than assumed, because saved Default Settings outlive a run.
+    await app.configureAgenticTools()
 
-    // The 'defaults' tool set fills most of the context, so give the reasoning model
-    // room to emit a final answer (max tokens up, thinking off) — otherwise the first
-    // turn can finish reasoning-only with an empty reply.
+    // Give the reasoning model room to emit a final answer (max tokens up, thinking
+    // off) — otherwise the first turn can finish reasoning-only with an empty reply.
     await app.relaxChatGenerationBudget()
 
     await test.step('Prompt 1: set preset preferences → expect a text reply', async () => {

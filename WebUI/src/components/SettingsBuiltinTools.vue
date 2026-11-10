@@ -18,8 +18,7 @@
         :class="{ 'opacity-50': !toolsEnabled }"
       >
         <p v-if="isMediaVariant" class="text-xs text-muted-foreground">
-          What the Media generation capability may reach for. Stored with this agent preset, so
-          Chat's assistant keeps its own selection.
+          What the Media generation capability may reach for.
         </p>
         <!-- Media specialist delegation: one thin `media` tool instead of the two
              full comfy tool schemas in the model's context. -->
@@ -40,6 +39,7 @@
           </div>
           <Checkbox
             id="builtin-tool-delegation"
+            aria-label="Media specialist agent"
             :disabled="!toolsEnabled"
             :model-value="settings.delegationEnabled()"
             @click="settings.setDelegationEnabled(!settings.delegationEnabled())"
@@ -69,6 +69,7 @@
                  and non-expandable while the tool is disabled. -->
               <CollapsibleTrigger
                 v-if="presetsForTool(builtinTool.name).length"
+                :aria-label="`${builtinTool.label} workflows`"
                 :disabled="!isToolActive(builtinTool.name)"
                 class="flex items-center gap-1.5 text-xs"
                 :class="
@@ -93,6 +94,7 @@
               </CollapsibleTrigger>
               <Checkbox
                 :id="`builtin-tool-${builtinTool.name}`"
+                :aria-label="builtinTool.label"
                 :disabled="!toolsEnabled"
                 :model-value="settings.isToolEnabled(builtinTool.name)"
                 @click="toggle(builtinTool.name)"
@@ -105,6 +107,8 @@
              defaults. Collapsed by default and hidden while the tool is inactive. -->
           <CollapsibleContent
             v-if="presetsForTool(builtinTool.name).length"
+            role="group"
+            :aria-label="`${builtinTool.label} workflows`"
             class="flex flex-col gap-1.5 pl-4 pt-1"
           >
             <div
@@ -125,6 +129,7 @@
                   <!-- Enable toggle in front; the name is also clickable to toggle. -->
                   <Switch
                     :id="`builtin-tool-${builtinTool.name}-preset-${workflow.name}`"
+                    :aria-label="workflow.name"
                     :disabled="!isToolActive(builtinTool.name)"
                     :model-value="settings.isWorkflowEnabled(workflow.name)"
                     @update:model-value="toggleWorkflow(builtinTool.name, workflow.name)"
@@ -235,6 +240,7 @@
 
           <div class="flex items-center gap-3">
             <CollapsibleTrigger
+              aria-label="Speech tools"
               :disabled="!toolsEnabled"
               class="flex items-center gap-1.5 text-xs"
               :class="
@@ -252,6 +258,7 @@
             </CollapsibleTrigger>
             <Checkbox
               id="builtin-tool-speech"
+              aria-label="Speech"
               :disabled="!toolsEnabled"
               :model-value="isSpeechEnabled"
               @click="toggleSpeech"
@@ -268,6 +275,7 @@
             <div class="flex items-center gap-2 min-w-0">
               <Switch
                 :id="`builtin-tool-${child.name}`"
+                :aria-label="child.label"
                 :disabled="!toolsEnabled"
                 :model-value="settings.isToolEnabled(child.name)"
                 @update:model-value="toggleSpeechChild(child.name)"

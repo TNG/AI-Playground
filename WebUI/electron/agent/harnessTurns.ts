@@ -1,0 +1,79 @@
+import fs from 'node:fs'
+import type { AgentSession, SessionEntry, SessionManager } from '@earendil-works/pi-coding-agent'
+import { loadPi } from './piRuntime.ts'
+import { piSessionDir, readSessionStore } from './piSessionStore.ts'
+import { active, agentTurns } from './piAgentState.ts'
+import { removeTimelineMessages } from '../session/sessionTimeline.ts'
+import type { DeleteAgentTurnsRequest } from '@/types/agentIpc'
+import type { IpcMutationResult } from '@/types/ipcChannels'
+
+/** Opens each turn in the Harness Session; it is not model context, so the KV cache is kept. */
+export const HARNESS_TURN_ENTRY = 'aipg-turn'
+
+export function markHarnessTurn(session: AgentSession, turnId: string): void {
+  session.sessionManager.appendCustomEntry(HARNESS_TURN_ENTRY, { turnId })
+}
+
+function turnMarkerId(entry: SessionEntry): string | undefined {
+  if (entry.type !== 'custom' || entry.customType !== HARNESS_TURN_ENTRY) return undefined
+  const turnId = (entry.data as { turnId?: unknown } | undefined)?.turnId
+  return typeof turnId === 'string' ? turnId : ''
+}
+
+function reachesModel(entry: SessionEntry): boolean {
+  if (entry.type === 'custom_message') return true
+  return (
+    entry.type === 'message' &&
+    (entry.message.role === 'user' ||
+      entry.message.role === 'assistant' ||
+      entry.message.role === 'toolResult')
+  )
+}
+
+/**
+ * Pi entries are append-only, so a turn is dropped with one context edit per entry, which
+ * leaves it out of every later request. Returns whether anything was omitted.
+ */
+function omitHarnessTurns(manager: SessionManager, turnIds: ReadonlySet<string>): boolean {
+  let inTurn = false
+  const omit: string[] = []
+  for (const entry of manager.getBranch()) {
+    const marker = turnMarkerId(entry)
+    if (marker !== undefined) inTurn = turnIds.has(marker)
+    else if (inTurn && reachesModel(entry)) omit.push(entry.id)
+  }
+  for (const id of omit) manager.appendContextEdit(id, null)
+  return omit.length > 0
+}
+
+/** Deletes turns from a Harness Session and their messages from the Session's timeline. */
+export async function deleteAgentTurns(
+  request: DeleteAgentTurnsRequest,
+): Promise<IpcMutationResult> {
+  const { harnessSessionId, sessionRef } = request
+  if (agentTurns.has(harnessSessionId)) {
+    return { success: false, error: 'A turn is still running in this conversation.' }
+  }
+  try {
+    const turnIds = new Set(request.turnIds)
+    if (turnIds.size > 0) {
+      if (active?.sessionId === harnessSessionId) {
+        if (omitHarnessTurns(active.session.sessionManager, turnIds)) {
+          active.session.refreshContext()
+        }
+      } else {
+        const file = readSessionStore()[harnessSessionId]?.sessionFilePath
+        if (file && fs.existsSync(file)) {
+          const pi = await loadPi()
+          omitHarnessTurns(pi.SessionManager.open(file, piSessionDir()), turnIds)
+        }
+      }
+    }
+    if (sessionRef && request.messageIds.length > 0) {
+      await removeTimelineMessages(sessionRef, request.messageIds)
+    }
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}

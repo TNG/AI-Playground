@@ -90,6 +90,15 @@ export const ResolvedMountedFolderSchema = z.object({
   access: MountedFolderAccessSchema,
 })
 
+/** Assistant turns to delete from a Harness Session, with their messages in the Session's timeline. */
+export const DeleteAgentTurnsRequestSchema = z.object({
+  sessionRef: z.string().optional(),
+  harnessSessionId: z.string(),
+  turnIds: z.array(z.string()),
+  messageIds: z.array(z.string()),
+})
+export type DeleteAgentTurnsRequest = z.infer<typeof DeleteAgentTurnsRequestSchema>
+
 export const AgentModeTurnConfigSchema = z.object({
   /** The Harness Session (`aipg-agent-*`) the turn continues. */
   sessionId: z.string().min(1),

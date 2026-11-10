@@ -1,10 +1,11 @@
-import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
+import { AgentModeTurnConfigSchema, DeleteAgentTurnsRequestSchema } from '@/types/agentIpc'
 import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import type { AgentModeInvokeName, InvokeHandlerMap } from '../ipcRegistries'
 import { ipcErrorText, ipcFail } from '../typedIpc'
 import type {
   cancelAgentTurn,
   deleteAgentSession,
+  deleteAgentTurns,
   listAgentCapabilities,
   resetAgentSession,
   startAgentTurn,
@@ -48,6 +49,7 @@ export type AgentModeDeps = {
   cancelAgentTurn: typeof cancelAgentTurn
   resetAgentSession: typeof resetAgentSession
   deleteAgentSession: typeof deleteAgentSession
+  deleteAgentTurns: typeof deleteAgentTurns
   submitAgentToolResult: typeof submitAgentToolResult
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
@@ -231,6 +233,13 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       try {
         await deps.saveTrialRun(run)
         return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:deleteTurns': async (_event, request) => {
+      try {
+        return await deps.deleteAgentTurns(DeleteAgentTurnsRequestSchema.parse(request))
       } catch (e) {
         return ipcFail(e)
       }

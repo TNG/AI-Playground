@@ -33,6 +33,7 @@ type FakeSession = {
   getActiveToolNames: () => string[]
   reload: ReturnType<typeof vi.fn>
   agent: { waitForIdle: ReturnType<typeof vi.fn>; state: { systemPrompt: string } }
+  sessionManager: { appendCustomEntry: ReturnType<typeof vi.fn> }
   getSessionStats: () => {
     sessionFile: string
     tokens: Record<string, number>
@@ -65,6 +66,7 @@ async function makeAgentSession(): Promise<{ session: FakeSession }> {
     getActiveToolNames: () => ['read', 'bash', 'media', 'browser'],
     reload: vi.fn(async () => {}),
     agent: { waitForIdle: vi.fn(async () => {}), state: { systemPrompt: 'system' } },
+    sessionManager: { appendCustomEntry: vi.fn() },
     subscribe: vi.fn((callback: (event: unknown) => void) => {
       listener = callback
       return () => {

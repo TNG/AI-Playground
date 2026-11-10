@@ -293,7 +293,7 @@
       />
       <!-- Same gauge in agent mode, fed by Pi's context report. -->
       <AgentTokenUsage v-if="isAgentMode" />
-      <div v-if="isChatMode" class="flex flex-none gap-1">
+      <div v-if="chatAffordances" class="flex flex-none gap-1">
         <button
           @click="textInference.decreaseFontSize()"
           :disabled="textInference.isMinSize"
@@ -360,6 +360,7 @@ import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuItems.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { hasChatAffordances } from '@/lib/chatAffordances'
 import {
   agentList,
   promptBarModel,
@@ -395,6 +396,7 @@ const chipClass =
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
+const chatAffordances = computed(() => hasChatAffordances(presetsStore.activePreset))
 
 // Games presets open their folder from the GameBar instead.
 const workspaceFolder = computed(() => {

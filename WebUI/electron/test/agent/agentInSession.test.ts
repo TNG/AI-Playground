@@ -52,6 +52,10 @@ type Body = { messages?: Array<{ role: string; content?: unknown }> }
 let bodies: Body[] = []
 /** A tool call the backend makes once, before it answers. */
 let toolCall: { name: string; args: Record<string, unknown> } | null = null
+/** What the backend closes its stream with: llama.cpp's own timings, or only usage. */
+let finalChunkExtra: Record<string, unknown> = {}
+/** Kernel events main sent the window. */
+let kernelEvents: { type?: string; turnId?: string; chunk?: Record<string, unknown> }[] = []
 /** What the renderer window is sent; a test answers the tool requests it cares about. */
 let rendererSend: (channel: string, payload: unknown) => void = () => {}
 
@@ -86,7 +90,10 @@ function reply(body: Body): Response {
         }),
         completion({}, 'tool_calls'),
       ]
-    : [completion({ role: 'assistant', content: `reply ${bodies.length}` }), completion({}, 'stop')]
+    : [
+        completion({ role: 'assistant', content: `reply ${bodies.length}` }),
+        { ...completion({}, 'stop'), ...finalChunkExtra },
+      ]
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(frame(chunk))
@@ -120,6 +127,7 @@ let sessions: typeof import('../../session/sessions')
 let harness: typeof import('../../session/sessionHarness')
 let history: typeof import('../../session/sessionHistory')
 let store: typeof import('../../agent/piSessionStore')
+let timeline: typeof import('../../session/sessionTimeline')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
@@ -127,10 +135,16 @@ beforeAll(async () => {
   harness = await import('../../session/sessionHarness')
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
+  timeline = await import('../../session/sessionTimeline')
   sessions.setSessionDeps({ isDemoMode: () => false })
   const fakeWindow = {
     isDestroyed: () => false,
-    webContents: { send: (channel: string, payload: unknown) => rendererSend(channel, payload) },
+    webContents: {
+      send: (channel: string, payload: unknown) => {
+        if (channel === 'kernel:event') kernelEvents.push(...([payload].flat() as never[]))
+        rendererSend(channel, payload)
+      },
+    },
   }
   const bus = await import('../../kernel/kernelBus')
   bus.setKernelEventWindow(fakeWindow as never)
@@ -144,6 +158,8 @@ afterAll(async () => {
 beforeEach(() => {
   bodies = []
   toolCall = null
+  finalChunkExtra = {}
+  kernelEvents = []
   rendererSend = () => {}
 })
 
@@ -577,6 +593,105 @@ describe('the Assistant preset in a Session', () => {
       )
 
       expect(imageParts(bodies[0])).toEqual([])
+    }, 30000)
+  })
+
+  describe('turn footer', () => {
+    function answerMetadata(turnId: string): Record<string, unknown> {
+      return Object.assign(
+        {},
+        ...kernelEvents
+          .filter((event) => event.type === 'agent-chunk' && event.turnId === turnId)
+          .map((event) => (event.chunk?.messageMetadata ?? {}) as Record<string, unknown>),
+      )
+    }
+
+    it("stamps the answer with llama.cpp's own timings for that turn", async () => {
+      const session = await sessions.createSession()
+      finalChunkExtra = {
+        timings: {
+          cache_n: 3,
+          prompt_n: 120,
+          prompt_ms: 400,
+          prompt_per_token_ms: 3.33,
+          prompt_per_second: 300,
+          predicted_n: 50,
+          predicted_ms: 2000,
+          predicted_per_token_ms: 40,
+          predicted_per_second: 25,
+        },
+      }
+
+      await manager.startAgentTurn('t1', 'why is the sky blue?', await assistantConfig(session.id))
+
+      expect(answerMetadata('t1')).toMatchObject({
+        harnessTurnId: 't1',
+        timings: { predicted_n: 50, predicted_per_second: 25, prompt_ms: 400 },
+      })
+    }, 30000)
+
+    it('measures the timings from outside when the backend sends only usage', async () => {
+      const session = await sessions.createSession()
+      finalChunkExtra = { usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 } }
+
+      await manager.startAgentTurn('t1', 'why is the sky blue?', await assistantConfig(session.id))
+
+      const timings = answerMetadata('t1').timings as Record<string, number>
+      expect(timings).toMatchObject({ predicted_n: 20, prompt_n: 80 })
+      expect(timings.prompt_ms).toBeGreaterThanOrEqual(0)
+      expect(Number.isFinite(timings.predicted_per_second)).toBe(true)
+    }, 30000)
+
+    it('takes a deleted turn out of the timeline and out of what later turns see', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      await manager.startAgentTurn('t2', 'and the word pear', config)
+      const tag = { agentTurn: { presetName: 'Assistant', harnessSessionId: config.sessionId } }
+      await timeline.upsertTimelineMessages(session.id, [
+        { id: 'u1', role: 'user', parts: [], metadata: tag },
+        { id: 'a1', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't1' } },
+        { id: 'u2', role: 'user', parts: [], metadata: tag },
+        { id: 'a2', role: 'assistant', parts: [], metadata: { ...tag, harnessTurnId: 't2' } },
+      ] as never)
+
+      expect(
+        await manager.deleteAgentTurns({
+          sessionRef: session.id,
+          harnessSessionId: config.sessionId,
+          turnIds: ['t1'],
+          messageIds: ['u1', 'a1'],
+        }),
+      ).toEqual({ success: true })
+      await manager.startAgentTurn('t3', 'which words?', config)
+
+      const lastRequest = transcriptText(bodies.at(-1))
+      expect(lastRequest).not.toContain('plum')
+      expect(lastRequest).not.toContain('reply 1')
+      expect(lastRequest).toContain('and the word pear')
+      expect(lastRequest).toContain('reply 2')
+      const ids = (await sessions.readSession(session.id)).timeline.map(
+        (message) => (message as { id: string }).id,
+      )
+      expect(ids).toEqual(['u2', 'a2'])
+    }, 30000)
+
+    it('deletes a turn of a Harness Session that is no longer the live one', async () => {
+      const first = await sessions.createSession()
+      const config = await assistantConfig(first.id)
+      await manager.startAgentTurn('t1', 'remember the word plum', config)
+      const other = await sessions.createSession()
+      await manager.startAgentTurn('o1', 'something else', await assistantConfig(other.id))
+
+      await manager.deleteAgentTurns({
+        sessionRef: first.id,
+        harnessSessionId: config.sessionId,
+        turnIds: ['t1'],
+        messageIds: [],
+      })
+      await manager.startAgentTurn('t2', 'which word?', config)
+
+      expect(transcriptText(bodies.at(-1))).not.toContain('plum')
     }, 30000)
   })
 

@@ -30,7 +30,13 @@ import {
   type GenerationFailure,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
-import { agentFooter, audioFooter, chatAnswerFooter, noFooter } from '@/lib/turnFooter'
+import {
+  agentFooter,
+  audioFooter,
+  chatAnswerFooter,
+  harnessTurnIds,
+  noFooter,
+} from '@/lib/turnFooter'
 import { agentTurnHasChatAffordances } from '@/lib/chatAffordances'
 import type { LatestTurn } from '@/lib/agentComposer'
 import { modelDisplayName } from '@/lib/turnText'
@@ -39,6 +45,7 @@ import type {
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
+  HarnessTurnRef,
   ArtifactKind,
   LiveAgentTurn,
   LiveChatStatus,
@@ -360,14 +367,25 @@ function withAnswers(
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
     if (turn.kind === 'agent') {
-      const speak = agentTurnHasChatAffordances(turn.presetName)
       turn.footer = agentFooter(
         resultText(turn),
-        speak ? { messageId: turn.answers.at(-1)?.id } : undefined,
+        agentTurnHasChatAffordances(turn.presetName)
+          ? { answer: turn.answers.at(-1), harnessTurn: harnessTurnOf(turn) }
+          : undefined,
       )
     }
   }
   return turns
+}
+
+/** An Agent Run's Steps live in a Harness Session of their own, which Delete leaves alone. */
+function harnessTurnOf(turn: AgentTurn): HarnessTurnRef | undefined {
+  if (turn.runKey) return undefined
+  return {
+    harnessSessionId: turn.harnessSessionId,
+    messageIds: [...(turn.prompt ? [turn.id] : []), ...turn.answers.map((answer) => answer.id)],
+    turnIds: harnessTurnIds(turn.answers),
+  }
 }
 
 function resultText(turn: AgentTurn): string {

@@ -68,7 +68,7 @@ import {
 } from '@/types/agentCapabilities'
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
-import type { LiveAgentTurn } from '@/lib/turnTypes'
+import type { HarnessTurnRef, LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
 import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
@@ -1673,6 +1673,39 @@ export const useAgentMode = defineStore(
       )
     }
 
+    /** Delete takes a turn out of what the model sees next, not only out of the timeline. */
+    async function deleteTurns(ref: HarnessTurnRef): Promise<void> {
+      const id = ref.harnessSessionId
+      const sessionRef = harnessSessionRefs[id] ?? sessions.value[id]?.sessionRef
+      const result = await window.electronAPI.agentMode.deleteTurns({
+        ...(sessionRef ? { sessionRef } : {}),
+        harnessSessionId: id,
+        turnIds: ref.turnIds,
+        messageIds: ref.messageIds,
+      })
+      if (!result.success) {
+        errors.report(new Error(result.error ?? 'Failed to delete the message.'), {
+          category: 'unknown',
+          code: 'agent/delete-turn-failed',
+          userMessage: result.error ?? 'Failed to delete the message.',
+        })
+        return
+      }
+      const removed = new Set(ref.messageIds)
+      const runtime = turns.runtimeOf(id)
+      if (runtime) {
+        runtime.chat.messages = runtime.chat.messages.filter((message) => !removed.has(message.id))
+      }
+      const record = sessions.value[id]
+      if (record) {
+        rewriteSession(id, {
+          ...record,
+          messages: record.messages.filter((message) => !removed.has(message.id)),
+        })
+      }
+      if (sessionRef) sessionsStore.forgetTimelineMessages(sessionRef, ref.messageIds)
+    }
+
     async function deleteSession(id: string): Promise<void> {
       // The stop below is the delete's, not the desktop taking over a Held Answer.
       deletingSessions.add(id)
@@ -2134,6 +2167,7 @@ export const useAgentMode = defineStore(
     }
 
     return {
+      deleteTurns,
       workspaceDir,
       agentPresetName,
       activeAgentPreset,

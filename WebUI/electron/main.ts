@@ -107,6 +107,7 @@ import {
 import {
   cancelAgentTurn,
   deleteAgentSession,
+  deleteAgentTurns,
   listAgentCapabilities,
   openAgentTurnSessionIds,
   resetAgentSession,
@@ -1902,6 +1903,7 @@ function initEventHandle() {
       cancelAgentTurn,
       resetAgentSession,
       deleteAgentSession,
+      deleteAgentTurns,
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,

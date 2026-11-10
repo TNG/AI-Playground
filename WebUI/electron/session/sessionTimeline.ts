@@ -32,3 +32,16 @@ export async function upsertTimelineMessages(
   })
   return file.timeline
 }
+
+/** Takes deleted display messages out of a Session's timeline. */
+export async function removeTimelineMessages(
+  sessionId: string,
+  messageIds: string[],
+): Promise<unknown[]> {
+  const removed = new Set(messageIds)
+  const file = await mutateSession(sessionId, (current) => ({
+    ...current,
+    timeline: current.timeline.filter((message) => !removed.has(idOf(message) ?? '')),
+  }))
+  return file.timeline
+}

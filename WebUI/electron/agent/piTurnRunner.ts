@@ -67,6 +67,10 @@ import {
   setTurnChatBackendLoad,
 } from '../chat/chatReadiness.ts'
 import { turnAttachments } from './workspaceAttachments.ts'
+import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
+import { markHarnessTurn } from './harnessTurns.ts'
+import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
+import type { LlamaCppTimings } from '../chat/turnEngine.ts'
 import { documentsLine } from './sessionDocuments.ts'
 
 const logger = appLoggerInstance
@@ -183,6 +187,18 @@ function logEvent(event: AgentSessionEvent): void {
     default:
       break
   }
+}
+
+/** What the answer's metrics footer shows; a cloud turn ran on someone else's card. */
+function answerMetrics(
+  config: AgentModeTurnConfig,
+  calls: LlamaCppTimings[],
+  startedAt: number,
+): Pick<TurnSummary, 'timings' | 'compute'> {
+  const timings = turnTimings(calls)
+  if (config.modelConfig.source === 'cloud') return timings ? { timings } : {}
+  const compute = computeWindowSince(startedAt, config.modelConfig.deviceName)
+  return { ...(timings ? { timings } : {}), compute }
 }
 
 /** Usage + context occupancy at this moment, read off the live session. */
@@ -423,6 +439,7 @@ export async function startAgentTurn(
   const translator = createStreamTranslator({
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
     model: config.readiness?.llmModelName ?? config.modelConfig.model,
+    turnId,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
@@ -504,6 +521,9 @@ export async function startAgentTurn(
       translator.update(summary)
     }
     const planning = watchPlanningPhase(current)
+    markHarnessTurn(current.session, turnId)
+    const calls: LlamaCppTimings[] = []
+    const startedAt = Date.now()
     turn.onEvent = (event) => {
       if (verbose) logEvent(event)
       planning.onEvent(event)
@@ -522,40 +542,45 @@ export async function startAgentTurn(
         const failure = modelCallError(current.session)
         if (failure) throw new Error(failure)
       }
-      const note = current.mountedFoldersNote
-      const withUpdate = await withSessionUpdate(prompt, config, current.replayedEntryIds)
-      const { images } = turnAttachments(
-        current.workspaceDir,
-        prompt,
-        config.modelConfig.supportsVision === true,
-      )
-      const documents = current.documentSearch ? documentsLine(current.workspaceDir) : ''
-      const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
-      await current.session.prompt(text, { images })
-      if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
-      failIfModelErrored()
-      // A session that plans first has only been asked for the plan so far; the
-      // build is a second request, sent from here rather than by the user.
-      if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+      await collectAgentCallTimings(calls, async () => {
+        const note = current.mountedFoldersNote
+        const withUpdate = await withSessionUpdate(prompt, config, current.replayedEntryIds)
+        const { images } = turnAttachments(
+          current.workspaceDir,
+          prompt,
+          config.modelConfig.supportsVision === true,
+        )
+        const documents = current.documentSearch ? documentsLine(current.workspaceDir) : ''
+        const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
+        await current.session.prompt(text, { images })
+        if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
         failIfModelErrored()
-      }
-      const stalled = () =>
-        !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
-      if (stalled()) {
-        logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
-        await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
-        failIfModelErrored()
-        if (stalled()) {
-          translator.notice(
-            'The model ended its turn without an answer and without running a tool, and did not ' +
-              'pick the task back up when asked to continue. Send a message to carry on.',
-          )
+        // A session that plans first has only been asked for the plan so far; the
+        // build is a second request, sent from here rather than by the user.
+        if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+          failIfModelErrored()
         }
-      }
+        const stalled = () =>
+          !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
+        if (stalled()) {
+          logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
+          await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
+          failIfModelErrored()
+          if (stalled()) {
+            translator.notice(
+              'The model ended its turn without an answer and without running a tool, and did not ' +
+                'pick the task back up when asked to continue. Send a message to carry on.',
+            )
+          }
+        }
+      })
     } finally {
       abortController.signal.removeEventListener('abort', onAbort)
     }
-    translator.finish(turnSummary(current.session))
+    translator.finish({
+      ...turnSummary(current.session),
+      ...answerMetrics(config, calls, startedAt),
+    })
     reply = finalReplyText(current.session)
     savePointer({
       sessionId: current.sessionId,

@@ -1391,38 +1391,80 @@ describe('the footer of every Turn', () => {
     expect(items[0]).toMatchObject({ footer: { metrics: { timings } } })
   })
 
-  it('carries no metrics on an agent Turn', () => {
+  it('carries no metrics on a Game Agent Turn', () => {
+    const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
     const answer = {
-      ...agentMessage('a1', 'assistant', 'built it'),
-      metadata: { agentTurn, timings },
+      id: 'a1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'built it' }],
+      metadata: { agentTurn: gameTurn, timings },
     }
-    const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game'), answer], {})
+    const items = sessionTimelineItems([answer], {})
 
     expect(items[0]).toMatchObject({ footer: { text: 'built it' } })
     expect(items[0]).not.toHaveProperty('footer.metrics')
   })
 
-  it('offers Copy and Speak of its answer on an Assistant Turn', () => {
-    const assistantTurn = { presetName: 'Assistant', harnessSessionId: 'aipg-agent-2' }
-    const answer = {
-      id: 'a1',
-      role: 'assistant',
-      parts: [{ type: 'text', text: 'The sky scatters blue light.' }],
-      metadata: { agentTurn: assistantTurn },
+  const assistantTurn = { presetName: 'Assistant', harnessSessionId: 'aipg-agent-2' }
+  function assistantMessage(id: string, role: 'user' | 'assistant', text: string, meta = {}) {
+    return {
+      id,
+      role,
+      parts: [{ type: 'text', text }],
+      metadata: { agentTurn: assistantTurn, ...meta },
     }
-    const prompt = { ...answer, id: 'u1', role: 'user', parts: [{ type: 'text', text: 'why?' }] }
-    const items = sessionTimelineItems([prompt, answer], {})
+  }
+
+  it('offers Copy, Speak and Delete of its answer on an Assistant Turn', () => {
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'The sky scatters blue light.', {
+          harnessTurnId: 't1',
+        }),
+      ],
+      {},
+    )
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak'],
+        actions: ['copy', 'speak', 'delete'],
         text: 'The sky scatters blue light.',
         messageId: 'a1',
+        harnessTurn: {
+          harnessSessionId: 'aipg-agent-2',
+          messageIds: ['u1', 'a1'],
+          turnIds: ['t1'],
+        },
       },
     })
   })
 
-  it('offers no Speak on a Game Agent Turn', () => {
+  it("carries an Assistant answer's metrics and memory peaks", () => {
+    const compute = { gpuMemPeakMiB: 5120 }
+    const items = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue light.', { timings, compute }),
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({ footer: { metrics: { timings, compute } } })
+  })
+
+  it('offers Delete on an Assistant Turn that ended before it wrote anything', () => {
+    const items = sessionTimelineItems([assistantMessage('u1', 'user', 'why?')], {})
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['delete'],
+        harnessTurn: { harnessSessionId: 'aipg-agent-2', messageIds: ['u1'], turnIds: [] },
+      },
+    })
+  })
+
+  it('offers no Speak and no Delete on a Game Agent Turn', () => {
     const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
     const answer = {
       id: 'a1',
@@ -1433,6 +1475,7 @@ describe('the footer of every Turn', () => {
     const items = sessionTimelineItems([answer], {})
 
     expect(actionsOf(items[0])).toEqual(['copy'])
+    expect(items[0]).not.toHaveProperty('footer.harnessTurn')
   })
 
   it('offers no Copy on an Agent Preset Turn still streaming its answer', () => {
@@ -1456,12 +1499,17 @@ describe('the footer of every Turn', () => {
     const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game'), answer], {})
 
     expect(items[0]).toMatchObject({
-      footer: { actions: ['copy', 'speak'], text: 'Let me look.\n\nbuilt it' },
+      footer: { actions: ['copy', 'speak', 'delete'], text: 'Let me look.\n\nbuilt it' },
     })
   })
 
-  it('offers nothing on an Agent Preset Turn with no text yet', () => {
-    const items = sessionTimelineItems([agentMessage('u1', 'user', 'make a game')], {})
+  it('offers nothing on a Game Agent Turn with no text yet', () => {
+    const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
+    const prompt = {
+      ...agentMessage('u1', 'user', 'make a game'),
+      metadata: { agentTurn: gameTurn },
+    }
+    const items = sessionTimelineItems([prompt], {})
 
     expect(actionsOf(items[0])).toEqual([])
   })

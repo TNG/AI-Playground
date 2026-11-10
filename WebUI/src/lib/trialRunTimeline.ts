@@ -39,6 +39,11 @@ export function trialRunItems<
   let step = 0
   let lastStep: SessionTimelineItem<M, A> | undefined
   for (const item of items) {
+    // A Trial Run is the Agent Library's, not a Session's: nothing of it can be deleted alone.
+    if (item.kind === 'agent' && item.footer.harnessTurn) {
+      const { harnessTurn: _turn, ...footer } = item.footer
+      item.footer = { ...footer, actions: footer.actions.filter((action) => action !== 'delete') }
+    }
     if (item.kind !== 'agent' || !item.prompt || followUps.has(item.id)) continue
     step++
     item.prompt = { ...item.prompt, step }

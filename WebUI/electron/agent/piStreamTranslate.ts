@@ -1,4 +1,6 @@
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
+import type { LlamaCppTimings } from '../chat/turnEngine.ts'
+import type { ComputeWindowStats } from '@/types/computeMetrics'
 
 // ── Pi event stream → AI SDK UI message chunks ───────────────────────────────
 //
@@ -57,6 +59,9 @@ export type TurnSummary = {
   usage?: UsageTotals
   contextUsage?: ContextUsageSnapshot
   lastStep?: StepUsage
+  /** The turn's speeds, in the shape the chat metrics footer reads. */
+  timings?: LlamaCppTimings
+  compute?: ComputeWindowStats
 }
 
 /** A chunk of the AI SDK UI message stream. Shape-checked by the renderer. */
@@ -69,6 +74,8 @@ export type StreamTranslatorOptions = {
   /** Clock for reasoning durations; injectable so tests can pin them. */
   now?: () => number
   model?: string
+  /** Stamped on the answer, so Delete can find this turn in the Harness Session. */
+  turnId?: string
 }
 
 export type StreamTranslator = {
@@ -166,9 +173,13 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
   function ensureStarted(): void {
     if (started) return
     started = true
+    const metadata = {
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.turnId ? { harnessTurnId: options.turnId } : {}),
+    }
     emit(
-      options.model
-        ? { type: 'start', messageMetadata: { model: options.model } }
+      Object.keys(metadata).length > 0
+        ? { type: 'start', messageMetadata: metadata }
         : { type: 'start' },
     )
   }

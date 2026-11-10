@@ -5,7 +5,6 @@ import { piAgentDir } from './piSessionStore.ts'
 import { localBaseUrl } from './piLocalEndpoint.ts'
 import { observeAgentModelCalls, trackAgentModelCalls } from './piCallTiming.ts'
 import { cloudReasoningRegistration } from './piCloudReasoning.ts'
-import { laminarConfig } from '../observability/laminar.ts'
 import { type InferenceTraceContext } from '../observability/laminarAttributes.ts'
 import type { AgentModeModelConfig } from '@/types/agentIpc'
 import { outputTokenBudget } from './piCompaction.ts'
@@ -70,7 +69,7 @@ export async function registerModel(
       ],
     })
     await runtime.setRuntimeApiKey(LOCAL_PROVIDER, 'unused')
-    observeModelCallsWhenTracing(() => localBaseUrl(config))
+    observeAgentModelCalls(() => localBaseUrl(config))
     trackAgentModelCalls(() => localBaseUrl(config))
     return { provider: LOCAL_PROVIDER, modelId: config.model }
   }
@@ -109,12 +108,8 @@ export async function registerModel(
     ],
   })
   await runtime.setRuntimeApiKey(CLOUD_PROVIDER, apiKey)
-  observeModelCallsWhenTracing(() => apiBase)
+  observeAgentModelCalls(() => apiBase)
   return { provider: CLOUD_PROVIDER, modelId: config.model }
-}
-
-function observeModelCallsWhenTracing(endpoint: () => string): void {
-  if (laminarConfig()) observeAgentModelCalls(endpoint)
 }
 
 export function traceContext(
@@ -145,14 +140,14 @@ export function traceContext(
 
 /**
  * A private copy of the turn's sampling, deep enough that switching thinking off
- * cannot reach back into the caller's config object. A traced llama.cpp turn also
- * asks the server to report its own timings, the way chat always does.
+ * cannot reach back into the caller's config object. A llama.cpp turn also asks the
+ * server to report its own timings, the way chat does.
  */
 export function copySamplingParams(
   params: Record<string, unknown> | undefined,
   backend: 'llamaCPP' | 'openVINO' | undefined,
 ): Record<string, unknown> | undefined {
-  const timings = backend === 'llamaCPP' && laminarConfig() ? { timings_per_token: true } : {}
+  const timings = backend === 'llamaCPP' ? { timings_per_token: true } : {}
   if (!params) return Object.keys(timings).length > 0 ? timings : undefined
   const kwargs = params.chat_template_kwargs
   return {

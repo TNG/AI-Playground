@@ -1,6 +1,7 @@
 import type {
   AgentCapabilityInfo,
   AgentModeTurnConfig,
+  DeleteAgentTurnsRequest,
   AgentToolExecuteRequest,
   AgentToolSpec,
   ArcadeCatalogEntry,
@@ -477,6 +478,13 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete Assistant turns from their Harness Session and the Session's timeline. */
+  'agentMode:deleteTurns': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [DeleteAgentTurnsRequest],
     result: null as unknown as IpcMutationResult,
   },
   /** Hydrate the session-panel records once before mount: session files plus the active id. */

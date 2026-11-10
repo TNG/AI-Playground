@@ -38,11 +38,15 @@ export type InferenceForTurn = {
   getCurrentDeviceId: () => string | null | undefined
   getCurrentDeviceName: () => string | null | undefined
   contextSize?: number
-  activeLlmModel?: {
-    llamaCppArgs?: string
-    supportsToolCalling?: boolean
-    supportsAgentic?: boolean
-  } | null
+  /** Required so a source without it fails to compile instead of silently granting no tools. */
+  activeLlmModel:
+    | {
+        llamaCppArgs?: string
+        supportsToolCalling?: boolean
+        supportsAgentic?: boolean
+      }
+    | null
+    | undefined
   /** Downloaded embedding model + the local backend that serves it (rag capability). */
   embeddingBackend: 'llamaCPP' | 'openVINO'
   activeEmbeddingModel?: string | null

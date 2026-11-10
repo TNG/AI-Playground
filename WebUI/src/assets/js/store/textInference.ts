@@ -2215,6 +2215,7 @@ export const useTextInference = defineStore(
       inferenceForSettings,
       backend,
       activeModel,
+      activeLlmModel,
       selectedModels,
       loadedInferenceProfile,
       applyInferenceProfile,

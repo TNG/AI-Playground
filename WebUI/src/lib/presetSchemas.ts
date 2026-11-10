@@ -227,7 +227,7 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // 'game-studio', 'memory', `mcp:<serverId>`). When set, it replaces the user's
   // default selection for sessions started under this preset.
   agentCapabilities: z.array(z.string()).optional(),
-  // Where the agent works: 'pick' (the default; no picker any more) is the open Session's
+  // Where the agent works: 'pick' (the default) is the open Session's
   // folder, reaching others as Mounted Folders; 'games' has the app provision a folder per
   // game under the games library.
   agentWorkspace: z.enum(['pick', 'games']).optional(),

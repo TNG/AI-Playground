@@ -1574,9 +1574,8 @@ export const useAgentMode = defineStore(
         sessionCapabilities.value = null
         if (target.workspaceDir) {
           workspaceDir.value = target.workspaceDir
-          lastWorkspaceByKind.value = {
-            ...lastWorkspaceByKind.value,
-            [agentWorkspaceKind.value]: target.workspaceDir,
+          if (agentWorkspaceKind.value === 'games') {
+            lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: target.workspaceDir }
           }
         }
         restoreOpenSession()

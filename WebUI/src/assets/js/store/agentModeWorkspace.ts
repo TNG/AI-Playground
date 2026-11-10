@@ -184,22 +184,16 @@ export function createUnsandboxedWorkspaces(workspaceDir: Ref<string>) {
   return { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed }
 }
 
-/**
- * Hand a workspace that is not a game back to the Agent preset it came from,
- * whenever Game Agent is the one holding it.
- */
+/** A games preset holding a folder that is not a game goes back to its last game. */
 export async function reconcileGamesWorkspace(options: {
   kind: 'pick' | 'games'
   workspaceDir: string
   lastGamesDir: string
-}): Promise<{ workspaceDir: string; pickDir?: string } | null> {
+}): Promise<{ workspaceDir: string } | null> {
   if (options.kind !== 'games') return null
   if (!options.workspaceDir) return null
   if (await isGameFolder(options.workspaceDir)) return null
-  return {
-    workspaceDir: options.lastGamesDir ?? '',
-    pickDir: options.workspaceDir,
-  }
+  return { workspaceDir: options.lastGamesDir ?? '' }
 }
 
 export type { GameLibraryEntry }

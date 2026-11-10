@@ -694,6 +694,217 @@ describe('a Trial Run', () => {
   })
 })
 
+/** Run the Agent's Trial Run of one Step to its end; its Harness Session. */
+async function trialToEnd(
+  trials: ReturnType<typeof useAgentTrialRuns>,
+  agentId: string,
+  call: number,
+): Promise<string> {
+  await trials.startTrialRun(agentId)
+  await finishTurn(call)
+  await vi.waitFor(() => expect(trials.trialRuns[agentId]?.state).toBe('completed'))
+  return trials.trialRuns[agentId].harnessSessionId
+}
+
+/** Send a Follow-up to the Agent's Trial Run and let it finish. */
+async function followUpToEnd(
+  trials: ReturnType<typeof useAgentTrialRuns>,
+  agentId: string,
+  prompt: string,
+  call: number,
+): Promise<void> {
+  expect(await trials.followUpTrialRun(agentId, prompt)).toEqual({ ok: true })
+  await finishTurn(call)
+  await settleMicrotasks()
+}
+
+describe('a Follow-up to a Trial Run', () => {
+  it('continues the Trial Run’s Harness Session, on the Draft as the run started', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks, trials } = await readyStores()
+    const trial = await trialToEnd(trials, 't1', 0)
+    await tasks.editDraftSettings('t1', { model: 'Edited-4B' })
+
+    expect(await trials.followUpTrialRun('t1', 'why that answer?')).toEqual({ ok: true })
+
+    await turnIdOf(1)
+    expect(sentPrompts()[1]).toBe('why that answer?')
+    expect(sentConfig(1)).toMatchObject({
+      sessionId: trial,
+      capabilities: ['files', 'web'],
+      modelConfig: { model: 'Template-27B' },
+      followUp: { agentId: 't1', agentName: 'Draft t1' },
+    })
+    expect(sentConfig(1).sessionRef).toBeUndefined()
+    expect(sentConfig(1).taskRun).toBeUndefined()
+  })
+
+  it('continues after a Follow-up in the same Harness Session', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    const trial = await trialToEnd(trials, 't1', 0)
+    await followUpToEnd(trials, 't1', 'first', 1)
+
+    expect(await trials.followUpTrialRun('t1', 'second')).toEqual({ ok: true })
+
+    await turnIdOf(2)
+    expect(sentConfig(2).sessionId).toBe(trial)
+  })
+
+  it('is refused before the Agent had a Trial Run, starting nothing', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+
+    expect(await trials.followUpTrialRun('t1', 'hello')).toMatchObject({
+      ok: false,
+      reason: 'never-run',
+    })
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(window.electronAPI.agentMode.trialRunHarness).not.toHaveBeenCalled()
+  })
+
+  it('is refused while the Trial Run is still running', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
+    await turnIdOf(0)
+
+    expect(await trials.followUpTrialRun('t1', 'hello')).toEqual({ ok: false, reason: 'running' })
+  })
+
+  it('keeps the Trial Run in flight while it runs, and Stop stops it', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    const trial = await trialToEnd(trials, 't1', 0)
+    await trials.followUpTrialRun('t1', 'why?')
+    const turnId = await turnIdOf(1)
+
+    await vi.waitFor(() => expect(trials.trialRunInFlight('t1')).toBe(true))
+    await trials.stopTrialRun('t1')
+
+    expect(window.electronAPI.agentMode.cancel).toHaveBeenCalledWith(trial, turnId)
+    expect(trials.trialRunInFlight('t1')).toBe(false)
+    expect(trials.trialRuns.t1.state).toBe('completed')
+  })
+
+  it('shows as a plain prompt after the Steps, not as another Step', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    await trialToEnd(trials, 't1', 0)
+    await followUpToEnd(trials, 't1', 'why?', 1)
+
+    const items = trialRunItems(trials.trialRunView('t1')!)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ prompt: { step: 1 } })
+    expect(items[1]).toMatchObject({ prompt: { text: 'why?' } })
+    expect(items[1].kind === 'agent' && items[1].prompt?.step).toBeUndefined()
+  })
+
+  it('is thrown away with its Trial Run when the next Trial Run starts', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { agentMode, trials } = await readyStores()
+    const previous = await trialToEnd(trials, 't1', 0)
+    await followUpToEnd(trials, 't1', 'why?', 1)
+
+    const next = await trialToEnd(trials, 't1', 2)
+
+    expect(next).not.toBe(previous)
+    expect(agentMode.sessions[previous]).toBeUndefined()
+    expect(window.electronAPI.agentMode.deleteSession).toHaveBeenCalledWith(previous)
+    const prompts = trialRunItems(trials.trialRunView('t1')!).map((item) =>
+      item.kind === 'agent' ? item.prompt?.text : undefined,
+    )
+    expect(prompts).not.toContain('why?')
+
+    await trials.followUpTrialRun('t1', 'and now?')
+    await turnIdOf(3)
+    expect(sentConfig(3).sessionId).toBe(next)
+  })
+})
+
+describe('the Trial Run composer', () => {
+  it('makes Run primary with Send disabled before any Trial Run', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+
+    expect(trials.trialComposer('t1')).toEqual({
+      primary: 'run',
+      sendEnabled: false,
+      reason: 'never-run',
+    })
+  })
+
+  it('makes Send primary once the Trial Run ran, and after its Follow-ups', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    await trialToEnd(trials, 't1', 0)
+    expect(trials.trialComposer('t1')).toEqual({ primary: 'send', sendEnabled: true })
+
+    await followUpToEnd(trials, 't1', 'why?', 1)
+    expect(trials.trialComposer('t1')).toEqual({ primary: 'send', sendEnabled: true })
+  })
+
+  it('makes Run primary once the Draft is edited after the run started, Send still enabled', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks, trials } = await readyStores()
+    await trialToEnd(trials, 't1', 0)
+    await settleMicrotasks()
+
+    await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'changed' }] })
+
+    expect(trials.trialComposer('t1')).toEqual({
+      primary: 'run',
+      sendEnabled: true,
+      reason: 'agent-edited',
+    })
+  })
+
+  it('keeps Send primary when the Draft the run used is saved after it', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks, trials } = await readyStores(task('t1', ['saved step']))
+    await trialToEnd(trials, 't1', 0)
+    await settleMicrotasks()
+
+    expect(await tasks.saveAgentDraft('t1')).toMatchObject({ ok: true })
+
+    expect(trials.trialComposer('t1')).toEqual({ primary: 'send', sendEnabled: true })
+  })
+
+  it('keeps Send primary when a Draft edit is undone', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks, trials } = await readyStores()
+    await trialToEnd(trials, 't1', 0)
+    await settleMicrotasks()
+
+    await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'changed' }] })
+    await tasks.editDraft('t1', { steps: [{ id: 'x', prompt: 'one' }] })
+
+    expect(trials.trialComposer('t1')).toEqual({ primary: 'send', sendEnabled: true })
+  })
+
+  it('makes Run primary when discarding the Draft leaves a different saved Agent', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks, trials } = await readyStores(task('t1', ['saved step']))
+    await trialToEnd(trials, 't1', 0)
+    await settleMicrotasks()
+
+    await tasks.discardAgentDraft('t1')
+
+    expect(trials.trialComposer('t1')).toMatchObject({ primary: 'run', reason: 'agent-edited' })
+  })
+
+  it('makes Send primary after a stopped Trial Run', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
+    await turnIdOf(0)
+    await trials.stopTrialRun('t1')
+
+    expect(trials.trialComposer('t1')).toEqual({ primary: 'send', sendEnabled: true })
+  })
+})
+
 const lastReport = () => reportInFlightWork.mock.calls.at(-1)?.[0] ?? []
 const trialWork = () => lastReport().filter((item) => item.kind === 'trial-run')
 

@@ -1,7 +1,11 @@
 import z from 'zod'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
-import { AgentChatTagSchema, MountedFolderAccessSchema } from './agentSessionIpc'
+import {
+  AgentFollowUpTagSchema,
+  AgentRunTagSchema,
+  MountedFolderAccessSchema,
+} from './agentSessionIpc'
 
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
@@ -110,8 +114,10 @@ export const AgentModeTurnConfigSchema = z.object({
   answer: AgentAnswerOriginSchema.optional(),
   /** A Task Run's Step: no Session Update, no `session_history`, its entry tagged with the Task. */
   taskRun: z.object({ taskName: z.string(), stepIndex: z.number().int().positive() }).optional(),
-  /** The chat with a saved Agent: its History Entries are the Agent's, its Session Update too. */
-  agentChat: AgentChatTagSchema.optional(),
+  /** A Follow-up to a saved Agent's run: its History Entry is marked as the Agent's. */
+  followUp: AgentFollowUpTagSchema.optional(),
+  /** The run a Follow-up continues, whose Steps may predate its Session Update cursor. */
+  followedRun: AgentRunTagSchema.pick({ taskName: true, startedAt: true }).optional(),
 })
 
 export type AgentModeModelConfig = z.infer<typeof AgentModeModelConfigSchema>

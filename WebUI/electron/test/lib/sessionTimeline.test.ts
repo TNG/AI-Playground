@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ArtifactRunsState, ArtifactRunView } from '@/lib/artifactRunProjection'
 import {
   agentRunControls,
+  latestTurnOf,
   sessionTimelineItems,
   timelineTurns,
   withLiveAgentTurn,
@@ -114,6 +115,75 @@ describe('an Agent Run in the timeline', () => {
       id: 'r1',
       prompt: { text: '', agentRun: { trigger: 'manual', name: 'Morning digest', startedAt: 500 } },
       answers: [{ id: 'r2' }, { id: 'r4' }],
+    })
+  })
+
+  it('shows its Follow-ups as plain prompts to the Agent, apart from the run', () => {
+    const followUp = (id: string, text: string) => ({
+      ...runMessage(id, 'user', [{ type: 'text', text }]),
+      metadata: { agentTurn: runTag, followUp: { agentId: 't1', agentName: 'Morning digest' } },
+    })
+    const turns = timelineTurns([
+      runMessage('r1', 'user'),
+      runMessage('r2', 'assistant'),
+      followUp('f1', 'why that one?'),
+      runMessage('f2', 'assistant'),
+      followUp('f3', 'and the other?'),
+      runMessage('f4', 'assistant'),
+    ])
+
+    expect(turns).toMatchObject([
+      { id: 'r1', prompt: { agentRun: { name: 'Morning digest' } }, answers: [{ id: 'r2' }] },
+      {
+        kind: 'agent',
+        id: 'f1',
+        hint: { preset: 'Morning digest' },
+        prompt: { text: 'why that one?' },
+        answers: [{ id: 'f2' }],
+      },
+      { kind: 'agent', id: 'f3', prompt: { text: 'and the other?' }, answers: [{ id: 'f4' }] },
+    ])
+    expect(turns[1]).not.toHaveProperty('runKey')
+    expect(turns[1].kind === 'agent' && turns[1].prompt).not.toHaveProperty('agentRun')
+  })
+
+  describe('the latest turn, for the composer', () => {
+    it("is the run's Harness Session, named after its Agent, after a Step or a Follow-up", () => {
+      const followUp = {
+        ...runMessage('f1', 'user'),
+        metadata: { agentTurn: runTag, followUp: { agentId: 't1', agentName: 'Digest' } },
+      }
+      expect(latestTurnOf([runMessage('r1', 'user'), runMessage('r2', 'assistant')])).toEqual({
+        harnessSessionId: 'aipg-agent-run',
+        ranBy: 'Morning digest',
+      })
+      expect(latestTurnOf([runMessage('r1', 'user'), followUp])).toEqual({
+        harnessSessionId: 'aipg-agent-run',
+        ranBy: 'Digest',
+      })
+    })
+
+    it('is the media turn that ran after the run, with no Harness Session', () => {
+      expect(latestTurnOf([runMessage('r1', 'user'), mediaPrompt, mediaCard])).toEqual({
+        ranBy: 'Draft',
+      })
+    })
+
+    it('is another Agent Session that ran after the run', () => {
+      expect(latestTurnOf([runMessage('r1', 'user'), agentMessage('u1', 'user', 'hello')])).toEqual(
+        { harnessSessionId: 'aipg-agent-1', ranBy: 'Agent' },
+      )
+    })
+
+    it('names the Agent of a chat with it from before Follow-ups', () => {
+      const chatNames: Record<string, string> = { 'aipg-agent-1': 'Digest' }
+      const latest = latestTurnOf([agentMessage('u1', 'user', 'hello')], (id) => chatNames[id])
+
+      expect(latest).toEqual({ harnessSessionId: 'aipg-agent-1', ranBy: 'Digest' })
+    })
+
+    it('is nothing in an empty Session', () => {
+      expect(latestTurnOf([])).toBeUndefined()
     })
   })
 

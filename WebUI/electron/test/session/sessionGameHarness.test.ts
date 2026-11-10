@@ -149,6 +149,7 @@ describe("a game turn's History Entry", () => {
     const game = await makeGame('ships')
     const turn = trackAgentTurnInSession({
       sessionRef: session.id,
+      harnessSessionId: 'game-session',
       presetName: 'Game Agent',
       workspaceDir: game,
       prompt: 'draw the ship',

@@ -49,7 +49,7 @@ import {
   releaseSessionTurn,
   SESSION_BUSY_MESSAGE,
 } from '../session/sessionTurns.ts'
-import { takeSessionUpdate } from '../session/sessionUpdate.ts'
+import { skipSessionUpdate, takeSessionUpdate } from '../session/sessionUpdate.ts'
 import { noteAnswerTurn } from './notifier.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
@@ -350,16 +350,21 @@ const USAGE_SAMPLE_EVENTS = new Set([
 
 /** The Session Update rides on the user message only: the system prompt is the KV-cache prefix. */
 async function withSessionUpdate(prompt: string, config: AgentModeTurnConfig): Promise<string> {
-  if (!config.sessionRef || config.taskRun) return prompt
+  if (!config.sessionRef) return prompt
   try {
-    const agentId = config.agentChat?.agentId
-    const update = await takeSessionUpdate(config.sessionRef, {
+    const consumer = {
       key: config.sessionId,
-      ...(agentId
-        ? { isOwn: (entry) => entry.agentId === agentId && !entry.taskName }
-        : { ownPreset: config.presetName }),
+      harnessSessionId: config.sessionId,
+      ...(config.followUp ? {} : { ownPreset: config.presetName }),
+      ...(config.followedRun ? { run: config.followedRun } : {}),
       workspaceDir: config.workspaceDir,
-    })
+    }
+    // A run's Steps get none, but its Follow-ups must hear only what happened since.
+    if (config.taskRun) {
+      await skipSessionUpdate(config.sessionRef, consumer)
+      return prompt
+    }
+    const update = await takeSessionUpdate(config.sessionRef, consumer)
     return update ? `${update}\n\n${prompt}` : prompt
   } catch (error) {
     logger.warn(`no Session Update for this turn: ${briefly(error)}`, LOG_SOURCE)
@@ -402,7 +407,8 @@ export async function startAgentTurn(
         workspaceDir: config.workspaceDir,
         prompt,
         ...(config.taskRun ? { taskRun: config.taskRun } : {}),
-        ...(config.agentChat ? { agentChat: config.agentChat } : {}),
+        harnessSessionId: sessionId,
+        ...(config.followUp ? { followUp: config.followUp } : {}),
       })
     : null
   const translator = createStreamTranslator({

@@ -1,4 +1,4 @@
-import { sessionTimelineItems } from '@/lib/sessionTimeline'
+import { followUpAgentName, sessionTimelineItems } from '@/lib/sessionTimeline'
 import { generationFailure } from '@/lib/turnArtifacts'
 import type { PendingAudio, PendingMedia, RunProgress, SessionTimelineItem } from '@/lib/turnTypes'
 import type { AgentRunTag, AgentTurnTag } from '@/types/sessionTimeline'
@@ -15,7 +15,10 @@ export type TrialRunView = {
   progress?: RunProgress
 }
 
-/** A Trial Run as a conversation: one Turn per Step, its prompt as sent, labelled with the Step. */
+/**
+ * A Trial Run as a conversation: one Turn per Step, its prompt as sent, labelled with the Step,
+ * then its Follow-ups as plain prompts.
+ */
 export function trialRunItems<
   M extends PendingMedia = PendingMedia,
   A extends PendingAudio = PendingAudio,
@@ -28,14 +31,21 @@ export function trialRunItems<
   const items = sessionTimelineItems<M, A>(timeline, {
     agents: view.live ? [{ tag, messages: view.live, live: true }] : [],
   })
+  const followUps = new Set(
+    [...view.saved, ...(view.live ?? [])]
+      .filter((message) => followUpAgentName(message) !== undefined)
+      .map((message) => message.id),
+  )
   let step = 0
+  let lastStep: SessionTimelineItem<M, A> | undefined
   for (const item of items) {
-    if (item.kind !== 'agent' || !item.prompt) continue
+    if (item.kind !== 'agent' || !item.prompt || followUps.has(item.id)) continue
     step++
     item.prompt = { ...item.prompt, step }
+    lastStep = item
   }
   const end = view.taskRun.end
-  const last = items.at(-1)
+  const last = lastStep ?? items.at(-1)
   if (end && !view.progress && last?.kind === 'agent') {
     const state = end.kind === 'failed' ? 'failed' : 'cancelled'
     last.result = [

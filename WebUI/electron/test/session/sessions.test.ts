@@ -58,6 +58,7 @@ function entry(prompt: string) {
 async function settleAgentTurn(sessionRef: string, prompt: string) {
   const turn = trackAgentTurnInSession({
     sessionRef,
+    harnessSessionId: 'agent-session',
     presetName: 'Agent',
     workspaceDir: path.join(dirs.real, sessionRef, 'files'),
     prompt,

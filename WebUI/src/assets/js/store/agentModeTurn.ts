@@ -89,7 +89,8 @@ export async function buildTurnConfig(options: {
   /** A Task Run's Step: main gives it no Session Update and no `session_history`. */
   taskRun?: AgentModeTurnConfig['taskRun']
   workspaceDir: string
-  agentChat?: AgentModeTurnConfig['agentChat']
+  followUp?: AgentModeTurnConfig['followUp']
+  followedRun?: AgentModeTurnConfig['followedRun']
   presetName: string
   instructions: string
   capabilities: string[]
@@ -119,7 +120,8 @@ export async function buildTurnConfig(options: {
       sessionId: options.sessionId,
       ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
       ...(options.taskRun ? { taskRun: options.taskRun } : {}),
-      ...(options.agentChat ? { agentChat: options.agentChat } : {}),
+      ...(options.followUp ? { followUp: options.followUp } : {}),
+      ...(options.followedRun ? { followedRun: options.followedRun } : {}),
       workspaceDir: options.workspaceDir,
       modelConfig: {
         source: 'cloud',
@@ -158,7 +160,8 @@ export async function buildTurnConfig(options: {
     sessionId: options.sessionId,
     ...(options.sessionRef ? { sessionRef: options.sessionRef } : {}),
     ...(options.taskRun ? { taskRun: options.taskRun } : {}),
-    ...(options.agentChat ? { agentChat: options.agentChat } : {}),
+    ...(options.followUp ? { followUp: options.followUp } : {}),
+    ...(options.followedRun ? { followedRun: options.followedRun } : {}),
     workspaceDir: options.workspaceDir,
     modelConfig: {
       source: 'local',

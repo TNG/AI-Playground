@@ -46,7 +46,7 @@ export type AgentSessionRecord = {
   sessionRef?: string
   /** Set when this Harness Session is one Task Run of its Session. */
   taskRun?: AgentRunTag
-  /** Set when this Harness Session is the chat with a saved Agent in its Session. */
+  /** Set when this Harness Session is the chat with a saved Agent, from before Follow-ups. */
   agentChat?: AgentChatTag
 }
 

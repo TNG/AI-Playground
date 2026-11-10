@@ -346,7 +346,6 @@
   "PROMPT_BAR_MODE": "Modo",
   "PROMPT_BAR_PRESET": "Preajuste",
   "PROMPT_BAR_AGENT": "Agente",
-  "PROMPT_BAR_ASSISTANTS": "Asistentes",
   "PROMPT_BAR_OPEN_INFERENCING": "Abrir la configuración de Inferencing",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "Espere a que se complete el cambio de preajuste actual",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "Cambiado a {preset}",

@@ -346,7 +346,6 @@
   "PROMPT_BAR_MODE": "模式",
   "PROMPT_BAR_PRESET": "预设",
   "PROMPT_BAR_AGENT": "智能体",
-  "PROMPT_BAR_ASSISTANTS": "助手",
   "PROMPT_BAR_OPEN_INFERENCING": "打开 Inferencing 设置",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "请等待当前预设切换完成",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "已切换到 {preset}",

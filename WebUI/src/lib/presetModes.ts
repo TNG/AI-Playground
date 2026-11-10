@@ -1,5 +1,6 @@
 import { AUDIO_CATEGORY, type ChatPreset, type Preset } from '@/lib/presetSchemas'
 import { currentPresetName } from '@/lib/presetRenames'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 
 // ── Which view a preset belongs to ───────────────────────────────────────────
 //
@@ -34,6 +35,11 @@ export function presetToMode(preset: Preset): ModeType {
       // Default to imageGen for unknown categories
       return 'imageGen'
   }
+}
+
+/** The mode a preset is listed under: Assistant sits with Chat though it renders Agent Mode. */
+export function listModeFor(preset: Preset): ModeType {
+  return isHarnessChatPreset(preset.name) ? 'chat' : presetToMode(preset)
 }
 
 /**

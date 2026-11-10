@@ -34,8 +34,8 @@ export function usePromptBarAgentPick() {
   }
 
   /** Picking an Agent Preset puts it in place of the Session's picked Agent. */
-  async function pickPreset(name: string): Promise<void> {
-    if (!(await switchTo(name))) return
+  async function pickPreset(name: string, options: { announce?: boolean } = {}): Promise<void> {
+    if (!(await switchTo(name, options))) return
     const preset = presetsStore.presets.find((entry) => entry.name === name)
     if (preset && presetToMode(preset) === 'agent' && pickedAgentId.value) {
       await agentTasks.pickAgent(null)

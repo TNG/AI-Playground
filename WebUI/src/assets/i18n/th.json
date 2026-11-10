@@ -346,7 +346,6 @@
   "PROMPT_BAR_MODE": "โหมด",
   "PROMPT_BAR_PRESET": "พรีเซ็ต",
   "PROMPT_BAR_AGENT": "เอเจนต์",
-  "PROMPT_BAR_ASSISTANTS": "ผู้ช่วย",
   "PROMPT_BAR_OPEN_INFERENCING": "เปิดการตั้งค่า Inferencing",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "โปรดรอให้การเปลี่ยนพรีเซ็ตปัจจุบันเสร็จสิ้น",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "เปลี่ยนเป็น {preset} แล้ว",

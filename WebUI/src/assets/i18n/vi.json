@@ -346,7 +346,6 @@
   "PROMPT_BAR_MODE": "Chế độ",
   "PROMPT_BAR_PRESET": "Preset",
   "PROMPT_BAR_AGENT": "Tác tử",
-  "PROMPT_BAR_ASSISTANTS": "Trợ lý",
   "PROMPT_BAR_OPEN_INFERENCING": "Mở cài đặt Inferencing",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "Vui lòng đợi thay đổi preset hiện tại hoàn tất",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "Đã chuyển sang {preset}",

@@ -109,9 +109,6 @@
             align="start"
             class="z-[40010] min-w-48 flex flex-col max-h-[var(--reka-dropdown-menu-content-available-height)]"
           >
-            <DropdownMenuLabel v-if="bar.activeMode === 'agent'" class="text-xs">
-              {{ languages.PROMPT_BAR_ASSISTANTS }}
-            </DropdownMenuLabel>
             <DropdownMenuRadioGroup
               :model-value="pickedPresetName ?? ''"
               @update:model-value="(name) => pickPreset(name as string)"
@@ -202,7 +199,7 @@
                 </TooltipProvider>
               </DropdownMenuRadioGroup>
             </template>
-            <AgentLibraryMenuItems v-if="bar.activeMode === 'agent'" />
+            <AgentLibraryMenuItems v-if="bar.activeMode === AGENTS_MODE" />
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip v-else>
@@ -363,6 +360,7 @@ import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import {
+  AGENTS_MODE,
   agentList,
   promptBarModel,
   type HeaderChip,

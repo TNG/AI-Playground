@@ -346,7 +346,6 @@
   "PROMPT_BAR_MODE": "モード",
   "PROMPT_BAR_PRESET": "プリセット",
   "PROMPT_BAR_AGENT": "エージェント",
-  "PROMPT_BAR_ASSISTANTS": "アシスタント",
   "PROMPT_BAR_OPEN_INFERENCING": "Inferencing の設定を開く",
   "PROMPT_BAR_WAIT_FOR_PRESET_SWITCH": "現在のプリセット変更が完了するまでお待ちください",
   "PROMPT_BAR_SWITCHED_TO_PRESET": "{preset} に切り替えました",

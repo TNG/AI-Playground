@@ -212,10 +212,15 @@ describe('promptBarModel modes', () => {
   })
   const names = (presets: Preset[]) => presets.map((p) => p.name)
 
-  it('lists Agent Presets under Agent and never under Chat', () => {
-    const catalog = [chat('Assistant'), agent('Agent'), agent('Game Agent'), agent('Quick Coder')]
-    expect(names(presetsInMode(catalog, 'agent'))).toEqual(['Agent', 'Game Agent', 'Quick Coder'])
-    expect(names(presetsInMode(catalog, 'chat'))).toEqual(['Assistant'])
+  it('lists Assistant under Chat though it runs on the harness, the other harness presets under Agent', () => {
+    const catalog = [
+      chat('aiDAPTIV'),
+      agent('Assistant'),
+      agent('Game Agent'),
+      agent('Quick Coder'),
+    ]
+    expect(names(presetsInMode(catalog, 'agent'))).toEqual(['Game Agent', 'Quick Coder'])
+    expect(names(presetsInMode(catalog, 'chat'))).toEqual(['aiDAPTIV', 'Assistant'])
   })
 
   it('keeps aiDAPTIV, Home Agent chat and user chat presets under Chat', () => {
@@ -262,11 +267,12 @@ describe('promptBarModel modes', () => {
     ])
   })
 
-  it('selects the mode of the active preset, Agent for an Agent Preset', () => {
+  it('selects the mode the active preset is listed under', () => {
     const modeOf = (activePreset: Preset | null) =>
       promptBarModel(input({ activePreset })).activeMode
     expect(modeOf(agent('Game Agent'))).toBe('agent')
-    expect(modeOf(chat('Assistant'))).toBe('chat')
+    expect(modeOf(agent('Assistant'))).toBe('chat')
+    expect(modeOf(chat('aiDAPTIV'))).toBe('chat')
     expect(modeOf(image('Edit', 'edit-images'))).toBe('imageEdit')
     expect(modeOf(null)).toBeNull()
   })
@@ -295,15 +301,15 @@ describe('promptBarModel modes', () => {
     })
 
     it('falls back to the first preset when the last-used one left the catalog', () => {
-      expect(picks({ agent: ['Removed Agent'], chat: [null] })).toMatchObject({
-        agent: 'Assistant',
-        chat: 'Plain Chat',
+      expect(picks({ agent: ['Removed Agent'], chat: ['Removed Chat'] })).toMatchObject({
+        agent: 'Game Agent',
+        chat: 'Assistant',
       })
     })
 
-    it('falls back to Assistant for Agent mode, wherever it sits in the catalog', () => {
-      const reordered = [agent('Game Agent'), agent('Quick Coder'), agent('Assistant')]
-      expect(promptBarModel(input({ catalog: reordered })).modePicks.agent).toBe('Assistant')
+    it('falls back to Assistant for Chat mode, wherever it sits in the catalog', () => {
+      const reordered = [chat('Plain Chat'), agent('Game Agent'), agent('Assistant')]
+      expect(promptBarModel(input({ catalog: reordered })).modePicks.chat).toBe('Assistant')
     })
 
     it('never picks a gated preset, falling back to the mode’s first enabled one', () => {
@@ -336,8 +342,8 @@ describe('promptBarModel modes', () => {
 
     it('offers no pick for a mode without presets', () => {
       expect(picks({ video: ['Fast'] })).toEqual({
-        chat: 'Plain Chat',
-        agent: 'Assistant',
+        chat: 'Assistant',
+        agent: 'Game Agent',
         imageGen: 'Fast',
       })
     })
@@ -372,7 +378,6 @@ describe('promptBarModel preset picker', () => {
       }),
     )
     expect(presets).toEqual([
-      { name: 'Assistant', label: 'Assistant', image: 'Assistant.png', enabled: true },
       { name: 'Game Agent', label: 'Acer Game Agent', image: 'Game Agent.png', enabled: true },
       { name: 'Quick Coder', label: 'Quick Coder', image: 'Quick Coder.png', enabled: true },
     ])
@@ -392,6 +397,7 @@ describe('promptBarModel preset picker', () => {
       { name: 'Plain Chat', enabled: true, reason: undefined },
       { name: 'aiDAPTIV', enabled: true, reason: undefined },
       { name: 'Home Agent', enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' },
+      { name: 'Assistant', enabled: true, reason: undefined },
     ])
   })
 
@@ -407,15 +413,11 @@ describe('promptBarModel preset picker', () => {
     const draftOnly = { id: 'a-new', name: 'Unsaved idea', saved: false }
     const tidy = { id: 'a-tidy', name: 'Tidy downloads', saved: true }
 
-    it('come after the Agent Presets as their own group, saved Agents only', () => {
+    it('come after the agent presets as their own group, saved Agents only', () => {
       const model = promptBarModel(
-        input({ catalog, activePreset: assistant, agents: [digest, draftOnly, tidy] }),
+        input({ catalog, activePreset: gameAgent, agents: [digest, draftOnly, tidy] }),
       )
-      expect(model.presets.map((preset) => preset.name)).toEqual([
-        'Assistant',
-        'Game Agent',
-        'Quick Coder',
-      ])
+      expect(model.presets.map((preset) => preset.name)).toEqual(['Game Agent', 'Quick Coder'])
       expect(model.agents).toEqual([
         {
           id: 'a-digest',
@@ -427,9 +429,19 @@ describe('promptBarModel preset picker', () => {
       ])
     })
 
-    it('are not listed outside the agent mode', () => {
-      const model = promptBarModel(input({ catalog, agents: [digest] }))
+    it('are not listed under Chat, Assistant included', () => {
+      const model = promptBarModel(input({ catalog, activePreset: assistant, agents: [digest] }))
+      expect(model.activeMode).toBe('chat')
       expect(model.agents).toEqual([])
+    })
+
+    it('keep the Agent mode while a picked Agent runs on Assistant', () => {
+      const model = promptBarModel(
+        input({ catalog, activePreset: assistant, agents: [digest], pickedAgentId: 'a-digest' }),
+      )
+      expect(model.activeMode).toBe('agent')
+      expect(model.presets.map((preset) => preset.name)).toEqual(['Game Agent', 'Quick Coder'])
+      expect(model.agents.map((agent) => agent.id)).toEqual(['a-digest'])
     })
 
     it('show a picked Agent on the header chip, by its current name and image', () => {

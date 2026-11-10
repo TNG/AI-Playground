@@ -1,5 +1,6 @@
 import type { Preset } from '@/lib/presetSchemas'
 import { MODE_TO_CATEGORIES, presetToMode } from '@/lib/presetModes'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import type { PresetGate, PresetGateReason } from '@/lib/presetGate'
 import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import type { llmBackendTypes } from '@/types/shared'
@@ -181,8 +182,7 @@ function presetForModePick(
   return remembered ?? fallback?.name
 }
 
-// Agent Maker's preset identity stays `Agent`.
-const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { agent: 'Agent' }
+const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { agent: HARNESS_CHAT_PRESET }
 
 function headerChips(
   { activePreset: preset, presetLabel, machine }: PromptBarInput,

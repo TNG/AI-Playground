@@ -45,6 +45,7 @@ import {
   updateSessionSettingsFromBag,
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import {
   describeSettingsProblems,
   sessionSettingsProblems,
@@ -71,7 +72,6 @@ import type { LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
 import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
-  AGENT_PRESET,
   applySessionPresetNames,
   computedPresetSessions,
   ensureSessionId,
@@ -391,7 +391,7 @@ export const useAgentMode = defineStore(
      * preset's bag holds them, the former global values stand in (`migrate` copies them in).
      */
     function readAgentDefaults(): AgentDefaults {
-      const bag = textInference.settingsPerPreset?.[AGENT_PRESET] ?? {}
+      const bag = textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {}
       const capabilities = bag[DEFAULT_CAPABILITIES_KEY]
       const planning = bag[DEFAULT_PLANNING_THINKING_ONLY_KEY]
       const mountedFolders = bag[DEFAULT_MOUNTED_FOLDERS_KEY]
@@ -411,13 +411,13 @@ export const useAgentMode = defineStore(
       const defaults = readAgentDefaults()
       const bags = textInference.settingsPerPreset
       if (!bags) return defaults
-      const bag = bags[AGENT_PRESET] ?? {}
+      const bag = bags[HARNESS_CHAT_PRESET] ?? {}
       if (DEFAULT_CAPABILITIES_KEY in bag && DEFAULT_PLANNING_THINKING_ONLY_KEY in bag) {
         return defaults
       }
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
+        [HARNESS_CHAT_PRESET]: {
           ...bag,
           [DEFAULT_CAPABILITIES_KEY]: defaults.capabilities,
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: defaults.planningThinkingOnly,
@@ -461,10 +461,10 @@ export const useAgentMode = defineStore(
       const settings = openSettings.value
       if (!sessionScoped.value || !settings) return
       const bags = textInference.settingsPerPreset ?? {}
-      const base = bags[AGENT_PRESET] ?? {}
+      const base = bags[HARNESS_CHAT_PRESET] ?? {}
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
+        [HARNESS_CHAT_PRESET]: {
           ...sessionSettingsToBag(settings, base, textInference.embeddingBackend),
           [DEFAULT_CAPABILITIES_KEY]: [...capabilities.value],
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: effectivePlanningThinkingOnly.value,
@@ -820,12 +820,12 @@ export const useAgentMode = defineStore(
         defaultCapabilities.value = [...defaultCapabilities.value, NOTIFY_CAPABILITY_ID]
       }
       const bags = textInference.settingsPerPreset ?? {}
-      const stored = bags[AGENT_PRESET]?.[DEFAULT_CAPABILITIES_KEY]
+      const stored = bags[HARNESS_CHAT_PRESET]?.[DEFAULT_CAPABILITIES_KEY]
       if (!Array.isArray(stored) || stored.includes(NOTIFY_CAPABILITY_ID)) return
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
-          ...bags[AGENT_PRESET],
+        [HARNESS_CHAT_PRESET]: {
+          ...bags[HARNESS_CHAT_PRESET],
           [DEFAULT_CAPABILITIES_KEY]: [...stored, NOTIFY_CAPABILITY_ID],
         },
       }
@@ -869,7 +869,7 @@ export const useAgentMode = defineStore(
       if (!bags) return
       const { value, bags: next } = takeLegacyPlanningThinkingOnly(
         bags,
-        agentPresetName.value || AGENT_PRESET,
+        agentPresetName.value || HARNESS_CHAT_PRESET,
       )
       if (typeof value === 'boolean') planningThinkingOnly.value = value
       if (next !== bags) textInference.settingsPerPreset = next
@@ -947,7 +947,7 @@ export const useAgentMode = defineStore(
       const settings = settingsOverride ?? record.settings ?? {}
       return {
         workspaceDir: record.workspaceDir,
-        presetName: record.presetName ?? AGENT_PRESET,
+        presetName: record.presetName ?? HARNESS_CHAT_PRESET,
         capabilities: [
           ...(settings.capabilities ?? record.capabilities ?? readAgentDefaults().capabilities),
         ],
@@ -1241,7 +1241,7 @@ export const useAgentMode = defineStore(
     async function openSession(id: string): Promise<void> {
       const sessionRef = sessions.value[id]?.sessionRef
       if (sessionRef) {
-        const presetName = sessions.value[id]?.presetName ?? AGENT_PRESET
+        const presetName = sessions.value[id]?.presetName ?? HARNESS_CHAT_PRESET
         if (presetName !== presetsStore.activePresetWithVariant?.name) {
           await presetSwitching.switchPreset(presetName)
         }
@@ -1938,7 +1938,7 @@ export const useAgentMode = defineStore(
         messages: [],
         createdAt: now,
         updatedAt: now,
-        presetName: input.presetName ?? AGENT_PRESET,
+        presetName: input.presetName ?? HARNESS_CHAT_PRESET,
         settings,
         ...(input.taskId ? { taskId: input.taskId } : {}),
         ...(input.steps ? { steps: cloneForIpc(input.steps) } : {}),
@@ -2020,7 +2020,7 @@ export const useAgentMode = defineStore(
           !options.settings && record?.sessionRef && settingsPort.value
             ? await settingsPort.value.readStored(
                 record.sessionRef,
-                record.presetName ?? AGENT_PRESET,
+                record.presetName ?? HARNESS_CHAT_PRESET,
               )
             : null
         context = storedTurnContext(record!, options.settings ?? inSession ?? undefined)
@@ -2098,7 +2098,7 @@ export const useAgentMode = defineStore(
       const record = sessions.value[sessionId]
       turnContexts[sessionId] = {
         workspaceDir: record?.workspaceDir ?? '',
-        presetName: record?.presetName ?? AGENT_PRESET,
+        presetName: record?.presetName ?? HARNESS_CHAT_PRESET,
         capabilities: [...(record?.settings?.capabilities ?? [])],
         settings: record?.settings ? { ...record.settings } : undefined,
         stored: true,

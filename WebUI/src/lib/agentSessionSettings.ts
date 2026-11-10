@@ -1,10 +1,11 @@
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import { llmBackendTypes } from '@/types/shared'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 
 /** A chat preset's saved-settings bag, as `textInference.settingsPerPreset` stores it. */
 export type SettingsBag = Record<string, unknown>
 
-/** The one gate for per-session settings: the folder-picking Agent preset. */
+/** The one gate for per-session settings: the general harness chat preset. */
 export function usesSessionSettings(
   preset: { name: string; agentPreset?: boolean } | null | undefined,
 ): boolean {
@@ -13,7 +14,7 @@ export function usesSessionSettings(
 
 /** The same gate by name, for session records read before the preset catalog has loaded. */
 export function presetNameUsesSessionSettings(name: string | undefined): boolean {
-  return name === 'Agent'
+  return isHarnessChatPreset(name)
 }
 
 /**

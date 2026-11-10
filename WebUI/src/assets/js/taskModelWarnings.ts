@@ -2,7 +2,7 @@ import { computed, ref, watch } from 'vue'
 import { promptHasImageAttachment } from '@/types/agentIpc'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentTaskStep } from '@/types/agentTaskIpc'
-import { AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '@/assets/js/store/devPresets'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -47,7 +47,7 @@ export function useTaskModelWarnings(
   const needs = computed<TaskModelNeeds>(() => {
     const settings = template()
     if (!settings) return { certain: [], maybe: [] }
-    const { inference } = textInference.inferenceForSettings(AGENT_PRESET, settings)
+    const { inference } = textInference.inferenceForSettings(HARNESS_CHAT_PRESET, settings)
     const embeddingModel = inference.activeEmbeddingModel
     const steps = options.chatModelSteps?.()
     const chat =

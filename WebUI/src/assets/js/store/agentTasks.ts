@@ -22,7 +22,7 @@ import {
   type SessionTurnInfo,
   type TurnOutcome,
 } from './agentMode'
-import { AGENT_PRESET } from './agentModeSessions'
+import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
@@ -430,7 +430,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     template: AgentSessionSettings,
     steps: readonly AgentTaskStep[],
   ): Promise<(ModelDownloadRefusal & { message: string }) | null> {
-    const { inference } = textInference.inferenceForSettings(AGENT_PRESET, template)
+    const { inference } = textInference.inferenceForSettings(HARNESS_CHAT_PRESET, template)
     if (inference.backend === 'cloud') return null
     const model = inference.activeModel ?? ''
     const needsVision =
@@ -548,7 +548,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** The open Session's picked Agent, in effect while Agent Maker is the active preset. */
   const pickedAgent = computed((): AgentTask | undefined =>
-    presets.activePresetWithVariant?.name === AGENT_PRESET
+    isHarnessChatPreset(presets.activePresetWithVariant?.name)
       ? pickedAgentIn(sessionsStore.openSessionId)
       : undefined,
   )
@@ -1067,7 +1067,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function scheduledRefusal(task: AgentTask): string | null {
-    if (!presets.presets.some((preset) => preset.name === AGENT_PRESET)) {
+    if (!presets.presets.some((preset) => isHarnessChatPreset(preset.name))) {
       return i18n.state.AGENT_TASK_PRESET_UNAVAILABLE ?? 'The Agent Maker preset is not available.'
     }
     const needsMcp = (task.settingsTemplate.capabilities ?? []).some((id) =>
@@ -1115,7 +1115,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       sessionRef,
       workspaceDir: harness.workspaceDir,
       settings: cloneForIpc(plan.settingsTemplate),
-      presetName: AGENT_PRESET,
+      presetName: HARNESS_CHAT_PRESET,
       title: plan.name,
       taskId: plan.id,
       taskRun: {

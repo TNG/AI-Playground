@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
-import { AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { usePresets } from '@/assets/js/store/presets'
 import { presetToMode } from '@/lib/presetModes'
 import type { PromptBarAgent } from '@/lib/promptBarModel'
@@ -29,7 +29,8 @@ export function usePromptBarAgentPick() {
   )
 
   async function pickAgent(agentId: string): Promise<void> {
-    if (await switchTo(AGENT_PRESET, { announce: false })) await agentTasks.pickAgent(agentId)
+    if (await switchTo(HARNESS_CHAT_PRESET, { announce: false }))
+      await agentTasks.pickAgent(agentId)
   }
 
   /** Picking an Agent Preset puts it in place of the Session's picked Agent. */

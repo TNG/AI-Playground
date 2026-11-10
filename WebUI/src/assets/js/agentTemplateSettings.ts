@@ -1,7 +1,7 @@
 import { computed, onMounted, reactive } from 'vue'
 import { type LlmBackend, useTextInference } from '@/assets/js/store/textInference'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
+import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
@@ -31,7 +31,9 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
 
   const edit = (change: AgentSessionSettings) => source.edit?.(change)
   const template = computed(() => source.template())
-  const resolved = computed(() => textInference.inferenceForSettings(AGENT_PRESET, template.value))
+  const resolved = computed(() =>
+    textInference.inferenceForSettings(HARNESS_CHAT_PRESET, template.value),
+  )
   const backend = computed(() => resolved.value.inference.backend as LlmBackend)
   const defaults = computed(() => agentMode.agentDefaults())
   const capabilities = computed(() => template.value.capabilities ?? defaults.value.capabilities)
@@ -57,7 +59,7 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
 
   const agentPreset = computed(() =>
     presets.presets.find(
-      (preset): preset is ChatPreset => preset.type === 'chat' && preset.name === AGENT_PRESET,
+      (preset): preset is ChatPreset => preset.type === 'chat' && isHarnessChatPreset(preset.name),
     ),
   )
   const { items: backendItems } = useAgentBackendItems(() => agentPreset.value?.backends)

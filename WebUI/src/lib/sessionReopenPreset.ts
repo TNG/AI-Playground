@@ -1,4 +1,4 @@
-import { AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import type { SessionLastPreset } from '@/types/sessionIpc'
 
 /**
@@ -12,5 +12,7 @@ export function sessionReopenPreset(
 ): SessionLastPreset | null {
   if (!last) return null
   if (knownPresets.includes(last.preset)) return last
-  return pickedAgentId && knownPresets.includes(AGENT_PRESET) ? { preset: AGENT_PRESET } : null
+  return pickedAgentId && knownPresets.includes(HARNESS_CHAT_PRESET)
+    ? { preset: HARNESS_CHAT_PRESET }
+    : null
 }

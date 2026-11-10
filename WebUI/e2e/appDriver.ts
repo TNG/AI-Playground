@@ -11,13 +11,10 @@ import { ModelManagerPage } from './pages/ModelManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
 import { sessionTabPanel, setRekaToggle } from './pages/uiControls'
 import { BACKENDS, BACKEND_DISPLAY_NAMES } from './backends'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 
 /** The chat preset that puts the assistant in agentic mode (built-in + MCP tools on). */
 const AGENTIC_PRESET = 'Assistant'
-
-/** The general-purpose agent preset: agent harness, a folder the user picks
- *  (see modes/base/presets/agent.json). "Game Agent" is the same agent, aimed. */
-const AGENT_PRESET = 'Agent'
 
 /** The preset the Home Agent runs its channel turns on (its own agentic preset,
  *  distinct from "Assistant"; see modes/base/presets/home-agent-chat.json). */
@@ -462,8 +459,8 @@ export class AppDriver {
    * no folder to pick. Returns false when the preset isn't offered in this product mode.
    */
   async prepareAgentPreset(): Promise<boolean> {
-    const selected = await test.step(`Select agent preset "${AGENT_PRESET}"`, () =>
-      this.main.selectPreset('Chat', AGENT_PRESET))
+    const selected = await test.step(`Select agent preset "${HARNESS_CHAT_PRESET}"`, () =>
+      this.main.selectPreset('Chat', HARNESS_CHAT_PRESET))
     if (!selected) return false
 
     // Reset before the context size below, never after — a reset would undo it.

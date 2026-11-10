@@ -93,7 +93,9 @@ import {
 } from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
+  createSessionDocuments,
   createWorkspaceAttachments,
+  isDocumentName,
   isGameFolder,
   reconcileGamesWorkspace,
 } from './agentModeWorkspace'
@@ -1734,8 +1736,36 @@ export const useAgentMode = defineStore(
       currentGame.value = dir ? await window.electronAPI.games.read(dir) : null
     }
 
-    const { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments } =
-      createWorkspaceAttachments(errors)
+    const {
+      attachments,
+      attachFiles: holdAttachments,
+      removeAttachment,
+      clearAttachments,
+      importAttachments,
+    } = createWorkspaceAttachments(errors)
+
+    const { sessionDocuments, indexingDocuments, attachDocuments } = createSessionDocuments({
+      workspaceDir,
+      workspaceReady,
+      embedding: () => {
+        const model = textInference.activeEmbeddingModel
+        if (!model || !capabilities.value.includes('rag')) return null
+        return { model, backend: textInference.embeddingBackend }
+      },
+      prepareEmbedding: async ({ model, backend }) =>
+        ((await prepareRagEmbeddingModel({ model, backend })) as { status?: string }).status ===
+        'ready',
+      errors,
+    })
+
+    /** A Session's documents go into its folder at once; a game's files wait for its folder. */
+    async function attachFiles(files: File[]): Promise<void> {
+      if (agentWorkspaceKind.value !== 'pick') return holdAttachments(files)
+      const documents = files.filter((file) => isDocumentName(file.name))
+      const others = files.filter((file) => !isDocumentName(file.name))
+      if (others.length > 0) await holdAttachments(others)
+      if (documents.length > 0) await attachDocuments(documents)
+    }
 
     function blankGame(): void {
       workspaceDir.value = ''
@@ -2147,6 +2177,8 @@ export const useAgentMode = defineStore(
       isUnsandboxed,
       setUnsandboxed,
       attachments,
+      sessionDocuments,
+      indexingDocuments,
       attachFiles,
       removeAttachment,
       clearAttachments,

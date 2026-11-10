@@ -11,6 +11,7 @@ import type {
   submitAgentToolResult,
 } from '../../agent/piAgentManager'
 import type { importAttachment } from '../../agent/workspaceAttachments'
+import type { indexSessionDocument, sessionDocuments } from '../../agent/sessionDocuments'
 import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
 import type {
   bootstrapAgentSessions,
@@ -50,6 +51,8 @@ export type AgentModeDeps = {
   submitAgentToolResult: typeof submitAgentToolResult
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
+  sessionDocuments: typeof sessionDocuments
+  indexSessionDocument: typeof indexSessionDocument
   mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
   openWorkspaceFolder: (dir: string) => Promise<void>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
@@ -259,6 +262,15 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:importAttachment': (_event, workspaceDir, name, bytes) => {
       try {
         return { success: true as const, ...deps.importAttachment(workspaceDir, name, bytes) }
+      } catch (error) {
+        return ipcFail(error)
+      }
+    },
+    'agentMode:sessionDocuments': (_event, workspaceDir) => deps.sessionDocuments(workspaceDir),
+    'agentMode:indexDocument': async (_event, workspaceDir, relativePath, model, backend) => {
+      try {
+        await deps.indexSessionDocument(workspaceDir, relativePath, model, backend)
+        return { success: true as const }
       } catch (error) {
         return ipcFail(error)
       }

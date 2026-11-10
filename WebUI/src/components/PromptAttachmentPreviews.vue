@@ -33,6 +33,20 @@
     </button>
   </div>
   <div
+    v-for="file in sessionDocuments"
+    :key="file"
+    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md"
+    :aria-busy="agentMode.indexingDocuments.includes(file)"
+  >
+    <ArrowPathIcon
+      v-if="agentMode.indexingDocuments.includes(file)"
+      class="size-4 flex-none animate-spin"
+      aria-hidden="true"
+    />
+    <DocumentTextIcon v-else class="size-4 flex-none" aria-hidden="true" />
+    <span class="truncate max-w-40">{{ documentName(file) }}</span>
+  </div>
+  <div
     v-for="(file, index) in agentMode.attachments"
     :key="`${file.name}-${index}`"
     class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
@@ -51,12 +65,20 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { MusicalNoteIcon, PaperClipIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import {
+  ArrowPathIcon,
+  DocumentTextIcon,
+  MusicalNoteIcon,
+  PaperClipIcon,
+  XMarkIcon,
+} from '@heroicons/vue/24/outline'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { usePromptStore } from '@/assets/js/store/promptArea'
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
+const promptArea = usePromptStore()
 
 const attachmentPreview = computed(() =>
   openAiCompatibleChat.fileInput.map((part, id) => ({ id, url: part.url, part })),
@@ -69,6 +91,14 @@ const imagePreview = computed(() =>
 const audioPreview = computed(() =>
   attachmentPreview.value.filter((item) => item.part.mediaType?.startsWith('audio/')),
 )
+
+const sessionDocuments = computed(() =>
+  promptArea.getCurrentMode() === 'agent' ? agentMode.sessionDocuments : [],
+)
+
+function documentName(file: string): string {
+  return file.split('/').pop() ?? file
+}
 
 function removeImage(index: number) {
   openAiCompatibleChat.fileInput = openAiCompatibleChat.fileInput.filter((_, i) => i !== index)

@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import type { GameLibraryEntry } from '@/types/agentIpc'
 import { developerMode } from './debugSettings'
 
@@ -69,6 +69,97 @@ export function createWorkspaceAttachments(errors: {
   }
 
   return { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments }
+}
+
+const DOCUMENT_NAME = /\.(pdf|docx?|md|txt)$/i
+
+/** What the `rag` tool can index: pdf, docx, doc, md and txt. */
+export function isDocumentName(name: string): boolean {
+  return DOCUMENT_NAME.test(name)
+}
+
+export type DocumentEmbedding = { model: string; backend: 'llamaCPP' | 'openVINO' }
+
+/**
+ * The documents attached to the Session on screen. They are saved into its folder on
+ * attach rather than held for the next turn, and indexed straight away, so the first
+ * question about one does not wait for the split and the embeddings.
+ */
+export function createSessionDocuments(options: {
+  workspaceDir: Ref<string>
+  workspaceReady: () => Promise<boolean>
+  /** The embedding model `rag` searches with, or null when document search is off. */
+  embedding: () => DocumentEmbedding | null
+  /** Resolves once the model is on disk; false when the user declined the download. */
+  prepareEmbedding: (embedding: DocumentEmbedding) => Promise<boolean>
+  errors: { report: (error: unknown, overrides: Record<string, unknown>) => void }
+}) {
+  const { workspaceDir, errors } = options
+  const sessionDocuments = ref<string[]>([])
+  const indexingDocuments = ref<string[]>([])
+
+  async function refreshSessionDocuments(): Promise<void> {
+    const dir = workspaceDir.value
+    const documents = dir ? await window.electronAPI.agentMode.sessionDocuments(dir) : []
+    if (workspaceDir.value === dir) sessionDocuments.value = documents
+  }
+  watch(workspaceDir, () => void refreshSessionDocuments(), { immediate: true })
+
+  async function saveDocuments(dir: string, files: File[]): Promise<string[]> {
+    const saved: string[] = []
+    for (const file of files) {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const result = await window.electronAPI.agentMode.importAttachment(dir, file.name, bytes)
+      if (result.success) saved.push(result.path)
+      else {
+        errors.report(new Error(result.error ?? `Failed to attach ${file.name}.`), {
+          category: 'unknown',
+          code: 'agent/attachment-failed',
+          userMessage: `Could not attach ${file.name}.`,
+          surface: 'toast',
+        })
+      }
+    }
+    return saved
+  }
+
+  async function indexDocuments(dir: string, paths: string[]): Promise<void> {
+    const embedding = options.embedding()
+    if (!embedding || paths.length === 0) return
+    if (!(await options.prepareEmbedding(embedding))) return
+    indexingDocuments.value = [...indexingDocuments.value, ...paths]
+    try {
+      for (const file of paths) {
+        const result = await window.electronAPI.agentMode.indexDocument(
+          dir,
+          file,
+          embedding.model,
+          embedding.backend,
+        )
+        if (!result.success) {
+          // The `rag` tool indexes it again on the first question, so this is not fatal.
+          errors.report(new Error(result.error ?? `Failed to index ${file}.`), {
+            category: 'inference',
+            code: 'agent/document-index-failed',
+            severity: 'warn',
+            surface: 'silent',
+          })
+        }
+      }
+    } finally {
+      indexingDocuments.value = indexingDocuments.value.filter((file) => !paths.includes(file))
+    }
+  }
+
+  async function attachDocuments(files: File[]): Promise<void> {
+    if (!workspaceDir.value && !(await options.workspaceReady())) return
+    const dir = workspaceDir.value
+    const saved = await saveDocuments(dir, files)
+    await refreshSessionDocuments()
+    await indexDocuments(dir, saved)
+  }
+
+  return { sessionDocuments, indexingDocuments, attachDocuments, refreshSessionDocuments }
 }
 
 export async function isGameFolder(dir: string): Promise<boolean> {

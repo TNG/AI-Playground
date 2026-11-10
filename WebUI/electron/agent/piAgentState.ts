@@ -34,6 +34,8 @@ export type ActiveSession = {
   planHandoff: string | null
   /** Whether the plan step is still ahead: true until the first turn has run. */
   planPending: boolean
+  /** Whether the session offers `rag`, so its turns name the Session's documents. */
+  documentSearch: boolean
   /** The realpathed Mounted Folders this session was built with. */
   mountedFolders: ResolvedMountedFolder[]
   /** What changed in them since the conversation's last turn, for the next prompt only. */

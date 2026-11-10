@@ -23,6 +23,7 @@ vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getRagDocumentsFile: () => path.join(tempRoot, 'rag', 'documents.json'),
   getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
   getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
   getAgentDraftsFile: () => path.join(tempRoot, 'agent-drafts.json'),
@@ -51,6 +52,8 @@ type Body = { messages?: Array<{ role: string; content?: unknown }> }
 let bodies: Body[] = []
 /** A tool call the backend makes once, before it answers. */
 let toolCall: { name: string; args: Record<string, unknown> } | null = null
+/** What the renderer window is sent; a test answers the tool requests it cares about. */
+let rendererSend: (channel: string, payload: unknown) => void = () => {}
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -125,7 +128,10 @@ beforeAll(async () => {
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
   sessions.setSessionDeps({ isDemoMode: () => false })
-  const fakeWindow = { isDestroyed: () => false, webContents: { send: () => {} } }
+  const fakeWindow = {
+    isDestroyed: () => false,
+    webContents: { send: (channel: string, payload: unknown) => rendererSend(channel, payload) },
+  }
   const bus = await import('../../kernel/kernelBus')
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
@@ -138,6 +144,7 @@ afterAll(async () => {
 beforeEach(() => {
   bodies = []
   toolCall = null
+  rendererSend = () => {}
 })
 
 async function agentConfig(sessionId: string): Promise<AgentModeTurnConfig> {
@@ -570,6 +577,192 @@ describe('the Assistant preset in a Session', () => {
       )
 
       expect(imageParts(bodies[0])).toEqual([])
+    }, 30000)
+  })
+
+  describe('with an attached document', () => {
+    async function documentConfig(sessionId: string): Promise<AgentModeTurnConfig> {
+      return { ...(await assistantConfig(sessionId)), embeddingModel: 'test-embedding' }
+    }
+
+    function attachReport(config: AgentModeTurnConfig): void {
+      importAttachment(
+        config.workspaceDir,
+        'report.md',
+        new TextEncoder().encode('# Report\n\nThe budget is $42.'),
+      )
+    }
+
+    it('names it on every user message and leaves the system prompt alone', async () => {
+      const session = await sessions.createSession()
+      const config = await documentConfig(session.id)
+      attachReport(config)
+
+      await manager.startAgentTurn('t1', 'what does the report say?', config)
+      await manager.startAgentTurn('t2', 'and the budget?', config)
+
+      const first = userTexts(bodies[0]).at(-1)!
+      const last = userTexts(bodies.at(-1)).at(-1)!
+      for (const message of [first, last]) {
+        expect(message).toContain('attachments/report.md')
+        expect(message).toContain('rag')
+      }
+      expect(systemPrompt(bodies.at(-1))).toBe(systemPrompt(bodies[0]))
+      expect(systemPrompt(bodies[0])).not.toContain('report.md')
+    }, 30000)
+
+    it('answers a rag call from it, with the passage and where it came from', async () => {
+      const { setRagAccess } = await import('../../agent/ragAccess.ts')
+      const { Document } = await import('@langchain/classic/document')
+      const { submitAgentToolResult } = await import('../../agent/piCustomTools.ts')
+      setRagAccess({
+        ingest: async (document) => ({
+          ...document,
+          hash: 'h',
+          splitDB: [new Document({ pageContent: 'The budget is $42.' })],
+        }),
+        retrieve: async (inquiry) => [
+          new Document({
+            pageContent: 'The budget is $42.',
+            metadata: { source: inquiry.ragList[0].filepath, loc: { pageNumber: 3 } },
+          }),
+        ],
+        ensureEmbeddingServer: async () => 'http://fake-embedding.test',
+      })
+      const toolOutputs: unknown[] = []
+      rendererSend = (channel, payload) => {
+        const request = payload as { requestId?: string; toolName?: string }
+        if (channel === 'agentMode:executeTool' && request.requestId) {
+          submitAgentToolResult(request.requestId, { status: 'ready' })
+        }
+        if (channel !== 'kernel:event') return
+        for (const event of [payload].flat() as Array<{ type?: string; chunk?: unknown }>) {
+          const chunk = event.chunk as { type?: string; output?: unknown } | undefined
+          if (event.type === 'agent-chunk' && chunk?.type === 'tool-output-available') {
+            toolOutputs.push(chunk.output)
+          }
+        }
+      }
+      const session = await sessions.createSession()
+      const config = await documentConfig(session.id)
+      attachReport(config)
+      toolCall = { name: 'rag', args: { files: ['attachments/report.md'], query: 'budget' } }
+
+      await manager.startAgentTurn('t1', 'what is the budget?', config)
+
+      const toolMessages = (bodies.at(-1)?.messages ?? []).filter((m) => m.role === 'tool')
+      expect(JSON.stringify(toolMessages)).toContain('The budget is $42.')
+      expect(JSON.stringify(toolMessages)).toContain('attachments/report.md (page 3)')
+      expect(toolOutputs).toContainEqual(
+        expect.objectContaining({
+          details: { sources: [{ file: 'attachments/report.md', page: 3 }] },
+        }),
+      )
+    }, 30000)
+
+    it('indexes it on attach, so the first question does not split or embed it again', async () => {
+      const { setRagAccess } = await import('../../agent/ragAccess.ts')
+      const { Document } = await import('@langchain/classic/document')
+      const { submitAgentToolResult } = await import('../../agent/piCustomTools.ts')
+      const { indexSessionDocument } = await import('../../agent/sessionDocuments.ts')
+      const calls: string[] = []
+      setRagAccess({
+        ingest: async (document) => {
+          calls.push(`ingest ${document.filename}`)
+          return { ...document, hash: 'h', splitDB: [new Document({ pageContent: 'budget' })] }
+        },
+        retrieve: async (inquiry) => {
+          calls.push(`embed ${inquiry.embeddingModel} ${inquiry.ragList.map((d) => d.filename)}`)
+          return []
+        },
+        ensureEmbeddingServer: async () => 'http://fake-embedding.test',
+      })
+      rendererSend = (channel, payload) => {
+        const request = payload as { requestId?: string }
+        if (channel === 'agentMode:executeTool' && request.requestId) {
+          submitAgentToolResult(request.requestId, { status: 'ready' })
+        }
+      }
+      const session = await sessions.createSession()
+      const config = await documentConfig(session.id)
+      const saved = importAttachment(
+        config.workspaceDir,
+        'notes.md',
+        new TextEncoder().encode('the budget'),
+      )
+
+      await indexSessionDocument(config.workspaceDir, saved.path, 'test-embedding', 'llamaCPP')
+      expect(calls).toEqual(['ingest notes.md', 'embed test-embedding notes.md'])
+      toolCall = { name: 'rag', args: { files: [saved.path], query: 'budget' } }
+      await manager.startAgentTurn('t1', 'what is the budget?', config)
+
+      expect(calls.filter((call) => call.startsWith('ingest'))).toHaveLength(1)
+    }, 30000)
+
+    it("never reads the chat engine's global document list", async () => {
+      const { writeRagDocumentSection, setRagDocumentFilesDeps } =
+        await import('../../persist/ragDocumentFiles.ts')
+      const { setRagAccess } = await import('../../agent/ragAccess.ts')
+      const { submitAgentToolResult } = await import('../../agent/piCustomTools.ts')
+      setRagDocumentFilesDeps({ isDemoMode: () => false })
+      await writeRagDocumentSection({
+        ragList: [
+          {
+            filename: 'global-handbook.pdf',
+            filepath: path.join(tempRoot, 'global-handbook.pdf'),
+            type: 'pdf',
+            hash: 'global',
+            isChecked: true,
+            splitDB: [{ pageContent: 'GLOBAL-SECRET', metadata: {} }],
+          },
+        ],
+      })
+      const searched: string[] = []
+      setRagAccess({
+        ingest: async (document) => ({ ...document, hash: 'h', splitDB: [] }),
+        retrieve: async (inquiry) => {
+          searched.push(...inquiry.ragList.map((doc) => doc.filename))
+          return []
+        },
+        ensureEmbeddingServer: async () => 'http://fake-embedding.test',
+      })
+      rendererSend = (channel, payload) => {
+        const request = payload as { requestId?: string }
+        if (channel === 'agentMode:executeTool' && request.requestId) {
+          submitAgentToolResult(request.requestId, { status: 'ready' })
+        }
+      }
+      const session = await sessions.createSession()
+      const config = await documentConfig(session.id)
+      attachReport(config)
+      toolCall = { name: 'rag', args: { files: ['attachments/report.md'], query: 'budget' } }
+
+      await manager.startAgentTurn('t1', 'search my documents', config)
+
+      const everything = JSON.stringify(bodies)
+      expect(everything).not.toContain('global-handbook')
+      expect(everything).not.toContain('GLOBAL-SECRET')
+      expect(searched).not.toContain('global-handbook.pdf')
+    }, 30000)
+
+    it('does not name documents attached in another Session', async () => {
+      const other = await sessions.createSession()
+      attachReport(await documentConfig(other.id))
+      const session = await sessions.createSession()
+
+      await manager.startAgentTurn('t1', 'hello', await documentConfig(session.id))
+
+      expect(transcriptText(bodies[0])).not.toContain('report.md')
+    }, 30000)
+
+    it('says nothing about documents when document search is off', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      attachReport(config)
+
+      await manager.startAgentTurn('t1', 'hello', config)
+
+      expect(userTexts(bodies[0]).at(-1)).not.toContain('report.md')
     }, 30000)
   })
 })

@@ -431,6 +431,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveTrialRun: (run: TrialRunRecord) => invoke('agentMode:saveTrialRun', cloneForIpc(run)),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
+    sessionDocuments: (workspaceDir: string) => invoke('agentMode:sessionDocuments', workspaceDir),
+    indexDocument: (
+      workspaceDir: string,
+      relativePath: string,
+      embeddingModel: string,
+      embeddingBackend: 'llamaCPP' | 'openVINO',
+    ) =>
+      invoke(
+        'agentMode:indexDocument',
+        workspaceDir,
+        relativePath,
+        embeddingModel,
+        embeddingBackend,
+      ),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

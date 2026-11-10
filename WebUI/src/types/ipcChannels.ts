@@ -605,6 +605,20 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
   },
+  /** The documents attached to a Session's workspace, as workspace-relative paths. */
+  'agentMode:sessionDocuments': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string[],
+  },
+  /** Split and embed an attached document now, so the first `rag` call on it is fast. */
+  'agentMode:indexDocument': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, string, 'llamaCPP' | 'openVINO'],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */
   'agentMode:mediaFileAction': {
     kind: 'invoke',

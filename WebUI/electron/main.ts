@@ -131,6 +131,7 @@ import { createInFlightWork } from './kernel/inFlightWork'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import { indexSessionDocument, sessionDocuments } from './agent/sessionDocuments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
 import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
 import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
@@ -1904,6 +1905,8 @@ function initEventHandle() {
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,
+      sessionDocuments,
+      indexSessionDocument,
       mediaFileAction: workspaceMediaFileActions({
         sessionWorkspaceDir,
         mediaUrlPath: getLocalPathFromAipgMediaUrl,

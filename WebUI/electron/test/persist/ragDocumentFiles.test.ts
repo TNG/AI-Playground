@@ -142,6 +142,15 @@ describe('the kernel rag documents file store', () => {
     expect(real?.ragList).toEqual(DOCUMENTS)
   })
 
+  it('keeps the list an earlier version stored, for the chat presets that still use it', async () => {
+    await fs.mkdir(path.dirname(files.real), { recursive: true })
+    const stored = JSON.stringify({ schemaVersion: 1, documents: DOCUMENTS })
+    await fs.writeFile(files.real, stored, 'utf8')
+
+    expect(await readRagDocumentSection()).toEqual({ ragList: DOCUMENTS })
+    expect(await fs.readFile(files.real, 'utf8')).toBe(stored)
+  })
+
   it('creates the rag directory on first write', async () => {
     await writeRagDocumentSection({ ragList: [] })
     const section = await readRagDocumentSection()

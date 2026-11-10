@@ -25,3 +25,9 @@ export type EmbedInquiry = {
   /** Number of top chunks to retrieve per document (prevents cross-doc competition). */
   perDocResults?: number
 }
+
+/** Where one passage a `rag` tool call returned came from; the Source Docs badge reads these. */
+export type RagPassageSource = { file: string; page?: number; lines?: { from: number; to: number } }
+
+/** The `details` of a `rag` tool result. */
+export type RagToolDetails = { sources: RagPassageSource[] }

@@ -459,6 +459,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // starts empty. A resumed one is past the point where a plan is what is
     // wanted, and the request it reopens with is a change to a finished game.
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
+    documentSearch: capabilities.resolved.some(({ capability }) => capability.id === 'rag'),
     mountedFolders,
     ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
     replayedEntryIds,

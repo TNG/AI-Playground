@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PHISON_KM_RAG_PREFIX } from '@/types/phisonKmRag'
-import { augmentSystemPrompt, formatRagSources } from '@/lib/ragSources'
+import { agentRagSource, augmentSystemPrompt, formatRagSources } from '@/lib/ragSources'
 
 describe('formatRagSources', () => {
   it('uses the filename when KM retrieval returns a source with no loc', () => {
@@ -65,5 +65,45 @@ describe('augmentSystemPrompt', () => {
 
   it('leaves the base prompt alone when retrieval returned nothing', () => {
     expect(augmentSystemPrompt('Be brief.', [], true)).toBe('Be brief.')
+  })
+})
+
+describe('agentRagSource', () => {
+  function ragPart(sources: unknown[], state = 'output-available') {
+    return {
+      type: 'dynamic-tool',
+      toolName: 'rag',
+      toolCallId: 'call-1',
+      state,
+      input: {},
+      output: { content: [{ type: 'text', text: 'passages' }], details: { sources } },
+    }
+  }
+
+  it('lists the file and page of every passage the rag tool returned', () => {
+    const message = {
+      id: 'a1',
+      role: 'assistant' as const,
+      parts: [
+        ragPart([{ file: 'attachments/report.pdf', page: 3 }]),
+        ragPart([
+          { file: 'attachments/report.pdf', page: 3 },
+          { file: 'attachments/notes.md', lines: { from: 1, to: 9 } },
+        ]),
+        { type: 'text', text: 'The budget is $42.' },
+      ],
+    }
+
+    expect(agentRagSource(message as never)).toBe('report.pdf (Page 3)\nnotes.md (Lines 1-9)')
+  })
+
+  it('has nothing to show for an answer that searched no documents', () => {
+    const message = {
+      id: 'a1',
+      role: 'assistant' as const,
+      parts: [ragPart([], 'output-available'), ragPart([{ file: 'x.md' }], 'input-available')],
+    }
+
+    expect(agentRagSource(message as never)).toBeUndefined()
   })
 })

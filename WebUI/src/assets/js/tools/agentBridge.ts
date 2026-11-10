@@ -4,6 +4,7 @@ import { comfyUI, getAvailableWorkflows, resolveDefaultImageWorkflow } from './c
 import { comfyUiImageEdit } from './comfyUiImageEdit'
 import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
 import { transcribeAudio } from './transcribeAudio'
+import { captureScreenshot } from './captureScreenshot'
 import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
@@ -115,6 +116,19 @@ function speechToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[] {
   return specs
 }
 
+/** Opt-in like Chat's; main drops it again for a model without vision. */
+function screenshotToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[] {
+  if (!enabled('captureScreenshot')) return []
+  return [
+    {
+      name: 'captureScreenshot',
+      description:
+        typeof captureScreenshot.description === 'string' ? captureScreenshot.description : '',
+      inputSchema: asSchema(captureScreenshot.inputSchema).jsonSchema as Record<string, unknown>,
+    },
+  ]
+}
+
 /** `tools` are the toggles stored on a session; the live ones are read when absent. */
 export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
   const textInference = useTextInference()
@@ -124,6 +138,7 @@ export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
   return [
     ...mediaToolSpecs(tools?.toolDelegationEnabled ?? textInference.toolDelegationEnabled),
     ...speechToolSpecs(enabled),
+    ...screenshotToolSpecs(enabled),
   ]
 }
 
@@ -132,6 +147,7 @@ export function agentToolSpecsFor(settings: MediaToolSettings): AgentToolSpec[] 
   return [
     ...mediaToolSpecs(settings.delegationEnabled(), settings),
     ...speechToolSpecs(settings.isToolEnabled),
+    ...screenshotToolSpecs(settings.isToolEnabled),
   ]
 }
 

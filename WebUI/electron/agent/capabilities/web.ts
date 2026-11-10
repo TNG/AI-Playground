@@ -1,7 +1,9 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
+  interact,
   navigate,
   search,
+  type WebBrowserInteraction,
   type WebPageSnapshot,
   type WebSearchResults,
 } from '../../adapters/webBrowserManager.ts'
@@ -18,6 +20,7 @@ import type { AgentCapability } from './types.ts'
 
 export const WEB_SEARCH_TOOL = 'web_search'
 export const WEB_FETCH_TOOL = 'web_fetch'
+export const WEB_INTERACT_TOOL = 'web_interact'
 
 const MAX_LINKS = 40
 
@@ -40,6 +43,29 @@ const FETCH_SCHEMA: Record<string, unknown> = {
   required: ['url'],
 }
 
+const INTERACT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['click', 'type', 'scroll', 'back'],
+      description:
+        'click: follow link `linkIndex` or click the element at `selector`; type: put `text` ' +
+        'into the field at `selector` (set `submit` to press Enter); scroll: scroll down, or to ' +
+        '`selector`; back: return to the previous page.',
+    },
+    linkIndex: { type: 'number', description: 'For click: the [number] of a listed link.' },
+    selector: {
+      type: 'string',
+      description: 'A listed field selector, or any CSS selector, for click / type / scroll.',
+    },
+    text: { type: 'string', description: 'For type: the text to enter.' },
+    submit: { type: 'boolean', description: 'For type: press Enter / submit the form after.' },
+  },
+  required: ['action'],
+}
+
 const WEB_RESEARCH_SKILL: SkillSource = {
   name: 'web-research',
   description: 'Look things up on the public web: search, read the pages, cite the sources.',
@@ -50,7 +76,10 @@ const WEB_RESEARCH_SKILL: SkillSource = {
     `2. ${WEB_FETCH_TOOL} {"url":"https://..."} — returns the readable text of the page and its`,
     '   links. You may fetch a known address directly (e.g. a news front page) without searching.',
     '3. Fetch the most relevant one to three pages; snippets alone are often outdated or cut off.',
-    '4. Answer from what you read, and name the source URLs. If the content is to be kept, write',
+    `4. ${WEB_INTERACT_TOOL} acts on the page fetched last: {"action":"click","linkIndex":3}`,
+    '   follows a link, {"action":"type","selector":"...","text":"...","submit":true} fills a',
+    '   listed field. It returns the page as it is afterwards.',
+    '5. Answer from what you read, and name the source URLs. If the content is to be kept, write',
     '   it into a file in the workspace.',
     'Never invent page content; if a page fails to load, say so and try another source.',
   ].join('\n'),
@@ -76,8 +105,14 @@ export function formatPage(page: WebPageSnapshot): string {
     page.text || '(no readable text on this page)',
   ]
   if (page.links.length > 0) {
-    lines.push('', `Links (fetch one with ${WEB_FETCH_TOOL}):`)
-    for (const link of page.links.slice(0, MAX_LINKS)) lines.push(`- ${link.text} — ${link.href}`)
+    lines.push('', `Links (fetch one, or click it by number with ${WEB_INTERACT_TOOL}):`)
+    for (const link of page.links.slice(0, MAX_LINKS)) {
+      lines.push(`[${link.index}] ${link.text} — ${link.href}`)
+    }
+  }
+  if (page.fields && page.fields.length > 0) {
+    lines.push('', `Text fields (type into one with ${WEB_INTERACT_TOOL}):`)
+    for (const field of page.fields) lines.push(`- ${field.selector} — ${field.label}`)
   }
   return lines.join('\n')
 }
@@ -115,13 +150,55 @@ async function buildWebTools(): Promise<ToolDefinition[]> {
         return textResult(await failureText(async () => formatPage(await navigate(url))))
       },
     }) as ToolDefinition,
+    pi.defineTool({
+      name: WEB_INTERACT_TOOL,
+      label: WEB_INTERACT_TOOL,
+      description:
+        `Click, type or scroll on the page ${WEB_FETCH_TOOL} opened last, then return the page as ` +
+        'it is afterwards.',
+      parameters: jsonSchemaParameters(INTERACT_SCHEMA),
+      execute: async (_toolCallId, params) => {
+        return textResult(
+          await failureText(async () => formatPage(await interact(interactionOf(params)))),
+        )
+      },
+    }) as ToolDefinition,
   ]
+}
+
+function interactionOf(params: unknown): WebBrowserInteraction {
+  const { action, linkIndex, selector, text, submit } = params as Record<string, unknown>
+  const target = typeof selector === 'string' && selector !== '' ? selector : undefined
+  switch (action) {
+    case 'click':
+      return {
+        action: 'click',
+        ...(typeof linkIndex === 'number' ? { linkIndex } : {}),
+        ...(target ? { selector: target } : {}),
+      }
+    case 'type':
+      if (!target) throw new Error('type needs the selector of a field.')
+      return {
+        action: 'type',
+        selector: target,
+        text: typeof text === 'string' ? text : '',
+        ...(submit === true ? { submit: true } : {}),
+      }
+    case 'scroll':
+      return { action: 'scroll', ...(target ? { selector: target } : {}) }
+    case 'back':
+      return { action: 'back' }
+    default:
+      throw new Error(`Unknown action: ${String(action)}`)
+  }
 }
 
 export const webCapability: AgentCapability = {
   id: 'web',
   label: 'Web access',
-  summary: 'Search the web and read public pages, e.g. to fetch current news or documentation.',
+  summary:
+    'Search the web, read public pages and click or type on them, e.g. to fetch current news ' +
+    'or documentation.',
   skills: [WEB_RESEARCH_SKILL],
   buildTools: buildWebTools,
   lazyEligible: true,

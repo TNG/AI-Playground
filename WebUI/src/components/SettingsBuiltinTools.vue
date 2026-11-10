@@ -494,9 +494,9 @@ function chooseDefault(toolName: string, workflow: ToolWorkflow) {
   settings.value.setDefaultWorkflow(slotKey(toolName, workflow), workflow.name)
 }
 
-// The media tools, in the order they appear. Everything else an agent can do is
-// a capability of its own, so the media slice lists only these two.
-const MEDIA_TOOLS = ['comfyUI', 'comfyUiImageEdit']
+// The media capability's toggles, in the order they appear. Everything else an
+// agent can do is a capability of its own.
+const MEDIA_TOOLS = ['comfyUI', 'comfyUiImageEdit', 'captureScreenshot']
 
 // User-facing descriptors for the built-in (internal) tools. Keys must match the
 // tool names registered in `aipgTools`.

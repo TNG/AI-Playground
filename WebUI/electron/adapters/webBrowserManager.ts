@@ -20,7 +20,11 @@ export type WebPageSnapshot = {
   url: string
   text: string
   links: WebPageLink[]
+  /** Text fields on the page, each with a selector the `type` interaction takes. */
+  fields?: WebPageField[]
 }
+
+export type WebPageField = { selector: string; label: string }
 
 export type WebBrowserState = {
   isOpen: boolean
@@ -32,6 +36,7 @@ export type WebBrowserState = {
 export type WebBrowserInteraction =
   | { action: 'click'; linkIndex?: number; selector?: string }
   | { action: 'scroll'; selector?: string }
+  | { action: 'type'; selector: string; text: string; submit?: boolean }
   | { action: 'back' }
 
 export type WebSearchResult = {
@@ -53,6 +58,7 @@ const NAV_TIMEOUT_MS = 30_000
 const CLICK_NAV_TIMEOUT_MS = 6_000
 const MAX_TEXT_LENGTH = 8_000
 const MAX_LINKS = 50
+const MAX_FIELDS = 20
 const DEFAULT_MAX_SEARCH_RESULTS = 8
 const MAX_SEARCH_RESULT_TITLE = 300
 const MAX_SEARCH_RESULT_SNIPPET = 500
@@ -72,7 +78,20 @@ const READ_SCRIPT = `(() => {
     links.push({ text: t.slice(0, 200), href })
     if (links.length >= ${MAX_LINKS}) break
   }
-  return { title: document.title, url: location.href, text, links }
+  const fields = []
+  const inputs = document.querySelectorAll(
+    'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]):not([type=file]), textarea, [contenteditable=true]',
+  )
+  for (const el of inputs) {
+    if (!el.getClientRects().length || el.disabled || el.readOnly) continue
+    // Tagged so the field can be named back without guessing a selector.
+    el.setAttribute('data-aipg-field', String(fields.length))
+    const label = (el.labels && el.labels[0] && el.labels[0].innerText) ||
+      el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.type || 'text'
+    fields.push({ selector: '[data-aipg-field="' + fields.length + '"]', label: String(label).trim().slice(0, 100) })
+    if (fields.length >= ${MAX_FIELDS}) break
+  }
+  return { title: document.title, url: location.href, text, links, fields }
 })()`
 
 let browserWin: BrowserWindow | null = null
@@ -269,6 +288,7 @@ async function readPageNow(): Promise<WebPageSnapshot> {
     url?: string
     text?: string
     links?: { text: string; href: string }[]
+    fields?: WebPageField[]
   }
   currentUrl = raw.url ?? currentUrl
   currentTitle = raw.title ?? currentTitle
@@ -279,7 +299,7 @@ async function readPageNow(): Promise<WebPageSnapshot> {
   }))
   const text = String(raw.text ?? '').slice(0, MAX_TEXT_LENGTH)
   emitState()
-  return { title: currentTitle, url: currentUrl, text, links }
+  return { title: currentTitle, url: currentUrl, text, links, fields: raw.fields ?? [] }
 }
 
 async function navigateNow(url: string): Promise<WebPageSnapshot> {
@@ -365,6 +385,36 @@ async function interactNow(interaction: WebBrowserInteraction): Promise<WebPageS
         ? `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (el) el.scrollIntoView({ block: 'center' }); return true })()`
         : `(() => { window.scrollBy(0, window.innerHeight); return true })()`
       await wc.executeJavaScript(script, true)
+      break
+    }
+    case 'type': {
+      // The native value setter, so frameworks that track their own input state see the change.
+      const typed = (await wc.executeJavaScript(
+        `(() => {
+          const el = document.querySelector(${JSON.stringify(interaction.selector)})
+          if (!el) return false
+          el.focus()
+          const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+          if (setter && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) setter.call(el, ${JSON.stringify(interaction.text)})
+          else if (el.isContentEditable) el.textContent = ${JSON.stringify(interaction.text)}
+          else return false
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+          el.dispatchEvent(new Event('change', { bubbles: true }))
+          if (${interaction.submit === true}) {
+            const keys = { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }
+            el.dispatchEvent(new KeyboardEvent('keydown', keys))
+            el.dispatchEvent(new KeyboardEvent('keyup', keys))
+            if (el.form) el.form.requestSubmit()
+          }
+          return true
+        })()`,
+        true,
+      )) as boolean
+      if (!typed) {
+        throw new Error(`No text field matched selector: ${interaction.selector}`)
+      }
+      if (interaction.submit) await waitForPossibleNavigation(win)
       break
     }
     case 'click': {

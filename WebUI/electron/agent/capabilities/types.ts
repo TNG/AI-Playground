@@ -42,6 +42,8 @@ export type CapabilityHost = {
   chatModel?: ChatModelConfig
   /** Where app-owned agent state lives ({userData}/pi/agent). */
   agentDir: string
+  /** Whether the session's model takes images; the screenshot tool is offered only then. */
+  supportsVision?: boolean
   /** The model's context window, for the activation policy. */
   contextWindow?: number
   /** Downloaded embedding model for the `rag` capability; absent disables it. */

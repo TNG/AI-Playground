@@ -228,6 +228,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     chatModel: chatModelFromAgentConfig(config.modelConfig),
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
+    supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
     sessionMedia: sessionMediaOf(config.sessionRef, workspaceDir),
     ...(config.embeddingModel

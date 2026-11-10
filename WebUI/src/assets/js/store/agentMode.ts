@@ -64,6 +64,7 @@ import {
   PLANNING_PHASE_CAPABILITY_IDS,
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
+  SCREENSHOT_WINDOW_QUERY,
 } from '@/types/agentCapabilities'
 import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
@@ -992,6 +993,7 @@ export const useAgentMode = defineStore(
       storeTools: {
         [OFFER_GAME_AGENT_TOOL]: (input, sessionId) => offerGameAgent(input, sessionId),
         [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
+        [SCREENSHOT_WINDOW_QUERY]: async () => textInference.screenshotWindow ?? null,
       },
       buildTurnConfig: (sessionId) => {
         const context = turnContexts[sessionId]

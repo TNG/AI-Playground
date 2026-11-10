@@ -50,6 +50,8 @@ const LocalModelConfigSchema = z.object({
   /** False: the heavy capabilities (files, game studio) are withheld. */
   supportsAgentic: z.boolean().optional(),
   samplingParams: SamplingParamsSchema.optional(),
+  /** The user's max tokens; caps the per-step budget Pi would otherwise choose. */
+  maxOutputTokens: z.number().int().positive().optional(),
 })
 
 const CloudModelConfigSchema = z.object({
@@ -67,6 +69,8 @@ const CloudModelConfigSchema = z.object({
    * loose a signal to put request parameters on.
    */
   reasoningAdvertised: z.boolean().optional(),
+  temperature: z.number().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
 })
 
 export const AgentModeModelConfigSchema = z.discriminatedUnion('source', [

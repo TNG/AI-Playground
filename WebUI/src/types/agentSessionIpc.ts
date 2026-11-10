@@ -42,6 +42,17 @@ export const AgentSessionSettingsSchema = z.object({
   builtinToolPresetEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolDefaultPresets: z.record(z.string(), z.string()).optional(),
   mountedFolders: z.array(MountedFolderSchema).optional(),
+  maxTokens: z.number().optional(),
+  temperature: z.number().optional(),
+  /** The model recommendation `temperature` was last set to, so a model switch may replace it. */
+  temperatureFromModel: z.number().optional(),
+  reasoningEffort: z.string().optional(),
+  reasoningEffortFromModel: z.string().optional(),
+  /** The user's own system prompt; empty means the preset's. */
+  systemPrompt: z.string().optional(),
+  metricsEnabled: z.boolean().optional(),
+  numAssistantTokens: z.number().optional(),
+  speakReplies: z.boolean().optional(),
 })
 export type AgentSessionSettings = z.infer<typeof AgentSessionSettingsSchema>
 

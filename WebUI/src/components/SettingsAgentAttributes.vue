@@ -6,6 +6,22 @@
       :template="!!template"
       @reset="template || panel.onPresetReset()"
     >
+      <SettingsRow v-if="binding.sections.systemPrompt" align="start">
+        <template #label>
+          <Label for="agent-system-prompt" class="whitespace-nowrap pt-2">{{
+            languages.SETTINGS_SYSTEM_PROMPT
+          }}</Label>
+        </template>
+        <!-- Emptied, the preset's own prompt applies, which the placeholder shows. -->
+        <Textarea
+          id="agent-system-prompt"
+          :model-value="binding.systemPrompt"
+          :placeholder="binding.presetSystemPrompt || languages.SETTINGS_SYSTEM_PROMPT_PLACEHOLDER"
+          class="min-h-[100px] text-sm"
+          @update:model-value="(value) => binding.setSystemPrompt(String(value))"
+        />
+      </SettingsRow>
+
       <!-- A Settings Template has no folder of its own: each run gets one. -->
       <section v-if="!template && isManagedWorkspace" class="flex flex-col gap-2">
         <SettingsHeading>{{ languages.AGENT_SETTINGS_GAME_FOLDER }}</SettingsHeading>
@@ -90,7 +106,7 @@
         </p>
         <AgentCapabilityChecklist
           :model-value="binding.capabilities"
-          :catalog="binding.capabilityCatalog"
+          :catalog="checklist"
           @update:model-value="binding.setCapabilities"
         >
           <template #after="{ id }">
@@ -135,7 +151,12 @@
       <!-- Shown while the capability is unavailable too: this is where its workflows are turned back on. -->
       <section v-if="hasMediaCapability" class="flex flex-col gap-2">
         <SettingsHeading>{{ languages.AGENT_SECTION_MEDIA_TOOLS }}</SettingsHeading>
-        <SettingsBuiltinTools variant="media" bare :settings="binding.mediaTools" />
+        <SettingsBuiltinTools
+          variant="media"
+          bare
+          :settings="binding.mediaTools"
+          :speak-replies="binding.sections.speakReplies"
+        />
       </section>
 
       <section class="flex flex-col gap-2">
@@ -169,6 +190,7 @@
 import { computed, onMounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { developerMode } from '@/assets/js/store/debugSettings'
@@ -185,6 +207,7 @@ import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
+import { checklistCapabilities } from '@/lib/agentSettingsSections'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 
 const languages = useI18N().state
@@ -214,6 +237,10 @@ const showShellOption = computed(
 function toggleUnsandboxed(event: Event): void {
   agentMode.setUnsandboxed((event.target as HTMLInputElement).checked)
 }
+
+const checklist = computed(() =>
+  checklistCapabilities(binding.value.capabilityCatalog, binding.value.sections),
+)
 
 const hasMediaCapability = computed(() =>
   binding.value.capabilityCatalog.some((capability) => capability.id === 'media'),

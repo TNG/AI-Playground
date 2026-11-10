@@ -46,6 +46,8 @@ import {
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { hasChatAffordances } from '@/lib/chatAffordances'
+import { harnessInstructions } from '@/lib/presetPrompt'
 import {
   describeSettingsProblems,
   sessionSettingsProblems,
@@ -944,10 +946,11 @@ export const useAgentMode = defineStore(
         // switches the active preset to an image-gen one mid-turn.
         presetName: agentPresetName.value,
         instructions: withResponseLanguage(
-          activeAgentPreset.value?.systemPrompt?.trim() ?? '',
+          harnessInstructions(activeAgentPreset.value, textInference.systemPrompt),
           sessionResponseLocale(sessionId),
         ),
         ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
+        userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
         mountedFolders: resolveMountedFolders(mountedFolders.value),
@@ -966,7 +969,6 @@ export const useAgentMode = defineStore(
     function storedTurnConfig(sessionId: string, context: TurnContext) {
       const preset = presetsStore.presets.find((entry) => entry.name === context.presetName)
       const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
-      const systemPrompt = chatPreset?.systemPrompt ?? ''
       const settings = context.settings ?? {}
       const stored = textInference.inferenceForSettings(context.presetName, settings)
       return buildTurnConfig({
@@ -974,8 +976,12 @@ export const useAgentMode = defineStore(
         sessionRef: harnessSessionRefs[sessionId] ?? sessions.value[sessionId]?.sessionRef,
         workspaceDir: context.workspaceDir,
         presetName: context.presetName,
-        instructions: withResponseLanguage(systemPrompt.trim(), sessionResponseLocale(sessionId)),
+        instructions: withResponseLanguage(
+          harnessInstructions(chatPreset, stored.systemPrompt),
+          sessionResponseLocale(sessionId),
+        ),
         ownsPrompt: chatPreset?.agentOwnsPrompt === true,
+        userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
         mountedFolders: resolveMountedFolders(settings.mountedFolders ?? []),

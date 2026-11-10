@@ -6,6 +6,7 @@ import {
   toRequestBody,
 } from '@/lib/samplingDefaults'
 import { ovmsMtpRequestFields } from '@/lib/ovmsMtp'
+import { boundMaxOutputTokens } from '@/lib/maxOutputTokens'
 import {
   llmBackendTypes,
   npuPromptLen,
@@ -21,6 +22,9 @@ type LocalBackend = Exclude<Backend, 'cloud'>
 export type InferenceForTurn = {
   samplingRequestBody: Record<string, unknown>
   temperature: number
+  maxTokens?: number
+  /** `maxTokens` bounded by the window; what a turn may generate. */
+  effectiveMaxTokens?: number
   modelSupportsThinkingToggle: boolean
   thinkingEnabled: boolean
   thinkingActive: boolean
@@ -104,16 +108,20 @@ export type StoredInferenceCatalog = {
   cloudEmbeddingBackend: LocalBackend
   presetTemperature?: number
   presetContextSize?: number
+  presetMaxTokens?: number
 }
 
 export type StoredSessionInference = {
   inference: InferenceForTurn
+  /** The user's own system prompt; empty or absent means the preset's. */
+  systemPrompt?: string
   cloud: CloudForTurn
   tools: ToolsForTurn
 }
 
 const DEFAULT_TEMPERATURE = 0.7
 const DEFAULT_CONTEXT_SIZE = 8192
+const DEFAULT_MAX_TOKENS = 1024
 
 const asRecord = <T>(value: unknown): Record<string, T> =>
   value && typeof value === 'object' ? { ...(value as Record<string, T>) } : {}
@@ -211,7 +219,12 @@ export function storedSessionInference(
       ? {}
       : {
           ...toRequestBody(sampling, backend),
-          ...(backend === 'openVINO' ? ovmsMtpRequestFields(service?.ovmsMtpArmed === true) : {}),
+          ...(backend === 'openVINO'
+            ? ovmsMtpRequestFields(
+                service?.ovmsMtpArmed === true,
+                numberOr(bag.numAssistantTokens, undefined),
+              )
+            : {}),
         }
 
   const embeddingBackend = local ?? catalog.cloudEmbeddingBackend
@@ -220,9 +233,12 @@ export function storedSessionInference(
     asRecord<string | null>(bag.selectedEmbeddingModels)[embeddingBackend],
   )
 
+  const maxTokens = numberOr(bag.maxTokens, catalog.presetMaxTokens) ?? DEFAULT_MAX_TOKENS
   const inference: InferenceForTurn = {
     samplingRequestBody,
     temperature,
+    maxTokens,
+    effectiveMaxTokens: boundMaxOutputTokens(maxTokens, effectiveContextWindow),
     modelSupportsThinkingToggle: supportsThinkingToggle,
     thinkingEnabled,
     thinkingActive,
@@ -245,6 +261,7 @@ export function storedSessionInference(
 
   return {
     inference,
+    ...(typeof bag.systemPrompt === 'string' ? { systemPrompt: bag.systemPrompt } : {}),
     cloud: {
       selectedProviderId: providerId,
       activeProviderBaseUrl:

@@ -234,6 +234,7 @@ describe('an Agent Maker Session on upgrade', () => {
         model: 'Chat-OV',
         contextSize: 32768,
         thinkingEnabled: false,
+        temperature: 0.7,
         capabilities: ['files', 'web', 'mcp:blender'],
         planningThinkingOnly: true,
         mountedFolders: [{ hostPath: notes }],
@@ -274,6 +275,36 @@ describe('an Agent Maker Session on upgrade', () => {
     expect(await assistantSettings(session.id)).toEqual({
       values: { backend: 'llamaCPP', model: 'Chat-9B' },
       fromDefaults: false,
+    })
+  })
+
+  it('keeps an old chat Assistant’s system prompt, temperature and max tokens', async () => {
+    const session = await sessions.createSession()
+    await writePresetSettings(session.id, 'Assistant', {
+      bags: {
+        Assistant: {
+          values: {
+            backend: 'llamaCPP',
+            selectedModels: { llamaCPP: 'Chat-9B' },
+            systemPrompt: 'You are a pirate. Answer like one.',
+            temperature: 1.2,
+            maxTokens: 640,
+            reasoningEffort: 'low',
+            metricsEnabled: true,
+          },
+          fromDefaults: false,
+        },
+      },
+    })
+
+    await migrate()
+
+    expect((await assistantSettings(session.id)).values).toMatchObject({
+      systemPrompt: 'You are a pirate. Answer like one.',
+      temperature: 1.2,
+      maxTokens: 640,
+      reasoningEffort: 'low',
+      metricsEnabled: true,
     })
   })
 

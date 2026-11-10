@@ -206,7 +206,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const samplingParams =
     config.modelConfig.source === 'local'
       ? copySamplingParams(config.modelConfig.samplingParams, config.modelConfig.backend)
-      : undefined
+      : config.modelConfig.temperature !== undefined
+        ? { temperature: config.modelConfig.temperature }
+        : undefined
   const sessionTraceContext = traceContext(config.modelConfig, () => samplingParams)
   setAgentTraceContext(sessionTraceContext)
   // The model still carries it as well, since that is where pi-ai's own request

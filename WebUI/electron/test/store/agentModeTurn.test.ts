@@ -145,6 +145,45 @@ describe('buildTurnConfig readiness (step 15)', () => {
     })
   })
 
+  it("sends Assistant's max tokens, and its temperature to a cloud model too", async () => {
+    const turn = (overrides: Record<string, unknown>, userSampling: boolean) =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: 'Be helpful.',
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        userSampling,
+        textInference: localInference({
+          temperature: 0.4,
+          effectiveMaxTokens: 640,
+          ...overrides,
+        }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderBaseUrl: 'https://api.example.test',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+    const cloud = { backend: 'cloud', activeModel: 'gpt-test', localBackendUrl: null }
+
+    expect((await turn({}, true)).modelConfig).toMatchObject({
+      maxOutputTokens: 640,
+      samplingParams: { temperature: 0.4 },
+    })
+    expect((await turn(cloud, true)).modelConfig).toMatchObject({
+      temperature: 0.4,
+      maxOutputTokens: 640,
+    })
+    expect((await turn({}, false)).modelConfig).not.toHaveProperty('maxOutputTokens')
+    const gameCloud = (await turn(cloud, false)).modelConfig
+    expect(gameCloud).not.toHaveProperty('temperature')
+    expect(gameCloud).not.toHaveProperty('maxOutputTokens')
+  })
+
   it('names the Session the turn belongs to, so main files its History Entry there', async () => {
     const config = await buildTurnConfig({
       sessionId: 'aipg-agent-1',

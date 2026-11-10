@@ -17,6 +17,8 @@ const AGENT: ChatPreset = {
   backends: ['llamaCPP', 'openVINO'],
   agentPreset: true,
   agentWorkspace: 'pick',
+  agentOwnsPrompt: true,
+  systemPrompt: 'You are the Assistant.',
 } as ChatPreset
 
 const GAME_AGENT: ChatPreset = {
@@ -80,6 +82,9 @@ const chat = vi.hoisted(() => {
       },
       get activeModel() {
         return models()[state.live.backend as string] ?? undefined
+      },
+      get systemPrompt() {
+        return state.live.systemPrompt as string | undefined
       },
       get settingsPerPreset() {
         return state.settingsPerPreset
@@ -161,7 +166,12 @@ vi.mock('@/assets/js/store/errors', () => ({
 
 const turnConfig = vi.hoisted(() => ({
   build: null as ((sessionId: string) => unknown) | null,
-  lastInput: null as { planningThinkingOnly?: boolean; mountedFolders?: unknown[] } | null,
+  lastInput: null as {
+    planningThinkingOnly?: boolean
+    mountedFolders?: unknown[]
+    instructions?: string
+    userSampling?: boolean
+  } | null,
 }))
 
 vi.mock('@/assets/js/store/agentModeTurn', async (importOriginal) => {
@@ -457,6 +467,61 @@ describe('Agent Session Settings', () => {
     const config = turnConfig.build?.(store.openSessionId) as unknown as { capabilities: string[] }
     expect(config.capabilities).toContain('mcp:blender')
     expect(turnConfig.lastInput?.planningThinkingOnly).toBe(false)
+  })
+
+  it('keeps sampling, the system prompt and metrics per session', async () => {
+    const store = await startedStore()
+    chat.edit({
+      maxTokens: 512,
+      temperature: 0.3,
+      reasoningEffort: 'low',
+      systemPrompt: 'Be terse.',
+      metricsEnabled: true,
+      speakReplies: true,
+    })
+    await store.generate('first')
+    const first = store.openSessionId
+
+    await store.newSession()
+    expect(chat.state.live.systemPrompt).toBeUndefined()
+
+    await store.switchSession(first)
+    expect(chat.state.live).toMatchObject({
+      maxTokens: 512,
+      temperature: 0.3,
+      metricsEnabled: true,
+    })
+    expect(savedSettings(first)).toMatchObject({
+      maxTokens: 512,
+      temperature: 0.3,
+      reasoningEffort: 'low',
+      systemPrompt: 'Be terse.',
+      metricsEnabled: true,
+      speakReplies: true,
+    })
+    expect(chat.state.settingsPerPreset.Assistant).not.toHaveProperty('systemPrompt')
+  })
+
+  it("sends the session's own system prompt, and the preset's while it is empty", async () => {
+    const store = await startedStore()
+    chat.edit({ systemPrompt: 'Be terse.' })
+    await turnConfig.build?.(store.openSessionId)
+    expect(turnConfig.lastInput?.instructions).toContain('Be terse.')
+    expect(turnConfig.lastInput?.instructions).not.toContain('You are the Assistant.')
+    expect(turnConfig.lastInput?.userSampling).toBe(true)
+
+    chat.edit({ systemPrompt: '  ' })
+    await turnConfig.build?.(store.openSessionId)
+    expect(turnConfig.lastInput?.instructions).toContain('You are the Assistant.')
+  })
+
+  it('keeps Game Agent on its preset prompt and its own output budget', async () => {
+    const store = await startedStore()
+    await presetSwitchingMock.switchPreset('Game Agent')
+    chat.edit({ systemPrompt: 'Be terse.' })
+    await turnConfig.build?.(store.openSessionId)
+    expect(turnConfig.lastInput?.instructions).not.toContain('Be terse.')
+    expect(turnConfig.lastInput?.userSampling).toBe(false)
   })
 
   describe('Mounted Folders', () => {

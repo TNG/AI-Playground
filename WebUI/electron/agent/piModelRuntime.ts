@@ -19,6 +19,12 @@ export function modelContextWindow(config: AgentModeModelConfig): number {
   return config.contextWindow ?? (config.source === 'cloud' ? CLOUD_DEFAULT_CONTEXT_WINDOW : 8192)
 }
 
+/** What one step may generate: Pi's budget for the window, or less when the user asked for less. */
+export function modelMaxTokens(config: AgentModeModelConfig): number {
+  const budget = outputTokenBudget(modelContextWindow(config), config.source)
+  return config.maxOutputTokens ? Math.min(budget, config.maxOutputTokens) : budget
+}
+
 let modelRuntime: ModelRuntime | null = null
 
 /**
@@ -62,7 +68,7 @@ export async function registerModel(
           reasoning: false,
           input: modelInput(config),
           contextWindow,
-          maxTokens: outputTokenBudget(contextWindow, 'local'),
+          maxTokens: modelMaxTokens(config),
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         },
@@ -95,7 +101,7 @@ export async function registerModel(
         name: config.model,
         input: modelInput(config),
         contextWindow,
-        maxTokens: outputTokenBudget(contextWindow, 'cloud'),
+        maxTokens: modelMaxTokens(config),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         // Thinking dialect, from the provider base. Pi's detectCompat only
         // recognizes a few hosts, and a resold GLM is not one of them.
@@ -116,7 +122,6 @@ export function traceContext(
   config: AgentModeModelConfig,
   getSampling: () => Record<string, unknown> | undefined,
 ): () => InferenceTraceContext {
-  const contextWindow = modelContextWindow(config)
   return () => {
     const sampling = getSampling() ?? {}
     const kwargs = (sampling.chat_template_kwargs ?? {}) as Record<string, unknown>
@@ -132,7 +137,7 @@ export function traceContext(
       sampling: {
         ...(typeof sampling.temperature === 'number' ? { temperature: sampling.temperature } : {}),
         ...(typeof sampling.top_p === 'number' ? { topP: sampling.top_p } : {}),
-        maxTokens: outputTokenBudget(contextWindow, config.source),
+        maxTokens: modelMaxTokens(config),
       },
     }
   }

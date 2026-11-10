@@ -2043,6 +2043,7 @@ export const useTextInference = defineStore(
           cloudEmbeddingBackend: embeddingBackend.value,
           presetTemperature: chatPreset?.temperature,
           presetContextSize: chatPreset?.contextSize,
+          presetMaxTokens: chatPreset?.maxNewTokens,
         },
       )
     }

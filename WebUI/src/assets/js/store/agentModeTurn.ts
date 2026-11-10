@@ -105,12 +105,17 @@ export async function buildTurnConfig(options: {
   /** Tool toggles stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
   answer?: AgentAnswerOrigin
+  /** The preset shows max tokens and temperature, so they bound every request. */
+  userSampling?: boolean
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
     ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
     : undefined
   const { textInference, cloudMode } = options
+  const userMaxTokens = Math.floor(textInference.effectiveMaxTokens ?? 0)
+  const maxOutputTokens =
+    options.userSampling && userMaxTokens > 0 ? { maxOutputTokens: userMaxTokens } : {}
   if (textInference.backend === 'cloud') {
     const upstreamBaseUrl = cloudMode.activeProviderBaseUrl
     if (!upstreamBaseUrl) {
@@ -137,6 +142,8 @@ export async function buildTurnConfig(options: {
         contextWindow: textInference.maxContextSizeFromModel
           ? textInference.effectiveContextWindow
           : undefined,
+        ...(options.userSampling ? { temperature: textInference.temperature } : {}),
+        ...maxOutputTokens,
       },
       toolSpecs,
       mediaAgent,
@@ -180,6 +187,7 @@ export async function buildTurnConfig(options: {
       supportsToolCalling: toolUse.toolCalling,
       supportsAgentic: toolUse.agentic,
       samplingParams: buildSamplingParams(textInference),
+      ...maxOutputTokens,
     },
     toolSpecs,
     mediaAgent,

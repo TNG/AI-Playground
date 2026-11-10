@@ -7,6 +7,9 @@ import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
+import { agentSettingsSections } from '@/lib/agentSettingsSections'
+import { sessionSettingsToBag } from '@/lib/agentSessionSettings'
+import { normalizeNumAssistantTokens } from '@/lib/ovmsMtp'
 import { contextSizeSettingSupported, isNpuDevice } from '@/lib/llmBackendChoices'
 import { templateMediaToolSettings } from '@/lib/mediaToolSettings'
 import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
@@ -65,16 +68,26 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
   )
   const { items: backendItems } = useAgentBackendItems(() => agentPreset.value?.backends)
 
+  // The template laid over the Default Settings, for the values no inference input carries.
+  const bag = computed(() =>
+    sessionSettingsToBag(
+      template.value,
+      textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {},
+    ),
+  )
+  const currentModel = computed(() =>
+    textInference.llmModels.find(
+      (m) => m.type === backend.value && m.name === resolved.value.inference.activeModel,
+    ),
+  )
+
   const binding: AgentSettingsBinding = reactive({
+    sections: computed(() => agentSettingsSections(agentPreset.value)),
     backend,
     backendItems,
     // The model picked for the old backend is not offered on the new one.
     setBackend: (next: string) => edit({ backend: next as LlmBackend, model: undefined }),
-    currentModel: computed(() =>
-      textInference.llmModels.find(
-        (m) => m.type === backend.value && m.name === resolved.value.inference.activeModel,
-      ),
-    ),
+    currentModel,
     contextSizeSupported: computed(() =>
       contextSizeSettingSupported(
         backend.value,
@@ -93,6 +106,34 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
       () => template.value.planningThinkingOnly ?? defaults.value.planningThinkingOnly,
     ),
     setPlanningThinkingOnly: (planningThinkingOnly: boolean) => edit({ planningThinkingOnly }),
+    maxTokens: computed(() => resolved.value.inference.maxTokens ?? 0),
+    effectiveMaxTokens: computed(() => resolved.value.inference.effectiveMaxTokens ?? 0),
+    setMaxTokens: (maxTokens: number) => edit({ maxTokens }),
+    temperature: computed(() => resolved.value.inference.temperature),
+    setTemperature: (temperature: number) => edit({ temperature, temperatureFromModel: undefined }),
+    reasoningEffortSupported: computed(
+      () =>
+        resolved.value.inference.effectiveReasoningEffort !== undefined &&
+        resolved.value.inference.thinkingActive,
+    ),
+    reasoningEffort: computed(() => resolved.value.inference.effectiveReasoningEffort),
+    setReasoningEffort: (reasoningEffort: string) =>
+      edit({ reasoningEffort, reasoningEffortFromModel: undefined }),
+    mtpSupported: computed(
+      () =>
+        backend.value === 'openVINO' &&
+        !isNpuDevice(resolved.value.inference.getCurrentDeviceId() ?? undefined) &&
+        currentModel.value?.enableMtp === true,
+    ),
+    mtpDraftTokens: computed(() => normalizeNumAssistantTokens(bag.value.numAssistantTokens)),
+    setMtpDraftTokens: (numAssistantTokens: number) => edit({ numAssistantTokens }),
+    metricsEnabled: computed(() => bag.value.metricsEnabled === true),
+    setMetricsEnabled: (metricsEnabled: boolean) => edit({ metricsEnabled }),
+    systemPrompt: computed(
+      () => resolved.value.systemPrompt ?? agentPreset.value?.systemPrompt ?? '',
+    ),
+    presetSystemPrompt: computed(() => agentPreset.value?.systemPrompt ?? ''),
+    setSystemPrompt: (systemPrompt: string) => edit({ systemPrompt }),
     capabilities,
     setCapabilities: (next: string[]) => edit({ capabilities: next }),
     capabilityCatalog: computed(() =>

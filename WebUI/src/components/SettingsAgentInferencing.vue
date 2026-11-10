@@ -85,6 +85,44 @@
         </span>
       </div>
     </SettingsRow>
+    <template v-if="binding.sections.sampling">
+      <SettingsRow :label="languages.ANSWER_MAX_TOKENS" label-for="agent-max-tokens">
+        <div class="flex flex-col gap-1">
+          <input
+            id="agent-max-tokens"
+            type="number"
+            :value="binding.maxTokens"
+            min="0"
+            max="32768"
+            step="1"
+            class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
+            @change="setMaxTokens"
+          />
+          <span
+            v-if="binding.effectiveMaxTokens < binding.maxTokens"
+            class="text-xs text-muted-foreground"
+          >
+            {{
+              languages.SETTINGS_MAX_TOKENS_CAPPED.replace(
+                '{tokens}',
+                String(binding.effectiveMaxTokens),
+              )
+            }}
+          </span>
+        </div>
+      </SettingsRow>
+      <SettingsRow
+        :label="languages.SETTINGS_TEMPERATURE.replace('{value}', binding.temperature.toFixed(1))"
+      >
+        <Slider
+          :model-value="binding.temperature"
+          :min="0"
+          :max="2"
+          :step="0.1"
+          @update:model-value="setTemperature"
+        />
+      </SettingsRow>
+    </template>
     <p v-if="binding.sharedWithChat" class="text-xs text-muted-foreground">
       {{ languages.AGENT_SETTINGS_SHARED_WITH_CHAT }}
     </p>
@@ -124,6 +162,44 @@
       </label>
     </div>
 
+    <template v-if="binding.sections.sampling">
+      <SettingsRow
+        v-if="binding.reasoningEffortSupported"
+        :label="languages.SETTINGS_REASONING_EFFORT"
+      >
+        <drop-down-new
+          :title="languages.SETTINGS_REASONING_EFFORT"
+          :value="binding.reasoningEffort ?? ''"
+          :items="reasoningEffortItems"
+          @change="binding.setReasoningEffort"
+        ></drop-down-new>
+      </SettingsRow>
+      <SettingsRow
+        v-if="binding.mtpSupported"
+        :label="languages.SETTINGS_MTP_DRAFT_TOKENS"
+        label-for="agent-mtp-assistant-tokens"
+      >
+        <input
+          id="agent-mtp-assistant-tokens"
+          type="number"
+          :value="binding.mtpDraftTokens"
+          :min="OVMS_MTP_ASSISTANT_TOKENS_MIN"
+          :max="OVMS_MTP_ASSISTANT_TOKENS_MAX"
+          step="1"
+          class="rounded-sm text-foreground text-center h-[30px] w-20 leading-[30px] p-0 bg-transparent border border-border"
+          @change="setMtpDraftTokens"
+        />
+      </SettingsRow>
+      <label class="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          :checked="binding.metricsEnabled"
+          @change="binding.setMetricsEnabled(!binding.metricsEnabled)"
+        />
+        <span class="text-foreground">{{ languages.ANSWER_METRICS }}</span>
+      </label>
+    </template>
+
     <p v-if="!template" class="text-xs text-amber-500">
       {{ languages.AGENT_SETTINGS_NEXT_TURN }}
     </p>
@@ -143,6 +219,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Label } from '@/components/ui/label'
+import { Slider } from '@/components/ui/slider'
 import { backendToService, useTextInference } from '@/assets/js/store/textInference'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets } from '@/assets/js/store/presets'
@@ -160,6 +237,8 @@ import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { useContextSizeField } from '@/assets/js/contextSizeField'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 import { usePresetPicker } from '@/assets/js/presetPicker'
+import { OVMS_MTP_ASSISTANT_TOKENS_MAX, OVMS_MTP_ASSISTANT_TOKENS_MIN } from '@/lib/ovmsMtp'
+import { reasoningEfforts } from '@/types/shared'
 
 const languages = useI18N().state
 const textInference = useTextInference()
@@ -183,6 +262,33 @@ const contextSize = computed<number>({
   set: (value) => binding.value.setContextSize(value),
 })
 const contextSizeField = useContextSizeField(contextSize)
+
+const reasoningEffortItems = computed(() =>
+  reasoningEfforts.map((effort) => ({
+    label: effort,
+    value: effort,
+    active: effort === binding.value.reasoningEffort,
+  })),
+)
+
+function numberInput(event: Event): number | undefined {
+  const value = Number((event.target as HTMLInputElement).value)
+  return Number.isFinite(value) ? value : undefined
+}
+
+function setMaxTokens(event: Event): void {
+  const value = numberInput(event)
+  if (value !== undefined && value >= 0) binding.value.setMaxTokens(Math.floor(value))
+}
+
+function setTemperature(value: number | number[]): void {
+  binding.value.setTemperature(Array.isArray(value) ? (value[0] ?? 0) : value)
+}
+
+function setMtpDraftTokens(event: Event): void {
+  const value = numberInput(event)
+  if (value !== undefined) binding.value.setMtpDraftTokens(value)
+}
 
 // Only rendered for local backends, so the fallback is inert.
 const deviceServiceName = computed(

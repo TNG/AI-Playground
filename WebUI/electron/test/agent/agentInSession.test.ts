@@ -29,6 +29,19 @@ vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   getAgentDraftsFile: () => path.join(tempRoot, 'agent-drafts.json'),
 }))
 
+vi.mock('../../adapters/mcp/mcpManager.ts', () => ({
+  getMcpServerTools: async (serverId: string) => {
+    const { jsonSchema } = await import('ai')
+    return {
+      [`${serverId}_lookup`]: {
+        description: `look something up on ${serverId}`,
+        inputSchema: jsonSchema({ type: 'object', properties: { q: { type: 'string' } } }),
+        execute: async () => 'ok',
+      },
+    }
+  },
+}))
+
 type AskRenderer = typeof import('../../chat/chatAsk.ts').askRenderer
 const askedRenderer: Parameters<AskRenderer>[0][] = []
 vi.mock('../../chat/chatAsk.ts', async (importOriginal) => {
@@ -926,6 +939,107 @@ describe('the Assistant preset in a Session', () => {
       await manager.startAgentTurn('t1', 'hello', config)
 
       expect(userTexts(bodies[0]).at(-1)).not.toContain('report.md')
+    }, 30000)
+  })
+
+  describe('with its Session Settings', () => {
+    type Sampled = Body & {
+      temperature?: number
+      max_tokens?: number
+      max_completion_tokens?: number
+      chat_template_kwargs?: { reasoning_effort?: string }
+    }
+
+    function sampled(body: Body | undefined): Sampled {
+      return (body ?? {}) as Sampled
+    }
+
+    function maxTokensOf(body: Body | undefined): number | undefined {
+      return sampled(body).max_completion_tokens ?? sampled(body).max_tokens
+    }
+
+    function settled(
+      config: AgentModeTurnConfig,
+      settings: { temperature: number; effort: string; maxTokens: number; prompt: string },
+    ): AgentModeTurnConfig {
+      return {
+        ...config,
+        instructions: settings.prompt,
+        modelConfig: {
+          ...(config.modelConfig as Extract<
+            AgentModeTurnConfig['modelConfig'],
+            { source: 'local' }
+          >),
+          samplingParams: {
+            temperature: settings.temperature,
+            chat_template_kwargs: { reasoning_effort: settings.effort },
+          },
+          maxOutputTokens: settings.maxTokens,
+        },
+      }
+    }
+
+    it('sends its temperature, reasoning effort, max tokens and prompt, and the next turn the changed ones', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+
+      await manager.startAgentTurn(
+        't1',
+        'hello',
+        settled(config, { temperature: 0.3, effort: 'low', maxTokens: 512, prompt: 'Be terse.' }),
+      )
+      const first = bodies.length
+      await manager.startAgentTurn(
+        't2',
+        'again',
+        settled(config, {
+          temperature: 1.1,
+          effort: 'high',
+          maxTokens: 2048,
+          prompt: 'Answer in rhyme.',
+        }),
+      )
+
+      expect(sampled(bodies[0]).temperature).toBe(0.3)
+      expect(sampled(bodies[0]).chat_template_kwargs?.reasoning_effort).toBe('low')
+      expect(maxTokensOf(bodies[0])).toBe(512)
+      expect(systemPrompt(bodies[0])).toContain('Be terse.')
+      const next = bodies[first]
+      expect(sampled(next).temperature).toBe(1.1)
+      expect(sampled(next).chat_template_kwargs?.reasoning_effort).toBe('high')
+      expect(maxTokensOf(next)).toBe(2048)
+      expect(systemPrompt(next)).toContain('Answer in rhyme.')
+      expect(systemPrompt(next)).not.toContain('Be terse.')
+      expect(transcriptText(next)).toContain('hello')
+    }, 30000)
+
+    it('keeps the budget Pi picks for the window when the user asks for more', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+      const huge = settled(config, {
+        temperature: 0.7,
+        effort: 'low',
+        maxTokens: 1_000_000,
+        prompt: 'x',
+      })
+
+      await manager.startAgentTurn('t1', 'hello', huge)
+
+      expect(maxTokensOf(bodies[0])).toBeLessThan(32768)
+    }, 30000)
+
+    it('offers only the tools of the MCP servers that are ticked', async () => {
+      const session = await sessions.createSession()
+
+      await manager.startAgentTurn(
+        't1',
+        'hello',
+        await assistantConfig(session.id, ['web', 'mcp:alpha']),
+      )
+
+      const offered = offeredToolNames(bodies[0])
+      expect(offered).toContain('alpha_lookup')
+      expect(offered).not.toContain('beta_lookup')
     }, 30000)
   })
 })

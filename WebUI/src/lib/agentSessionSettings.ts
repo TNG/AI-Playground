@@ -25,6 +25,19 @@ export const DEFAULT_CAPABILITIES_KEY = 'agentCapabilities'
 export const DEFAULT_PLANNING_THINKING_ONLY_KEY = 'agentPlanningThinkingOnly'
 export const DEFAULT_MOUNTED_FOLDERS_KEY = 'agentMountedFolders'
 
+/** Bag keys a Session Setting of the same name holds as is. */
+const SAMPLING_AND_PROMPT_KEYS = [
+  'maxTokens',
+  'temperature',
+  'temperatureFromModel',
+  'reasoningEffort',
+  'reasoningEffortFromModel',
+  'systemPrompt',
+  'metricsEnabled',
+  'numAssistantTokens',
+  'speakReplies',
+] as const
+
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
 const SESSION_OWNED_KEYS = [
   'backend',
@@ -39,6 +52,7 @@ const SESSION_OWNED_KEYS = [
   'builtinToolPresetEnablement',
   'builtinToolDefaultPresets',
   'cloudProviderId',
+  ...SAMPLING_AND_PROMPT_KEYS,
 ] as const
 
 type Backend = (typeof llmBackendTypes)[number]
@@ -61,6 +75,7 @@ const BAG_DERIVED_SETTINGS = [
   'builtinToolPresetEnablement',
   'builtinToolDefaultPresets',
   'cloudProviderId',
+  ...SAMPLING_AND_PROMPT_KEYS,
 ] as const
 
 /** Take the bag's values for the fields it owns, keeping the session's other settings. */
@@ -107,6 +122,20 @@ export function sessionSettingsFromBag(
   const defaultWorkflows = asRecord<string>(bag.builtinToolDefaultPresets)
   if (defaultWorkflows) settings.builtinToolDefaultPresets = defaultWorkflows
   if (typeof bag.cloudProviderId === 'string') settings.cloudProviderId = bag.cloudProviderId
+  for (const key of [
+    'maxTokens',
+    'temperature',
+    'temperatureFromModel',
+    'numAssistantTokens',
+  ] as const) {
+    if (typeof bag[key] === 'number') settings[key] = bag[key]
+  }
+  for (const key of ['reasoningEffort', 'reasoningEffortFromModel', 'systemPrompt'] as const) {
+    if (typeof bag[key] === 'string') settings[key] = bag[key]
+  }
+  for (const key of ['metricsEnabled', 'speakReplies'] as const) {
+    if (typeof bag[key] === 'boolean') settings[key] = bag[key]
+  }
   return settings
 }
 
@@ -143,8 +172,14 @@ export function sessionSettingsToBag(
     'builtinToolPresetEnablement',
     'builtinToolDefaultPresets',
     'cloudProviderId',
+    ...SAMPLING_AND_PROMPT_KEYS,
   ] as const) {
     if (settings[key] !== undefined) bag[key] = settings[key]
+  }
+  // A recommendation the Defaults adopted says nothing about the session's own value.
+  if (settings.temperature !== undefined) bag.temperatureFromModel = settings.temperatureFromModel
+  if (settings.reasoningEffort !== undefined) {
+    bag.reasoningEffortFromModel = settings.reasoningEffortFromModel
   }
   return bag
 }

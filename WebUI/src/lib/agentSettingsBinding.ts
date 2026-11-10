@@ -1,4 +1,5 @@
 import type { LlmBackend, LlmModel } from '@/assets/js/store/textInference'
+import type { AgentSettingsSections } from '@/lib/agentSettingsSections'
 import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import type { SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
 import type { MountedFolder } from '@/types/agentSessionIpc'
@@ -7,6 +8,7 @@ export type AgentSettingsChoice = { label: string; value: string; active: boolea
 
 /** What the Agent Preset settings tabs read and write. */
 export type AgentSettingsBinding = {
+  sections: AgentSettingsSections
   backend: LlmBackend
   backendItems: AgentSettingsChoice[]
   setBackend: (backend: string) => void
@@ -21,6 +23,25 @@ export type AgentSettingsBinding = {
   planningPhaseSupported: boolean
   planningThinkingOnly: boolean
   setPlanningThinkingOnly: (enabled: boolean) => void
+  maxTokens: number
+  /** `maxTokens` bounded by the window, when that is less. */
+  effectiveMaxTokens: number
+  setMaxTokens: (maxTokens: number) => void
+  temperature: number
+  setTemperature: (temperature: number) => void
+  /** The model reads a reasoning effort, and thinks this turn. */
+  reasoningEffortSupported: boolean
+  reasoningEffort: string | undefined
+  setReasoningEffort: (effort: string) => void
+  mtpSupported: boolean
+  mtpDraftTokens: number
+  setMtpDraftTokens: (tokens: number) => void
+  metricsEnabled: boolean
+  setMetricsEnabled: (enabled: boolean) => void
+  /** The user's own prompt; empty means `presetSystemPrompt`. */
+  systemPrompt: string
+  presetSystemPrompt: string
+  setSystemPrompt: (prompt: string) => void
   capabilities: string[]
   setCapabilities: (ids: string[]) => void
   capabilityCatalog: AgentCapabilityInfo[]

@@ -291,13 +291,10 @@
             </div>
 
             <!-- "Speak replies" rides on the Text To Speech row: that tool supplies
-                 the voice, so the toggle follows it being enabled. Stored per chat
-                 preset, so it applies to the active one — the assistant auto-plays
-                 its reply in the app, the Home Agent answers a voice message with a
-                 voice message. Nothing auto-plays an agent turn, so the media slice
-                 leaves it out. -->
+                 the voice, so the toggle follows it being enabled. The media slice
+                 shows it only for a preset whose turns are auto-played. -->
             <div
-              v-if="child.name === 'synthesizeTextToSpeech' && !isMediaVariant"
+              v-if="child.name === 'synthesizeTextToSpeech' && (!isMediaVariant || speakReplies)"
               class="flex items-center gap-2 shrink-0"
             >
               <Tooltip>
@@ -310,8 +307,8 @@
                     <Switch
                       id="speak-replies"
                       :disabled="!speakRepliesEditable"
-                      :model-value="textInference.speakReplies"
-                      @update:model-value="textInference.speakReplies = $event"
+                      :model-value="settings.speakReplies()"
+                      @update:model-value="settings.setSpeakReplies($event)"
                     />
                   </label>
                 </TooltipTrigger>
@@ -351,8 +348,14 @@ import { storeMediaToolSettings, type MediaToolSettings } from '@/lib/mediaToolS
 // capability) and without the tools an agent gets as capabilities instead.
 // `settings` defaults to the chat store's live values; a task draft passes its own.
 const props = withDefaults(
-  defineProps<{ variant?: 'chat' | 'media'; settings?: MediaToolSettings; bare?: boolean }>(),
-  { variant: 'chat', settings: undefined, bare: false },
+  defineProps<{
+    variant?: 'chat' | 'media'
+    settings?: MediaToolSettings
+    bare?: boolean
+    /** Show "Speak replies" in the media slice too. */
+    speakReplies?: boolean
+  }>(),
+  { variant: 'chat', settings: undefined, bare: false, speakReplies: false },
 )
 
 const textInference = useTextInference()

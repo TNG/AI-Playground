@@ -98,7 +98,7 @@ describe('the kernel Tasks file', () => {
     await saveAgentTask(task('b'))
 
     expect(await readAgentTasks()).toEqual([task('a'), task('b')])
-    expect((await readRaw(files.real))?.schemaVersion).toBe(2)
+    expect((await readRaw(files.real))?.schemaVersion).toBe(3)
   })
 
   it('replaces a Task with the same id in place', async () => {

@@ -42,7 +42,7 @@ import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
 import { useUIStore } from './ui'
-import { renamePresetKeys } from '@/lib/presetRenames'
+import { renamePresetSettings } from '@/lib/presetRenames'
 import { repairChatSettings } from '@/lib/chatSettingsRepair'
 import {
   sessionSettingsToBag,
@@ -1492,7 +1492,7 @@ export const useTextInference = defineStore(
      * it (the settings key is the preset's name, plus its variant).
      */
     function migrateRenamedPresetSettings(): void {
-      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
+      settingsPerPreset.value = renamePresetSettings(settingsPerPreset.value)
     }
 
     const isSystemPromptVisible = computed(() => activePreset.value?.advancedMode === true)

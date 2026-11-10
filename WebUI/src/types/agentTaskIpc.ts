@@ -100,10 +100,16 @@ function migrateLegacyAgent(raw: unknown): unknown {
 }
 
 /** Version 2: the Agent Library migration has run (Agent Presets folded into their Agents). */
-export const AGENT_TASKS_SCHEMA_VERSION = 2
+export const AGENT_LIBRARY_SCHEMA_VERSION = 2
+/** Version 3: Agent Maker merged into Assistant (Settings Templates gained `files`). */
+export const AGENT_TASKS_SCHEMA_VERSION = 3
 
 export const AgentTasksFileSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(AGENT_TASKS_SCHEMA_VERSION)]),
+  schemaVersion: z.union([
+    z.literal(1),
+    z.literal(AGENT_LIBRARY_SCHEMA_VERSION),
+    z.literal(AGENT_TASKS_SCHEMA_VERSION),
+  ]),
   tasks: z.array(z.preprocess(migrateLegacyAgent, AgentTaskSchema)),
 })
 

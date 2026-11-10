@@ -5,7 +5,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { withDevPresets } from './devPresets'
 import { useProductMode } from './productMode'
-import { currentPresetName, renamePresetKeys } from '@/lib/presetRenames'
+import { currentPresetName, renamePresetKeys, renamePresetSettings } from '@/lib/presetRenames'
 import { lastUsedByMode } from '@/lib/promptBarModel'
 import {
   applyVariant,
@@ -526,7 +526,7 @@ export const usePresets = defineStore(
         if (name) lastUsedPresetPerMode.value[mode as ModeType] = currentPresetName(name)
       }
       activeVariantName.value = renamePresetKeys(activeVariantName.value)
-      settingsPerPreset.value = renamePresetKeys(settingsPerPreset.value)
+      settingsPerPreset.value = renamePresetSettings(settingsPerPreset.value)
       lastQualityVariantPerBackend.value = renamePresetKeys(lastQualityVariantPerBackend.value)
     }
 

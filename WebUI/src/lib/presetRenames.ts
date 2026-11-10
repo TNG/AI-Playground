@@ -31,9 +31,13 @@ export function currentPresetName(name: string): string {
  * per-preset settings use). An entry already stored under the new name wins, so
  * running this twice is a no-op and a rename never overwrites current state.
  */
-export function renamePresetKeys<T>(entries: Record<string, T>): Record<string, T> {
+export function renamePresetKeys<T>(
+  entries: Record<string, T>,
+  merge?: (current: T, renamed: T) => T,
+): Record<string, T> {
   let changed = false
   const next: Record<string, T> = {}
+  const collisions: [string, T][] = []
   for (const [key, value] of Object.entries(entries)) {
     const [name, ...rest] = key.split(':')
     const renamed = RENAMED_PRESETS[name]
@@ -44,6 +48,19 @@ export function renamePresetKeys<T>(entries: Record<string, T>): Record<string, 
     changed = true
     const nextKey = [renamed, ...rest].join(':')
     if (!(nextKey in entries)) next[nextKey] = value
+    else if (merge) collisions.push([nextKey, value])
   }
+  for (const [key, value] of collisions) next[key] = merge!(next[key], value)
   return changed ? next : entries
+}
+
+/**
+ * Re-key per-preset Default Settings. Where both names hold a bag the current one's values
+ * win and the old one's other keys are kept, so merging presets (Agent into Assistant) keeps
+ * the capabilities and Mounted Folders only the old preset had.
+ */
+export function renamePresetSettings(
+  entries: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  return renamePresetKeys(entries, (current, renamed) => ({ ...renamed, ...current }))
 }

@@ -23,6 +23,9 @@ vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
+  getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
+  getAgentDraftsFile: () => path.join(tempRoot, 'agent-drafts.json'),
 }))
 
 type AskRenderer = typeof import('../../chat/chatAsk.ts').askRenderer
@@ -569,4 +572,76 @@ describe('the Assistant preset in a Session', () => {
       expect(imageParts(bodies[0])).toEqual([])
     }, 30000)
   })
+})
+
+describe('an Agent Maker Session migrated to Assistant', () => {
+  /** An Agent Maker Session that worked in `picked`, migrated, as its next turn sees it. */
+  async function migratedTurn(picked: string) {
+    const { migrateAgentMakerSessions } = await import('../../agent/agentMakerMigration')
+    const agentSessionFiles = await import('../../persist/agentSessionFiles')
+    const { readSessionSettings } = await import('../../session/sessionSettings')
+    const { resolveMountedFolders } = await import('@/lib/mountedFolders')
+    fs.mkdirSync(picked, { recursive: true })
+    const session = await sessions.createSession()
+    const old = await harness.harnessSessionFor(session.id, 'Agent')
+    await agentSessionFiles.saveAgentSession({
+      id: old.harnessSessionId,
+      sessionRef: session.id,
+      workspaceDir: picked,
+      presetName: 'Agent',
+      capabilities: ['web'],
+      title: 'old',
+      createdAt: 1,
+      updatedAt: 2,
+      messages: [],
+    })
+
+    await migrateAgentMakerSessions()
+
+    const settings = (await readSessionSettings(session.id)).Assistant.bags.Assistant.values
+    const [mount] = resolveMountedFolders(settings.mountedFolders as never)
+    const { harnessSessionId, workspaceDir } = await harness.harnessSessionFor(
+      session.id,
+      'Assistant',
+    )
+    expect(harnessSessionId).toBe(old.harnessSessionId)
+    const config: AgentModeTurnConfig = {
+      sessionId: harnessSessionId,
+      sessionRef: session.id,
+      presetName: 'Assistant',
+      ownsPrompt: true,
+      instructions: 'You are a friendly assistant.',
+      workspaceDir,
+      modelConfig: { source: 'local', model: 'test-model', baseUrl: BACKEND, contextWindow: 32768 },
+      toolSpecs: [],
+      capabilities: settings.capabilities as string[],
+      mountedFolders: [mount],
+    }
+    return { config, mountPath: `/mnt/${mount.name}` }
+  }
+
+  it('reads the folder it used to work in, through its Mounted Folder', async () => {
+    const picked = path.join(tempRoot, 'picked-read')
+    const { config, mountPath } = await migratedTurn(picked)
+    fs.writeFileSync(path.join(picked, 'notes.md'), 'PLUM-NOTES')
+    toolCall = { name: 'read', args: { path: `${mountPath}/notes.md` } }
+
+    await manager.startAgentTurn('t1', 'read my notes', config)
+
+    const toolMessages = (bodies.at(-1)?.messages ?? []).filter((m) => m.role === 'tool')
+    expect(JSON.stringify(toolMessages)).toContain('PLUM-NOTES')
+  }, 30000)
+
+  it('writes into that folder', async () => {
+    const picked = path.join(tempRoot, 'picked-write')
+    const { config, mountPath } = await migratedTurn(picked)
+    toolCall = {
+      name: 'write',
+      args: { path: `${mountPath}/answer.md`, content: 'written by Assistant' },
+    }
+
+    await manager.startAgentTurn('t1', 'write an answer', config)
+
+    expect(fs.readFileSync(path.join(picked, 'answer.md'), 'utf8')).toBe('written by Assistant')
+  }, 30000)
 })

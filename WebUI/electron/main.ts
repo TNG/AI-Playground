@@ -134,6 +134,7 @@ import { importAttachment } from './agent/workspaceAttachments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
 import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
 import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
+import { migrateAgentMakerSessions } from './agent/agentMakerMigration.ts'
 import {
   openDirectory,
   openFileWithSystem,
@@ -2220,6 +2221,10 @@ app.whenReady().then(async () => {
         onPresetsChanged: invalidatePresetCatalog,
       }).catch((error) =>
         appLogger.error(`agent library migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After the Agent Library migration, whose Drafts take Agent Maker's settings as they were.
+      await migrateAgentMakerSessions().catch((error) =>
+        appLogger.error(`agent maker migration failed: ${String(error)}`, 'electron-backend'),
       )
     }
     // After the registry: the renderer's stores call into it as they are created.

@@ -32,11 +32,7 @@ function replyText(entry: HistoryEntry): string {
     .join('\n\n')
 }
 
-/**
- * Seeds a new Harness Session with the preset's earlier chat-engine turns as real messages,
- * written to its Pi file so they stay the same prefix on every later request. Returns the
- * replayed History Entry ids, which the Session Update must then leave out.
- */
+/** Written to the Pi file so they stay one prefix; the returned ids leave the Session Update. */
 export async function replayChatEngineTurns(
   sessionManager: SessionManager,
   target: ReplayTarget,

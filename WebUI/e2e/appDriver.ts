@@ -71,12 +71,7 @@ export class AppDriver {
   /** Context size the pinned small model is run at — see the call site for why. */
   private static readonly AGENT_GAME_CONTEXT = 32768
 
-  /**
-   * Context size {@link prepareAgentPreset} runs Assistant at. Its own default is 32k,
-   * which a laptop GPU may not hold next to the 9B's weights, and llama.cpp then refuses
-   * the load outright, so the turn dies in ensureReadyForInference before the agent
-   * starts. 8k is enough for the two short turns the smoke drives.
-   */
+  /** Assistant's 32k default may not fit beside the 9B on a laptop GPU, and the load fails. */
   private static readonly AGENT_CONTEXT = 8192
 
   readonly wizard: SetupWizardPage
@@ -200,12 +195,7 @@ export class AppDriver {
     return true
   }
 
-  /**
-   * Drive one chat preset: select it, optionally attach a fixture (an image for a
-   * vision model, a document to search), send a prompt and assert a non-empty,
-   * well-formed text reply, and the Source Docs badge when a document was attached.
-   * Skips the test if the preset isn't available in the current product mode.
-   */
+  /** One chat preset, one reply; skips when the preset isn't offered in this product mode. */
   async runChatPreset(opts: {
     preset: string
     prompt: string
@@ -494,18 +484,7 @@ export class AppDriver {
     await this.agent.assertNoTurnError()
   }
 
-  /**
-   * Drive Assistant through the fast agentic smoke's two turns: write a haiku, then turn
-   * it into an image. The preset keeps its own defaults (model per backend, default
-   * capabilities); the backend is the asked-for one or random, and the context size is
-   * {@link AGENT_CONTEXT} (where the backend exposes one — OpenVINO on GPU does not).
-   *
-   * Assistant works in the open Session's folder; nothing here asserts on its contents,
-   * the transcript and the generated image are the subject.
-   *
-   * Returns false when the preset isn't offered in this product mode so the caller
-   * can skip.
-   */
+  /** The agentic smoke's haiku and image turns; false when Assistant isn't offered here. */
   async runAgentPreset(opts: {
     prompt: string
     imagePrompt: string

@@ -44,10 +44,7 @@ export const OFFER_GAME_AGENT_TOOL = 'offerGameAgent'
  */
 export const RAG_PREPARE_EMBEDDING_MODEL = 'ragPrepareEmbeddingModel'
 
-/**
- * Renderer-side name of the dispatch the screenshot tool sends to learn which
- * window the user bound to it (`storeTools` in agentModeTurn.ts). Not a model-facing tool.
- */
+/** Not a model-facing tool: the screenshot tool asks the window which window to capture. */
 export const SCREENSHOT_WINDOW_QUERY = 'screenshotWindow'
 
 export function mcpCapabilityId(serverId: string): string {

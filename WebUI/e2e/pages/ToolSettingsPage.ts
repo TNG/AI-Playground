@@ -21,14 +21,9 @@ const WORKFLOW_TOOLS = ['Generate media', 'Transform image'] as const
 const SPEECH_TOOLS = ['Text To Speech', 'Speech To Text'] as const
 
 /**
- * Page object for the tool selection in the Attributes tab (SettingsBuiltinTools.vue,
- * plus SettingsMcp.vue's master switch on chat presets). Covers both shapes of it: the
- * chat presets' "Built-in tools" panel (Home Agent) and the Media tools slice under
- * Assistant's Media generation capability, which shows only the media rows and has no
- * master switch of its own.
- *
- * Settings persist across spec launches, so the selection is *enforced* (read current
- * state, change if it differs) rather than assumed.
+ * The Attributes tab's tool selection: Home Agent's "Built-in tools" panel, or the Media
+ * tools slice under Assistant's Media generation capability, which has no master switch.
+ * Settings outlive a run, so the selection is enforced, not assumed.
  */
 export class ToolSettingsPage {
   constructor(private readonly page: Page) {}

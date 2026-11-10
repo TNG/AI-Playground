@@ -21,12 +21,7 @@ import {
   type SessionSettingsBag,
 } from '@/types/sessionSettings'
 
-/**
- * Agent Maker (`Agent`) merged into Assistant: its Harness Sessions, Session Settings and
- * records are refiled under Assistant, a folder a session worked in becomes a read-write
- * Mounted Folder, and everything it ran keeps the file and shell tools it always had (the
- * `files` capability). Runs before the window loads; every step but the Agents' is idempotent.
- */
+// Agent Maker (`Agent`) merges into Assistant. Every step but the Agents' is idempotent.
 
 const LOG_SCOPE = 'agent-maker-migration'
 
@@ -174,10 +169,7 @@ function definedOnly(settings: AgentSessionSettings): AgentSessionSettings {
   ) as AgentSessionSettings
 }
 
-/**
- * Assistant's settings win where both presets had one; what only Agent Maker had is kept,
- * and its capabilities gain `files`, the file and shell tools it always ran with.
- */
+/** Assistant's settings win; Agent Maker's capabilities gain `files`, which it always had. */
 function mergedSettings(
   raw: Record<string, unknown>,
   picked: MountedFolder[],

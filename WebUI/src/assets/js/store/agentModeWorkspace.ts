@@ -83,11 +83,7 @@ export function isDocumentName(name: string): boolean {
   return DOCUMENT_NAME.test(name)
 }
 
-/**
- * The documents attached to the Session on screen. They are saved into its folder on
- * attach rather than held for the next turn, and indexed straight away, so the first
- * question about one does not wait for the split and the embeddings.
- */
+/** Documents are saved and indexed on attach, so the first question about one does not wait. */
 export function createSessionDocuments(options: {
   workspaceDir: Ref<string>
   workspaceReady: () => Promise<boolean>

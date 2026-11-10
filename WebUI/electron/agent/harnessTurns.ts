@@ -29,10 +29,7 @@ function reachesModel(entry: SessionEntry): boolean {
   )
 }
 
-/**
- * Pi entries are append-only, so a turn is dropped with one context edit per entry, which
- * leaves it out of every later request. Returns whether anything was omitted.
- */
+/** Pi entries are append-only, so a turn is dropped with one context edit per entry. */
 function omitHarnessTurns(manager: SessionManager, turnIds: ReadonlySet<string>): boolean {
   let inTurn = false
   const omit: string[] = []
@@ -50,10 +47,7 @@ type PromptImages = NonNullable<NonNullable<Parameters<AgentSession['prompt']>[1
 /** The user message a rewound turn opened with, exactly as the model was sent it. */
 export type RewoundPrompt = { text: string; images: PromptImages }
 
-/**
- * Moves the Harness Session's leaf to just before its latest turn, so the turn's reply is
- * off the branch and the history ahead of it is untouched. Throws for any other turn.
- */
+/** Moves the leaf to just before the latest turn, leaving the history ahead untouched. */
 export function rewindHarnessTurn(session: AgentSession, turnId: string): RewoundPrompt {
   const branch = session.sessionManager.getBranch()
   const markers = branch.flatMap((entry, index) =>

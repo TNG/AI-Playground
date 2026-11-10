@@ -1,14 +1,7 @@
 import { test } from './fixtures'
 
-// Smoke tests covering the general chat preset, Assistant (on the agent harness), as a
-// chat: plain text, reasoning, and a document attached to the Session that the answer
-// has to come from (txt and pdf): install backends, select the preset, (optionally
-// attach a fixture), send a prompt and assert a non-empty, well-formed text reply —
-// for a document, with the Source Docs badge. Excludes "aiDAPTIV™" (Phison) and
-// "Home Agent" per request; Assistant's media flow has its own richer coverage in
-// assistant-media-flow.spec.ts, and the speech presets live in the Audio mode with
-// their own specs (preset-tts, preset-tts-kokoro, preset-stt). A preset not offered
-// in the running product mode skips itself.
+// Assistant as a chat: plain text, reasoning, and a Session document the answer must come
+// from. aiDAPTIV™ and Home Agent are left out; media and speech have their own specs.
 
 type ChatCase = {
   preset: string

@@ -6,10 +6,7 @@ import { loadPi } from '../piRuntime.ts'
 import { SCREENSHOT_WINDOW_QUERY } from '@/types/agentCapabilities'
 import type { AgentToolSpec, CapabilityHost } from './types.ts'
 
-// ── desktop screenshot for an agent turn ─────────────────────────────────────
-//
-// Chat's `captureScreenshot`, reused: the capture is main's, but the window the
-// user bound to it is renderer state, so the tool asks the window for it first.
+// The window the user bound to the screenshot is renderer state, so the tool asks for it first.
 
 export const SCREENSHOT_TOOL_NAME = 'captureScreenshot'
 

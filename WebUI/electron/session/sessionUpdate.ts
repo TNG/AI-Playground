@@ -13,10 +13,7 @@ const HEADER = 'Session Update — what happened in this Session since your last
 export type SessionUpdateConsumer = {
   /** Its cursor's key in `session.json` `updateCursors`. */
   key: string
-  /**
-   * This preset's harness turns are the consumer's own — not Agent Run Steps, Follow-ups, or
-   * chat-engine turns, which a Harness Session holds only once replayed into it (`isOwn`).
-   */
+  /** Its own harness turns; chat-engine ones count only once replayed (`isOwn`). */
   ownPreset?: string
   /** Entries of this Harness Session are its own: an Agent Run's Steps and its Follow-ups. */
   harnessSessionId?: string

@@ -14,8 +14,7 @@ import { buildScreenshotTools, SCREENSHOT_TOOL_NAME } from './mediaScreenshot.ts
 // generateImage + editImage, and the speech tools the preset has enabled. Direct
 // tools and the NL specialist's inner Comfy tools both execute in-process
 // against the Artifact runner (steps 5 and 12); speech calls the engine through
-// the window (mediaSpeech.ts). The desktop screenshot is offered to vision models
-// only (mediaScreenshot.ts).
+// the window (mediaSpeech.ts).
 
 // Every path in here is described, never shown: a concrete `generated/<file>`
 // example reads like a result the model already has, and it passes that example

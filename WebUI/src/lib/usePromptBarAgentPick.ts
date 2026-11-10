@@ -6,7 +6,7 @@ import { presetToMode } from '@/lib/presetModes'
 import type { PromptBarAgent } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 
-/** Picking an Agent or an Agent Preset in the prompt bar; an Agent runs on Assistant. */
+/** Picking an Agent or an agent preset in the prompt bar; an Agent runs on Assistant. */
 export function usePromptBarAgentPick() {
   const agentTasks = useAgentTasks()
   const presetsStore = usePresets()

@@ -6,13 +6,6 @@ import { realFileInside } from './hostPathContainment.ts'
 import { ragAccess } from './ragAccess.ts'
 import type { DocumentEmbedding } from '@/types/rag'
 
-// ── Session documents ────────────────────────────────────────────────────────
-//
-// A document the user attaches is copied into the Session Folder's attachments
-// and belongs to that Session alone. The model learns about them from one line
-// on each user message, never from the system prompt, so the prompt prefix the
-// KV cache holds stays the same from turn to turn.
-
 /** The Session's attached documents, as workspace-relative paths in name order. */
 export function sessionDocuments(workspaceDir: string): string[] {
   let entries: fs.Dirent[]
@@ -27,17 +20,14 @@ export function sessionDocuments(workspaceDir: string): string[] {
     .sort((a, b) => a.localeCompare(b))
 }
 
-/** The line a user message carries when the Session has documents and `rag` can search them. */
+/** Goes on the user message, never the system prompt, so the cached prompt prefix holds. */
 export function documentsLine(workspaceDir: string): string {
   const documents = sessionDocuments(workspaceDir)
   if (documents.length === 0) return ''
   return `Documents attached to this Session (search them with the rag tool): ${documents.join(', ')}`
 }
 
-/**
- * Split an attached document and embed its chunks into the worker's disk cache, so the
- * first `rag` call on it only has to embed the question.
- */
+/** Embeds on attach, so the first `rag` call only has to embed the question. */
 export async function indexSessionDocument(
   workspaceDir: string,
   relativePath: string,

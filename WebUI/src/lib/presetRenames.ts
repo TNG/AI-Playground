@@ -54,11 +54,7 @@ export function renamePresetKeys<T>(
   return changed ? next : entries
 }
 
-/**
- * Re-key per-preset Default Settings. Where both names hold a bag the current one's values
- * win and the old one's other keys are kept, so merging presets (Agent into Assistant) keeps
- * the capabilities and Mounted Folders only the old preset had.
- */
+/** Where both names hold a bag the current one's values win and the old one's other keys stay. */
 export function renamePresetSettings(
   entries: Record<string, Record<string, unknown>>,
 ): Record<string, Record<string, unknown>> {

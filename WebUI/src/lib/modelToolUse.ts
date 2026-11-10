@@ -48,7 +48,7 @@ export function capabilityModelGateReason(
   return undefined
 }
 
-/** The capability catalog as the settings checklist shows it for this model: gated entries disabled with a reason. */
+/** The checklist's catalog for this model: gated entries disabled with a reason. */
 export function gateCapabilityCatalog<T extends { id: string; unavailableReason?: string }>(
   catalog: readonly T[],
   use: ModelToolUse,

@@ -2,9 +2,7 @@ import path from 'node:path'
 import { DOCUMENT_EXTENSIONS, type IndexedDocument, type ValidFileExtension } from '@/types/rag'
 import { ragAccess } from './ragAccess.ts'
 
-// The split of every document the agent has indexed, shared by the `rag` tool and
-// indexing on attach, so a document split when it was attached is not split again
-// on the first question. Chunk embeddings are cached on disk by the langchain worker.
+// Shared by the `rag` tool and indexing on attach, so an attached document is split once.
 
 export function documentExtension(file: string): ValidFileExtension | undefined {
   const extension = path.extname(file).slice(1).toLowerCase()
@@ -19,7 +17,6 @@ type Entry = { mtimeMs: number; doc: Promise<IndexedDocument> }
 
 const index = new Map<string, Entry>()
 
-/** The split of `realPath` as of `mtimeMs`, from the langchain worker on first use. */
 export function indexedDocument(
   realPath: string,
   extension: ValidFileExtension,

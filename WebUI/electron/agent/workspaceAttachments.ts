@@ -8,8 +8,7 @@ import { promptImageAttachments } from '@/types/agentIpc'
 // copied into the workspace and the agent is told the path. It then reads,
 // references or ships the file with the tools it already has — a PNG becomes a
 // sprite the game loads, a text file becomes something it can read — and this
-// works whatever the model is. A vision model is also shown the images in the
-// same turn (`turnAttachments`), on top of the copy.
+// works whatever the model is.
 
 /** Folder inside the workspace that user-supplied files land in. */
 export const ATTACHMENTS_DIR = 'attachments'
@@ -76,12 +75,7 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 
 export type AttachedImage = { type: 'image'; data: string; mimeType: string }
 
-/**
- * What a turn's prompt carries besides its text: the images its attachments
- * reference, for a model registered with image input. The copy in the workspace
- * stays the file tools work on; this only lets a vision model see it in the
- * same turn. A path that leaves the attachments folder is skipped.
- */
+/** The images a turn's attachments reference, for a vision model; paths outside are skipped. */
 export function turnAttachments(
   workspaceDir: string,
   prompt: string,

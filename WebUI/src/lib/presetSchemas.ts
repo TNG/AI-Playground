@@ -227,12 +227,9 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   // 'game-studio', 'memory', `mcp:<serverId>`). When set, it replaces the user's
   // default selection for sessions started under this preset.
   agentCapabilities: z.array(z.string()).optional(),
-  // Where the agent works: 'pick' (the default) is the open Session's
-  // folder, reaching others as Mounted Folders; 'games' has the app provision a folder per
-  // game under the games library.
+  // 'pick' (the default) is the open Session's folder; 'games' mints one per game.
   agentWorkspace: z.enum(['pick', 'games']).optional(),
-  // When true, `systemPrompt` replaces Pi's coding-agent prompt (the way an `ownSession`
-  // capability does), and the file and shell tools come only with the `files` capability.
+  // `systemPrompt` replaces Pi's coding-agent prompt; file and shell tools need `files`.
   agentOwnsPrompt: z.boolean().optional(),
   requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
   // Filter models to ones reliable at multi-step tool use (Agent, Game Agent, Quick Coder).

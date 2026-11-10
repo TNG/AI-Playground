@@ -4,7 +4,7 @@ import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { TrialRunRecord } from '@/types/agentTaskIpc'
 import type { TrialRunView } from '@/lib/trialRunTimeline'
 import { useAgentMode, type SendToSessionResult, type TurnOutcome } from './agentMode'
-import { AGENT_PRESET } from './agentModeSessions'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { useAgentTasks, type LibraryAgent, type ModelDownloadRefusal } from './agentTasks'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
@@ -204,7 +204,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     const live = agentMode.streamingMessagesOf(run.harnessSessionId)
     return {
       harnessSessionId: run.harnessSessionId,
-      presetName: AGENT_PRESET,
+      presetName: HARNESS_CHAT_PRESET,
       taskRun: record?.taskRun ?? {
         taskName: run.name,
         startedAt: run.startedAt,
@@ -279,7 +279,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
       id: harness.harnessSessionId,
       workspaceDir: harness.workspaceDir,
       settings: cloneForIpc(plan.settingsTemplate),
-      presetName: AGENT_PRESET,
+      presetName: HARNESS_CHAT_PRESET,
       title: name,
       taskRun: { taskName: name, startedAt, trigger: 'manual' },
       steps: plan.steps,

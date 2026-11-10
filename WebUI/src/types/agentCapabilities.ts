@@ -1,11 +1,24 @@
 export const WEB_CAPABILITY_ID = 'web'
 export const NOTIFY_CAPABILITY_ID = 'notify'
+/** The file and shell builtins of a preset that owns its prompt; other presets always have them. */
+export const FILES_CAPABILITY_ID = 'files'
 
+/** What a new Assistant Session starts with; speech rides on `media`. */
 export const DEFAULT_CAPABILITY_IDS = [
+  FILES_CAPABILITY_ID,
   'media',
-  'web-debug',
   'rag',
   WEB_CAPABILITY_ID,
+] as const
+
+/** What a new Agent's Settings Template starts with: everything, file and shell included. */
+export const AGENT_TEMPLATE_CAPABILITY_IDS = [
+  FILES_CAPABILITY_ID,
+  'media',
+  'rag',
+  WEB_CAPABILITY_ID,
+  'web-debug',
+  'memory',
   NOTIFY_CAPABILITY_ID,
 ] as const
 
@@ -35,6 +48,9 @@ export const OFFER_GAME_AGENT_TOOL = 'offerGameAgent'
  * (`storeTools` in agentModeTurn.ts). Not a model-facing tool.
  */
 export const RAG_PREPARE_EMBEDDING_MODEL = 'ragPrepareEmbeddingModel'
+
+/** Not a model-facing tool: the screenshot tool asks the window which window to capture. */
+export const SCREENSHOT_WINDOW_QUERY = 'screenshotWindow'
 
 export function mcpCapabilityId(serverId: string): string {
   return `${MCP_CAPABILITY_PREFIX}${serverId}`

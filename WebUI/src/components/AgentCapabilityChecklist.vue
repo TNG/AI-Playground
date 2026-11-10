@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-2">
+  <div role="group" :aria-label="i18n.AGENT_SETTINGS_CAPABILITIES" class="flex flex-col gap-2">
     <template v-for="capability in builtInCapabilities" :key="capability.id">
       <label class="flex items-start gap-2 text-sm">
         <input

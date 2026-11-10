@@ -1,22 +1,18 @@
 import { test, expect } from './fixtures'
-import { MainPage } from './pages/MainPage'
 
 // Quick agentic smoke — the reference flow for `npm run e2e:fast`. Installs backends,
-// switches to the agentic chat preset, then runs two turns: a text turn ("write a
-// haiku") and an image turn ("turn it into an image"). This is the cheap gate; the
-// full agentic flow (image → edit → video) lives in
+// selects the "Assistant" preset (which runs on the Pi agent harness), then runs two
+// turns: a text turn ("write a haiku") and an image turn ("turn it into an image").
+// This is the cheap gate; the full agentic flow (image → edit → video) lives in
 // assistant-media-flow.spec.ts and runs in `npm run e2e:full`.
 //
 // The chat backend is pinned explicitly and the smoke runs once per backend: the
-// "Assistant" preset otherwise uses whichever backend happens to be running, which has
-// masked backend-specific breakage (e.g. llama.cpp Vulkan device-loss vs. OVMS URL/graph
+// preset otherwise uses whichever backend happens to be running, which has masked
+// backend-specific breakage (e.g. llama.cpp Vulkan device-loss vs. OVMS URL/graph
 // issues). llama.cpp is the universal default; OpenVINO is only offered in Intel/
 // OpenVINO product modes, so its variant skips when the picker doesn't list it.
 
-// The chat preset that puts the assistant in agentic mode (built-in tools on).
-const AGENTIC_PRESET = 'Assistant'
-
-// Backend picker labels (see SettingsChatInferencing.vue / SpecificSettingsPage.availableBackends).
+// Backend picker labels (see SpecificSettingsPage.availableBackends).
 const CHAT_BACKENDS = [
   { label: 'llamaCPP - GGUF', name: 'llama.cpp', optional: false },
   { label: 'OpenVINO', name: 'OpenVINO', optional: true },
@@ -37,56 +33,13 @@ test.describe('Agentic smoke', () => {
 
       await app.installAllBackends()
 
-      await test.step('Switch to agentic mode (Chat + "Assistant" preset)', async () => {
-        await app.main.selectPreset('Chat', AGENTIC_PRESET)
+      const ran = await app.runAgentPreset({
+        prompt: PROMPTS.haiku,
+        imagePrompt: PROMPTS.toImage,
+        backend: backend.label,
       })
-
-      // Preset settings persist per preset, so a machine that last ran this preset on
-      // a model without tool calling would keep it — and this test's tool checkboxes
-      // are hidden whenever the active model can't tool-call. Start from the preset's
-      // own defaults instead of the machine's history.
-      await app.resetPresetDefaults()
-
-      // Pin the chat backend for this variant; skip OpenVINO where it isn't offered.
-      const pinned = await app.selectChatBackendOrSkip(backend.label, backend.optional)
-      test.skip(!pinned, `${backend.name} chat backend is not available in this product mode`)
-
-      // Trim the tool set to the bare minimum this smoke needs (only "Generate media"
-      // with the "Draft Image" workflow; MCP + all other tools off). With every tool and
-      // workflow advertised, the tool schemas alone fill most of the 8192-token context
-      // before the first turn — see the ~6.5k/8.2k usage observed after just the haiku.
-      await app.configureAgenticTools('minimal-image')
-
-      // Media already on screen when the image turn starts. Normally 0, but the agent
-      // sometimes generates unprompted media on the text turn (counts of 2 and 4 seen),
-      // which is eager rather than broken — so the image turn asserts it ADDED media
-      // rather than that this was zero.
-      let imagesBeforeImageTurn = 0
-
-      await test.step('Prompt 1: write a haiku → expect a text reply', async () => {
-        await app.main.sendPrompt(PROMPTS.haiku)
-        // First use of the pinned chat model pulls it via the download dialog; the
-        // turn stays "busy" until it's confirmed, so resolve it before waiting for
-        // idle (otherwise a fresh machine hangs here until TEXT_TIMEOUT). No-op when
-        // the model is already on disk; skips cleanly if it's gated/unavailable.
-        await app.resolveModelDownloadOrSkip(`the ${backend.name} chat model`)
-        // Waits for the turn to go idle, then asserts the actual reply text is on
-        // screen — not just the end of the reasoning trace.
-        await app.main.waitForAssistantAnswer()
-        expect(await app.main.lastAssistantText()).not.toEqual('')
-        await app.main.assertWellFormedResponse()
-        imagesBeforeImageTurn = await app.main.generatedImages.count()
-      })
-
-      await test.step('Prompt 2: turn the haiku into an image → expect an image', async () => {
-        await app.main.sendPrompt(PROMPTS.toImage)
-        // The agent pulls the Draft Image model mid-turn; confirm the download dialog
-        // when it appears, then wait for the generation to finish.
-        await app.waitForAgenticMediaTurn(MainPage.IMAGE_TIMEOUT)
-        await app.main.assertNoGenerationError()
-        await app.main.assertWellFormedResponse()
-        expect(await app.main.generatedImages.count()).toBeGreaterThan(imagesBeforeImageTurn)
-      })
+      expect(ran || backend.optional, `the ${backend.name} backend is not offered`).toBe(true)
+      test.skip(!ran, `${backend.name} chat backend is not available in this product mode`)
     })
   }
 })

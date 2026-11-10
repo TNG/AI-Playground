@@ -110,6 +110,7 @@ const SPACE_DODGER = { dir: '/games/space-dodger', name: 'Space Dodger' }
 globalThis.window = {
   electronAPI: {
     agentMode: {
+      sessionDocuments: vi.fn(async () => []),
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       // Agent notifications ride the kernel stream; only the executeTool

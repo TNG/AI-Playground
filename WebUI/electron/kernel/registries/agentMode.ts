@@ -1,16 +1,22 @@
-import { AgentModeTurnConfigSchema } from '@/types/agentIpc'
+import { AgentModeTurnConfigSchema, DeleteAgentTurnsRequestSchema } from '@/types/agentIpc'
 import { AgentSessionRecordSchema, LegacyAgentSessionStateSchema } from '@/types/agentSessionIpc'
 import type { AgentModeInvokeName, InvokeHandlerMap } from '../ipcRegistries'
 import { ipcErrorText, ipcFail } from '../typedIpc'
 import type {
   cancelAgentTurn,
   deleteAgentSession,
+  deleteAgentTurns,
   listAgentCapabilities,
   resetAgentSession,
   startAgentTurn,
   submitAgentToolResult,
 } from '../../agent/piAgentManager'
 import type { importAttachment } from '../../agent/workspaceAttachments'
+import type {
+  indexSessionDocument,
+  removeSessionDocument,
+  sessionDocuments,
+} from '../../agent/sessionDocuments'
 import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
 import type {
   bootstrapAgentSessions,
@@ -47,9 +53,13 @@ export type AgentModeDeps = {
   cancelAgentTurn: typeof cancelAgentTurn
   resetAgentSession: typeof resetAgentSession
   deleteAgentSession: typeof deleteAgentSession
+  deleteAgentTurns: typeof deleteAgentTurns
   submitAgentToolResult: typeof submitAgentToolResult
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
+  sessionDocuments: typeof sessionDocuments
+  indexSessionDocument: typeof indexSessionDocument
+  removeSessionDocument: typeof removeSessionDocument
   mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
   openWorkspaceFolder: (dir: string) => Promise<void>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
@@ -232,6 +242,14 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         return ipcFail(e)
       }
     },
+    'agentMode:deleteTurns': async (_event, request) => {
+      try {
+        await deps.deleteAgentTurns(DeleteAgentTurnsRequestSchema.parse(request))
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
     'agentMode:deleteSession': async (_event, sessionId) => {
       // Both halves run even if one fails. Invalid ids return `{success:false}`.
       try {
@@ -259,6 +277,23 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:importAttachment': (_event, workspaceDir, name, bytes) => {
       try {
         return { success: true as const, ...deps.importAttachment(workspaceDir, name, bytes) }
+      } catch (error) {
+        return ipcFail(error)
+      }
+    },
+    'agentMode:sessionDocuments': (_event, workspaceDir) => deps.sessionDocuments(workspaceDir),
+    'agentMode:indexDocument': async (_event, workspaceDir, relativePath, embedding) => {
+      try {
+        await deps.indexSessionDocument(workspaceDir, relativePath, embedding)
+        return { success: true as const }
+      } catch (error) {
+        return ipcFail(error)
+      }
+    },
+    'agentMode:removeSessionDocument': async (_event, workspaceDir, relativePath) => {
+      try {
+        await deps.removeSessionDocument(workspaceDir, relativePath)
+        return { success: true as const }
       } catch (error) {
         return ipcFail(error)
       }

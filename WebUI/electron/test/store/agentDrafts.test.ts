@@ -280,6 +280,7 @@ beforeEach(() => {
         })),
       },
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn: vi.fn(async () => ({ success: true })),
         cancel: vi.fn(),
         saveSession: vi.fn(async () => ({ success: true })),
@@ -386,6 +387,22 @@ describe('creating an Agent', () => {
 
     expect(storedDrafts.map((entry) => [entry.agentId, entry.name])).toEqual([
       [draft.agentId, 'Digest'],
+    ])
+  })
+
+  it('starts its Settings Template with every capability, file and shell tools included', async () => {
+    const { tasks } = await readyStores()
+
+    const draft = await tasks.createAgentDraft()
+
+    expect([...(draft.settingsTemplate.capabilities ?? [])].sort()).toEqual([
+      'files',
+      'media',
+      'memory',
+      'notify',
+      'rag',
+      'web',
+      'web-debug',
     ])
   })
 

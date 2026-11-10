@@ -193,7 +193,14 @@ async function transcribeWorkspaceAudio(
   signal?: AbortSignal,
 ): Promise<SpeechResult> {
   const raw = (params ?? {}) as { sourceAudioPath?: unknown }
-  const relativePath = typeof raw.sourceAudioPath === 'string' ? raw.sourceAudioPath.trim() : ''
+  // Attachments reach the prompt as `@attachments/<file>`, and models pass that on verbatim.
+  const relativePath =
+    typeof raw.sourceAudioPath === 'string'
+      ? raw.sourceAudioPath
+          .trim()
+          .replace(/^@/, '')
+          .replace(/^"(.*)"$/, '$1')
+      : ''
   if (!relativePath) {
     return {
       output: {

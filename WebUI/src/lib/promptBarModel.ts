@@ -1,5 +1,7 @@
 import type { Preset } from '@/lib/presetSchemas'
-import { MODE_TO_CATEGORIES, presetToMode } from '@/lib/presetModes'
+import { MODE_TO_CATEGORIES, listModeFor } from '@/lib/presetModes'
+import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { hasChatAffordances } from '@/lib/chatAffordances'
 import type { PresetGate, PresetGateReason } from '@/lib/presetGate'
 import type { PromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import type { llmBackendTypes } from '@/types/shared'
@@ -66,9 +68,11 @@ export type PromptBarModel = {
   presets: PresetEntry[]
   /** In the agent mode, the saved Agents listed after the Agent Presets. */
   agents: AgentEntry[]
-  /** The Agent run on Agent Maker in place of Agent Maker itself. */
+  /** The Agent run on Assistant in place of Assistant itself. */
   pickedAgent?: AgentEntry
   presetChip: 'label' | 'dropdown'
+  /** The mic and camera buttons. */
+  capture: boolean
 }
 
 export type PresetEntry = {
@@ -89,7 +93,16 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
     const pick = presetForModePick(enabled, mode, input.lastUsed?.[mode] ?? [])
     if (pick) modePicks[mode] = pick
   }
-  const activeMode = input.activePreset ? presetToMode(input.activePreset) : null
+  const pickable = pickableAgents(input.agents ?? [])
+  const pickedAgent = isHarnessChatPreset(input.activePreset?.name)
+    ? pickable.find((agent) => agent.id === input.pickedAgentId)
+    : undefined
+  // A picked Agent runs on Assistant but was picked under Agent, so that is where it stays.
+  const activeMode = pickedAgent
+    ? 'agent'
+    : input.activePreset
+      ? listModeFor(input.activePreset)
+      : null
   const presets = activeMode
     ? presetsInMode(catalog, activeMode).map((preset) => {
         const gate = gateOf(preset)
@@ -103,11 +116,7 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
       })
     : []
   const presetChip = input.style !== 'classic' && presets.length > 1 ? 'dropdown' : 'label'
-  const agents = activeMode === 'agent' ? pickableAgents(input.agents ?? []) : []
-  const pickedAgent =
-    input.activePreset?.name === MODE_DEFAULT_PRESET.agent
-      ? agents.find((agent) => agent.id === input.pickedAgentId)
-      : undefined
+  const agents = activeMode === AGENTS_MODE ? pickable : []
   return {
     headerChips: headerChips(input, pickedAgent),
     modes,
@@ -117,6 +126,7 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
     agents,
     ...(pickedAgent ? { pickedAgent } : {}),
     presetChip,
+    capture: hasChatAffordances(input.activePreset),
   }
 }
 
@@ -155,7 +165,7 @@ export function agentList(agents: readonly AgentEntry[], query: string): AgentLi
 const MODERN_MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']
 
 export function presetsInMode(catalog: Preset[], mode: ModeType): Preset[] {
-  return catalog.filter((preset) => presetToMode(preset) === mode)
+  return catalog.filter((preset) => listModeFor(preset) === mode)
 }
 
 export function lastUsedByMode(
@@ -181,8 +191,9 @@ function presetForModePick(
   return remembered ?? fallback?.name
 }
 
-// Agent Maker's preset identity stays `Agent`.
-const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { agent: 'Agent' }
+const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { chat: HARNESS_CHAT_PRESET }
+
+export const AGENTS_MODE: ModeType = 'agent'
 
 function headerChips(
   { activePreset: preset, presetLabel, machine }: PromptBarInput,

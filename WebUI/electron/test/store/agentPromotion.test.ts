@@ -111,6 +111,7 @@ let dispatchTool: ((request: ToolCall) => void | Promise<void>) | undefined
 globalThis.window = {
   electronAPI: {
     agentMode: {
+      sessionDocuments: vi.fn(async () => []),
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       submitToolResult,

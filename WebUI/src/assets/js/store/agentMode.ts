@@ -45,6 +45,9 @@ import {
   updateSessionSettingsFromBag,
   usesSessionSettings,
 } from '@/lib/agentSessionSettings'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { hasChatAffordances } from '@/lib/chatAffordances'
+import { harnessInstructions } from '@/lib/presetPrompt'
 import {
   describeSettingsProblems,
   sessionSettingsProblems,
@@ -58,20 +61,20 @@ import { ragEmbeddingPrepFailure } from '@/lib/ragEmbeddingPrep'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import {
   DEFAULT_CAPABILITY_IDS,
+  MCP_CAPABILITY_PREFIX,
   WEB_CAPABILITY_ID,
-  NOTIFY_CAPABILITY_ID,
   GAME_STUDIO_QUICK_ID,
   PLANNING_PHASE_CAPABILITY_IDS,
   OFFER_GAME_AGENT_TOOL,
   RAG_PREPARE_EMBEDDING_MODEL,
+  SCREENSHOT_WINDOW_QUERY,
 } from '@/types/agentCapabilities'
-import type { AgentAnswerOrigin, GameLibraryEntry } from '@/types/agentIpc'
+import { harnessTurnRefusal, type AgentAnswerOrigin, type GameLibraryEntry } from '@/types/agentIpc'
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
-import type { LiveAgentTurn } from '@/lib/turnTypes'
+import type { HarnessTurnRef, LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
 import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
-  AGENT_PRESET,
   applySessionPresetNames,
   computedPresetSessions,
   ensureSessionId,
@@ -90,10 +93,13 @@ import {
   createAgentTurnRuntimes,
   latestTurnMetadata,
   type AgentSessionRuntime,
+  type RegenerateBody,
 } from './agentModeTurn'
 import {
   createUnsandboxedWorkspaces,
+  createSessionDocuments,
   createWorkspaceAttachments,
+  isDocumentName,
   isGameFolder,
   reconcileGamesWorkspace,
 } from './agentModeWorkspace'
@@ -243,8 +249,8 @@ export const useAgentMode = defineStore(
     const mcpServerIds = ref<string[]>([])
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
-    /** Set once `notify` has been added to default lists saved before it existed. */
-    const notifyCapabilityAdopted = ref(false)
+    /** Set once saved defaults were replaced by the current default set; renamed when that set changes. */
+    const defaultCapabilitiesAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -391,7 +397,7 @@ export const useAgentMode = defineStore(
      * preset's bag holds them, the former global values stand in (`migrate` copies them in).
      */
     function readAgentDefaults(): AgentDefaults {
-      const bag = textInference.settingsPerPreset?.[AGENT_PRESET] ?? {}
+      const bag = textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {}
       const capabilities = bag[DEFAULT_CAPABILITIES_KEY]
       const planning = bag[DEFAULT_PLANNING_THINKING_ONLY_KEY]
       const mountedFolders = bag[DEFAULT_MOUNTED_FOLDERS_KEY]
@@ -411,13 +417,13 @@ export const useAgentMode = defineStore(
       const defaults = readAgentDefaults()
       const bags = textInference.settingsPerPreset
       if (!bags) return defaults
-      const bag = bags[AGENT_PRESET] ?? {}
+      const bag = bags[HARNESS_CHAT_PRESET] ?? {}
       if (DEFAULT_CAPABILITIES_KEY in bag && DEFAULT_PLANNING_THINKING_ONLY_KEY in bag) {
         return defaults
       }
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
+        [HARNESS_CHAT_PRESET]: {
           ...bag,
           [DEFAULT_CAPABILITIES_KEY]: defaults.capabilities,
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: defaults.planningThinkingOnly,
@@ -461,10 +467,10 @@ export const useAgentMode = defineStore(
       const settings = openSettings.value
       if (!sessionScoped.value || !settings) return
       const bags = textInference.settingsPerPreset ?? {}
-      const base = bags[AGENT_PRESET] ?? {}
+      const base = bags[HARNESS_CHAT_PRESET] ?? {}
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
+        [HARNESS_CHAT_PRESET]: {
           ...sessionSettingsToBag(settings, base, textInference.embeddingBackend),
           [DEFAULT_CAPABILITIES_KEY]: [...capabilities.value],
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: effectivePlanningThinkingOnly.value,
@@ -809,25 +815,21 @@ export const useAgentMode = defineStore(
       }
     }
 
-    /**
-     * Existing sessions keep their lists (docs/adr/0001); only the defaults new sessions
-     * start from gain `notify`. Needs the Agent preset's settings hydrated.
-     */
-    function adoptNotifyCapability(): void {
-      if (notifyCapabilityAdopted.value) return
-      notifyCapabilityAdopted.value = true
-      if (!defaultCapabilities.value.includes(NOTIFY_CAPABILITY_ID)) {
-        defaultCapabilities.value = [...defaultCapabilities.value, NOTIFY_CAPABILITY_ID]
-      }
-      const bags = textInference.settingsPerPreset ?? {}
-      const stored = bags[AGENT_PRESET]?.[DEFAULT_CAPABILITIES_KEY]
-      if (!Array.isArray(stored) || stored.includes(NOTIFY_CAPABILITY_ID)) return
+    function adoptDefaultCapabilities(): void {
+      if (defaultCapabilitiesAdopted.value) return
+      defaultCapabilitiesAdopted.value = true
+      const adopted = (ids: string[]) => [
+        ...DEFAULT_CAPABILITY_IDS,
+        ...ids.filter((id) => id.startsWith(MCP_CAPABILITY_PREFIX)),
+      ]
+      defaultCapabilities.value = adopted(defaultCapabilities.value)
+      const bags = textInference.settingsPerPreset
+      const bag = bags?.[HARNESS_CHAT_PRESET]
+      const stored = bag?.[DEFAULT_CAPABILITIES_KEY]
+      if (!bag || !Array.isArray(stored)) return
       textInference.settingsPerPreset = {
         ...bags,
-        [AGENT_PRESET]: {
-          ...bags[AGENT_PRESET],
-          [DEFAULT_CAPABILITIES_KEY]: [...stored, NOTIFY_CAPABILITY_ID],
-        },
+        [HARNESS_CHAT_PRESET]: { ...bag, [DEFAULT_CAPABILITIES_KEY]: adopted(stored as string[]) },
       }
     }
 
@@ -869,7 +871,7 @@ export const useAgentMode = defineStore(
       if (!bags) return
       const { value, bags: next } = takeLegacyPlanningThinkingOnly(
         bags,
-        agentPresetName.value || AGENT_PRESET,
+        agentPresetName.value || HARNESS_CHAT_PRESET,
       )
       if (typeof value === 'boolean') planningThinkingOnly.value = value
       if (next !== bags) textInference.settingsPerPreset = next
@@ -947,7 +949,7 @@ export const useAgentMode = defineStore(
       const settings = settingsOverride ?? record.settings ?? {}
       return {
         workspaceDir: record.workspaceDir,
-        presetName: record.presetName ?? AGENT_PRESET,
+        presetName: record.presetName ?? HARNESS_CHAT_PRESET,
         capabilities: [
           ...(settings.capabilities ?? record.capabilities ?? readAgentDefaults().capabilities),
         ],
@@ -956,18 +958,38 @@ export const useAgentMode = defineStore(
       }
     }
 
+    function sessionRefOf(harnessSessionId: string): string | undefined {
+      return harnessSessionRefs[harnessSessionId] ?? sessions.value[harnessSessionId]?.sessionRef
+    }
+
+    function requestTurnDeletion(
+      harnessSessionId: string,
+      turnIds: string[],
+      messageIds: string[],
+    ) {
+      const sessionRef = sessionRefOf(harnessSessionId)
+      return window.electronAPI.agentMode.deleteTurns({
+        ...(sessionRef ? { sessionRef } : {}),
+        harnessSessionId,
+        turnIds,
+        messageIds,
+      })
+    }
+
     function liveTurnConfig(sessionId: string) {
       return buildTurnConfig({
         sessionId,
-        sessionRef: harnessSessionRefs[sessionId] ?? sessions.value[sessionId]?.sessionRef,
+        sessionRef: sessionRefOf(sessionId),
         workspaceDir: workspaceDir.value,
         // The remembered agent preset, not the active one: a media call
         // switches the active preset to an image-gen one mid-turn.
         presetName: agentPresetName.value,
         instructions: withResponseLanguage(
-          activeAgentPreset.value?.systemPrompt?.trim() ?? '',
+          harnessInstructions(activeAgentPreset.value, textInference.systemPrompt),
           sessionResponseLocale(sessionId),
         ),
+        ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
+        userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
         mountedFolders: resolveMountedFolders(mountedFolders.value),
@@ -985,18 +1007,20 @@ export const useAgentMode = defineStore(
 
     function storedTurnConfig(sessionId: string, context: TurnContext) {
       const preset = presetsStore.presets.find((entry) => entry.name === context.presetName)
-      const systemPrompt = preset?.type === 'chat' ? (preset as ChatPreset).systemPrompt : ''
+      const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
       const settings = context.settings ?? {}
       const stored = textInference.inferenceForSettings(context.presetName, settings)
       return buildTurnConfig({
         sessionId,
-        sessionRef: harnessSessionRefs[sessionId] ?? sessions.value[sessionId]?.sessionRef,
+        sessionRef: sessionRefOf(sessionId),
         workspaceDir: context.workspaceDir,
         presetName: context.presetName,
         instructions: withResponseLanguage(
-          systemPrompt?.trim() ?? '',
+          harnessInstructions(chatPreset, stored.systemPrompt),
           sessionResponseLocale(sessionId),
         ),
+        ownsPrompt: chatPreset?.agentOwnsPrompt === true,
+        userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
         mountedFolders: resolveMountedFolders(settings.mountedFolders ?? []),
@@ -1014,9 +1038,14 @@ export const useAgentMode = defineStore(
 
     const turns = createAgentTurnRuntimes({
       errors,
+      describeTurnError: (message) => {
+        const refusal = harnessTurnRefusal(message)
+        return refusal ? i18n.state[refusal] : undefined
+      },
       storeTools: {
         [OFFER_GAME_AGENT_TOOL]: (input, sessionId) => offerGameAgent(input, sessionId),
         [RAG_PREPARE_EMBEDDING_MODEL]: (input) => prepareRagEmbeddingModel(input),
+        [SCREENSHOT_WINDOW_QUERY]: async () => textInference.screenshotWindow ?? null,
       },
       buildTurnConfig: (sessionId) => {
         const context = turnContexts[sessionId]
@@ -1140,7 +1169,7 @@ export const useAgentMode = defineStore(
     function liveTurnsIn(sessionRef: string): LiveAgentTurn[] {
       const live: LiveAgentTurn[] = []
       for (const [id, runtime] of Object.entries(turns.runtimes.value)) {
-        if ((harnessSessionRefs[id] ?? sessions.value[id]?.sessionRef) !== sessionRef) continue
+        if (sessionRefOf(id) !== sessionRef) continue
         const open = id === openSessionId.value
         if (!open && !runtime.processing.value) continue
         const record = sessions.value[id]
@@ -1241,7 +1270,7 @@ export const useAgentMode = defineStore(
     async function openSession(id: string): Promise<void> {
       const sessionRef = sessions.value[id]?.sessionRef
       if (sessionRef) {
-        const presetName = sessions.value[id]?.presetName ?? AGENT_PRESET
+        const presetName = sessions.value[id]?.presetName ?? HARNESS_CHAT_PRESET
         if (presetName !== presetsStore.activePresetWithVariant?.name) {
           await presetSwitching.switchPreset(presetName)
         }
@@ -1588,9 +1617,8 @@ export const useAgentMode = defineStore(
         sessionCapabilities.value = null
         if (target.workspaceDir) {
           workspaceDir.value = target.workspaceDir
-          lastWorkspaceByKind.value = {
-            ...lastWorkspaceByKind.value,
-            [agentWorkspaceKind.value]: target.workspaceDir,
+          if (agentWorkspaceKind.value === 'games') {
+            lastWorkspaceByKind.value = { ...lastWorkspaceByKind.value, games: target.workspaceDir }
           }
         }
         restoreOpenSession()
@@ -1694,6 +1722,34 @@ export const useAgentMode = defineStore(
       )
     }
 
+    /** Delete takes a turn out of what the model sees next, not only out of the timeline. */
+    async function deleteTurns(ref: HarnessTurnRef): Promise<void> {
+      const id = ref.harnessSessionId
+      const sessionRef = sessionRefOf(id)
+      const result = await requestTurnDeletion(id, ref.turnIds, ref.messageIds)
+      if (!result.success) {
+        errors.report(new Error(result.error), {
+          category: 'unknown',
+          code: 'agent/delete-turn-failed',
+          userMessage: i18n.state[harnessTurnRefusal(result.error) ?? 'AGENT_DELETE_TURN_FAILED'],
+        })
+        return
+      }
+      const removed = new Set(ref.messageIds)
+      const runtime = turns.runtimeOf(id)
+      if (runtime) {
+        runtime.chat.messages = runtime.chat.messages.filter((message) => !removed.has(message.id))
+      }
+      const record = sessions.value[id]
+      if (record) {
+        rewriteSession(id, {
+          ...record,
+          messages: record.messages.filter((message) => !removed.has(message.id)),
+        })
+      }
+      if (sessionRef) sessionsStore.forgetTimelineMessages(sessionRef, ref.messageIds)
+    }
+
     async function deleteSession(id: string): Promise<void> {
       // The stop below is the delete's, not the desktop taking over a Held Answer.
       deletingSessions.add(id)
@@ -1757,8 +1813,42 @@ export const useAgentMode = defineStore(
       currentGame.value = dir ? await window.electronAPI.games.read(dir) : null
     }
 
-    const { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments } =
-      createWorkspaceAttachments(errors)
+    const {
+      attachments,
+      attachFiles: holdAttachments,
+      removeAttachment,
+      clearAttachments,
+      importAttachments,
+    } = createWorkspaceAttachments(errors, i18n.state)
+
+    const {
+      sessionDocuments,
+      indexingDocuments,
+      attachDocuments,
+      removeDocument: removeSessionDocument,
+    } = createSessionDocuments({
+      workspaceDir,
+      languages: i18n.state,
+      workspaceReady,
+      embedding: () => {
+        const model = textInference.activeEmbeddingModel
+        if (!model || !capabilities.value.includes('rag')) return null
+        return { model, backend: textInference.embeddingBackend }
+      },
+      prepareEmbedding: async ({ model, backend }) =>
+        ((await prepareRagEmbeddingModel({ model, backend })) as { status?: string }).status ===
+        'ready',
+      errors,
+    })
+
+    /** A Session's documents go into its folder at once; a game's files wait for its folder. */
+    async function attachFiles(files: File[]): Promise<void> {
+      if (agentWorkspaceKind.value !== 'pick') return holdAttachments(files)
+      const documents = files.filter((file) => isDocumentName(file.name))
+      const others = files.filter((file) => !isDocumentName(file.name))
+      if (others.length > 0) await holdAttachments(others)
+      if (documents.length > 0) await attachDocuments(documents)
+    }
 
     function blankGame(): void {
       workspaceDir.value = ''
@@ -1938,7 +2028,7 @@ export const useAgentMode = defineStore(
         messages: [],
         createdAt: now,
         updatedAt: now,
-        presetName: input.presetName ?? AGENT_PRESET,
+        presetName: input.presetName ?? HARNESS_CHAT_PRESET,
         settings,
         ...(input.taskId ? { taskId: input.taskId } : {}),
         ...(input.steps ? { steps: cloneForIpc(input.steps) } : {}),
@@ -1994,6 +2084,8 @@ export const useAgentMode = defineStore(
         taskRun?: AgentModeTurnConfig['taskRun']
         /** A Follow-up to a saved Agent's run, the Agent named as it is now. */
         followUp?: AgentFollowUpTag
+        /** Regenerate this latest Turn: its prompt is sent again and `prompt` is unused. */
+        regenerate?: HarnessTurnRef
       } = {},
     ): Promise<SendToSessionResult> {
       const record = sessions.value[sessionId]
@@ -2020,7 +2112,7 @@ export const useAgentMode = defineStore(
           !options.settings && record?.sessionRef && settingsPort.value
             ? await settingsPort.value.readStored(
                 record.sessionRef,
-                record.presetName ?? AGENT_PRESET,
+                record.presetName ?? HARNESS_CHAT_PRESET,
               )
             : null
         context = storedTurnContext(record!, options.settings ?? inSession ?? undefined)
@@ -2074,15 +2166,82 @@ export const useAgentMode = defineStore(
               ...(options.followUp ? { followUp: options.followUp } : {}),
             }
           : undefined
-      runTurn(sessionId, context, (chat) => chat.sendMessage({ text: prompt, metadata })).catch(
-        (error) =>
-          errors.report(error, {
-            category: 'inference',
-            code: 'agent/turn-failed',
-            surface: 'silent',
-          }),
+      const redo = options.regenerate
+      runTurn(sessionId, context, (chat) =>
+        redo?.promptId
+          ? regenerateIn(chat, redo.promptId, redo)
+          : chat.sendMessage({ text: prompt, metadata }),
+      ).catch((error) =>
+        errors.report(error, {
+          category: 'inference',
+          code: 'agent/turn-failed',
+          surface: 'silent',
+        }),
       )
       return { ok: true }
+    }
+
+    /** Main rewinds before the new answer streams, so until then the old one stays. */
+    async function regenerateIn(
+      chat: AgentSessionRuntime['chat'],
+      promptId: string,
+      redo: HarnessTurnRef,
+    ): Promise<void> {
+      const before = chat.messages
+      const known = new Set(before.map((message) => message.id))
+      let forgotten: Promise<void> | undefined
+      const stop = watch(
+        () => chat.messages.at(-1),
+        (last) => {
+          if (forgotten || last?.role !== 'assistant' || known.has(last.id)) return
+          forgotten = forgetAnswers(redo)
+        },
+        { flush: 'sync' },
+      )
+      try {
+        await chat.regenerate({
+          messageId: promptId,
+          body: { rewindTurnId: redo.turnIds[0] } satisfies RegenerateBody,
+        })
+      } finally {
+        stop()
+        if (forgotten) await forgotten
+        else chat.messages = before
+      }
+    }
+
+    /** The answers Regenerate replaces leave the Session's timeline; the new turn takes their place. */
+    async function forgetAnswers(ref: HarnessTurnRef): Promise<void> {
+      const id = ref.harnessSessionId
+      const sessionRef = sessionRefOf(id)
+      const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
+      if (!sessionRef || answerIds.length === 0) return
+      const result = await requestTurnDeletion(id, [], answerIds)
+      if (!result.success) {
+        errors.report(new Error(result.error), {
+          category: 'unknown',
+          code: 'agent/regenerate-forget-failed',
+          surface: 'silent',
+        })
+        return
+      }
+      sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
+    }
+
+    function isSessionProcessing(id: string): boolean {
+      return !!turns.runtimeOf(id)?.processing.value
+    }
+
+    /** Regenerate the latest Assistant Turn from its Harness Session as it was before it. */
+    async function regenerateTurn(ref: HarnessTurnRef): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const result = await sendToSession(ref.harnessSessionId, '', { regenerate: ref })
+      if (result.ok) return
+      errors.report(new Error(result.message), {
+        category: 'inference',
+        code: 'agent/regenerate-failed',
+        userMessage: result.message,
+      })
     }
 
     /**
@@ -2098,7 +2257,7 @@ export const useAgentMode = defineStore(
       const record = sessions.value[sessionId]
       turnContexts[sessionId] = {
         workspaceDir: record?.workspaceDir ?? '',
-        presetName: record?.presetName ?? AGENT_PRESET,
+        presetName: record?.presetName ?? HARNESS_CHAT_PRESET,
         capabilities: [...(record?.settings?.capabilities ?? [])],
         settings: record?.settings ? { ...record.settings } : undefined,
         stored: true,
@@ -2127,6 +2286,9 @@ export const useAgentMode = defineStore(
     }
 
     return {
+      deleteTurns,
+      regenerateTurn,
+      isSessionProcessing,
       workspaceDir,
       agentPresetName,
       activeAgentPreset,
@@ -2147,12 +2309,12 @@ export const useAgentMode = defineStore(
       migrateMcpServerIds,
       adoptWebCapability,
       webCapabilityAdopted,
-      adoptNotifyCapability,
-      notifyCapabilityAdopted,
+      defaultCapabilitiesAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
       migratePlanningThinkingOnly,
+      adoptDefaultCapabilities,
       planningThinkingOnly,
       effectivePlanningThinkingOnly,
       setPlanningThinkingOnly,
@@ -2172,6 +2334,9 @@ export const useAgentMode = defineStore(
       isUnsandboxed,
       setUnsandboxed,
       attachments,
+      sessionDocuments,
+      indexingDocuments,
+      removeSessionDocument,
       attachFiles,
       removeAttachment,
       clearAttachments,
@@ -2231,7 +2396,7 @@ export const useAgentMode = defineStore(
       pick: [
         'mcpServerIds',
         'webCapabilityAdopted',
-        'notifyCapabilityAdopted',
+        'defaultCapabilitiesAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',

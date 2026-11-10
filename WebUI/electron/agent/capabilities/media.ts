@@ -4,6 +4,7 @@ import type { SkillSource } from '../piCustomTools.ts'
 import { buildDelegatedMediaTool } from './mediaDelegation.ts'
 import { buildDirectMediaTools } from './mediaDirect.ts'
 import { buildSpeechTools, SPEECH_TOOL_NAMES } from './mediaSpeech.ts'
+import { buildScreenshotTools, SCREENSHOT_TOOL_NAME } from './mediaScreenshot.ts'
 
 // ── media capability ─────────────────────────────────────────────────────────
 //
@@ -13,8 +14,7 @@ import { buildSpeechTools, SPEECH_TOOL_NAMES } from './mediaSpeech.ts'
 // generateImage + editImage, and the speech tools the preset has enabled. Direct
 // tools and the NL specialist's inner Comfy tools both execute in-process
 // against the Artifact runner (steps 5 and 12); speech calls the engine through
-// the window (mediaSpeech.ts). Screenshot / web-browse stay on the renderer
-// bridge.
+// the window (mediaSpeech.ts).
 
 // Every path in here is described, never shown: a concrete `generated/<file>`
 // example reads like a result the model already has, and it passes that example
@@ -114,7 +114,12 @@ export function mediaToolNames(host: CapabilityHost): string[] {
     .filter((name) => name === DELEGATION_TOOL_NAME || DIRECT_TOOL_NAMES.has(name))
 }
 
-/** Routes each shipped spec to its executor: delegation proxy, in-process run or speech. */
+/** The shipped specs this session can use: a screenshot is no use to a model without vision. */
+function usableSpecs(host: CapabilityHost): CapabilityHost['toolSpecs'] {
+  return host.toolSpecs.filter((spec) => spec.name !== SCREENSHOT_TOOL_NAME || host.supportsVision)
+}
+
+/** Routes each shipped spec to its executor: delegation proxy, in-process run, speech or capture. */
 async function buildMediaTools(host: CapabilityHost): Promise<ToolDefinition[]> {
   const delegationSpecs = host.toolSpecs.filter((spec) => spec.name === DELEGATION_TOOL_NAME)
   const directSpecs = host.toolSpecs.filter((spec) => DIRECT_TOOL_NAMES.has(spec.name))
@@ -123,6 +128,10 @@ async function buildMediaTools(host: CapabilityHost): Promise<ToolDefinition[]> 
     ...(await buildDirectMediaTools(host, directSpecs)),
     ...(await Promise.all(delegationSpecs.map((spec) => buildDelegatedMediaTool(host, spec)))),
     ...(await buildSpeechTools(host, speechSpecs)),
+    ...(await buildScreenshotTools(
+      host,
+      host.toolSpecs.filter((spec) => spec.name === SCREENSHOT_TOOL_NAME),
+    )),
   ]
 }
 
@@ -150,7 +159,7 @@ export const mediaCapability: AgentCapability = {
   },
   buildTools: buildMediaTools,
   unavailableReason: (host) =>
-    host.toolSpecs.length === 0
+    usableSpecs(host).length === 0
       ? 'No media tools are enabled — install or enable a ComfyUI workflow, or switch on a speech tool.'
       : undefined,
   lazyEligible: true,

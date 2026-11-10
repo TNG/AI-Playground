@@ -91,6 +91,7 @@ export {
   submitAgentToolResult,
 }
 
+export { deleteAgentTurns } from './harnessTurns.ts'
 export { COMPACTION_TOOL_NAME } from './piStreamTranslate.ts'
 export { onAgentTurnEnd, type AgentTurnEnd, type AgentTurnOutcome } from './agentTurnOutcome.ts'
 export type { ToolDefinition }

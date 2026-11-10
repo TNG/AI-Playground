@@ -32,6 +32,7 @@ vi.mock('../../adapters/mcp/mcpManager.ts', () => ({
 
 const { resolveCapabilities } = await import('../../agent/capabilities/index.ts')
 const { setRagAccess, resetRagAccess } = await import('../../agent/ragAccess.ts')
+const { resetDocumentIndex } = await import('../../agent/documentIndex.ts')
 const { testables } = await import('../../agent/capabilities/rag.ts')
 const { setToolBridgeWindow, submitAgentToolResult } = await import('../../agent/piCustomTools.ts')
 const { Document } = await import('@langchain/classic/document')
@@ -161,6 +162,7 @@ function fakeRendererPrep(status: 'ready' | 'declined' | 'failed', error = 'disk
 
 beforeEach(() => {
   resetRagAccess()
+  resetDocumentIndex()
   fakeRendererPrep('ready')
 })
 

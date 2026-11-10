@@ -189,7 +189,7 @@ export async function pinSession(id: string, pinned: boolean): Promise<SessionSu
   return summaryOf(file)
 }
 
-/** Pick an Agent in the Session's prompt bar, or `null` for Agent Maker itself. */
+/** Pick an Agent in the Session's prompt bar, or `null` for Assistant itself. */
 export async function pickSessionAgent(
   id: string,
   agentId: string | null,

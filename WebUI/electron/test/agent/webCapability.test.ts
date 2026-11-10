@@ -7,9 +7,10 @@ vi.mock('../../agent/piRuntime.ts', () => ({
 
 const search = vi.fn()
 const navigate = vi.fn()
-vi.mock('../../adapters/webBrowserManager.ts', () => ({ search, navigate }))
+const interact = vi.fn()
+vi.mock('../../adapters/webBrowserManager.ts', () => ({ search, navigate, interact }))
 
-const { webCapability, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } =
+const { webCapability, WEB_FETCH_TOOL, WEB_INTERACT_TOOL, WEB_SEARCH_TOOL } =
   await import('../../agent/capabilities/web.ts')
 
 type Tool = {
@@ -48,7 +49,7 @@ describe('the web capability', () => {
       url: 'https://www.bbc.com/news',
     })
     expect(text(result)).toContain('Headline one')
-    expect(text(result)).toContain('- World — https://www.bbc.com/news/world')
+    expect(text(result)).toContain('[0] World — https://www.bbc.com/news/world')
   })
 
   it('reports a failed load to the model instead of throwing', async () => {
@@ -68,5 +69,64 @@ describe('the web capability', () => {
     expect(navigate).toHaveBeenCalledTimes(2)
     expect(navigate).toHaveBeenCalledWith('https://a.example')
     expect(navigate).toHaveBeenCalledWith('https://b.example')
+  })
+
+  it('clicks a link of the open page by its number and returns the page it led to', async () => {
+    interact.mockResolvedValueOnce({
+      title: 'World - BBC News',
+      url: 'https://www.bbc.com/news/world',
+      text: 'World headlines',
+      links: [],
+    })
+    const result = await (
+      await tools()
+    )[WEB_INTERACT_TOOL].execute('t4', { action: 'click', linkIndex: 0 })
+    expect(interact).toHaveBeenCalledWith({ action: 'click', linkIndex: 0 })
+    expect(text(result)).toContain('URL: https://www.bbc.com/news/world')
+    expect(text(result)).toContain('World headlines')
+  })
+
+  it('types into a field of the open page and can submit it', async () => {
+    interact.mockResolvedValueOnce({
+      title: 'Results',
+      url: 'https://example.com/search?q=intel',
+      text: 'Intel results',
+      links: [],
+    })
+    const result = await (
+      await tools()
+    )[WEB_INTERACT_TOOL].execute('t5', {
+      action: 'type',
+      selector: 'input[name=q]',
+      text: 'intel',
+      submit: true,
+    })
+    expect(interact).toHaveBeenCalledWith({
+      action: 'type',
+      selector: 'input[name=q]',
+      text: 'intel',
+      submit: true,
+    })
+    expect(text(result)).toContain('Intel results')
+  })
+
+  it('lists the fields of a page with the selector to type into them', async () => {
+    navigate.mockResolvedValueOnce({
+      title: 'Search',
+      url: 'https://example.com',
+      text: '',
+      links: [],
+      fields: [{ selector: '#q', label: 'Search the site' }],
+    })
+    const result = await (await tools())[WEB_FETCH_TOOL].execute('t7', { url: 'example.com' })
+    expect(text(result)).toContain('#q — Search the site')
+  })
+
+  it('tells the model when a page element cannot be found', async () => {
+    interact.mockRejectedValueOnce(new Error('No element matched selector: #missing'))
+    const result = await (
+      await tools()
+    )[WEB_INTERACT_TOOL].execute('t6', { action: 'click', selector: '#missing' })
+    expect(text(result)).toBe('Error: No element matched selector: #missing')
   })
 })

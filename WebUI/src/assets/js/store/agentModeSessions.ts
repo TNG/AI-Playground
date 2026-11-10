@@ -1,6 +1,7 @@
 import type { UIMessage } from 'ai'
 import { computed, type Ref } from 'vue'
 import { currentPresetName } from '@/lib/presetRenames'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { MCP_CAPABILITY_PREFIX } from '@/types/agentCapabilities'
 import type {
   AgentChatTag,
@@ -57,7 +58,6 @@ export type AgentSessionRecord = {
  */
 export const GAME_AGENT_PRESET = 'Game Agent'
 export const QUICK_CODER_PRESET = 'Quick Coder'
-export const AGENT_PRESET = 'Agent'
 
 function isGamesPreset(name: string): boolean {
   const current = currentPresetName(name)
@@ -66,7 +66,7 @@ function isGamesPreset(name: string): boolean {
 
 /** What the timeline calls a Harness Session's turns: the Agent it chats with, else its preset. */
 export function turnLabelOf(record: AgentSessionRecord | undefined): string {
-  return record?.agentChat?.agentName ?? record?.presetName ?? AGENT_PRESET
+  return record?.agentChat?.agentName ?? record?.presetName ?? HARNESS_CHAT_PRESET
 }
 
 export function mintSessionId(): string {
@@ -116,7 +116,7 @@ export function sessionDisplayTitle(options: {
   gameName?: string
 }): { mode: string; name: string } {
   return {
-    mode: options.presetLabel?.trim() || AGENT_PRESET,
+    mode: options.presetLabel?.trim() || HARNESS_CHAT_PRESET,
     name: options.gameName?.trim() || options.title,
   }
 }
@@ -183,7 +183,7 @@ export function applySessionPresetNames(
   for (const session of legacy) {
     next[session.id] = {
       ...session,
-      presetName: gameFolders.has(session.workspaceDir) ? GAME_AGENT_PRESET : AGENT_PRESET,
+      presetName: gameFolders.has(session.workspaceDir) ? GAME_AGENT_PRESET : HARNESS_CHAT_PRESET,
     }
   }
   return next

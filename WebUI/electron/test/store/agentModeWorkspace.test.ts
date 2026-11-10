@@ -53,9 +53,14 @@ vi.mock('@/assets/js/store/presetSwitching', () => ({
 }))
 
 vi.mock('@/assets/js/store/textInference', () => ({
+  backendToAipgBackendName: { llamaCPP: 'llama_cpp', openVINO: 'openvino' },
   useTextInference: () => ({
     backend: 'llamaCPP',
     activeModel: 'Qwen3.8-27B-Q4_K_M.gguf',
+    get activeEmbeddingModel() {
+      return embedding.activeEmbeddingModel
+    },
+    embeddingBackend: 'llamaCPP',
     ensureReadyForInference: vi.fn(),
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
@@ -75,7 +80,13 @@ const report = vi.fn()
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
-  useI18N: () => ({ langName: 'en-US', state: {} }),
+  useI18N: () => ({
+    langName: 'en-US',
+    state: {
+      AGENT_ATTACH_FAILED: 'Could not attach {file}.',
+      AGENT_DOCUMENT_REMOVE_FAILED: 'Could not remove {file}.',
+    },
+  }),
 }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({
@@ -101,10 +112,24 @@ const gamesCreate = vi.fn(async (_name: string, _options?: { scaffold?: boolean 
   gameFolders.add('/games/new-game')
   return { dir: '/games/new-game', name: 'New game' }
 })
-const importAttachment = vi.fn(async (_dir: string, name: string) => ({
-  success: true,
-  path: `attachments/${name}`,
-}))
+/** The files in each workspace's attachments folder, as main would list them. */
+const savedFiles = new Map<string, string[]>()
+const importAttachment = vi.fn(async (dir: string, name: string) => {
+  savedFiles.set(dir, [...(savedFiles.get(dir) ?? []), `attachments/${name}`])
+  return { success: true, path: `attachments/${name}` }
+})
+const sessionDocuments = vi.fn(async (dir: string) =>
+  (savedFiles.get(dir) ?? []).filter((file) => /\.(pdf|docx?|md|txt)$/.test(file)),
+)
+const indexDocument = vi.fn(async (..._args: unknown[]) => ({ success: true }))
+const removeSessionDocument = vi.fn(async (dir: string, file: string) => {
+  savedFiles.set(
+    dir,
+    (savedFiles.get(dir) ?? []).filter((saved) => saved !== file),
+  )
+  return { success: true as boolean, error: undefined as string | undefined }
+})
+const embedding = { activeEmbeddingModel: 'bge-small' as string | null }
 
 // Only what these tests actually reach, hence the cast.
 globalThis.window = {
@@ -113,6 +138,9 @@ globalThis.window = {
       cancel: vi.fn(async () => {}),
       deleteSession: vi.fn(async () => ({ success: true })),
       importAttachment,
+      sessionDocuments,
+      indexDocument,
+      removeSessionDocument,
       // Agent notifications ride the kernel stream; only the executeTool
       // request stays on the agentMode surface. No kernel API is stubbed, so
       // the projection stays inert in these tests.
@@ -262,8 +290,8 @@ describe('agentMode attachments', () => {
     const store = useAgentMode()
     store.workspaceDir = '/code/project'
 
-    await store.attachFiles([file('player.png'), file('notes.txt')])
-    expect(store.attachments.map((a) => a.name)).toEqual(['player.png', 'notes.txt'])
+    await store.attachFiles([file('player.png'), file('levels.csv')])
+    expect(store.attachments.map((a) => a.name)).toEqual(['player.png', 'levels.csv'])
 
     await store.generate('use these')
 
@@ -272,7 +300,7 @@ describe('agentMode attachments', () => {
     const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(sent.text).toContain('use these')
     expect(sent.text).toContain('@attachments/player.png')
-    expect(sent.text).toContain('@attachments/notes.txt')
+    expect(sent.text).toContain('@attachments/levels.csv')
     // Already in the workspace, so the next turn must not copy them again.
     expect(store.attachments).toEqual([])
   })
@@ -309,7 +337,10 @@ describe('agentMode attachments', () => {
     await store.attachFiles([file('player.png')])
     await store.generate('use this')
 
-    expect(report).toHaveBeenCalled()
+    expect(report).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userMessage: 'Could not attach player.png.' }),
+    )
     const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(sent.text).toBe('use this')
     expect(store.attachments).toEqual([])
@@ -322,5 +353,114 @@ describe('agentMode attachments', () => {
     store.removeAttachment(0)
 
     expect(store.attachments.map((a) => a.name)).toEqual(['b.png'])
+  })
+})
+
+describe('agentMode session documents', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    activePreset.value = AGENT
+    savedFiles.clear()
+    importAttachment.mockClear()
+    indexDocument.mockClear()
+    embedding.activeEmbeddingModel = 'bge-small'
+    report.mockClear()
+  })
+
+  function document(name: string): File {
+    return new File(['the budget is $42'], name, { type: 'application/pdf' })
+  }
+
+  it('copies and indexes a document on attach, and shows it as a chip', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await flush()
+
+    await store.attachFiles([document('report.pdf')])
+
+    expect(importAttachment).toHaveBeenCalledWith(
+      '/sessions/s1/files',
+      'report.pdf',
+      expect.anything(),
+    )
+    expect(indexDocument).toHaveBeenCalledWith('/sessions/s1/files', 'attachments/report.pdf', {
+      model: 'bge-small',
+      backend: 'llamaCPP',
+    })
+    expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
+    expect(store.attachments).toEqual([])
+  })
+
+  it('does not tell the model about it in the prompt it sends', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await store.attachFiles([document('report.pdf')])
+
+    await store.generate('what is the budget?')
+
+    const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(sent.text).toBe('what is the budget?')
+  })
+
+  it('shows only the documents of the Session on screen', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await store.attachFiles([document('report.pdf')])
+
+    store.workspaceDir = '/sessions/s2/files'
+    await flush()
+
+    expect(store.sessionDocuments).toEqual([])
+  })
+
+  it('copies a document without indexing it when no embedding model is picked', async () => {
+    embedding.activeEmbeddingModel = null
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+
+    await store.attachFiles([document('report.pdf')])
+
+    expect(indexDocument).not.toHaveBeenCalled()
+    expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
+  })
+
+  it('deletes the Session copy of a document removed again, and drops its chip', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await store.attachFiles([document('report.pdf'), document('notes.md')])
+
+    await store.removeSessionDocument('attachments/report.pdf')
+
+    expect(removeSessionDocument).toHaveBeenCalledWith(
+      '/sessions/s1/files',
+      'attachments/report.pdf',
+    )
+    expect(store.sessionDocuments).toEqual(['attachments/notes.md'])
+  })
+
+  it('reports a document it could not remove and keeps its chip', async () => {
+    const store = useAgentMode()
+    store.workspaceDir = '/sessions/s1/files'
+    await store.attachFiles([document('report.pdf')])
+    removeSessionDocument.mockResolvedValueOnce({ success: false, error: 'EBUSY' })
+
+    await store.removeSessionDocument('attachments/report.pdf')
+
+    expect(report).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ code: 'agent/document-remove-failed', surface: 'toast' }),
+    )
+    expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
+  })
+
+  it('holds a document for Game Agent until the game folder exists', async () => {
+    const store = useAgentMode()
+    activePreset.value = GAME_AGENT
+    await flush()
+
+    await store.attachFiles([document('design.pdf')])
+
+    expect(importAttachment).not.toHaveBeenCalled()
+    expect(store.attachments.map((a) => a.name)).toEqual(['design.pdf'])
   })
 })

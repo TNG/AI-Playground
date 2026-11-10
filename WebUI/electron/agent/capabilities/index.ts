@@ -2,6 +2,7 @@ import type { ExtensionFactory, ToolDefinition } from '@earendil-works/pi-coding
 import { appLoggerInstance } from '../../observability/logger.ts'
 import type { SkillSource } from '../piCustomTools.ts'
 import { createCapabilitiesExtension } from './core.ts'
+import { filesCapability } from './files.ts'
 import { gameStudioCapability, gameStudioQuickCapability } from './gameStudio.ts'
 import { mediaCapability } from './media.ts'
 import { mcpCapability, mcpCapabilityId, mcpServerIdOf } from './mcp.ts'
@@ -11,6 +12,7 @@ import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
 import { webCapability } from './web.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
+import { capabilityModelGateReason } from '@/lib/modelToolUse'
 import {
   estimateToolTokens,
   expandCapabilityIds,
@@ -42,6 +44,7 @@ export { DEFAULT_CAPABILITY_IDS } from '@/types/agentCapabilities'
 
 /** Built-in capabilities, in the order their tools are registered. */
 const BUILT_IN_CAPABILITIES: AgentCapability[] = [
+  filesCapability,
   webDebugCapability,
   webCapability,
   mediaCapability,
@@ -111,7 +114,9 @@ export async function resolveCapabilities(
   for (const id of wantedIds) {
     const capability = byId.get(id)
     if (!capability) continue
-    const reason = capability.unavailableReason?.(host)
+    const reason =
+      (host.modelToolUse && capabilityModelGateReason(id, host.modelToolUse)) ||
+      capability.unavailableReason?.(host)
     if (reason) {
       logger.info(`capability '${id}' unavailable: ${reason}`, LOG_SOURCE)
       continue

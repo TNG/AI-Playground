@@ -1,6 +1,5 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed, ref } from 'vue'
-import { presetDisplayName } from '@/lib/presetDisplayName'
 
 // ── OEM co-branding ──────────────────────────────────────────────────────────
 //
@@ -44,10 +43,11 @@ export const useOemBranding = defineStore('oemBranding', () => {
     return detecting
   }
 
-  /** The name to show for a preset — its display name, unless co-branded by the OEM. */
+  /** The name to show for a preset — its own, unless co-branded by the OEM. */
   function presetLabel(presetName: string): string {
-    const name = presetDisplayName(presetName)
-    return brand.value && CO_BRANDED_PRESETS.has(presetName) ? `${brand.value} ${name}` : name
+    return brand.value && CO_BRANDED_PRESETS.has(presetName)
+      ? `${brand.value} ${presetName}`
+      : presetName
   }
 
   /**

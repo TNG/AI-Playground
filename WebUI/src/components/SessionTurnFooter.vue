@@ -51,6 +51,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 import { useErrors } from '@/assets/js/store/errors'
 import { isCancellation } from '@/assets/js/errors/appError'
@@ -72,6 +73,7 @@ import type { MediaRerun, TurnFooter } from '@/lib/turnTypes'
 const props = defineProps<{ footer: TurnFooter }>()
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
+const agentMode = useAgentMode()
 const imageGeneration = useImageGenerationPresets()
 const errors = useErrors()
 const textInference = useTextInference()
@@ -85,7 +87,11 @@ const newestAnswer = computed(
   () => props.footer.actions.includes('regenerate') && !props.footer.rerun,
 )
 const regenerateBlocked = computed(
-  () => openAiCompatibleChat.processing || (!!props.footer.rerun && imageGeneration.processing),
+  () =>
+    openAiCompatibleChat.processing ||
+    (!!props.footer.rerun && imageGeneration.processing) ||
+    (!!props.footer.harnessTurn &&
+      agentMode.isSessionProcessing(props.footer.harnessTurn.harnessSessionId)),
 )
 const conversationEnergy = computed(() =>
   estimateConversationEnergy(openAiCompatibleChat.messages ?? []),
@@ -168,10 +174,12 @@ async function rerunMedia(rerun: MediaRerun) {
 
 function regenerate() {
   if (props.footer.rerun) void rerunMedia(props.footer.rerun)
+  else if (props.footer.harnessTurn) void agentMode.regenerateTurn(props.footer.harnessTurn)
   else if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
 }
 
 function remove() {
-  if (props.footer.messageId) void openAiCompatibleChat.removeMessage(props.footer.messageId)
+  if (props.footer.harnessTurn) void agentMode.deleteTurns(props.footer.harnessTurn)
+  else if (props.footer.messageId) void openAiCompatibleChat.removeMessage(props.footer.messageId)
 }
 </script>

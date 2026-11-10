@@ -1,10 +1,11 @@
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import { llmBackendTypes } from '@/types/shared'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 
 /** A chat preset's saved-settings bag, as `textInference.settingsPerPreset` stores it. */
 export type SettingsBag = Record<string, unknown>
 
-/** The one gate for per-session settings: the folder-picking Agent preset. */
+/** The one gate for per-session settings: the general harness chat preset. */
 export function usesSessionSettings(
   preset: { name: string; agentPreset?: boolean } | null | undefined,
 ): boolean {
@@ -13,7 +14,7 @@ export function usesSessionSettings(
 
 /** The same gate by name, for session records read before the preset catalog has loaded. */
 export function presetNameUsesSessionSettings(name: string | undefined): boolean {
-  return name === 'Agent'
+  return isHarnessChatPreset(name)
 }
 
 /**
@@ -23,6 +24,22 @@ export function presetNameUsesSessionSettings(name: string | undefined): boolean
 export const DEFAULT_CAPABILITIES_KEY = 'agentCapabilities'
 export const DEFAULT_PLANNING_THINKING_ONLY_KEY = 'agentPlanningThinkingOnly'
 export const DEFAULT_MOUNTED_FOLDERS_KEY = 'agentMountedFolders'
+
+/** Bag keys a Session Setting of the same name holds as is, with the type it must have. */
+const SAMPLING_AND_PROMPT_TYPES = {
+  maxTokens: 'number',
+  temperature: 'number',
+  temperatureFromModel: 'number',
+  reasoningEffort: 'string',
+  reasoningEffortFromModel: 'string',
+  systemPrompt: 'string',
+  metricsEnabled: 'boolean',
+  numAssistantTokens: 'number',
+  speakReplies: 'boolean',
+} as const satisfies Partial<Record<keyof AgentSessionSettings, 'number' | 'string' | 'boolean'>>
+
+type SamplingAndPromptKey = keyof typeof SAMPLING_AND_PROMPT_TYPES
+const SAMPLING_AND_PROMPT_KEYS = Object.keys(SAMPLING_AND_PROMPT_TYPES) as SamplingAndPromptKey[]
 
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
 const SESSION_OWNED_KEYS = [
@@ -38,6 +55,7 @@ const SESSION_OWNED_KEYS = [
   'builtinToolPresetEnablement',
   'builtinToolDefaultPresets',
   'cloudProviderId',
+  ...SAMPLING_AND_PROMPT_KEYS,
 ] as const
 
 type Backend = (typeof llmBackendTypes)[number]
@@ -60,6 +78,7 @@ const BAG_DERIVED_SETTINGS = [
   'builtinToolPresetEnablement',
   'builtinToolDefaultPresets',
   'cloudProviderId',
+  ...SAMPLING_AND_PROMPT_KEYS,
 ] as const
 
 /** Take the bag's values for the fields it owns, keeping the session's other settings. */
@@ -106,6 +125,10 @@ export function sessionSettingsFromBag(
   const defaultWorkflows = asRecord<string>(bag.builtinToolDefaultPresets)
   if (defaultWorkflows) settings.builtinToolDefaultPresets = defaultWorkflows
   if (typeof bag.cloudProviderId === 'string') settings.cloudProviderId = bag.cloudProviderId
+  for (const key of SAMPLING_AND_PROMPT_KEYS) {
+    if (typeof bag[key] === SAMPLING_AND_PROMPT_TYPES[key])
+      Object.assign(settings, { [key]: bag[key] })
+  }
   return settings
 }
 
@@ -142,8 +165,14 @@ export function sessionSettingsToBag(
     'builtinToolPresetEnablement',
     'builtinToolDefaultPresets',
     'cloudProviderId',
+    ...SAMPLING_AND_PROMPT_KEYS,
   ] as const) {
     if (settings[key] !== undefined) bag[key] = settings[key]
+  }
+  // A recommendation the Defaults adopted says nothing about the session's own value.
+  if (settings.temperature !== undefined) bag.temperatureFromModel = settings.temperatureFromModel
+  if (settings.reasoningEffort !== undefined) {
+    bag.reasoningEffortFromModel = settings.reasoningEffortFromModel
   }
   return bag
 }

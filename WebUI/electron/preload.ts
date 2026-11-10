@@ -4,9 +4,14 @@ import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
-import type { AgentModeTurnConfig, AgentToolExecuteRequest, AgentToolSpec } from '@/types/agentIpc'
+import type {
+  AgentModeTurnConfig,
+  AgentToolExecuteRequest,
+  AgentToolSpec,
+  DeleteAgentTurnsRequest,
+} from '@/types/agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
 import type {
@@ -409,6 +414,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: (sessionId: string, turnId?: string) => invoke('agentMode:cancel', sessionId, turnId),
     resetSession: () => invoke('agentMode:resetSession'),
     deleteSession: (sessionId: string) => invoke('agentMode:deleteSession', sessionId),
+    deleteTurns: (request: DeleteAgentTurnsRequest) => invoke('agentMode:deleteTurns', request),
     bootstrapSessions: () => invoke('agentMode:bootstrapSessions'),
     migrateSessions: (legacy: unknown) => invoke('agentMode:migrateSessions', cloneForIpc(legacy)),
     saveSession: (record: AgentSessionRecordWire) =>
@@ -431,6 +437,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveTrialRun: (run: TrialRunRecord) => invoke('agentMode:saveTrialRun', cloneForIpc(run)),
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
+    sessionDocuments: (workspaceDir: string) => invoke('agentMode:sessionDocuments', workspaceDir),
+    indexDocument: (workspaceDir: string, relativePath: string, embedding: DocumentEmbedding) =>
+      invoke('agentMode:indexDocument', workspaceDir, relativePath, embedding),
+    removeSessionDocument: (workspaceDir: string, relativePath: string) =>
+      invoke('agentMode:removeSessionDocument', workspaceDir, relativePath),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

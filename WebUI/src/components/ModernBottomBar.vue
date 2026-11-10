@@ -48,6 +48,7 @@
       @attach="(e: Event) => emit('attach', e)"
     />
     <PromptCaptureButtons
+      v-if="model.capture"
       :downloading="downloading"
       :stt-available="sttAvailable"
       :stt-unavailable-hint="sttUnavailableHint"
@@ -97,6 +98,7 @@ import type { AgentComposerState } from '@/lib/agentComposer'
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { promptBarModel } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 
 defineProps<{
   showAttach: boolean
@@ -130,7 +132,8 @@ const sessionTabs = useSessionTabs()
 const textInference = useTextInference()
 const oemBranding = useOemBranding()
 const i18nState = useI18N().state
-const { gateOf, switchTo } = usePromptBarPresetSwitch()
+const { gateOf } = usePromptBarPresetSwitch()
+const agentPick = usePromptBarAgentPick()
 
 const model = computed(() =>
   promptBarModel({
@@ -140,6 +143,8 @@ const model = computed(() =>
     catalog: presetsStore.getPresetsByCategories([]),
     lastUsed: presetsStore.lastUsedPresetsByMode,
     presetGate: gateOf,
+    agents: agentPick.agents.value,
+    pickedAgentId: agentPick.pickedAgentId.value,
   }),
 )
 
@@ -148,6 +153,6 @@ const shownMode = computed(() => model.value.activeMode ?? promptStore.getCurren
 async function pickMode(mode: ModeType) {
   const presetName = model.value.modePicks[mode]
   if (!presetName || mode === model.value.activeMode) return
-  await switchTo(presetName, { announce: false })
+  await agentPick.pickPreset(presetName, { announce: false })
 }
 </script>

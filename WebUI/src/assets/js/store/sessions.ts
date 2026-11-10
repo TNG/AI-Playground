@@ -201,7 +201,7 @@ export const useSessions = defineStore('sessions', () => {
     if (result) remember(result.session)
   }
 
-  /** The Agent picked in the Session's prompt bar, `null` for Agent Maker; false when not kept. */
+  /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
   async function pickAgent(id: string, agentId: string | null): Promise<boolean> {
     const result = await call('sessions/pick-agent-failed', () =>
       window.electronAPI.sessions.pickAgent(id, agentId),
@@ -318,6 +318,15 @@ export const useSessions = defineStore('sessions', () => {
     )
   }
 
+  /** Main already took these out of the Session file; this drops the open copy's. */
+  function forgetTimelineMessages(id: string, messageIds: string[]): void {
+    if (id !== openSessionId.value) return
+    const removed = new Set(messageIds)
+    openTimeline.value = openTimeline.value.filter(
+      (message) => !removed.has((message as { id?: string }).id ?? ''),
+    )
+  }
+
   async function remove(id: string): Promise<void> {
     const result = await call('sessions/delete-failed', () =>
       window.electronAPI.sessions.delete(id),
@@ -359,6 +368,7 @@ export const useSessions = defineStore('sessions', () => {
     setShowMore,
     remove,
     saveTimelineMessages,
+    forgetTimelineMessages,
     ensureOpenSession,
     isFileDeleted,
     markFileDeleted,

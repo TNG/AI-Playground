@@ -1,6 +1,7 @@
 import type {
   AgentCapabilityInfo,
   AgentModeTurnConfig,
+  DeleteAgentTurnsRequest,
   AgentToolExecuteRequest,
   AgentToolSpec,
   ArcadeCatalogEntry,
@@ -65,7 +66,7 @@ import type {
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
 
 export type IpcOwner = 'main' | 'homeAgent'
@@ -263,7 +264,7 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, boolean],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
-  /** Pick an Agent in a Session's prompt bar, or `null` for Agent Maker; pushes `session-changed`. */
+  /** Pick an Agent in a Session's prompt bar, or `null` for Assistant; pushes `session-changed`. */
   'sessions:pickAgent': {
     kind: 'invoke',
     owner: 'main',
@@ -479,6 +480,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
+  /** Delete Assistant turns from their Harness Session and the Session's timeline. */
+  'agentMode:deleteTurns': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [DeleteAgentTurnsRequest],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Hydrate the session-panel records once before mount: session files plus the active id. */
   'agentMode:bootstrapSessions': {
     kind: 'invoke',
@@ -604,6 +612,27 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
+  },
+  /** The documents attached to a Session's workspace, as workspace-relative paths. */
+  'agentMode:sessionDocuments': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as string[],
+  },
+  /** Split and embed an attached document now, so the first `rag` call on it is fast. */
+  'agentMode:indexDocument': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, DocumentEmbedding],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Delete an attached document's Session copy, so later turns no longer see it. */
+  'agentMode:removeSessionDocument': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
   },
   /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */
   'agentMode:mediaFileAction': {

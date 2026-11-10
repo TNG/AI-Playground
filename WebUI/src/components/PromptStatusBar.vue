@@ -109,9 +109,6 @@
             align="start"
             class="z-[40010] min-w-48 flex flex-col max-h-[var(--reka-dropdown-menu-content-available-height)]"
           >
-            <DropdownMenuLabel v-if="bar.activeMode === 'agent'" class="text-xs">
-              {{ languages.PROMPT_BAR_AGENT_PRESETS }}
-            </DropdownMenuLabel>
             <DropdownMenuRadioGroup
               :model-value="pickedPresetName ?? ''"
               @update:model-value="(name) => pickPreset(name as string)"
@@ -202,7 +199,7 @@
                 </TooltipProvider>
               </DropdownMenuRadioGroup>
             </template>
-            <AgentLibraryMenuItems v-if="bar.activeMode === 'agent'" />
+            <AgentLibraryMenuItems v-if="bar.activeMode === AGENTS_MODE" />
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip v-else>
@@ -293,7 +290,7 @@
       />
       <!-- Same gauge in agent mode, fed by Pi's context report. -->
       <AgentTokenUsage v-if="isAgentMode" />
-      <div v-if="isChatMode" class="flex flex-none gap-1">
+      <div v-if="chatAffordances" class="flex flex-none gap-1">
         <button
           @click="textInference.decreaseFontSize()"
           :disabled="textInference.isMinSize"
@@ -360,7 +357,10 @@ import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuItems.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
+import { hasChatAffordances } from '@/lib/chatAffordances'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import {
+  AGENTS_MODE,
   agentList,
   promptBarModel,
   type HeaderChip,
@@ -395,6 +395,7 @@ const chipClass =
 
 const isChatMode = computed(() => promptStore.getCurrentMode() === 'chat')
 const isAgentMode = computed(() => promptStore.getCurrentMode() === 'agent')
+const chatAffordances = computed(() => hasChatAffordances(presetsStore.activePreset))
 
 // Games presets open their folder from the GameBar instead.
 const workspaceFolder = computed(() => {
@@ -587,8 +588,8 @@ const currentModel = computed(() =>
   textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
 )
 
-// The merged Assistant preset shows per-capability icons on its model chip.
-const isAssistantPreset = computed(() => presetChip.value?.name === 'Assistant')
+// Assistant shows per-capability icons on its model chip.
+const isAssistantPreset = computed(() => isHarnessChatPreset(presetChip.value?.name))
 
 const contextUsedTokens = computed(() => openAiCompatibleChat.usedTokens)
 const contextMaxTokens = computed(() => textInference.effectiveContextWindow)

@@ -14,6 +14,7 @@ import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
+import { catalogModelToolUse } from '@/lib/modelToolUse'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
 import { getAgentToolSpecs } from '../tools/agentBridge'
@@ -93,6 +94,8 @@ export async function buildTurnConfig(options: {
   followedRun?: AgentModeTurnConfig['followedRun']
   presetName: string
   instructions: string
+  /** The preset's `agentOwnsPrompt`. */
+  ownsPrompt?: boolean
   capabilities: string[]
   unsandboxed: boolean
   mountedFolders?: ResolvedMountedFolder[]
@@ -102,12 +105,17 @@ export async function buildTurnConfig(options: {
   /** Tool toggles stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
   answer?: AgentAnswerOrigin
+  /** The preset shows max tokens and temperature, so they bound every request. */
+  userSampling?: boolean
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
     ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
     : undefined
   const { textInference, cloudMode } = options
+  const userMaxTokens = Math.floor(textInference.effectiveMaxTokens ?? 0)
+  const maxOutputTokens =
+    options.userSampling && userMaxTokens > 0 ? { maxOutputTokens: userMaxTokens } : {}
   if (textInference.backend === 'cloud') {
     const upstreamBaseUrl = cloudMode.activeProviderBaseUrl
     if (!upstreamBaseUrl) {
@@ -134,11 +142,14 @@ export async function buildTurnConfig(options: {
         contextWindow: textInference.maxContextSizeFromModel
           ? textInference.effectiveContextWindow
           : undefined,
+        ...(options.userSampling ? { temperature: textInference.temperature } : {}),
+        ...maxOutputTokens,
       },
       toolSpecs,
       mediaAgent,
       presetName: options.presetName,
       instructions: options.instructions,
+      ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       ...mountedFoldersOf(options.mountedFolders),
@@ -155,6 +166,7 @@ export async function buildTurnConfig(options: {
     )
   }
   const activeModel = textInference.activeModel
+  const toolUse = catalogModelToolUse(textInference.backend, textInference.activeLlmModel)
   const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
     sessionId: options.sessionId,
@@ -172,12 +184,16 @@ export async function buildTurnConfig(options: {
       baseUrl: openAiApiBase(baseUrl),
       contextWindow: textInference.effectiveContextWindow,
       supportsVision: textInference.modelSupportsVision,
+      supportsToolCalling: toolUse.toolCalling,
+      supportsAgentic: toolUse.agentic,
       samplingParams: buildSamplingParams(textInference),
+      ...maxOutputTokens,
     },
     toolSpecs,
     mediaAgent,
     presetName: options.presetName,
     instructions: options.instructions,
+    ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
     ...mountedFoldersOf(options.mountedFolders),
@@ -228,6 +244,9 @@ export function latestTurnMetadata<K extends keyof TurnMetadata>(
   return (latest?.metadata as TurnMetadata | undefined)?.[key]
 }
 
+/** Sent as `chat.regenerate`'s body: the harness turn main rewinds to just before. */
+export type RegenerateBody = { rewindTurnId: string }
+
 type StoreTool = (input: Record<string, unknown>, sessionId: string) => Promise<unknown>
 
 type ErrorSink = { report: (error: unknown, overrides: Record<string, unknown>) => void }
@@ -265,6 +284,7 @@ type SessionRuntime = AgentSessionRuntime & {
 function createSessionRuntime(options: {
   sessionId: string
   errors: ErrorSink
+  describeTurnError?: (message: string) => string | undefined
   initialMessages: UIMessage[]
   finishedTurns: Set<string>
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
@@ -295,13 +315,15 @@ function createSessionRuntime(options: {
   let adoptedTurnId: string | null = null
 
   const transport: ChatTransport<UIMessage> = {
-    sendMessages: async ({ messages, abortSignal }) => {
+    sendMessages: async ({ messages, abortSignal, body }) => {
       const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
       const prompt = userMessagePrompt(lastUserMessage)
 
       const turnId = crypto.randomUUID()
       // Frozen here: settings edited after Send apply to the next turn.
-      const config = await options.buildTurnConfig(sessionId)
+      const built = await options.buildTurnConfig(sessionId)
+      const rewindTurnId = (body as RegenerateBody | undefined)?.rewindTurnId
+      const config = rewindTurnId ? { ...built, rewindTurnId } : built
 
       return new ReadableStream<UIMessageChunk>({
         start: (controller) => {
@@ -398,7 +420,9 @@ function createSessionRuntime(options: {
         options.errors.report(error, {
           category: 'inference',
           code: 'agent/turn-failed',
-          userMessage: `Agent turn failed: ${extractMessage(error)}`,
+          userMessage:
+            options.describeTurnError?.(extractMessage(error)) ??
+            `Agent turn failed: ${extractMessage(error)}`,
           surface: options.quietTurnErrors?.(sessionId) ? 'silent' : 'toast',
         })
       },
@@ -555,6 +579,8 @@ function createSessionRuntime(options: {
  */
 export function createAgentTurnRuntimes(options: {
   errors: ErrorSink
+  /** The user's wording for a turn error main sent as a known reason. */
+  describeTurnError?: (message: string) => string | undefined
   buildTurnConfig: (sessionId: string) => Promise<AgentModeTurnConfig>
   /** Tools the store implements itself (e.g. offer_game_agent); media tools execute in main. */
   storeTools?: Record<string, StoreTool>
@@ -590,6 +616,7 @@ export function createAgentTurnRuntimes(options: {
       createSessionRuntime({
         sessionId,
         errors: options.errors,
+        describeTurnError: options.describeTurnError,
         initialMessages: options.initialMessages?.(sessionId) ?? [],
         finishedTurns,
         buildTurnConfig: options.buildTurnConfig,

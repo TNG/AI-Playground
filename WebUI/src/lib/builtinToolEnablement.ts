@@ -16,9 +16,17 @@ export const TOOL_ENABLEMENT_KEY = 'builtinToolEnablement'
 /** Tools that stay off until asked for; every other built-in tool defaults on. */
 const OPT_IN_TOOLS = new Set(['captureScreenshot'])
 
-export function isToolEnabled(enablement: ToolEnablement, toolName: string): boolean {
+/** Speech is over 40% of the default tool schemas, too much for the 8k NPU prompt (ticket 02). */
+const NPU_OPT_IN_TOOLS = new Set(['synthesizeTextToSpeech', 'transcribeAudio'])
+
+export function isToolEnabled(
+  enablement: ToolEnablement,
+  toolName: string,
+  { onNpu = false }: { onNpu?: boolean } = {},
+): boolean {
   const override = enablement[toolName]
   if (override !== undefined) return override
+  if (onNpu && NPU_OPT_IN_TOOLS.has(toolName)) return false
   return !OPT_IN_TOOLS.has(toolName)
 }
 

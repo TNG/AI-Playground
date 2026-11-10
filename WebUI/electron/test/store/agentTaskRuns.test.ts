@@ -15,7 +15,7 @@ import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -184,7 +184,7 @@ const openRecord = {
   messages: [{ id: 'open-u1', role: 'user', parts: [{ type: 'text', text: 'what I am doing' }] }],
   createdAt: 1,
   updatedAt: 2,
-  presetName: 'Agent',
+  presetName: 'Assistant',
   settings: { backend: 'llamaCPP', model: 'Live-9B', capabilities: ['files'] },
 }
 
@@ -328,6 +328,7 @@ beforeEach(() => {
         })),
       },
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn,
         cancel: vi.fn(async () => {}),
         saveSession,
@@ -527,7 +528,7 @@ describe('running a Task', () => {
     expect(agentMode.sessions[sessionId]).toMatchObject({
       workspaceDir: '/work/task',
       title: 'Task t1',
-      presetName: 'Agent',
+      presetName: 'Assistant',
       taskId: 't1',
       settings: TEMPLATE,
     })
@@ -562,7 +563,7 @@ describe('running a Task', () => {
     expect(agentMode.sessions[sentConfig(1).sessionId].taskRun).not.toHaveProperty('input')
   })
 
-  it('files the Agent Run under Agent Maker', async () => {
+  it('files the Agent Run under Assistant', async () => {
     const { agentMode } = await readyStores(task('t-news', ['one']))
     const tasks = useAgentTasks(pinia)
 
@@ -570,8 +571,8 @@ describe('running a Task', () => {
 
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
-    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Agent' })
-    expect(sentConfig(0)).toMatchObject({ presetName: 'Agent' })
+    expect(agentMode.sessions[sessionId]).toMatchObject({ presetName: 'Assistant' })
+    expect(sentConfig(0)).toMatchObject({ presetName: 'Assistant' })
   })
 
   it('frames each Step with its place in the run', async () => {
@@ -646,7 +647,7 @@ describe('the settings a run uses', () => {
     for (const call of [0, 1]) {
       expect(sentConfig(call)).toMatchObject({
         workspaceDir: '/work/task',
-        presetName: 'Agent',
+        presetName: 'Assistant',
         capabilities: ['files', 'web'],
         modelConfig: { model: 'Template-27B' },
       })
@@ -788,7 +789,7 @@ describe('a run in the background', () => {
     await finishTurn(0)
 
     await turnIdOf(1)
-    expect(sentConfig(1)).toMatchObject({ sessionId, presetName: 'Agent' })
+    expect(sentConfig(1)).toMatchObject({ sessionId, presetName: 'Assistant' })
     expect(agentMode.sessions[sessionId]).toMatchObject({
       taskId: 't1',
       workspaceDir: '/work/task',
@@ -1300,7 +1301,7 @@ describe('the app closing during a run', () => {
           messages: [],
           createdAt: 1,
           updatedAt: 2,
-          presetName: 'Agent',
+          presetName: 'Assistant',
           settings: TEMPLATE,
           taskId: 't1',
           sessionRef: SESSION,
@@ -1337,7 +1338,7 @@ describe('the app closing during a run', () => {
           messages: [],
           createdAt: 1,
           updatedAt: 2,
-          presetName: 'Agent',
+          presetName: 'Assistant',
           settings: TEMPLATE,
           taskId: 't1',
         },
@@ -1407,7 +1408,7 @@ describe('the app closing during a run', () => {
       messages: [{ id: 'old-u1', role: 'user', parts: [{ type: 'text', text: 'one' }] }],
       createdAt: 1,
       updatedAt: 2,
-      presetName: 'Agent',
+      presetName: 'Assistant',
       settings: TEMPLATE,
       taskId: 't1',
     }
@@ -1639,7 +1640,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(tasks.pickedAgent?.id).toBe('t1')
   })
 
-  it('is cleared by picking Agent Maker again', async () => {
+  it('is cleared by picking Assistant again', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
 
     await tasks.pickAgent('t1')
@@ -1658,7 +1659,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(storedPicks).toEqual({})
   })
 
-  it('is only in effect while Agent Maker is the agent preset', async () => {
+  it('is only in effect while Assistant is the agent preset', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
     await tasks.pickAgent('t1')
 
@@ -1696,7 +1697,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(tasks.agentSettingsProblems).toEqual([{ field: 'model', value: 'Template-27B' }])
   })
 
-  it("leaves the Session's own Agent Maker settings as they were", async () => {
+  it("leaves the Session's own Assistant settings as they were", async () => {
     inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
     const { agentMode, tasks } = await readyStores(task('t1', ['one']))
     const before = { ...agentMode.openSessionSettings }
@@ -1720,7 +1721,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(startTurn).not.toHaveBeenCalled()
   })
 
-  it('falls back to Agent Maker in every Session that picked it when deleted', async () => {
+  it('falls back to Assistant in every Session that picked it when deleted', async () => {
     const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
     const sessions = useSessions(pinia)
     await tasks.pickAgent('t1')
@@ -1861,7 +1862,7 @@ describe('following up on a picked Agent’s run', () => {
         messages: [{ id: 'old-u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
         createdAt: 1,
         updatedAt: 2,
-        presetName: 'Agent',
+        presetName: 'Assistant',
         sessionRef: SESSION,
         agentChat: FOLLOW_UP,
       },
@@ -1960,7 +1961,7 @@ function runRecord(
     messages: [{ id: `${id}-u1`, role: 'user', parts: [{ type: 'text', text: 'one' }] }],
     createdAt: run.startedAt,
     updatedAt: run.startedAt,
-    presetName: 'Agent',
+    presetName: 'Assistant',
     settings: TEMPLATE,
     taskId: 't1',
     sessionRef,

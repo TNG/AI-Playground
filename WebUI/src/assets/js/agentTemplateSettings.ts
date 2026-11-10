@@ -1,14 +1,19 @@
 import { computed, onMounted, reactive } from 'vue'
 import { type LlmBackend, useTextInference } from '@/assets/js/store/textInference'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { AGENT_PRESET } from '@/assets/js/store/agentModeSessions'
+import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useAgentBackendItems } from '@/assets/js/agentBackendItems'
 import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
+import { agentSettingsSections } from '@/lib/agentSettingsSections'
+import { sessionSettingsToBag } from '@/lib/agentSessionSettings'
+import { normalizeNumAssistantTokens } from '@/lib/ovmsMtp'
 import { contextSizeSettingSupported, isNpuDevice } from '@/lib/llmBackendChoices'
 import { templateMediaToolSettings } from '@/lib/mediaToolSettings'
+import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
 import type { SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
 import { PLANNING_PHASE_CAPABILITY_IDS } from '@/types/agentCapabilities'
 import type { AgentSessionSettings, MountedFolder } from '@/types/agentSessionIpc'
@@ -26,12 +31,15 @@ export type TemplateSettingsSource = {
  */
 export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
   const textInference = useTextInference()
+  const i18nState = useI18N().state
   const agentMode = useAgentMode()
   const presets = usePresets()
 
   const edit = (change: AgentSessionSettings) => source.edit?.(change)
   const template = computed(() => source.template())
-  const resolved = computed(() => textInference.inferenceForSettings(AGENT_PRESET, template.value))
+  const resolved = computed(() =>
+    textInference.inferenceForSettings(HARNESS_CHAT_PRESET, template.value),
+  )
   const backend = computed(() => resolved.value.inference.backend as LlmBackend)
   const defaults = computed(() => agentMode.agentDefaults())
   const capabilities = computed(() => template.value.capabilities ?? defaults.value.capabilities)
@@ -57,21 +65,31 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
 
   const agentPreset = computed(() =>
     presets.presets.find(
-      (preset): preset is ChatPreset => preset.type === 'chat' && preset.name === AGENT_PRESET,
+      (preset): preset is ChatPreset => preset.type === 'chat' && isHarnessChatPreset(preset.name),
     ),
   )
   const { items: backendItems } = useAgentBackendItems(() => agentPreset.value?.backends)
 
+  // The template laid over the Default Settings, for the values no inference input carries.
+  const bag = computed(() =>
+    sessionSettingsToBag(
+      template.value,
+      textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {},
+    ),
+  )
+  const currentModel = computed(() =>
+    textInference.llmModels.find(
+      (m) => m.type === backend.value && m.name === resolved.value.inference.activeModel,
+    ),
+  )
+
   const binding: AgentSettingsBinding = reactive({
+    sections: computed(() => agentSettingsSections(agentPreset.value)),
     backend,
     backendItems,
     // The model picked for the old backend is not offered on the new one.
     setBackend: (next: string) => edit({ backend: next as LlmBackend, model: undefined }),
-    currentModel: computed(() =>
-      textInference.llmModels.find(
-        (m) => m.type === backend.value && m.name === resolved.value.inference.activeModel,
-      ),
-    ),
+    currentModel,
     contextSizeSupported: computed(() =>
       contextSizeSettingSupported(
         backend.value,
@@ -90,9 +108,43 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
       () => template.value.planningThinkingOnly ?? defaults.value.planningThinkingOnly,
     ),
     setPlanningThinkingOnly: (planningThinkingOnly: boolean) => edit({ planningThinkingOnly }),
+    maxTokens: computed(() => resolved.value.inference.maxTokens ?? 0),
+    effectiveMaxTokens: computed(() => resolved.value.inference.effectiveMaxTokens ?? 0),
+    setMaxTokens: (maxTokens: number) => edit({ maxTokens }),
+    temperature: computed(() => resolved.value.inference.temperature),
+    setTemperature: (temperature: number) => edit({ temperature, temperatureFromModel: undefined }),
+    reasoningEffortSupported: computed(
+      () =>
+        resolved.value.inference.effectiveReasoningEffort !== undefined &&
+        resolved.value.inference.thinkingActive,
+    ),
+    reasoningEffort: computed(() => resolved.value.inference.effectiveReasoningEffort),
+    setReasoningEffort: (reasoningEffort: string) =>
+      edit({ reasoningEffort, reasoningEffortFromModel: undefined }),
+    mtpSupported: computed(
+      () =>
+        backend.value === 'openVINO' &&
+        !isNpuDevice(resolved.value.inference.getCurrentDeviceId() ?? undefined) &&
+        currentModel.value?.enableMtp === true,
+    ),
+    mtpDraftTokens: computed(() => normalizeNumAssistantTokens(bag.value.numAssistantTokens)),
+    setMtpDraftTokens: (numAssistantTokens: number) => edit({ numAssistantTokens }),
+    metricsEnabled: computed(() => bag.value.metricsEnabled === true),
+    setMetricsEnabled: (metricsEnabled: boolean) => edit({ metricsEnabled }),
+    systemPrompt: computed(
+      () => resolved.value.systemPrompt ?? agentPreset.value?.systemPrompt ?? '',
+    ),
+    presetSystemPrompt: computed(() => agentPreset.value?.systemPrompt ?? ''),
+    setSystemPrompt: (systemPrompt: string) => edit({ systemPrompt }),
     capabilities,
     setCapabilities: (next: string[]) => edit({ capabilities: next }),
-    capabilityCatalog,
+    capabilityCatalog: computed(() =>
+      gateCapabilityCatalog(
+        capabilityCatalog.value,
+        catalogModelToolUse(backend.value, resolved.value.inference.activeLlmModel),
+        (reason) => i18nState[reason],
+      ),
+    ),
     mountedFoldersSupported: true,
     mountedFolders: computed(
       () => template.value.mountedFolders ?? defaults.value.mountedFolders ?? [],

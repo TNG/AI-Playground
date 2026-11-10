@@ -34,16 +34,26 @@ describe('a Trial Run in the Agent Library', () => {
       kind: 'agent',
       prompt: { text: 'Carry this out in 2 steps.\n\nStep 1 of 2: Read the news', step: 1 },
       answers: [{ id: 'a1' }],
-      footer: { actions: ['copy'], text: 'Read it.' },
+      footer: { actions: ['copy', 'speak'], text: 'Read it.' },
     })
     expect(items[1]).toMatchObject({
       kind: 'agent',
       prompt: { text: 'Step 2 of 2: Summarize it', step: 2 },
       answers: [{ id: 'a2' }],
-      footer: { actions: ['copy'], text: 'Three headlines.' },
+      footer: { actions: ['copy', 'speak'], text: 'Three headlines.' },
     })
     expect(items[0]).not.toHaveProperty('runKey')
     expect(items[0]).not.toHaveProperty('prompt.agentRun')
+  })
+
+  it('offers neither Regenerate nor Delete on its last Step', () => {
+    const steps = twoSteps.map((entry, index) =>
+      entry.role === 'assistant' ? { ...entry, metadata: { harnessTurnId: `t${index}` } } : entry,
+    )
+    const items = trialRunItems({ ...trial, presetName: 'Assistant', saved: steps })
+
+    expect(items[1]).toMatchObject({ footer: { actions: ['copy', 'speak'] } })
+    expect(items[1]).not.toHaveProperty('footer.harnessTurn')
   })
 
   it('streams the Step in flight as the last Turn', () => {

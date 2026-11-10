@@ -16,8 +16,9 @@ import {
   type SessionMediaTarget,
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
-import { enabledCapabilityIds } from '@/types/agentCapabilities'
+import { enabledCapabilityIds, FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
+import { turnModelToolUse } from '@/lib/modelToolUse'
 import { createAgentToolAccess } from './piToolOperations.ts'
 import {
   assertMountedFoldersApart,
@@ -47,6 +48,7 @@ import {
 import { compactionSettingsForWindow } from './piCompaction.ts'
 import { sessionPaths } from '../session/sessions.ts'
 import { buildSessionHistoryTool } from './sessionHistoryTool.ts'
+import { replayChatEngineTurns } from './piHistoryReplay.ts'
 import {
   copySamplingParams,
   ensureModelRuntime,
@@ -65,6 +67,8 @@ import {
 
 const logger = appLoggerInstance
 
+const FALLBACK_OWN_PROMPT = 'You are a helpful assistant.'
+
 function configKeyOf(config: AgentModeTurnConfig): string {
   // The tool set is fixed at session construction, so a changed tool set needs a
   // rebuild — including the enabled capabilities, which decide what tools,
@@ -79,6 +83,7 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     // Part of the system prompt, which is fixed once the session exists: editing
     // the preset's instructions (or switching preset) has to rebuild.
     config.instructions ?? '',
+    config.ownsPrompt ?? false,
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
     config.mountedFolders ?? [],
@@ -201,7 +206,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const samplingParams =
     config.modelConfig.source === 'local'
       ? copySamplingParams(config.modelConfig.samplingParams, config.modelConfig.backend)
-      : undefined
+      : config.modelConfig.temperature !== undefined
+        ? { temperature: config.modelConfig.temperature }
+        : undefined
   const sessionTraceContext = traceContext(config.modelConfig, () => samplingParams)
   setAgentTraceContext(sessionTraceContext)
   // The model still carries it as well, since that is where pi-ai's own request
@@ -216,8 +223,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.
   // embeddingModel and embeddingBackend are in configKeyOf, so changing them
   // rebuilds and resolveCapabilities can start or stop offering rag.
+  const modelToolUse = turnModelToolUse(
+    config.modelConfig.source === 'local' ? config.modelConfig : {},
+  )
   const capabilityHost: CapabilityHost = {
     sessionId,
+    modelToolUse,
     workspaceDir,
     mountedFolders,
     toolSpecs: config.toolSpecs ?? [],
@@ -225,6 +236,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     chatModel: chatModelFromAgentConfig(config.modelConfig),
     agentDir: piAgentDir(),
     contextWindow: config.modelConfig.contextWindow,
+    supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
     sessionMedia: sessionMediaOf(config.sessionRef, workspaceDir),
     ...(config.embeddingModel
@@ -249,6 +261,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const skillsDir = path.join(piAgentDir(), 'skills')
   const skills = writeAgentSkills(skillsDir, capabilities.skillSources)
 
+  // A preset can own the prompt the way a capability owns the session; it keeps the file
+  // and shell builtins only while the user has `files` switched on.
+  const presetOwnsPrompt = config.ownsPrompt === true && !capabilities.ownSession
+  const presetFileTools =
+    presetOwnsPrompt &&
+    capabilities.resolved.some(({ capability }) => capability.id === FILES_CAPABILITY_ID)
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
@@ -262,7 +280,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
             ? { writableFiles: capabilities.ownSession.writableFiles }
             : {}),
         }
-      : {}),
+      : (presetOwnsPrompt && !presetFileTools) || !modelToolUse.toolCalling
+        ? { baseTools: [] }
+        : {}),
   })
 
   // Serve the workspace over localhost so the agent can preview/debug pages over
@@ -285,6 +305,15 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   if (sessionFilePath) {
     logger.info(`resumed Pi session ${sessionId} (${workspaceDir})`, LOG_SOURCE)
   }
+  const replayedEntryIds =
+    !sessionFilePath && config.sessionRef && !config.taskRun && !config.followUp
+      ? await replayChatEngineTurns(sessionManager, {
+          sessionRef: config.sessionRef,
+          presetName: config.presetName ?? '',
+          workspaceDir,
+          model,
+        })
+      : []
   // Only a resumed conversation has a last turn; a new one learns its folders from the prompt.
   const previousMountedFolders = sessionFilePath
     ? (readSessionStore()[sessionId]?.mountedFolders ?? [])
@@ -302,10 +331,20 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // coding-agent instructions, the workspace orientation, the skills index and
   // any AGENTS.md are replaced by the preset's own text, which is the point of
   // such a session. The orientation is the fallback for a preset whose
-  // instructions the user emptied, so the prompt is never blank.
+  // instructions the user emptied, so the prompt is never blank. A preset that owns its
+  // prompt gets the same replacement, plus what its enabled capabilities need.
+  const skillsSection = buildSkillsPromptSection(announcedSkills, access.skillsRoot)
   const ownPrompt = capabilities.ownSession
     ? (config.instructions ?? '').trim() || instructions
-    : undefined
+    : presetOwnsPrompt
+      ? [
+          (config.instructions ?? '').trim() || FALLBACK_OWN_PROMPT,
+          ...(presetFileTools ? [instructions, skillsSection] : []),
+          capabilities.dormantPromptSection,
+        ]
+          .filter((section) => section !== '')
+          .join('\n\n')
+      : undefined
   const resourceLoader = new pi.DefaultResourceLoader({
     cwd: workspaceDir,
     agentDir: piAgentDir(),
@@ -357,7 +396,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
       instructions,
       // The preset's own instructions come last so they read as the task the app
       // was opened for, after the environment it is working in.
-      buildSkillsPromptSection(announcedSkills, access.skillsRoot),
+      skillsSection,
       capabilities.dormantPromptSection,
       (config.instructions ?? '').trim(),
     ].filter((section) => section !== ''),
@@ -381,7 +420,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     noTools: 'builtin',
     customTools: [
       ...access.definitions,
-      ...(config.sessionRef && !config.taskRun
+      ...(config.sessionRef && !config.taskRun && modelToolUse.toolCalling
         ? [await buildSessionHistoryTool(config.sessionRef, workspaceDir)]
         : []),
     ],
@@ -422,8 +461,10 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // starts empty. A resumed one is past the point where a plan is what is
     // wanted, and the request it reopens with is a change to a finished game.
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
+    documentSearch: capabilities.resolved.some(({ capability }) => capability.id === 'rag'),
     mountedFolders,
     ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
+    replayedEntryIds,
   }
 }
 

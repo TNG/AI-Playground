@@ -20,7 +20,7 @@ describe('sessionTabs', () => {
     ])
   })
 
-  it('shows the same five tabs under every preset, Agent Maker included', () => {
+  it('shows the same five tabs under every preset, Assistant included', () => {
     for (const presetKind of [
       'chat',
       'audio',
@@ -53,7 +53,7 @@ describe('sessionTabs', () => {
     }
   })
 
-  it("shows a picked Agent's Settings Template read-only under Agent Maker", () => {
+  it("shows a picked Agent's Settings Template read-only under Assistant", () => {
     const view = sessionTabs({ ...chatSession, presetKind: 'agent-maker', agentPicked: true })
     expect(view.settings).toBe('picked-agent')
     expect(view.tabs).toEqual(['viewport', 'inferencing', 'attributes', 'artifacts', 'schedules'])
@@ -139,8 +139,10 @@ describe('sessionTabsPresetKind', () => {
     expect(sessionTabsPresetKind('video', null)).toBe('video')
   })
 
-  it('tells Agent Maker and the other Agent Presets apart', () => {
-    expect(sessionTabsPresetKind('agent', { name: 'Agent', agentPreset: true })).toBe('agent-maker')
+  it('tells Assistant and the other Agent Presets apart', () => {
+    expect(sessionTabsPresetKind('agent', { name: 'Assistant', agentPreset: true })).toBe(
+      'agent-maker',
+    )
     expect(sessionTabsPresetKind('agent', { name: 'Game Agent', agentPreset: true })).toBe(
       'agent-preset',
     )

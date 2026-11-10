@@ -1,5 +1,10 @@
 <template>
-  <MarkdownRenderer v-if="part.type === 'text'" :content="part.text ?? ''" />
+  <MarkdownRenderer
+    v-if="part.type === 'text'"
+    role="region"
+    :aria-label="languages.AGENT_REPLY_ARIA"
+    :content="part.text ?? ''"
+  />
   <ChatReasoningDisplay
     v-else-if="part.type === 'reasoning'"
     :text="part.text"

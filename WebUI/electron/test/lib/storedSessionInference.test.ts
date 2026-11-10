@@ -109,6 +109,28 @@ describe('storedSessionInference', () => {
     expect(inference.temperature).toBe(0.2)
   })
 
+  it('bounds the stored max tokens by the window, falling back to the preset’s', () => {
+    const stored = storedSessionInference(
+      { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Stored-27B' }, maxTokens: 100000 },
+      catalog(),
+    )
+    expect(stored.inference.maxTokens).toBe(100000)
+    expect(stored.inference.effectiveMaxTokens).toBe(4096)
+
+    const fallback = storedSessionInference(
+      { backend: 'llamaCPP', selectedModels: { llamaCPP: 'Stored-27B' } },
+      catalog({ presetMaxTokens: 2048 }),
+    )
+    expect(fallback.inference.effectiveMaxTokens).toBe(2048)
+  })
+
+  it('carries the stored system prompt', () => {
+    expect(storedSessionInference({ systemPrompt: 'Be terse.' }, catalog()).systemPrompt).toBe(
+      'Be terse.',
+    )
+    expect(storedSessionInference({}, catalog()).systemPrompt).toBeUndefined()
+  })
+
   it('runs on the selected device, ignoring one an older Session stored', () => {
     const { inference } = storedSessionInference(
       {
@@ -124,7 +146,7 @@ describe('storedSessionInference', () => {
   })
 
   it('caps the window for an OpenVINO session while the NPU is selected', () => {
-    const { inference } = storedSessionInference(
+    const { inference, tools } = storedSessionInference(
       { backend: 'openVINO', selectedModels: { openVINO: 'Ov-8B' }, contextSize: 32768 },
       catalog({
         services: [
@@ -142,6 +164,7 @@ describe('storedSessionInference', () => {
     expect(inference.localBackendUrl).toBe('http://127.0.0.1:29000')
     expect(inference.contextSize).toBe(32768)
     expect(inference.effectiveContextWindow).toBe(8192)
+    expect(tools.onNpu).toBe(true)
   })
 
   it('uses the stored embedding model for document search', () => {
@@ -198,7 +221,11 @@ describe('storedSessionInference', () => {
 
   it('carries the stored tool toggles', () => {
     const defaults = storedSessionInference({ backend: 'llamaCPP' }, catalog()).tools
-    expect(defaults).toEqual({ toolDelegationEnabled: true, builtinToolEnablement: {} })
+    expect(defaults).toEqual({
+      toolDelegationEnabled: true,
+      builtinToolEnablement: {},
+      onNpu: false,
+    })
 
     const stored = storedSessionInference(
       {
@@ -211,6 +238,7 @@ describe('storedSessionInference', () => {
     expect(stored).toEqual({
       toolDelegationEnabled: false,
       builtinToolEnablement: { transcribeAudio: false },
+      onNpu: false,
     })
   })
 })

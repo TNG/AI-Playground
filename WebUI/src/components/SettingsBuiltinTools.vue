@@ -18,8 +18,7 @@
         :class="{ 'opacity-50': !toolsEnabled }"
       >
         <p v-if="isMediaVariant" class="text-xs text-muted-foreground">
-          What the Media generation capability may reach for. Stored with this agent preset, so
-          Chat's assistant keeps its own selection.
+          What the Media generation capability may reach for.
         </p>
         <!-- Media specialist delegation: one thin `media` tool instead of the two
              full comfy tool schemas in the model's context. -->
@@ -40,6 +39,7 @@
           </div>
           <Checkbox
             id="builtin-tool-delegation"
+            :aria-label="languages.SETTINGS_TOOLS_DELEGATION_ARIA"
             :disabled="!toolsEnabled"
             :model-value="settings.delegationEnabled()"
             @click="settings.setDelegationEnabled(!settings.delegationEnabled())"
@@ -69,6 +69,9 @@
                  and non-expandable while the tool is disabled. -->
               <CollapsibleTrigger
                 v-if="presetsForTool(builtinTool.name).length"
+                :aria-label="
+                  fillTemplate(languages.SETTINGS_TOOLS_WORKFLOWS_ARIA, { tool: builtinTool.label })
+                "
                 :disabled="!isToolActive(builtinTool.name)"
                 class="flex items-center gap-1.5 text-xs"
                 :class="
@@ -93,6 +96,7 @@
               </CollapsibleTrigger>
               <Checkbox
                 :id="`builtin-tool-${builtinTool.name}`"
+                :aria-label="builtinTool.label"
                 :disabled="!toolsEnabled"
                 :model-value="settings.isToolEnabled(builtinTool.name)"
                 @click="toggle(builtinTool.name)"
@@ -105,6 +109,10 @@
              defaults. Collapsed by default and hidden while the tool is inactive. -->
           <CollapsibleContent
             v-if="presetsForTool(builtinTool.name).length"
+            role="group"
+            :aria-label="
+              fillTemplate(languages.SETTINGS_TOOLS_WORKFLOWS_ARIA, { tool: builtinTool.label })
+            "
             class="flex flex-col gap-1.5 pl-4 pt-1"
           >
             <div
@@ -125,6 +133,7 @@
                   <!-- Enable toggle in front; the name is also clickable to toggle. -->
                   <Switch
                     :id="`builtin-tool-${builtinTool.name}-preset-${workflow.name}`"
+                    :aria-label="workflow.name"
                     :disabled="!isToolActive(builtinTool.name)"
                     :model-value="settings.isWorkflowEnabled(workflow.name)"
                     @update:model-value="toggleWorkflow(builtinTool.name, workflow.name)"
@@ -235,6 +244,7 @@
 
           <div class="flex items-center gap-3">
             <CollapsibleTrigger
+              :aria-label="languages.SETTINGS_TOOLS_SPEECH_TOOLS_ARIA"
               :disabled="!toolsEnabled"
               class="flex items-center gap-1.5 text-xs"
               :class="
@@ -252,6 +262,7 @@
             </CollapsibleTrigger>
             <Checkbox
               id="builtin-tool-speech"
+              :aria-label="languages.SETTINGS_TOOLS_SPEECH_ARIA"
               :disabled="!toolsEnabled"
               :model-value="isSpeechEnabled"
               @click="toggleSpeech"
@@ -268,6 +279,7 @@
             <div class="flex items-center gap-2 min-w-0">
               <Switch
                 :id="`builtin-tool-${child.name}`"
+                :aria-label="child.label"
                 :disabled="!toolsEnabled"
                 :model-value="settings.isToolEnabled(child.name)"
                 @update:model-value="toggleSpeechChild(child.name)"
@@ -291,13 +303,10 @@
             </div>
 
             <!-- "Speak replies" rides on the Text To Speech row: that tool supplies
-                 the voice, so the toggle follows it being enabled. Stored per chat
-                 preset, so it applies to the active one — the assistant auto-plays
-                 its reply in the app, the Home Agent answers a voice message with a
-                 voice message. Nothing auto-plays an agent turn, so the media slice
-                 leaves it out. -->
+                 the voice, so the toggle follows it being enabled. The media slice
+                 shows it only for a preset whose turns are auto-played. -->
             <div
-              v-if="child.name === 'synthesizeTextToSpeech' && !isMediaVariant"
+              v-if="child.name === 'synthesizeTextToSpeech' && (!isMediaVariant || speakReplies)"
               class="flex items-center gap-2 shrink-0"
             >
               <Tooltip>
@@ -310,8 +319,8 @@
                     <Switch
                       id="speak-replies"
                       :disabled="!speakRepliesEditable"
-                      :model-value="textInference.speakReplies"
-                      @update:model-value="textInference.speakReplies = $event"
+                      :model-value="settings.speakReplies()"
+                      @update:model-value="settings.setSpeakReplies($event)"
                     />
                   </label>
                 </TooltipTrigger>
@@ -345,14 +354,21 @@ import ScreenshotWindowDialog from '@/components/ScreenshotWindowDialog.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { storeMediaToolSettings, type MediaToolSettings } from '@/lib/mediaToolSettings'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 // `media` is the Agent Mode slice: the media tools and their workflows, without
 // Chat's master switch (an agent's tools hang off its Media generation
 // capability) and without the tools an agent gets as capabilities instead.
 // `settings` defaults to the chat store's live values; a task draft passes its own.
 const props = withDefaults(
-  defineProps<{ variant?: 'chat' | 'media'; settings?: MediaToolSettings; bare?: boolean }>(),
-  { variant: 'chat', settings: undefined, bare: false },
+  defineProps<{
+    variant?: 'chat' | 'media'
+    settings?: MediaToolSettings
+    bare?: boolean
+    /** Show "Speak replies" in the media slice too. */
+    speakReplies?: boolean
+  }>(),
+  { variant: 'chat', settings: undefined, bare: false, speakReplies: false },
 )
 
 const textInference = useTextInference()
@@ -494,9 +510,9 @@ function chooseDefault(toolName: string, workflow: ToolWorkflow) {
   settings.value.setDefaultWorkflow(slotKey(toolName, workflow), workflow.name)
 }
 
-// The media tools, in the order they appear. Everything else an agent can do is
-// a capability of its own, so the media slice lists only these two.
-const MEDIA_TOOLS = ['comfyUI', 'comfyUiImageEdit']
+// The media capability's toggles, in the order they appear. Everything else an
+// agent can do is a capability of its own.
+const MEDIA_TOOLS = ['comfyUI', 'comfyUiImageEdit', 'captureScreenshot']
 
 // User-facing descriptors for the built-in (internal) tools. Keys must match the
 // tool names registered in `aipgTools`.

@@ -25,6 +25,7 @@ import {
   type TurnSummary,
 } from './piStreamTranslate.ts'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { HistoryEntry } from '@/types/sessionIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
@@ -65,6 +66,12 @@ import {
   setLastChatBackendLoadActive,
   setTurnChatBackendLoad,
 } from '../chat/chatReadiness.ts'
+import { turnAttachments } from './workspaceAttachments.ts'
+import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
+import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
+import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
+import type { LlamaCppTimings } from '../chat/turnEngine.ts'
+import { documentsLine } from './sessionDocuments.ts'
 
 const logger = appLoggerInstance
 
@@ -180,6 +187,18 @@ function logEvent(event: AgentSessionEvent): void {
     default:
       break
   }
+}
+
+/** What the answer's metrics footer shows; a cloud turn ran on someone else's card. */
+function answerMetrics(
+  config: AgentModeTurnConfig,
+  calls: LlamaCppTimings[],
+  startedAt: number,
+): Pick<TurnSummary, 'timings' | 'compute'> {
+  const timings = turnTimings(calls)
+  if (config.modelConfig.source === 'cloud') return timings ? { timings } : {}
+  const compute = computeWindowSince(startedAt, config.modelConfig.deviceName)
+  return { ...(timings ? { timings } : {}), compute }
 }
 
 /** Usage + context occupancy at this moment, read off the live session. */
@@ -349,15 +368,21 @@ const USAGE_SAMPLE_EVENTS = new Set([
 ])
 
 /** The Session Update rides on the user message only: the system prompt is the KV-cache prefix. */
-async function withSessionUpdate(prompt: string, config: AgentModeTurnConfig): Promise<string> {
+async function withSessionUpdate(
+  prompt: string,
+  config: AgentModeTurnConfig,
+  replayedEntryIds: readonly string[],
+): Promise<string> {
   if (!config.sessionRef) return prompt
   try {
+    const replayed = new Set(replayedEntryIds)
     const consumer = {
       key: config.sessionId,
       harnessSessionId: config.sessionId,
       ...(config.followUp ? {} : { ownPreset: config.presetName }),
       ...(config.followedRun ? { run: config.followedRun } : {}),
       workspaceDir: config.workspaceDir,
+      isOwn: (entry: HistoryEntry) => replayed.has(entry.id),
     }
     // A run's Steps get none, but its Follow-ups must hear only what happened since.
     if (config.taskRun) {
@@ -414,6 +439,7 @@ export async function startAgentTurn(
   const translator = createStreamTranslator({
     emit: (chunk: StreamChunk) => emitAgentChunk(sessionId, turnId, chunk),
     model: config.readiness?.llmModelName ?? config.modelConfig.model,
+    turnId,
     onToolProgress: ({ toolCallId, toolName, text }) => {
       emitAgentToolProgress(sessionId, turnId, toolCallId, toolName, text)
     },
@@ -494,7 +520,13 @@ export async function startAgentTurn(
       lastSample = fingerprint
       translator.update(summary)
     }
+    const rewound = config.rewindTurnId
+      ? rewindHarnessTurn(current.session, config.rewindTurnId)
+      : undefined
     const planning = watchPlanningPhase(current)
+    markHarnessTurn(current.session, turnId)
+    const calls: LlamaCppTimings[] = []
+    const startedAt = Date.now()
     turn.onEvent = (event) => {
       if (verbose) logEvent(event)
       planning.onEvent(event)
@@ -513,33 +545,47 @@ export async function startAgentTurn(
         const failure = modelCallError(current.session)
         if (failure) throw new Error(failure)
       }
-      const note = current.mountedFoldersNote
-      const withUpdate = await withSessionUpdate(prompt, config)
-      await current.session.prompt(note ? `${note}\n\n${withUpdate}` : withUpdate)
-      if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
-      failIfModelErrored()
-      // A session that plans first has only been asked for the plan so far; the
-      // build is a second request, sent from here rather than by the user.
-      if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+      await collectAgentCallTimings(calls, async () => {
+        const note = current.mountedFoldersNote
+        // A regenerated turn resends what the replaced one was sent, so its request is the same.
+        const sent = rewound?.text ?? prompt
+        const withUpdate = await withSessionUpdate(sent, config, current.replayedEntryIds)
+        const images =
+          rewound?.images ??
+          turnAttachments(current.workspaceDir, prompt, config.modelConfig.supportsVision === true)
+            .images
+        const documents =
+          current.documentSearch && !rewound ? documentsLine(current.workspaceDir) : ''
+        const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
+        await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
+        if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
         failIfModelErrored()
-      }
-      const stalled = () =>
-        !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
-      if (stalled()) {
-        logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
-        await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
-        failIfModelErrored()
-        if (stalled()) {
-          translator.notice(
-            'The model ended its turn without an answer and without running a tool, and did not ' +
-              'pick the task back up when asked to continue. Send a message to carry on.',
-          )
+        // A session that plans first has only been asked for the plan so far; the
+        // build is a second request, sent from here rather than by the user.
+        if (!abortController.signal.aborted && (await handOffToBuild(current, planning))) {
+          failIfModelErrored()
         }
-      }
+        const stalled = () =>
+          !abortController.signal.aborted && endedWithoutReplyOrToolCall(current.session)
+        if (stalled()) {
+          logger.warn('turn ended with neither a reply nor a tool call; nudging once', LOG_SOURCE)
+          await current.session.prompt(CONTINUE_AFTER_SILENT_TURN)
+          failIfModelErrored()
+          if (stalled()) {
+            translator.notice(
+              'The model ended its turn without an answer and without running a tool, and did not ' +
+                'pick the task back up when asked to continue. Send a message to carry on.',
+            )
+          }
+        }
+      })
     } finally {
       abortController.signal.removeEventListener('abort', onAbort)
     }
-    translator.finish(turnSummary(current.session))
+    translator.finish({
+      ...turnSummary(current.session),
+      ...answerMetrics(config, calls, startedAt),
+    })
     reply = finalReplyText(current.session)
     savePointer({
       sessionId: current.sessionId,

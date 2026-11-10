@@ -99,6 +99,91 @@ describe('buildTurnConfig readiness (step 15)', () => {
     })
   })
 
+  it('tells main when the preset owns its prompt', async () => {
+    const config = await buildTurnConfig({
+      sessionId: 'aipg-agent-1',
+      workspaceDir: '/tmp/ws',
+      presetName: 'Assistant',
+      instructions: 'Be helpful.',
+      ownsPrompt: true,
+      capabilities: [],
+      unsandboxed: false,
+      planningThinkingOnly: false,
+      textInference: localInference() as never,
+      cloudMode: {
+        selectedProviderId: 'openai',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+    })
+    expect(config.ownsPrompt).toBe(true)
+  })
+
+  it('tells main what the local model can be given, an untagged one getting no tools', async () => {
+    const turn = (activeLlmModel: Record<string, unknown>) =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: 'Be helpful.',
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        textInference: localInference({ activeLlmModel }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+    const tagged = await turn({ supportsToolCalling: true, supportsAgentic: false })
+    expect(tagged.modelConfig).toMatchObject({ supportsToolCalling: true, supportsAgentic: false })
+    const untagged = await turn({})
+    expect(untagged.modelConfig).toMatchObject({
+      supportsToolCalling: false,
+      supportsAgentic: false,
+    })
+  })
+
+  it("sends Assistant's max tokens, and its temperature to a cloud model too", async () => {
+    const turn = (overrides: Record<string, unknown>, userSampling: boolean) =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: 'Be helpful.',
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        userSampling,
+        textInference: localInference({
+          temperature: 0.4,
+          effectiveMaxTokens: 640,
+          ...overrides,
+        }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderBaseUrl: 'https://api.example.test',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+    const cloud = { backend: 'cloud', activeModel: 'gpt-test', localBackendUrl: null }
+
+    expect((await turn({}, true)).modelConfig).toMatchObject({
+      maxOutputTokens: 640,
+      samplingParams: { temperature: 0.4 },
+    })
+    expect((await turn(cloud, true)).modelConfig).toMatchObject({
+      temperature: 0.4,
+      maxOutputTokens: 640,
+    })
+    expect((await turn({}, false)).modelConfig).not.toHaveProperty('maxOutputTokens')
+    const gameCloud = (await turn(cloud, false)).modelConfig
+    expect(gameCloud).not.toHaveProperty('temperature')
+    expect(gameCloud).not.toHaveProperty('maxOutputTokens')
+  })
+
   it('names the Session the turn belongs to, so main files its History Entry there', async () => {
     const config = await buildTurnConfig({
       sessionId: 'aipg-agent-1',

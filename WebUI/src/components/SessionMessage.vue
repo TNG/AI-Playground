@@ -11,7 +11,7 @@
     v-else-if="message.role === 'assistant'"
     :label="unlabelled ? undefined : modelLabel"
   >
-    <template v-if="engine === 'chat' && ragSource" #badges>
+    <template v-if="ragSource" #badges>
       <button
         class="bg-primary text-foreground font-sans rounded-md px-1 py-1 flex items-center gap-1"
         :class="textInference.nameSizeClass"
@@ -34,12 +34,21 @@
       />
       <SessionTurnFooter v-if="!footerless" :footer="chatAnswerFooter([message], last)" />
     </template>
-    <AgentMessageParts
-      v-else
-      :message="message"
-      :section="resultOnly ? 'result' : undefined"
-      :indexes="resultOnly"
-    />
+    <template v-else>
+      <div
+        v-if="showRagSource && ragSource"
+        class="my-2 text-muted-foreground border-l-2 border-primary pl-2 flex flex-row gap-1"
+        :class="textInference.fontSizeClass"
+      >
+        <div class="font-bold">{{ languages.RAG_SOURCE }}:</div>
+        <div class="whitespace-pre-wrap">{{ ragSource }}</div>
+      </div>
+      <AgentMessageParts
+        :message="message"
+        :section="resultOnly ? 'result' : undefined"
+        :indexes="resultOnly"
+      />
+    </template>
   </SessionAssistantBubble>
 </template>
 
@@ -47,12 +56,14 @@
 import { computed, ref } from 'vue'
 import type { UIMessage } from 'ai'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useTextInference } from '@/assets/js/store/textInference'
 import AgentMessageParts from '@/components/AgentMessageParts.vue'
 import ChatMessageParts from '@/components/ChatMessageParts.vue'
 import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
+import { agentRagSource } from '@/lib/ragSources'
 import { messagePrompt } from '@/lib/sessionTimeline'
 import { chatAnswerFooter } from '@/lib/turnFooter'
 import { modelDisplayName } from '@/lib/turnText'
@@ -82,10 +93,13 @@ const props = defineProps<{
 const emit = defineEmits<{ resend: [] }>()
 
 const textInference = useTextInference()
+const languages = useI18N().state
 const showRagSource = ref(false)
 
 const chatMessage = computed(() => props.message as AipgUiMessage)
-const ragSource = computed(() => chatMessage.value.metadata?.ragSource)
+const ragSource = computed(() =>
+  props.engine === 'chat' ? chatMessage.value.metadata?.ragSource : agentRagSource(props.message),
+)
 
 const modelLabel = computed(() => {
   const model = chatMessage.value.metadata?.model

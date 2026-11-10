@@ -107,6 +107,7 @@ import {
 import {
   cancelAgentTurn,
   deleteAgentSession,
+  deleteAgentTurns,
   listAgentCapabilities,
   openAgentTurnSessionIds,
   resetAgentSession,
@@ -131,9 +132,15 @@ import { createInFlightWork } from './kernel/inFlightWork'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
+import {
+  indexSessionDocument,
+  removeSessionDocument,
+  sessionDocuments,
+} from './agent/sessionDocuments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
 import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
 import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
+import { migrateAgentMakerSessions } from './agent/agentMakerMigration.ts'
 import {
   openDirectory,
   openFileWithSystem,
@@ -1900,9 +1907,13 @@ function initEventHandle() {
       cancelAgentTurn,
       resetAgentSession,
       deleteAgentSession,
+      deleteAgentTurns,
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,
+      sessionDocuments,
+      indexSessionDocument,
+      removeSessionDocument,
       mediaFileAction: workspaceMediaFileActions({
         sessionWorkspaceDir,
         mediaUrlPath: getLocalPathFromAipgMediaUrl,
@@ -2220,6 +2231,10 @@ app.whenReady().then(async () => {
         onPresetsChanged: invalidatePresetCatalog,
       }).catch((error) =>
         appLogger.error(`agent library migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After the Agent Library migration, whose Drafts take Agent Maker's settings as they were.
+      await migrateAgentMakerSessions().catch((error) =>
+        appLogger.error(`agent maker migration failed: ${String(error)}`, 'electron-backend'),
       )
     }
     // After the registry: the renderer's stores call into it as they are created.

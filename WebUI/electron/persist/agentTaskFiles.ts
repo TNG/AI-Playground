@@ -9,6 +9,7 @@ import {
 import {
   AgentDraftSchema,
   AgentDraftsFileSchema,
+  AGENT_LIBRARY_SCHEMA_VERSION,
   AGENT_TASKS_SCHEMA_VERSION,
   AgentTaskSchema,
   AgentTasksFileSchema,
@@ -62,21 +63,56 @@ export async function readAgentTasks(): Promise<AgentTask[]> {
   throw new Error('agent tasks file unreadable')
 }
 
-async function writeTasks(tasks: AgentTask[]): Promise<void> {
-  await atomicWriteJson(tasksFile(), { schemaVersion: AGENT_TASKS_SCHEMA_VERSION, tasks })
+async function writeTasks(
+  tasks: AgentTask[],
+  schemaVersion: number = AGENT_TASKS_SCHEMA_VERSION,
+): Promise<void> {
+  await atomicWriteJson(tasksFile(), { schemaVersion, tasks })
+}
+
+/** The Agents file's schema version; null when it is absent or unreadable. */
+async function tasksFileVersion(): Promise<number | null> {
+  const read = await readJson(tasksFile(), LOG_SCOPE)
+  if (read.status !== 'ok') return null
+  const parsed = AgentTasksFileSchema.safeParse(read.value)
+  return parsed.success ? parsed.data.schemaVersion : null
 }
 
 /** Whether the Agents file was written since the Agent Library migration; absent is not. */
 export async function agentLibraryMigrated(): Promise<boolean> {
-  const read = await readJson(tasksFile(), LOG_SCOPE)
-  if (read.status !== 'ok') return false
-  const parsed = AgentTasksFileSchema.safeParse(read.value)
-  return parsed.success && parsed.data.schemaVersion === AGENT_TASKS_SCHEMA_VERSION
+  return ((await tasksFileVersion()) ?? 0) >= AGENT_LIBRARY_SCHEMA_VERSION
 }
 
-/** Rewrites the Agents file at the current version, so the migration does not run again. */
+/** Rewrites the Agents file at version 2, so the Agent Library migration does not run again. */
 export async function markAgentLibraryMigrated(): Promise<void> {
-  return serialize(FILE_CHAIN, async () => writeTasks(await readAgentTasks()))
+  return serialize(FILE_CHAIN, async () =>
+    writeTasks(await readAgentTasks(), AGENT_LIBRARY_SCHEMA_VERSION),
+  )
+}
+
+/** Whether the Agents file was written since Agent Maker merged into Assistant; absent is not. */
+export async function agentMakerMerged(): Promise<boolean> {
+  return (await tasksFileVersion()) === AGENT_TASKS_SCHEMA_VERSION
+}
+
+type SettingsTemplate = AgentTask['settingsTemplate']
+
+/** Rewrites every Draft's and Agent's Settings Template, then the Agents file's version. */
+export async function markAgentMakerMerged(
+  update: (template: SettingsTemplate) => SettingsTemplate,
+): Promise<void> {
+  return serialize(FILE_CHAIN, async () => {
+    const drafts = await readAgentDrafts()
+    if (drafts.length > 0) {
+      await writeDrafts(
+        drafts.map((draft) => ({ ...draft, settingsTemplate: update(draft.settingsTemplate) })),
+      )
+    }
+    const tasks = await readAgentTasks()
+    await writeTasks(
+      tasks.map((task) => ({ ...task, settingsTemplate: update(task.settingsTemplate) })),
+    )
+  })
 }
 
 /** After a Quit, a saved Task keeps the run state on disk; everything else is the window's. */

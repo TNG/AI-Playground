@@ -10,11 +10,11 @@ import {
 } from '@/lib/agentSessionSettings'
 
 describe('usesSessionSettings', () => {
-  it('is true for the Agent preset only', () => {
-    expect(usesSessionSettings({ name: 'Agent', agentPreset: true })).toBe(true)
+  it('is true for the Assistant preset only', () => {
+    expect(usesSessionSettings({ name: 'Assistant', agentPreset: true })).toBe(true)
     expect(usesSessionSettings({ name: 'Game Agent', agentPreset: true })).toBe(false)
     expect(usesSessionSettings({ name: 'Quick Coder', agentPreset: true })).toBe(false)
-    expect(usesSessionSettings({ name: 'Assistant' })).toBe(false)
+    expect(usesSessionSettings({ name: 'Agent', agentPreset: true })).toBe(false)
     expect(usesSessionSettings(null)).toBe(false)
   })
 })
@@ -24,7 +24,7 @@ describe('Session Settings ↔ settings bag', () => {
     const bag = {
       backend: 'openVINO',
       selectedModels: { llamaCPP: 'Qwen3-9B', openVINO: 'Phi-4', cloud: null },
-      temperature: 0.7,
+      aipgToolsEnabled: true,
     }
     expect(sessionSettingsFromBag(bag)).toEqual({ backend: 'openVINO', model: 'Phi-4' })
   })
@@ -62,9 +62,18 @@ describe('Session Settings ↔ settings bag', () => {
         builtinToolPresetEnablement: {},
         builtinToolDefaultPresets: {},
         cloudProviderId: 'zai',
+        maxTokens: 512,
         temperature: 0.7,
+        temperatureFromModel: 0.6,
+        reasoningEffort: 'low',
+        reasoningEffortFromModel: 'low',
+        systemPrompt: 'Be terse.',
+        metricsEnabled: true,
+        numAssistantTokens: 3,
+        speakReplies: true,
+        aipgToolsEnabled: true,
       }),
-    ).toEqual({ temperature: 0.7 })
+    ).toEqual({ aipgToolsEnabled: true })
   })
 
   it('does not count the device among the keys a Session owns', () => {
@@ -96,7 +105,16 @@ describe('Session Settings ↔ settings bag', () => {
     builtinToolPresetEnablement: { Flux: false },
     builtinToolDefaultPresets: { 'comfyUI:image': 'Z-Image' },
     cloudProviderId: 'zai',
+    maxTokens: 2048,
     temperature: 0.7,
+    temperatureFromModel: 0.6,
+    reasoningEffort: 'medium',
+    reasoningEffortFromModel: 'low',
+    systemPrompt: 'Answer in rhyme.',
+    metricsEnabled: true,
+    numAssistantTokens: 3,
+    speakReplies: true,
+    aipgToolsEnabled: true,
   }
   const fullSettings = {
     backend: 'llamaCPP',
@@ -110,6 +128,15 @@ describe('Session Settings ↔ settings bag', () => {
     builtinToolPresetEnablement: { Flux: false },
     builtinToolDefaultPresets: { 'comfyUI:image': 'Z-Image' },
     cloudProviderId: 'zai',
+    maxTokens: 2048,
+    temperature: 0.7,
+    temperatureFromModel: 0.6,
+    reasoningEffort: 'medium',
+    reasoningEffortFromModel: 'low',
+    systemPrompt: 'Answer in rhyme.',
+    metricsEnabled: true,
+    numAssistantTokens: 3,
+    speakReplies: true,
   }
 
   it('reads every model setting, keeping the context size the user asked for', () => {
@@ -124,7 +151,11 @@ describe('Session Settings ↔ settings bag', () => {
   it('lays every model setting over the defaults so the chat store can load it', () => {
     const bag = sessionSettingsToBag(
       fullSettings as never,
-      { selectedEmbeddingModels: { openVINO: 'bge-ov' }, temperature: 0.2 },
+      {
+        selectedEmbeddingModels: { openVINO: 'bge-ov' },
+        temperature: 0.2,
+        aipgToolsEnabled: false,
+      },
       'llamaCPP',
     )
     expect(bag).toMatchObject({
@@ -137,8 +168,19 @@ describe('Session Settings ↔ settings bag', () => {
       toolDelegationEnabled: false,
       builtinToolEnablement: { captureScreenshot: true },
       cloudProviderId: 'zai',
-      temperature: 0.2,
+      temperature: 0.7,
+      systemPrompt: 'Answer in rhyme.',
+      aipgToolsEnabled: false,
     })
+  })
+
+  it("does not take the Defaults' model recommendation for the session's own temperature", () => {
+    const bag = sessionSettingsToBag(
+      { temperature: 0.6, reasoningEffort: 'low' },
+      { temperature: 0.6, temperatureFromModel: 0.6, reasoningEffortFromModel: 'low' },
+    )
+    expect(bag.temperatureFromModel).toBeUndefined()
+    expect(bag.reasoningEffortFromModel).toBeUndefined()
   })
 
   it('ignores a device in the bag, since the device is a Machine Setting', () => {

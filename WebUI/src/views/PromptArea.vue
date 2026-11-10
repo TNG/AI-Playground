@@ -204,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { getCurrentInstance, ref, computed, watch } from 'vue'
+import { getCurrentInstance, ref, computed, watch, nextTick } from 'vue'
 import type { FileUIPart } from 'ai'
 import {
   downscaleImageTo1MP,
@@ -598,6 +598,14 @@ const isPromptModifiable = computed(() => {
 
 const isTextAreaDisabled = computed(() => {
   return !readyForNewSubmit.value || !isPromptModifiable.value || !!downloadGroup.value
+})
+
+// Disabling the textarea for a turn drops its focus; give it back unless the user focused something else meanwhile.
+watch(isTextAreaDisabled, async (disabled) => {
+  if (disabled) return
+  await nextTick()
+  const focused = document.activeElement
+  if (!focused || focused === document.body) textareaRef.value?.focus()
 })
 
 const contextError = computed(() => openAiCompatibleChat.error)
@@ -996,7 +1004,9 @@ async function handleChatAudioUpload(audioFiles: File[]) {
 async function handleImageFiles(imageFiles: File[]) {
   if (imageFiles.length === 0) return
 
-  if (promptStore.getCurrentMode() === 'chat') {
+  if (promptStore.getCurrentMode() === 'agent') {
+    await agentMode.attachFiles(imageFiles)
+  } else if (promptStore.getCurrentMode() === 'chat') {
     await handleChatImageUpload(imageFiles)
   } else {
     await handleComfyUIImageUpload(imageFiles)

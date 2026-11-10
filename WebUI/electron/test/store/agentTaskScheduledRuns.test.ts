@@ -15,7 +15,7 @@ import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 const AGENT: ChatPreset = {
   type: 'chat',
   category: 'chat',
-  name: 'Agent',
+  name: 'Assistant',
   backends: ['llamaCPP'],
   agentPreset: true,
   agentWorkspace: 'pick',
@@ -194,7 +194,7 @@ const openRecord = {
   messages: [{ id: 'open-u1', role: 'user', parts: [{ type: 'text', text: 'what I am doing' }] }],
   createdAt: 1,
   updatedAt: 2,
-  presetName: 'Agent',
+  presetName: 'Assistant',
   settings: { backend: 'llamaCPP', model: 'Live-9B', capabilities: ['files'] },
 }
 
@@ -286,6 +286,7 @@ beforeEach(() => {
         })),
       },
       agentMode: {
+        sessionDocuments: vi.fn(async () => []),
         startTurn,
         cancel: vi.fn(async () => {}),
         saveSession: vi.fn(async () => ({ success: true })),
@@ -517,7 +518,7 @@ describe('a Schedule reaching its Next Run', () => {
     expect(agentMode.sessions[sessionId]).toMatchObject({
       taskId: 't1',
       workspaceDir: '/work/task',
-      presetName: 'Agent',
+      presetName: 'Assistant',
       settings: TEMPLATE,
     })
     expect(tasks.taskState('t1')).toEqual({
@@ -585,7 +586,7 @@ describe('a Schedule reaching its Next Run', () => {
     await runClockTo(NOW + 10 * MINUTE)
 
     await turnIdOf(0)
-    expect(sentConfig(0)).toMatchObject({ presetName: 'Agent', workspaceDir: '/work/task' })
+    expect(sentConfig(0)).toMatchObject({ presetName: 'Assistant', workspaceDir: '/work/task' })
     expect(agentMode.openSessionId).toBe('session-open')
     expect(agentMode.workspaceDir).toBe('/work/open')
   })

@@ -28,16 +28,6 @@
     </p>
     <p v-if="prompt.agentRun">{{ runLabel(prompt.agentRun) }}</p>
     <div v-if="controls" class="flex items-center gap-2">
-      <Button
-        v-if="controls.stoppable"
-        variant="secondary"
-        size="sm"
-        class="h-7 px-2 text-xs"
-        @click="emit('stop')"
-      >
-        <StopIcon class="size-3.5" aria-hidden="true" />
-        {{ languages.COM_STOP }}
-      </Button>
       <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="emit('editAgent')">
         <PencilSquareIcon class="size-3.5" aria-hidden="true" />
         {{ languages.AGENT_LIBRARY_EDIT_AGENT }}
@@ -108,7 +98,6 @@ import {
   DevicePhoneMobileIcon,
   ExclamationCircleIcon,
   PencilSquareIcon,
-  StopIcon,
 } from '@heroicons/vue/24/outline'
 import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
@@ -131,7 +120,7 @@ defineProps<{
   controls?: AgentRunControls | null
 }>()
 
-const emit = defineEmits<{ resend: []; stop: []; editAgent: [] }>()
+const emit = defineEmits<{ resend: []; editAgent: [] }>()
 
 const sessions = useSessions()
 const i18nStore = useI18N()

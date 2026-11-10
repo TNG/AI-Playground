@@ -15,7 +15,6 @@
         :can-resend="item.kind === 'agent' && item.canResend"
         :controls="runControls"
         @resend="emit('resend')"
-        @stop="runControls && agentTasks.stopTask(runControls.agentId)"
         @edit-agent="runControls && manageAgents(runControls.agentId)"
       />
     </template>

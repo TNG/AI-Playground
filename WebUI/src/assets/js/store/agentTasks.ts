@@ -4,7 +4,7 @@ import { MODEL_DOWNLOAD_DECLINED, promptHasImageAttachment } from '@/types/agent
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
-import type { SessionSummary, SessionTurn } from '@/types/sessionIpc'
+import type { SessionSummary } from '@/types/sessionIpc'
 import type { RunProgress } from '@/lib/turnTypes'
 import type {
   AgentDraft,
@@ -1212,15 +1212,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     )
   }
 
-  /** A Session turn that is one of an Agent Run's Steps, not the user's own. */
-  function isAgentRunTurn(turn: SessionTurn | null | undefined): boolean {
-    return (
-      turn?.kind === 'agent' &&
-      !!turn.harnessSessionId &&
-      runs.value[turn.harnessSessionId] !== undefined
-    )
-  }
-
   watch([runs, () => sessionsStore.turns], () => {
     for (const sessionRef of Object.keys(queuedHolds)) {
       if (!agentRunIn(sessionRef) && !sessionBusy(sessionRef)) releaseQueuedPrompt(sessionRef, true)
@@ -1276,6 +1267,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** Stop the Agent's run in a Session, the open one by default. */
   async function stopTask(id: string, sessionRef = sessionsStore.openSessionId): Promise<void> {
     const run = sessionRef ? runIn(id, sessionRef) : undefined
+    if (run) await stopRun(run.sessionId)
+  }
+
+  /** Stop the Agent Run in flight in the Session, whichever Agent it is. */
+  async function stopRunIn(sessionRef: string): Promise<void> {
+    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
     if (run) await stopRun(run.sessionId)
   }
 
@@ -1499,12 +1496,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     taskProblems,
     runTask,
     stopTask,
+    stopRunIn,
+    agentRunIn,
     isSessionLockedByTask,
     afterAgentRun,
     cancelQueuedPrompt,
     takeUnsentPrompt,
     queuedPrompts,
-    isAgentRunTurn,
     openSessionSettingsReadOnly,
     submitPrompt,
   }

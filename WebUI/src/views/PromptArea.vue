@@ -518,6 +518,11 @@ const queuedBehindRunNote = computed(() =>
   agentRunQueuedLabel(languages ?? {}, queuedBehindRun.value ?? ''),
 )
 
+// Between two Steps no turn is in flight, yet the run still holds the Session.
+const openSessionRunning = computed(
+  () => !!sessions.openSessionId && !!agentTasks.agentRunIn(sessions.openSessionId),
+)
+
 // Busy state follows only what the prompt bar would send to (`promptBusy`). For the
 // open conversation that includes any chat activity on it (backend prep, a queued
 // turn, RAG search, tool resolution, thinking), so send/stop matches the in-turn
@@ -529,7 +534,7 @@ const isProcessing = computed(() =>
       openAiCompatibleChat.processing || activities.chatActivity(conversations.activeKey) !== null,
     panelRun: imageGeneration.processing,
     audioTurn: sessionAudio.processing,
-    sessionTurn: sessionTabs.sessionTurnInFlight && !agentTasks.isAgentRunTurn(sessions.openTurn),
+    sessionTurn: sessionTabs.sessionTurnInFlight || openSessionRunning.value,
   }),
 )
 
@@ -738,6 +743,10 @@ async function runPickedAgent(text: string): Promise<void> {
 async function handleCancelClick() {
   if (queuedBehindRun.value && sessions.openSessionId) {
     agentTasks.cancelQueuedPrompt(sessions.openSessionId)
+    return
+  }
+  if (openSessionRunning.value && sessions.openSessionId) {
+    await agentTasks.stopRunIn(sessions.openSessionId)
     return
   }
   const turn = sessions.openTurn

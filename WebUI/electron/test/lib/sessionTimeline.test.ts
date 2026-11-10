@@ -264,18 +264,18 @@ describe('an Agent Run in the timeline', () => {
       runMessage('a1', 'assistant', undefined, ofAgent),
     ]
 
-    it('offers Edit Agent for the Agent it ran once it ended, and no Stop', () => {
+    it('offers Edit Agent for the Agent it ran once it ended', () => {
       const [turn] = sessionTimelineItems(steps, {})
 
-      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest', stoppable: false })
+      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest' })
     })
 
-    it('offers Stop while in flight, beside Edit Agent', () => {
+    it('offers Edit Agent alone while in flight, since Stop is the prompt bar’s', () => {
       const [turn] = sessionTimelineItems(steps, {
         agentRunsInFlight: { 'aipg-agent-run': { step: 1, count: 2 } },
       })
 
-      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest', stoppable: true })
+      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest' })
     })
 
     it('offers neither on a turn that ran no saved Agent', () => {

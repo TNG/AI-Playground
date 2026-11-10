@@ -1985,16 +1985,17 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     expect(tasks.takeUnsentPrompt(SESSION)).toBeUndefined()
   })
 
-  it('tells a Step’s turn of the run from the user’s own turn in the Session', async () => {
-    const { tasks } = await readyStores(task('t1', ['one']))
+  it('knows the run in the Session and stops it from there, as the prompt bar does', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')
     await turnIdOf(0)
-    const harnessSessionId = sentConfig(0).sessionId
 
-    expect(tasks.isAgentRunTurn({ turnId: 'a', kind: 'agent', harnessSessionId })).toBe(true)
-    expect(
-      tasks.isAgentRunTurn({ turnId: 'b', kind: 'agent', harnessSessionId: 'session-open' }),
-    ).toBe(false)
-    expect(tasks.isAgentRunTurn({ turnId: 'c', kind: 'chat' })).toBe(false)
+    expect(tasks.agentRunIn(SESSION)?.id).toBe('t1')
+    expect(tasks.agentRunIn('session-2')).toBeUndefined()
+
+    await tasks.stopRunIn(SESSION)
+
+    expect(tasks.agentRunIn(SESSION)).toBeUndefined()
+    expect(sentSteps()).toEqual(['one'])
   })
 })

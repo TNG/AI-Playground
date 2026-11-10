@@ -146,6 +146,7 @@ const startTurn = vi.fn(async (_turnId: string, _prompt: string, _config: AgentM
 const cancel = vi.fn(async (_sessionId: string, _turnId?: string) => {})
 const saveSession = vi.fn(async (_record: Record<string, unknown>) => ({ success: true }))
 const existsPath = vi.fn(async (dir: string) => dir !== '/missing')
+const deleteTurns = vi.fn(async (_request: unknown) => ({ success: true }))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -185,6 +186,7 @@ beforeEach(() => {
       agentMode: {
         sessionDocuments: vi.fn(async () => []),
         startTurn,
+        deleteTurns,
         cancel,
         saveSession,
         onExecuteTool: vi.fn(() => () => {}),
@@ -392,6 +394,63 @@ describe('regenerating the latest turn', () => {
     expect(messages.match(/name a fruit/g)).toHaveLength(1)
     expect(messages).toContain('pear')
     expect(messages).not.toContain('plum')
+  })
+
+  async function answeredInSession(store: Awaited<ReturnType<typeof readyStore>>) {
+    const outcomes = recordOutcomes(store)
+    const id = store.createSession({
+      workspaceDir: '/work/task',
+      sessionRef: 'session-1',
+      settings: { ...STORED },
+      presetName: 'Agent',
+      title: 'Fruit',
+    })
+    await store.sendToSession(id, 'name a fruit')
+    await finishTurn(id, 0, 'plum')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    const [prompt, answer] = lastSaved(id)?.messages as Array<{ id: string }>
+    const ref = {
+      harnessSessionId: id,
+      promptId: prompt.id,
+      messageIds: [prompt.id, answer.id],
+      turnIds: ['h1'],
+    }
+    return { id, outcomes, answer, ref }
+  }
+
+  it('keeps the old answer when the turn fails before it rewound', async () => {
+    const store = await readyStore()
+    const { id, outcomes, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    const turnId = await turnIdOf(1)
+    pushEvent({
+      type: 'agent-chunk',
+      sessionId: id,
+      turnId,
+      chunk: { type: 'error', errorText: 'The download was declined.' },
+    })
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+
+    expect(deleteTurns).not.toHaveBeenCalled()
+    expect(JSON.stringify(lastSaved(id)?.messages)).toContain('plum')
+  })
+
+  it('drops the old answer from the timeline once the new one starts', async () => {
+    const store = await readyStore()
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
+
+    await store.regenerateTurn(ref)
+    await turnIdOf(1)
+    expect(deleteTurns).not.toHaveBeenCalled()
+    await finishTurn(id, 1, 'pear')
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+
+    expect(deleteTurns).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionRef: 'session-1', messageIds: [answer.id], turnIds: [] }),
+    )
+    expect(JSON.stringify(lastSaved(id)?.messages)).not.toContain('plum')
   })
 
   it('sends a plain prompt without a rewind', async () => {

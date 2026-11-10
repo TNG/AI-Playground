@@ -958,10 +958,28 @@ export const useAgentMode = defineStore(
       }
     }
 
+    function sessionRefOf(harnessSessionId: string): string | undefined {
+      return harnessSessionRefs[harnessSessionId] ?? sessions.value[harnessSessionId]?.sessionRef
+    }
+
+    function requestTurnDeletion(
+      harnessSessionId: string,
+      turnIds: string[],
+      messageIds: string[],
+    ) {
+      const sessionRef = sessionRefOf(harnessSessionId)
+      return window.electronAPI.agentMode.deleteTurns({
+        ...(sessionRef ? { sessionRef } : {}),
+        harnessSessionId,
+        turnIds,
+        messageIds,
+      })
+    }
+
     function liveTurnConfig(sessionId: string) {
       return buildTurnConfig({
         sessionId,
-        sessionRef: harnessSessionRefs[sessionId] ?? sessions.value[sessionId]?.sessionRef,
+        sessionRef: sessionRefOf(sessionId),
         workspaceDir: workspaceDir.value,
         // The remembered agent preset, not the active one: a media call
         // switches the active preset to an image-gen one mid-turn.
@@ -994,7 +1012,7 @@ export const useAgentMode = defineStore(
       const stored = textInference.inferenceForSettings(context.presetName, settings)
       return buildTurnConfig({
         sessionId,
-        sessionRef: harnessSessionRefs[sessionId] ?? sessions.value[sessionId]?.sessionRef,
+        sessionRef: sessionRefOf(sessionId),
         workspaceDir: context.workspaceDir,
         presetName: context.presetName,
         instructions: withResponseLanguage(
@@ -1147,7 +1165,7 @@ export const useAgentMode = defineStore(
     function liveTurnsIn(sessionRef: string): LiveAgentTurn[] {
       const live: LiveAgentTurn[] = []
       for (const [id, runtime] of Object.entries(turns.runtimes.value)) {
-        if ((harnessSessionRefs[id] ?? sessions.value[id]?.sessionRef) !== sessionRef) continue
+        if (sessionRefOf(id) !== sessionRef) continue
         const open = id === openSessionId.value
         if (!open && !runtime.processing.value) continue
         const record = sessions.value[id]
@@ -1703,13 +1721,8 @@ export const useAgentMode = defineStore(
     /** Delete takes a turn out of what the model sees next, not only out of the timeline. */
     async function deleteTurns(ref: HarnessTurnRef): Promise<void> {
       const id = ref.harnessSessionId
-      const sessionRef = harnessSessionRefs[id] ?? sessions.value[id]?.sessionRef
-      const result = await window.electronAPI.agentMode.deleteTurns({
-        ...(sessionRef ? { sessionRef } : {}),
-        harnessSessionId: id,
-        turnIds: ref.turnIds,
-        messageIds: ref.messageIds,
-      })
+      const sessionRef = sessionRefOf(id)
+      const result = await requestTurnDeletion(id, ref.turnIds, ref.messageIds)
       if (!result.success) {
         errors.report(new Error(result.error ?? 'Failed to delete the message.'), {
           category: 'unknown',
@@ -2144,16 +2157,9 @@ export const useAgentMode = defineStore(
             }
           : undefined
       const redo = options.regenerate
-      if (redo) {
-        const forgotten = await forgetAnswers(redo)
-        if (!forgotten.ok) return forgotten
-      }
       runTurn(sessionId, context, (chat) =>
         redo?.promptId
-          ? chat.regenerate({
-              messageId: redo.promptId,
-              body: { rewindTurnId: redo.turnIds[0] } satisfies RegenerateBody,
-            })
+          ? regenerateIn(chat, redo.promptId, redo)
           : chat.sendMessage({ text: prompt, metadata }),
       ).catch((error) =>
         errors.report(error, {
@@ -2165,21 +2171,51 @@ export const useAgentMode = defineStore(
       return { ok: true }
     }
 
+    /** Main rewinds before the new answer streams, so until then the old one stays. */
+    async function regenerateIn(
+      chat: AgentSessionRuntime['chat'],
+      promptId: string,
+      redo: HarnessTurnRef,
+    ): Promise<void> {
+      const before = chat.messages
+      const known = new Set(before.map((message) => message.id))
+      let forgotten: Promise<void> | undefined
+      const stop = watch(
+        () => chat.messages.at(-1),
+        (last) => {
+          if (forgotten || last?.role !== 'assistant' || known.has(last.id)) return
+          forgotten = forgetAnswers(redo)
+        },
+        { flush: 'sync' },
+      )
+      try {
+        await chat.regenerate({
+          messageId: promptId,
+          body: { rewindTurnId: redo.turnIds[0] } satisfies RegenerateBody,
+        })
+      } finally {
+        stop()
+        if (forgotten) await forgotten
+        else chat.messages = before
+      }
+    }
+
     /** The answers Regenerate replaces leave the Session's timeline; the new turn takes their place. */
-    async function forgetAnswers(ref: HarnessTurnRef): Promise<SendToSessionResult> {
+    async function forgetAnswers(ref: HarnessTurnRef): Promise<void> {
       const id = ref.harnessSessionId
-      const sessionRef = harnessSessionRefs[id] ?? sessions.value[id]?.sessionRef
+      const sessionRef = sessionRefOf(id)
       const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
-      if (!sessionRef || answerIds.length === 0) return { ok: true }
-      const result = await window.electronAPI.agentMode.deleteTurns({
-        sessionRef,
-        harnessSessionId: id,
-        turnIds: [],
-        messageIds: answerIds,
-      })
-      if (!result.success) return refuseSend('busy', result.error ?? 'Failed to regenerate.')
+      if (!sessionRef || answerIds.length === 0) return
+      const result = await requestTurnDeletion(id, [], answerIds)
+      if (!result.success) {
+        errors.report(new Error(result.error), {
+          category: 'unknown',
+          code: 'agent/regenerate-forget-failed',
+          surface: 'silent',
+        })
+        return
+      }
       sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
-      return { ok: true }
     }
 
     function isSessionProcessing(id: string): boolean {

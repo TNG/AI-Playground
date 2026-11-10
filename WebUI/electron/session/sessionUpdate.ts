@@ -13,7 +13,10 @@ const HEADER = 'Session Update — what happened in this Session since your last
 export type SessionUpdateConsumer = {
   /** Its cursor's key in `session.json` `updateCursors`. */
   key: string
-  /** Entries of this preset are the consumer's own turns — except Agent Run Steps and Follow-ups. */
+  /**
+   * This preset's harness turns are the consumer's own — not Agent Run Steps, Follow-ups, or
+   * chat-engine turns, which a Harness Session holds only once replayed into it (`isOwn`).
+   */
   ownPreset?: string
   /** Entries of this Harness Session are its own: an Agent Run's Steps and its Follow-ups. */
   harnessSessionId?: string
@@ -91,7 +94,8 @@ function workspacePathView(sessionId: string, workspaceDir: string | undefined) 
   }
 }
 
-async function asSeenFrom(
+/** `entries` with their artifact paths as a consumer working in `workspaceDir` sees them. */
+export async function historyAsSeenFrom(
   sessionId: string,
   entries: HistoryEntry[],
   workspaceDir: string | undefined,
@@ -108,7 +112,14 @@ async function asSeenFrom(
 }
 
 function isOwnTurn(entry: HistoryEntry, consumer: SessionUpdateConsumer): boolean {
-  if (entry.preset === consumer.ownPreset && !entry.taskName && !entry.agentId) return true
+  if (
+    entry.preset === consumer.ownPreset &&
+    entry.kind !== 'chat' &&
+    !entry.taskName &&
+    !entry.agentId
+  ) {
+    return true
+  }
   if (consumer.harnessSessionId && entry.harnessSessionId === consumer.harnessSessionId) return true
   if (isLegacyStepOf(entry, consumer.run)) return true
   return consumer.isOwn?.(entry) ?? false
@@ -168,7 +179,7 @@ export async function takeSessionUpdate(
     .slice(firstUnseen(entries, consumer, cursor))
     .filter((entry) => !isOwnTurn(entry, consumer))
   await advanceCursor(sessionId, consumer.key, entries, cursor)
-  return buildSessionUpdate(await asSeenFrom(sessionId, missed, consumer.workspaceDir))
+  return buildSessionUpdate(await historyAsSeenFrom(sessionId, missed, consumer.workspaceDir))
 }
 
 export type SessionHistoryRow = { id: string; time: string; preset: string; prompt: string }
@@ -200,6 +211,6 @@ export async function getSessionHistoryEntry(
 ): Promise<HistoryEntry | null> {
   const entry = (await readHistoryEntries(sessionId)).find((candidate) => candidate.id === id)
   if (!entry) return null
-  const [seen] = await asSeenFrom(sessionId, [entry], workspaceDir)
+  const [seen] = await historyAsSeenFrom(sessionId, [entry], workspaceDir)
   return seen
 }

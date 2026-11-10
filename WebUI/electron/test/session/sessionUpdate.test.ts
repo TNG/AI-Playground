@@ -158,6 +158,22 @@ describe('takeSessionUpdate', () => {
     expect(await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })).toBeNull()
   })
 
+  it('reports a chat-engine turn of its own preset unless it was replayed into it', async () => {
+    const { id } = await createSession()
+    await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Assistant' })
+    const chatTurn = { ...agentTurn, preset: 'Assistant', kind: 'chat' as const }
+    const replayed = await appendHistoryEntry(id, { ...chatTurn, prompt: 'replayed turn' })
+    await appendHistoryEntry(id, { ...chatTurn, prompt: 'missed turn' })
+
+    const update = await takeSessionUpdate(id, {
+      key: 'agent-1',
+      ownPreset: 'Assistant',
+      isOwn: (e) => e.id === replayed.id,
+    })
+    expect(update).toContain('missed turn')
+    expect(update).not.toContain('replayed turn')
+  })
+
   it("counts a run's Steps and its Follow-ups as a Follow-up's own turns", async () => {
     const { id } = await createSession()
     const run = { key: 'aipg-agent-run', harnessSessionId: 'aipg-agent-run' }

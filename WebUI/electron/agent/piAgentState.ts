@@ -38,6 +38,8 @@ export type ActiveSession = {
   mountedFolders: ResolvedMountedFolder[]
   /** What changed in them since the conversation's last turn, for the next prompt only. */
   mountedFoldersNote?: string
+  /** History Entries replayed into this session when it was created, as messages. */
+  replayedEntryIds: string[]
 }
 
 /** One agent turn main holds open, from submission until it settles. */

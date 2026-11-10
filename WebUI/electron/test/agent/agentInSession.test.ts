@@ -645,3 +645,131 @@ describe('an Agent Maker Session migrated to Assistant', () => {
     expect(fs.readFileSync(path.join(picked, 'answer.md'), 'utf8')).toBe('written by Assistant')
   }, 30000)
 })
+
+describe('earlier chat-engine Assistant turns on the first Pi turn', () => {
+  async function assistantConfig(sessionId: string): Promise<AgentModeTurnConfig> {
+    const { harnessSessionId, workspaceDir } = await harness.harnessSessionFor(
+      sessionId,
+      'Assistant',
+    )
+    return {
+      ...(await agentConfig(sessionId)),
+      sessionId: harnessSessionId,
+      workspaceDir,
+      presetName: 'Assistant',
+    }
+  }
+
+  function chatTurn(prompt: string, response: string) {
+    return {
+      preset: 'Assistant',
+      kind: 'chat' as const,
+      prompt,
+      status: 'completed' as const,
+      artifacts: [],
+      response,
+    }
+  }
+
+  function conversation(body: Body | undefined) {
+    return (body?.messages ?? [])
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({
+        role: message.role,
+        text:
+          typeof message.content === 'string'
+            ? message.content
+            : (message.content as Array<{ text?: string }>).map((part) => part.text).join(''),
+      }))
+  }
+
+  async function sessionWithChatTurns() {
+    const session = await sessions.createSession()
+    await history.appendHistoryEntry(session.id, chatTurn('my cat is called Miso', 'Nice name!'))
+    await history.appendHistoryEntry(session.id, {
+      preset: 'Draft Image',
+      kind: 'image',
+      prompt: 'a castle',
+      status: 'completed',
+      artifacts: [{ path: 'files/castle.png', mediaType: 'image' }],
+    })
+    await history.appendHistoryEntry(session.id, {
+      ...chatTurn('draw her', ''),
+      response: undefined,
+      artifacts: [{ path: 'files/miso.png', mediaType: 'image' }],
+    })
+    return session
+  }
+
+  it('replays them as user and assistant messages, in order, ahead of the new prompt', async () => {
+    const session = await sessionWithChatTurns()
+
+    await manager.startAgentTurn('t1', "what is my cat's name?", await assistantConfig(session.id))
+
+    const turns = conversation(bodies[0])
+    expect(turns.slice(0, 4)).toEqual([
+      { role: 'user', text: 'my cat is called Miso' },
+      { role: 'assistant', text: 'Nice name!' },
+      { role: 'user', text: 'draw her' },
+      { role: 'assistant', text: expect.stringContaining('miso.png') },
+    ])
+    expect(turns).toHaveLength(5)
+    expect(turns[4].text).toContain("what is my cat's name?")
+  }, 30000)
+
+  it('reports only the other presets’ turns in the Session Update', async () => {
+    const session = await sessionWithChatTurns()
+
+    await manager.startAgentTurn('t1', 'hello again', await assistantConfig(session.id))
+
+    const last = userTexts(bodies[0]).at(-1)!
+    expect(last).toContain('a castle')
+    expect(last).not.toContain('Miso')
+    expect(last).not.toContain('draw her')
+  }, 30000)
+
+  it('keeps the replayed turns as the same prefix on later turns', async () => {
+    const session = await sessionWithChatTurns()
+    await manager.startAgentTurn('t1', 'first pi turn', await assistantConfig(session.id))
+    const first = conversation(bodies[0])
+    bodies = []
+
+    await manager.startAgentTurn('t2', 'second pi turn', await assistantConfig(session.id))
+
+    const second = conversation(bodies[0])
+    expect(second.slice(0, first.length)).toEqual(first)
+    expect(second.filter((turn) => turn.text === 'my cat is called Miso')).toHaveLength(1)
+  }, 30000)
+
+  it('does not replay Agent Maker turns, which already live in the Harness Session', async () => {
+    const session = await sessions.createSession()
+    const config = await assistantConfig(session.id)
+    await history.appendHistoryEntry(session.id, {
+      preset: 'Agent',
+      kind: 'agent',
+      prompt: 'an agent maker turn',
+      status: 'completed',
+      artifacts: [],
+      response: 'done',
+      harnessSessionId: config.sessionId,
+    })
+    await history.appendHistoryEntry(session.id, chatTurn('a chat turn', 'chat reply'))
+
+    await manager.startAgentTurn('t1', 'continue', config)
+
+    const turns = conversation(bodies[0])
+    expect(turns.slice(0, 2)).toEqual([
+      { role: 'user', text: 'a chat turn' },
+      { role: 'assistant', text: 'chat reply' },
+    ])
+    expect(JSON.stringify(turns)).not.toContain('an agent maker turn')
+  }, 30000)
+
+  it('leaves a Session with no earlier Assistant turns unaffected', async () => {
+    const session = await sessions.createSession()
+
+    await manager.startAgentTurn('t1', 'just this', await assistantConfig(session.id))
+
+    expect(conversation(bodies[0])).toEqual([{ role: 'user', text: 'just this' }])
+  }, 30000)
+})

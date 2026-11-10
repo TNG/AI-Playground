@@ -48,6 +48,7 @@ import {
 import { compactionSettingsForWindow } from './piCompaction.ts'
 import { sessionPaths } from '../session/sessions.ts'
 import { buildSessionHistoryTool } from './sessionHistoryTool.ts'
+import { replayChatEngineTurns } from './piHistoryReplay.ts'
 import {
   copySamplingParams,
   ensureModelRuntime,
@@ -302,6 +303,15 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   if (sessionFilePath) {
     logger.info(`resumed Pi session ${sessionId} (${workspaceDir})`, LOG_SOURCE)
   }
+  const replayedEntryIds =
+    !sessionFilePath && config.sessionRef && !config.taskRun && !config.followUp
+      ? await replayChatEngineTurns(sessionManager, {
+          sessionRef: config.sessionRef,
+          presetName: config.presetName ?? '',
+          workspaceDir,
+          model,
+        })
+      : []
   // Only a resumed conversation has a last turn; a new one learns its folders from the prompt.
   const previousMountedFolders = sessionFilePath
     ? (readSessionStore()[sessionId]?.mountedFolders ?? [])
@@ -451,6 +461,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
     mountedFolders,
     ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
+    replayedEntryIds,
   }
 }
 

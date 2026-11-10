@@ -25,6 +25,7 @@ import {
   type TurnSummary,
 } from './piStreamTranslate.ts'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { HistoryEntry } from '@/types/sessionIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import { clearPointer, readSessionStore, savePointer } from './piSessionStore.ts'
 import { briefly, LOG_SOURCE, verboseLogging } from './piAgentLog.ts'
@@ -350,15 +351,21 @@ const USAGE_SAMPLE_EVENTS = new Set([
 ])
 
 /** The Session Update rides on the user message only: the system prompt is the KV-cache prefix. */
-async function withSessionUpdate(prompt: string, config: AgentModeTurnConfig): Promise<string> {
+async function withSessionUpdate(
+  prompt: string,
+  config: AgentModeTurnConfig,
+  replayedEntryIds: readonly string[],
+): Promise<string> {
   if (!config.sessionRef) return prompt
   try {
+    const replayed = new Set(replayedEntryIds)
     const consumer = {
       key: config.sessionId,
       harnessSessionId: config.sessionId,
       ...(config.followUp ? {} : { ownPreset: config.presetName }),
       ...(config.followedRun ? { run: config.followedRun } : {}),
       workspaceDir: config.workspaceDir,
+      isOwn: (entry: HistoryEntry) => replayed.has(entry.id),
     }
     // A run's Steps get none, but its Follow-ups must hear only what happened since.
     if (config.taskRun) {
@@ -515,7 +522,7 @@ export async function startAgentTurn(
         if (failure) throw new Error(failure)
       }
       const note = current.mountedFoldersNote
-      const withUpdate = await withSessionUpdate(prompt, config)
+      const withUpdate = await withSessionUpdate(prompt, config, current.replayedEntryIds)
       const { images } = turnAttachments(
         current.workspaceDir,
         prompt,

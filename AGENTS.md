@@ -560,8 +560,10 @@ There is **no Vue Router**. Navigation is state-driven:
 - Each mode maps to a preset category (`chat`, `audio`, `create-images`, `edit-images`, `create-videos`). `chat`, `agent` and `audio` all run on `chat`-type presets; `audio` holds the speech presets (Text to Speech / Speech to Text) and gets its own settings tabs (`SettingsAudioInferencing.vue` / `SettingsAudioAttributes.vue`)
 - `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) — the same tabs under every preset. Agents are made, edited and scheduled in the Agent Library overlay (`views/AgentLibrary.vue`, ADR 0007), never in a Session; an Agent Run's Turn offers Stop while it runs and Edit Agent. Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; the only sidebar left is App Settings (`SideModalAppSettings.vue`)
 - **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
-  with `agentPreset: true` (Agent, Game Agent) renders Agent Mode, so there is no Agent mode
-  button — it is entered by picking one of those presets from the chat list.
+  with `agentPreset: true` (Assistant, Game Agent, Quick Coder) renders Agent Mode, so there is
+  no Agent mode button — it is entered by picking one of those presets from the chat list.
+  Assistant, the general chat preset, runs on the agent harness too, with the chat UI on top
+  (`hasChatAffordances`, `src/lib/chatAffordances.ts`; ADR 0009).
 
 ### Backend Services (4 services, dynamic ports)
 
@@ -592,6 +594,10 @@ Managed by `electron/adapters/backends/apiServiceRegistry.ts`. Each service spaw
 3. **Utility process** (main ↔ langchain worker): `electron/adapters/backends/langchain.ts` for RAG document processing via `process.parentPort` messaging.
 
 ### Chat Inference Flow
+
+Assistant does not take this path: it runs on Pi (Agent Mode, `electron/agent/`), and its attached
+documents are searched by the `rag` tool rather than injected. The chat turn engine below serves
+the other chat presets — Home Agent threads and aiDAPTIV, whose global document list it keeps.
 
 User sends message → download consent (`checkModelAvailability` / `requestDownload`) → the chat store resolves the turn (model config via `buildChatModelConfig`, optional `ChatRagRequest` via `buildChatRagRequest`, tools via the registry, `persist` via `buildTurnExtras`) and submits it over `chat:submitTurn` → main's turn engine writes the conversation file (`saveConversation`: user messages on turn start, assembled assistant on turn end), admits the GPU, loads the local LLM when `model.readiness` is present, retrieves RAG after that admit when `rag` is set, then runs Vercel AI SDK `streamText()` against the backend's `/v1/chat/completions` → chunks cross the kernel bus as `chat-chunk` events (adjacent deltas coalesced); RAG sources as `chat-rag` → the renderer's `Chat` consumes them through `kernelChatTransport` and updates the live Pinia copy only (`applyConversationMessages`, not `saveThread`). A reload mid-turn resumes from the kernel snapshot (`chat:resumeTurn`). The nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`), its inner Comfy tools in-process against the Artifact runner; one-shot summary is `chat:summarize` (occupies as `text`, loads with `remember: false`). Agent Mode ships `readiness` on the turn and `startAgentTurn` occupies + loads the same way (Pi stays a second harness).
 
@@ -750,6 +756,11 @@ the build request drops thinking.
 (`src/types/shared.ts`) before the server is started — agent presets ask for 128k, which the NPU
 cannot pay for up front. `effectiveContextWindow` applies the same cap so the context gauge shows
 what the turn actually gets. OpenVINO on GPU ignores `contextSize` entirely (dynamic KV cache).
+
+**Speech tools are opt-in on the NPU.** Their schemas are over 40% of the default tool prompt, which
+the NPU's 8k prompt cap cannot pay for, so on an NPU device `isToolEnabled(..., { onNpu })`
+(`src/lib/builtinToolEnablement.ts`) leaves Text to Speech and transcription off until the user
+turns them on; media, web and rag stay on.
 
 **Pi's compaction defaults assume a 64k+ window.** Auto-compact fires when occupancy exceeds
 `contextWindow − reserveTokens`, then keeps `keepRecentTokens` of the tail (Pi defaults 16384 /
@@ -959,8 +970,7 @@ reads them synchronously). The backendServices launch flags went one step furthe
 machine-level `settings.json` — that store has no Pinia persistence left.
 
 **Settings → Developer** is the UI. Always visible: keep models loaded and dev console on
-startup. The Agent preset ships in the chat list as Agent Maker (its identity stays `Agent`).
-Behind `showDebugSettingsInUI`: verbose agent logging, dummy media workflows, pretend Phison
+startup. Behind `showDebugSettingsInUI`: verbose agent logging, dummy media workflows, pretend Phison
 SSD, OEM vendor override, remote repository, OpenVINO image-gen devices — and the same flag
 shows the title-bar setup-wizard shortcut and unlocks the dev-only test LLM + dummy workflows,
 so a packaged build can use them.
@@ -1214,8 +1224,8 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   image; one follow-up ("finish the library card") exercises the `game` tool.
 - A session belongs to the preset it was held with (`AgentSessionRecord.presetName`). Game
   Agent and Quick Coder share the games library, so the Sessions panel lists both when either
-  is active; resuming one still switches back to the preset it was held with. The folder-picking
-  Agent keeps its own list. The panel's **+** means "new game" under a games preset
+  is active; resuming one still switches back to the preset it was held with. Assistant keeps its
+  own list. The panel's **+** means "new game" under a games preset
   (`agentMode.startNew()`). Sessions from before `presetName` are migrated on hydration by
   their folder.
 - **Changing the agent preset by hand always starts a blank session**, in either direction and
@@ -1229,7 +1239,7 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   anyway — the artifact runner resolves its workflow without switching); it snapshots under the
   preset being
   left (which is why `snapshotActiveSession` takes one — a turn still running has no record yet)
-  and then blanks: no folder for a games preset, the last picked folder for Agent. The old
+  and then blanks: no folder for a games preset, the Session's folder for Assistant. The old
   session stays in the panel and is reopened deliberately from there, which is the one thing
   `movingSession` suppresses the watcher for.
 - **`offer_game_agent` is the only way a game moves between presets**, and it moves the folder,
@@ -1463,7 +1473,7 @@ because the two halves of the app know different things:
 - **Speeds** come from llama.cpp's own `timings` whenever it sent them — it separates prefill
   from generation and reports the prompt-cache hit (`cache_n`). Chat already parsed that object
   for the message footer and now forwards it (`aipgChatTimings`); agent turns ask for it
-  (`timings_per_token: true`, added only for llama.cpp and only while tracing) and read it off
+  (`timings_per_token: true`, on every llama.cpp agent turn, since the metrics footer reads it too) and read it off
   the response stream in `electron/agent/piCallTiming.ts`. OVMS and cloud have no such
   object, so those get prompt tokens over time-to-first-token and completion tokens over the
   rest — the same split, measured from outside.

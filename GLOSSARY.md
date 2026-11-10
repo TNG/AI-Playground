@@ -33,7 +33,7 @@ _Avoid_: favourite, starred
 A Session that is neither pinned nor in a Session Group, listed by when it was last used.
 
 **Harness Session**:
-The agent harness's own conversation inside a Session: one per Agent Preset chatted with there,
+The agent harness's own conversation inside a Session: one per chat preset chatted with there,
 carrying its full context across its turns, plus a fresh one for each Agent Run, which its
 Follow-ups continue.
 _Avoid_: Pi session, agent session
@@ -55,9 +55,14 @@ A file a turn produced — an image, video, 3D model or audio clip — kept in i
 Folder.
 _Avoid_: media item, output, generation
 
+**Attached Document**:
+A document the user attached in a Session for its turns to search. It belongs to that Session
+alone and is kept in its Session Folder.
+_Avoid_: RAG document, knowledge base
+
 **Session Update**:
-A short templated digest of the History Entries a chat preset or Agent Preset missed since its own
-last turn in the Session, handed to it with the next prompt. Never a model-written summary.
+A short templated digest of the History Entries a chat preset missed since its own last turn in
+the Session, handed to it with the next prompt. Never a model-written summary.
 _Avoid_: session summary, recap
 
 ## Agents
@@ -72,11 +77,6 @@ _Avoid_: Task, job, automation
 The one place, opened over whatever Session is showing, where Agents are created, edited,
 scheduled and tried out. It belongs to no Session, and leaving it loses nothing.
 _Avoid_: Agent Maker, Agents view, agent manager
-
-**Agent Preset**:
-A chat preset that runs on the agent harness — Agent Maker, Game Agent, Quick Coder. Picked from
-the same list as the Agents, but an Agent is not an Agent Preset.
-_Avoid_: agent (on its own, for a preset)
 
 **Step**:
 One prompt of an Agent, sent as its own turn.
@@ -113,7 +113,7 @@ starts or the app quits.
 _Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:
-A folder on the user's machine that Agent Maker's turns or an Agent's runs can reach besides the
+A folder on the user's machine that Assistant's turns or an Agent's runs can reach besides the
 Session Folder, added by the user to the Session Settings or to the Agent's Settings Template, and
 either read-only or read-write.
 _Avoid_: extra folder, attached folder, workspace

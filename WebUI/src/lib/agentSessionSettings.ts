@@ -25,18 +25,21 @@ export const DEFAULT_CAPABILITIES_KEY = 'agentCapabilities'
 export const DEFAULT_PLANNING_THINKING_ONLY_KEY = 'agentPlanningThinkingOnly'
 export const DEFAULT_MOUNTED_FOLDERS_KEY = 'agentMountedFolders'
 
-/** Bag keys a Session Setting of the same name holds as is. */
-const SAMPLING_AND_PROMPT_KEYS = [
-  'maxTokens',
-  'temperature',
-  'temperatureFromModel',
-  'reasoningEffort',
-  'reasoningEffortFromModel',
-  'systemPrompt',
-  'metricsEnabled',
-  'numAssistantTokens',
-  'speakReplies',
-] as const
+/** Bag keys a Session Setting of the same name holds as is, with the type it must have. */
+const SAMPLING_AND_PROMPT_TYPES = {
+  maxTokens: 'number',
+  temperature: 'number',
+  temperatureFromModel: 'number',
+  reasoningEffort: 'string',
+  reasoningEffortFromModel: 'string',
+  systemPrompt: 'string',
+  metricsEnabled: 'boolean',
+  numAssistantTokens: 'number',
+  speakReplies: 'boolean',
+} as const satisfies Partial<Record<keyof AgentSessionSettings, 'number' | 'string' | 'boolean'>>
+
+type SamplingAndPromptKey = keyof typeof SAMPLING_AND_PROMPT_TYPES
+const SAMPLING_AND_PROMPT_KEYS = Object.keys(SAMPLING_AND_PROMPT_TYPES) as SamplingAndPromptKey[]
 
 /** Bag keys whose values belong to the session rather than to the Default Settings. */
 const SESSION_OWNED_KEYS = [
@@ -122,19 +125,9 @@ export function sessionSettingsFromBag(
   const defaultWorkflows = asRecord<string>(bag.builtinToolDefaultPresets)
   if (defaultWorkflows) settings.builtinToolDefaultPresets = defaultWorkflows
   if (typeof bag.cloudProviderId === 'string') settings.cloudProviderId = bag.cloudProviderId
-  for (const key of [
-    'maxTokens',
-    'temperature',
-    'temperatureFromModel',
-    'numAssistantTokens',
-  ] as const) {
-    if (typeof bag[key] === 'number') settings[key] = bag[key]
-  }
-  for (const key of ['reasoningEffort', 'reasoningEffortFromModel', 'systemPrompt'] as const) {
-    if (typeof bag[key] === 'string') settings[key] = bag[key]
-  }
-  for (const key of ['metricsEnabled', 'speakReplies'] as const) {
-    if (typeof bag[key] === 'boolean') settings[key] = bag[key]
+  for (const key of SAMPLING_AND_PROMPT_KEYS) {
+    if (typeof bag[key] === SAMPLING_AND_PROMPT_TYPES[key])
+      Object.assign(settings, { [key]: bag[key] })
   }
   return settings
 }

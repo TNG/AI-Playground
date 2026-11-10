@@ -865,7 +865,10 @@ describe('the Assistant preset in a Session', () => {
         new TextEncoder().encode('the budget'),
       )
 
-      await indexSessionDocument(config.workspaceDir, saved.path, 'test-embedding', 'llamaCPP')
+      await indexSessionDocument(config.workspaceDir, saved.path, {
+        model: 'test-embedding',
+        backend: 'llamaCPP',
+      })
       expect(calls).toEqual(['ingest notes.md', 'embed test-embedding notes.md'])
       toolCall = { name: 'rag', args: { files: [saved.path], query: 'budget' } }
       await manager.startAgentTurn('t1', 'what is the budget?', config)

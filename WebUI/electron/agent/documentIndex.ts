@@ -1,22 +1,10 @@
 import path from 'node:path'
-import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
+import { DOCUMENT_EXTENSIONS, type IndexedDocument, type ValidFileExtension } from '@/types/rag'
 import { ragAccess } from './ragAccess.ts'
 
 // The split of every document the agent has indexed, shared by the `rag` tool and
 // indexing on attach, so a document split when it was attached is not split again
 // on the first question. Chunk embeddings are cached on disk by the langchain worker.
-
-/** Exactly what the langchain worker's loadDocument can index. */
-export const DOCUMENT_EXTENSIONS = [
-  'txt',
-  'md',
-  'doc',
-  'docx',
-  'pdf',
-] as const satisfies readonly ValidFileExtension[]
-type _ExtensionsCovered =
-  Exclude<ValidFileExtension, (typeof DOCUMENT_EXTENSIONS)[number]> extends never ? true : never
-const _extensionsCovered: _ExtensionsCovered = true
 
 export function documentExtension(file: string): ValidFileExtension | undefined {
   const extension = path.extname(file).slice(1).toLowerCase()

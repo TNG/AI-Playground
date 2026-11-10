@@ -2,7 +2,13 @@ import type { Document } from '@langchain/classic/document'
 import type { MergedGroup, MergedGroupsMeta } from '@/types/phisonKmRag'
 
 /** Extensions the langchain worker's loadDocument can index. */
-export type ValidFileExtension = 'txt' | 'doc' | 'docx' | 'md' | 'pdf'
+export const DOCUMENT_EXTENSIONS = ['txt', 'md', 'doc', 'docx', 'pdf'] as const
+export type ValidFileExtension = (typeof DOCUMENT_EXTENSIONS)[number]
+
+export type EmbeddingBackend = 'llamaCPP' | 'openVINO'
+
+/** The embedding model a Session's documents are searched with. */
+export type DocumentEmbedding = { model: string; backend: EmbeddingBackend }
 
 export type IndexedDocument = {
   filename: string

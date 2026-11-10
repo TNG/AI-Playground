@@ -277,9 +277,9 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       }
     },
     'agentMode:sessionDocuments': (_event, workspaceDir) => deps.sessionDocuments(workspaceDir),
-    'agentMode:indexDocument': async (_event, workspaceDir, relativePath, model, backend) => {
+    'agentMode:indexDocument': async (_event, workspaceDir, relativePath, embedding) => {
       try {
-        await deps.indexSessionDocument(workspaceDir, relativePath, model, backend)
+        await deps.indexSessionDocument(workspaceDir, relativePath, embedding)
         return { success: true as const }
       } catch (error) {
         return ipcFail(error)

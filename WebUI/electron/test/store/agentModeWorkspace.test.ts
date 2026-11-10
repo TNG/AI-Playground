@@ -372,12 +372,10 @@ describe('agentMode session documents', () => {
       'report.pdf',
       expect.anything(),
     )
-    expect(indexDocument).toHaveBeenCalledWith(
-      '/sessions/s1/files',
-      'attachments/report.pdf',
-      'bge-small',
-      'llamaCPP',
-    )
+    expect(indexDocument).toHaveBeenCalledWith('/sessions/s1/files', 'attachments/report.pdf', {
+      model: 'bge-small',
+      backend: 'llamaCPP',
+    })
     expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
     expect(store.attachments).toEqual([])
   })

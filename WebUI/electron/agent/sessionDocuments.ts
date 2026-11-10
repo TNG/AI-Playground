@@ -4,6 +4,7 @@ import { ATTACHMENTS_DIR } from './workspaceAttachments.ts'
 import { documentExtension, indexedDocument } from './documentIndex.ts'
 import { realFileInside } from './hostPathContainment.ts'
 import { ragAccess } from './ragAccess.ts'
+import type { DocumentEmbedding } from '@/types/rag'
 
 // ── Session documents ────────────────────────────────────────────────────────
 //
@@ -40,8 +41,7 @@ export function documentsLine(workspaceDir: string): string {
 export async function indexSessionDocument(
   workspaceDir: string,
   relativePath: string,
-  embeddingModel: string,
-  embeddingBackend: 'llamaCPP' | 'openVINO',
+  { model: embeddingModel, backend }: DocumentEmbedding,
 ): Promise<void> {
   const candidate = realFileInside(workspaceDir, relativePath)
   const realPath = candidate && realFileInside(path.join(workspaceDir, ATTACHMENTS_DIR), candidate)
@@ -49,7 +49,7 @@ export async function indexSessionDocument(
   if (!realPath || !extension) throw new Error(`Not an attached document: ${relativePath}`)
   const doc = await indexedDocument(realPath, extension, fs.statSync(realPath).mtimeMs)
   if (!doc.splitDB || doc.splitDB.length === 0) return
-  const backendBaseUrl = await ragAccess().ensureEmbeddingServer(embeddingBackend, embeddingModel)
+  const backendBaseUrl = await ragAccess().ensureEmbeddingServer(backend, embeddingModel)
   await ragAccess().retrieve({
     prompt: doc.filename,
     ragList: [{ ...doc, isChecked: true }],

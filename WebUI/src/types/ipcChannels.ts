@@ -66,7 +66,7 @@ import type {
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { ModelLibraryScan } from '@/assets/js/models/types'
 import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
 
 export type IpcOwner = 'main' | 'homeAgent'
@@ -624,7 +624,7 @@ export const CHANNELS = {
   'agentMode:indexDocument': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string, string, 'llamaCPP' | 'openVINO'],
+    args: [] as unknown as readonly [string, string, DocumentEmbedding],
     result: null as unknown as IpcMutationResult,
   },
   /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */

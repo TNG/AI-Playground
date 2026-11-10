@@ -1,5 +1,6 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import type { GameLibraryEntry } from '@/types/agentIpc'
+import { DOCUMENT_EXTENSIONS, type DocumentEmbedding } from '@/types/rag'
 import { developerMode } from './debugSettings'
 import { fillTemplate } from '@/lib/fillTemplate'
 
@@ -75,14 +76,12 @@ export function createWorkspaceAttachments(
   return { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments }
 }
 
-const DOCUMENT_NAME = /\.(pdf|docx?|md|txt)$/i
+const DOCUMENT_NAME = new RegExp(`\\.(${DOCUMENT_EXTENSIONS.join('|')})$`, 'i')
 
-/** What the `rag` tool can index: pdf, docx, doc, md and txt. */
+/** What the `rag` tool can index. */
 export function isDocumentName(name: string): boolean {
   return DOCUMENT_NAME.test(name)
 }
-
-export type DocumentEmbedding = { model: string; backend: 'llamaCPP' | 'openVINO' }
 
 /**
  * The documents attached to the Session on screen. They are saved into its folder on
@@ -135,12 +134,7 @@ export function createSessionDocuments(options: {
     indexingDocuments.value = [...indexingDocuments.value, ...paths]
     try {
       for (const file of paths) {
-        const result = await window.electronAPI.agentMode.indexDocument(
-          dir,
-          file,
-          embedding.model,
-          embedding.backend,
-        )
+        const result = await window.electronAPI.agentMode.indexDocument(dir, file, embedding)
         if (!result.success) {
           // The `rag` tool indexes it again on the first question, so this is not fatal.
           errors.report(new Error(result.error ?? `Failed to index ${file}.`), {

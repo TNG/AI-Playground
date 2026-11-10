@@ -4,7 +4,7 @@ import type { LocalSettings } from './kernel/localSettings.ts'
 import { ModelPaths } from '@/assets/js/store/models'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
+import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
 import type {
   AgentModeTurnConfig,
@@ -438,19 +438,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
       invoke('agentMode:importAttachment', workspaceDir, name, bytes),
     sessionDocuments: (workspaceDir: string) => invoke('agentMode:sessionDocuments', workspaceDir),
-    indexDocument: (
-      workspaceDir: string,
-      relativePath: string,
-      embeddingModel: string,
-      embeddingBackend: 'llamaCPP' | 'openVINO',
-    ) =>
-      invoke(
-        'agentMode:indexDocument',
-        workspaceDir,
-        relativePath,
-        embeddingModel,
-        embeddingBackend,
-      ),
+    indexDocument: (workspaceDir: string, relativePath: string, embedding: DocumentEmbedding) =>
+      invoke('agentMode:indexDocument', workspaceDir, relativePath, embedding),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

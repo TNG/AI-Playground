@@ -111,15 +111,13 @@ export async function historyAsSeenFrom(
   )
 }
 
+/** A turn the user ran with this preset, not an Agent Run's. */
+export function isPresetTurn(entry: HistoryEntry, preset: string | undefined): boolean {
+  return !!preset && entry.preset === preset && !entry.taskName && !entry.agentId
+}
+
 function isOwnTurn(entry: HistoryEntry, consumer: SessionUpdateConsumer): boolean {
-  if (
-    entry.preset === consumer.ownPreset &&
-    entry.kind !== 'chat' &&
-    !entry.taskName &&
-    !entry.agentId
-  ) {
-    return true
-  }
+  if (entry.kind !== 'chat' && isPresetTurn(entry, consumer.ownPreset)) return true
   if (consumer.harnessSessionId && entry.harnessSessionId === consumer.harnessSessionId) return true
   if (isLegacyStepOf(entry, consumer.run)) return true
   return consumer.isOwn?.(entry) ?? false

@@ -1,6 +1,6 @@
 import type { SessionManager } from '@earendil-works/pi-coding-agent'
 import { readHistoryEntries } from '../session/sessionHistory.ts'
-import { historyAsSeenFrom } from '../session/sessionUpdate.ts'
+import { historyAsSeenFrom, isPresetTurn } from '../session/sessionUpdate.ts'
 import type { HistoryEntry } from '@/types/sessionIpc'
 
 type AssistantMessage = Extract<
@@ -19,9 +19,7 @@ type ReplayTarget = {
 function isChatEngineTurn(entry: HistoryEntry, presetName: string): boolean {
   return (
     entry.kind === 'chat' &&
-    entry.preset === presetName &&
-    !entry.taskName &&
-    !entry.agentId &&
+    isPresetTurn(entry, presetName) &&
     !!entry.prompt.trim() &&
     (!!entry.response?.trim() || entry.artifacts.length > 0)
   )

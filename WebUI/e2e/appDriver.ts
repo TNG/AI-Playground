@@ -6,7 +6,6 @@ import { MainPage, type ChatMode } from './pages/MainPage'
 import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
-import { McpSettingsPage } from './pages/McpSettingsPage'
 import { ModelManagerPage } from './pages/ModelManagerPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
 import {
@@ -86,7 +85,6 @@ export class AppDriver {
   readonly agent: AgentModePage
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
-  readonly mcp: McpSettingsPage
   readonly models: ModelManagerPage
   readonly tools: ToolSettingsPage
   readonly assistant: AssistantSettingsPage
@@ -98,7 +96,6 @@ export class AppDriver {
     this.agent = new AgentModePage(window)
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
-    this.mcp = new McpSettingsPage(window)
     this.models = new ModelManagerPage(window)
     this.tools = new ToolSettingsPage(window)
     this.assistant = new AssistantSettingsPage(window)
@@ -911,19 +908,18 @@ export class AppDriver {
   }
 
   /**
-   * Select the "Assistant" preset, enable MCP tools and connect
-   * one MCP server by its mcp.json displayName (e.g. "DateTime MCP", "Blender MCP"),
-   * leaving the Viewport tab shown and the preset active. Returns false when the preset,
-   * the MCP section, or the server itself is unavailable in this environment (e.g.
-   * `uvx`/network access missing) so the caller can skip rather than fail.
+   * Select Assistant with every capability off and one MCP server (its mcp.json displayName)
+   * ticked, so any tool call is that server's. Assistant starts the server on the turn.
+   * Returns false when Assistant or the server is not offered here.
    */
-  async connectMcpServerOrSkip(displayName: string): Promise<boolean> {
-    return test.step(`Enable MCP tools and connect "${displayName}"`, async () => {
-      if (!(await this.main.selectPreset('Chat', HARNESS_CHAT_PRESET))) return false
-      await this.settings.open()
-      const connected = await this.mcp.connectServer(displayName)
+  async enableMcpServer(displayName: string): Promise<boolean> {
+    if (!(await this.prepareAgentPreset())) return false
+    return test.step(`Give Assistant only the "${displayName}" server`, async () => {
+      await this.settings.open('Attributes')
+      await this.assistant.enforceCapabilities([])
+      const enabled = await this.assistant.enableMcpServer(displayName)
       await this.settings.close()
-      return connected
+      return enabled
     })
   }
 

@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "ファイル: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "モデルとツールは「推論」タブと「属性」タブで設定します。",
   "AGENT_REPLY_ARIA": "アシスタントの返信",
+  "TOOL_CALL_ARIA": "ツール呼び出し: {tool}",
   "AGENT_SETTING_BACKEND": "バックエンド",
   "AGENT_SETTING_MODEL": "モデル",
   "AGENT_SETTING_DEVICE": "デバイス",

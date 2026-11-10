@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "File: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Configura modello e strumenti nelle schede Inferenza e Attributi.",
   "AGENT_REPLY_ARIA": "Risposta dell'assistente",
+  "TOOL_CALL_ARIA": "Chiamata strumento: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",
   "AGENT_SETTING_MODEL": "Modello",
   "AGENT_SETTING_DEVICE": "Dispositivo",

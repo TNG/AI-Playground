@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "檔案：{path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "在「推論」和「屬性」分頁中設定模型和工具。",
   "AGENT_REPLY_ARIA": "助理回覆",
+  "TOOL_CALL_ARIA": "工具呼叫：{tool}",
   "AGENT_SETTING_BACKEND": "後端",
   "AGENT_SETTING_MODEL": "模型",
   "AGENT_SETTING_DEVICE": "裝置",

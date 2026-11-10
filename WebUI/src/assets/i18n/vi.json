@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "Tệp: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Cấu hình mô hình và công cụ trong các thẻ Suy luận và Thuộc tính.",
   "AGENT_REPLY_ARIA": "Câu trả lời của trợ lý",
+  "TOOL_CALL_ARIA": "Gọi công cụ: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",
   "AGENT_SETTING_MODEL": "Mô hình",
   "AGENT_SETTING_DEVICE": "Thiết bị",

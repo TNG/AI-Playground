@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "文件：{path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "在“推理”和“属性”选项卡中配置模型和工具。",
   "AGENT_REPLY_ARIA": "助手回复",
+  "TOOL_CALL_ARIA": "工具调用：{tool}",
   "AGENT_SETTING_BACKEND": "后端",
   "AGENT_SETTING_MODEL": "模型",
   "AGENT_SETTING_DEVICE": "设备",

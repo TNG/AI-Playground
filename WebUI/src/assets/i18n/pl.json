@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "Pliki: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Model i narzędzia skonfigurujesz na kartach Wnioskowanie i Atrybuty.",
   "AGENT_REPLY_ARIA": "Odpowiedź asystenta",
+  "TOOL_CALL_ARIA": "Wywołanie narzędzia: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",
   "AGENT_SETTING_MODEL": "Model",
   "AGENT_SETTING_DEVICE": "Urządzenie",

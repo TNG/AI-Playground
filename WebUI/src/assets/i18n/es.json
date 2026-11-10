@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "Archivos: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Configura el modelo y las herramientas en las pestañas Inferencia y Atributos.",
   "AGENT_REPLY_ARIA": "Respuesta del asistente",
+  "TOOL_CALL_ARIA": "Llamada a herramienta: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",
   "AGENT_SETTING_MODEL": "Modelo",
   "AGENT_SETTING_DEVICE": "Dispositivo",

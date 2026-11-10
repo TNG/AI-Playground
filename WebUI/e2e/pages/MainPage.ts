@@ -422,40 +422,18 @@ export class MainPage {
     })
   }
 
-  /**
-   * MCP tool-call cards (ChatMcpToolDisplay) in the last assistant turn. Each card's
-   * header reads "MCP tool call - <serverId> MCP - <toolName>", so a card scoped to a
-   * server id is proof the agent actually invoked one of that server's tools rather
-   * than answering from memory.
-   */
-  mcpToolCallCards(serverId: string): Locator {
-    return this.assistantResponses
-      .last()
-      .getByText(new RegExp(`MCP tool call - ${serverId} MCP`, 'i'))
+  /** Open the last turn's details, where an agent turn shows its tool calls. */
+  async openLastTurnDetails(): Promise<void> {
+    const details = this.page.getByRole('button', { name: /^Turn Details:/ }).last()
+    await expect(details, 'the turn should list what it did').toBeVisible({ timeout: 15_000 })
+    if ((await details.getAttribute('aria-expanded')) !== 'true') await details.click()
   }
 
-  /**
-   * A completed MCP tool-call card for `serverId`: the card's clickable header holds
-   * both the "MCP tool call - <serverId> MCP - …" title and the "Completed" state pill,
-   * so filtering the header div on both proves the tool call resolved successfully.
-   */
-  mcpToolCallCompleted(serverId: string): Locator {
-    return this.assistantResponses
-      .last()
-      .locator('div.cursor-pointer')
-      .filter({ hasText: new RegExp(`MCP tool call - ${serverId} MCP`, 'i') })
-      .filter({ hasText: 'Completed' })
-  }
-
-  /** Wait until the last turn shows at least one MCP tool call for `serverId`. */
-  async waitForMcpToolCall(
-    serverId: string,
-    timeout: number = MainPage.TEXT_TIMEOUT,
-  ): Promise<void> {
-    await expect(
-      this.mcpToolCallCards(serverId).first(),
-      `expected the agent to invoke an MCP tool from the "${serverId}" server`,
-    ).toBeVisible({ timeout })
+  /** Tool-call cards named after one of `toolNames`, in the open turn details. */
+  toolCallCards(toolNames: readonly string[]): Locator {
+    return this.page.getByRole('group', {
+      name: new RegExp(`^Tool call: (${toolNames.join('|')})$`),
+    })
   }
 
   /** The hidden audio-upload input rendered by the Speech-to-Text preset surface. */

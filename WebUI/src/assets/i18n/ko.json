@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "파일: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "모델과 도구는 추론 및 속성 탭에서 설정합니다.",
   "AGENT_REPLY_ARIA": "어시스턴트 답변",
+  "TOOL_CALL_ARIA": "도구 호출: {tool}",
   "AGENT_SETTING_BACKEND": "백엔드",
   "AGENT_SETTING_MODEL": "모델",
   "AGENT_SETTING_DEVICE": "장치",

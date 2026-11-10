@@ -51,6 +51,17 @@ export class AssistantSettingsPage {
       .getByRole('checkbox')
   }
 
+  /** Tick one MCP server by its mcp.json displayName; false when it is not listed. */
+  async enableMcpServer(displayName: string): Promise<boolean> {
+    await showSessionTab(this.page, 'Attributes')
+    const server = this.region
+      .getByRole('group', { name: 'MCP servers', exact: true })
+      .getByRole('checkbox', { name: new RegExp(`^${displayName}`) })
+    if (!(await server.isVisible().catch(() => false))) return false
+    await server.setChecked(true)
+    return true
+  }
+
   /**
    * Switch on exactly `enabled` and every other capability off, then every MCP server
    * off. A capability the model cannot have is shown disabled and left as it is.

@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "Dateien: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Modell und Tools legen Sie in den Tabs Inferenz und Attribute fest.",
   "AGENT_REPLY_ARIA": "Antwort des Assistenten",
+  "TOOL_CALL_ARIA": "Tool-Aufruf: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",
   "AGENT_SETTING_MODEL": "Modell",
   "AGENT_SETTING_DEVICE": "Gerät",

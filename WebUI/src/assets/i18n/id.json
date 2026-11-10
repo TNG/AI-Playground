@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "File: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Atur model dan alat di tab Inferensi dan Atribut.",
   "AGENT_REPLY_ARIA": "Balasan asisten",
+  "TOOL_CALL_ARIA": "Panggilan alat: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",
   "AGENT_SETTING_MODEL": "Model",
   "AGENT_SETTING_DEVICE": "Perangkat",

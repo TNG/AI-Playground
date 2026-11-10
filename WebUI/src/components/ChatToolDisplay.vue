@@ -1,5 +1,9 @@
 <template>
-  <div class="rounded-md border border-border/80 bg-muted/20 flex flex-col">
+  <div
+    role="group"
+    :aria-label="fillTemplate(languages.TOOL_CALL_ARIA, { tool: toolDisplayName })"
+    class="rounded-md border border-border/80 bg-muted/20 flex flex-col"
+  >
     <div
       class="px-3 py-3 flex items-center justify-between gap-2 cursor-pointer"
       @click="isExpanded = !isExpanded"
@@ -53,6 +57,7 @@ import { computed, ref } from 'vue'
 import { getToolOrDynamicToolName, type DynamicToolUIPart, type ToolUIPart } from 'ai'
 import type { AipgTools } from '@/assets/js/tools/tools'
 import { toolDisplayLabel } from '@/assets/js/tools/toolLabels'
+import { fillTemplate } from '@/lib/fillTemplate'
 
 // `state` and `input` duplicate fields of `part` on purpose: the AI SDK grows a
 // tool part by mutating it, so the part object alone never looks different to

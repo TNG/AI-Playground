@@ -970,6 +970,7 @@
   "AGENT_EMPTY_STATE_WORKSPACE": "ไฟล์: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "กำหนดค่าโมเดลและเครื่องมือได้ในแท็บ การอนุมาน และ คุณสมบัติ",
   "AGENT_REPLY_ARIA": "คำตอบของผู้ช่วย",
+  "TOOL_CALL_ARIA": "การเรียกใช้เครื่องมือ: {tool}",
   "AGENT_SETTING_BACKEND": "แบ็กเอนด์",
   "AGENT_SETTING_MODEL": "โมเดล",
   "AGENT_SETTING_DEVICE": "อุปกรณ์",

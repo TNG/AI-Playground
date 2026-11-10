@@ -13,7 +13,10 @@
               toneClasses(runPrimary),
             ]"
           >
-            <PlayIcon class="size-4" aria-hidden="true" />
+            <span class="relative inline-flex" aria-hidden="true">
+              <PlayIcon class="size-4" />
+              <Bot class="absolute -bottom-2 -right-3 size-3.5!" />
+            </span>
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">{{ agentTip(languages?.AGENT_PICKED_RUN_TIP) }}</TooltipContent>
@@ -64,6 +67,7 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance } from 'vue'
 import { PlayIcon } from '@heroicons/vue/24/solid'
+import { Bot } from 'lucide-vue-next'
 import Button from '@/components/ui/button/Button.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { AgentComposerState } from '@/lib/agentComposer'

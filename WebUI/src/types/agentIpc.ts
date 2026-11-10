@@ -12,10 +12,18 @@ export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 
 // Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).
 const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
+const IMAGE_ATTACHMENTS =
+  /@(?:"(attachments\/[^"\n]+?\.(?:png|jpe?g|webp|gif|bmp))"|(attachments\/\S+?\.(?:png|jpe?g|webp|gif|bmp)))(?![\w.])/gi
 
 /** Whether an agent prompt hands the model an image, so a vision model needs its projector. */
 export function promptHasImageAttachment(prompt: string): boolean {
   return IMAGE_ATTACHMENT.test(prompt)
+}
+
+/** The workspace-relative paths of the images an agent prompt references, in order, once each. */
+export function promptImageAttachments(prompt: string): string[] {
+  const paths = [...prompt.matchAll(IMAGE_ATTACHMENTS)].map((match) => match[1] ?? match[2])
+  return [...new Set(paths)]
 }
 
 /** Where an Answer came from: its channel, and the platform ref a reply to it names. */

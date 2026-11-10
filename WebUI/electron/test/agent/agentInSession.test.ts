@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import { importAttachment } from '../../agent/workspaceAttachments.ts'
 
 // The Agent preset inside a Session, seen from outside main: a real Pi session
 // runs each turn against a fake OpenAI-compatible backend served through
@@ -382,4 +383,81 @@ describe('the Assistant preset in a Session', () => {
     expect(prompt).toContain('project workspace')
     expect(prompt).not.toContain('coding assistant operating inside pi')
   }, 30000)
+
+  describe('with an attached image', () => {
+    const PIXEL = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    )
+
+    function imageParts(body: Body | undefined): unknown[] {
+      const user = (body?.messages ?? []).filter((message) => message.role === 'user').at(-1)
+      return Array.isArray(user?.content)
+        ? user.content.filter((part: { type?: string }) => part.type === 'image_url')
+        : []
+    }
+
+    async function attachPixel(config: AgentModeTurnConfig): Promise<string> {
+      const saved = importAttachment(config.workspaceDir, 'cat.png', new Uint8Array(PIXEL))
+      return `what is this?\n\nAttached files, saved in the workspace: @${saved.path}`
+    }
+
+    async function visionConfig(sessionId: string): Promise<AgentModeTurnConfig> {
+      const config = await assistantConfig(sessionId)
+      return { ...config, modelConfig: { ...config.modelConfig, supportsVision: true } }
+    }
+
+    it('shows it to a vision model in the same turn, and keeps the copy', async () => {
+      const session = await sessions.createSession()
+      const config = await visionConfig(session.id)
+
+      await manager.startAgentTurn('t1', await attachPixel(config), config)
+
+      expect(imageParts(bodies[0])).toEqual([
+        expect.objectContaining({
+          image_url: expect.objectContaining({ url: expect.stringMatching(/^data:image\//) }),
+        }),
+      ])
+      expect(transcriptText(bodies[0])).toContain('@attachments/cat.png')
+      const copy = path.join(sessions.sessionPaths(session.id).filesDir, 'attachments', 'cat.png')
+      expect(fs.readFileSync(copy)).toEqual(PIXEL)
+    }, 30000)
+
+    it('shows an image whose name has a space in it', async () => {
+      const session = await sessions.createSession()
+      const config = await visionConfig(session.id)
+      importAttachment(config.workspaceDir, 'my cat.png', new Uint8Array(PIXEL))
+
+      await manager.startAgentTurn('t1', 'what is this? @"attachments/my cat.png"', config)
+
+      expect(imageParts(bodies[0])).toHaveLength(1)
+    }, 30000)
+
+    it('only tells a model without image input where the file is', async () => {
+      const session = await sessions.createSession()
+      const config = await assistantConfig(session.id)
+
+      await manager.startAgentTurn('t1', await attachPixel(config), config)
+
+      expect(imageParts(bodies[0])).toEqual([])
+      expect(transcriptText(bodies[0])).toContain('@attachments/cat.png')
+    }, 30000)
+
+    it('does not attach a file from outside the Session Folder', async () => {
+      const session = await sessions.createSession()
+      const config = await visionConfig(session.id)
+      const outside = path.join(tempRoot, 'outside.png')
+      fs.writeFileSync(outside, PIXEL)
+      fs.mkdirSync(path.join(config.workspaceDir, 'attachments'), { recursive: true })
+      fs.symlinkSync(outside, path.join(config.workspaceDir, 'attachments', 'link.png'))
+
+      await manager.startAgentTurn(
+        't1',
+        'look @attachments/../../../outside.png @attachments/link.png',
+        config,
+      )
+
+      expect(imageParts(bodies[0])).toEqual([])
+    }, 30000)
+  })
 })

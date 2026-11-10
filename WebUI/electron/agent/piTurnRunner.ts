@@ -65,6 +65,7 @@ import {
   setLastChatBackendLoadActive,
   setTurnChatBackendLoad,
 } from '../chat/chatReadiness.ts'
+import { turnAttachments } from './workspaceAttachments.ts'
 
 const logger = appLoggerInstance
 
@@ -515,7 +516,12 @@ export async function startAgentTurn(
       }
       const note = current.mountedFoldersNote
       const withUpdate = await withSessionUpdate(prompt, config)
-      await current.session.prompt(note ? `${note}\n\n${withUpdate}` : withUpdate)
+      const { images } = turnAttachments(
+        current.workspaceDir,
+        prompt,
+        config.modelConfig.supportsVision === true,
+      )
+      await current.session.prompt(note ? `${note}\n\n${withUpdate}` : withUpdate, { images })
       if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
       failIfModelErrored()
       // A session that plans first has only been asked for the plan so far; the

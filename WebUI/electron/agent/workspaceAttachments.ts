@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { promptImageAttachments } from '@/types/agentIpc'
 
 // ── Workspace attachments ────────────────────────────────────────────────────
 //
@@ -7,8 +8,8 @@ import path from 'node:path'
 // copied into the workspace and the agent is told the path. It then reads,
 // references or ships the file with the tools it already has — a PNG becomes a
 // sprite the game loads, a text file becomes something it can read — and this
-// works whatever the model is, where sending the bytes to the model would need
-// a vision-capable one and still leave the file out of the workspace.
+// works whatever the model is. A vision model is also shown the images in the
+// same turn (`turnAttachments`), on top of the copy.
 
 /** Folder inside the workspace that user-supplied files land in. */
 export const ATTACHMENTS_DIR = 'attachments'
@@ -62,4 +63,49 @@ export function importAttachment(
 
   fs.writeFileSync(target, bytes)
   return { path: relative.split(path.sep).join('/') }
+}
+
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+}
+
+export type AttachedImage = { type: 'image'; data: string; mimeType: string }
+
+/**
+ * What a turn's prompt carries besides its text: the images its attachments
+ * reference, for a model registered with image input. The copy in the workspace
+ * stays the file tools work on; this only lets a vision model see it in the
+ * same turn. A path that leaves the attachments folder is skipped.
+ */
+export function turnAttachments(
+  workspaceDir: string,
+  prompt: string,
+  supportsVision: boolean,
+): { images: AttachedImage[] } {
+  if (!supportsVision) return { images: [] }
+  let dir: string
+  try {
+    dir = fs.realpathSync(path.join(path.resolve(workspaceDir), ATTACHMENTS_DIR))
+  } catch {
+    return { images: [] }
+  }
+  const images: AttachedImage[] = []
+  for (const relative of promptImageAttachments(prompt)) {
+    try {
+      const file = fs.realpathSync(path.resolve(workspaceDir, relative))
+      const inside = path.relative(dir, file)
+      if (inside.startsWith('..') || path.isAbsolute(inside)) continue
+      const mimeType = IMAGE_MIME_TYPES[path.extname(file).toLowerCase()]
+      if (!mimeType) continue
+      images.push({ type: 'image', data: fs.readFileSync(file).toString('base64'), mimeType })
+    } catch {
+      // Gone or unreadable: the prompt still names the path.
+    }
+  }
+  return { images }
 }

@@ -27,23 +27,21 @@
       {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(prompt.step) }) }}
     </p>
     <p v-if="prompt.agentRun">{{ runLabel(prompt.agentRun) }}</p>
-    <div v-if="controls" class="flex items-center gap-2">
-      <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="emit('editAgent')">
-        <PencilSquareIcon class="size-3.5" aria-hidden="true" />
-        {{ languages.AGENT_LIBRARY_EDIT_AGENT }}
-      </Button>
-    </div>
     <MarkdownRenderer v-if="prompt.text" :content="prompt.text" :on-copy="copyText" />
     <p v-else-if="prompt.placeholder" class="text-muted-foreground italic">
       {{ prompt.placeholder }}
     </p>
     <div
-      v-if="prompt.text || prompt.origin"
+      v-if="prompt.text || prompt.origin || controls"
       class="flex items-center gap-3 text-xs text-muted-foreground"
     >
       <button v-if="prompt.text" class="flex items-center gap-1" @click="copyText(prompt.text)">
         <DocumentDuplicateIcon class="size-4" aria-hidden="true" />
         <span>{{ languages.COM_COPY }}</span>
+      </button>
+      <button v-if="controls" class="flex items-center gap-1" @click="emit('editAgent')">
+        <PencilSquareIcon class="size-4" aria-hidden="true" />
+        <span>{{ languages.AGENT_LIBRARY_EDIT_AGENT }}</span>
       </button>
       <span
         v-if="prompt.origin"

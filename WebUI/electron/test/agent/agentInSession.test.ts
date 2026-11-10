@@ -328,6 +328,7 @@ describe('the Assistant preset in a Session', () => {
   async function assistantConfig(
     sessionId: string,
     capabilities?: string[],
+    model: Partial<Extract<AgentModeTurnConfig['modelConfig'], { source: 'local' }>> = {},
   ): Promise<AgentModeTurnConfig> {
     const { harnessSessionId, workspaceDir } = await harness.harnessSessionFor(
       sessionId,
@@ -340,7 +341,13 @@ describe('the Assistant preset in a Session', () => {
       ownsPrompt: true,
       instructions: ASSISTANT_PROMPT,
       workspaceDir,
-      modelConfig: { source: 'local', model: 'test-model', baseUrl: BACKEND, contextWindow: 32768 },
+      modelConfig: {
+        source: 'local',
+        model: 'test-model',
+        baseUrl: BACKEND,
+        contextWindow: 32768,
+        ...model,
+      },
       toolSpecs: [],
       ...(capabilities ? { capabilities } : {}),
     }
@@ -382,6 +389,58 @@ describe('the Assistant preset in a Session', () => {
     expect(prompt).toContain(ASSISTANT_PROMPT)
     expect(prompt).toContain('project workspace')
     expect(prompt).not.toContain('coding assistant operating inside pi')
+  }, 30000)
+
+  it('sends no tools at all for a model that cannot call them', async () => {
+    const session = await sessions.createSession()
+    const config = await assistantConfig(session.id, ['files', 'web', 'rag'], {
+      supportsToolCalling: false,
+      supportsAgentic: false,
+    })
+
+    await manager.startAgentTurn('t1', 'hello', config)
+
+    expect(bodies[0]).toBeDefined()
+    expect(bodies[0]).not.toHaveProperty('tools')
+    expect(systemPrompt(bodies[0])).toContain(ASSISTANT_PROMPT)
+  }, 30000)
+
+  it('keeps file and shell tools away from a model not suited to agent work', async () => {
+    const session = await sessions.createSession()
+    const config = await assistantConfig(session.id, ['files', 'web'], {
+      supportsToolCalling: true,
+      supportsAgentic: false,
+    })
+
+    await manager.startAgentTurn('t1', 'hello', config)
+
+    const offered = offeredToolNames(bodies[0])
+    expect(offered).toEqual(expect.arrayContaining(['web_search', 'session_history']))
+    for (const name of ['read', 'write', 'edit', 'bash']) expect(offered).not.toContain(name)
+    expect(systemPrompt(bodies[0])).not.toContain('project workspace')
+  }, 30000)
+
+  it('fits the NPU prompt cap with its NPU default set, every tool offered up front', async () => {
+    const session = await sessions.createSession()
+    const config = await assistantConfig(session.id, ['media', 'rag', 'web'], {
+      backend: 'openVINO',
+      device: 'NPU',
+      contextWindow: 8192,
+      supportsToolCalling: true,
+      supportsAgentic: false,
+    })
+
+    await manager.startAgentTurn('t1', 'hello', config)
+
+    const offered = offeredToolNames(bodies[0])
+    expect(offered).toEqual(expect.arrayContaining(['web_search', 'session_history']))
+    expect(offered).not.toContain('capabilities')
+    const prefix = JSON.stringify({
+      messages: bodies[0]?.messages,
+      tools: bodies[0] && (bodies[0] as OfferedTools).tools,
+    })
+    // ~4 characters per token; 02 measured the default prefix at about 1.2k of the 8k cap.
+    expect(prefix.length / 4).toBeLessThan(2048)
   }, 30000)
 
   describe('with an attached image', () => {

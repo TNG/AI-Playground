@@ -133,7 +133,8 @@ function screenshotToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[
 export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
   const textInference = useTextInference()
   const enabled = tools
-    ? (name: string) => isToolEnabled(tools.builtinToolEnablement, name)
+    ? (name: string) =>
+        isToolEnabled(tools.builtinToolEnablement, name, { onNpu: tools.onNpu === true })
     : textInference.isBuiltinToolEnabled
   return [
     ...mediaToolSpecs(tools?.toolDelegationEnabled ?? textInference.toolDelegationEnabled),

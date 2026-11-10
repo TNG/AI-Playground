@@ -121,13 +121,20 @@ describe('shipped agent presets', () => {
     expect(demo.systemPrompt).not.toBe(shipped.systemPrompt)
   })
 
-  it('declares a workspace policy and tool calling', () => {
+  // Assistant lists every model and gates its heavy capabilities per model instead.
+  it('declares a workspace policy, and tool calling for every agent but Assistant', () => {
     for (const { file, preset } of agentPresets) {
       const chat = preset as ChatPreset
       expect(chat.agentWorkspace, `${file}: no agentWorkspace`).toMatch(/^(pick|games)$/)
+      expect(presetToMode(preset)).toBe('agent')
+      if (chat.name === 'Assistant') {
+        expect(chat.requiresToolCalling).toBeUndefined()
+        expect(chat.requiresAgentic).toBeUndefined()
+        expect(chat.advancedMode).toBe(true)
+        continue
+      }
       expect(chat.requiresToolCalling, `${file}: agent without tools`).toBe(true)
       expect(chat.requiresAgentic, `${file}: agent without the agentic gate`).toBe(true)
-      expect(presetToMode(preset)).toBe('agent')
     }
   })
 

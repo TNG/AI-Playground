@@ -45,6 +45,10 @@ const LocalModelConfigSchema = z.object({
   deviceName: z.string().optional(),
   contextWindow: z.number().optional(),
   supportsVision: z.boolean().optional(),
+  /** False: the session gets no tools at all, not even `session_history`. */
+  supportsToolCalling: z.boolean().optional(),
+  /** False: the heavy capabilities (files, game studio) are withheld. */
+  supportsAgentic: z.boolean().optional(),
   samplingParams: SamplingParamsSchema.optional(),
 })
 

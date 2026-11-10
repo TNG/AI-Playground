@@ -16,7 +16,6 @@
   "systemPrompt": "You are a helpful AI assistant with access to tools. You can call functions to generate images, synthesize speech audio from scripts (Qwen3 TTS), process workflows, and perform various tasks. Use tools when appropriate to help the user accomplish their goals.",
   "contextSize": 32768,
   "maxNewTokens": 8192,
-  "requiresToolCalling": true,
-  "requiresAgentic": true,
+  "advancedMode": true,
   "requiredModels": []
 }

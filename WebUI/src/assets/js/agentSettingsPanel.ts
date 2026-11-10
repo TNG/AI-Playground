@@ -8,6 +8,7 @@ import { useCapabilityCatalog } from '@/assets/js/capabilityCatalog'
 import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { storeMediaToolSettings } from '@/lib/mediaToolSettings'
+import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
 
 /** The active Agent Preset's settings as both settings tabs read and write them. */
 export function useAgentSettingsPanel() {
@@ -41,14 +42,22 @@ export function useAgentSettingsPanel() {
     if (newBackend === 'cloud') cloudMode.refreshSelectedProviderModels()
   }
 
+  const currentModel = computed(() =>
+    textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
+  )
+  const gatedCatalog = computed(() =>
+    gateCapabilityCatalog(
+      capabilityCatalog.value,
+      catalogModelToolUse(textInference.backend, currentModel.value),
+    ),
+  )
+
   // Model settings are textInference's, as in Chat; the agent-only ones are agentMode's.
   const binding: AgentSettingsBinding = reactive({
     backend: computed(() => textInference.backend),
     backendItems,
     setBackend,
-    currentModel: computed(() =>
-      textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
-    ),
+    currentModel,
     contextSizeSupported: computed(() => textInference.contextSizeSettingSupported),
     contextSize: computed(() => textInference.contextSize),
     setContextSize: (contextSize: number) => {
@@ -65,7 +74,7 @@ export function useAgentSettingsPanel() {
     setPlanningThinkingOnly: agentMode.setPlanningThinkingOnly,
     capabilities: computed(() => agentMode.capabilities),
     setCapabilities: agentMode.setCapabilities,
-    capabilityCatalog,
+    capabilityCatalog: gatedCatalog,
     mountedFoldersSupported: computed(() => agentMode.mountedFoldersSupported),
     mountedFolders: computed(() => agentMode.mountedFolders),
     setMountedFolders: agentMode.setMountedFolders,

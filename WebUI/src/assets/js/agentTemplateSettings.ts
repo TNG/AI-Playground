@@ -9,6 +9,7 @@ import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { contextSizeSettingSupported, isNpuDevice } from '@/lib/llmBackendChoices'
 import { templateMediaToolSettings } from '@/lib/mediaToolSettings'
+import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
 import type { SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
 import { PLANNING_PHASE_CAPABILITY_IDS } from '@/types/agentCapabilities'
 import type { AgentSessionSettings, MountedFolder } from '@/types/agentSessionIpc'
@@ -94,7 +95,12 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
     setPlanningThinkingOnly: (planningThinkingOnly: boolean) => edit({ planningThinkingOnly }),
     capabilities,
     setCapabilities: (next: string[]) => edit({ capabilities: next }),
-    capabilityCatalog,
+    capabilityCatalog: computed(() =>
+      gateCapabilityCatalog(
+        capabilityCatalog.value,
+        catalogModelToolUse(backend.value, resolved.value.inference.activeLlmModel),
+      ),
+    ),
     mountedFoldersSupported: true,
     mountedFolders: computed(
       () => template.value.mountedFolders ?? defaults.value.mountedFolders ?? [],

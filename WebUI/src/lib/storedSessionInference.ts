@@ -34,7 +34,11 @@ export type InferenceForTurn = {
   getCurrentDeviceId: () => string | null | undefined
   getCurrentDeviceName: () => string | null | undefined
   contextSize?: number
-  activeLlmModel?: { llamaCppArgs?: string } | null
+  activeLlmModel?: {
+    llamaCppArgs?: string
+    supportsToolCalling?: boolean
+    supportsAgentic?: boolean
+  } | null
   /** Downloaded embedding model + the local backend that serves it (rag capability). */
   embeddingBackend: 'llamaCPP' | 'openVINO'
   activeEmbeddingModel?: string | null
@@ -53,6 +57,8 @@ export type CloudForTurn = {
 export type ToolsForTurn = {
   toolDelegationEnabled: boolean
   builtinToolEnablement: Record<string, boolean>
+  /** Speech tools are opt-in on NPU. */
+  onNpu?: boolean
 }
 
 type CatalogLlm = {
@@ -61,6 +67,8 @@ type CatalogLlm = {
   supportsVision?: boolean
   supportsThinkingToggle?: boolean
   supportsReasoning?: boolean
+  supportsToolCalling?: boolean
+  supportsAgentic?: boolean
   maxContextSize?: number
   inferenceDefaults?: InferenceDefaults
   llamaCppArgs?: string
@@ -248,6 +256,7 @@ export function storedSessionInference(
       toolDelegationEnabled:
         typeof bag.toolDelegationEnabled === 'boolean' ? bag.toolDelegationEnabled : true,
       builtinToolEnablement: asRecord<boolean>(bag.builtinToolEnablement),
+      onNpu,
     },
   }
 }

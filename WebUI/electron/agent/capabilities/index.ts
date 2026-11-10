@@ -12,6 +12,7 @@ import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
 import { webCapability } from './web.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
+import { capabilityModelGateReason } from '@/lib/modelToolUse'
 import {
   estimateToolTokens,
   expandCapabilityIds,
@@ -113,7 +114,9 @@ export async function resolveCapabilities(
   for (const id of wantedIds) {
     const capability = byId.get(id)
     if (!capability) continue
-    const reason = capability.unavailableReason?.(host)
+    const reason =
+      (host.modelToolUse && capabilityModelGateReason(id, host.modelToolUse)) ||
+      capability.unavailableReason?.(host)
     if (reason) {
       logger.info(`capability '${id}' unavailable: ${reason}`, LOG_SOURCE)
       continue

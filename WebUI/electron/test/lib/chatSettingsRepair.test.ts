@@ -85,4 +85,18 @@ describe('repairChatSettings: model', () => {
     )
     expect(result.model).toBeUndefined()
   })
+
+  it("takes the NPU's model over a preferred one the NPU cannot run", () => {
+    const ov = [
+      { name: 'Qwen3.5-9B', type: 'openVINO' as const },
+      { name: 'Qwen3-8B-cw', type: 'openVINO' as const, npuSupport: true },
+    ]
+    const preferred = { presetPreferredModels: { openVINO: 'Qwen3.5-9B' }, models: ov }
+    expect(
+      repairChatSettings({ backend: 'openVINO' }, available({ ...preferred, onNpu: true })).model,
+    ).toBe('Qwen3-8B-cw')
+    expect(repairChatSettings({ backend: 'openVINO' }, available(preferred)).model).toBe(
+      'Qwen3.5-9B',
+    )
+  })
 })

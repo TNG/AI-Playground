@@ -18,6 +18,7 @@ import {
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
 import { enabledCapabilityIds, FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
+import { turnModelToolUse } from '@/lib/modelToolUse'
 import { createAgentToolAccess } from './piToolOperations.ts'
 import {
   assertMountedFoldersApart,
@@ -219,8 +220,12 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // this session (capabilities/index.ts): its tools, skills and Pi extensions.
   // embeddingModel and embeddingBackend are in configKeyOf, so changing them
   // rebuilds and resolveCapabilities can start or stop offering rag.
+  const modelToolUse = turnModelToolUse(
+    config.modelConfig.source === 'local' ? config.modelConfig : {},
+  )
   const capabilityHost: CapabilityHost = {
     sessionId,
+    modelToolUse,
     workspaceDir,
     mountedFolders,
     toolSpecs: config.toolSpecs ?? [],
@@ -257,7 +262,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   // and shell builtins only while the user has `files` switched on.
   const presetOwnsPrompt = config.ownsPrompt === true && !capabilities.ownSession
   const presetFileTools =
-    presetOwnsPrompt && enabledCapabilityIds(config).includes(FILES_CAPABILITY_ID)
+    presetOwnsPrompt &&
+    capabilities.resolved.some(({ capability }) => capability.id === FILES_CAPABILITY_ID)
   const access = await createAgentToolAccess({
     workspaceDir,
     unsandboxed,
@@ -271,7 +277,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
             ? { writableFiles: capabilities.ownSession.writableFiles }
             : {}),
         }
-      : presetOwnsPrompt && !presetFileTools
+      : (presetOwnsPrompt && !presetFileTools) || !modelToolUse.toolCalling
         ? { baseTools: [] }
         : {}),
   })
@@ -402,7 +408,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     noTools: 'builtin',
     customTools: [
       ...access.definitions,
-      ...(config.sessionRef && !config.taskRun
+      ...(config.sessionRef && !config.taskRun && modelToolUse.toolCalling
         ? [await buildSessionHistoryTool(config.sessionRef, workspaceDir)]
         : []),
     ],

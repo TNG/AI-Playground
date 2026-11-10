@@ -12,7 +12,9 @@ export type ChatSettingsAvailability = {
   presetPreferredModels?: Partial<Record<LlmBackend, string>>
   cloudEnabled: boolean
   runningBackends: readonly LlmBackend[]
-  models: readonly { name: string; type: string }[]
+  models: readonly { name: string; type: string; npuSupport?: boolean }[]
+  /** The OpenVINO device is an NPU, which runs only the models marked for it. */
+  onNpu?: boolean
 }
 
 export type RepairedChatSettings = {
@@ -57,5 +59,9 @@ function repairModel(
     available.models.some((m) => m.name === name && m.type === backend)
   if (saved !== undefined) return exists(saved) ? saved : undefined
   const preferred = available.presetPreferredModels?.[backend]
+  if (backend === 'openVINO' && available.onNpu) {
+    const npuModels = available.models.filter((m) => m.type === backend && m.npuSupport === true)
+    return (npuModels.find((m) => m.name === preferred) ?? npuModels[0])?.name
+  }
   return preferred && exists(preferred) ? preferred : undefined
 }

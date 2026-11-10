@@ -119,6 +119,32 @@ describe('buildTurnConfig readiness (step 15)', () => {
     expect(config.ownsPrompt).toBe(true)
   })
 
+  it('tells main what the local model can be given, an untagged one getting no tools', async () => {
+    const turn = (activeLlmModel: Record<string, unknown>) =>
+      buildTurnConfig({
+        sessionId: 'aipg-agent-1',
+        workspaceDir: '/tmp/ws',
+        presetName: 'Assistant',
+        instructions: 'Be helpful.',
+        capabilities: [],
+        unsandboxed: false,
+        planningThinkingOnly: false,
+        textInference: localInference({ activeLlmModel }) as never,
+        cloudMode: {
+          selectedProviderId: 'openai',
+          activeProviderAuthStyle: 'bearer',
+          capabilitiesFor: () => ({ reasoningAdvertised: false }),
+        },
+      })
+    const tagged = await turn({ supportsToolCalling: true, supportsAgentic: false })
+    expect(tagged.modelConfig).toMatchObject({ supportsToolCalling: true, supportsAgentic: false })
+    const untagged = await turn({})
+    expect(untagged.modelConfig).toMatchObject({
+      supportsToolCalling: false,
+      supportsAgentic: false,
+    })
+  })
+
   it('names the Session the turn belongs to, so main files its History Entry there', async () => {
     const config = await buildTurnConfig({
       sessionId: 'aipg-agent-1',

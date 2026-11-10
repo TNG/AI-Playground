@@ -4,6 +4,7 @@ import type { PlanningEnd } from '../planningPhase.ts'
 import type { AgentToolSpec } from '@/types/agentIpc'
 import type { ChatModelConfig, ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
 import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
+import type { ModelToolUse } from '@/lib/modelToolUse'
 
 export type { AgentToolSpec }
 
@@ -54,6 +55,8 @@ export type CapabilityHost = {
   keepModelsLoaded: boolean
   /** Set for a turn in a Session: where its media is saved (see `SessionMediaTarget`). */
   sessionMedia?: SessionMediaTarget
+  /** What the model may be given; absent grants everything. */
+  modelToolUse?: ModelToolUse
 }
 
 /** A slash command a capability offers, runnable as a prompt of its own. */

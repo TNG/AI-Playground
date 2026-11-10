@@ -14,6 +14,7 @@ import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
+import { catalogModelToolUse } from '@/lib/modelToolUse'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
 import { getAgentToolSpecs } from '../tools/agentBridge'
@@ -158,6 +159,7 @@ export async function buildTurnConfig(options: {
     )
   }
   const activeModel = textInference.activeModel
+  const toolUse = catalogModelToolUse(textInference.backend, textInference.activeLlmModel)
   const embeddingModelName = readinessEmbeddingModel(textInference, options.capabilities)
   return {
     sessionId: options.sessionId,
@@ -175,6 +177,8 @@ export async function buildTurnConfig(options: {
       baseUrl: openAiApiBase(baseUrl),
       contextWindow: textInference.effectiveContextWindow,
       supportsVision: textInference.modelSupportsVision,
+      supportsToolCalling: toolUse.toolCalling,
+      supportsAgentic: toolUse.agentic,
       samplingParams: buildSamplingParams(textInference),
     },
     toolSpecs,

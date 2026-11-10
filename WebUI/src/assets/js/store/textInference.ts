@@ -600,7 +600,9 @@ export const useTextInference = defineStore(
     const screenshotWindow = ref<ScreenshotWindow | null>(null)
 
     function isBuiltinToolEnabled(toolName: string): boolean {
-      return isToolEnabled(builtinToolEnablement.value, toolName)
+      return isToolEnabled(builtinToolEnablement.value, toolName, {
+        onNpu: runningOnOpenvinoNpu.value && activePreset.value?.agentPreset === true,
+      })
     }
 
     function setBuiltinToolEnabled(toolName: string, enabled: boolean): void {
@@ -639,7 +641,8 @@ export const useTextInference = defineStore(
      * saved yet falls back to that preset's default.
      */
     function speakRepliesAllowed(presetName?: string): boolean {
-      if (!isBuiltinToolEnabled('synthesizeTextToSpeech')) return false
+      // Not the NPU default: speaking replies costs the prompt nothing.
+      if (!isToolEnabled(builtinToolEnablement.value, 'synthesizeTextToSpeech')) return false
       if (!presetName) return aipgToolsEnabled.value && speakReplies.value
       const saved = findSettingsForPreset(presetName)
       const toolsOn = (saved?.aipgToolsEnabled as boolean | undefined) ?? aipgToolsEnabled.value
@@ -1540,6 +1543,11 @@ export const useTextInference = defineStore(
             return info?.status === 'running'
           }),
           models: llmModels.value,
+          onNpu: isNpuDevice(
+            backendServices.info
+              .find((s) => s.serviceName === backendToService.openVINO)
+              ?.devices.find((d) => d.selected)?.id,
+          ),
         },
       )
       if (repaired.backend) backend.value = repaired.backend

@@ -9,6 +9,7 @@ import type {
   SessionSendResult,
 } from './answerRouter'
 import type { ChannelCallback, ChannelCommand } from './channelCommands'
+import { inboundOrigin } from './channelInbound'
 import type { InboundMeta, KeyboardButton } from './types'
 
 // Telegram and Slack turn a tap on this prefix into `/load <value>`; LAN chat sends the callback.
@@ -32,6 +33,13 @@ export type ChannelSessionDeps = {
     text: string,
     origin: AgentAnswerOrigin,
   ) => Promise<SessionSendResult>
+  /** Stores the message's files in the Session: the prompt to send, or null when none runs. */
+  attach: (
+    adapter: ChannelAdapter,
+    target: { sessionRef: string },
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ) => Promise<string | null>
   log: (message: string, error: unknown) => void
 }
 
@@ -68,19 +76,13 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ): Promise<void> {
-    if (msg.refused) return tell(adapter, msg.refused, meta)
-    if (msg.images?.length || msg.documents?.length || msg.audio?.length) {
-      return tell(adapter, copy().sessionTextOnly, meta)
-    }
-    const text = msg.text?.trim() ?? ''
-    if (!text) return
+    const hasFiles = !!(msg.images?.length || msg.documents?.length)
+    if (!msg.text?.trim() && !hasFiles) return
     const sessionRef = (await current(adapter, meta)) ?? (await startSession(adapter, meta))
     if (!sessionRef) return
-    const origin: AgentAnswerOrigin = {
-      channel: adapter.kind,
-      ...(msg.replyTarget ? { replyTo: msg.replyTarget } : {}),
-    }
-    const result = await deps.send({ sessionRef }, text, origin)
+    const prompt = await deps.attach(adapter, { sessionRef }, msg, meta)
+    if (prompt === null) return
+    const result = await deps.send({ sessionRef }, prompt, inboundOrigin(adapter.kind, msg))
     await deps.confirm(adapter, port.label({ sessionRef }), result, meta)
   }
 

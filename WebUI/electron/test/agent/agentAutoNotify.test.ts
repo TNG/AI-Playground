@@ -875,6 +875,58 @@ describe('the turn an Answer started', () => {
     })
   }, 30000)
 
+  describe('started by a voice message', () => {
+    const header = '🤖 Agent · "Morning news"'
+    const spokenAnswer = (): AgentModeTurnConfig => ({
+      ...configFor(SESSION),
+      answer: { ...ANSWER, voice: true },
+    })
+
+    it('speaks its reply after the text when the turn has the speech tool', async () => {
+      await withWaitingTurn(SESSION, async () => {}, spokenAnswer())
+      await vi.waitFor(() => expect(asks).toHaveLength(2))
+      expect(asks[1]).toMatchObject({
+        kind: 'channel-voice-reply',
+        channel: 'telegram',
+        text: 'done',
+        replyTo: 'answer-77',
+      })
+      chatAsk.handleChatAnswer({
+        requestId: asks[1].requestId,
+        result: { audioBase64: 'UklGRg==', mediaType: 'audio/wav' },
+      })
+      await settle()
+      expect(sent).toEqual([
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:reply.wav' },
+      ])
+    }, 30000)
+
+    it('sends the text alone when no spoken reply could be made', async () => {
+      await withWaitingTurn(SESSION, async () => {}, spokenAnswer())
+      await vi.waitFor(() => expect(asks).toHaveLength(2))
+      chatAsk.handleChatAnswer({ requestId: asks[1].requestId, result: null })
+      await settle()
+      expect(sent).toEqual([{ kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' }])
+    }, 30000)
+
+    it('is not spoken when the turn has no speech tool', async () => {
+      const config = { ...spokenAnswer(), toolSpecs: [] }
+      expect(await manager.startAgentTurn(crypto.randomUUID(), 'say hi', config)).toEqual({
+        success: true,
+      })
+      await settle()
+      expect(asks).toEqual([])
+      expect(sent).toEqual([{ kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' }])
+    }, 30000)
+
+    it('is not spoken for a typed Answer', async () => {
+      await withWaitingTurn(SESSION, async () => {}, answerTurn())
+      await settle()
+      expect(asks).toHaveLength(1)
+    }, 30000)
+  })
+
   it('leaves the next turn of the session to the normal Notification rules', async () => {
     notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, async () => {}, answerTurn())

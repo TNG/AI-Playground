@@ -2,7 +2,8 @@ import path from 'node:path'
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { NotificationConfig } from '@/types/notificationsIpc'
-import type { AgentAnswerOrigin } from '@/types/agentIpc'
+import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
+import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
 import {
@@ -12,6 +13,7 @@ import {
   withAnswerButton,
 } from '@/lib/answerButton'
 import { onKernelEvent } from '../kernel/kernelBus.ts'
+import { askRenderer } from '../chat/chatAsk.ts'
 import { onAgentTurnEnd } from './agentTurnOutcome.ts'
 import { onGeneratedMedia } from './generatedMedia.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
@@ -107,6 +109,8 @@ type ReportedTurn = {
   /** Already sent by `notify_user`, so the turn's result leaves them out. */
   attached: Set<string>
   answer?: AgentAnswerOrigin
+  /** The reply is spoken too, after its text. */
+  speaks?: boolean
 }
 
 /** Per Harness Session. */
@@ -140,15 +144,23 @@ function stopTyping(sessionId: string): void {
   pulseTyping(heartbeat.channel, 'stop')
 }
 
+/** A voice message's turn speaks its reply when it has the text-to-speech tool on. */
+export function answerSpeaks(config: Pick<AgentModeTurnConfig, 'answer' | 'toolSpecs'>): boolean {
+  if (!config.answer?.voice) return false
+  return !!config.toolSpecs?.some((spec) => spec.name === 'synthesizeTextToSpeech')
+}
+
 export function noteAnswerTurn(
   sessionId: string,
   turnId: string,
   workspaceDir: string,
   origin: AgentAnswerOrigin,
+  speaks = false,
 ): void {
   stopTyping(sessionId)
   reportedTurns.set(sessionId, {
     answer: origin,
+    speaks,
     turnId,
     workspaceDir,
     media: [],
@@ -316,6 +328,7 @@ async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: stri
   if (reply) {
     const text = reply.length > REPLY_MAX_CHARS ? `${reply.slice(0, REPLY_MAX_CHARS)}…` : reply
     await sendNotification(text, { sessionId })
+    if (turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
   }
   for (const file of turn.media) {
     if (turn.attached.has(file)) continue
@@ -329,6 +342,34 @@ async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: stri
         appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
       }
     }
+  }
+}
+
+const CLIP_EXTENSIONS: Record<string, string> = {
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'audio/webm': 'webm',
+}
+
+/** The reply read aloud by the window, sent as a voice message under the Answer. */
+async function speakReply(sessionId: string, answer: AgentAnswerOrigin, reply: string) {
+  const clip = await askRenderer<SpeechClipPayload | null>({
+    kind: 'channel-voice-reply',
+    channel: answer.channel,
+    text: reply,
+    ...(answer.replyTo ? { replyTo: answer.replyTo } : {}),
+  }).catch((error) => {
+    appLoggerInstance.warn(`spoken reply not made: ${error}`, LOG_SOURCE)
+    return null
+  })
+  if (!clip?.audioBase64) return
+  const filename = `reply.${CLIP_EXTENSIONS[clip.mediaType] ?? 'wav'}`
+  const media: ChannelMedia = { kind: 'voice', base64: clip.audioBase64, filename }
+  const delivery = await deliver({ text: '', media }, sessionId)
+  if (!delivery.delivered) {
+    appLoggerInstance.warn(`spoken reply not delivered: ${delivery.reason}`, LOG_SOURCE)
   }
 }
 

@@ -41,7 +41,6 @@ import {
 import type { ChannelAdapter } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
 import { createAppError, createCancellation } from '../errors/appError'
-import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import { useErrors } from './errors'
 import { useChannelSessionPointers } from './channelSessionPointers'
 import { createTelegramAdapter } from './channels/telegramAdapter'
@@ -50,7 +49,7 @@ import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
 import { fanOutDownloadQuestion } from './channels/downloadQuestionFanOut'
 import { createAnswerRouter } from './channels/answerRouter'
-import { createRemoteSpeech } from './channels/remoteSpeech'
+import { createRemoteSpeech, type SpeechClip } from './channels/remoteSpeech'
 import { sessionPort } from './channels/sessionPort'
 import { heldAnswerJournal } from './channels/heldAnswerJournal'
 import {
@@ -212,28 +211,25 @@ export const useHomeAgent = defineStore(
         isNoEndpoint: (e) => e instanceof Error && e.message === NO_TRANSCRIPTION_ENDPOINT,
       },
       synthesis: {
-        allowed: () => textInference.speakRepliesAllowed(HOME_AGENT_CHAT_PRESET_NAME),
         synthesize: (text) => synthesizeClip({ text, unattended: true, format: 'wav' }),
       },
       transcriptionModel: {
         installed: transcriptionAvailable,
         missing: missingTranscriptionModels,
-        download: (models) => requestDownloadConsent(models),
+        download: (models, adapter, meta) =>
+          withRemoteTurn({ adapter, meta }, () => requestDownloadConsent(models)),
       },
       synthesisModel: {
         missing: synthesisModelMissing,
         install: (adapter, meta) => withRemoteTurn({ adapter, meta }, installSynthesisModel),
       },
-      answerDownload: (models, sessionId) =>
-        requestDownloadConsent(models, { conversationKey: answerDownloadKey(sessionId) }),
       log: (message, error) => reportSilently(message, error),
     })
 
     const answerRouter = createAnswerRouter({
       sessions: sessionPort,
       questions: channelQuestions,
-      transcribe: remoteSpeech.transcribe,
-      prepareVoiceAnswer: remoteSpeech.prepareAnswer,
+      speech: remoteSpeech,
       downloadQuestionChannels: () => notificationChannels.value,
       journal: heldAnswerJournal,
       pointers: channelSessionPointers,
@@ -944,7 +940,6 @@ export const useHomeAgent = defineStore(
      * not depend on the LLM (so it works even if the model/backend is broken).
      */
     function resetHomeAgentConfig(): void {
-      const textInference = useTextInference()
       textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
       textInference.resetActivePresetSettings()
     }
@@ -1129,6 +1124,17 @@ export const useHomeAgent = defineStore(
 
     void initConfig()
 
+    /** A Notifier reply on `kind`, spoken; a missing speech model is asked for there. */
+    async function channelVoiceClip(
+      kind: ChannelKind,
+      text: string,
+      replyTo?: string,
+    ): Promise<SpeechClip | null> {
+      const adapter = adapters[kind]
+      if (!adapter) return null
+      return remoteSpeech.voiceClip(adapter, text, replyTo ? { threadTs: replyTo } : undefined)
+    }
+
     registerRemoteTurnPort({
       isActive: () => isRemoteTurnActive(),
       downloadModels: (models, options) => handleRemoteModelDownload(models, options),
@@ -1186,6 +1192,7 @@ export const useHomeAgent = defineStore(
       isRemoteTurnActive,
       handleRemoteModelDownload,
       resetHomeAgentConfig,
+      channelVoiceClip,
     }
   },
   {

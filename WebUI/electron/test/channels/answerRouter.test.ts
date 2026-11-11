@@ -7,7 +7,7 @@ import {
   type HeldAnswerNote,
   type SessionPause,
   type SessionTurnEnd,
-  type VoiceAnswerPreparation,
+  type VoicePreparation,
   type ChannelSessionPointers,
   type ChannelTranscriptMessage,
 } from '../../../src/assets/js/store/channels/answerRouter'
@@ -75,6 +75,8 @@ type FakeSession = {
   gone?: boolean
   /** Runs while a send is in flight, before it resolves. */
   duringSend?: () => void
+  /** Its model cannot see images. */
+  blind?: boolean
 }
 
 const BUSY: SessionSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
@@ -97,6 +99,7 @@ type FakeChannelSession = {
   gone?: boolean
   result?: SessionSendResult
   transcript?: ChannelTranscriptMessage[]
+  blind?: boolean
 }
 
 function fakeSessions(
@@ -112,6 +115,9 @@ function fakeSessions(
   const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
   const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
   const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
+  /** Files attached, by the Harness Session or Session they went to. */
+  const attached: { to: string; kind: string; filename: string }[] = []
+  const attaching = { fails: false }
   const harnessOf = (sessionRef: string) =>
     Object.entries(sessions).find(([id]) => sessionRefOf(id) === sessionRef)?.[1]
   const reachable = (session: { gone?: boolean; reachable?: boolean } | undefined) =>
@@ -165,6 +171,15 @@ function fakeSessions(
       if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
       return session?.result ?? { ok: true, queuePosition: null }
     },
+    attach: async (target, file) => {
+      const answer = 'harnessSessionId' in target
+      const to = answer ? target.harnessSessionId : target.sessionRef
+      const blind = answer ? sessions[to]?.blind : channelSessions[to]?.blind
+      if (file.kind === 'image' && blind) return { ok: false, reason: 'images-unseen', message: '' }
+      if (attaching.fails) return { ok: false, reason: 'error', message: 'disk full' }
+      attached.push({ to, kind: file.kind, filename: file.filename })
+      return { ok: true, path: `attachments/${file.filename}` }
+    },
     pause: ({ harnessSessionId }) => sessions[harnessSessionId]?.pause ?? null,
     held: ({ harnessSessionId }, answer) => {
       held[harnessSessionId] = answer
@@ -179,7 +194,7 @@ function fakeSessions(
     for (const listener of [...listeners]) listener(sessionId, how)
     await flush()
   }
-  return { port, received, origins, held, end, plain, created, creation }
+  return { port, received, origins, held, end, plain, created, creation, attached, attaching }
 }
 
 /** Each Channel's Channel Session, as the Channels store keeps it. */
@@ -209,21 +224,18 @@ function fakeTranscription() {
   return { said, transcribed, transcribe }
 }
 
-/** Readying speech-to-text for a voice Answer: a download waits until the test lets it through. */
+/** Readying speech-to-text for a voice message: a download waits until the test lets it through. */
 function fakeVoicePreparation() {
-  const waiting: { sessionId: string; finish: (ready: boolean) => void }[] = []
+  const waiting: { finish: (ready: boolean) => void }[] = []
   let gated = false
-  const prepare = async (
-    _adapter: ChannelAdapter,
-    sessionId: string,
-  ): Promise<VoiceAnswerPreparation> =>
+  const prepare = async (): Promise<VoicePreparation> =>
     gated
-      ? { downloading: new Promise<boolean>((finish) => waiting.push({ sessionId, finish })) }
+      ? { downloading: new Promise<boolean>((finish) => waiting.push({ finish })) }
       : { ready: true }
   return {
     waiting,
     prepare,
-    /** Every following voice Answer waits, as for a speech model download. */
+    /** Every following voice message waits, as for a speech model download. */
     needDownload: () => {
       gated = true
     },
@@ -264,8 +276,7 @@ function setup(
   const router = createAnswerRouter({
     sessions: () => fake.port,
     questions,
-    transcribe: speech.transcribe,
-    prepareVoiceAnswer: voicePreparation.prepare,
+    speech: { prepare: voicePreparation.prepare, transcribe: speech.transcribe },
     downloadQuestionChannels: () => downloads.askedOn,
     journal,
     pointers: channelPointers.pointers,
@@ -511,16 +522,6 @@ describe('answer router', () => {
       ])
     })
 
-    it('does not transcribe a voice Answer to a Session that is not reachable', async () => {
-      const { router, speech, received } = setup({
-        asteroids: { label: 'Asteroids clone', reachable: false },
-      })
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(speech.transcribed).toEqual([])
-      expect(received).toEqual([])
-    })
-
     it('says the Session was deleted when it went away before the send', async () => {
       const { router } = setup({
         asteroids: {
@@ -558,174 +559,6 @@ describe('answer router', () => {
         `⚠️ Not sent to "Asteroids clone": ${message}\n` +
           'Fix it in AI Playground on your computer, then answer again.',
       ])
-    })
-
-    it.each([
-      ['photo', { text: '[image]', images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }],
-      [
-        'document',
-        {
-          text: 'the level data',
-          documents: [{ filename: 'level.txt', mime: 'text/plain', data_base64: 'AAAA' }],
-        },
-      ],
-      [
-        'file the channel refused to read',
-        { text: 'the level data', refused: 'Unsupported document type.' },
-      ],
-    ])('refuses a %s sent as an Answer and sends nothing', async (_kind, attachment) => {
-      const { router, received } = setup()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...attachment, replyTo: '1234' })
-      expect(received).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ Answers to agents can only be text for now'])
-    })
-
-    it('treats a photo that answers no agent as a plain message', async () => {
-      const { router, plain } = setup()
-      const ch = fakeChannel()
-      const photo = { text: '[image]', images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }
-      await router.route(ch.adapter, { ...photo, replyTo: '77' })
-      expect(plain).toEqual([])
-      expect(ch.replies).toEqual([
-        "⚠️ Images, documents and voice messages can't be sent to a Session yet. Send text instead.",
-      ])
-    })
-  })
-
-  describe('a voice Answer', () => {
-    it('is transcribed and sent to the session as text', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
-      expect(ch.replies).toEqual([])
-    })
-
-    it('does not hold up the next channel message while its speech model downloads', async () => {
-      const { router, received, speech, voicePreparation } = setup(
-        { asteroids: { label: 'Asteroids clone' }, digest: { label: 'Digest' } },
-        [
-          { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
-          { kind: 'telegram', ref: '5678', sessionId: 'digest' },
-        ],
-      )
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      await router.route(ch.adapter, { text: 'skip sports', replyTo: '5678' })
-      expect(received).toEqual([{ sessionId: 'digest', text: 'skip sports' }])
-      expect(voicePreparation.waiting.map((w) => w.sessionId)).toEqual(['asteroids'])
-    })
-
-    it('is delivered to its session once the download finished', async () => {
-      const { router, received, speech, voicePreparation } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(speech.transcribed).toEqual([])
-      voicePreparation.waiting[0].finish(true)
-      await flush()
-      expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
-    })
-
-    it('is held after the download when the session is busy by then', async () => {
-      const { router, received, held, speech, voicePreparation } = setup({
-        asteroids: { label: 'Asteroids clone', results: [BUSY] },
-      })
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      voicePreparation.waiting[0].finish(true)
-      await flush()
-      expect(received).toHaveLength(1)
-      expect(held.asteroids).toEqual({ text: 'try a smaller level', channel: 'telegram' })
-    })
-
-    it('is dropped unheard when its speech model was not readied', async () => {
-      const { router, received, speech, voicePreparation } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      voicePreparation.waiting[0].finish(false)
-      await flush()
-      expect(speech.transcribed).toEqual([])
-      expect(received).toEqual([])
-    })
-
-    it('is sent before the next channel message is read when no download is needed', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      await router.route(ch.adapter, { text: 'and add a boss', replyTo: '1234' })
-      expect(received).toEqual([
-        { sessionId: 'asteroids', text: 'try a smaller level' },
-        { sessionId: 'asteroids', text: 'and add a boss' },
-      ])
-    })
-
-    it('keeps later Answers to its session behind it while its speech model downloads', async () => {
-      const { router, received, speech, voicePreparation } = setup()
-      speech.said['ogg-1'] = 'try a smaller level'
-      speech.said['ogg-2'] = 'with more lives'
-      voicePreparation.needDownload()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      await router.route(ch.adapter, { text: 'and add a boss', replyTo: '1234' })
-      await router.route(ch.adapter, { ...voice('ogg-2'), replyTo: '1234' })
-      await flush()
-      expect(received).toEqual([])
-      voicePreparation.waiting[0].finish(true)
-      await flush()
-      voicePreparation.waiting[1].finish(true)
-      await flush()
-      expect(received.map((r) => r.text)).toEqual([
-        'try a smaller level',
-        'and add a boss',
-        'with more lives',
-      ])
-    })
-
-    it('sends nothing when transcription failed, leaving the explanation to it', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = null
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(received).toEqual([])
-      expect(ch.replies).toEqual([])
-    })
-
-    it('says so when no speech was heard, and sends nothing', async () => {
-      const { router, received, speech } = setup()
-      speech.said['ogg-1'] = ''
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(received).toEqual([])
-      expect(ch.replies).toEqual([
-        "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
-      ])
-    })
-
-    it('is not transcribed here when it answers no agent', async () => {
-      const { router, speech, plain } = setup()
-      const ch = fakeChannel()
-      await router.route(ch.adapter, voice('ogg-1'))
-      expect(speech.transcribed).toEqual([])
-      expect(plain).toEqual([])
-    })
-
-    it('is not transcribed for a session that no longer exists', async () => {
-      const { router, speech } = setup({}, [{ kind: 'telegram', ref: '1234', sessionId: 'gone' }])
-      const ch = fakeChannel()
-      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
-      expect(speech.transcribed).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
     })
   })
 })
@@ -1138,25 +971,6 @@ describe('a plain message', () => {
     ])
   })
 
-  it.each([
-    ['photo', { text: '[image]', images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }],
-    [
-      'document',
-      { documents: [{ filename: 'plan.txt', mime: 'text/plain', data_base64: 'AAAA' }] },
-    ],
-  ])('refuses a %s for now, and sends nothing', async (_kind, attachment) => {
-    const { router, plain } = channelSetup(
-      { 'session-trip': { title: 'Trip planning' } },
-      { telegram: 'session-trip' },
-    )
-    const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, attachment)
-    expect(plain).toEqual([])
-    expect(ch.replies).toEqual([
-      "⚠️ Images, documents and voice messages can't be sent to a Session yet. Send text instead.",
-    ])
-  })
-
   it('passes on the channel’s notice for a file it refused to read', async () => {
     const { router, plain } = channelSetup()
     const ch = fakeChannel('telegram')
@@ -1346,5 +1160,305 @@ describe('Channel commands', () => {
     await router.route(ch.adapter, { text: 'hello' })
     await router.route(ch.adapter, { text: '/load 2' })
     expect(pointers.telegram).toBe('session-code')
+  })
+})
+
+describe('a voice message', () => {
+  const trip = () =>
+    channelSetup(
+      { 'session-trip': { title: 'Trip planning' } },
+      {
+        telegram: 'session-trip',
+      },
+    )
+
+  it('is transcribed and sent to the Channel Session like typed text, marked as spoken', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...voice('ogg-1'), replyTarget: '42' })
+    expect(plain).toEqual([
+      {
+        sessionRef: 'session-trip',
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', replyTo: '42', voice: true },
+      },
+    ])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('runs a spoken command', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = '/sessions'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(plain).toEqual([])
+    expect(ch.keyboards.map((k) => k.buttons.flat().map((b) => b.text))).toEqual([
+      ['✅ 1. Trip planning'],
+    ])
+  })
+
+  it('answers an agent when it replies to its Notification', async () => {
+    const { router, received, origins, speech } = setup()
+    speech.said['ogg-1'] = 'try a smaller level'
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'try a smaller level' }])
+    expect(origins.map((o) => o.origin)).toEqual([{ channel: 'telegram', voice: true }])
+  })
+
+  it('keeps the caption it came with in front of what was said', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = 'two nights'
+    await router.route(fakeChannel().adapter, { text: 'Kyoto:', ...voice('ogg-1') })
+    expect(plain.map((p) => p.text)).toEqual(['Kyoto: two nights'])
+  })
+
+  it('keeps the Channel’s later messages behind it while its speech model downloads', async () => {
+    const { router, plain, speech, voicePreparation } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    await router.route(ch.adapter, { text: 'and one in Nara' })
+    await flush()
+    expect(plain).toEqual([])
+    voicePreparation.waiting[0].finish(true)
+    await flush()
+    await flush()
+    expect(plain.map((p) => p.text)).toEqual(['add a day in Kyoto', 'and one in Nara'])
+  })
+
+  it('lets the download question be answered while it waits', async () => {
+    const { router, questions, speech, voicePreparation } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    const tapped = questions.ask({ adapter: ch.adapter, summaryMarkdown: 'Download Whisper?' })
+    await flush()
+    await router.route(ch.adapter, { callback: 'confirm:q1:yes' })
+    await expect(tapped.answer).resolves.toBe(true)
+  })
+
+  it('lets a typed yes answer a question while it waits', async () => {
+    const { router, questions, speech, voicePreparation, plain } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    const typed = questions.ask({
+      adapter: ch.adapter,
+      summaryMarkdown: 'Download Whisper?',
+      typedReply: true,
+    })
+    await flush()
+    await router.route(ch.adapter, { text: 'yes' })
+    await expect(typed.answer).resolves.toBe(true)
+    expect(plain).toEqual([])
+  })
+
+  it('holds up no other Channel while its speech model downloads', async () => {
+    const { router, plain, speech, voicePreparation } = channelSetup(
+      { 'session-trip': { title: 'Trip planning' }, 'session-code': { title: 'Refactor' } },
+      { telegram: 'session-trip', slack: 'session-code' },
+    )
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    await router.route(fakeChannel('telegram').adapter, voice('ogg-1'))
+    await router.route(fakeChannel('slack').adapter, { text: 'rename the module' })
+    expect(plain.map((p) => p.text)).toEqual(['rename the module'])
+  })
+
+  it('is dropped unheard when its speech model was not readied', async () => {
+    const { router, plain, speech, voicePreparation } = trip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    voicePreparation.needDownload()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    voicePreparation.waiting[0].finish(false)
+    await flush()
+    expect(speech.transcribed).toEqual([])
+    expect(plain).toEqual([])
+  })
+
+  it('sends nothing when transcription failed, leaving the explanation to it', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = null
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('says so when no speech was heard, and sends nothing', async () => {
+    const { router, plain, speech } = trip()
+    speech.said['ogg-1'] = ''
+    const ch = fakeChannel()
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([
+      "🎙️ Couldn't make out any speech in that voice message, so nothing was sent.",
+    ])
+  })
+})
+
+describe('a file', () => {
+  const photo = { images: [{ mime: 'image/jpeg', data_base64: 'AAAA' }] }
+  const plan = {
+    documents: [{ filename: 'plan.pdf', mime: 'application/pdf', data_base64: 'AAAA' }],
+  }
+  const trip = (session: FakeChannelSession = { title: 'Trip planning' }) =>
+    channelSetup({ 'session-trip': session }, { telegram: 'session-trip' })
+
+  it('stores an image in the Session’s attachments and names it in the prompt', async () => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'where is this?', ...photo })
+    expect(attached).toEqual([
+      { to: 'session-trip', kind: 'image', filename: 'telegram-image.jpg' },
+    ])
+    expect(plain.map((p) => p.text)).toEqual([
+      'where is this?\n\nAttached files, saved in the workspace: @attachments/telegram-image.jpg',
+    ])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('sends an image without a caption on its own', async () => {
+    const { router, plain } = trip()
+    await router.route(fakeChannel().adapter, photo)
+    expect(plain.map((p) => p.text)).toEqual([
+      'Attached files, saved in the workspace: @attachments/telegram-image.jpg',
+    ])
+  })
+
+  it('says so when the Session’s model cannot see images, and sends nothing', async () => {
+    const { router, plain, attached } = trip({ title: 'Trip planning', blind: true })
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'where is this?', ...photo })
+    expect(plain).toEqual([])
+    expect(attached).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ Not sent: "Trip planning" runs on a model that cannot see images. ' +
+        'Pick a vision model for it on your computer, then send the image again.',
+    ])
+  })
+
+  it('makes a document an Attached Document and confirms it without running a turn', async () => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, plan)
+    expect(attached).toEqual([{ to: 'session-trip', kind: 'document', filename: 'plan.pdf' }])
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([
+      '📄 Attached to "Trip planning": plan.pdf. Ask about them in your next message.',
+    ])
+  })
+
+  it('runs the turn for a document sent with a question', async () => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'what does day 2 say?', ...plan })
+    expect(attached.map((a) => a.filename)).toEqual(['plan.pdf'])
+    expect(plain.map((p) => p.text)).toEqual(['what does day 2 say?'])
+    expect(ch.replies).toEqual([])
+  })
+
+  it('starts a Channel Session for a document when the Channel has none', async () => {
+    const { router, attached, created } = channelSetup()
+    await router.route(fakeChannel().adapter, plan)
+    expect(created).toEqual(['session-new-1'])
+    expect(attached.map((a) => a.to)).toEqual(['session-new-1'])
+  })
+
+  it('goes with an Answer into the answered agent’s Harness Session', async () => {
+    const { router, received, attached } = setup()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'use this sprite', ...photo, replyTo: '1234' })
+    expect(attached).toEqual([{ to: 'asteroids', kind: 'image', filename: 'telegram-image.jpg' }])
+    expect(received).toEqual([
+      {
+        sessionId: 'asteroids',
+        text: 'use this sprite\n\nAttached files, saved in the workspace: @attachments/telegram-image.jpg',
+      },
+    ])
+  })
+
+  it('confirms a document sent alone as an Answer without running a turn', async () => {
+    const { router, received, attached } = setup()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...plan, replyTo: '1234' })
+    expect(attached.map((a) => [a.to, a.filename])).toEqual([['asteroids', 'plan.pdf']])
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '📄 Attached to "Asteroids clone": plan.pdf. Ask about them in your next message.',
+    ])
+  })
+
+  it('refuses an image for an agent whose model cannot see images', async () => {
+    const { router, received } = setup({ asteroids: { label: 'Asteroids clone', blind: true } })
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { ...photo, replyTo: '1234' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ Not sent: "Asteroids clone" runs on a model that cannot see images. ' +
+        'Pick a vision model for it on your computer, then send the image again.',
+    ])
+  })
+
+  it('attaches nothing to a real-shell Session', async () => {
+    const { router, attached } = setup({ asteroids: { label: 'Asteroids clone', realShell: true } })
+    await router.route(fakeChannel().adapter, { ...plan, replyTo: '1234' })
+    expect(attached).toEqual([])
+  })
+
+  it('refuses a file over 25 MB, and attaches and sends nothing', async () => {
+    const { router, plain, attached } = trip()
+    const big = 'A'.repeat(Math.ceil((25 * 1024 * 1024) / 3) * 4 + 4)
+    const ch = fakeChannel()
+    await router.route(ch.adapter, {
+      text: 'the plan',
+      documents: [{ filename: 'atlas.pdf', mime: 'application/pdf', data_base64: big }],
+    })
+    expect(plain).toEqual([])
+    expect(attached).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ Not sent: atlas.pdf is over 25 MB.'])
+  })
+
+  it.each([
+    [
+      'document',
+      { documents: [{ filename: 'budget.xlsx', mime: 'application/zip', data_base64: 'AAAA' }] },
+      'budget.xlsx',
+    ],
+    ['image', { images: [{ mime: 'image/heic', data_base64: 'AAAA' }] }, 'telegram-image.heic'],
+  ])('refuses a %s of a type a Session does not take', async (_kind, file, name) => {
+    const { router, plain, attached } = trip()
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'have a look', ...file })
+    expect(plain).toEqual([])
+    expect(attached).toEqual([])
+    expect(ch.replies).toEqual([
+      `⚠️ Not sent: ${name} is not a file a Session takes. ` +
+        'Send an image, or a txt, md, doc, docx or pdf document.',
+    ])
+  })
+
+  it('refuses a file before transcribing the voice it came with', async () => {
+    const { router, speech } = trip()
+    await router.route(fakeChannel().adapter, {
+      ...voice('ogg-1'),
+      documents: [{ filename: 'budget.xlsx', mime: 'application/zip', data_base64: 'AAAA' }],
+    })
+    expect(speech.transcribed).toEqual([])
+  })
+
+  it('says so when a file could not be attached, and sends nothing', async () => {
+    const { router, plain, attaching } = trip()
+    attaching.fails = true
+    const ch = fakeChannel()
+    await router.route(ch.adapter, { text: 'what does day 2 say?', ...plan })
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ Not sent: plan.pdf could not be attached: disk full'])
   })
 })

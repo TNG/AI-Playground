@@ -27,8 +27,8 @@ _SLACK_TOKEN_RE = re.compile(
     r"xox[abporsb]-[A-Za-z0-9-]{10,}|xapp-\d+-[A-Za-z0-9-]{20,}"
 )
 
-# Document extensions the RAG ingestion pipeline (langchain loaders) accepts.
-# Mirrors the desktop uploader (WebUI/src/components/Rag.vue).
+# Document extensions a Session takes as Attached Documents.
+# Mirrors DOCUMENT_EXTENSIONS in WebUI/src/types/rag.ts.
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
@@ -458,19 +458,20 @@ class SlackChannel(ChannelBase):
 
         async def _download_slack_files(
             files: list[dict], client_token: str
-        ) -> tuple[list[dict], list[dict], list[dict]]:
+        ) -> tuple[list[dict], list[dict], list[dict], list[str]]:
             """Download supported Slack file uploads.
 
-            Returns an ``(images, audio, documents)`` tuple. ``image/*`` and
+            Returns an ``(images, audio, documents, refused)`` tuple. ``image/*`` and
             ``audio/*`` files are collected by mime; document uploads are matched
-            by file extension (txt/md/doc/docx/pdf) for RAG ingestion. Everything
-            else is ignored.
+            by file extension (txt/md/doc/docx/pdf). ``refused`` holds a notice for
+            each file left unread: another type, or a document over the size cap.
             """
             import aiohttp
 
             images: list[dict] = []
             audio: list[dict] = []
             documents: list[dict] = []
+            refused: list[str] = []
             async with aiohttp.ClientSession(
                 headers={"Authorization": f"Bearer {client_token}"}
             ) as session:
@@ -489,12 +490,18 @@ class SlackChannel(ChannelBase):
                         ext = (f.get("filetype") or "").lower()
                     is_document = ext in _SUPPORTED_DOC_EXTENSIONS
                     if not is_image and not is_audio and not is_document:
+                        refused.append(
+                            f"⚠️ Not sent: {filename} is not a file a Session takes. "
+                            "Send an image, or a "
+                            f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} document."
+                        )
                         continue
                     size = f.get("size") or 0
                     if is_document and size and size > _MAX_DOC_BYTES:
                         logger.warning(
                             "slack document too large, skipping: %s", filename
                         )
+                        refused.append(f"⚠️ Not sent: {filename} is over 25 MB.")
                         continue
                     url = f.get("url_private_download") or f.get("url_private")
                     if not url:
@@ -523,7 +530,7 @@ class SlackChannel(ChannelBase):
                                 "data_base64": data_b64,
                             }
                         )
-            return images, audio, documents
+            return images, audio, documents, refused
 
         async def run() -> None:
             self._loop = asyncio.get_event_loop()
@@ -564,10 +571,10 @@ class SlackChannel(ChannelBase):
                 text = event.get("text") or ""
                 ts = event.get("ts") or ""
                 files = event.get("files") or []
-                images, audio, documents = (
+                images, audio, documents, refused = (
                     await _download_slack_files(files, bot_token)
                     if files
-                    else ([], [], [])
+                    else ([], [], [], [])
                 )
                 if text:
                     text_payload = text
@@ -593,6 +600,7 @@ class SlackChannel(ChannelBase):
                         **({"images": images} if images else {}),
                         **({"audio": audio} if audio else {}),
                         **({"documents": documents} if documents else {}),
+                        **({"refused": "\n".join(refused)} if refused else {}),
                     )
                 )
 

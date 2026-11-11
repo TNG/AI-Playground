@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 # because tokens embed inside URLs (`…/bot<id>:<token>/…`).
 _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 
-# Document extensions the RAG ingestion pipeline (langchain loaders) accepts.
-# Mirrors the desktop uploader (WebUI/src/components/Rag.vue).
+# Document extensions a Session takes as Attached Documents.
+# Mirrors DOCUMENT_EXTENSIONS in WebUI/src/types/rag.ts.
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
@@ -69,12 +69,8 @@ def inbound_text_item(message) -> QueueItem:
     return inbound_item(message, message.text or "")
 
 
-def refused_document_item(message, notice: str) -> QueueItem | None:
-    """A refused document that replies to a message, queued so the renderer decides who
-    is told what: an Answer to an agent hears it must be text, Home Agent gets `notice`.
-    None when it replies to nothing; the notice is then sent here."""
-    if getattr(message, "reply_to_message", None) is None:
-        return None
+def refused_document_item(message, notice: str) -> QueueItem:
+    """A document refused unread, queued so the renderer tells the sender `notice`."""
     return inbound_item(
         message, getattr(message, "caption", None) or "", refused=notice
     )
@@ -758,21 +754,13 @@ class TelegramChannel(ChannelBase):
             notice = None
             if ext not in _SUPPORTED_DOC_EXTENSIONS:
                 notice = (
-                    "Unsupported document type. Send a "
-                    f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} file to add it to the "
-                    "knowledge base."
+                    f"⚠️ Not sent: {filename} is not a file a Session takes. Send an "
+                    f"image, or a {', '.join(_SUPPORTED_DOC_EXTENSIONS)} document."
                 )
             elif doc.file_size and doc.file_size > _MAX_DOC_BYTES:
-                notice = "That document is too large to add to the knowledge base."
+                notice = f"⚠️ Not sent: {filename} is over 25 MB."
             if notice:
-                refused = refused_document_item(update.message, notice)
-                if refused is not None:
-                    self.queue_append(refused)
-                    return
-                try:
-                    await update.message.reply_text(notice)
-                except Exception as exc:
-                    logger.debug("Failed to send refused-document notice: %s", exc)
+                self.queue_append(refused_document_item(update.message, notice))
                 return
             try:
                 tg_file = await context.bot.get_file(doc.file_id)

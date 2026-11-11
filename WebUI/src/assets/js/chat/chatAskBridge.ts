@@ -115,6 +115,15 @@ async function handleRequest(request: ChatAskPayload): Promise<void> {
         respond({ requestId: request.requestId, result: approved })
         break
       }
+      case 'channel-voice-reply': {
+        const clip = await useHomeAgent().channelVoiceClip(
+          request.channel,
+          request.text,
+          request.replyTo,
+        )
+        respond({ requestId: request.requestId, result: clip })
+        break
+      }
       case 'render-3d-thumbnail': {
         const url = URL.createObjectURL(base64ToBlob(request.modelBase64, 'model/gltf-binary'))
         try {

@@ -1,5 +1,6 @@
 import type { ConfigChange } from '@/assets/js/tools/configureHomeAgentLogic'
 import type { LlmBackend } from '@/assets/js/store/textInference'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 
 /**
  * Main → renderer questions a chat tool needs answered.
@@ -59,6 +60,8 @@ export type ChatAskBody =
       summaryMarkdown: string
     }
   | { kind: 'home-agent-apply'; targetBackend: LlmBackend; changes: ConfigChange[] }
+  /** A Channel reply read aloud; null when none could be made. Its model download is asked on `channel`. */
+  | { kind: 'channel-voice-reply'; channel: ChannelKind; text: string; replyTo?: string }
   /** The `.glb` travels as bytes: a workspace file is under no root the window can load. */
   | { kind: 'render-3d-thumbnail'; modelBase64: string }
 

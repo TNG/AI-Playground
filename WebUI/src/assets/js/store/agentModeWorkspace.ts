@@ -3,6 +3,7 @@ import type { GameLibraryEntry } from '@/types/agentIpc'
 import { DOCUMENT_EXTENSIONS, type DocumentEmbedding } from '@/types/rag'
 import { developerMode } from './debugSettings'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { attachmentLine } from '@/lib/attachmentReferences'
 
 type Languages = Record<string, string>
 
@@ -69,8 +70,7 @@ export function createWorkspaceAttachments(
     }
     clearAttachments()
     if (saved.length === 0) return ''
-    const references = saved.map((file) => (/\s/.test(file) ? `@"${file}"` : `@${file}`))
-    return `\n\nAttached files, saved in the workspace: ${references.join(' ')}`
+    return `\n\n${attachmentLine(saved)}`
   }
 
   return { attachments, attachFiles, removeAttachment, clearAttachments, importAttachments }

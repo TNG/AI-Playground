@@ -51,7 +51,7 @@ import {
   SESSION_BUSY_MESSAGE,
 } from '../session/sessionTurns.ts'
 import { skipSessionUpdate, takeSessionUpdate } from '../session/sessionUpdate.ts'
-import { noteAnswerTurn, noteResultTurn } from './notifier.ts'
+import { answerSpeaks, noteAnswerTurn, noteResultTurn } from './notifier.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
 import {
@@ -421,8 +421,9 @@ export async function startAgentTurn(
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
-  if (config.answer) noteAnswerTurn(sessionId, turnId, config.workspaceDir, config.answer)
-  else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
+  if (config.answer) {
+    noteAnswerTurn(sessionId, turnId, config.workspaceDir, config.answer, answerSpeaks(config))
+  } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
   emitAgentTurnState(sessionId, turnId, 'queued')
   const verbose = verboseLogging()

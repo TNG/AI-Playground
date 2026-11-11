@@ -2187,6 +2187,22 @@ export const useAgentMode = defineStore(
       return { ok: true }
     }
 
+    /** Whether a turn sent with `useStoredSettings` would run on a model that sees images. */
+    async function storedTurnSeesImages(sessionId: string): Promise<boolean> {
+      const record = sessions.value[sessionId]
+      if (!record) return false
+      const inSession =
+        record.sessionRef && settingsPort.value
+          ? await settingsPort.value.readStored(
+              record.sessionRef,
+              record.presetName ?? HARNESS_CHAT_PRESET,
+            )
+          : null
+      const context = storedTurnContext(record, inSession ?? undefined)
+      const stored = textInference.inferenceForSettings(context.presetName, context.settings ?? {})
+      return stored.inference.modelSupportsVision
+    }
+
     /** Main rewinds before the new answer streams, so until then the old one stays. */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
@@ -2345,6 +2361,7 @@ export const useAgentMode = defineStore(
       indexingDocuments,
       removeSessionDocument,
       attachFiles,
+      storedTurnSeesImages,
       removeAttachment,
       clearAttachments,
       processing,

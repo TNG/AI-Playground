@@ -107,6 +107,7 @@ describe('the channel message map', () => {
         lookup: messageMap.channelMessageOwner,
         label: () => '"Asteroids clone"',
         usesRealShell: () => false,
+        attach: async () => ({ ok: false, reason: 'error', message: 'no files here' }),
         send: async (target, message, origin) => {
           sent.push({ target, message, origin })
           return { ok: true, queuePosition: null }
@@ -116,7 +117,6 @@ describe('the channel message map', () => {
         onTurnEnd: () => () => {},
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
-      prepareVoiceAnswer: async () => ({ ready: true }),
       pointers: { get: () => null, set: () => {} },
       log: () => {},
     })

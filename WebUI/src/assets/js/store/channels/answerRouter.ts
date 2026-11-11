@@ -11,6 +11,13 @@ import {
 import type { ChannelAdapter, RawPart } from './adapter'
 import { helpText, parseCommand, type ChannelCommand } from './channelCommands'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
+import {
+  attachedPrompt,
+  fileRefusal,
+  inboundOrigin,
+  type AttachResult,
+  type ChannelFile,
+} from './channelInbound'
 import { createChannelSessions } from './channelSessions'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
 
@@ -66,6 +73,11 @@ export type SessionPort = {
   /** The folder runs the real system shell, which is never driven from a channel. */
   usesRealShell: (target: AnswerTarget) => boolean
   /**
+   * Stores an image in the attachments of the target's workspace, or a document there as an
+   * Attached Document; an image is refused when the target's model cannot see images.
+   */
+  attach: (target: SessionTarget, file: ChannelFile) => Promise<AttachResult>
+  /**
    * `origin` is where the message came from; the turn's result is replied under it. A plain
    * message runs in the Session's Assistant Harness Session, minted on first use.
    */
@@ -92,8 +104,10 @@ export type InboundChannelMessage = InboundAnswer & {
   images?: RemoteImage[]
   audio?: RemoteAudio[]
   documents?: RemoteDocument[]
-  /** The channel's notice for a file it refused to read; still an attachment, so not an Answer. */
+  /** The channel's notice for a file it refused to read. */
   refused?: string
+  /** The text was spoken: a voice message, transcribed. */
+  voice?: boolean
 }
 
 export type AnswerRouter = {
@@ -107,25 +121,26 @@ export type AnswerRouter = {
   channelReady: (adapter: ChannelAdapter) => Promise<void>
 }
 
-/** Speech-to-text for a voice Answer: usable now, refused (the channel was told why), or downloading. */
-export type VoiceAnswerPreparation = { ready: boolean } | { downloading: Promise<boolean> }
+/** Speech-to-text for a voice message: usable now, refused (the channel was told why), or downloading. */
+export type VoicePreparation = { ready: boolean } | { downloading: Promise<boolean> }
+
+/** A Channel's speech-to-text; a null transcript means it failed and already told the channel why. */
+export type ChannelSpeech = {
+  prepare: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<VoicePreparation>
+  transcribe: (
+    adapter: ChannelAdapter,
+    audio: RemoteAudio[],
+    meta?: InboundMeta,
+  ) => Promise<string | null>
+}
 
 export type AnswerRouterDeps = {
   /** Null until the window has registered it; messages are dropped until then. */
   sessions: () => SessionPort | null
   pointers: ChannelSessionPointers
   questions: Pick<ChannelQuestionRegistry, 'handleInbound'>
-  /** Home Agent's speech-to-text; null means it failed and already told the channel why. */
-  transcribe?: (
-    adapter: ChannelAdapter,
-    audio: RemoteAudio[],
-    meta?: InboundMeta,
-  ) => Promise<string | null>
-  prepareVoiceAnswer: (
-    adapter: ChannelAdapter,
-    harnessSessionId: string,
-    meta?: InboundMeta,
-  ) => Promise<VoiceAnswerPreparation>
+  /** Voice messages are dropped without it. */
+  speech?: ChannelSpeech
   /** The Channels an agent's download question is asked on; empty when only the computer asks. */
   downloadQuestionChannels?: () => readonly ChannelKind[]
   copy?: () => AnswerRouterCopy
@@ -153,13 +168,13 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     title: string
     meta?: InboundMeta
   }
-  // These three are keyed by Harness Session id.
+  // These two are keyed by Harness Session id.
   // One per Harness Session: a newer Answer replaces the one waiting.
   const held = new Map<string, Held>()
   // First sends still awaiting their result, flagged when the turn ends meanwhile.
   const sending = new Map<string, { turnEnded: boolean }>()
-  // Answers queued behind a voice Answer's speech model download, kept in order.
-  const waitingBehindDownload = new Map<string, Promise<void>>()
+  // Per Channel: its messages behind a voice message whose speech model downloads, in order.
+  const waitingForSpeech = new Map<ChannelKind, Promise<void>>()
   // Notes from the previous run, reported once their channel is up again.
   let lost = readJournal()
   let unsubscribe: (() => void) | null = null
@@ -339,13 +354,9 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: SessionPort,
     target: AnswerTarget,
     text: string,
-    replyTarget: string | undefined,
+    origin: AgentAnswerOrigin,
     meta?: InboundMeta,
   ): Promise<void> {
-    const origin: AgentAnswerOrigin = {
-      channel: adapter.kind,
-      ...(replyTarget ? { replyTo: replyTarget } : {}),
-    }
     const title = sessions.label(target)
     const entry: Held = { adapter, sessions, target, text, origin, title, meta }
     // Sending past a Held Answer would put the newer one first; it replaces it instead.
@@ -376,73 +387,13 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const title = sessions.label(target)
       return tell(adapter, fillTemplate(copy().unreachable, { title }), meta)
     }
-    if (msg.images?.length || msg.documents?.length || msg.refused) {
-      return tell(adapter, copy().textOnly, meta)
-    }
     if (sessions.usesRealShell(target)) {
       const title = sessions.label(target)
       return tell(adapter, fillTemplate(copy().realShell, { title }), meta)
     }
-    if (waitingBehindDownload.has(target.harnessSessionId)) {
-      afterDownload(target, () => answerMessage(adapter, sessions, target, msg, meta, true))
-      return
-    }
-    await answerMessage(adapter, sessions, target, msg, meta, false)
-  }
-
-  /** Runs `work` once the target's earlier Answers are through, off the channel's poll loop. */
-  function afterDownload(target: AnswerTarget, work: () => Promise<void>): void {
-    const key = target.harnessSessionId
-    const next = (waitingBehindDownload.get(key) ?? Promise.resolve())
-      .then(work)
-      .catch((e: unknown) => log('answerRouter: voice Answer failed:', e))
-    waitingBehindDownload.set(key, next)
-    void next.then(() => {
-      if (waitingBehindDownload.get(key) === next) waitingBehindDownload.delete(key)
-    })
-  }
-
-  async function answerMessage(
-    adapter: ChannelAdapter,
-    sessions: SessionPort,
-    target: AnswerTarget,
-    msg: InboundChannelMessage,
-    meta: InboundMeta | undefined,
-    queued: boolean,
-  ): Promise<void> {
-    const audio = msg.audio
-    if (!audio?.length || !deps.transcribe) {
-      const text = msg.text?.trim() ?? ''
-      if (text) await answer(adapter, sessions, target, text, msg.replyTarget, meta)
-      return
-    }
-    const voiceMsg = { ...msg, audio }
-    const preparation = await deps.prepareVoiceAnswer(adapter, target.harnessSessionId, meta)
-    if (!('downloading' in preparation)) {
-      if (preparation.ready) await answerByVoice(adapter, sessions, target, voiceMsg, meta)
-      return
-    }
-    const { downloading } = preparation
-    const finish = async () => {
-      if (await downloading) await answerByVoice(adapter, sessions, target, voiceMsg, meta)
-    }
-    // A download can take minutes: the channel's other messages go on meanwhile.
-    if (queued) await finish()
-    else afterDownload(target, finish)
-  }
-
-  async function answerByVoice(
-    adapter: ChannelAdapter,
-    sessions: SessionPort,
-    target: AnswerTarget,
-    msg: InboundChannelMessage & { audio: RemoteAudio[] },
-    meta?: InboundMeta,
-  ): Promise<void> {
-    const transcript = await deps.transcribe?.(adapter, msg.audio, meta)
-    if (transcript == null) return
-    const text = [msg.text?.trim(), transcript.trim()].filter(Boolean).join(' ')
-    if (!text) return tell(adapter, copy().noSpeech, meta)
-    await answer(adapter, sessions, target, text, msg.replyTarget, meta)
+    const prompt = await attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta)
+    if (prompt === null) return
+    await answer(adapter, sessions, target, prompt, inboundOrigin(adapter.kind, msg), meta)
   }
 
   function channelSessions(sessions: SessionPort) {
@@ -453,6 +404,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       tell,
       confirm,
       send: (target, text, origin) => send(sessions, target, text, origin),
+      attach: (adapter, target, msg, meta) =>
+        attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta),
       log,
     })
   }
@@ -522,6 +475,73 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       log('answerRouter: a channel message arrived before Sessions were reachable', null)
       return
     }
+    if (waitingForSpeech.has(adapter.kind)) {
+      // A typed answer to the download question cannot wait behind that download.
+      if (deps.questions.handleInbound(adapter, msg, meta)) return
+      afterSpeech(adapter.kind, () => inbound(adapter, sessions, msg, meta, true))
+      return
+    }
+    await inbound(adapter, sessions, msg, meta, false)
+  }
+
+  /** Runs `work` once the Channel's earlier messages are through, off the channel's poll loop. */
+  function afterSpeech(kind: ChannelKind, work: () => Promise<void>): void {
+    const next = (waitingForSpeech.get(kind) ?? Promise.resolve())
+      .then(work)
+      .catch((e: unknown) => log('answerRouter: a message behind a voice message failed:', e))
+    waitingForSpeech.set(kind, next)
+    void next.then(() => {
+      if (waitingForSpeech.get(kind) === next) waitingForSpeech.delete(kind)
+    })
+  }
+
+  /** Refuses files no Session takes and transcribes voice, then routes it like typed text. */
+  async function inbound(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    msg: InboundChannelMessage,
+    meta: InboundMeta | undefined,
+    waiting: boolean,
+  ): Promise<void> {
+    const refusal = fileRefusal(adapter.kind, msg, copy())
+    if (refusal) return tell(adapter, refusal, meta)
+    const { audio, ...rest } = msg
+    if (!audio?.length || !deps.speech) return dispatch(adapter, sessions, rest, meta)
+    const spoken = (clips: RemoteAudio[]) => byVoice(adapter, sessions, rest, clips, meta)
+    const preparation = await deps.speech.prepare(adapter, meta)
+    if (!('downloading' in preparation)) {
+      if (preparation.ready) await spoken(audio)
+      return
+    }
+    const { downloading } = preparation
+    const finish = async () => {
+      if (await downloading) await spoken(audio)
+    }
+    // A download can take minutes, and its question is answered through this very poll loop.
+    if (waiting) await finish()
+    else afterSpeech(adapter.kind, finish)
+  }
+
+  async function byVoice(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    msg: InboundChannelMessage,
+    audio: RemoteAudio[],
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const transcript = await deps.speech?.transcribe(adapter, audio, meta)
+    if (transcript == null) return
+    const text = [msg.text?.trim(), transcript.trim()].filter(Boolean).join(' ')
+    if (!text) return tell(adapter, copy().noSpeech, meta)
+    await dispatch(adapter, sessions, { ...msg, text, voice: true }, meta)
+  }
+
+  async function dispatch(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<void> {
     if (await runCommand(adapter, sessions, msg, meta)) return
     if (msg.replyTo) {
       const owner = await answeredSession(sessions, adapter.kind, msg.replyTo)

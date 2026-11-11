@@ -109,8 +109,8 @@ export type RemoteImage = { mime: string; data_base64: string }
 /** Single inbound audio payload (voice note / uploaded audio) from a channel. */
 export type RemoteAudio = { mime: string; data_base64: string }
 
-/** Single inbound document payload (uploaded file) from a channel. Ingested
- *  into the RAG knowledge base rather than passed to the model directly. */
+/** Single inbound document payload (uploaded file) from a channel; it becomes an
+ *  Attached Document of the Session it is sent to. */
 export type RemoteDocument = { filename: string; mime: string; data_base64: string }
 
 /** Single keyboard button rendered by the adapter (Block Kit action, Telegram

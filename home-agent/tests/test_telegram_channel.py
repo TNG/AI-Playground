@@ -111,10 +111,14 @@ class TelegramInboundTest(unittest.TestCase):
             },
         )
 
-    def test_a_refused_document_replying_to_nothing_is_not_queued(self) -> None:
+    def test_a_refused_document_replying_to_nothing_is_queued_with_its_notice(
+        self,
+    ) -> None:
         doc = message("")
         doc.caption = None
-        self.assertIsNone(refused_document_item(doc, "Unsupported document type."))
+        item = refused_document_item(doc, "Unsupported document type.")
+        self.assertEqual(item["refused"], "Unsupported document type.")
+        self.assertNotIn("reply_to", item)
 
     def test_an_answer_tap_names_the_message_the_button_is_under(self) -> None:
         tapped = SimpleNamespace(chat_id=4242, message_id=1234)

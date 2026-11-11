@@ -8,9 +8,11 @@ import type {
   SessionTarget,
 } from '@/assets/js/store/channels/answerRouter'
 import type { RawPart } from '@/assets/js/store/channels/adapter'
+import type { AttachResult, ChannelFile } from '@/assets/js/store/channels/channelInbound'
 import { registerSessionPort } from '@/assets/js/store/channels/sessionPort'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { extractMessage } from '@/assets/js/errors/appError'
+import { base64ToBytes } from '@/lib/synthesizeSpeech'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
 const ADMISSION_WAIT_MS = 3000
@@ -66,6 +68,33 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     return harnessSessionId
   }
 
+  function harnessOf(target: SessionTarget): Promise<string> {
+    return 'harnessSessionId' in target
+      ? Promise.resolve(target.harnessSessionId)
+      : assistantOf(target.sessionRef)
+  }
+
+  /** Into the workspace the target's turn runs in, which its prompt's `@attachments/` resolve against. */
+  async function attach(target: SessionTarget, file: ChannelFile): Promise<AttachResult> {
+    try {
+      const harnessSessionId = await harnessOf(target)
+      const record = agentMode.sessions[harnessSessionId]
+      if (!record) throw new Error(`No agent session ${harnessSessionId}.`)
+      if (file.kind === 'image' && !(await agentMode.storedTurnSeesImages(harnessSessionId))) {
+        return { ok: false, reason: 'images-unseen', message: '' }
+      }
+      const result = await window.electronAPI.agentMode.importAttachment(
+        record.workspaceDir,
+        file.filename,
+        base64ToBytes(file.dataBase64),
+      )
+      if (!result.success) return { ok: false, reason: 'error', message: result.error ?? '' }
+      return { ok: true, path: result.path }
+    } catch (error) {
+      return { ok: false, reason: 'error', message: extractMessage(error) }
+    }
+  }
+
   async function send(
     target: SessionTarget,
     message: string,
@@ -73,10 +102,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
   ): Promise<SessionSendResult> {
     let harnessSessionId: string
     try {
-      harnessSessionId =
-        'harnessSessionId' in target
-          ? target.harnessSessionId
-          : await assistantOf(target.sessionRef)
+      harnessSessionId = await harnessOf(target)
     } catch (error) {
       return { ok: false, reason: 'error', message: extractMessage(error) }
     }
@@ -121,6 +147,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       'harnessSessionId' in target
         ? labels.harness(target.harnessSessionId)
         : labels.session(target.sessionRef),
+    attach,
     usesRealShell: ({ harnessSessionId }) => {
       const record = agentMode.sessions[harnessSessionId]
       return !!record && agentMode.isUnsandboxed(record.workspaceDir)

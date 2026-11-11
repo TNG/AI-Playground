@@ -17,7 +17,6 @@ export type AnswerRouterCopy = {
   realShell: string
   /** Follows `notSent` when the reason can only be fixed on the computer. */
   fixOnDesktop: string
-  textOnly: string
   noSpeech: string
   /** A channel voice message dropped: no speech-to-text, its model declined, or `{error}` */
   voiceNoBackend: string
@@ -49,8 +48,15 @@ export type AnswerRouterCopy = {
   noticeReply: string
   noticeThread: string
   noticeButton: string
-  /** A plain message carrying a file or voice, which Sessions do not take yet */
-  sessionTextOnly: string
+  /** `{file}` refused before it reached a Session */
+  fileTooLarge: string
+  fileUnsupported: string
+  /** `{title}`; its model cannot see the image sent to it */
+  imagesUnseen: string
+  /** `{title}`, `{files}`; a message carrying only documents runs no turn */
+  documentsAttached: string
+  /** `{file}`, `{error}` */
+  attachFailed: string
   /** `/help`: its heading, one line per command, and where plain messages go */
   helpTitle: string
   helpSessions: string
@@ -83,7 +89,6 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   unreachable: 'AGENT_ANSWER_UNREACHABLE',
   realShell: 'AGENT_ANSWER_REAL_SHELL',
   fixOnDesktop: 'AGENT_ANSWER_FIX_ON_DESKTOP',
-  textOnly: 'AGENT_ANSWER_TEXT_ONLY',
   noSpeech: 'AGENT_ANSWER_NO_SPEECH',
   voiceNoBackend: 'CHANNEL_VOICE_NO_BACKEND',
   voiceModelDeclined: 'CHANNEL_VOICE_MODEL_DECLINED',
@@ -103,7 +108,11 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   noticeReply: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_REPLY',
   noticeThread: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_THREAD',
   noticeButton: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_BUTTON',
-  sessionTextOnly: 'CHANNEL_SESSION_TEXT_ONLY',
+  fileTooLarge: 'CHANNEL_FILE_TOO_LARGE',
+  fileUnsupported: 'CHANNEL_FILE_UNSUPPORTED',
+  imagesUnseen: 'CHANNEL_IMAGES_UNSEEN',
+  documentsAttached: 'CHANNEL_DOCUMENTS_ATTACHED',
+  attachFailed: 'CHANNEL_ATTACH_FAILED',
   helpTitle: 'CHANNEL_HELP_TITLE',
   helpSessions: 'CHANNEL_HELP_SESSIONS',
   helpLoad: 'CHANNEL_HELP_LOAD',

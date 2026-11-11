@@ -26,10 +26,11 @@ export function promptImageAttachments(prompt: string): string[] {
   return [...new Set(paths)]
 }
 
-/** Where an Answer came from: its channel, and the platform ref a reply to it names. */
+/** Where an Answer came from: its channel, the platform ref a reply to it names, and whether it was spoken. */
 export const AgentAnswerOriginSchema = z.object({
   channel: ChannelKindSchema,
   replyTo: z.string().optional(),
+  voice: z.boolean().optional(),
 })
 
 export type AgentAnswerOrigin = z.infer<typeof AgentAnswerOriginSchema>

@@ -40,6 +40,7 @@ import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
 import { fanOutDownloadQuestion } from './channels/downloadQuestionFanOut'
 import { createAnswerRouter } from './channels/answerRouter'
+import { CHANNELS } from './channels/channelRegistry'
 import { createRemoteSpeech, type SpeechClip } from './channels/remoteSpeech'
 import { sessionPort } from './channels/sessionPort'
 import {
@@ -64,10 +65,8 @@ import {
 } from '@/assets/js/permissions/remoteTurnPort'
 import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 
-// ── Channel registry ────────────────────────────────────────────────────────
-// Kinds we manage in this store. Adding a fourth one means appending to this
-// list and dropping in a new adapter — no other edits to this file.
-const KINDS = ['telegram', 'slack', 'local-web'] as readonly ChannelKind[]
+// Read when called, never at import: the registry imports the setup composables, which import this store.
+const channelKinds = (): ChannelKind[] => CHANNELS.map((channel) => channel.kind)
 
 const POLL_INTERVAL_MS = 2000
 /** How long to wait for an in-channel yes/no before auto-cancelling a download. */
@@ -90,7 +89,7 @@ function disposePoll(kind: ChannelKind) {
 }
 
 function disposeAllPollHandlers() {
-  for (const kind of KINDS) disposePoll(kind)
+  for (const kind of channelKinds()) disposePoll(kind)
 }
 
 function emptyRuntimeState(kind: ChannelKind): ChannelRuntimeState {
@@ -218,7 +217,9 @@ export const useChannels = defineStore(
     // True once at least one channel has actually been set up (verified). The
     // master toggle is meaningless until then — there is nothing for it to turn
     // on — so the title-bar toggle stays disabled and reads "Off".
-    const hasConfiguredChannel = computed(() => KINDS.some((k) => channelPrefs[k].verified))
+    const hasConfiguredChannel = computed(() =>
+      channelKinds().some((k) => channelPrefs[k].verified),
+    )
 
     const isAvailable = computed(
       () =>
@@ -235,7 +236,7 @@ export const useChannels = defineStore(
      * any user action.
      */
     function recomputeActive() {
-      for (const kind of KINDS) {
+      for (const kind of channelKinds()) {
         channels[kind].active =
           isAvailable.value &&
           masterEnabled.value &&
@@ -247,8 +248,8 @@ export const useChannels = defineStore(
       [
         isAvailable,
         masterEnabled,
-        () => KINDS.map((k) => channelPrefs[k].enabled),
-        () => KINDS.map((k) => channelPrefs[k].verified),
+        () => channelKinds().map((k) => channelPrefs[k].enabled),
+        () => channelKinds().map((k) => channelPrefs[k].verified),
       ],
       recomputeActive,
       { immediate: true, deep: true },
@@ -256,14 +257,14 @@ export const useChannels = defineStore(
 
     /** Where a Reachable Session's Notifications and Channel Questions go; empty while off. */
     const notificationChannels = computed(() =>
-      KINDS.filter((kind) => channels[kind].active && adapters[kind] !== null),
+      channelKinds().filter((kind) => channels[kind].active && adapters[kind] !== null),
     )
     const notificationsReady = computed(() => notificationChannels.value.length > 0)
 
     // When the backend + channel credentials are ready, inject so the bot
     // starts (or restarts if creds changed). One watcher per kind so each
     // can decide its own "credentials ready" predicate without coupling.
-    for (const kind of KINDS) {
+    for (const kind of channelKinds()) {
       watch(
         [isAvailable, () => channels[kind].config, () => channelPrefs[kind].identity],
         ([avail, config, identity]) => {
@@ -848,7 +849,7 @@ export const useChannels = defineStore(
      *  in-memory secret config and back-fills identity when it is missing. */
     async function initConfig() {
       try {
-        for (const kind of KINDS) {
+        for (const kind of channelKinds()) {
           const cfg = await window.electronAPI.homeAgent.channel.loadConfig(kind)
           if (cfg) {
             channels[kind].config = { ...cfg, kind } as Partial<ChannelConfig>

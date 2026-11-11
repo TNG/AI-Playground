@@ -59,7 +59,7 @@ through silently:
 
 - Producers attach a stable `code` (e.g. `inference/stream-failed`, `generation/timeout`) and a
   concise `userMessage`. Verbose detail goes in `technicalMessage`.
-- Background work (e.g. Home Agent side-channel turns) reports with `surface: 'silent'` so it is
+- Background work (e.g. Channel traffic) reports with `surface: 'silent'` so it is
   recorded/logged without a user toast.
 - Never call `toast.error()` directly from feature code; go through `errors.report()`.
 - User cancellation is not a failure. A deliberate cancel (e.g. closing the model-download dialog)

@@ -77,6 +77,8 @@ type FakeSession = {
   duringSend?: () => void
   /** Its model cannot see images. */
   blind?: boolean
+  /** It is its Session's Assistant Harness Session, where plain messages run. */
+  assistant?: boolean
 }
 
 const BUSY: SessionSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
@@ -167,6 +169,10 @@ function fakeSessions(
         ? `"${sessions[target.harnessSessionId]?.label ?? 'An agent run'}"`
         : `"${channelSessions[target.sessionRef]?.title || 'Untitled Session'}"`,
     usesRealShell: ({ harnessSessionId }) => !!sessions[harnessSessionId]?.realShell,
+    turnTarget: (target) =>
+      'harnessSessionId' in target && !sessions[target.harnessSessionId]?.assistant
+        ? target.harnessSessionId
+        : target.sessionRef,
     send: async (target, text, origin) => {
       if (!('harnessSessionId' in target)) {
         plain.push({ sessionRef: target.sessionRef, text, origin })
@@ -697,6 +703,16 @@ describe('a message to a busy Session', () => {
     ])
   })
 
+  it('speaks the combined turn’s reply when any of its messages was spoken', async () => {
+    const { router, plain, settle, speech } = busyTrip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, voice('ogg-1'))
+    await router.route(ch.adapter, { text: 'and one in Nara' })
+    await settle(TRIP)
+    expect(plain.map((p) => p.origin)).toEqual([{ channel: 'telegram', voice: true }])
+  })
+
   it('replies to the combined turn under the last message', async () => {
     const { router, plain, settle } = busyTrip()
     const ch = fakeChannel('telegram')
@@ -929,6 +945,23 @@ describe('an Answer to a busy Session', () => {
     expect(plain).toEqual([])
     await settle(ASTEROIDS)
     expect(plain.map((p) => p.text)).toEqual(['and what about sound?'])
+  })
+
+  it('is combined with plain messages when it answers the Session’s Assistant', async () => {
+    const { router, received, plain, busy, settle } = setup(
+      { asteroids: { label: 'Asteroids clone', assistant: true } },
+      undefined,
+      { [ASTEROIDS]: { title: 'Asteroids' } },
+      { telegram: ASTEROIDS },
+    )
+    busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'and what about sound?' })
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await settle(ASTEROIDS)
+    expect([...plain.map((p) => p.text), ...received.map((r) => r.text)]).toEqual([
+      'and what about sound?\n\nmake it faster',
+    ])
   })
 
   it('says it is starting on Slack once its queued turn is sent', async () => {

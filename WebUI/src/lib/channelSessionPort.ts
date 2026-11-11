@@ -221,6 +221,15 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       const record = agentMode.sessions[harnessSessionId]
       return !!record && agentMode.isUnsandboxed(record.workspaceDir)
     },
+    turnTarget: (target) => {
+      if (!('harnessSessionId' in target)) return target.sessionRef
+      const record = agentMode.sessions[target.harnessSessionId]
+      const assistant =
+        record?.sessionRef === target.sessionRef &&
+        record.presetName === HARNESS_CHAT_PRESET &&
+        !record.taskRun
+      return assistant ? target.sessionRef : target.harnessSessionId
+    },
     send,
     listStartableAgents: async () => agentTasks.startableAgents,
     startAgent: (sessionRef, agentId, origin) =>

@@ -90,6 +90,11 @@ export type SessionPort = {
   /** The folder runs the real system shell, which is never driven from a channel. */
   usesRealShell: (target: AnswerTarget) => boolean
   /**
+   * The Harness Session the target's turn runs in, without minting one: the Session ref stands
+   * for its Assistant Harness Session. Queued messages with the same turn target combine.
+   */
+  turnTarget: (target: SessionTarget) => string
+  /**
    * Stores an image in the attachments of the target's workspace, or a document there as an
    * Attached Document; an image is refused when the target's model cannot see images.
    */
@@ -348,11 +353,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const position = queue.add(sessionRef, {
       channel: entry.adapter.kind,
       batchKey:
-        'agent' in entry
-          ? `agent-start-${++agentStarts}`
-          : 'harnessSessionId' in entry.target
-            ? entry.target.harnessSessionId
-            : sessionRef,
+        'agent' in entry ? `agent-start-${++agentStarts}` : sessions.turnTarget(entry.target),
       preview: 'agent' in entry ? `/agents ${entry.agent.name}` : entry.message.text,
       item: entry,
     })
@@ -412,7 +413,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const last = batch[batch.length - 1].item
     const messages = batch.flatMap(({ item }) => ('message' in item ? [item.message] : []))
     const replyTo = batch.findLast((entry) => entry.item.origin.replyTo)?.item.origin.replyTo
-    const origin = { ...last.origin, ...(replyTo ? { replyTo } : {}) }
+    const voice = batch.some((entry) => entry.item.origin.voice)
+    const origin = { ...last.origin, ...(replyTo ? { replyTo } : {}), ...(voice ? { voice } : {}) }
     const busy = await run(sessions, { ...last, origin }, combineMessages(messages).text)
     if (busy) queue.putBack(sessionRef, batch)
     return busy

@@ -118,6 +118,7 @@ describe('the channel message map', () => {
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},
         onAgentRunRefused: () => () => {},
+        turnTarget: ({ sessionRef }) => sessionRef,
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
       pointers: { get: () => null, set: () => {} },

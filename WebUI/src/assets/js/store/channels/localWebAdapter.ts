@@ -5,13 +5,10 @@
 // same generic IPC → Flask `/channel/local-web/send/<action>` path the other
 // channels use. The Python `LocalWebChannel` turns each send into one SSE event.
 
-import type { ChannelAdapter, DraftStream, RawPart } from './adapter'
+import type { ChannelAdapter, RawPart } from './adapter'
 import { successRef } from './adapter'
 import { renderGenericToolMarker, stripAipgMediaReferences } from './adapterHelpers'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
-
-/** SSE can handle frequent updates (Telegram throttles more for Bot API limits). */
-const LOCAL_WEB_DRAFT_THROTTLE_MS = 200
 
 // Sentinels the served page (local_web_app_html.py) rewrites into a styled,
 // collapsible reasoning block — the browser analogue of Telegram's expandable
@@ -44,15 +41,14 @@ function reasoningBlock(label: string, body: string): string {
  *  showing the preset and prompt, mirroring the Telegram adapter's image marker.
  *  Without this the browser only ever received the finished photo — never the
  *  "Generating using preset … <prompt>" line the desktop app shows — because the
- *  generic tool marker deliberately skips image tools. `verb` flips present/past
- *  tense for the streaming preview vs the settled message. */
-function renderImagePart(part: RawPart, verb: 'Generating' | 'Generated'): string | null {
+ *  generic tool marker deliberately skips image tools. */
+function renderImagePart(part: RawPart): string | null {
   const { workflow, prompt } = part.input ?? {}
   if (!workflow && !prompt) return null
   const phase = part.state === 'output-available' ? '✅' : '🎨'
   const title = workflow
-    ? `${phase} ${verb} using preset **${workflow}**`
-    : `${phase} ${verb} image`
+    ? `${phase} Generated using preset **${workflow}**`
+    : `${phase} Generated image`
   const lines = [title]
   if (prompt) lines.push(italic(prompt))
   return lines.join('\n')
@@ -76,28 +72,6 @@ function send(
   return window.electronAPI.homeAgent.channel.send('local-web', action, payload)
 }
 
-/** Streaming preview: reasoning streams live in its own expanded block, the
- *  answer text and tool markers render inline. */
-function formatDraftParts(parts: RawPart[]): string {
-  const lines: string[] = []
-  for (const part of parts) {
-    if (part.type === 'reasoning') {
-      const txt = (part.text ?? '').trim()
-      if (txt) lines.push(reasoningBlock('', txt))
-    } else if (part.type === 'text') {
-      const cleaned = stripAipgMediaReferences(part.text ?? '').trim()
-      if (cleaned) lines.push(cleaned)
-    } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
-      const marker = renderImagePart(part, 'Generating')
-      if (marker) lines.push(marker)
-    } else {
-      const marker = renderGenericToolMarker(part, 'using')
-      if (marker) lines.push(marker)
-    }
-  }
-  return lines.join('\n\n')
-}
-
 /** Final message: coalesce every reasoning part into one collapsed block above
  *  the answer, mirroring the Telegram adapter's "Thought for X.X seconds"
  *  expandable blockquote so reasoning is visibly separate from the reply. */
@@ -119,48 +93,14 @@ function formatFinalParts(parts: RawPart[]): string {
       const cleaned = stripAipgMediaReferences(part.text ?? '').trim()
       if (cleaned) lines.push(cleaned)
     } else if (part.type === 'tool-comfyUI' || part.type === 'tool-comfyUiImageEdit') {
-      const marker = renderImagePart(part, 'Generated')
+      const marker = renderImagePart(part)
       if (marker) lines.push(marker)
     } else {
-      const marker = renderGenericToolMarker(part, 'used')
+      const marker = renderGenericToolMarker(part)
       if (marker) lines.push(marker)
     }
   }
   return lines.join('\n\n')
-}
-
-function createLocalWebDraftStream(): DraftStream {
-  let last = ''
-  let pending = ''
-  let throttleId: ReturnType<typeof setTimeout> | null = null
-
-  const flush = () => {
-    throttleId = null
-    if (pending) void send('update', { text: pending })
-  }
-
-  return {
-    update: (text: string) => {
-      last = text
-      pending = text
-      if (!throttleId) throttleId = setTimeout(flush, LOCAL_WEB_DRAFT_THROTTLE_MS)
-    },
-    finalize: async (finalText: string) => {
-      if (throttleId) {
-        clearTimeout(throttleId)
-        throttleId = null
-      }
-      const text = finalText || last
-      if (text) await send('reply', { text })
-    },
-    cancel: () => {
-      if (throttleId) {
-        clearTimeout(throttleId)
-        throttleId = null
-      }
-      pending = ''
-    },
-  }
 }
 
 function sentWithId(r: { success: boolean; error?: string; messageId?: number }) {
@@ -212,7 +152,6 @@ export function createLocalWebAdapter(): ChannelAdapter {
       await send('history', { messages })
       return successRef()
     },
-    createDraftStream: () => createLocalWebDraftStream(),
     formatMarkdown: (md) => md,
     formatRichSnippet: (html) =>
       html
@@ -221,13 +160,7 @@ export function createLocalWebAdapter(): ChannelAdapter {
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&'),
-    formatDraft: (parts) => formatDraftParts(parts),
     formatFinal: (parts) => formatFinalParts(parts),
-    formatImgGenPhase: (input) => {
-      const { presetName, state, step } = input
-      if (state === 'generating') return step ? `Generating: ${step}` : 'Generating…'
-      return `${presetName} — ${state}`
-    },
     formatItalic: (t) => t,
     escapeInline: (t) => t,
   }

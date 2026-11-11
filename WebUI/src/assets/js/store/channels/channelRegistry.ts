@@ -62,10 +62,6 @@ export type ChannelCapabilities = {
    *  Telegram (long-poll) and Slack (Socket Mode) qualify; future SSE/webhook
    *  channels would be `false`. Drives wording in the toggle UI. */
   socketModeOnly: boolean
-  /** Adapter implements `createDraftStream` (animated streaming preview).
-   *  False channels still render the final message but skip the streaming
-   *  intermediate updates. */
-  supportsDraftStream: boolean
   /** Adapter implements typing indicators (Telegram chat actions, Slack
    *  reactions). False channels treat `startTypingHeartbeat` as a no-op. */
   supportsTyping: boolean
@@ -141,7 +137,6 @@ export const CHANNELS: ChannelDescriptor[] = [
     identityHelp: 'Browsers on your LAN sign in with the password you set here.',
     capabilities: {
       socketModeOnly: false,
-      supportsDraftStream: true,
       supportsTyping: true,
       supportsKeyboard: true,
     },
@@ -158,7 +153,6 @@ export const CHANNELS: ChannelDescriptor[] = [
       'The Telegram chat AI Playground talks to. It only answers messages from this chat.',
     capabilities: {
       socketModeOnly: false,
-      supportsDraftStream: true,
       supportsTyping: true,
       supportsKeyboard: true,
     },
@@ -175,7 +169,6 @@ export const CHANNELS: ChannelDescriptor[] = [
       'Your Slack member ID. AI Playground only replies to direct messages from this account.',
     capabilities: {
       socketModeOnly: true,
-      supportsDraftStream: true,
       supportsTyping: true,
       supportsKeyboard: true,
     },

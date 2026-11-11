@@ -135,32 +135,3 @@ export type ChannelSendResult = {
   ref?: ChannelMessageRef
   error?: string
 }
-
-/** Bag of formatted message fragments the adapter assembles into a final
- *  channel-native draft / final string. Lets the store stay channel-agnostic
- *  while still describing rich structure (reasoning, text, tool markers). */
-export type DraftParts = {
-  reasoning?: { text: string }[]
-  text?: string[]
-  toolMarkers?: {
-    phase: '🎨' | '✅'
-    verb: 'Generating' | 'Generated'
-    workflow?: string
-    prompt?: string
-  }[]
-}
-
-export type FinalParts = DraftParts & {
-  reasoningElapsedMs?: number
-}
-
-/** Image-generation phase passed from the store into `formatImgGenPhase`.
- *  Adapters decide whether to render with HTML, mrkdwn, or plain text. */
-export type ImgGenPhase =
-  | { kind: 'install_workflow_components' }
-  | { kind: 'load_workflow_components' }
-  | { kind: 'load_model' }
-  | { kind: 'load_model_components' }
-  | { kind: 'generating'; step?: string }
-  | { kind: 'image_out' }
-  | { kind: 'preparing'; presetName: string }

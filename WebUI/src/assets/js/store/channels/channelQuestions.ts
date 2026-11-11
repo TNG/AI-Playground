@@ -29,8 +29,6 @@ export type ChannelQuestionAsk = {
   typedReply?: boolean
   /** Declines after this long; omitted means the question stays open until settled. */
   timeoutMs?: number
-  /** Runs before the buttons are sent (freezes a streaming draft above the prompt). */
-  beforeSend?: () => Promise<void>
   /** Button texts and the notes a tap leaves; English when omitted. */
   labels?: ChannelQuestionLabels
 }
@@ -180,11 +178,6 @@ export function createChannelQuestionRegistry(deps?: {
         ],
       ]
       ;(async () => {
-        try {
-          await question.beforeSend?.()
-        } catch (e) {
-          log('channelQuestions: beforeSend failed:', e)
-        }
         try {
           const res = await adapter.keyboard(adapter.formatMarkdown(summaryMarkdown), buttons, meta)
           // The question may be settled before the send round-trips.

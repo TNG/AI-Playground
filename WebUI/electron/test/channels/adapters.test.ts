@@ -50,19 +50,6 @@ describe('channel adapters', () => {
     expect(slack.escapeInline('<safe>')).not.toContain('<')
   })
 
-  it('emit channel-native draft text', () => {
-    const parts: RawPart[] = [
-      { type: 'reasoning', text: 'thinking…' },
-      { type: 'text', text: '**bold**' },
-    ]
-    const tg = telegram.formatDraft(parts)
-    const sl = slack.formatDraft(parts)
-    expect(tg).toContain('<blockquote>')
-    expect(sl).not.toContain('<blockquote>')
-    // Slack reasoning is quoted with `> 💭`
-    expect(sl).toContain('> 💭')
-  })
-
   it('local web stops the typing indicator when the turn ends', async () => {
     // Regression: the disposer was a no-op, so a turn that produced no output left
     // the browser showing the typing dots for good.
@@ -116,7 +103,7 @@ describe('channel adapters', () => {
     ])
   })
 
-  it('local web renders the image preset + prompt (draft and final)', () => {
+  it('local web renders the image preset + prompt', () => {
     // Regression: the generic tool marker skips image tools (Telegram renders
     // them specially), so without a dedicated image renderer the browser only
     // got the finished photo — never the "Generating using preset … <prompt>"
@@ -128,11 +115,6 @@ describe('channel adapters', () => {
         input: { workflow: 'Line Art', prompt: 'a friendly lizard on a surfboard' },
       },
     ]
-    const draft = localWeb.formatDraft(parts)
-    expect(draft).toContain('Line Art')
-    expect(draft).toContain('a friendly lizard on a surfboard')
-    expect(draft).toContain('Generating')
-
     const doneParts: RawPart[] = [{ ...parts[0], state: 'output-available' }]
     const final = localWeb.formatFinal(doneParts)
     expect(final).toContain('Line Art')
@@ -182,23 +164,5 @@ describe('channel adapters', () => {
       'update',
       expect.objectContaining({ channel: 'C1', ts: '111.222', text: '✅ Confirmed.' }),
     )
-  })
-
-  it('formatImgGenPhase reports the same lifecycle stages', () => {
-    const tg = telegram.formatImgGenPhase({
-      presetName: 'foo',
-      state: 'generating',
-      step: 'step 1 of 4',
-    })
-    const sl = slack.formatImgGenPhase({
-      presetName: 'foo',
-      state: 'generating',
-      step: 'step 1 of 4',
-    })
-    expect(tg).toContain('✨')
-    expect(sl).toContain('✨')
-    // Telegram escapes HTML, Slack leaves it raw.
-    expect(tg).toContain('step 1 of 4')
-    expect(sl).toContain('step 1 of 4')
   })
 })

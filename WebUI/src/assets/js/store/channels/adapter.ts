@@ -12,16 +12,6 @@ import type {
   KeyboardButton,
 } from './types'
 
-/** Streaming-update handle the store uses to animate in-flight assistant
- *  output. Each adapter implements draft streams in its native idiom:
- *  Telegram → sendMessageDraft; Slack → chat.postMessage + chat.update. */
-export type DraftStream = {
-  update: (text: string) => void
-  /** Persist the final text and dispose the stream. */
-  finalize: (finalText: string) => Promise<void>
-  cancel: () => void
-}
-
 /** AI SDK message-part shape we receive from `chatStore.getMessagesForKey`.
  *  Promoted here (out of the store) so adapters can render them without
  *  redeclaring the shape per file. */
@@ -39,16 +29,6 @@ export type RawPart = {
     dataUri?: string
   }
   providerMetadata?: { aipg?: { reasoningStarted?: number; reasoningFinished?: number } }
-}
-
-/** Image-generation lifecycle state passed into `formatImgGenPhase`. The
- *  adapter decides how to render this — Telegram uses HTML italics, Slack
- *  uses `_underscores_` and `mrkdwn`. Adapter does not look at the imageGen
- *  store directly, keeping it free of cross-cutting deps. */
-export type ImgGenPhaseInput = {
-  presetName: string
-  state: string
-  step?: string
 }
 
 /** Channel-agnostic adapter surface — see telegramAdapter.ts / slackAdapter.ts
@@ -105,7 +85,6 @@ export type ChannelAdapter = {
   /** Returns a stop function — idempotent. Telegram refreshes a chat action
    *  every 4 s; Slack adds / removes a reaction on the inbound message. */
   startTypingHeartbeat: (action: string, meta?: InboundMeta) => () => void
-  createDraftStream: (meta?: InboundMeta) => DraftStream
   /** Replay a conversation's full message transcript to the channel surface.
    *  Only channels with no persistent history of their own implement this — the
    *  LAN web page starts blank on every (re)connect, so loading a chat has to
@@ -127,13 +106,9 @@ export type ChannelAdapter = {
   /** Convert one of our hand-authored HTML snippets (HELP_MESSAGE, banners)
    *  to channel-native rich text. Telegram returns the snippet as-is. */
   formatRichSnippet: (htmlSnippet: string) => string
-  /** Render the streaming preview from a list of AI SDK message parts. */
-  formatDraft: (parts: RawPart[]) => string
   /** Render the persisted final reply from a list of AI SDK message parts.
    *  Adapters add coalesced reasoning blocks, tool markers, etc. */
   formatFinal: (parts: RawPart[]) => string
-  /** Render the live image-gen phase preview (driven on a 500 ms interval). */
-  formatImgGenPhase: (input: ImgGenPhaseInput) => string
   /** Render an emphasized fragment (`<i>...</i>` for Telegram, `_..._` for
    *  Slack, etc.) given a safe-text body — used by handlers when assembling
    *  short status snippets without going through full markdown.

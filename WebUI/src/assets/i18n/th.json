@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ ไม่มีเอเจนต์ \"{name}\" ที่เริ่มจากที่นี่ได้",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ “{name}” ไม่ได้เริ่มใน {title}: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "แก้ไขปัญหานี้ใน AI Playground บนคอมพิวเตอร์ของคุณ",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ “{name}” หยุดก่อนขั้นตอนที่ {step} ใน {title}: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ เริ่ม “{name}” ใน {title} แล้ว",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} ต้องดาวน์โหลดโมเดลหนึ่งรายการก่อนจึงจะดำเนินการต่อได้:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} ต้องดาวน์โหลดโมเดล {count} รายการก่อนจึงจะดำเนินการต่อได้:",

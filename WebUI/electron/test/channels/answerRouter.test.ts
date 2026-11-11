@@ -7,6 +7,7 @@ import {
   type SessionChange,
   type VoicePreparation,
   type AgentStartResult,
+  type AgentRunRefusal,
   type ChannelSessionPointers,
   type ChannelTranscriptMessage,
 } from '../../../src/assets/js/store/channels/answerRouter'
@@ -121,6 +122,7 @@ function fakeSessions(
   const tellListeners = (sessionRef: string, change: SessionChange) => {
     for (const listener of [...listeners]) listener(sessionRef, change)
   }
+  const refusalListeners = new Set<(sessionRef: string, refusal: AgentRunRefusal) => void>()
   /** Files attached, by the Harness Session or Session they went to. */
   const attached: { to: string; kind: string; filename: string }[] = []
   const attaching = { fails: false }
@@ -224,6 +226,17 @@ function fakeSessions(
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    onAgentRunRefused: (listener) => {
+      refusalListeners.add(listener)
+      return () => refusalListeners.delete(listener)
+    },
+  }
+  /** The window refused a later Step of the Session's Agent Run, ending it. */
+  const refuseStep = async (sessionRef: string, refusal: AgentRunRefusal) => {
+    delete activities[sessionRef]
+    for (const listener of [...refusalListeners]) listener(sessionRef, refusal)
+    tellListeners(sessionRef, 'settled')
+    await flush()
   }
   /**
    * The Session runs a turn, or an Agent Run, that later messages wait for; from then on each
@@ -260,6 +273,7 @@ function fakeSessions(
     startable,
     agentStarts,
     agentStart,
+    refuseStep,
   }
 }
 
@@ -1433,6 +1447,27 @@ describe('/agents', () => {
       '⚠️ “Daily digest” did not start in "Trip planning": The MCP server "files" is not configured.\n' +
         'Fix this in AI Playground on your computer.',
     ])
+  })
+
+  it('tells the starting Channel when the window refuses a later Step of the run', async () => {
+    const { router, refuseStep } = agents()
+    const ch = fakeChannel('telegram')
+    const other = fakeChannel('slack')
+    await router.route(ch.adapter, { text: '/agents Daily digest', replyTarget: '42' })
+    await router.route(other.adapter, { text: '/help' })
+    other.replies.length = 0
+
+    await refuseStep(TRIP, {
+      origin: { channel: 'telegram', replyTo: '42' },
+      name: 'Daily digest',
+      step: 2,
+      reason: 'The workspace folder is missing: /work/trip',
+    })
+
+    expect(ch.replies).toEqual([
+      '⚠️ “Daily digest” stopped before Step 2 in "Trip planning": The workspace folder is missing: /work/trip',
+    ])
+    expect(other.replies).toEqual([])
   })
 
   describe('in a busy Session', () => {

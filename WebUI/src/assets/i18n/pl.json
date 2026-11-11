@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ Żadnego agenta „{name}” nie można uruchomić stąd.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ „{name}” nie uruchomił się w {title}: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "Napraw to w AI Playground na komputerze.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ „{name}” zatrzymał się przed krokiem {step} w {title}: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ Uruchomiono „{name}” w {title}.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} musi pobrać model, zanim będzie mogło kontynuować:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} musi pobrać modele (liczba: {count}), zanim będzie mogło kontynuować:",

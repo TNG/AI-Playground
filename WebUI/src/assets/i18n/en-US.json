@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ No agent \"{name}\" can be started from here.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ “{name}” did not start in {title}: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "Fix this in AI Playground on your computer.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ “{name}” stopped before Step {step} in {title}: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ Started “{name}” in {title}.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} needs to download a model before it can continue:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} needs to download {count} models before it can continue:",

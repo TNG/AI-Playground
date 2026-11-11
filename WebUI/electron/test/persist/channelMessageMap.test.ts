@@ -117,6 +117,7 @@ describe('the channel message map', () => {
         activity: () => ({ kind: 'idle' }),
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},
+        onAgentRunRefused: () => () => {},
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
       pointers: { get: () => null, set: () => {} },

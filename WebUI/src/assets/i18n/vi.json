@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ Không có tác tử \"{name}\" nào có thể khởi chạy từ đây.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ “{name}” chưa được khởi chạy trong {title}: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "Hãy khắc phục điều này trong AI Playground trên máy tính.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ “{name}” đã dừng trước Bước {step} trong {title}: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ Đã khởi chạy “{name}” trong {title}.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} cần tải xuống một mô hình trước khi có thể tiếp tục:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} cần tải xuống {count} mô hình trước khi có thể tiếp tục:",

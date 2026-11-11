@@ -10,6 +10,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionSummary } from '@/types/sessionIpc'
 import type { RunProgress } from '@/lib/turnTypes'
+import type { AgentRunRefusal } from './channels/answerRouter'
 import type {
   AgentDraft,
   AgentSessionSchedule,
@@ -526,6 +527,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function onAgentDeleted(listener: (agentId: string) => Promise<void>): void {
     agentDeletedListeners.add(listener)
+  }
+
+  const channelRunRefusedListeners = new Set<
+    (sessionRef: string, refusal: AgentRunRefusal) => void
+  >()
+
+  /** Hear a Channel-started run's later Step refused here, which main never sees; returns the unsubscribe. */
+  function onChannelRunRefused(
+    listener: (sessionRef: string, refusal: AgentRunRefusal) => void,
+  ): () => void {
+    channelRunRefusedListeners.add(listener)
+    return () => channelRunRefusedListeners.delete(listener)
   }
 
   /** Removes its Schedules in every Session, keeping its runs; refused while it runs. */
@@ -1243,8 +1256,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         stepCount: plan.steps.length,
       },
     }
-    void sendStep(sessionId, 1)
-    return null
+    if (!origin) {
+      void sendStep(sessionId, 1)
+      return null
+    }
+    // The Channel hears a refused first Step as the start's own refusal.
+    return sendStep(sessionId, 1)
   }
 
   /** A Session runs one turn at a time: a Step due while it has one in flight waits for it. */
@@ -1257,7 +1274,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     () => {
       for (const run of Object.values(runs.value)) {
         if (run.waiting && !sessionBusy(run.sessionRef)) {
-          void sendStep(run.sessionId, run.stepIndex)
+          void sendLaterStep(run.sessionId, run.stepIndex)
         }
       }
     },
@@ -1354,10 +1371,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
   })
 
-  async function sendStep(sessionId: string, stepIndex: number): Promise<void> {
+  /** Sends the Step unless it has to wait; returns why the window refused it, or null. */
+  async function sendStep(sessionId: string, stepIndex: number): Promise<string | null> {
     const run = runs.value[sessionId]
     const context = runContexts[sessionId]
-    if (!run || !context) return
+    if (!run || !context) return null
     const { plan, abort } = context
     const waiting = sessionBusy(run.sessionRef)
     const { waiting: _wasWaiting, ...rest } = run
@@ -1372,7 +1390,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       stepCount: run.stepCount,
       ...(context.scheduled ? { scheduled: true } : {}),
     })
-    if (waiting) return
+    if (waiting) return null
+    let refusal: string | null = null
     await sendRunStep(
       agentMode,
       {
@@ -1386,8 +1405,22 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         ...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
         ...(context.origin ? { origin: context.origin } : {}),
       },
-      (message) => settleRun(sessionId, { kind: 'failed', stepIndex, message }),
+      (message) => {
+        refusal = message
+        return settleRun(sessionId, { kind: 'failed', stepIndex, message })
+      },
     )
+    return refusal
+  }
+
+  /** A Step after the run's start; a Channel-started run's refusal goes to its Channel. */
+  async function sendLaterStep(sessionId: string, stepIndex: number): Promise<void> {
+    const run = runs.value[sessionId]
+    const context = runContexts[sessionId]
+    const reason = await sendStep(sessionId, stepIndex)
+    if (reason === null || !run || !context?.origin) return
+    const refusal = { origin: context.origin, name: context.plan.name, step: stepIndex, reason }
+    for (const listener of [...channelRunRefusedListeners]) listener(run.sessionRef, refusal)
   }
 
   function markRunInFlight(taskId: string, activeRun: AgentTaskActiveRun): void {
@@ -1465,7 +1498,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!run) return
     const { stepIndex } = run
     const next = afterStepTurn(outcome, stepIndex, run.stepCount)
-    if (next.kind === 'step') void sendStep(sessionId, next.stepIndex)
+    if (next.kind === 'step') void sendLaterStep(sessionId, next.stepIndex)
     else if (next.kind === 'completed') void settleRun(sessionId, { kind: 'completed' })
     else if (next.kind === 'failed')
       void settleRun(sessionId, { kind: 'failed', stepIndex, message: next.message })
@@ -1607,6 +1640,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     chatModelRefusal,
     contributeInFlightWork,
     onAgentDeleted,
+    onChannelRunRefused,
     runsInFlight,
     scheduledSessions,
     scheduledSessionCount,

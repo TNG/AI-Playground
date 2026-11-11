@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ ここから開始できるエージェント「{name}」はありません。",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ 「{name}」は {title} で開始されませんでした: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "コンピューターの AI Playground で修正してください。",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ 「{name}」は {title} でステップ {step} の前に停止しました: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ {title} で「{name}」を開始しました。",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} を続行するには、モデルを 1 つダウンロードする必要があります:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} を続行するには、{count} 個のモデルをダウンロードする必要があります:",

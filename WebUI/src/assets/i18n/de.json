@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ Kein Agent „{name}“ kann von hier gestartet werden.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ „{name}“ wurde in {title} nicht gestartet: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "Behebe das in AI Playground an deinem Computer.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ „{name}“ wurde in {title} vor Schritt {step} beendet: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ „{name}“ in {title} gestartet.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} muss ein Modell herunterladen, bevor es weitergehen kann:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} muss {count} Modelle herunterladen, bevor es weitergehen kann:",

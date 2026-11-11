@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ Buradan başlatılabilecek \"{name}\" adlı bir ajan yok.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ “{name}”, {title} içinde başlatılamadı: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "Bunu bilgisayarınızdaki AI Playground’da düzeltin.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ “{name}”, {title} içinde {step}. adımdan önce durdu: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ “{name}”, {title} içinde başlatıldı.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} devam edebilmek için bir model indirmeli:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} devam edebilmek için {count} model indirmeli:",

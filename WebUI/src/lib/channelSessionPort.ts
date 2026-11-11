@@ -231,5 +231,6 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       changeListeners.add(listener)
       return () => changeListeners.delete(listener)
     },
+    onAgentRunRefused: (listener) => agentTasks.onChannelRunRefused(listener),
   })
 }

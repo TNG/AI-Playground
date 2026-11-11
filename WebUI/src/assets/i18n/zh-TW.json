@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ 沒有可從這裡啟動的代理程式「{name}」。",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ 「{name}」未在 {title} 中啟動：{reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "請在電腦上的 AI Playground 中解決此問題。",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ 「{name}」在 {title} 中於第 {step} 步之前停止：{reason}",
   "CHANNEL_AGENT_STARTED": "▶️ 已在 {title} 中啟動「{name}」。",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} 需要下載 1 個模型才能繼續：",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} 需要下載 {count} 個模型才能繼續：",

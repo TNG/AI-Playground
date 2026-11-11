@@ -932,6 +932,60 @@ describe('a run that fails', () => {
   })
 })
 
+describe('a run a Channel started whose Step is refused in this window', () => {
+  const ORIGIN = { channel: 'telegram' as const, replyTo: 'msg-9' }
+  const startable = (prompts: string[]) => task('t1', prompts, { startableFromChannel: true })
+
+  it('answers the start with the refusal when its first Step is refused', async () => {
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+    const { tasks } = await readyStores(startable(['one']))
+
+    const result = await tasks.startFromChannel('t1', SESSION, ORIGIN)
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'not-started',
+      message: expect.stringContaining('/work/task'),
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('tells the starting Channel when a later Step is refused', async () => {
+    const { tasks } = await readyStores(startable(['one', 'two']))
+    const refusals: unknown[] = []
+    tasks.onChannelRunRefused((sessionRef, refusal) => refusals.push({ sessionRef, ...refusal }))
+    expect(await tasks.startFromChannel('t1', SESSION, ORIGIN)).toEqual({ ok: true })
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+
+    await finishTurn(0)
+
+    await vi.waitFor(() =>
+      expect(refusals).toEqual([
+        {
+          sessionRef: SESSION,
+          origin: ORIGIN,
+          name: 'Task t1',
+          step: 2,
+          reason: expect.stringContaining('/work/task'),
+        },
+      ]),
+    )
+  })
+
+  it('tells no Channel about a refused Step of a run started on the computer', async () => {
+    const { tasks } = await readyStores(startable(['one', 'two']))
+    const refusals: unknown[] = []
+    tasks.onChannelRunRefused((sessionRef, refusal) => refusals.push({ sessionRef, ...refusal }))
+    await tasks.runTask('t1')
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+
+    expect(refusals).toEqual([])
+  })
+})
+
 describe('a Task whose Settings Template has a problem', () => {
   const missingModel = { field: 'model', value: 'Template-27B' }
 

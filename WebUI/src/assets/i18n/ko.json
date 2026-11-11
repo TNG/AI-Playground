@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ 여기서 시작할 수 있는 에이전트 \"{name}\"이(가) 없습니다.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ {title}에서 “{name}”을(를) 시작하지 못했습니다: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "컴퓨터의 AI Playground에서 해결하세요.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ {title}에서 “{name}”이(가) {step}단계 전에 중지되었습니다: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ {title}에서 “{name}”을(를) 시작했습니다.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label}을(를) 계속하려면 모델 1개를 다운로드해야 합니다:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label}을(를) 계속하려면 모델 {count}개를 다운로드해야 합니다:",

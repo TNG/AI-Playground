@@ -37,6 +37,14 @@ export type SessionSendResult =
 /** How starting an Agent Run went; a busy Session takes the start once its turn ends. */
 export type AgentStartResult = { ok: true } | { ok: false; reason: string; message: string }
 
+/** A later Step of a Channel-started Agent Run that the window refused to send, ending the run. */
+export type AgentRunRefusal = {
+  origin: AgentAnswerOrigin
+  name: string
+  step: number
+  reason: string
+}
+
 /** An Agent marked "Can be started from a Channel". */
 export type StartableAgent = { agentId: string; name: string }
 
@@ -112,6 +120,10 @@ export type SessionPort = {
   stop: (sessionRef: string) => Promise<SessionActivity>
   /** Hear each Session settle, become unreachable or be deleted; returns the unsubscribe. */
   onSessionChange: (listener: (sessionRef: string, change: SessionChange) => void) => () => void
+  /** Hear a Channel-started run's later Step refused by the window; returns the unsubscribe. */
+  onAgentRunRefused: (
+    listener: (sessionRef: string, refusal: AgentRunRefusal) => void,
+  ) => () => void
 }
 
 /**
@@ -190,6 +202,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const draining = new Set<string>()
   // Per Channel: its messages behind a voice message whose speech model downloads, in order.
   const waitingForSpeech = new Map<ChannelKind, Promise<void>>()
+  // Per Session: where its Agent Run was started from a Channel, for a refused Step to be told.
+  const agentRunStarts = new Map<string, { adapter: ChannelAdapter; meta?: InboundMeta }>()
   let unsubscribe: (() => void) | null = null
   let subscribedTo: SessionPort | null = null
 
@@ -197,10 +211,34 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (subscribedTo === sessions) return
     unsubscribe?.()
     subscribedTo = sessions
-    unsubscribe = sessions.onSessionChange((sessionRef, change) => {
+    const stopChanges = sessions.onSessionChange((sessionRef, change) => {
       if (change === 'settled') void drain(sessions, sessionRef)
       else void dropQueue(sessions, sessionRef, change)
     })
+    const stopRefusals = sessions.onAgentRunRefused((sessionRef, refusal) => {
+      void tellRunRefused(sessions, sessionRef, refusal)
+    })
+    unsubscribe = () => {
+      stopChanges()
+      stopRefusals()
+    }
+  }
+
+  async function tellRunRefused(
+    sessions: SessionPort,
+    sessionRef: string,
+    refusal: AgentRunRefusal,
+  ): Promise<void> {
+    const started = agentRunStarts.get(sessionRef)
+    if (!started || started.adapter.kind !== refusal.origin.channel) return
+    agentRunStarts.delete(sessionRef)
+    const text = fillTemplate(copy().agentStepRefused, {
+      name: refusal.name,
+      step: refusal.step,
+      title: sessions.label({ sessionRef }),
+      reason: refusal.reason,
+    })
+    await tell(started.adapter, text, started.meta)
   }
 
   async function send(
@@ -277,6 +315,9 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if ('agent' in entry) {
       const result = await startAgent(sessions, entry.target.sessionRef, entry.agent, entry.origin)
       if (!result.ok && isBusy(result.reason)) return true
+      if (result.ok) {
+        agentRunStarts.set(entry.target.sessionRef, { adapter: entry.adapter, meta: entry.meta })
+      }
       await confirmStart(sessions, entry, result)
       return false
     }

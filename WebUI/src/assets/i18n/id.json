@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ Tidak ada agen \"{name}\" yang dapat dimulai dari sini.",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ “{name}” tidak dimulai di {title}: {reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "Perbaiki ini di AI Playground pada komputer Anda.",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ “{name}” berhenti sebelum Langkah {step} di {title}: {reason}",
   "CHANNEL_AGENT_STARTED": "▶️ “{name}” dimulai di {title}.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} perlu mengunduh sebuah model sebelum dapat melanjutkan:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} perlu mengunduh {count} model sebelum dapat melanjutkan:",

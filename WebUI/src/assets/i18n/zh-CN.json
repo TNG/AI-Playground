@@ -947,6 +947,7 @@
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ 没有可从这里启动的智能体“{name}”。",
   "CHANNEL_AGENT_NOT_STARTED": "⚠️ “{name}”未在 {title} 中启动：{reason}",
   "CHANNEL_AGENT_FIX_ON_DESKTOP": "请在电脑上的 AI Playground 中解决此问题。",
+  "CHANNEL_AGENT_STEP_REFUSED": "⚠️ “{name}”在 {title} 中于第 {step} 步之前停止：{reason}",
   "CHANNEL_AGENT_STARTED": "▶️ 已在 {title} 中启动“{name}”。",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} 需要下载 1 个模型才能继续：",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} 需要下载 {count} 个模型才能继续：",

@@ -92,6 +92,8 @@ export type AnswerRouterCopy = {
   agentNotStarted: string
   /** Follows `agentNotStarted` when the reason can only be fixed on the computer. */
   agentFixOnDesktop: string
+  /** `{name}` (the Agent), `{step}`, `{title}` (a quoted Session title), `{reason}` */
+  agentStepRefused: string
   /** `{command}` */
   unknownCommand: string
   untitled: string
@@ -157,6 +159,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   agentNotFound: 'CHANNEL_AGENT_NOT_FOUND',
   agentNotStarted: 'CHANNEL_AGENT_NOT_STARTED',
   agentFixOnDesktop: 'CHANNEL_AGENT_FIX_ON_DESKTOP',
+  agentStepRefused: 'CHANNEL_AGENT_STEP_REFUSED',
   unknownCommand: 'CHANNEL_UNKNOWN_COMMAND',
   untitled: 'SESSIONS_UNTITLED',
 }

@@ -87,14 +87,6 @@ COMMAND_CALLBACKS: dict[str, str | None] = {
 }
 
 
-def command_for_callback(data: str) -> str | None:
-    """The command a tapped router button stands for; None for any other button."""
-    for prefix, command in COMMAND_CALLBACKS.items():
-        if command is not None and data.startswith(prefix):
-            return f"{command} {data[len(prefix) :]}".strip()
-    return None
-
-
 def forwarded_callback(data: str) -> dict[str, str] | None:
     """The queue item fields for a tapped router button; None for any other button."""
     for prefix, command in COMMAND_CALLBACKS.items():

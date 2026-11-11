@@ -36,6 +36,11 @@ import { usePermissionGrants } from './assets/js/store/permissionGrants'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
 import { startNotificationConfigPush } from './lib/notificationConfigPush'
 import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
+import {
+  LEGACY_HOME_AGENT_STORAGE_KEY,
+  migrateHomeAgentThreads,
+} from './lib/homeAgentThreadMigration'
+import { demoAwareStorage } from './assets/js/demoAwareStorage'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
@@ -146,6 +151,16 @@ await Promise.all([
 
 // Needs both the agent store's persisted defaults and the hydrated Default Settings.
 useAgentMode().adoptDefaultCapabilities()
+
+// Once Default Settings and the Channel pointers have hydrated: a migrated Session takes the
+// defaults, and the pointers' live copy takes the Channel Session main set.
+await migrateHomeAgentThreads({
+  storedHomeAgentState: () => demoAwareStorage.getItem(LEGACY_HOME_AGENT_STORAGE_KEY),
+  defaultCapabilities: () => useAgentMode().agentDefaults().capabilities,
+  migrate: (input) => window.electronAPI.sessions.migrateHomeAgentThreads(input),
+  setChannelSession: (kind, sessionRef) => useChannelSessionPointers().set(kind, sessionRef),
+  report: (error) => errors.report(error),
+})
 
 // Binds every other preset's settings to the open Session once the Default Settings
 // they copy from have hydrated (ADR-0004).

@@ -268,6 +268,17 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, boolean, { defaultCapabilities?: string[] }?],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
+  /**
+   * One-shot upgrade: Home Agent threads become Reachable Sessions in a "Home Agent" Group, and
+   * the thread `routingKey` names becomes every Channel's Channel Session (`channelSession`, null
+   * when none was set or the migration already ran).
+   */
+  'sessions:migrateHomeAgentThreads': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [{ routingKey: string | null; defaultCapabilities?: string[] }],
+    result: null as unknown as IpcOkWith<{ channelSession: string | null }>,
+  },
   /** The workspace folders the real system shell is on; a Reachable Session in one stops being reachable. */
   'sessions:setRealShellFolders': {
     kind: 'invoke',

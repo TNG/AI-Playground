@@ -282,6 +282,10 @@ import {
   setRealShellFolders,
   setSessionReachable,
 } from './session/sessionChannels'
+import {
+  migrateHomeAgentThreads,
+  setHomeAgentThreadMigrationDeps,
+} from './session/homeAgentThreadMigration'
 import { upsertTimelineMessages } from './session/sessionTimeline'
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
@@ -1369,6 +1373,7 @@ function wireConversations(settings: LocalSettings): void {
 /** Same demo discipline for Sessions (ADR-0003). */
 function wireSessions(settings: LocalSettings): void {
   setSessionDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  setHomeAgentThreadMigrationDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoSessions()
   cleanUpHarnessSessionsOnDelete(async (harnessSessionId) => {
     await deleteAgentSessionRecord(harnessSessionId)
@@ -1867,6 +1872,7 @@ function initEventHandle() {
       pinSession,
       setSessionReachable,
       setRealShellFolders,
+      migrateHomeAgentThreads,
       pickSessionAgent,
       listSessionGroups,
       createSessionGroup,

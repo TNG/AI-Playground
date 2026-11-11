@@ -38,6 +38,7 @@ import type {
 } from '../../session/sessionArtifacts'
 import type { harnessSessionFor } from '../../session/sessionHarness'
 import type { setRealShellFolders, setSessionReachable } from '../../session/sessionChannels'
+import type { migrateHomeAgentThreads } from '../../session/homeAgentThreadMigration'
 import type { taskRunHarnessFor } from '../../session/sessionTaskRuns'
 import type { upsertTimelineMessages } from '../../session/sessionTimeline'
 import type { ChatTranscriptMessage, saveChatTranscript } from '../../session/sessionChatTurn'
@@ -53,6 +54,7 @@ export type SessionsDeps = {
   pinSession: typeof pinSession
   setSessionReachable: typeof setSessionReachable
   setRealShellFolders: typeof setRealShellFolders
+  migrateHomeAgentThreads: typeof migrateHomeAgentThreads
   pickSessionAgent: typeof pickSessionAgent
   listSessionGroups: typeof listSessionGroups
   createSessionGroup: typeof createSessionGroup
@@ -162,6 +164,23 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
           ...(defaults ? { defaultCapabilities: defaults } : {}),
         })
         return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:migrateHomeAgentThreads': async (_event, input) => {
+      try {
+        const routingKey = input?.routingKey ?? null
+        if (routingKey !== null) requireString(routingKey, 'routing key')
+        const defaults = input?.defaultCapabilities
+        if (defaults !== undefined && !isStringArray(defaults)) {
+          throw new Error('default capabilities must be strings')
+        }
+        const { channelSession } = await deps.migrateHomeAgentThreads({
+          routingKey,
+          ...(defaults ? { defaultCapabilities: defaults } : {}),
+        })
+        return { success: true as const, channelSession }
       } catch (e) {
         return ipcFail(e)
       }

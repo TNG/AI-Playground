@@ -31,6 +31,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:open'
       | 'sessions:rename'
       | 'sessions:setReachable'
+      | 'sessions:migrateHomeAgentThreads'
       | 'sessions:setRealShellFolders'
       | 'sessions:pin'
       | 'sessions:pickAgent'

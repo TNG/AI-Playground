@@ -379,6 +379,7 @@ afterEach(async () => {
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
+const { useChannelQueue } = await import('@/assets/js/store/channelQueue')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -2061,7 +2062,7 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     await turnIdOf(0)
 
     const prompt = tasks.afterAgentRun(SESSION)
-    expect(tasks.queuedPrompts).toEqual({ [SESSION]: 'Task t1' })
+    expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'agent-run', name: 'Task t1' } })
 
     await finishTurn(0)
     await prompt
@@ -2146,6 +2147,30 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     expect(tasks.takeUnsentPrompt('session-2')).toBeUndefined()
     expect(tasks.takeUnsentPrompt(SESSION)).toBe('summarise the logs')
     expect(tasks.takeUnsentPrompt(SESSION)).toBeUndefined()
+  })
+
+  it('waits until the Channel messages queued in its Session have run', async () => {
+    const { tasks } = await readyStores()
+    const channelQueue = useChannelQueue(pinia)
+    channelQueue.publish(SESSION, [{ id: 'q1', channel: 'telegram', text: 'add Kyoto' }])
+
+    const prompt = track(tasks.afterAgentRun(SESSION))
+    expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'channel-messages' } })
+
+    channelQueue.publish(SESSION, [])
+    channelQueue.setSending(SESSION, true)
+    await settleMicrotasks()
+    expect(prompt.settled).toBe(false)
+
+    setSessionTurns({ [SESSION]: { turnId: 'from-telegram', kind: 'agent' } })
+    channelQueue.setSending(SESSION, false)
+    await settleMicrotasks()
+    expect(prompt.settled).toBe(false)
+
+    setSessionTurns({})
+
+    await vi.waitFor(() => expect(prompt).toEqual({ settled: true, value: true }))
+    expect(tasks.queuedPrompts).toEqual({})
   })
 
   it('knows the run in the Session and stops it from there, as the prompt bar does', async () => {

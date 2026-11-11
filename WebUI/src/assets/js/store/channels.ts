@@ -210,6 +210,7 @@ export const useChannels = defineStore(
       downloadQuestionChannels: () => notificationChannels.value,
       pointers: channelSessionPointers,
       publishQueue: (sessionRef, queued) => channelQueue.publish(sessionRef, queued),
+      publishSending: (sessionRef, sending) => channelQueue.setSending(sessionRef, sending),
       log: (message, error) => reportSilently(message, error),
     })
 

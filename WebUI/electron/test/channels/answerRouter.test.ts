@@ -347,6 +347,8 @@ function setup(
   // Where an agent's download question is asked: every enabled Channel.
   const downloads = { askedOn: ['telegram'] as ChannelKind[] }
   const published: Record<string, QueuedChannelMessage[]> = {}
+  /** Each Session's "a taken batch is being sent" flag, as the router reported it. */
+  const sending: Record<string, boolean> = {}
   const router = createAnswerRouter({
     sessions: () => fake.port,
     questions,
@@ -355,6 +357,9 @@ function setup(
     pointers: channelPointers.pointers,
     publishQueue: (sessionRef, queued) => {
       published[sessionRef] = queued
+    },
+    publishSending: (sessionRef, isSending) => {
+      sending[sessionRef] = isSending
     },
     log: () => {},
   })
@@ -367,6 +372,7 @@ function setup(
     voicePreparation,
     downloads,
     published,
+    sending,
     pointers: channelPointers.current,
   }
 }
@@ -962,6 +968,18 @@ describe('an Answer to a busy Session', () => {
     expect([...plain.map((p) => p.text), ...received.map((r) => r.text)]).toEqual([
       'and what about sound?\n\nmake it faster',
     ])
+  })
+
+  it('says it is being sent until its queued turn has gone, so a desktop prompt waits', async () => {
+    const seen: boolean[] = []
+    const fixture = setup({ asteroids: { label: 'Asteroids clone', duringSend: () => {} } })
+    fixture.sessions.asteroids.duringSend = () => seen.push(fixture.sending[ASTEROIDS])
+    fixture.busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await fixture.router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await fixture.settle(ASTEROIDS)
+    expect(seen).toEqual([true])
+    expect(fixture.sending[ASTEROIDS]).toBe(false)
   })
 
   it('says it is starting on Slack once its queued turn is sent', async () => {

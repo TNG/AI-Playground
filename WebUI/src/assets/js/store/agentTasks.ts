@@ -28,6 +28,7 @@ import {
   type TurnOutcome,
 } from './agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { useChannelQueue } from './channelQueue'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
@@ -57,6 +58,9 @@ import {
 } from '@/lib/sessionSettingsProblems'
 
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
+
+/** What a prompt sent from the prompt bar waits for in its Session. */
+export type HeldPrompt = { behind: 'agent-run'; name: string } | { behind: 'channel-messages' }
 
 /** How starting an Agent Run from a Channel went; a busy Session takes it once its turn ends. */
 export type ChannelStartResult =
@@ -203,6 +207,7 @@ const FRESH_SLOT_MS = SCHEDULE_TICK_MS + 60_000
 
 export const useAgentTasks = defineStore('agentTasks', () => {
   const agentMode = useAgentMode()
+  const channelQueue = useChannelQueue()
   const demoMode = useDemoMode()
   const errors = useErrors()
   const i18n = useI18N()
@@ -1296,8 +1301,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return { name, step: run.stepIndex, steps: run.stepCount }
   }
 
-  /** Each Session's prompt waiting for its Agent Run, by the Agent's name. Memory only. */
-  const queuedPrompts = ref<Record<string, string>>({})
+  /** Each Session's prompt waiting for its Agent Run or queued Channel messages. Memory only. */
+  const queuedPrompts = ref<Record<string, HeldPrompt>>({})
   const queuedHolds: Record<string, { release: (go: boolean) => void; prompt?: string }> = {}
   /** Held prompts whose Session was left before the run ended, for its prompt bar to take back. */
   const unsentPrompts: Record<string, string> = {}
@@ -1311,13 +1316,19 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     hold.release(go)
   }
 
-  /** Resolves once the Session's Agent Run and last turn are over (ADR-0005); false if unsent. */
+  /**
+   * Resolves once the Session's Agent Run (ADR-0005), the Channel messages queued in it and its
+   * last turn are over; false if unsent.
+   */
   function afterAgentRun(sessionRef: string | null, prompt?: string): Promise<boolean> {
     if (!sessionRef) return Promise.resolve(true)
     const run = agentRunIn(sessionRef)
-    if (!run) return Promise.resolve(true)
+    if (!run && !channelQueue.holdsPrompts(sessionRef)) return Promise.resolve(true)
     releaseQueuedPrompt(sessionRef, false)
-    queuedPrompts.value = { ...queuedPrompts.value, [sessionRef]: run.name }
+    const held: HeldPrompt = run
+      ? { behind: 'agent-run', name: run.name }
+      : { behind: 'channel-messages' }
+    queuedPrompts.value = { ...queuedPrompts.value, [sessionRef]: held }
     return new Promise((release) => (queuedHolds[sessionRef] = { release, prompt }))
   }
 
@@ -1343,15 +1354,23 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   )
 
   function handBackQueuedPrompt(sessionRef: string): void {
-    const name = queuedPrompts.value[sessionRef] ?? ''
+    const held = queuedPrompts.value[sessionRef]
     const prompt = queuedHolds[sessionRef]?.prompt
     if (prompt) unsentPrompts[sessionRef] = prompt
     releaseQueuedPrompt(sessionRef, false)
-    const template = prompt
-      ? (i18n.state.AGENT_RUN_QUEUED_PROMPT_RETURNED ??
-        'Not sent: you left the session before Agent Run “{name}” ended. Your prompt is back in that session’s prompt bar.')
-      : (i18n.state.AGENT_RUN_QUEUED_PROMPT_DROPPED ??
-        'Not sent: you left the session before Agent Run “{name}” ended.')
+    const template =
+      held?.behind === 'channel-messages'
+        ? prompt
+          ? (i18n.state.CHANNEL_QUEUED_PROMPT_RETURNED ??
+            'Not sent: you left the session before the Channel messages queued in it had run. Your prompt is back in that session’s prompt bar.')
+          : (i18n.state.CHANNEL_QUEUED_PROMPT_DROPPED ??
+            'Not sent: you left the session before the Channel messages queued in it had run.')
+        : prompt
+          ? (i18n.state.AGENT_RUN_QUEUED_PROMPT_RETURNED ??
+            'Not sent: you left the session before Agent Run “{name}” ended. Your prompt is back in that session’s prompt bar.')
+          : (i18n.state.AGENT_RUN_QUEUED_PROMPT_DROPPED ??
+            'Not sent: you left the session before Agent Run “{name}” ended.')
+    const name = held?.behind === 'agent-run' ? held.name : ''
     const userMessage = fillTemplate(template, { name })
     errors.report(
       createAppError({
@@ -1365,11 +1384,32 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     )
   }
 
-  watch([runs, () => sessionsStore.turns], () => {
-    for (const sessionRef of Object.keys(queuedHolds)) {
-      if (!agentRunIn(sessionRef) && !sessionBusy(sessionRef)) releaseQueuedPrompt(sessionRef, true)
-    }
-  })
+  /** A turn this window runs in the Session, which main's ledger may not show yet. */
+  function liveTurnIn(sessionRef: string): boolean {
+    return Object.values(agentMode.sessions).some(
+      (record) => record.sessionRef === sessionRef && !!agentMode.sessionTurns[record.id],
+    )
+  }
+
+  watch(
+    [
+      runs,
+      () => sessionsStore.turns,
+      () => agentMode.sessionTurns,
+      () => channelQueue.queued,
+      () => channelQueue.sending,
+    ],
+    () => {
+      for (const sessionRef of Object.keys(queuedHolds)) {
+        const free =
+          !agentRunIn(sessionRef) &&
+          !sessionBusy(sessionRef) &&
+          !channelQueue.holdsPrompts(sessionRef) &&
+          !liveTurnIn(sessionRef)
+        if (free) releaseQueuedPrompt(sessionRef, true)
+      }
+    },
+  )
 
   /** Sends the Step unless it has to wait; returns why the window refused it, or null. */
   async function sendStep(sessionId: string, stepIndex: number): Promise<string | null> {

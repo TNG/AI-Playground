@@ -10,10 +10,22 @@ import type { InFlightWorkItem } from '@/types/lifecycleIpc'
  */
 export const useChannelQueue = defineStore('channelQueue', () => {
   const queued = ref<Record<string, QueuedChannelMessage[]>>({})
+  /** Sessions whose next batch of queued messages the router is sending now. */
+  const sending = ref<Record<string, true>>({})
 
   function publish(sessionRef: string, messages: QueuedChannelMessage[]): void {
     const { [sessionRef]: _previous, ...rest } = queued.value
     queued.value = messages.length > 0 ? { ...rest, [sessionRef]: messages } : rest
+  }
+
+  function setSending(sessionRef: string, isSending: boolean): void {
+    const { [sessionRef]: _previous, ...rest } = sending.value
+    sending.value = isSending ? { ...rest, [sessionRef]: true } : rest
+  }
+
+  /** A prompt sent from the desktop waits behind the Session's queued Channel messages. */
+  function holdsPrompts(sessionRef: string): boolean {
+    return (queued.value[sessionRef]?.length ?? 0) > 0 || !!sending.value[sessionRef]
   }
 
   function queuedIn(sessionRef: string | null): QueuedChannelMessage[] {
@@ -33,7 +45,7 @@ export const useChannelQueue = defineStore('channelQueue', () => {
     }))
   })
 
-  return { queued, publish, queuedIn, inFlightWork }
+  return { queued, sending, publish, setSending, holdsPrompts, queuedIn, inFlightWork }
 })
 
 if (import.meta.hot) {

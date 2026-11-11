@@ -181,6 +181,8 @@ export type AnswerRouterDeps = {
   copy?: () => AnswerRouterCopy
   /** Each Session's queued messages as they change, for its timeline and In-flight Work. */
   publishQueue?: (sessionRef: string, queued: QueuedChannelMessage[]) => void
+  /** A Session's taken batch is being sent; a desktop prompt waits until it has gone. */
+  publishSending?: (sessionRef: string, sending: boolean) => void
   /** Where failures that reach no channel go: the window's error sink. */
   log: (message: string, error: unknown) => void
 }
@@ -395,11 +397,13 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const batch = queue.takeBatch(sessionRef)
       if (batch.length === 0) return
       draining.add(sessionRef)
+      deps.publishSending?.(sessionRef, true)
       try {
         const busy = await sendBatch(sessions, sessionRef, batch)
         if (busy) return
       } finally {
         draining.delete(sessionRef)
+        deps.publishSending?.(sessionRef, false)
       }
     }
   }

@@ -118,6 +118,8 @@ export type SessionPort = {
   ) => Promise<SessionSendResult>
   /** The Agents marked "Can be started from a Channel", in the Agent Library's order. */
   listStartableAgents: () => Promise<StartableAgent[]>
+  /** A saved Agent's name, startable from a Channel or not; null when there is no such Agent. */
+  agentName: (agentId: string) => string | null
   /**
    * Starts an Agent Run of the Agent in the Session on its Settings Template, with `prompt` as its
    * Start Prompt when given; the run's result is replied under `origin`.
@@ -560,6 +562,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const forSessions = channelSessions(sessions)
     return createChannelAgents({
       listStartable: () => sessions.listStartableAgents(),
+      agentName: (agentId) => sessions.agentName(agentId),
       channelSession: (adapter, meta) => forSessions.currentOrNew(adapter, meta),
       start: async (adapter, sessionRef, agent, origin, meta) => {
         await submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta })

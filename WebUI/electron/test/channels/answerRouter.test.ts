@@ -142,6 +142,8 @@ function fakeSessions(
   const attaching = { fails: false }
   /** The Agents marked "Can be started from a Channel". */
   const startable: { agentId: string; name: string }[] = []
+  /** Names of saved Agents beside the startable ones, by Agent id. */
+  const agentNames: Record<string, string> = {}
   const agentStarts: {
     sessionRef: string
     agentId: string
@@ -236,6 +238,8 @@ function fakeSessions(
       recordedRequests.push({ kind, ref })
     },
     listStartableAgents: async () => [...startable],
+    agentName: (agentId) =>
+      startable.find((agent) => agent.agentId === agentId)?.name ?? agentNames[agentId] ?? null,
     startAgent: async (sessionRef, agentId, origin, prompt) => {
       agentStarts.push({ sessionRef, agentId, origin, ...(prompt !== undefined ? { prompt } : {}) })
       const { result } = agentStart
@@ -302,6 +306,7 @@ function fakeSessions(
     attached,
     attaching,
     startable,
+    agentNames,
     agentStarts,
     agentStart,
     refuseStep,
@@ -1496,6 +1501,31 @@ describe('/agents', () => {
     expect(agentStarts.map((start) => start.agentId)).toEqual(['agent-tidy'])
   })
 
+  it('names a tapped Agent that can no longer be started, rather than its id', async () => {
+    const { router, startable, agentNames, agentStarts } = agents({ 'local-web': TRIP })
+    startable.splice(1, 1)
+    agentNames['agent-tidy'] = 'Tidy downloads'
+    const ch = fakeChannel('local-web')
+    await router.route(ch.adapter, { callback: 'runAgent:agent-tidy' })
+    expect(agentStarts).toEqual([])
+    expect(ch.keyboards).toEqual([
+      {
+        text: `⚠️ No agent "Tidy downloads" can be started from here.
+${PICK}`,
+        buttons: [BUTTONS[0]],
+      },
+    ])
+  })
+
+  it('names an Agent a platform turned a stale tap into /agents for', async () => {
+    const { router, startable, agentNames } = agents()
+    startable.splice(1, 1)
+    agentNames['agent-tidy'] = 'Tidy downloads'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/agents agent-tidy' })
+    expect(ch.keyboards[0].text).toContain('⚠️ No agent "Tidy downloads" can be started from here.')
+  })
+
   it('answers an unknown name with the Agents that exist', async () => {
     const { router, agentStarts } = agents()
     const ch = fakeChannel('telegram')
@@ -1698,13 +1728,34 @@ describe('/agents', () => {
       expect(agentStarts.map((start) => start.sessionRef)).toEqual(['session-new-1'])
     })
 
-    it('does not ask for an Agent that can no longer be started from a Channel', async () => {
+    it('does not ask for an Agent that can no longer be started from a Channel, naming it', async () => {
+      const { router, startable, agentNames } = prompted()
+      startable.splice(0, 1)
+      agentNames['agent-digest'] = 'Daily digest'
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks).toEqual([])
+      expect(ch.keyboards).toEqual([
+        {
+          text: `⚠️ No agent "Daily digest" can be started from here.
+${PICK}`,
+          buttons: [BUTTONS[1]],
+        },
+      ])
+    })
+
+    it('says a deleted Agent can no longer be started, never showing its id', async () => {
       const { router, startable } = prompted()
       startable.splice(0, 1)
       const ch = fakeChannel('telegram')
       await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
-      expect(ch.asks).toEqual([])
-      expect(ch.keyboards[0].text).toContain('⚠️ No agent "agent-digest" can be started from here.')
+      expect(ch.keyboards).toEqual([
+        {
+          text: `⚠️ This agent can no longer be started from a Channel.
+${PICK}`,
+          buttons: [BUTTONS[1]],
+        },
+      ])
     })
 
     it('keeps several requests open, each answered by its own reply', async () => {

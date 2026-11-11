@@ -132,6 +132,7 @@ describe('the channel message map', () => {
           return { ok: true, queuePosition: null }
         },
         listStartableAgents: async () => [],
+        agentName: () => null,
         startAgent: async () => ({ ok: false, reason: 'no-task', message: '' }),
         activity: () => ({ kind: 'idle' }),
         stop: async () => ({ kind: 'idle' }),

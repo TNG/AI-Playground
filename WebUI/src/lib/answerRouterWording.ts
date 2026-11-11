@@ -88,6 +88,8 @@ export type AnswerRouterCopy = {
   agentsNone: string
   /** `{name}`, what the user asked `/agents` for */
   agentNotFound: string
+  /** An Agent that can no longer be started from a Channel, its name unknown */
+  agentNotStartable: string
   /** `{name}` (the Agent), `{title}` (a quoted Session title), `{reason}` */
   agentNotStarted: string
   /** Follows `agentNotStarted` when the reason can only be fixed on the computer. */
@@ -173,6 +175,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   agentsPick: 'CHANNEL_AGENTS_PICK',
   agentsNone: 'CHANNEL_AGENTS_NONE',
   agentNotFound: 'CHANNEL_AGENT_NOT_FOUND',
+  agentNotStartable: 'AGENT_TASK_NOT_STARTABLE_FROM_CHANNEL',
   agentNotStarted: 'CHANNEL_AGENT_NOT_STARTED',
   agentFixOnDesktop: 'CHANNEL_AGENT_FIX_ON_DESKTOP',
   agentStepRefused: 'CHANNEL_AGENT_STEP_REFUSED',

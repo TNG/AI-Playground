@@ -92,9 +92,37 @@ export function inboundOrigin(kind: ChannelKind, msg: InboundChannelMessage): Ag
   }
 }
 
-export type AttachDeps = {
+/** A reply is answered in the thread it was sent in (Slack). */
+export function answerMeta(
+  msg: InboundChannelMessage,
+  meta?: InboundMeta,
+): InboundMeta | undefined {
+  return msg.replyTarget ? { ...meta, threadTs: msg.replyTarget } : meta
+}
+
+export type InboundDeps = {
   copy: () => AnswerRouterCopy
   tell: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
+}
+
+/** True when the Session a reply names takes it; else the Channel was told why. Null: deleted. */
+export async function replyReachable(
+  deps: InboundDeps,
+  port: SessionPort,
+  adapter: ChannelAdapter,
+  target: SessionTarget | null,
+  meta?: InboundMeta,
+): Promise<boolean> {
+  if (!target || !(await port.exists(target.sessionRef))) {
+    await deps.tell(adapter, deps.copy().noSession, meta)
+    return false
+  }
+  if (!(await port.isReachable(target.sessionRef))) {
+    const title = port.label(target)
+    await deps.tell(adapter, fillTemplate(deps.copy().unreachable, { title }), meta)
+    return false
+  }
+  return true
 }
 
 /**
@@ -102,7 +130,7 @@ export type AttachDeps = {
  * then the images it names), or null when no turn runs, the Channel told why.
  */
 export async function attachedPrompt(
-  deps: AttachDeps,
+  deps: InboundDeps,
   port: SessionPort,
   adapter: ChannelAdapter,
   target: SessionTarget,

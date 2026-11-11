@@ -9,7 +9,7 @@ import type {
   SessionTarget,
   StartableAgent,
 } from './answerRouter'
-import { inboundOrigin } from './channelInbound'
+import { answerMeta, inboundOrigin, replyReachable } from './channelInbound'
 import { replyRefOf, type StartPromptRequests } from './startPromptRequests'
 import type { InboundMeta } from './types'
 
@@ -91,7 +91,7 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
       return null
     })
     if (!found) return false
-    const replyMeta = msg.replyTarget ? { ...meta, threadTs: msg.replyTarget } : meta
+    const replyMeta = answerMeta(msg, meta)
     if (found.state === 'used') {
       await tell(adapter, copy().startPromptAlready, replyMeta)
       return true
@@ -106,15 +106,7 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
     }
     const { request } = found
     const target = { sessionRef: request.sessionRef }
-    if (!(await port.exists(target.sessionRef))) {
-      await tell(adapter, copy().noSession, replyMeta)
-      return true
-    }
-    if (!(await port.isReachable(target.sessionRef))) {
-      const title = port.label(target)
-      await tell(adapter, fillTemplate(copy().unreachable, { title }), replyMeta)
-      return true
-    }
+    if (!(await replyReachable({ copy, tell }, port, adapter, target, replyMeta))) return true
     const prompt = await deps.attach(adapter, target, msg, replyMeta)
     if (prompt === null) return true
     const origin = inboundOrigin(adapter.kind, msg)

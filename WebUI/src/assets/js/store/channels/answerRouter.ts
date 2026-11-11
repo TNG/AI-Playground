@@ -16,9 +16,11 @@ import type { ChannelAdapter, RawPart } from './adapter'
 import { helpText, parseCommand, type ChannelCommand } from './channelCommands'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
 import {
+  answerMeta,
   attachedPrompt,
   fileRefusal,
   inboundOrigin,
+  replyReachable,
   type AttachResult,
   type ChannelFile,
 } from './channelInbound'
@@ -522,17 +524,11 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ): Promise<void> {
-    if ('deletedSession' in owner || !(await sessions.exists(owner.sessionRef))) {
-      return tell(adapter, copy().noSession, meta)
-    }
-    const target: AnswerTarget = {
-      sessionRef: owner.sessionRef,
-      harnessSessionId: owner.harnessSessionId,
-    }
-    if (!(await sessions.isReachable(target.sessionRef))) {
-      const title = sessions.label(target)
-      return tell(adapter, fillTemplate(copy().unreachable, { title }), meta)
-    }
+    const target: AnswerTarget | null =
+      'deletedSession' in owner
+        ? null
+        : { sessionRef: owner.sessionRef, harnessSessionId: owner.harnessSessionId }
+    if (!(await replyReachable({ copy, tell }, sessions, adapter, target, meta)) || !target) return
     if (sessions.usesRealShell(target)) {
       const title = sessions.label(target)
       return tell(adapter, fillTemplate(copy().realShell, { title }), meta)
@@ -598,16 +594,9 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   ): Promise<string | null> {
     const owner = msg.replyTo ? await answeredSession(sessions, adapter.kind, msg.replyTo) : null
     if (owner) {
-      if ('deletedSession' in owner || !(await sessions.exists(owner.sessionRef))) {
-        await tell(adapter, copy().noSession, meta)
-        return null
-      }
-      if (!(await sessions.isReachable(owner.sessionRef))) {
-        const title = sessions.label({ sessionRef: owner.sessionRef })
-        await tell(adapter, fillTemplate(copy().unreachable, { title }), meta)
-        return null
-      }
-      return owner.sessionRef
+      const target = 'deletedSession' in owner ? null : { sessionRef: owner.sessionRef }
+      const reachable = await replyReachable({ copy, tell }, sessions, adapter, target, meta)
+      return reachable && target ? target.sessionRef : null
     }
     const current = await channelSessions(sessions).current(adapter, meta)
     if (!current) await tell(adapter, copy().stopNoSession, meta)
@@ -788,8 +777,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (msg.replyTo) {
       const owner = await answeredSession(sessions, adapter.kind, msg.replyTo)
       if (owner) {
-        const answerMeta = msg.replyTarget ? { ...meta, threadTs: msg.replyTarget } : meta
-        await deliver(adapter, sessions, owner, msg, answerMeta)
+        await deliver(adapter, sessions, owner, msg, answerMeta(msg, meta))
         return
       }
     }

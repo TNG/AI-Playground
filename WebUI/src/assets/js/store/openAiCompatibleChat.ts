@@ -751,6 +751,8 @@ export const useOpenAiCompatibleChat = defineStore(
         const turnExtras = await buildTurnExtras(targetKey, question, true)
         markPromptSent(targetKey, true)
         try {
+          // Stop during preparation: there is no request for chat.stop() to abort yet.
+          if (manuallyStopped.value) return
           await chat.sendMessage(
             {
               text: question,

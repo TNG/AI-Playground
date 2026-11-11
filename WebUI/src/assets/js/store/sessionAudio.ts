@@ -4,7 +4,7 @@ import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets } from '@/assets/js/store/presets'
 import { useSessions } from '@/assets/js/store/sessions'
-import { isCancellation } from '@/assets/js/errors/appError'
+import { createCancellation, isCancellation } from '@/assets/js/errors/appError'
 import {
   readyTranscriptionForInput,
   synthesizeClip,
@@ -42,6 +42,16 @@ function extensionOf(mediaType: string | undefined): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+// The speech engines take no abort signal, so Stop abandons the call rather than ending it.
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(createCancellation())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(createCancellation())
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
 }
 
 async function base64Of(blob: Blob): Promise<string> {
@@ -95,16 +105,26 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
       [sessionId]: { ...turn, preset, createdAt: Date.now() },
     }
     turnIds[sessionId] = turnId
+    aborts[sessionId] = new AbortController()
     return { sessionId, preset }
   }
 
   const turnIds: Record<string, string> = {}
+  const aborts: Record<string, AbortController> = {}
+
+  /** False when the Session has no audio turn to stop. */
+  function cancel(sessionId: string): boolean {
+    const abort = aborts[sessionId]
+    abort?.abort()
+    return !!abort
+  }
 
   function end(sessionId: string): void {
     const { [sessionId]: _ended, ...rest } = pendingTurns.value
     pendingTurns.value = rest
     const turnId = turnIds[sessionId]
     delete turnIds[sessionId]
+    delete aborts[sessionId]
     if (turnId) {
       void window.electronAPI.sessions
         .endTurn(sessionId, turnId)
@@ -136,10 +156,10 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     try {
       let request: AudioTurnRequest
       try {
-        const clip = await synthesizeClip({
-          text: prompt,
-          onPhase: (phase) => setPhase(sessionId, phase),
-        })
+        const clip = await untilAborted(
+          synthesizeClip({ text: prompt, onPhase: (phase) => setPhase(sessionId, phase) }),
+          aborts[sessionId].signal,
+        )
         request = {
           ...base,
           status: 'completed',
@@ -187,7 +207,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
       let request: AudioTurnRequest
       try {
         await readyTranscriptionForInput()
-        const { text } = await transcribe({ audio: blob })
+        const { text } = await untilAborted(transcribe({ audio: blob }), aborts[sessionId].signal)
         const transcript = text.trim()
         request = transcript
           ? { ...base, status: 'completed', engine: 'Whisper', transcript, audio }
@@ -211,7 +231,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     }
   }
 
-  return { pendingTurns, pendingTurn, processing, synthesize, transcribeAudio }
+  return { pendingTurns, pendingTurn, processing, synthesize, transcribeAudio, cancel }
 })
 
 if (import.meta.hot) {

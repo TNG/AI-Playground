@@ -789,7 +789,10 @@ async function handleCancelClick() {
       turn.harnessSessionId === agentMode.openSessionId) ||
     (turn.kind === 'chat' && mode === 'chat') ||
     (turn.kind === 'media' && (mode === 'imageGen' || mode === 'imageEdit' || mode === 'video'))
-  if (ownTurn || !(await sessionLifecycle.stopOpenTurn())) promptStore.cancelProcessing()
+  if (!ownTurn && (await sessionLifecycle.stopOpenTurn())) return
+  promptStore.cancelProcessing()
+  // The chat store can already count itself stopped while main still runs the turn.
+  if (turn?.kind === 'chat') await sessionLifecycle.stopOpenTurn()
 }
 
 async function handleRecordingClick() {

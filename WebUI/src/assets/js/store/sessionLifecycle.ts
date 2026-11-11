@@ -3,6 +3,7 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
+import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
@@ -26,6 +27,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   const agentMode = useAgentMode()
   const artifactRuns = useArtifactRuns()
   const sessionTabs = useSessionTabs()
+  const sessionAudio = useSessionAudio()
 
   async function openSession(
     id: string,
@@ -107,6 +109,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
       await window.electronAPI.chat.cancelTurn(turn.conversationKey, turn.turnId)
       return true
     }
+    if (turn.kind === 'audio') return sessionAudio.cancel(sessionId)
     return false
   }
 

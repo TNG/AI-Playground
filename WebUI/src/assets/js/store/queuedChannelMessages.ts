@@ -8,7 +8,7 @@ import type { InFlightWorkItem } from '@/types/lifecycleIpc'
  * What the Channels' router has queued, per Session, as the desktop shows it. Memory only:
  * the queue itself lives in the router and never survives a restart (ADR 0002).
  */
-export const useChannelQueue = defineStore('channelQueue', () => {
+export const useQueuedChannelMessages = defineStore('queuedChannelMessages', () => {
   const queued = ref<Record<string, QueuedChannelMessage[]>>({})
   /** Sessions whose next batch of queued messages the router is sending now. */
   const sending = ref<Record<string, true>>({})
@@ -49,5 +49,5 @@ export const useChannelQueue = defineStore('channelQueue', () => {
 })
 
 if (import.meta.hot) {
-  import.meta.hot.accept(acceptHMRUpdate(useChannelQueue, import.meta.hot))
+  import.meta.hot.accept(acceptHMRUpdate(useQueuedChannelMessages, import.meta.hot))
 }

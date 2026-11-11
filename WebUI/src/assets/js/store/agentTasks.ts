@@ -28,7 +28,7 @@ import {
   type TurnOutcome,
 } from './agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
-import { useChannelQueue } from './channelQueue'
+import { useQueuedChannelMessages } from './queuedChannelMessages'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
@@ -207,7 +207,7 @@ const FRESH_SLOT_MS = SCHEDULE_TICK_MS + 60_000
 
 export const useAgentTasks = defineStore('agentTasks', () => {
   const agentMode = useAgentMode()
-  const channelQueue = useChannelQueue()
+  const queuedChannelMessages = useQueuedChannelMessages()
   const demoMode = useDemoMode()
   const errors = useErrors()
   const i18n = useI18N()
@@ -1323,7 +1323,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   function afterAgentRun(sessionRef: string | null, prompt?: string): Promise<boolean> {
     if (!sessionRef) return Promise.resolve(true)
     const run = agentRunIn(sessionRef)
-    if (!run && !channelQueue.holdsPrompts(sessionRef)) return Promise.resolve(true)
+    if (!run && !queuedChannelMessages.holdsPrompts(sessionRef)) return Promise.resolve(true)
     releaseQueuedPrompt(sessionRef, false)
     const held: HeldPrompt = run
       ? { behind: 'agent-run', name: run.name }
@@ -1396,15 +1396,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       runs,
       () => sessionsStore.turns,
       () => agentMode.sessionTurns,
-      () => channelQueue.queued,
-      () => channelQueue.sending,
+      () => queuedChannelMessages.queued,
+      () => queuedChannelMessages.sending,
     ],
     () => {
       for (const sessionRef of Object.keys(queuedHolds)) {
         const free =
           !agentRunIn(sessionRef) &&
           !sessionBusy(sessionRef) &&
-          !channelQueue.holdsPrompts(sessionRef) &&
+          !queuedChannelMessages.holdsPrompts(sessionRef) &&
           !liveTurnIn(sessionRef)
         if (free) releaseQueuedPrompt(sessionRef, true)
       }

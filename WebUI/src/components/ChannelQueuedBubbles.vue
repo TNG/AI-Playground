@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ClockIcon } from '@heroicons/vue/24/outline'
-import { useChannelQueue } from '@/assets/js/store/channelQueue'
+import { useQueuedChannelMessages } from '@/assets/js/store/queuedChannelMessages'
 import { useI18N } from '@/assets/js/store/i18n'
 import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { CHANNEL_NAMES } from '@/lib/channelNames'
@@ -37,8 +37,8 @@ import { fillTemplate } from '@/lib/fillTemplate'
 /** Channel messages waiting for the Session's turn or Agent Run to end, oldest first. */
 const props = defineProps<{ sessionRef: string | null }>()
 
-const channelQueue = useChannelQueue()
+const queuedChannelMessages = useQueuedChannelMessages()
 const languages = useI18N().state
 
-const messages = computed(() => channelQueue.queuedIn(props.sessionRef))
+const messages = computed(() => queuedChannelMessages.queuedIn(props.sessionRef))
 </script>

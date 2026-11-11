@@ -379,7 +379,7 @@ afterEach(async () => {
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
-const { useChannelQueue } = await import('@/assets/js/store/channelQueue')
+const { useQueuedChannelMessages } = await import('@/assets/js/store/queuedChannelMessages')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -2151,19 +2151,19 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
 
   it('waits until the Channel messages queued in its Session have run', async () => {
     const { tasks } = await readyStores()
-    const channelQueue = useChannelQueue(pinia)
-    channelQueue.publish(SESSION, [{ id: 'q1', channel: 'telegram', text: 'add Kyoto' }])
+    const queuedChannelMessages = useQueuedChannelMessages(pinia)
+    queuedChannelMessages.publish(SESSION, [{ id: 'q1', channel: 'telegram', text: 'add Kyoto' }])
 
     const prompt = track(tasks.afterAgentRun(SESSION))
     expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'channel-messages' } })
 
-    channelQueue.publish(SESSION, [])
-    channelQueue.setSending(SESSION, true)
+    queuedChannelMessages.publish(SESSION, [])
+    queuedChannelMessages.setSending(SESSION, true)
     await settleMicrotasks()
     expect(prompt.settled).toBe(false)
 
     setSessionTurns({ [SESSION]: { turnId: 'from-telegram', kind: 'agent' } })
-    channelQueue.setSending(SESSION, false)
+    queuedChannelMessages.setSending(SESSION, false)
     await settleMicrotasks()
     expect(prompt.settled).toBe(false)
 

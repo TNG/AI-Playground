@@ -33,7 +33,7 @@ import { escapeHtml } from './channels/adapterHelpers'
 import { createAppError, createCancellation } from '../errors/appError'
 import { useErrors } from './errors'
 import { useChannelSessionPointers } from './channelSessionPointers'
-import { useChannelQueue } from './channelQueue'
+import { useQueuedChannelMessages } from './queuedChannelMessages'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
@@ -128,7 +128,7 @@ export const useChannels = defineStore(
     const globalSetup = useGlobalSetup()
     const models = useModels()
     const channelSessionPointers = useChannelSessionPointers()
-    const channelQueue = useChannelQueue()
+    const queuedChannelMessages = useQueuedChannelMessages()
 
     /**
      * Master Channels on/off — the single title-bar toggle. Persisted so Channels
@@ -209,8 +209,9 @@ export const useChannels = defineStore(
       speech: remoteSpeech,
       downloadQuestionChannels: () => notificationChannels.value,
       pointers: channelSessionPointers,
-      publishQueue: (sessionRef, queued) => channelQueue.publish(sessionRef, queued),
-      publishSending: (sessionRef, sending) => channelQueue.setSending(sessionRef, sending),
+      publishQueue: (sessionRef, queued) => queuedChannelMessages.publish(sessionRef, queued),
+      publishSending: (sessionRef, sending) =>
+        queuedChannelMessages.setSending(sessionRef, sending),
       log: (message, error) => reportSilently(message, error),
     })
 

@@ -56,8 +56,8 @@ type Draft = {
   frame: number
 }
 
-/** One edit budget per chat, shared by its open drafts. */
-type Chat = {
+/** Each Channel chat's edit budget, shared by its open drafts. */
+type EditBudget = {
   kind: ChannelKind
   drafts: Draft[]
   next: number
@@ -66,43 +66,43 @@ type Chat = {
   busy: boolean
 }
 
-const chats = new Map<ChannelKind, Chat>()
+const budgets = new Map<ChannelKind, EditBudget>()
 let lastDraftId = Date.now() % 0x3fffffff
 
-function chatOf(kind: ChannelKind): Chat {
-  let chat = chats.get(kind)
-  if (!chat) {
-    chat = { kind, drafts: [], next: 0, lastEditAt: -Infinity, timer: null, busy: false }
-    chats.set(kind, chat)
+function budgetOf(kind: ChannelKind): EditBudget {
+  let budget = budgets.get(kind)
+  if (!budget) {
+    budget = { kind, drafts: [], next: 0, lastEditAt: -Infinity, timer: null, busy: false }
+    budgets.set(kind, budget)
   }
-  return chat
+  return budget
 }
 
-function pending(chat: Chat): Draft[] {
-  return chat.drafts.filter((draft) => draft.wanted && draft.wanted !== draft.shown)
+function pending(budget: EditBudget): Draft[] {
+  return budget.drafts.filter((draft) => draft.wanted && draft.wanted !== draft.shown)
 }
 
-function pump(chat: Chat): void {
-  if (chat.timer || chat.busy || pending(chat).length === 0) return
-  const wait = Math.max(0, chat.lastEditAt + EDIT_INTERVAL_MS[chat.kind] - Date.now())
-  chat.timer = setTimeout(() => {
-    chat.timer = null
-    editNext(chat)
+function pump(budget: EditBudget): void {
+  if (budget.timer || budget.busy || pending(budget).length === 0) return
+  const wait = Math.max(0, budget.lastEditAt + EDIT_INTERVAL_MS[budget.kind] - Date.now())
+  budget.timer = setTimeout(() => {
+    budget.timer = null
+    editNext(budget)
   }, wait)
 }
 
-function editNext(chat: Chat): void {
-  const due = pending(chat)
+function editNext(budget: EditBudget): void {
+  const due = pending(budget)
   if (due.length === 0) return
   const draft =
-    chat.drafts.slice(chat.next).find((open) => due.includes(open)) ??
-    chat.drafts.find((open) => due.includes(open))!
-  chat.next = (chat.drafts.indexOf(draft) + 1) % chat.drafts.length
+    budget.drafts.slice(budget.next).find((open) => due.includes(open)) ??
+    budget.drafts.find((open) => due.includes(open))!
+  budget.next = (budget.drafts.indexOf(draft) + 1) % budget.drafts.length
   const text = draft.wanted
-  chat.busy = true
-  chat.lastEditAt = draft.lastEditAt = Date.now()
+  budget.busy = true
+  budget.lastEditAt = draft.lastEditAt = Date.now()
   draft.inFlight = draft.options
-    .edit(chat.kind, { ...draft.channelDraft }, text, draft.options.replyTo)
+    .edit(budget.kind, { ...draft.channelDraft }, text, draft.options.replyTo)
     .then((outcome) => {
       if (!outcome.success) return
       draft.visible = true
@@ -116,22 +116,22 @@ function editNext(chat: Chat): void {
     .finally(() => {
       draft.shown = text
       draft.inFlight = null
-      chat.busy = false
-      pump(chat)
+      budget.busy = false
+      pump(budget)
     })
 }
 
-function keepAlive(chat: Chat, draft: Draft, interval: number): NodeJS.Timeout {
+function keepAlive(budget: EditBudget, draft: Draft, interval: number): NodeJS.Timeout {
   return setInterval(() => {
     if (!draft.visible || Date.now() - draft.lastEditAt < interval) return
     draft.wanted = `${draft.base} ${SPINNER[draft.frame++ % SPINNER.length]}`
-    pump(chat)
+    pump(budget)
   }, interval / 4)
 }
 
 /** A reply that streams into one message on `kind` until its final text settles it. */
 export function openReplyDraft(kind: ChannelKind, options: ReplyDraftOptions): ReplyDraft {
-  const chat = chatOf(kind)
+  const budget = budgetOf(kind)
   lastDraftId = (lastDraftId % 0x7ffffffe) + 1
   const draft: Draft = {
     options,
@@ -145,31 +145,31 @@ export function openReplyDraft(kind: ChannelKind, options: ReplyDraftOptions): R
     keepAlive: null,
     frame: 0,
   }
-  chat.drafts.push(draft)
+  budget.drafts.push(draft)
   const interval = KEEPALIVE_MS[kind]
-  if (interval) draft.keepAlive = keepAlive(chat, draft, interval)
+  if (interval) draft.keepAlive = keepAlive(budget, draft, interval)
   let closed = false
   return {
     update: (text) => {
       if (closed || text === draft.base) return
       draft.base = draft.wanted = text
-      pump(chat)
+      pump(budget)
     },
     close: async () => {
       if (!closed) {
         closed = true
         if (draft.keepAlive) clearInterval(draft.keepAlive)
-        const index = chat.drafts.indexOf(draft)
-        chat.drafts.splice(index, 1)
-        if (chat.next > index) chat.next -= 1
-        if (chat.drafts.length === 0 && chat.timer) {
-          clearTimeout(chat.timer)
-          chat.timer = null
+        const index = budget.drafts.indexOf(draft)
+        budget.drafts.splice(index, 1)
+        if (budget.next > index) budget.next -= 1
+        if (budget.drafts.length === 0 && budget.timer) {
+          clearTimeout(budget.timer)
+          budget.timer = null
         }
       }
       await draft.inFlight
       // The final message spends the chat's budget too.
-      chat.lastEditAt = Date.now()
+      budget.lastEditAt = Date.now()
       return draft.visible ? { ...draft.channelDraft } : null
     },
   }

@@ -45,7 +45,6 @@ reachable, and on quit.
 
 Entries in the channel message map written before this change named only a Harness Session; they
 are migrated by finding the Session that holds it, and become tombstones when none does. A Harness
-Session that belongs to no Session (a Trial Run) records nothing, so a reply to it is not an
-Answer. ADR 0009 kept the chat turn engine for Home Agent threads and for aiDAPTIV; with the Home
+Session that belongs to no Session (a Trial Run) is not reachable, so it sends no Notifications. ADR 0009 kept the chat turn engine for Home Agent threads and for aiDAPTIV; with the Home
 Agent gone it stays for aiDAPTIV alone. Home Agent threads become Reachable Sessions in a "Home
 Agent" Session Group.

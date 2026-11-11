@@ -22,6 +22,8 @@ export type ChannelQuestionTemplates = {
   /** `{label}`, `{error}` */
   failed: string
   answeredInApp: string
+  /** A tap on another Channel answered a question asked on several. */
+  answeredElsewhere: string
   /** A desktop decline of a question also asked in the channel. */
   declinedInApp: string
   closed: string
@@ -56,6 +58,7 @@ const ENGLISH: ChannelQuestionTemplates = {
   complete: '✅ Download complete. {label} is continuing.',
   failed: '⚠️ The model download for {label} failed: {error}',
   answeredInApp: '✔ Answered in AI Playground.',
+  answeredElsewhere: '✔ Answered in another Channel.',
   declinedInApp: '✖ Declined in AI Playground.',
   closed: '⏹ No longer needed — the session stopped waiting for this download.',
   unavailable: '⏹ No longer answerable here — answer it in AI Playground.',

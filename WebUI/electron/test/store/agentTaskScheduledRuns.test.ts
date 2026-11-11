@@ -446,14 +446,19 @@ describe('a Scheduled Run in its Session', () => {
     expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
   })
 
-  it('tags every Step with the Task and its index', async () => {
+  it('tags every Step with the Task and its index, the last asking for its result', async () => {
     await readyStores(scheduledTask('t1'))
     await runClockTo(NOW + 10 * MINUTE)
 
     await finishTurn(0)
     await turnIdOf(1)
 
-    expect(sentConfig(1).taskRun).toEqual({ taskName: 'Task t1', stepIndex: 2 })
+    expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', stepIndex: 1 })
+    expect(sentConfig(1).taskRun).toEqual({
+      taskName: 'Task t1',
+      stepIndex: 2,
+      notifiesResult: true,
+    })
     expect(sentConfig(1).sessionId).toBe(sentConfig(0).sessionId)
   })
 

@@ -13,7 +13,7 @@ export type StepSender = {
       settings: AgentSessionSettings
       signal: AbortSignal
       quietErrors: boolean
-      taskRun: { taskName: string; stepIndex: number }
+      taskRun: { taskName: string; stepIndex: number; notifiesResult?: boolean }
     },
   ) => Promise<SendToSessionResult>
   releaseHeldAnswer: (sessionId: string) => void
@@ -26,6 +26,8 @@ export type RunStep = {
   steps: readonly AgentTaskStep[]
   settingsTemplate: AgentSessionSettings
   signal: AbortSignal
+  /** A Scheduled Run, whose last Step sends its result to every Channel. */
+  scheduled?: boolean
   /** The user's message, framing Step 1. */
   prompt?: string
 }
@@ -43,7 +45,11 @@ export async function sendRunStep(
     settings: cloneForIpc(step.settingsTemplate),
     signal: step.signal,
     quietErrors: true,
-    taskRun: { taskName: step.taskName, stepIndex: step.stepIndex },
+    taskRun: {
+      taskName: step.taskName,
+      stepIndex: step.stepIndex,
+      ...(step.scheduled && step.stepIndex === steps.length ? { notifiesResult: true } : {}),
+    },
   })
   if (!result.ok && result.reason !== 'aborted') {
     await onFailed(result.message)

@@ -1265,6 +1265,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         steps: plan.steps,
         settingsTemplate: plan.settingsTemplate,
         signal: abort.signal,
+        ...(context.scheduled ? { scheduled: true } : {}),
         ...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
       },
       (message) => settleRun(sessionId, { kind: 'failed', stepIndex, message }),

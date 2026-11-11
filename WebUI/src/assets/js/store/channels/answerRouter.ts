@@ -102,8 +102,8 @@ export type AnswerRouterDeps = {
     harnessSessionId: string,
     meta?: InboundMeta,
   ) => Promise<VoiceAnswerPreparation>
-  /** The channel an agent's download question is asked on, or null when only the computer asks. */
-  downloadQuestionChannel?: () => ChannelKind | null
+  /** The Channels an agent's download question is asked on; empty when only the computer asks. */
+  downloadQuestionChannels?: () => readonly ChannelKind[]
   copy?: () => AnswerRouterCopy
   /** Defaults to memory only: a lost Held Answer then goes unreported after a restart. */
   journal?: HeldAnswerJournal
@@ -118,7 +118,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
   const log = deps.log
   const journal = deps.journal ?? memoryJournal()
-  const downloadQuestionChannel = deps.downloadQuestionChannel ?? (() => null)
+  const downloadQuestionChannels = deps.downloadQuestionChannels ?? (() => [])
 
   type Held = {
     adapter: ChannelAdapter
@@ -205,9 +205,9 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   }
 
   function downloadHoldTemplate(kind: ChannelKind, wording: AnswerRouterCopy): string {
-    const askedOn = downloadQuestionChannel()
-    if (askedOn === kind) return wording.heldDownload
-    return askedOn ? wording.heldDownloadElsewhere : wording.heldDesktop
+    const askedOn = downloadQuestionChannels()
+    if (askedOn.includes(kind)) return wording.heldDownload
+    return askedOn.length > 0 ? wording.heldDownloadElsewhere : wording.heldDesktop
   }
 
   async function settle(harnessSessionId: string, end: SessionTurnEnd): Promise<void> {

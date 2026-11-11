@@ -188,14 +188,14 @@ function setup(
   const fake = fakeSessions(sessions, sentMessages)
   const speech = fakeTranscription()
   const voicePreparation = fakeVoicePreparation()
-  // Where an agent's download question is asked: the Notification Channel, if any.
-  const downloads = { askedOn: 'telegram' as ChannelKind | null }
+  // Where an agent's download question is asked: every enabled Channel.
+  const downloads = { askedOn: ['telegram'] as ChannelKind[] }
   const router = createAnswerRouter({
     sessions: () => fake.port,
     questions,
     transcribe: speech.transcribe,
     prepareVoiceAnswer: voicePreparation.prepare,
-    downloadQuestionChannel: () => downloads.askedOn,
+    downloadQuestionChannels: () => downloads.askedOn,
     journal,
     log: () => {},
   })
@@ -672,7 +672,7 @@ describe('a Held Answer', () => {
 
   it('says the download is asked on the other channel when the Answer came elsewhere', async () => {
     const { router, downloads } = busy({ pause: 'download' })
-    downloads.askedOn = 'slack'
+    downloads.askedOn = ['slack']
     const ch = fakeChannel()
     await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
     expect(ch.replies).toEqual([
@@ -683,7 +683,7 @@ describe('a Held Answer', () => {
 
   it('says the download waits on the computer when no channel asks it', async () => {
     const { router, downloads } = busy({ pause: 'download' })
-    downloads.askedOn = null
+    downloads.askedOn = []
     const ch = fakeChannel()
     await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
     expect(ch.replies).toEqual([

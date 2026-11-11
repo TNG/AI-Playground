@@ -123,10 +123,8 @@ const SESSION = 'aipg-agent-news'
 let newsSessionRef = ''
 
 const CONFIG: NotificationConfig = {
-  homeAgentEnabled: true,
-  notificationChannel: 'telegram',
-  autoNotify: true,
-  sessionInView: null,
+  channels: ['telegram'],
+  sessionOnScreen: null,
   realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
@@ -162,6 +160,7 @@ let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
 let windowShown = true
 let refusedFiles: string[] = []
+let failingKinds: ChannelKind[] = []
 let thumbnail: FakeThumbnail = { base64: 'anBlZw==' }
 let thumbnailAsks: string[] = []
 
@@ -226,6 +225,7 @@ beforeAll(async () => {
         media: message.media && `${message.media.kind}:${message.media.filename}`,
         buttons: message.buttons,
       })
+      if (failingKinds.includes(kind)) return { success: false, error: `${kind} is down` }
       if (refusedFiles.includes(message.media?.filename ?? ''))
         return { success: false, error: 'too large' }
       return { success: true, ref: `msg-${sent.length}` }
@@ -259,6 +259,7 @@ beforeEach(() => {
   notifyAttachment = null
   clipBase64 = ''
   refusedFiles = []
+  failingKinds = []
   thumbnail = { base64: 'anBlZw==' }
   thumbnailAsks = []
   fs.rmSync(tasksFile, { force: true })
@@ -403,7 +404,8 @@ describe('a Background Session pausing for the user', () => {
     ])
   }, 30000)
 
-  it('labels a session with no record yet as an agent run', async () => {
+  it('labels a Session with no title and no Harness Session record as an agent run', async () => {
+    await sessionHolding('aipg-agent-fresh')
     await withWaitingTurn('aipg-agent-fresh', async () => {
       pauseFor('aipg-agent-fresh', 'question', 'Which colour?')
       await settle()
@@ -416,24 +418,68 @@ describe('a Background Session pausing for the user', () => {
     ])
   }, 30000)
 
+  it('names its Session, not the Harness Session', async () => {
+    const sessions = await import('../../session/sessions')
+    await sessions.renameSession(newsSessionRef, 'Breakfast briefing')
+    try {
+      await withWaitingTurn(SESSION, pauseForQuestion)
+    } finally {
+      await sessions.mutateSession(newsSessionRef, (file) => ({ ...file, title: '' }))
+    }
+    expect(sent.map((s) => s.text)).toEqual([
+      '🤖 Agent · "Breakfast briefing"\n⏸ Waiting for you: a question (Which colour?). ' +
+        'Open AI Playground to continue.' +
+        REPLY_HINT,
+    ])
+  }, 30000)
+
+  it('sends nothing for a Trial Run, whose Harness Session no Session holds', async () => {
+    await withWaitingTurn('aipg-agent-trial', async () => {
+      pauseFor('aipg-agent-trial', 'question', 'Which colour?')
+      await settle()
+      userWait.setAwaitingUser('aipg-agent-trial', false)
+    })
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('notifies every enabled, verified Channel, recording each message', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack', 'local-web'] })
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    expect(sent.map((s) => s.kind)).toEqual(['telegram', 'slack', 'local-web'])
+    expect(sent[1].text).toBe(`${QUESTION_TEXT}\nReply in thread to answer.`)
+    for (const [index, kind] of (['telegram', 'slack', 'local-web'] as const).entries()) {
+      expect(await messageMap.channelMessageOwner(kind, `msg-${index + 1}`)).toEqual({
+        sessionRef: newsSessionRef,
+        harnessSessionId: SESSION,
+      })
+    }
+  }, 30000)
+
+  it('notifies another Channel when one fails to send', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
+    failingKinds = ['telegram']
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    expect(sent.map((s) => s.kind)).toEqual(['telegram', 'slack'])
+    expect(await messageMap.channelMessageOwner('slack', 'msg-2')).toEqual({
+      sessionRef: newsSessionRef,
+      harnessSessionId: SESSION,
+    })
+  }, 30000)
+
   it('stays quiet for the session open on screen', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, pauseForQuestion)
     expect(sent).toEqual([])
   }, 30000)
 
   it('notifies for the open session while the window is hidden or minimized', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     windowShown = false
     await withWaitingTurn(SESSION, pauseForQuestion)
     expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
   }, 30000)
 
-  it.each([
-    ['automatic Notifications are off', { autoNotify: false }],
-    ['Home Agent is off', { homeAgentEnabled: false }],
-    ['no Notification Channel is set up', { notificationChannel: null }],
-  ])(
+  it.each([['the Channels toggle is off', { channels: [] }]])(
     'sends nothing when %s',
     async (_case, override) => {
       notifier.setNotificationConfig({ ...CONFIG, ...override })
@@ -471,7 +517,12 @@ async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number })
 }
 
 describe('a Task run', () => {
-  it('is labelled by its Task name and step when it pauses', async () => {
+  beforeAll(async () => {
+    const sessions = await import('../../session/sessions')
+    await sessions.renameSession(await sessionHolding(TASK_SESSION), 'Weekday news')
+  })
+
+  it('is labelled by its Session, Task name and step when it pauses', async () => {
     await saveTaskRun({ stepIndex: 2, stepCount: 3 })
     await withWaitingTurn(TASK_SESSION, async () => {
       pauseFor(TASK_SESSION, 'question', 'Which source?')
@@ -479,7 +530,7 @@ describe('a Task run', () => {
       userWait.setAwaitingUser(TASK_SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
+      '🤖 Agent · "Weekday news" · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
@@ -491,7 +542,7 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Weekday news" · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.' +
         REPLY_HINT,
     ])
@@ -503,21 +554,80 @@ describe('a Task run', () => {
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.' +
+      '🤖 Agent · "Weekday news" · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.' +
         REPLY_HINT,
     ])
   }, 30000)
 
-  it('keeps the session title once the run is over', async () => {
+  it('names only its Session once the run is over', async () => {
     await saveTaskRun()
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await settle()
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Fetch the headlines"\n❌ Failed: 400: model test-model was retired. ' +
+      '🤖 Agent · "Weekday news"\n❌ Failed: 400: model test-model was retired. ' +
         'Open AI Playground for details.' +
         REPLY_HINT,
     ])
+  }, 30000)
+})
+
+describe('a Scheduled Run’s last Step', () => {
+  const EVERY: ChannelKind[] = ['telegram', 'slack']
+  const step = (stepIndex: number, notifiesResult?: boolean): AgentModeTurnConfig => ({
+    ...configFor(TASK_SESSION),
+    taskRun: { taskName: 'Daily digest', stepIndex, ...(notifiesResult ? { notifiesResult } : {}) },
+  })
+
+  beforeEach(async () => {
+    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY })
+  })
+
+  it('sends its result to every Channel, recorded as the Session’s', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await settle()
+    const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 3/3)'
+    expect(sent).toEqual([
+      { kind: 'telegram', text: `${header}\ndone${REPLY_HINT}` },
+      { kind: 'slack', text: `${header}\ndone\nReply in thread to answer.` },
+    ])
+    expect(await messageMap.channelMessageOwner('slack', 'msg-2')).toMatchObject({
+      harnessSessionId: TASK_SESSION,
+    })
+  }, 30000)
+
+  it('sends the media it generated to every Channel too', async () => {
+    const config = step(3, true)
+    const generated = path.join(config.workspaceDir, 'generated')
+    fs.mkdirSync(generated, { recursive: true })
+    fs.writeFileSync(path.join(generated, 'chart.png'), 'bytes')
+    const media = await import('../../agent/generatedMedia')
+    await withWaitingTurn(
+      TASK_SESSION,
+      async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/chart.png']),
+      config,
+    )
+    await settle()
+    expect(sent.filter((s) => s.media).map((s) => [s.kind, s.media])).toEqual([
+      ['telegram', 'photo:chart.png'],
+      ['slack', 'photo:chart.png'],
+    ])
+  }, 30000)
+
+  it('sends nothing for an earlier Step or a run nobody scheduled', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(2))
+    asks = []
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(3))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends nothing while the Channels toggle is off', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: [] })
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await settle()
+    expect(sent).toEqual([])
   }, 30000)
 })
 
@@ -565,23 +675,19 @@ describe('a Background Session whose turn fails', () => {
   }, 30000)
 
   it('stays quiet for the session open on screen', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await failingTurn()
     expect(sent).toEqual([])
   }, 30000)
 
   it('notifies for the open session while the window is hidden or minimized', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     windowShown = false
     await failingTurn()
     expect(sent.map((m) => m.text)).toEqual([FAILED_TEXT + REPLY_HINT])
   }, 30000)
 
-  it.each([
-    ['automatic Notifications are off', { autoNotify: false }],
-    ['Home Agent is off', { homeAgentEnabled: false }],
-    ['no Notification Channel is set up', { notificationChannel: null }],
-  ])(
+  it.each([['the Channels toggle is off', { channels: [] }]])(
     'sends nothing when %s',
     async (_case, override) => {
       notifier.setNotificationConfig({ ...CONFIG, ...override })
@@ -601,7 +707,7 @@ describe('a Background Session whose turn fails', () => {
     const run = manager.startAgentTurn(crypto.randomUUID(), 'say hi', configFor(SESSION))
     await vi.waitFor(() => expect(asks).toHaveLength(1))
     // The pause itself would notify; only what follows the stop is under test.
-    notifier.setNotificationConfig({ ...CONFIG, autoNotify: false })
+    notifier.setNotificationConfig({ ...CONFIG, channels: [] })
     const consent = permissions.requestDownloadConsent([{ repo_id: 'voice' }]).catch(() => {})
     const remote = await nextPrompt('is-remote')
     promptAdapter.handlePermissionsPromptResponse({ requestId: remote.requestId, result: false })
@@ -674,14 +780,35 @@ describe('the turn an Answer started', () => {
     ])
   }, 30000)
 
-  it('replies even with automatic Notifications off and the session in view', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, autoNotify: false, sessionInView: SESSION })
+  it('replies, pauses and fails on the asking Channel alone, with every Channel enabled', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['slack', 'telegram', 'local-web'] })
+    await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', answerTurn())
+    await settle()
+    expect(sent.map((s) => [s.kind, s.replyTo])).toEqual([
+      ['telegram', 'answer-77'],
+      ['telegram', 'answer-77'],
+      ['telegram', 'answer-77'],
+    ])
+  }, 30000)
+
+  it('sends nothing once the asking Channel is turned off', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['slack'] })
+    await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('replies although the session is on screen', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
     expect(sent.map((s) => s.replyTo)).toEqual(['answer-77'])
   }, 30000)
 
   it('replies on the channel the Answer came from', async () => {
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
     await withWaitingTurn(SESSION, async () => {}, {
       ...configFor(SESSION),
       answer: { channel: 'slack', replyTo: '1700000000.0001' },
@@ -701,7 +828,7 @@ describe('the turn an Answer started', () => {
   }, 30000)
 
   it('notifies a pause under the Answer although the session is in view', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
     await settle()
     expect(sent).toEqual([
@@ -711,7 +838,7 @@ describe('the turn an Answer started', () => {
   }, 30000)
 
   it('notifies its failure under the Answer although the session is in view', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', answerTurn())
     await settle()
@@ -749,7 +876,7 @@ describe('the turn an Answer started', () => {
   }, 30000)
 
   it('leaves the next turn of the session to the normal Notification rules', async () => {
-    notifier.setNotificationConfig({ ...CONFIG, sessionInView: SESSION })
+    notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
     sent = []
@@ -911,6 +1038,7 @@ describe('the turn an Answer started', () => {
     const TELEGRAM_START = { kind: 'telegram', typing: 'start' }
 
     beforeEach(() => {
+      notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack', 'local-web'] })
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     })
 

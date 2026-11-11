@@ -14,12 +14,6 @@ import { useModels } from './models'
 import { fetchModelMeta } from '@/lib/modelDownloader'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
-import type { NotificationRoute } from '@/types/notificationsIpc'
-import {
-  canDeliverNotifications,
-  resolveNotificationChannel,
-  usableNotificationChannels,
-} from '@/lib/notificationChannel'
 import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
@@ -66,6 +60,7 @@ import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
+import { fanOutDownloadQuestion } from './channels/downloadQuestionFanOut'
 import { createAnswerRouter } from './channels/answerRouter'
 import { createRemoteSpeech } from './channels/remoteSpeech'
 import { sessionPort } from './channels/sessionPort'
@@ -193,11 +188,6 @@ export const useHomeAgent = defineStore(
       'local-web': emptyPrefs(),
     })
 
-    /** Falls back to the default order while the pick is disabled or unverified. */
-    const chosenNotificationChannel = ref<ChannelKind | null>(null)
-    /** Background agent runs notify on their own when they need the user. */
-    const autoNotify = ref(true)
-
     // Runtime-only per-channel state (secret config + derived `active`). Never
     // persisted; rebuilt on launch from safeStorage + channelPrefs.
     const channels = reactive<Record<ChannelKind, ChannelRuntimeState>>({
@@ -298,7 +288,7 @@ export const useHomeAgent = defineStore(
       questions: channelQuestions,
       transcribe: remoteSpeech.transcribe,
       prepareVoiceAnswer: remoteSpeech.prepareAnswer,
-      downloadQuestionChannel: () => questionChannel.value,
+      downloadQuestionChannels: () => notificationChannels.value,
       journal: heldAnswerJournal,
       log: (message, error) => reportSilently(message, error),
     })
@@ -367,15 +357,11 @@ export const useHomeAgent = defineStore(
       { immediate: true, deep: true },
     )
 
-    const notificationRoute = computed<NotificationRoute>(() => ({
-      homeAgentEnabled: isAvailable.value && masterEnabled.value,
-      notificationChannel: resolveNotificationChannel(
-        channelPrefs,
-        chosenNotificationChannel.value,
-      ),
-    }))
-    const notificationChannelOptions = computed(() => usableNotificationChannels(channelPrefs))
-    const notificationsReady = computed(() => canDeliverNotifications(notificationRoute.value))
+    /** Where a Reachable Session's Notifications and Channel Questions go; empty while off. */
+    const notificationChannels = computed(() =>
+      KINDS.filter((kind) => channels[kind].active && adapters[kind] !== null),
+    )
+    const notificationsReady = computed(() => notificationChannels.value.length > 0)
 
     // When the backend + channel credentials are ready, inject so the bot
     // starts (or restarts if creds changed). One watcher per kind so each
@@ -1019,6 +1005,8 @@ export const useHomeAgent = defineStore(
         return fillTemplate(text.alreadyDownloadingFor, { label: outcome.alreadyDownloadingFor })
       }
       switch (outcome) {
+        case 'answered-elsewhere':
+          return text.answeredElsewhere
         case 'answered-in-app':
           return text.answeredInApp
         case 'declined-in-app':
@@ -1053,35 +1041,55 @@ export const useHomeAgent = defineStore(
     }
 
     function canAskChannelQuestion(): boolean {
-      return notificationsReady.value && autoNotify.value
+      return notificationsReady.value
     }
 
-    const questionChannel = computed(() =>
-      canAskChannelQuestion() ? notificationRoute.value.notificationChannel : null,
-    )
-
     // A channel the user left must not download anything; the desktop keeps asking.
-    watch(questionChannel, (kind) =>
-      channelQuestions.retireOutside(kind, channelQuestionNote('unavailable')),
+    watch(notificationChannels, (kinds) =>
+      channelQuestions.retireOutside(kinds, channelQuestionNote('unavailable')),
     )
 
     window.addEventListener('beforeunload', () => {
       closeDownloadMessages(channelQuestionTemplates().appClosed)
-      channelQuestions.retireOutside(null, channelQuestionNote('closed'))
+      channelQuestions.retireOutside([], channelQuestionNote('closed'))
     })
 
-    /** An Agent Mode download asked in the Paired Chat; buttons only, no timeout (docs/adr/0004). */
+    type DownloadQuestionContext = {
+      label: string
+      conversationKey: string
+      alreadyDownloading?: DownloadModelParam[]
+      answer?: AgentAnswerOrigin
+    }
+
+    /** An agent's download, asked on the Answer's Channel for a turn it started, else on every one. */
     function askDownloadQuestion(
       list: DownloadModelParam[],
-      context: {
-        label: string
-        conversationKey: string
-        alreadyDownloading?: DownloadModelParam[]
-        answer?: AgentAnswerOrigin
-      },
+      context: DownloadQuestionContext,
     ): DownloadChannelQuestion {
-      const kind = questionChannel.value
-      const adapter = kind ? adapters[kind] : null
+      const origin = context.answer
+      const kinds = origin
+        ? notificationChannels.value.filter((kind) => kind === origin.channel)
+        : notificationChannels.value
+      let lookup: ReturnType<typeof fetchModelMeta> | null = null
+      const lookupOnce = () => {
+        const globalSetup = useGlobalSetup()
+        const models = useModels()
+        lookup ??= fetchModelMeta(list, { apiHost: globalSetup.apiHost, hfToken: models.hfToken })
+        return lookup
+      }
+      return fanOutDownloadQuestion(
+        kinds.map((kind) => askDownloadQuestionOn(kind, context, lookupOnce)),
+        (question) => question.retire('answered-elsewhere'),
+      )
+    }
+
+    /** One Channel's download question; buttons only, no timeout. */
+    function askDownloadQuestionOn(
+      kind: ChannelKind,
+      context: DownloadQuestionContext,
+      lookupModelMeta: () => ReturnType<typeof fetchModelMeta>,
+    ): DownloadChannelQuestion {
+      const adapter = adapters[kind]
       const { answer: origin } = context
       const meta: InboundMeta | undefined =
         origin?.channel === kind && origin.replyTo ? { threadTs: origin.replyTo } : undefined
@@ -1093,14 +1101,9 @@ export const useHomeAgent = defineStore(
 
       const answer = (async (): Promise<boolean> => {
         if (!adapter) return never
-        const globalSetup = useGlobalSetup()
-        const models = useModels()
         let metaList
         try {
-          metaList = await fetchModelMeta(list, {
-            apiHost: globalSetup.apiHost,
-            hfToken: models.hfToken,
-          })
+          metaList = await lookupModelMeta()
         } catch (e) {
           errors.report(e, { surface: 'silent' })
           if (!retired) {
@@ -1115,7 +1118,7 @@ export const useHomeAgent = defineStore(
           return never
         }
         // The channel may have been left while the model sizes were looked up.
-        if (retired || questionChannel.value !== kind) return never
+        if (retired || !notificationChannels.value.includes(kind)) return never
         const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
         if (blocked.length > 0) {
           const gated = fillTemplate(channelQuestionTemplates().gated, {
@@ -2601,10 +2604,7 @@ export const useHomeAgent = defineStore(
       // Master title-bar switch + persisted per-channel prefs.
       masterEnabled,
       channelPrefs,
-      chosenNotificationChannel,
-      autoNotify,
-      notificationRoute,
-      notificationChannelOptions,
+      notificationChannels,
       notificationsReady,
       // Runtime channel state map (secrets + derived `active`); in-memory only.
       channels,
@@ -2652,14 +2652,7 @@ export const useHomeAgent = defineStore(
       // safeStorage by initConfig() and never serialized here.
       // activeRemoteConversationKey persisted so /load <id> survives restart.
       // summaryCache persisted so /load menu summaries survive restarts.
-      pick: [
-        'masterEnabled',
-        'channelPrefs',
-        'chosenNotificationChannel',
-        'autoNotify',
-        'activeRemoteConversationKey',
-        'summaryCache',
-      ],
+      pick: ['masterEnabled', 'channelPrefs', 'activeRemoteConversationKey', 'summaryCache'],
     },
   },
 )

@@ -62,10 +62,14 @@ export async function setSessionReachable(
   return changed(file)
 }
 
-/** False for a Session that is gone or cannot be read. */
-export async function isSessionReachable(id: string): Promise<boolean> {
+/** The Session while it is reachable; null when it is not, is gone or cannot be read. */
+export async function readReachableSession(id: string): Promise<SessionFile | null> {
   const read = await readSessionFile(id).catch(() => null)
-  return read?.status === 'ok' && read.file.reachable
+  return read?.status === 'ok' && read.file.reachable ? read.file : null
+}
+
+export async function isSessionReachable(id: string): Promise<boolean> {
+  return (await readReachableSession(id)) !== null
 }
 
 /** The folders the real shell is on now; a Reachable Session in one stops being reachable. */

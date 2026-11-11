@@ -12,17 +12,18 @@ import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
 /**
  * Why an open Channel Question stops being answerable in the channel: answered or
- * declined on the desktop, the pause ended, the channel it was asked on is no
- * longer the Notification Channel, or a yes elsewhere already downloads it all.
+ * declined on the desktop or on another Channel, the pause ended, the channel it was
+ * asked on was turned off, or a yes elsewhere already downloads it all.
  */
 export type ChannelQuestionOutcome =
   | 'answered-in-app'
+  | 'answered-elsewhere'
   | 'declined-in-app'
   | 'closed'
   | 'unavailable'
   | { alreadyDownloadingFor: string }
 
-/** An Agent Mode download asked on the Notification Channel (docs/adr/0004, 0005). */
+/** An agent's download asked on Channels (docs/adr/0010); the first answer wins. */
 export type DownloadChannelQuestion = {
   /** Resolves on a tap in the channel; never resolves when the channel cannot answer. */
   answer: Promise<boolean>
@@ -41,7 +42,7 @@ export type RemoteTurnPort = {
     models: DownloadModelParam[],
     options?: { skipConfirmation?: boolean; signal?: AbortSignal },
   ) => Promise<void>
-  /** Home Agent on, a Notification Channel set and automatic Notifications on. */
+  /** Channels are on and at least one is enabled and verified. */
   canAskChannelQuestion: () => boolean
   askDownloadQuestion: (
     models: DownloadModelParam[],

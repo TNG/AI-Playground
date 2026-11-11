@@ -173,31 +173,12 @@
       </div>
     </div>
 
-    <div
-      v-if="homeAgent.notificationChannelOptions.length > 0"
-      class="flex items-center gap-3 pt-6"
+    <p
+      v-for="notice in answerableNotices"
+      :key="notice.kind"
+      class="pt-2 text-sm text-muted-foreground"
     >
-      <label for="home-agent-notification-channel" class="text-sm font-medium">
-        {{ i18n.HOME_AGENT_NOTIFICATION_CHANNEL }}
-      </label>
-      <select
-        id="home-agent-notification-channel"
-        v-model="notificationChannel"
-        class="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-      >
-        <option v-for="kind in homeAgent.notificationChannelOptions" :key="kind" :value="kind">
-          {{ channelName(kind) }}
-        </option>
-      </select>
-    </div>
-
-    <div class="flex items-center gap-3 pt-4">
-      <Switch id="home-agent-auto-notify" v-model="homeAgent.autoNotify" />
-      <Label for="home-agent-auto-notify">{{ i18n.HOME_AGENT_AUTO_NOTIFY }}</Label>
-    </div>
-
-    <p v-if="answerableNoticeText" class="pt-2 text-sm text-muted-foreground">
-      {{ answerableNoticeText }}
+      {{ channelName(notice.kind) }}: {{ notice.text }}
     </p>
 
     <SetupWizardFooter
@@ -216,8 +197,6 @@ import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useI18N } from '@/assets/js/store/i18n'
 import { CHANNELS, getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import SetupSidebarTile from '@/components/SetupSidebarTile.vue'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
 import { answerableNotice } from '@/lib/answerRouterWording'
@@ -232,13 +211,11 @@ const homeAgent = useHomeAgent()
 const i18n = useI18N().state
 const isEditMode = computed(() => wizard.homeAgentSetupOrigin === 'edit')
 
-const notificationChannel = computed({
-  get: () => homeAgent.notificationRoute.notificationChannel,
-  set: (kind: ChannelKind | null) => (homeAgent.chosenNotificationChannel = kind),
-})
-
-const answerableNoticeText = computed(() =>
-  notificationChannel.value ? answerableNotice(notificationChannel.value) : null,
+const answerableNotices = computed(() =>
+  homeAgent.notificationChannels.flatMap((kind) => {
+    const text = answerableNotice(kind)
+    return text ? [{ kind, text }] : []
+  }),
 )
 
 function channelName(kind: ChannelKind): string {

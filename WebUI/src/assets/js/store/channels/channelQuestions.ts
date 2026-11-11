@@ -50,8 +50,8 @@ export type ChannelQuestionRegistry = {
   settle: (id: string, answer: boolean, outcomeNote?: string) => boolean
   /** Takes an open question's buttons away with a note; its `answer` never resolves. */
   retire: (id: string, note: string) => boolean
-  /** Retires every button-only Channel Question not asked on `kind` (all of them for `null`). */
-  retireOutside: (kind: ChannelKind | null, note: string) => void
+  /** Retires every button-only Channel Question not asked on one of `kinds`. */
+  retireOutside: (kinds: readonly ChannelKind[], note: string) => void
   isOpen: (id: string) => boolean
   /** True when the message answered a question, or tapped a closed one, and must not reach the Home Agent. */
   handleInbound: (adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta) => boolean
@@ -134,9 +134,9 @@ export function createChannelQuestionRegistry(deps?: {
     return true
   }
 
-  function retireOutside(kind: ChannelKind | null, note: string): void {
+  function retireOutside(kinds: readonly ChannelKind[], note: string): void {
     for (const [id, q] of [...open]) {
-      if (!q.typedReply && q.adapter.kind !== kind) retire(id, note)
+      if (!q.typedReply && !kinds.includes(q.adapter.kind)) retire(id, note)
     }
   }
 

@@ -1,13 +1,6 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { PauseReason } from './kernelEvents'
 
-/** Where a Notification goes, and whether it can go at all. */
-export type NotificationRoute = {
-  /** The title-bar master toggle is on and the Home Agent backend is running. */
-  homeAgentEnabled: boolean
-  notificationChannel: ChannelKind | null
-}
-
 /** The Harness Session an Answer runs in, and the Session it belongs to. */
 export type AnswerTarget = { sessionRef: string; harnessSessionId: string }
 
@@ -41,13 +34,13 @@ export type NotificationTemplates = {
   answerByReply: string
 }
 
-/** What main needs from the window to deliver a Notification (docs/adr/0003). */
-export type NotificationConfig = NotificationRoute & {
-  /** Background Sessions notify when they pause or fail. */
-  autoNotify: boolean
-  /** The Agent Mode session open on screen; null while Agent Mode is not shown. */
-  sessionInView: string | null
-  /** Sessions whose folder uses the real system shell; Answers to them are refused. */
+/** What main needs from the window to deliver a Notification (docs/adr/0010). */
+export type NotificationConfig = {
+  /** The enabled, verified Channels; empty while the Channels toggle is off. */
+  channels: ChannelKind[]
+  /** The Session open in the window, shown or not; null when none is. */
+  sessionOnScreen: string | null
+  /** Harness Sessions whose folder uses the real system shell; Answers to them are refused. */
   realShellSessions: string[]
   templates: NotificationTemplates
 }

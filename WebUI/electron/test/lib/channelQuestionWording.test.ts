@@ -41,6 +41,7 @@ describe('channel question wording', () => {
       complete: 'CHANNEL_QUESTION_COMPLETE',
       failed: 'CHANNEL_QUESTION_FAILED',
       answeredInApp: 'CHANNEL_QUESTION_ANSWERED_IN_APP',
+      answeredElsewhere: 'CHANNEL_QUESTION_ANSWERED_ELSEWHERE',
       declinedInApp: 'CHANNEL_QUESTION_DECLINED_IN_APP',
       closed: 'CHANNEL_QUESTION_CLOSED',
       unavailable: 'CHANNEL_QUESTION_UNAVAILABLE',

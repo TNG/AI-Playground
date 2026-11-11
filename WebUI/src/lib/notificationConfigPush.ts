@@ -2,6 +2,7 @@ import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
@@ -32,14 +33,14 @@ export function startNotificationConfigPush(): void {
   if (stop) return
   const homeAgent = useHomeAgent()
   const agentMode = useAgentMode()
+  const sessions = useSessions()
   const i18n = useI18N()
   const errors = useErrors()
   const config = computed<NotificationConfig>(() => {
     const text = i18n.state
     return {
-      ...homeAgent.notificationRoute,
-      autoNotify: homeAgent.autoNotify,
-      sessionInView: agentMode.sessionInView,
+      channels: [...homeAgent.notificationChannels],
+      sessionOnScreen: sessions.openSessionId,
       realShellSessions: Object.values(agentMode.sessions)
         .filter((session) => agentMode.isUnsandboxed(session.workspaceDir))
         .map((session) => session.id),
@@ -109,6 +110,7 @@ export function startNotificationConfigPush(): void {
       complete: text.CHANNEL_QUESTION_COMPLETE ?? '',
       failed: text.CHANNEL_QUESTION_FAILED ?? '',
       answeredInApp: text.CHANNEL_QUESTION_ANSWERED_IN_APP ?? '',
+      answeredElsewhere: text.CHANNEL_QUESTION_ANSWERED_ELSEWHERE ?? '',
       declinedInApp: text.CHANNEL_QUESTION_DECLINED_IN_APP ?? '',
       closed: text.CHANNEL_QUESTION_CLOSED ?? '',
       unavailable: text.CHANNEL_QUESTION_UNAVAILABLE ?? '',

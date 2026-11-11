@@ -80,7 +80,7 @@ type DownloadAnswer =
   { kind: 'yes'; accepted: DownloadModelParam[]; fromChannel: boolean } | { kind: 'joined' }
 
 /**
- * The first answer, from the modal or the Channel Question, wins (docs/adr/0004).
+ * The first answer, from the modal or a Channel Question, wins (docs/adr/0010).
  * The question ends early when its waiter settles first: the turn stopped, or a
  * Model Download it already waits on was cancelled or failed.
  */
@@ -132,7 +132,7 @@ async function askDownloadQuestion(args: {
         return { kind: 'yes', accepted: winner.accepted, fromChannel: false }
       case 'channel':
         desktop.dismiss()
-        if (!winner.answer) throw declined('Download declined in the Notification Channel')
+        if (!winner.answer) throw declined('Download declined in a Channel')
         return { kind: 'yes', accepted: models, fromChannel: true }
     }
   } finally {

@@ -1223,7 +1223,6 @@ export const useAgentMode = defineStore(
     function inView(sessionId: string): boolean {
       return viewShown.value && openSessionId.value === sessionId
     }
-    const sessionInView = computed(() => (viewShown.value && openSessionId.value) || null)
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
     // session is in view, so a Paused Session never pops up over other work.
@@ -2391,7 +2390,6 @@ export const useAgentMode = defineStore(
       setViewShown,
       liveTurnsIn,
       streamingMessagesOf,
-      sessionInView,
       deleteSession,
       restoreOpenSession,
     }

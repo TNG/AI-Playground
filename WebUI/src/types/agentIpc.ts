@@ -153,7 +153,14 @@ export const AgentModeTurnConfigSchema = z.object({
   /** Set when a channel Answer started this turn: its result is replied under the Answer. */
   answer: AgentAnswerOriginSchema.optional(),
   /** A Task Run's Step: no Session Update, no `session_history`, its entry tagged with the Task. */
-  taskRun: z.object({ taskName: z.string(), stepIndex: z.number().int().positive() }).optional(),
+  taskRun: z
+    .object({
+      taskName: z.string(),
+      stepIndex: z.number().int().positive(),
+      /** A Scheduled Run's last Step: its result is a Notification to every Channel. */
+      notifiesResult: z.boolean().optional(),
+    })
+    .optional(),
   /** A Follow-up to a saved Agent's run: its History Entry is marked as the Agent's. */
   followUp: AgentFollowUpTagSchema.optional(),
   /** The run a Follow-up continues, whose Steps may predate its Session Update cursor. */

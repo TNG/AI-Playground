@@ -257,6 +257,24 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, string],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
+  /**
+   * Make a Session reachable from Channels or not; turning it on adds `notify` to its Assistant
+   * settings (from `defaultCapabilities` when they name none) and is refused while it uses the
+   * real system shell. Pushes `session-changed`.
+   */
+  'sessions:setReachable': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, boolean, { defaultCapabilities?: string[] }?],
+    result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
+  },
+  /** The workspace folders the real system shell is on; a Reachable Session in one stops being reachable. */
+  'sessions:setRealShellFolders': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string[]],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Pin or unpin a Session; pushes `session-changed`. */
   'sessions:pin': {
     kind: 'invoke',

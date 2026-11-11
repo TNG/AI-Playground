@@ -10,6 +10,7 @@ function session(id: string, over: Partial<SessionSummary> = {}): SessionSummary
     title: id,
     renamed: false,
     pinned: false,
+    reachable: false,
     createdAt: 0,
     updatedAt: 0,
     presetsUsed: [],

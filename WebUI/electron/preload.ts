@@ -296,6 +296,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (groupId?: string) => invoke('sessions:create', groupId),
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
+    setReachable: (id: string, reachable: boolean, options?: { defaultCapabilities?: string[] }) =>
+      invoke('sessions:setReachable', id, reachable, options && cloneForIpc(options)),
+    setRealShellFolders: (folders: string[]) =>
+      invoke('sessions:setRealShellFolders', cloneForIpc(folders)),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
     pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
     createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),

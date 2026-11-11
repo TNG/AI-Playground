@@ -18,6 +18,7 @@ import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
 import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
+import { isSessionReachable } from '../session/sessionChannels.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
@@ -194,6 +195,10 @@ async function deliver(
   if (!homeAgentEnabled || !channel) return { delivered: false, reason: 'Home Agent is off' }
   if (!kind) return { delivered: false, reason: 'no Notification Channel set up' }
   try {
+    const sessionRef = sessionId ? await sessionOfHarnessSession(sessionId) : null
+    if (sessionRef && !(await isSessionReachable(sessionRef))) {
+      return { delivered: false, reason: 'the Session is not reachable from Channels' }
+    }
     const attached = body.attachments
       ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
       : { media: [] }
@@ -208,7 +213,6 @@ async function deliver(
     const messages = body.media
       ? [{ ...message, media: body.media }]
       : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
-    const sessionRef = sessionId ? await sessionOfHarnessSession(sessionId) : null
     if (sessionId && !sessionRef) {
       appLoggerInstance.warn(
         `${sessionId} belongs to no Session; an Answer to it reaches Home Agent`,

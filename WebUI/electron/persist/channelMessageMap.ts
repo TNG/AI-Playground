@@ -111,16 +111,20 @@ export async function channelMessageOwner(
   })
 }
 
-export async function forgetHarnessSessionMessages(harnessSessionId: string): Promise<void> {
+async function tombstone(owned: (owner: AnswerTarget) => boolean): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
     const entries = await readEntries()
-    if (!entries.some((e) => e.owner?.harnessSessionId === harnessSessionId)) return
-    await writeEntries(
-      entries.map((e) =>
-        e.owner?.harnessSessionId === harnessSessionId ? { ...e, owner: null } : e,
-      ),
-    )
+    if (!entries.some((e) => e.owner && owned(e.owner))) return
+    await writeEntries(entries.map((e) => (e.owner && owned(e.owner) ? { ...e, owner: null } : e)))
   })
+}
+
+export async function forgetHarnessSessionMessages(harnessSessionId: string): Promise<void> {
+  return tombstone((owner) => owner.harnessSessionId === harnessSessionId)
+}
+
+export async function forgetSessionMessages(sessionRef: string): Promise<void> {
+  return tombstone((owner) => owner.sessionRef === sessionRef)
 }
 
 export async function wipeDemoChannelMessageMap(): Promise<void> {

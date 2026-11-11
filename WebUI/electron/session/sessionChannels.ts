@@ -1,0 +1,88 @@
+import path from 'node:path'
+import { emitSessionChanged } from '../kernel/kernelBus'
+import { forgetSessionMessages } from '../persist/channelMessageMap'
+import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
+import { mutateSession, onSessionDeleted, sessionDocumentOf, sessionPaths } from './sessions'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
+import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
+import type { SessionFile, SessionSummary } from '@/types/sessionIpc'
+import { parseSessionSettings } from '@/types/sessionSettings'
+
+// What Channels may do with a Session (Reachable Session, docs/adr/0010).
+
+export const REAL_SHELL_REACHABLE_REFUSAL =
+  'A Session that uses the real system shell cannot be reachable from Channels'
+
+export type ReachableOptions = {
+  /** Assistant's default capabilities, for a Session whose Assistant settings name none yet. */
+  defaultCapabilities?: string[]
+}
+
+// The real shell is a per-folder opt-in the window keeps, so the window pushes it here.
+let realShellFolders = new Set<string>()
+
+function usesRealShell(file: SessionFile): boolean {
+  const folders = [sessionPaths(file.id).filesDir, ...Object.values(file.harnessWorkspaces)]
+  return folders.some((folder) => realShellFolders.has(path.resolve(folder)))
+}
+
+function withNotify(file: SessionFile, defaultCapabilities: string[] | undefined): SessionFile {
+  const entry = parseSessionSettings(file.settings)[HARNESS_CHAT_PRESET] ?? { bags: {} }
+  const bag = entry.bags[HARNESS_CHAT_PRESET] ?? { values: {}, fromDefaults: true }
+  const stored = bag.values.capabilities
+  const own = Array.isArray(stored) ? (stored as string[]) : undefined
+  const capabilities = own ?? defaultCapabilities
+  if (!capabilities || own?.includes(NOTIFY_CAPABILITY_ID)) return file
+  const withId = capabilities.includes(NOTIFY_CAPABILITY_ID)
+    ? capabilities
+    : [...capabilities, NOTIFY_CAPABILITY_ID]
+  const next = { ...bag, values: { ...bag.values, capabilities: withId } }
+  const nextEntry = { ...entry, bags: { ...entry.bags, [HARNESS_CHAT_PRESET]: next } }
+  return { ...file, settings: { ...file.settings, [HARNESS_CHAT_PRESET]: nextEntry } }
+}
+
+function changed(file: SessionFile): SessionSummary {
+  const document = sessionDocumentOf(file)
+  emitSessionChanged(document)
+  const { timeline: _timeline, ...summary } = document
+  return summary
+}
+
+/** Turning reachable on also lets the Session's Assistant notify; refused with the real shell. */
+export async function setSessionReachable(
+  id: string,
+  reachable: boolean,
+  options: ReachableOptions = {},
+): Promise<SessionSummary> {
+  const file = await mutateSession(id, (current) => {
+    if (!reachable) return { ...current, reachable }
+    if (usesRealShell(current)) throw new Error(REAL_SHELL_REACHABLE_REFUSAL)
+    return withNotify({ ...current, reachable }, options.defaultCapabilities)
+  })
+  return changed(file)
+}
+
+/** False for a Session that is gone or cannot be read. */
+export async function isSessionReachable(id: string): Promise<boolean> {
+  const read = await readSessionFile(id).catch(() => null)
+  return read?.status === 'ok' && read.file.reachable
+}
+
+/** The folders the real shell is on now; a Reachable Session in one stops being reachable. */
+export async function setRealShellFolders(folders: string[]): Promise<void> {
+  realShellFolders = new Set(folders.map((folder) => path.resolve(folder)))
+  for (const { id } of await listSessionFolders()) {
+    const read = await readSessionFile(id)
+    if (read.status !== 'ok' || !read.file.reachable || !usesRealShell(read.file)) continue
+    changed(await mutateSession(id, (current) => ({ ...current, reachable: false })))
+  }
+}
+
+/** A deleted Session's Channel messages answer that it was deleted; returns the unsubscribe. */
+export function forgetChannelMessagesOnDelete(): () => void {
+  return onSessionDeleted((id) => forgetSessionMessages(id))
+}
+
+export function resetSessionChannelsForTest(): void {
+  realShellFolders = new Set()
+}

@@ -30,6 +30,8 @@ describe('per-owner handler registries', () => {
       | 'sessions:create'
       | 'sessions:open'
       | 'sessions:rename'
+      | 'sessions:setReachable'
+      | 'sessions:setRealShellFolders'
       | 'sessions:pin'
       | 'sessions:pickAgent'
       | 'sessions:createGroup'

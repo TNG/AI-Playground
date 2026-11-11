@@ -277,6 +277,11 @@ import {
   harnessSessionOwners,
 } from './session/sessionHarness'
 import { dropSchedulesWithSession, taskRunHarnessFor } from './session/sessionTaskRuns'
+import {
+  forgetChannelMessagesOnDelete,
+  setRealShellFolders,
+  setSessionReachable,
+} from './session/sessionChannels'
 import { upsertTimelineMessages } from './session/sessionTimeline'
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
@@ -1370,6 +1375,7 @@ function wireSessions(settings: LocalSettings): void {
     await deleteAgentSession(harnessSessionId)
   })
   dropSchedulesWithSession()
+  forgetChannelMessagesOnDelete()
   setAppMediaPathResolver(getLocalPathFromAipgMediaUrl)
 }
 
@@ -1859,6 +1865,8 @@ function initEventHandle() {
       openSession,
       renameSession,
       pinSession,
+      setSessionReachable,
+      setRealShellFolders,
       pickSessionAgent,
       listSessionGroups,
       createSessionGroup,

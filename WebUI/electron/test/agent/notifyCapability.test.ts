@@ -300,6 +300,13 @@ describe('notify_user', () => {
     })
   }, 30000)
 
+  it('sends nothing for a Session that is not reachable and returns the reason', async () => {
+    await sessionHolding('aipg-agent-notify-unreachable', { reachable: false })
+    await runTurn('aipg-agent-notify-unreachable')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain('not delivered: the Session is not reachable from Channels')
+  }, 30000)
+
   it('records nothing for a Harness Session no Session holds, such as a Trial Run’s', async () => {
     channelResult = { success: true, ref: '43' }
     await runTurn('aipg-agent-notify-trial-run')

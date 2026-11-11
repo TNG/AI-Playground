@@ -630,6 +630,38 @@ describe('a Background Session whose turn fails', () => {
   }, 30000)
 })
 
+describe('a Session that is not reachable', () => {
+  let reachability: typeof import('../../session/sessionChannels')
+
+  beforeAll(async () => {
+    reachability = await import('../../session/sessionChannels')
+  })
+
+  afterEach(async () => {
+    await reachability.setSessionReachable(newsSessionRef, true)
+  })
+
+  it('sends nothing when it pauses or fails off screen', async () => {
+    await reachability.setSessionReachable(newsSessionRef, false)
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(SESSION))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends no reply to a turn started from a Channel once made unreachable', async () => {
+    const answer = { channel: 'telegram' as const, replyTo: 'answer-78' }
+    await withWaitingTurn(
+      SESSION,
+      () => reachability.setSessionReachable(newsSessionRef, false).then(() => {}),
+      { ...configFor(SESSION), answer },
+    )
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+})
+
 describe('the turn an Answer started', () => {
   const ANSWER = { channel: 'telegram' as const, replyTo: 'answer-77' }
   const answerTurn = (): AgentModeTurnConfig => ({ ...configFor(SESSION), answer: ANSWER })

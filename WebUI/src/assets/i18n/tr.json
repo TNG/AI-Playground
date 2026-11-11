@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ “{name}”, {title} içinde başlatıldı.",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ onu bir Başlangıç İstemi ile başlatır: bu sefer neye odaklanacağını söyle.",
   "CHANNEL_START_PROMPT_REQUEST": "✎ “{name}” {title} içinde ne yapsın? Bu mesajı yanıtla, ajanı yanıtınla başlatayım.",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ “{name}” {title} içinde ne yapsın? Bu dizide yanıtla, ajanı yanıtınla başlatayım.",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} için Başlangıç İstemi",
   "CHANNEL_START_PROMPT_USED": "✅ İsteminle başlatıldı.",
   "CHANNEL_START_PROMPT_ALREADY": "Zaten başlatıldı. Devam etmek için sonucu yanıtla.",

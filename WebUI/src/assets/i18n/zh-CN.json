@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ 已在 {title} 中启动“{name}”。",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ 附带启动提示词启动：告诉它这次要重点做什么。",
   "CHANNEL_START_PROMPT_REQUEST": "✎ “{name}”应在 {title} 中做什么？回复此消息，我会用你的回复启动它。",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ “{name}”应在 {title} 中做什么？在此消息串中回复，我会用你的回复启动它。",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} 的启动提示词",
   "CHANNEL_START_PROMPT_USED": "✅ 已使用你的提示词启动。",
   "CHANNEL_START_PROMPT_ALREADY": "已经启动。回复结果即可继续跟进。",

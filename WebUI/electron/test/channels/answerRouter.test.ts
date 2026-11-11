@@ -1677,6 +1677,15 @@ ${PICK}`,
       expect(agentStarts).toEqual([])
     })
 
+    it('asks for the reply in the request’s thread on Slack', async () => {
+      const { router } = prompted({ slack: TRIP })
+      const ch = fakeChannel('slack')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks.map(({ text }) => text)).toEqual([
+        '✎ What should “Daily digest” do in "Trip planning"? Reply in this thread, and I\'ll start it with your reply.',
+      ])
+    })
+
     it('starts the Agent with the first reply as its Start Prompt, replied under that reply', async () => {
       const { router, agentStarts } = prompted()
       const ch = fakeChannel('telegram')

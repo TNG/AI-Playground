@@ -100,6 +100,8 @@ export type AnswerRouterCopy = {
   agentsPromptHint: string
   /** `{name}` (the Agent), `{title}` (a quoted Session title); a Start Prompt Request */
   startPromptRequest: string
+  /** `startPromptRequest` where the reply goes in the request's thread (Slack) */
+  startPromptRequestThread: string
   /** `{name}`; Telegram's reply box hint on a Start Prompt Request */
   startPromptPlaceholder: string
   /** A Start Prompt Request once its reply started the Agent */
@@ -181,6 +183,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   agentStepRefused: 'CHANNEL_AGENT_STEP_REFUSED',
   agentsPromptHint: 'CHANNEL_AGENTS_PROMPT_HINT',
   startPromptRequest: 'CHANNEL_START_PROMPT_REQUEST',
+  startPromptRequestThread: 'CHANNEL_START_PROMPT_REQUEST_THREAD',
   startPromptPlaceholder: 'CHANNEL_START_PROMPT_PLACEHOLDER',
   startPromptUsed: 'CHANNEL_START_PROMPT_USED',
   startPromptAlready: 'CHANNEL_START_PROMPT_ALREADY',

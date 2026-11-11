@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ Đã khởi chạy “{name}” trong {title}.",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ khởi động kèm Lời nhắc bắt đầu: cho nó biết lần này cần tập trung vào điều gì.",
   "CHANNEL_START_PROMPT_REQUEST": "✎ “{name}” nên làm gì trong {title}? Hãy trả lời tin nhắn này, tôi sẽ khởi động nó với câu trả lời của bạn.",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ “{name}” nên làm gì trong {title}? Hãy trả lời trong chuỗi tin nhắn này, tôi sẽ khởi động nó với câu trả lời của bạn.",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Lời nhắc bắt đầu cho {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Đã khởi động với lời nhắc của bạn.",
   "CHANNEL_START_PROMPT_ALREADY": "Đã khởi động rồi. Trả lời kết quả để tiếp tục.",

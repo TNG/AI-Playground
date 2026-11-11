@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ “{name}” dimulai di {title}.",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ memulainya dengan Prompt Awal: beri tahu apa yang harus difokuskan kali ini.",
   "CHANNEL_START_PROMPT_REQUEST": "✎ Apa yang harus dilakukan “{name}” di {title}? Balas pesan ini, dan saya akan memulainya dengan balasan Anda.",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ Apa yang harus dilakukan “{name}” di {title}? Balas di utas ini, dan saya akan memulainya dengan balasan Anda.",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Prompt Awal untuk {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Dimulai dengan prompt Anda.",
   "CHANNEL_START_PROMPT_ALREADY": "Sudah dimulai. Balas hasilnya untuk menindaklanjuti.",

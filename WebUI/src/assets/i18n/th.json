@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ เริ่ม “{name}” ใน {title} แล้ว",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ เริ่มพร้อม Start Prompt: บอกว่าครั้งนี้ควรเน้นเรื่องอะไร",
   "CHANNEL_START_PROMPT_REQUEST": "✎ “{name}” ควรทำอะไรใน {title}? ตอบกลับข้อความนี้ แล้วฉันจะเริ่มด้วยคำตอบของคุณ",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ “{name}” ควรทำอะไรใน {title}? ตอบกลับในเธรดนี้ แล้วฉันจะเริ่มด้วยคำตอบของคุณ",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Start Prompt สำหรับ {name}",
   "CHANNEL_START_PROMPT_USED": "✅ เริ่มพร้อมพรอมต์ของคุณแล้ว",
   "CHANNEL_START_PROMPT_ALREADY": "เริ่มไปแล้ว ตอบกลับผลลัพธ์เพื่อทำต่อ",

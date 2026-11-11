@@ -1,3 +1,4 @@
+import { answerGesture, GESTURE_WORDING } from '@/lib/answerButton'
 import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
@@ -54,7 +55,9 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
     meta?: InboundMeta,
   ): Promise<void> {
     const wording = copy()
-    const text = fillTemplate(wording.startPromptRequest, {
+    const gesture = answerGesture(adapter.kind)
+    const template = wording[gesture ? GESTURE_WORDING[gesture].request : 'startPromptRequest']
+    const text = fillTemplate(template, {
       name: agent.name,
       title: port.label({ sessionRef }),
     })

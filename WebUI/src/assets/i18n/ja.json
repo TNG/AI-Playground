@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ {title} で「{name}」を開始しました。",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ は開始プロンプト付きで起動します。今回重点を置く内容を伝えてください。",
   "CHANNEL_START_PROMPT_REQUEST": "✎ {title} で「{name}」に何をさせますか？このメッセージに返信すると、その内容で起動します。",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ {title} で「{name}」に何をさせますか？このスレッドに返信すると、その内容で起動します。",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} の開始プロンプト",
   "CHANNEL_START_PROMPT_USED": "✅ プロンプト付きで起動しました。",
   "CHANNEL_START_PROMPT_ALREADY": "すでに起動しています。続けるには結果に返信してください。",

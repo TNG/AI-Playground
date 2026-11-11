@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ {title}에서 “{name}”을(를) 시작했습니다.",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎는 시작 프롬프트와 함께 시작합니다. 이번에 집중할 내용을 알려 주세요.",
   "CHANNEL_START_PROMPT_REQUEST": "✎ {title}에서 “{name}”이(가) 무엇을 해야 하나요? 이 메시지에 답장하면 답장 내용으로 시작합니다.",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ {title}에서 “{name}”이(가) 무엇을 해야 하나요? 이 스레드에 답장하면 답장 내용으로 시작합니다.",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name}의 시작 프롬프트",
   "CHANNEL_START_PROMPT_USED": "✅ 프롬프트와 함께 시작했습니다.",
   "CHANNEL_START_PROMPT_ALREADY": "이미 시작했습니다. 이어서 하려면 결과에 답장하세요.",

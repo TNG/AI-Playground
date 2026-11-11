@@ -957,6 +957,7 @@
   "CHANNEL_AGENT_STARTED": "▶️ “{name}” avviato in {title}.",
   "CHANNEL_AGENTS_PROMPT_HINT": "✎ lo avvia con un Prompt iniziale: digli su cosa concentrarsi questa volta.",
   "CHANNEL_START_PROMPT_REQUEST": "✎ Cosa deve fare “{name}” in {title}? Rispondi a questo messaggio e lo avvierò con la tua risposta.",
+  "CHANNEL_START_PROMPT_REQUEST_THREAD": "✎ Cosa deve fare “{name}” in {title}? Rispondi in questo thread e lo avvierò con la tua risposta.",
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Prompt iniziale per {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Avviato con il tuo prompt.",
   "CHANNEL_START_PROMPT_ALREADY": "Già avviato. Rispondi al risultato per proseguire.",

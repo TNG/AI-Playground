@@ -13,13 +13,25 @@ type GestureWording = {
   notice: 'noticeReply' | 'noticeThread' | 'noticeButton'
   /** The last line of an answerable agent message; null where a button answers it instead. */
   hint: keyof Pick<NotificationTemplates, 'answerByReply' | 'answerInThread'> | null
+  /** How a Start Prompt Request asks for its reply. */
+  request: 'startPromptRequest' | 'startPromptRequestThread'
 }
 
 /** How each gesture is worded wherever answering is explained. */
 export const GESTURE_WORDING: Record<AnswerGesture, GestureWording> = {
-  reply: { help: 'helpReply', notice: 'noticeReply', hint: 'answerByReply' },
-  thread: { help: 'helpThread', notice: 'noticeThread', hint: 'answerInThread' },
-  button: { help: 'helpButton', notice: 'noticeButton', hint: null },
+  reply: {
+    help: 'helpReply',
+    notice: 'noticeReply',
+    hint: 'answerByReply',
+    request: 'startPromptRequest',
+  },
+  thread: {
+    help: 'helpThread',
+    notice: 'noticeThread',
+    hint: 'answerInThread',
+    request: 'startPromptRequestThread',
+  },
+  button: { help: 'helpButton', notice: 'noticeButton', hint: null, request: 'startPromptRequest' },
 }
 
 /** How a channel answers an agent's message, and how a send there names the message it replies to. */

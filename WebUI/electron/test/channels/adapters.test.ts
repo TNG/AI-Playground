@@ -73,6 +73,52 @@ describe('channel adapters', () => {
     })
   })
 
+  describe('asking for a reply (a Start Prompt Request)', () => {
+    const request = {
+      placeholder: 'Start Prompt for Daily digest',
+      answerLabel: '💬 Answer',
+      answerTitle: 'Daily digest',
+    }
+
+    it('opens the reply box with its hint on Telegram', async () => {
+      sendMock.mockClear()
+      sendMock.mockResolvedValueOnce({ success: true, messageId: 12 })
+      const res = await telegram.askForReply('What should it do?', request)
+      expect(res.ref).toEqual({ messageId: 12 })
+      expect(sendMock).toHaveBeenCalledWith('telegram', 'post', {
+        text: 'What should it do?',
+        parse_mode: 'HTML',
+        force_reply_placeholder: 'Start Prompt for Daily digest',
+      })
+    })
+
+    it('posts top-level on Slack, so its own thread takes the reply', async () => {
+      sendMock.mockClear()
+      sendMock.mockResolvedValueOnce({ success: true, ts: '1.2', channel: 'D1' })
+      const res = await slack.askForReply('What should it do?', request, {
+        channel: 'D1',
+        threadTs: '0.9',
+      })
+      expect(res.ref).toEqual({ ts: '1.2', channel: 'D1' })
+      expect(sendMock).toHaveBeenCalledWith('slack', 'post', {
+        text: 'What should it do?',
+        channel: 'D1',
+      })
+    })
+
+    it('carries the Answer button naming the Agent on LAN chat', async () => {
+      sendMock.mockClear()
+      sendMock.mockResolvedValueOnce({ success: true, messageId: 5 })
+      const res = await localWeb.askForReply('What should it do?', request)
+      expect(res.ref).toEqual({ messageId: 5 })
+      expect(sendMock).toHaveBeenCalledWith('local-web', 'keyboard', {
+        text: 'What should it do?',
+        buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+        answer_title: 'Daily digest',
+      })
+    })
+  })
+
   it('posts an editable message on every channel without touching a reply draft', async () => {
     sendMock.mockClear()
     sendMock.mockResolvedValueOnce({ success: true, messageId: 3 })

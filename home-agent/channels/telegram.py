@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, command_for_callback
+from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, forwarded_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,24 @@ def _reply_parameters(payload: dict) -> dict:
     return {
         "reply_parameters": ReplyParameters(
             message_id=message_id, allow_sending_without_reply=True
+        )
+    }
+
+
+# Telegram refuses a longer input field placeholder.
+_PLACEHOLDER_MAX_CHARS = 64
+
+
+def _force_reply(payload: dict) -> dict:
+    """The send kwargs that open the reply box on this message, when the payload asks."""
+    placeholder = payload.get("force_reply_placeholder")
+    if not isinstance(placeholder, str) or not placeholder:
+        return {}
+    from telegram import ForceReply
+
+    return {
+        "reply_markup": ForceReply(
+            input_field_placeholder=placeholder[:_PLACEHOLDER_MAX_CHARS]
         )
     }
 
@@ -198,6 +216,7 @@ class TelegramChannel(ChannelBase):
                     text=text,
                     parse_mode=parse_mode,
                     **_reply_parameters(payload),
+                    **_force_reply(payload),
                 )
             )
             return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
@@ -602,11 +621,11 @@ class TelegramChannel(ChannelBase):
                 await cq.answer()
             except Exception as exc:
                 logger.warning("Failed to ack callback_query: %s", exc)
-            full_text = command_for_callback(data)
-            if full_text is None:
+            forwarded = forwarded_callback(data)
+            if forwarded is None:
                 return
-            logger.info("Telegram command callback: chat_id=%s %r", chat_id, full_text)
-            self.queue_append({"text": full_text, "chat_id": chat_id})
+            logger.info("Telegram command callback: chat_id=%s %r", chat_id, forwarded)
+            self.queue_append({**forwarded, "chat_id": chat_id})
 
         async def handle_photo(
             update: Update, context: ContextTypes.DEFAULT_TYPE

@@ -3,12 +3,15 @@ import type { AppDriver } from './appDriver'
 import type { Page } from '@playwright/test'
 import { MainPage } from './pages/MainPage'
 import { ChannelsPage } from './pages/ChannelsPage'
+import { AgentLibraryPage } from './pages/AgentLibraryPage'
 import {
   agentMessages,
   agentRepliesTo,
   answerAgentMessage,
   draftBubbles,
   openLocalWebChat,
+  pauseAutoConfirm,
+  resumeAutoConfirm,
   sendAndAwaitMedia,
   sendAndAwaitSessionReply,
   sendAndAwaitText,
@@ -64,6 +67,12 @@ const NOTIFY_PROMPT =
   'Send me a notification with notify_user that says exactly "Ready for your answer", then stop.'
 const NOTIFICATION_TEXT = 'Ready for your answer'
 const ANSWER_TEXT = 'Reply with the single word PINEAPPLE.'
+
+// An Agent started from the LAN page with a Start Prompt, which its one Step repeats.
+const PROMPTED_AGENT = 'Echo the focus'
+const PROMPTED_AGENT_STEP =
+  'Reply with only the single word the user added for this run, in capitals.'
+const START_PROMPT = 'kiwi'
 
 // Two replies at once, each asked for a word of its own.
 const MANGO = 'Reply with the single word MANGO.'
@@ -187,6 +196,53 @@ test.describe('Channels — local web chat', () => {
       await test.step('Nothing is left running afterwards', async () => {
         await sendAndAwaitText(page, '/stop', 'Nothing is running', 60_000)
         await expect(agentRepliesTo(page, QUEUED_PROMPT)).toHaveCount(0)
+      })
+    } finally {
+      await page.close()
+    }
+  })
+
+  test('starts an Agent with a Start Prompt from the LAN page', async ({
+    app,
+    window,
+    electronApp,
+  }) => {
+    test.setTimeout(45 * 60_000)
+    await bringUpLanChat(app, window)
+    await app.shell.ensureSettingsClosed()
+    await new AgentLibraryPage(window).createStartableAgent(PROMPTED_AGENT, PROMPTED_AGENT_STEP)
+
+    const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
+    try {
+      await sendAndAwaitText(page, '/new', 'Started a new Session', 60_000)
+
+      await test.step('/agents lists the Agent with ▶ and ✎ on one row', async () => {
+        // The list is a keyboard, which the auto-confirm handler would tap for us.
+        await pauseAutoConfirm(page)
+        await sendMessage(page, '/agents')
+        const row = page.getByRole('group', { name: `▶ ${PROMPTED_AGENT}`, exact: true })
+        await expect(row.getByRole('button', { name: '✎', exact: true })).toBeVisible({
+          timeout: 60_000,
+        })
+        await row.getByRole('button', { name: '✎', exact: true }).click()
+        await resumeAutoConfirm(page)
+      })
+
+      const request = agentMessages(page, `What should “${PROMPTED_AGENT}” do`).first()
+      await test.step('✎ asks for a Start Prompt that the Answer chip replies to', async () => {
+        await expect(request).toBeVisible({ timeout: 60_000 })
+        await answerAgentMessage(page, request, START_PROMPT)
+      })
+
+      await test.step('The reply starts the Agent with it as its Start Prompt', async () => {
+        // The Notifier's acknowledgement is a plain post; the run's result is an agent message.
+        const said = (text: string | RegExp) =>
+          settledBotBubbles(page).or(agentMessages(page)).filter({ hasText: text }).first()
+        await expect(said(`Started “${PROMPTED_AGENT}”`)).toBeVisible({
+          timeout: MainPage.TEXT_TIMEOUT,
+        })
+        await expect(said('Started with your prompt')).toBeVisible()
+        await expect(said(/KIWI/)).toBeVisible({ timeout: MainPage.TEXT_TIMEOUT })
       })
     } finally {
       await page.close()

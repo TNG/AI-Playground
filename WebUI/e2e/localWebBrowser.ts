@@ -75,9 +75,19 @@ export async function signInAndAwaitChat(page: Page, password: string): Promise<
   // page rather than per send so handlers don't stack. The page retires a prompt's
   // buttons once tapped, which is also what lets Playwright's post-handler
   // "overlay is gone" check pass.
+  await resumeAutoConfirm(page)
+}
+
+/** Tap the first button of any prompt that appears, as `signInAndAwaitChat` arms it. */
+export async function resumeAutoConfirm(page: Page): Promise<void> {
   await page.addLocatorHandler(promptButtons(page).first(), async (btn) => {
     await btn.click()
   })
+}
+
+/** Stop auto-tapping prompts, for a test that taps a keyboard's buttons itself (`/agents`). */
+export async function pauseAutoConfirm(page: Page): Promise<void> {
+  await page.removeLocatorHandler(promptButtons(page).first())
 }
 
 const composer = (page: Page) => page.getByRole('textbox', { name: 'Message' })

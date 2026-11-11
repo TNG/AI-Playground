@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, command_for_callback
+from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, forwarded_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -660,11 +660,11 @@ class SlackChannel(ChannelBase):
                     )
                     return
                 value = action.get("value") or action.get("action_id") or ""
-                text = command_for_callback(value)
-                if text is None:
+                forwarded = forwarded_callback(value)
+                if forwarded is None:
                     return
-                logger.info("Slack command action: user=%s %r", user, text)
-                self.queue_append({"text": text, "chat_id": user, "channel": channel})
+                logger.info("Slack command action: user=%s %r", user, forwarded)
+                self.queue_append({**forwarded, "chat_id": user, "channel": channel})
 
             for prefix in COMMAND_CALLBACKS:
                 bolt_app.action(re.compile(f"^{re.escape(prefix)}"))(on_command_action)

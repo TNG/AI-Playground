@@ -8,6 +8,7 @@
 import type { ChannelAdapter, RawPart } from './adapter'
 import { successRef } from './adapter'
 import { renderGenericToolMarker, stripAipgMediaReferences } from './adapterHelpers'
+import { ANSWER_CALLBACK } from '@/lib/answerButton'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 
 // Sentinels the served page (local_web_app_html.py) rewrites into a styled,
@@ -133,6 +134,14 @@ export function createLocalWebAdapter(): ChannelAdapter {
     },
     keyboard: async (text, buttons, _meta) => sentWithId(await send('keyboard', { text, buttons })),
     post: async (text, _meta) => sentWithId(await send('post', { text })),
+    askForReply: async (text, request, _meta) =>
+      sentWithId(
+        await send('keyboard', {
+          text,
+          buttons: [[{ text: request.answerLabel, callbackData: ANSWER_CALLBACK }]],
+          answer_title: request.answerTitle,
+        }),
+      ),
     editKeyboardMessage: async (ref, text, _meta) => {
       // Its own action, not a plain reply: the page edits the bubble it tagged and
       // retires its buttons, so an already-settled prompt can't be tapped again.

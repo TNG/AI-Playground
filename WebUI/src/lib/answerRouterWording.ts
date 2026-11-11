@@ -94,6 +94,18 @@ export type AnswerRouterCopy = {
   agentFixOnDesktop: string
   /** `{name}` (the Agent), `{step}`, `{title}` (a quoted Session title), `{reason}` */
   agentStepRefused: string
+  /** Under the `/agents` buttons: what ✎ does */
+  agentsPromptHint: string
+  /** `{name}` (the Agent), `{title}` (a quoted Session title); a Start Prompt Request */
+  startPromptRequest: string
+  /** `{name}`; Telegram's reply box hint on a Start Prompt Request */
+  startPromptPlaceholder: string
+  /** A Start Prompt Request once its reply started the Agent */
+  startPromptUsed: string
+  /** A later reply to a used Start Prompt Request */
+  startPromptAlready: string
+  /** LAN chat's Answer button, which makes a Start Prompt Request answerable there */
+  answerButton: string
   /** `{command}` */
   unknownCommand: string
   untitled: string
@@ -160,6 +172,12 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   agentNotStarted: 'CHANNEL_AGENT_NOT_STARTED',
   agentFixOnDesktop: 'CHANNEL_AGENT_FIX_ON_DESKTOP',
   agentStepRefused: 'CHANNEL_AGENT_STEP_REFUSED',
+  agentsPromptHint: 'CHANNEL_AGENTS_PROMPT_HINT',
+  startPromptRequest: 'CHANNEL_START_PROMPT_REQUEST',
+  startPromptPlaceholder: 'CHANNEL_START_PROMPT_PLACEHOLDER',
+  startPromptUsed: 'CHANNEL_START_PROMPT_USED',
+  startPromptAlready: 'CHANNEL_START_PROMPT_ALREADY',
+  answerButton: 'AGENT_NOTIFY_ANSWER_BUTTON',
   unknownCommand: 'CHANNEL_UNKNOWN_COMMAND',
   untitled: 'SESSIONS_UNTITLED',
 }

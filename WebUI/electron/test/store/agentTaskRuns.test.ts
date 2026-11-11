@@ -951,6 +951,22 @@ describe('a run a Channel started whose Step is refused in this window', () => {
     expect(startTurn).not.toHaveBeenCalled()
   })
 
+  it('puts a Start Prompt into the first Step and onto the run, as a desktop start does', async () => {
+    const { agentMode, tasks } = await readyStores(startable(['one', 'two']))
+
+    expect(
+      await tasks.startFromChannel('t1', SESSION, ORIGIN, '  only news from Germany '),
+    ).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual([firstStepTurn('only news from Germany', ['one', 'two'])])
+    expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
+      trigger: 'channel',
+      channel: 'telegram',
+      input: 'only news from Germany',
+    })
+  })
+
   it('tells the starting Channel when a later Step is refused', async () => {
     const { tasks } = await readyStores(startable(['one', 'two']))
     const refusals: unknown[] = []

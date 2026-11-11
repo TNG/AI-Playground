@@ -232,8 +232,8 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     },
     send,
     listStartableAgents: async () => agentTasks.startableAgents,
-    startAgent: (sessionRef, agentId, origin) =>
-      agentTasks.startFromChannel(agentId, sessionRef, origin),
+    startAgent: (sessionRef, agentId, origin, prompt) =>
+      agentTasks.startFromChannel(agentId, sessionRef, origin, prompt),
     activity,
     stop,
     onSessionChange: (listener) => {

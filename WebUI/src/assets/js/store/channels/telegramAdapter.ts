@@ -150,6 +150,15 @@ export function createTelegramAdapter(): ChannelAdapter {
         }),
       )
     },
+    askForReply: async (text, request) => {
+      return withMessageRef(
+        await window.electronAPI.channels.send('telegram', 'post', {
+          text,
+          parse_mode: PARSE_MODE,
+          force_reply_placeholder: request.placeholder,
+        }),
+      )
+    },
     editKeyboardMessage: async (ref, text) => {
       if (typeof ref.messageId !== 'number') return { success: false, error: 'no message id' }
       const r = await window.electronAPI.channels.send('telegram', 'editMessage', {

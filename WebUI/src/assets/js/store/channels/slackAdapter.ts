@@ -185,6 +185,12 @@ export function createSlackAdapter(): ChannelAdapter {
         }),
       )
     },
+    // Top-level, never in a thread: a reply in its own thread is how Slack answers it.
+    askForReply: async (text, _request, meta) => {
+      return withMessageRef(
+        await window.electronAPI.channels.send('slack', 'post', { text, channel: meta?.channel }),
+      )
+    },
     editKeyboardMessage: async (ref, text) => {
       if (!ref.ts || !ref.channel) return { success: false, error: 'no message ref' }
       // chat.update with a single section block replaces the original message

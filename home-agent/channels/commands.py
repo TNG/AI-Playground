@@ -78,13 +78,28 @@ CHANNEL_COMMANDS: tuple[ChannelCommand, ...] = (
 )
 
 # A tap on a router button with one of these prefixes is forwarded as that command,
-# its value the argument. Telegram and Slack only deliver taps on known prefixes.
-COMMAND_CALLBACKS: dict[str, str] = {"loadConv:": "/load", "runAgent:": "/agents"}
+# its value the argument, or as the tap itself where no command stands for it (None).
+# Telegram and Slack only deliver taps on known prefixes.
+COMMAND_CALLBACKS: dict[str, str | None] = {
+    "loadConv:": "/load",
+    "runAgent:": "/agents",
+    "promptAgent:": None,
+}
 
 
 def command_for_callback(data: str) -> str | None:
     """The command a tapped router button stands for; None for any other button."""
     for prefix, command in COMMAND_CALLBACKS.items():
-        if data.startswith(prefix):
+        if command is not None and data.startswith(prefix):
             return f"{command} {data[len(prefix) :]}".strip()
+    return None
+
+
+def forwarded_callback(data: str) -> dict[str, str] | None:
+    """The queue item fields for a tapped router button; None for any other button."""
+    for prefix, command in COMMAND_CALLBACKS.items():
+        if data.startswith(prefix):
+            if command is None:
+                return {"callback": data}
+            return {"text": f"{command} {data[len(prefix) :]}".strip()}
     return None

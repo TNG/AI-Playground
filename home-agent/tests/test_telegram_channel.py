@@ -165,6 +165,7 @@ class TelegramOutboundTest(unittest.TestCase):
         fake_telegram.ReplyParameters = ReplyParameters  # type: ignore[attr-defined]
         fake_telegram.InputFile = lambda file, filename: (file.read(), filename)  # type: ignore[attr-defined]
         fake_telegram.InlineKeyboardButton = SimpleNamespace  # type: ignore[attr-defined]
+        fake_telegram.ForceReply = SimpleNamespace  # type: ignore[attr-defined]
         fake_telegram.InlineKeyboardMarkup = lambda rows: rows  # type: ignore[attr-defined]
         self._saved = sys.modules.get("telegram")
         sys.modules["telegram"] = fake_telegram
@@ -204,6 +205,23 @@ class TelegramOutboundTest(unittest.TestCase):
         )
         self.assertEqual(result, {"status": "ok", "message_id": 501})
         self.assertEqual(self.reply_target(0)["message_id"], 77)
+
+    def test_a_start_prompt_request_opens_the_reply_box_with_its_hint(self) -> None:
+        result = self.channel.send_post(
+            {"text": "What should it do?", "force_reply_placeholder": "Start Prompt"}
+        )
+        self.assertEqual(result, {"status": "ok", "message_id": 501})
+        markup = self.bot.calls[0][1]["reply_markup"]
+        self.assertEqual(markup.input_field_placeholder, "Start Prompt")
+
+    def test_a_reply_box_hint_is_cut_to_what_telegram_accepts(self) -> None:
+        self.channel.send_post({"text": "?", "force_reply_placeholder": "x" * 80})
+        markup = self.bot.calls[0][1]["reply_markup"]
+        self.assertEqual(markup.input_field_placeholder, "x" * 64)
+
+    def test_a_post_opens_no_reply_box_unless_asked(self) -> None:
+        self.channel.send_post({"text": "Downloading…"})
+        self.assertNotIn("reply_markup", self.bot.calls[0][1])
 
     def test_a_plain_reply_answers_nothing(self) -> None:
         self.channel.send_reply({"text": "hello"})

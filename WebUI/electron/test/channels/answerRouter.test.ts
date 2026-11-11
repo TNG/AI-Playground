@@ -12,10 +12,11 @@ import {
   type ChannelTranscriptMessage,
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
-import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
+import type { ChannelAdapter, ReplyRequest } from '../../../src/assets/js/store/channels/adapter'
 import type { QueuedChannelMessage } from '../../../src/assets/js/store/channels/channelQueue'
 import type {
   ChannelKind,
+  ChannelMessageRef,
   InboundMeta,
   KeyboardButton,
   RemoteAudio,
@@ -29,8 +30,16 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
   const metas: (InboundMeta | undefined)[] = []
   const keyboards: { text: string; buttons: KeyboardButton[][] }[] = []
   const repaints: { role: string; text: string }[][] = []
+  /** Messages that ask for a reply (Start Prompt Requests), each sent as message 700 + n. */
+  const asks: { text: string; request: ReplyRequest; meta?: InboundMeta; ref: string }[] = []
+  const edits: { ref: ChannelMessageRef; text: string }[] = []
   const adapter = {
     kind,
+    askForReply: async (text: string, request: ReplyRequest, meta?: InboundMeta) => {
+      const messageId = 701 + asks.length
+      asks.push({ text, request, meta, ref: String(messageId) })
+      return { success: true, ref: { messageId } }
+    },
     formatMarkdown: (md: string) => md,
     formatRichSnippet: (html: string) => html,
     formatFinal: (parts: { text?: string }[]) => parts.map((p) => p.text ?? '').join(''),
@@ -38,7 +47,10 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
       keyboards.push({ text, buttons })
       return { success: true, ref: { messageId: 900 } }
     },
-    editKeyboardMessage: async () => ({ success: true }),
+    editKeyboardMessage: async (ref: ChannelMessageRef, text: string) => {
+      edits.push({ ref, text })
+      return { success: true }
+    },
     reply: async (text: string, meta?: InboundMeta) => {
       replies.push(text)
       drafted.push(text)
@@ -60,7 +72,7 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
         }
       : {}),
   } as unknown as ChannelAdapter
-  return { adapter, replies, drafted, metas, keyboards, repaints }
+  return { adapter, replies, drafted, metas, keyboards, repaints, asks, edits }
 }
 
 type FakeSession = {
@@ -130,7 +142,12 @@ function fakeSessions(
   const attaching = { fails: false }
   /** The Agents marked "Can be started from a Channel". */
   const startable: { agentId: string; name: string }[] = []
-  const agentStarts: { sessionRef: string; agentId: string; origin: AgentAnswerOrigin }[] = []
+  const agentStarts: {
+    sessionRef: string
+    agentId: string
+    origin: AgentAnswerOrigin
+    prompt?: string
+  }[] = []
   /** What starting an Agent does; it goes through unless set. */
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
   const harnessOf = (sessionRef: string) =>
@@ -211,8 +228,8 @@ function fakeSessions(
       return { ok: true, path: `attachments/${file.filename}` }
     },
     listStartableAgents: async () => [...startable],
-    startAgent: async (sessionRef, agentId, origin) => {
-      agentStarts.push({ sessionRef, agentId, origin })
+    startAgent: async (sessionRef, agentId, origin, prompt) => {
+      agentStarts.push({ sessionRef, agentId, origin, ...(prompt !== undefined ? { prompt } : {}) })
       const { result } = agentStart
       if (result.ok && turns.start) {
         const name = startable.find((agent) => agent.agentId === agentId)?.name ?? ''
@@ -1409,13 +1426,20 @@ describe('/agents', () => {
     return fixture
   }
   const PICK =
-    'Agents you can start from here. Tap one to run it in your Channel Session, or send /agents <name>.'
+    'Agents you can start from here. Tap one to run it in your Channel Session, or send /agents <name>.\n' +
+    '✎ starts it with a Start Prompt: tell it what to focus on this time.'
   const BUTTONS = [
-    [{ text: 'Daily digest', callbackData: 'runAgent:agent-digest' }],
-    [{ text: 'Tidy downloads', callbackData: 'runAgent:agent-tidy' }],
+    [
+      { text: '▶ Daily digest', callbackData: 'runAgent:agent-digest' },
+      { text: '✎', callbackData: 'promptAgent:agent-digest' },
+    ],
+    [
+      { text: '▶ Tidy downloads', callbackData: 'runAgent:agent-tidy' },
+      { text: '✎', callbackData: 'promptAgent:agent-tidy' },
+    ],
   ]
 
-  it('lists the Agents that can be started from a Channel as buttons', async () => {
+  it('lists each Agent that can be started from a Channel as a start and a ✎ button', async () => {
     const { router, agentStarts } = agents()
     const ch = fakeChannel('telegram')
     await router.route(ch.adapter, { text: '/agents' })
@@ -1572,13 +1596,268 @@ describe('/agents', () => {
     })
   })
 
-  it('is listed by /help', async () => {
+  it('is listed by /help, with what ✎ does', async () => {
     const { router } = channelSetup()
     const ch = fakeChannel('telegram')
     await router.route(ch.adapter, { text: '/help' })
     expect(ch.replies[0]).toContain(
-      '`/agents [name]` — List the agents you can start, or start one',
+      '`/agents [name]` — List the agents you can start (✎ starts one with a Start Prompt), or start one by name',
     )
+  })
+
+  describe('with a Start Prompt', () => {
+    const WORK = 'session-work'
+    const REQUEST =
+      '✎ What should “Daily digest” do in "Trip planning"? Reply to this message, and I\'ll start it with your reply.'
+
+    function prompted(pointers: Partial<Record<ChannelKind, string>> = { telegram: TRIP }) {
+      const fixture = channelSetup({ ...trip, [WORK]: { title: 'Work' } }, pointers)
+      fixture.startable.push(DIGEST, TIDY)
+      return fixture
+    }
+
+    it('asks for a Start Prompt naming the Agent and the Channel Session, on that Channel only', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      const other = fakeChannel('slack')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks.map(({ text, request }) => ({ text, request }))).toEqual([
+        {
+          text: REQUEST,
+          request: {
+            placeholder: 'Start Prompt for Daily digest',
+            answerLabel: '💬 Answer',
+            answerTitle: 'Daily digest',
+          },
+        },
+      ])
+      expect(other.asks).toEqual([])
+      expect(agentStarts).toEqual([])
+    })
+
+    it('starts the Agent with the first reply as its Start Prompt, replied under that reply', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, {
+        text: '  only news from Germany ',
+        replyTo: ch.asks[0].ref,
+        replyTarget: '43',
+      })
+      expect(agentStarts).toEqual([
+        {
+          sessionRef: TRIP,
+          agentId: 'agent-digest',
+          origin: { channel: 'telegram', replyTo: '43' },
+          prompt: 'only news from Germany',
+        },
+      ])
+    })
+
+    it('marks the request used, and answers a second reply without starting again', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(ch.edits).toEqual([{ ref: { messageId: 701 }, text: '✅ Started with your prompt.' }])
+      await router.route(ch.adapter, { text: 'and France', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+      expect(ch.replies).toEqual(['Already started. Reply to the result to follow up.'])
+    })
+
+    it('starts in the Session the request named, after /load of another', async () => {
+      const { router, agentStarts, pointers } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { callback: `loadConv:${WORK}` })
+      expect(pointers.telegram).toBe(WORK)
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map((start) => start.sessionRef)).toEqual([TRIP])
+    })
+
+    it('makes a new Reachable Session to name when the Channel has none', async () => {
+      const { router, agentStarts, created, pointers } = prompted({})
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(created).toEqual(['session-new-1'])
+      expect(pointers.telegram).toBe('session-new-1')
+      expect(ch.asks[0].text).toContain('in "Untitled Session"?')
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map((start) => start.sessionRef)).toEqual(['session-new-1'])
+    })
+
+    it('does not ask for an Agent that can no longer be started from a Channel', async () => {
+      const { router, startable } = prompted()
+      startable.splice(0, 1)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(ch.asks).toEqual([])
+      expect(ch.keyboards[0].text).toContain('⚠️ No agent "agent-digest" can be started from here.')
+    })
+
+    it('keeps several requests open, each answered by its own reply', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-tidy' })
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'only PDFs', replyTo: ch.asks[1].ref })
+      await router.route(ch.adapter, { text: 'France', replyTo: ch.asks[2].ref })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map(({ agentId, prompt }) => [agentId, prompt])).toEqual([
+        ['agent-tidy', 'only PDFs'],
+        ['agent-digest', 'France'],
+        ['agent-digest', 'Germany'],
+      ])
+    })
+
+    it('takes a spoken reply, transcribed, as the Start Prompt', async () => {
+      const { router, agentStarts, speech } = prompted()
+      speech.said['clip-1'] = 'only news from Germany'
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { ...voice('clip-1'), replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([
+        expect.objectContaining({
+          prompt: 'only news from Germany',
+          origin: { channel: 'telegram', voice: true },
+        }),
+      ])
+    })
+
+    it('attaches images and documents of the reply to the request’s Session', async () => {
+      const { router, agentStarts, attached } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { callback: `loadConv:${WORK}` })
+      await router.route(ch.adapter, {
+        text: 'use these',
+        replyTo: ch.asks[0].ref,
+        images: [{ mime: 'image/png', data_base64: 'aW1n' }],
+        documents: [{ filename: 'notes.pdf', mime: 'application/pdf', data_base64: 'cGRm' }],
+      })
+      expect(attached).toEqual([
+        { to: TRIP, kind: 'image', filename: 'telegram-image.png' },
+        { to: TRIP, kind: 'document', filename: 'notes.pdf' },
+      ])
+      expect(agentStarts).toHaveLength(1)
+      expect(agentStarts[0].prompt).toContain('use these')
+      expect(agentStarts[0].prompt).toContain('attachments/telegram-image.png')
+    })
+
+    it('leaves the request open for a reply holding only a document, and confirms it', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, {
+        replyTo: ch.asks[0].ref,
+        documents: [{ filename: 'notes.pdf', mime: 'application/pdf', data_base64: 'cGRm' }],
+      })
+      expect(agentStarts).toEqual([])
+      expect(ch.replies).toEqual([
+        '📄 Attached to "Trip planning": notes.pdf. Ask about them in your next message.',
+      ])
+      await router.route(ch.adapter, { text: 'summarise it', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map((start) => start.prompt)).toEqual(['summarise it'])
+    })
+
+    it('leaves the request open for an empty reply', async () => {
+      const { router, agentStarts, plain } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: '   ', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([])
+      expect(plain).toEqual([])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+    })
+
+    it('runs a command sent as a reply as that command, leaving the request open', async () => {
+      const { router, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: '/stop', replyTo: ch.asks[0].ref })
+      expect(ch.replies).toEqual(['Nothing is running in "Trip planning".'])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+    })
+
+    it('sends a message that replies to nothing to the Channel Session as usual', async () => {
+      const { router, agentStarts, plain } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany' })
+      expect(agentStarts).toEqual([])
+      expect(plain.map((message) => [message.sessionRef, message.text])).toEqual([
+        [TRIP, 'Germany'],
+      ])
+    })
+
+    it('queues the start with its Start Prompt in a busy Session', async () => {
+      const { router, agentStarts, busy, settle, published } = prompted()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([])
+      expect(ch.replies).toEqual([
+        '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+      ])
+      expect(published[TRIP].map((queued) => queued.text)).toEqual([
+        '/agents Daily digest\nGermany',
+      ])
+      expect(ch.edits.map((edit) => edit.text)).toEqual(['✅ Started with your prompt.'])
+      await settle(TRIP)
+      expect(agentStarts.map((start) => start.prompt)).toEqual(['Germany'])
+    })
+
+    it('refuses a reply when the request’s Session was deleted', async () => {
+      const sessions: Record<string, { title: string; gone?: boolean }> = {
+        [TRIP]: { title: 'Trip planning' },
+      }
+      const fixture = channelSetup(sessions, { telegram: TRIP })
+      fixture.startable.push(DIGEST)
+      const ch = fakeChannel('telegram')
+      await fixture.router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      sessions[TRIP].gone = true
+      await fixture.router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(fixture.agentStarts).toEqual([])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
+      expect(ch.edits).toEqual([])
+    })
+
+    it('refuses a reply when the request’s Session was made unreachable', async () => {
+      const sessions: Record<string, { title: string; reachable?: boolean }> = {
+        [TRIP]: { title: 'Trip planning' },
+      }
+      const fixture = channelSetup(sessions, { telegram: TRIP })
+      fixture.startable.push(DIGEST)
+      const ch = fakeChannel('telegram')
+      await fixture.router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      sessions[TRIP].reachable = false
+      await fixture.router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(fixture.agentStarts).toEqual([])
+      expect(ch.replies).toEqual([
+        '🔒 "Trip planning" is not reachable from Channels. Turn on "Reachable from Channels" in its menu on your computer to answer it.',
+      ])
+    })
+
+    it('refuses a reply when the Agent can no longer be started from a Channel', async () => {
+      const { router, agentStart, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      agentStart.result = {
+        ok: false,
+        reason: 'no-task',
+        message: 'This agent can no longer be started from a Channel.',
+      }
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toHaveLength(1)
+      expect(ch.replies).toEqual([
+        '⚠️ “Daily digest” did not start in "Trip planning": This agent can no longer be started from a Channel.',
+      ])
+      expect(ch.edits).toEqual([])
+    })
   })
 })
 

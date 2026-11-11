@@ -1148,6 +1148,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     id: string,
     sessionRef: string,
     origin: AgentAnswerOrigin,
+    prompt = '',
   ): Promise<ChannelStartResult> {
     const notStartable = () => ({
       ok: false as const,
@@ -1173,7 +1174,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       if (agentRunIn(sessionRef)) return { ok: false, reason: 'task-locked', message: '' }
       const refusal = scheduledRefusal(task)
       if (refusal) return { ok: false, reason: 'settings-problems', message: refusal }
-      const failed = await startRun(task, sessionRef, false, '', origin)
+      const failed = await startRun(task, sessionRef, false, prompt, origin)
       return failed === null ? { ok: true } : { ok: false, reason: 'not-started', message: failed }
     } finally {
       starting.delete(slot)

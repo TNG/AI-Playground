@@ -116,7 +116,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     .file-chip { display: inline-block; margin-top: 6px; padding: 4px 8px; border-radius: var(--radius); background: var(--muted); color: var(--fg); font-size: 13px; }
     .row-user .file-chip { background: rgb(255 255 255 / 0.18); color: var(--primary-fg); }
     a.doc-link { color: inherit; text-decoration: underline; font-size: 14px; }
-    .kbd-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .kbd-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
+    .kbd-line { display: flex; flex-wrap: wrap; gap: 6px; }
     .kbd-row button { background: var(--muted); color: var(--fg); border: 1px solid var(--border); font-weight: 500; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); cursor: pointer; }
     .answer-row { margin-top: 8px; }
     .answer-row button { background: var(--primary); color: var(--primary-fg); border: none; font-weight: 600; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); cursor: pointer; }
@@ -843,19 +844,35 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         const bubble = appendBotHtml(formatBotText(d.text || ''), false, [row])
         bubble.setAttribute('aria-label', LABEL_PROMPT)
         if (d.id) bubble.dataset.mid = String(d.id)
-        for (const btn of buttons) {
-          const cb = callbackOf(btn)
-          const b = document.createElement('button')
-          b.type = 'button'
-          b.textContent = btn.text || cb
-          b.onclick = () => {
-            // Consume before posting: the row is the only thing stopping a second
-            // tap from re-running the callback (a duplicate image generation, a
-            // second download confirmation, …).
-            consumeKeyboard(row, b.textContent)
-            postChat({ callback: cb })
+        // Each row of the keyboard stays a line of its own, so a row's buttons
+        // (an agent's start and its Start Prompt) never wrap apart.
+        const lines = d.buttons.filter((line) => Array.isArray(line) && line.length > 0)
+        for (const line of lines) {
+          const lineEl = document.createElement('div')
+          lineEl.className = 'kbd-line'
+          const lead = line[0].text || callbackOf(line[0])
+          if (lines.length > 1 && line.length > 1) {
+            lineEl.setAttribute('role', 'group')
+            lineEl.setAttribute('aria-label', lead)
           }
-          row.appendChild(b)
+          for (const btn of line) {
+            const cb = callbackOf(btn)
+            const b = document.createElement('button')
+            b.type = 'button'
+            b.textContent = btn.text || cb
+            b.onclick = () => {
+              // Consume before posting: the row is the only thing stopping a second
+              // tap from re-running the callback (a duplicate image generation, a
+              // second download confirmation, …).
+              const choice = lines.length > 1 && btn !== line[0]
+                ? lead + ' ' + b.textContent
+                : b.textContent
+              consumeKeyboard(row, choice)
+              postChat({ callback: cb })
+            }
+            lineEl.appendChild(b)
+          }
+          row.appendChild(lineEl)
         }
         const tm = document.createElement('span')
         tm.className = 'time'

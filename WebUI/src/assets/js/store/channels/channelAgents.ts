@@ -9,6 +9,8 @@ import type { InboundMeta, KeyboardButton } from './types'
 
 // Telegram and Slack turn a tap on this prefix into `/agents <value>`; LAN chat sends the callback.
 export const START_AGENT_CALLBACK = 'runAgent:'
+// Every Channel sends this tap as it is (`COMMAND_CALLBACKS` maps it to no command).
+export const PROMPT_AGENT_CALLBACK = 'promptAgent:'
 
 export type ChannelAgentDeps = {
   listStartable: () => Promise<StartableAgent[]>
@@ -20,6 +22,13 @@ export type ChannelAgentDeps = {
     sessionRef: string,
     agent: StartableAgent,
     origin: AgentAnswerOrigin,
+    meta?: InboundMeta,
+  ) => Promise<void>
+  /** Posts a Start Prompt Request for the Agent in the Session. */
+  askForPrompt: (
+    adapter: ChannelAdapter,
+    sessionRef: string,
+    agent: StartableAgent,
     meta?: InboundMeta,
   ) => Promise<void>
   copy: () => AnswerRouterCopy
@@ -38,11 +47,12 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     notFound?: string,
   ): Promise<void> {
     const wording = copy()
-    const pick = notFound
-      ? `${fillTemplate(wording.agentNotFound, { name: notFound })}\n${wording.agentsPick}`
-      : wording.agentsPick
+    const lines = [wording.agentsPick, wording.agentsPromptHint]
+    if (notFound) lines.unshift(fillTemplate(wording.agentNotFound, { name: notFound }))
+    const pick = lines.join('\n')
     const buttons: KeyboardButton[][] = agents.map((agent) => [
-      { text: agent.name, callbackData: `${START_AGENT_CALLBACK}${agent.agentId}` },
+      { text: `▶ ${agent.name}`, callbackData: `${START_AGENT_CALLBACK}${agent.agentId}` },
+      { text: '✎', callbackData: `${PROMPT_AGENT_CALLBACK}${agent.agentId}` },
     ])
     await adapter
       .keyboard(adapter.formatMarkdown(pick), buttons, meta)
@@ -68,6 +78,20 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     await deps.start(adapter, sessionRef, agent, inboundOrigin(adapter.kind, msg), meta)
   }
 
+  async function askForPrompt(
+    adapter: ChannelAdapter,
+    agentId: string,
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const agents = await deps.listStartable()
+    if (agents.length === 0) return tell(adapter, copy().agentsNone, meta)
+    const agent = agents.find((entry) => entry.agentId === agentId)
+    if (!agent) return list(adapter, agents, meta, agentId)
+    const sessionRef = await deps.channelSession(adapter, meta)
+    if (!sessionRef) return
+    await deps.askForPrompt(adapter, sessionRef, agent, meta)
+  }
+
   const commands: ChannelCommand[] = [
     {
       name: 'agents',
@@ -81,6 +105,10 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     {
       prefix: START_AGENT_CALLBACK,
       run: ({ adapter, msg, meta }, agentId) => startByName(adapter, msg, agentId, meta),
+    },
+    {
+      prefix: PROMPT_AGENT_CALLBACK,
+      run: ({ adapter, meta }, agentId) => askForPrompt(adapter, agentId, meta),
     },
   ]
 

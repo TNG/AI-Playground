@@ -31,6 +31,9 @@ export type RawPart = {
   providerMetadata?: { aipg?: { reasoningStarted?: number; reasoningFinished?: number } }
 }
 
+/** How a message asking for a reply names what the reply is for, per Channel. */
+export type ReplyRequest = { placeholder: string; answerLabel: string; answerTitle: string }
+
 /** Channel-agnostic adapter surface — see telegramAdapter.ts / slackAdapter.ts
  *  for concrete implementations. Every method that produces a string is
  *  responsible for delivering channel-native output (HTML for Telegram,
@@ -72,6 +75,14 @@ export type ChannelAdapter = {
   /** Send a standalone message that `editKeyboardMessage` can rewrite later (a
    *  download's progress). Unlike `reply` it never settles a streaming draft. */
   post: (text: string, meta?: InboundMeta) => Promise<ChannelSendResult>
+  /** Send a message the user answers by replying to it (a Start Prompt Request), each
+   *  Channel its own way: Telegram opens the reply box with `placeholder`, Slack takes a
+   *  reply in its thread, LAN chat shows the Answer button naming `answerTitle`. */
+  askForReply: (
+    text: string,
+    request: ReplyRequest,
+    meta?: InboundMeta,
+  ) => Promise<ChannelSendResult>
   /** Edit a previously-sent `keyboard` or `post` message in place: replace its
    *  text and drop any buttons. Used to settle an interactive confirmation
    *  prompt so it no longer looks tappable/pending, and to move a download

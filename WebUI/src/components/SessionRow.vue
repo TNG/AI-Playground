@@ -77,6 +77,18 @@
               : languages.SESSIONS_SCHEDULED
           }}</TooltipContent>
         </Tooltip>
+        <Tooltip v-if="session.reachable">
+          <TooltipTrigger as-child>
+            <span
+              role="img"
+              :aria-label="languages.SESSIONS_REACHABLE"
+              class="inline-flex flex-none"
+            >
+              <ChatBubbleLeftRightIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ languages.SESSIONS_REACHABLE }}</TooltipContent>
+        </Tooltip>
         <span
           v-if="presetIcons.length > 0"
           role="list"
@@ -187,6 +199,31 @@
         <DropdownMenuItem v-if="ownGroup" @select="emit('moveToGroup', null)">
           {{ languages.SESSIONS_REMOVE_FROM_GROUP }}
         </DropdownMenuItem>
+        <template v-if="!session.unreadable">
+          <DropdownMenuItem
+            v-if="!channelsSetUp && !session.reachable"
+            class="flex-col items-start gap-0"
+            @select="emit('setUpChannel')"
+          >
+            <span>{{ languages.SESSIONS_REACHABLE }}</span>
+            <span class="text-xs text-muted-foreground">{{
+              languages.SESSIONS_REACHABLE_SET_UP
+            }}</span>
+          </DropdownMenuItem>
+          <DropdownMenuCheckboxItem
+            v-else
+            :model-value="session.reachable"
+            :disabled="realShell && !session.reachable"
+            @update:model-value="(reachable: boolean) => emit('reachable', reachable)"
+          >
+            <span class="flex flex-col">
+              <span>{{ languages.SESSIONS_REACHABLE }}</span>
+              <span v-if="realShell && !session.reachable" class="text-xs text-muted-foreground">{{
+                languages.SESSIONS_REACHABLE_REAL_SHELL
+              }}</span>
+            </span>
+          </DropdownMenuCheckboxItem>
+        </template>
         <AlertDialog>
           <AlertDialogTrigger as-child>
             <DropdownMenuItem @select="(event: Event) => event.preventDefault()">
@@ -225,6 +262,7 @@
 import { computed, ref } from 'vue'
 import {
   ArrowDownTrayIcon,
+  ChatBubbleLeftRightIcon,
   ClockIcon,
   EllipsisVerticalIcon,
   HandRaisedIcon,
@@ -232,6 +270,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -283,6 +322,10 @@ const props = defineProps<{
   timeBucket: TimeLabelBucket
   /** The Session holds a Schedule: `paused` when none of them is enabled. */
   scheduled?: SessionScheduleState
+  /** A Channel is set up, so the Session can be made reachable. */
+  channelsSetUp: boolean
+  /** The Session uses the real system shell, which is never reachable. */
+  realShell: boolean
   createGroup: (name: string) => Promise<GroupNameRefusal | null>
 }>()
 
@@ -293,6 +336,8 @@ const emit = defineEmits<{
   moveToGroup: [groupId: string | null]
   delete: []
   openSchedules: []
+  reachable: [reachable: boolean]
+  setUpChannel: []
 }>()
 
 const i18n = useI18N()

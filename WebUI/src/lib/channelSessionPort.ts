@@ -1,5 +1,6 @@
 import { watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useSessions } from '@/assets/js/store/sessions'
 import type { SessionPause, SessionSendResult } from '@/assets/js/store/channels/answerRouter'
 import { registerSessionPort } from '@/assets/js/store/channels/sessionPort'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
@@ -10,6 +11,7 @@ const ADMISSION_WAIT_MS = 3000
 /** Lets the channels reach Sessions, over Agent Mode's send-to-session path. */
 export function registerChannelSessionPort(label: (harnessSessionId: string) => string): void {
   const agentMode = useAgentMode()
+  const sessions = useSessions()
 
   // A new turn is queued locally first; main then admits it or gives it a place in the queue.
   function admitted(harnessSessionId: string): Promise<number | null> {
@@ -53,6 +55,8 @@ export function registerChannelSessionPort(label: (harnessSessionId: string) => 
   }
 
   registerSessionPort({
+    exists: async (sessionRef) => !!sessions.sessions[sessionRef],
+    isReachable: async (sessionRef) => sessions.sessions[sessionRef]?.reachable === true,
     lookup: (kind, ref) => window.electronAPI.notifications.lookupMessage(kind, ref),
     label: ({ harnessSessionId }) => label(harnessSessionId),
     usesRealShell: ({ harnessSessionId }) => {

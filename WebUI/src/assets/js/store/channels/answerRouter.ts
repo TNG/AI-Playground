@@ -31,6 +31,10 @@ export type HeldAnswerJournal = {
 
 /** The Sessions a channel reaches, keyed by Session (`docs/adr/0010`); registered by the window. */
 export type SessionPort = {
+  /** The Session has not been deleted. */
+  exists: (sessionRef: string) => Promise<boolean>
+  /** The Session exists and is a Reachable Session; nothing else is ever driven from a channel. */
+  isReachable: (sessionRef: string) => Promise<boolean>
   /** The Session and Harness Session that sent this channel message, or null when none did. */
   lookup: (kind: ChannelKind, ref: string) => Promise<ChannelMessageOwner | null>
   /** The Notification label, quoted (`"Asteroids clone"`, or a Task and its step). */
@@ -337,13 +341,19 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ): Promise<void> {
-    if ('deletedSession' in owner) return tell(adapter, copy().noSession, meta)
-    if (msg.images?.length || msg.documents?.length || msg.refused) {
-      return tell(adapter, copy().textOnly, meta)
+    if ('deletedSession' in owner || !(await sessions.exists(owner.sessionRef))) {
+      return tell(adapter, copy().noSession, meta)
     }
     const target: AnswerTarget = {
       sessionRef: owner.sessionRef,
       harnessSessionId: owner.harnessSessionId,
+    }
+    if (!(await sessions.isReachable(target.sessionRef))) {
+      const title = sessions.label(target)
+      return tell(adapter, fillTemplate(copy().unreachable, { title }), meta)
+    }
+    if (msg.images?.length || msg.documents?.length || msg.refused) {
+      return tell(adapter, copy().textOnly, meta)
     }
     if (sessions.usesRealShell(target)) {
       const title = sessions.label(target)

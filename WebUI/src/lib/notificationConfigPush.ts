@@ -2,6 +2,7 @@ import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
@@ -15,11 +16,24 @@ import type { NotificationConfig } from '@/types/notificationsIpc'
 
 let stop: WatchStopHandle | null = null
 
+async function pushRealShellFolders(
+  folders: string[],
+  errors: ReturnType<typeof useErrors>,
+): Promise<void> {
+  try {
+    const result = await window.electronAPI?.sessions?.setRealShellFolders?.([...folders])
+    if (result && !result.success) throw new Error(result.error)
+  } catch (error) {
+    errors.report(error, { code: 'sessions/real-shell-push-failed', surface: 'silent' })
+  }
+}
+
 export function startNotificationConfigPush(): void {
   if (stop) return
   const homeAgent = useHomeAgent()
   const agentMode = useAgentMode()
   const i18n = useI18N()
+  const errors = useErrors()
   const config = computed<NotificationConfig>(() => {
     const text = i18n.state
     return {
@@ -50,9 +64,22 @@ export function startNotificationConfigPush(): void {
       },
     }
   })
-  stop = watch(config, (next) => window.electronAPI?.notifications?.setConfig?.(next), {
+  const stopConfig = watch(config, (next) => window.electronAPI?.notifications?.setConfig?.(next), {
     immediate: true,
   })
+  // Main keeps a Session using the real shell unreachable, so it hears every change.
+  const realShellFolders = computed(() =>
+    agentMode.unsandboxedWorkspaces.filter((folder) => agentMode.isUnsandboxed(folder)),
+  )
+  const stopRealShell = watch(
+    () => JSON.stringify(realShellFolders.value),
+    () => void pushRealShellFolders(realShellFolders.value, errors),
+    { immediate: true },
+  )
+  stop = () => {
+    stopConfig()
+    stopRealShell()
+  }
   // A Channel Question names its session the way main's Notifications do.
   const agentTasks = useAgentTasks()
   const label = (sessionId: string) =>

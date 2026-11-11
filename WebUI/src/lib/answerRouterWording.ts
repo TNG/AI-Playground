@@ -11,6 +11,8 @@ export type AnswerRouterCopy = {
   /** `{title}`, `{reason}` */
   notSent: string
   noSession: string
+  /** `{title}`; the Session is no longer reachable from Channels */
+  unreachable: string
   /** `{title}` */
   realShell: string
   /** Follows `notSent` when the reason can only be fixed on the computer. */
@@ -54,6 +56,7 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   queued: 'AGENT_ANSWER_QUEUED',
   notSent: 'AGENT_ANSWER_NOT_SENT',
   noSession: 'AGENT_ANSWER_NO_SESSION',
+  unreachable: 'AGENT_ANSWER_UNREACHABLE',
   realShell: 'AGENT_ANSWER_REAL_SHELL',
   fixOnDesktop: 'AGENT_ANSWER_FIX_ON_DESKTOP',
   textOnly: 'AGENT_ANSWER_TEXT_ONLY',

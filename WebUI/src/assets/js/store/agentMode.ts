@@ -320,6 +320,13 @@ export const useAgentMode = defineStore(
       })
     }
 
+    /** Main changed the open Session's stored settings: take them into the live controls. */
+    function reloadOpenSessionSettings(): void {
+      const port = settingsPort.value
+      if (port && heldBySession())
+        applyOpenSessionSettings(port.read(agentPresetName.value)?.settings)
+    }
+
     /** The open Harness Session's settings live in its Session, not on its own record. */
     function heldBySession(): boolean {
       const id = openSessionId.value
@@ -2320,6 +2327,7 @@ export const useAgentMode = defineStore(
       setPlanningThinkingOnly,
       openSessionSettings,
       bindSessionSettingsPort,
+      reloadOpenSessionSettings,
       ensureOpenSessionId,
       sessionScoped,
       settingsProblems,

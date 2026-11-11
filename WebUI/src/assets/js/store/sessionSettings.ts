@@ -392,6 +392,28 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     return loading.value
   }
 
+  /** Main changed one preset's settings in the open Session (turning reachable on adds `notify`). */
+  async function reloadPreset(presetName: string): Promise<void> {
+    const sessionId = loadedSessionId.value
+    if (!sessionId) return
+    try {
+      const result = await window.electronAPI.sessions.readSettings(sessionId)
+      if (!result.success) throw new Error(result.error)
+      if (loadedSessionId.value !== sessionId) return
+      const entry = result.settings[presetName]
+      const { [presetName]: _stale, ...others } = settings.value
+      settings.value = entry ? { ...others, [presetName]: entry } : others
+    } catch (error) {
+      errors.report(error, {
+        code: 'sessions/settings-read-failed',
+        category: 'backend',
+        surface: 'toast',
+      })
+      return
+    }
+    agentMode.reloadOpenSessionSettings()
+  }
+
   return {
     settings,
     ready,
@@ -401,6 +423,7 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     saveAsDefault,
     resetToDefault,
     whenLoaded,
+    reloadPreset,
   }
 })
 

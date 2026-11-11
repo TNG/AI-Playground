@@ -98,6 +98,8 @@ describe('the channel message map', () => {
     const sent: { target: AnswerTarget; message: string; origin: AgentAnswerOrigin }[] = []
     const router = createAnswerRouter({
       sessions: () => ({
+        exists: async () => true,
+        isReachable: async () => true,
         lookup: messageMap.channelMessageOwner,
         label: () => '"Asteroids clone"',
         usesRealShell: () => false,

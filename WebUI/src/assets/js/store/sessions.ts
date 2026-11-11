@@ -201,6 +201,19 @@ export const useSessions = defineStore('sessions', () => {
     if (result) remember(result.session)
   }
 
+  /** `defaultCapabilities` are Assistant's, for a Session whose settings name none; false when refused. */
+  async function setReachable(
+    id: string,
+    reachable: boolean,
+    defaultCapabilities?: string[],
+  ): Promise<boolean> {
+    const result = await call('sessions/set-reachable-failed', () =>
+      window.electronAPI.sessions.setReachable(id, reachable, { defaultCapabilities }),
+    )
+    if (result) remember(result.session)
+    return !!result
+  }
+
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
   async function pickAgent(id: string, agentId: string | null): Promise<boolean> {
     const result = await call('sessions/pick-agent-failed', () =>
@@ -360,6 +373,7 @@ export const useSessions = defineStore('sessions', () => {
     rename,
     setPinned,
     pickAgent,
+    setReachable,
     createGroup,
     moveToGroup,
     renameGroup,

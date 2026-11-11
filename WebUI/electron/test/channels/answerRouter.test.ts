@@ -51,6 +51,10 @@ type FakeSession = {
   result?: SessionSendResult
   pause?: SessionPause
   realShell?: boolean
+  /** Reachable from Channels unless false. */
+  reachable?: boolean
+  /** The Session was deleted, though the message map still names it. */
+  gone?: boolean
   /** Runs while a send is in flight, before it resolves. */
   duringSend?: () => void
 }
@@ -73,7 +77,17 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
   const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
   const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
   const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
+  const harnessOf = (sessionRef: string) =>
+    Object.entries(sessions).find(([id]) => sessionRefOf(id) === sessionRef)?.[1]
   const port: SessionPort = {
+    exists: async (sessionRef) => {
+      const session = harnessOf(sessionRef)
+      return !!session && !session.gone
+    },
+    isReachable: async (sessionRef) => {
+      const session = harnessOf(sessionRef)
+      return !!session && !session.gone && session.reachable !== false
+    },
     lookup: async (kind, ref) => {
       const sent = sentMessages.find((m) => m.kind === kind && m.ref === ref)
       if (!sent) return null
@@ -379,17 +393,48 @@ describe('answer router', () => {
   })
 
   describe('an Answer that cannot be delivered', () => {
-    it('says a deleted session no longer exists', async () => {
+    it('says a deleted Session was deleted', async () => {
       const { router, received } = setup({}, [
         { kind: 'telegram', ref: '1234', sessionId: 'deleted' },
       ])
       const ch = fakeChannel()
       expect(await router.route(ch.adapter, { text: 'again', replyTo: '1234' })).toBe(true)
       expect(received).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
     })
 
-    it('says the session no longer exists when it went away before the send', async () => {
+    it('says the Session was deleted when the message still names it but it is gone', async () => {
+      const { router, received } = setup({ asteroids: { label: 'Asteroids clone', gone: true } })
+      const ch = fakeChannel()
+      expect(await router.route(ch.adapter, { text: 'again', replyTo: '1234' })).toBe(true)
+      expect(received).toEqual([])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
+    })
+
+    it('refuses an Answer to a Session that is no longer reachable, and sends nothing', async () => {
+      const { router, received } = setup({
+        asteroids: { label: 'Asteroids clone', reachable: false },
+      })
+      const ch = fakeChannel()
+      expect(await router.route(ch.adapter, { text: 'again', replyTo: '1234' })).toBe(true)
+      expect(received).toEqual([])
+      expect(ch.replies).toEqual([
+        '🔒 "Asteroids clone" is not reachable from Channels. ' +
+          'Turn on "Reachable from Channels" in its menu on your computer to answer it.',
+      ])
+    })
+
+    it('does not transcribe a voice Answer to a Session that is not reachable', async () => {
+      const { router, speech, received } = setup({
+        asteroids: { label: 'Asteroids clone', reachable: false },
+      })
+      const ch = fakeChannel()
+      await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
+      expect(speech.transcribed).toEqual([])
+      expect(received).toEqual([])
+    })
+
+    it('says the Session was deleted when it went away before the send', async () => {
       const { router } = setup({
         asteroids: {
           label: 'Asteroids clone',
@@ -398,7 +443,7 @@ describe('answer router', () => {
       })
       const ch = fakeChannel()
       await router.route(ch.adapter, { text: 'again', replyTo: '1234' })
-      expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
     })
 
     it('asks for an Answer to a real-shell session on the computer, and sends nothing', async () => {
@@ -589,7 +634,7 @@ describe('answer router', () => {
       const ch = fakeChannel()
       await router.route(ch.adapter, { ...voice('ogg-1'), replyTo: '1234' })
       expect(speech.transcribed).toEqual([])
-      expect(ch.replies).toEqual(['⚠️ That session no longer exists'])
+      expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
     })
   })
 })

@@ -1,11 +1,13 @@
 import { ref, computed } from 'vue'
 import { useChannels } from './channels'
+import { useErrors } from './errors'
 
 const DETECT_POLL_INTERVAL_MS = 2000
 const DETECT_TIMEOUT_MS = 5000
 
 export function useTelegramSetup() {
   const channelStore = useChannels()
+  const errors = useErrors()
 
   const tokenInput = ref('')
   const showToken = ref(false)
@@ -172,7 +174,10 @@ export function useTelegramSetup() {
     try {
       await channelStore.clearChannelConfig('telegram')
     } catch (e) {
-      console.error('clearConfig: failed to clear the Telegram config:', e)
+      errors.report(e, {
+        surface: 'silent',
+        technicalMessage: 'clearConfig: failed to clear the Telegram config',
+      })
     } finally {
       tokenInput.value = ''
       detectedChatId.value = ''

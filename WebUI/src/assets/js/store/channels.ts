@@ -20,7 +20,6 @@ import {
 } from '../speech/speechIO'
 import { base64ToBlob } from '@/lib/transcribe'
 import { useConversations } from './conversations'
-import * as toast from '../toast'
 import {
   CHANNEL_FIELD_SPEC,
   type ChannelConfig,
@@ -127,6 +126,8 @@ export const useChannels = defineStore(
     const conversations = useConversations()
     const confirmations = useConfirmations()
     const errors = useErrors()
+    const globalSetup = useGlobalSetup()
+    const models = useModels()
     const channelSessionPointers = useChannelSessionPointers()
     const channelQueue = useChannelQueue()
 
@@ -281,7 +282,7 @@ export const useChannels = defineStore(
           }
           window.electronAPI.homeAgent.channel
             .inject(kind, payload)
-            .catch((e: unknown) => console.error(`channels: inject(${kind}) failed:`, e))
+            .catch((e: unknown) => reportSilently(`channels: inject(${kind}) failed:`, e))
         },
         { flush: 'post', immediate: true, deep: true },
       )
@@ -406,8 +407,6 @@ export const useChannels = defineStore(
         })
       }
       const { adapter, meta } = turn
-      const globalSetup = useGlobalSetup()
-      const models = useModels()
       const conversationKey = conversations.activeKey
       const waiter = modelDownloads().waiter(conversationKey)
       const leave = () => waiter.detach()
@@ -583,8 +582,6 @@ export const useChannels = defineStore(
         : notificationChannels.value
       let lookup: ReturnType<typeof fetchModelMeta> | null = null
       const lookupOnce = () => {
-        const globalSetup = useGlobalSetup()
-        const models = useModels()
         lookup ??= fetchModelMeta(list, { apiHost: globalSetup.apiHost, hfToken: models.hfToken })
         return lookup
       }
@@ -734,7 +731,7 @@ export const useChannels = defineStore(
       disposePoll(kind)
       pollIntervalIds[kind] = setInterval(() => {
         processChannelMessages(kind).catch((e: unknown) =>
-          console.error(`channels: processChannelMessages(${kind}) failed:`, e),
+          reportSilently(`channels: processChannelMessages(${kind}) failed:`, e),
         )
       }, POLL_INTERVAL_MS)
     }
@@ -776,7 +773,7 @@ export const useChannels = defineStore(
         }
         return result
       } catch (e) {
-        console.error(`channels.saveChannelConfig(${kind}) failed:`, e)
+        reportSilently(`channels.saveChannelConfig(${kind}) failed:`, e)
         return { success: false as const, error: String(e) }
       }
     }
@@ -785,7 +782,7 @@ export const useChannels = defineStore(
       try {
         await window.electronAPI.homeAgent.channel.clearConfig(kind)
       } catch (e) {
-        console.error(`channels.clearChannelConfig(${kind}) failed:`, e)
+        reportSilently(`channels.clearChannelConfig(${kind}) failed:`, e)
       }
       channels[kind] = emptyRuntimeState(kind)
       channelPrefs[kind] = emptyPrefs()
@@ -804,7 +801,7 @@ export const useChannels = defineStore(
           verified: channelPrefs[kind].verified,
           enabled: channelPrefs[kind].enabled,
         })
-        .catch((e: unknown) => console.error(`channels.persistChannelPrefs(${kind}) failed:`, e))
+        .catch((e: unknown) => reportSilently(`channels.persistChannelPrefs(${kind}) failed:`, e))
     }
 
     /** Mark a channel verified after a successful test. A freshly verified
@@ -820,7 +817,17 @@ export const useChannels = defineStore(
      *  channel requires it to be verified first. */
     function setChannelEnabled(kind: ChannelKind, on: boolean) {
       if (on && !channelPrefs[kind].verified) {
-        toast.error(`Verify the ${kind} connection before enabling it.`)
+        const userMessage = `Verify the ${kind} connection before enabling it.`
+        errors.report(
+          createAppError({
+            category: 'validation',
+            code: 'channels/not-verified',
+            severity: 'warning',
+            surface: 'toast',
+            userMessage,
+            technicalMessage: userMessage,
+          }),
+        )
         return
       }
       channelPrefs[kind].enabled = on
@@ -873,11 +880,11 @@ export const useChannels = defineStore(
               channelPrefs[kind].enabled = prefs.enabled
             }
           } catch (e) {
-            console.error(`channels.initConfig: loadPrefs(${kind}) failed:`, e)
+            reportSilently(`channels.initConfig: loadPrefs(${kind}) failed:`, e)
           }
         }
       } catch (e) {
-        console.error('channels.initConfig failed:', e)
+        reportSilently('channels.initConfig failed:', e)
       }
     }
 

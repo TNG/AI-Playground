@@ -21,7 +21,10 @@ function respond(payload: ChatAnswerPayload): void {
   void window.electronAPI.chat.answer(payload)
 }
 
-async function handleRequest(request: ChatAskPayload): Promise<void> {
+async function handleRequest(
+  request: ChatAskPayload,
+  channels: ReturnType<typeof useChannels>,
+): Promise<void> {
   try {
     switch (request.kind) {
       case 'speech-synthesize': {
@@ -44,11 +47,7 @@ async function handleRequest(request: ChatAskPayload): Promise<void> {
         break
       }
       case 'channel-voice-reply': {
-        const clip = await useChannels().channelVoiceClip(
-          request.channel,
-          request.text,
-          request.replyTo,
-        )
+        const clip = await channels.channelVoiceClip(request.channel, request.text, request.replyTo)
         respond({ requestId: request.requestId, result: clip })
         break
       }
@@ -80,7 +79,8 @@ let started = false
 export function startChatAskBridge(): void {
   if (started) return
   started = true
+  const channels = useChannels()
   window.electronAPI.chat.onAsk((payload) => {
-    void handleRequest(payload)
+    void handleRequest(payload, channels)
   })
 }

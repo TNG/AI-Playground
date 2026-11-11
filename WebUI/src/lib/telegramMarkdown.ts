@@ -1,15 +1,12 @@
 import { Marked, type Token, type Tokens } from 'marked'
+import { escapeMarkupText } from './escapeMarkupText'
 
 const lexer = new Marked({ pedantic: false, gfm: true, breaks: true, async: false })
 
 const TELEGRAM_MAX_CHARS = 4096
 
-function escapeText(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
 function escapeAttr(s: string): string {
-  return escapeText(s).replace(/"/g, '&quot;')
+  return escapeMarkupText(s).replace(/"/g, '&quot;')
 }
 
 function renderInline(tokens: Token[] | undefined): string {
@@ -24,7 +21,7 @@ function renderListItem(item: Tokens.ListItem): string {
   for (const tok of item.tokens) {
     if (tok.type === 'text') {
       const tt = tok as Tokens.Text
-      out += tt.tokens ? renderInline(tt.tokens) : escapeText(tt.text)
+      out += tt.tokens ? renderInline(tt.tokens) : escapeMarkupText(tt.text)
     } else if (tok.type === 'paragraph') {
       out += renderInline((tok as Tokens.Paragraph).tokens)
     } else if (tok.type === 'list') {
@@ -46,7 +43,7 @@ function renderTable(t: Tokens.Table): string {
   const rows: string[][] = []
   rows.push(t.header.map((c) => c.text))
   for (const row of t.rows) rows.push(row.map((c) => c.text))
-  return rows.map((r) => r.map((c) => escapeText(c)).join(' | ')).join('\n')
+  return rows.map((r) => r.map((c) => escapeMarkupText(c)).join(' | ')).join('\n')
 }
 
 function renderToken(t: Token): string {
@@ -54,10 +51,10 @@ function renderToken(t: Token): string {
     case 'text': {
       const tt = t as Tokens.Text
       if (tt.tokens && tt.tokens.length > 0) return renderInline(tt.tokens)
-      return escapeText(tt.text)
+      return escapeMarkupText(tt.text)
     }
     case 'escape':
-      return escapeText((t as Tokens.Escape).text)
+      return escapeMarkupText((t as Tokens.Escape).text)
     case 'strong':
       return `<b>${renderInline((t as Tokens.Strong).tokens)}</b>`
     case 'em':
@@ -65,7 +62,7 @@ function renderToken(t: Token): string {
     case 'del':
       return `<s>${renderInline((t as Tokens.Del).tokens)}</s>`
     case 'codespan':
-      return `<code>${escapeText((t as Tokens.Codespan).text)}</code>`
+      return `<code>${escapeMarkupText((t as Tokens.Codespan).text)}</code>`
     case 'br':
       return '\n'
     case 'link': {
@@ -80,7 +77,7 @@ function renderToken(t: Token): string {
     case 'image': {
       // Telegram HTML mode does not support inline images; show alt text only.
       const it = t as Tokens.Image
-      return escapeText(it.text || it.title || '')
+      return escapeMarkupText(it.text || it.title || '')
     }
     case 'paragraph':
       return renderInline((t as Tokens.Paragraph).tokens) + '\n\n'
@@ -90,7 +87,7 @@ function renderToken(t: Token): string {
       const ct = t as Tokens.Code
       const langRaw = (ct.lang || '').split(/\s+/)[0]
       const lang = langRaw ? ` class="language-${escapeAttr(langRaw)}"` : ''
-      return `<pre><code${lang}>${escapeText(ct.text)}</code></pre>\n`
+      return `<pre><code${lang}>${escapeMarkupText(ct.text)}</code></pre>\n`
     }
     case 'blockquote': {
       const bt = t as Tokens.Blockquote
@@ -115,14 +112,14 @@ function renderToken(t: Token): string {
     case 'html': {
       // Strip raw HTML — emit it as escaped text so nothing leaks unescaped.
       const ht = t as Tokens.HTML | Tokens.Tag
-      return escapeText((ht.raw as string | undefined) ?? ht.text ?? '')
+      return escapeMarkupText((ht.raw as string | undefined) ?? ht.text ?? '')
     }
     case 'table':
       return renderTable(t as Tokens.Table) + '\n'
     default: {
       const anyT = t as { tokens?: Token[]; text?: string }
       if (anyT.tokens) return renderInline(anyT.tokens)
-      return anyT.text ? escapeText(anyT.text) : ''
+      return anyT.text ? escapeMarkupText(anyT.text) : ''
     }
   }
 }
@@ -151,7 +148,7 @@ export function markdownToTelegramHtml(md: string): string {
     html = renderBlocks(tokens)
   } catch (e) {
     console.error('markdownToTelegramHtml: lexer/render failed, falling back to plain text', e)
-    html = escapeText(md)
+    html = escapeMarkupText(md)
   }
   // Collapse 3+ newlines and trim.
   html = html.replace(/\n{3,}/g, '\n\n').trim()
@@ -160,7 +157,7 @@ export function markdownToTelegramHtml(md: string): string {
     // entity (e.g. `&am`), producing markup Telegram rejects. Fall back to
     // plain-text truncation: strip all tags, then escape and slice.
     const plainText = html.replace(/<[^>]*>/g, '')
-    html = escapeText(plainText.slice(0, TELEGRAM_MAX_CHARS - 1)) + '…'
+    html = escapeMarkupText(plainText.slice(0, TELEGRAM_MAX_CHARS - 1)) + '…'
   }
   return html
 }

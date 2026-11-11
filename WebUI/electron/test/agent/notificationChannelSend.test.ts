@@ -19,7 +19,9 @@ describe('a Notification handed to the Home Agent channel', () => {
   it('is a plain reply, and its ref is the Telegram message id', async () => {
     const { send, calls } = recorder()
     expect(await send('telegram', { text: 'hi' })).toEqual({ success: true, ref: '41' })
-    expect(calls).toEqual([{ kind: 'telegram', action: 'reply', payload: { text: 'hi' } }])
+    expect(calls).toEqual([
+      { kind: 'telegram', action: 'reply', payload: { text: 'hi', parse_mode: 'HTML' } },
+    ])
   })
 
   it('takes the Slack message ts as its ref', async () => {
@@ -37,7 +39,7 @@ describe('a Notification handed to the Home Agent channel', () => {
   })
 
   it.each([
-    ['telegram', { reply_to_message_id: '77' }],
+    ['telegram', { reply_to_message_id: '77', parse_mode: 'HTML' }],
     ['slack', { thread_ts: '77' }],
     ['local-web', { reply_to: '77' }],
   ] as const)('names the message it answers the way %s expects', async (kind, target) => {
@@ -102,6 +104,7 @@ describe('a Notification handed to the Home Agent channel', () => {
         payload: {
           photo: 'AAA',
           caption: 'header',
+          parse_mode: 'HTML',
           filename: 'cover.png',
           reply_to_message_id: '77',
         },
@@ -109,7 +112,7 @@ describe('a Notification handed to the Home Agent channel', () => {
       {
         kind: 'telegram',
         action: 'video',
-        payload: { video: 'BBB', caption: 'header', filename: 'intro.mp4' },
+        payload: { video: 'BBB', caption: 'header', parse_mode: 'HTML', filename: 'intro.mp4' },
       },
     ])
   })
@@ -180,6 +183,7 @@ describe('a Notification handed to the Home Agent channel', () => {
           audio: 'CCC',
           mime: 'audio/wav',
           caption: 'header',
+          parse_mode: 'HTML',
           filename: 'summary.wav',
           reply_to_message_id: '77',
         },
@@ -253,22 +257,26 @@ describe('typing handed to the Home Agent channel', () => {
 describe('a streamed reply handed to the channel', () => {
   it('is a Telegram draft or a LAN chat draft, named by its draft id', async () => {
     const { draft, calls } = recorder()
-    expect(await draft('telegram', { id: 7 }, 'Hel', '77')).toEqual({ success: true })
-    await draft('local-web', { id: 8 }, 'Hel', '5')
+    expect(await draft('telegram', { id: 7 }, { text: 'Hel' }, '77')).toEqual({ success: true })
+    await draft('local-web', { id: 8 }, { text: 'Hel' }, '5')
     expect(calls).toEqual([
-      { kind: 'telegram', action: 'update', payload: { draft_id: 7, text: 'Hel' } },
+      {
+        kind: 'telegram',
+        action: 'update',
+        payload: { draft_id: 7, text: 'Hel', parse_mode: 'HTML' },
+      },
       { kind: 'local-web', action: 'update', payload: { draft_id: 8, text: 'Hel' } },
     ])
   })
 
   it('posts a Slack message in the Answer’s thread first, then edits it', async () => {
     const { draft, calls } = recorder({ ts: '1700.01', channel: 'D42' })
-    expect(await draft('slack', { id: 7 }, 'Hel', '1700.00')).toEqual({
+    expect(await draft('slack', { id: 7 }, { text: 'Hel' }, '1700.00')).toEqual({
       success: true,
       ref: '1700.01',
       chat: 'D42',
     })
-    await draft('slack', { id: 7, ref: '1700.01', chat: 'D42' }, 'Hello', '1700.00')
+    await draft('slack', { id: 7, ref: '1700.01', chat: 'D42' }, { text: 'Hello' }, '1700.00')
     expect(calls).toEqual([
       { kind: 'slack', action: 'reply', payload: { text: 'Hel', thread_ts: '1700.00' } },
       {
@@ -314,8 +322,222 @@ describe('a streamed reply handed to the channel', () => {
       {
         kind: 'telegram',
         action: 'reply',
-        payload: { text: 'done', reply_to_message_id: '77' },
+        payload: { text: 'done', reply_to_message_id: '77', parse_mode: 'HTML' },
       },
     ])
+  })
+})
+
+describe('a Notification’s text, formatted per Channel', () => {
+  const header = '🤖 Agent · "a<b & *c*"'
+  const boldHeader = '<b>🤖 Agent · "a&lt;b &amp; *c*"</b>'
+
+  it('reaches Telegram as HTML: the header escaped and bold, the markdown body converted', async () => {
+    const { send, draft, calls } = recorder()
+    const message = { header, text: '**done** and `x`', footer: '↩️ Reply <here>' }
+    const html = `${boldHeader}\n<b>done</b> and <code>x</code>\n↩️ Reply &lt;here&gt;`
+    await send('telegram', { ...message, replyTo: '77' })
+    await send('telegram', { ...message, buttons: [[{ text: 'Go', callbackData: 'go' }]] })
+    await draft('telegram', { id: 7 }, { header, text: '# T\n- a' })
+    expect(calls).toEqual([
+      {
+        kind: 'telegram',
+        action: 'reply',
+        payload: { text: html, parse_mode: 'HTML', reply_to_message_id: '77' },
+      },
+      {
+        kind: 'telegram',
+        action: 'keyboard',
+        payload: {
+          text: html,
+          parse_mode: 'HTML',
+          buttons: [[{ text: 'Go', callback_data: 'go' }]],
+        },
+      },
+      {
+        kind: 'telegram',
+        action: 'update',
+        payload: { draft_id: 7, text: `${boldHeader}\n<b>T</b>\n\n• a`, parse_mode: 'HTML' },
+      },
+    ])
+  })
+
+  it('captions Telegram media with the same HTML as a text Notification', async () => {
+    const { send, calls } = recorder()
+    const message = { header, text: '**done**', footer: '↩️ Reply <here>' }
+    const caption = `${boldHeader}\n<b>done</b>\n↩️ Reply &lt;here&gt;`
+    await send('telegram', { ...message, media: { kind: 'photo', base64: 'A', filename: 'a.png' } })
+    await send('telegram', { ...message, media: { kind: 'video', base64: 'V', filename: 'v.mp4' } })
+    await send('telegram', { ...message, media: { kind: 'voice', base64: 'S', filename: 's.ogg' } })
+    await send('telegram', {
+      ...message,
+      media: { kind: 'document', base64: 'D', filename: 'd.glb' },
+    })
+    expect(
+      calls.map(({ action, payload }) => [action, payload.caption, payload.parse_mode]),
+    ).toEqual([
+      ['photo', caption, 'HTML'],
+      ['video', caption, 'HTML'],
+      ['voice', caption, 'HTML'],
+      ['document', caption, 'HTML'],
+    ])
+  })
+
+  it('escapes a plain template body on Telegram rather than reading it as markdown', async () => {
+    const { send, calls } = recorder()
+    await send('telegram', { header, text: '❌ Failed: no_such_file *x* <y>.', plain: true })
+    expect(calls[0].payload).toEqual({
+      text: `${boldHeader}\n❌ Failed: no_such_file *x* &lt;y&gt;.`,
+      parse_mode: 'HTML',
+    })
+  })
+
+  it('reaches LAN chat as the raw text it always was', async () => {
+    const { send, draft, calls } = recorder()
+    await send('local-web', { header, text: '**done**', footer: 'Answer below.' })
+    await draft('local-web', { id: 7 }, { header, text: '**Hel**' })
+    expect(calls.map((call) => call.payload.text)).toEqual([
+      `${header}\n**done**\nAnswer below.`,
+      `${header}\n**Hel**`,
+    ])
+    expect(calls.some((call) => 'parse_mode' in call.payload)).toBe(false)
+  })
+
+  it('reaches Slack as mrkdwn in the text field: the header escaped and bold, no blocks', async () => {
+    const { send, draft, calls } = recorder({ ts: '1700.01', channel: 'D42' })
+    const message = { header, text: '**done** & `x`', footer: '↩️ Reply <here>' }
+    const boldSlackHeader = '*🤖 Agent · "a&lt;b &amp; ∗c∗"*'
+    const mrkdwn = `${boldSlackHeader}\n*done* &amp; \`x\`\n↩️ Reply &lt;here&gt;`
+    const posted = { id: 7, ref: '1700.01', chat: 'D42' }
+    await send('slack', { ...message, replyTo: '1700.00' })
+    await send('slack', { ...message, buttons: [[{ text: 'Go', callbackData: 'go' }]] })
+    await draft('slack', { id: 7 }, { header, text: '# T\n- a' }, '1700.00')
+    await draft('slack', posted, { header, text: '**Hel**' })
+    await send('slack', { ...message, draft: posted })
+    expect(calls).toEqual([
+      { kind: 'slack', action: 'reply', payload: { text: mrkdwn, thread_ts: '1700.00' } },
+      {
+        kind: 'slack',
+        action: 'keyboard',
+        payload: { text: mrkdwn, buttons: [[{ text: 'Go', callback_data: 'go' }]] },
+      },
+      {
+        kind: 'slack',
+        action: 'reply',
+        payload: { text: `${boldSlackHeader}\n*T*\n\n• a`, thread_ts: '1700.00' },
+      },
+      {
+        kind: 'slack',
+        action: 'update',
+        payload: { channel: 'D42', ts: '1700.01', text: `${boldSlackHeader}\n*Hel*` },
+      },
+      { kind: 'slack', action: 'update', payload: { channel: 'D42', ts: '1700.01', text: mrkdwn } },
+    ])
+  })
+
+  it('keeps a Slack header bold whole when the session title has its own *, _ or ~', async () => {
+    const { send, calls } = recorder({ ts: '1700.01' })
+    await send('slack', { header: '🤖 "*star* _under_ ~strike~"', text: 'done' })
+    expect(calls[0].payload).toEqual({ text: '*🤖 "∗star∗ ＿under＿ ∼strike∼"*\ndone' })
+  })
+
+  it('escapes a plain template body on Slack rather than reading it as markdown', async () => {
+    const { send, calls } = recorder({ ts: '1700.01' })
+    await send('slack', { text: '❌ Failed: no_such_file *x* <y>.', plain: true })
+    expect(calls[0].payload).toEqual({ text: '❌ Failed: no_such_file *x* &lt;y&gt;.' })
+  })
+
+  it('is resent once as plain text when Telegram cannot parse the HTML', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const { send, draft } = createNotificationChannel(async (_kind, action, payload) => {
+      calls.push([action, payload])
+      return payload.parse_mode
+        ? { success: false, error: "Bad Request: can't parse entities: unclosed tag" }
+        : { success: true, messageId: 42 }
+    })
+    expect(await send('telegram', { header, text: '**done**', replyTo: '77' })).toEqual({
+      success: true,
+      ref: '42',
+    })
+    expect(await draft('telegram', { id: 7 }, { header, text: '**Hel**' })).toEqual({
+      success: true,
+    })
+    expect(calls).toEqual([
+      [
+        'reply',
+        { text: `${boldHeader}\n<b>done</b>`, parse_mode: 'HTML', reply_to_message_id: '77' },
+      ],
+      ['reply', { text: `${header}\n**done**`, reply_to_message_id: '77' }],
+      ['update', { draft_id: 7, text: `${boldHeader}\n<b>Hel</b>`, parse_mode: 'HTML' }],
+      ['update', { draft_id: 7, text: `${header}\n**Hel**` }],
+    ])
+  })
+
+  it('resends a caption Telegram cannot parse once, as plain text', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const { send } = createNotificationChannel(async (_kind, action, payload) => {
+      calls.push([action, payload])
+      return payload.parse_mode
+        ? { success: false, error: "Bad Request: can't parse entities: unclosed tag" }
+        : { success: true, messageId: 43 }
+    })
+    const media = { kind: 'photo', base64: 'AAA', filename: 'cover.png' } as const
+    expect(await send('telegram', { header, text: '**done**', replyTo: '77', media })).toEqual({
+      success: true,
+      ref: '43',
+    })
+    expect(calls).toEqual([
+      [
+        'photo',
+        {
+          photo: 'AAA',
+          caption: `${boldHeader}\n<b>done</b>`,
+          parse_mode: 'HTML',
+          filename: 'cover.png',
+          reply_to_message_id: '77',
+        },
+      ],
+      [
+        'photo',
+        {
+          photo: 'AAA',
+          caption: `${header}\n**done**`,
+          filename: 'cover.png',
+          reply_to_message_id: '77',
+        },
+      ],
+    ])
+  })
+
+  it('goes to Telegram as plain text when the HTML would be over its 4096-character limit', async () => {
+    const { send, draft, calls } = recorder()
+    const text = 'a'.repeat(4090)
+    await send('telegram', { header: 'H', text, replyTo: '77' })
+    await draft('telegram', { id: 7 }, { header: 'H', text })
+    expect(calls.map((call) => call.payload)).toEqual([
+      { text: `H\n${text}`, reply_to_message_id: '77' },
+      { draft_id: 7, text: `H\n${text}` },
+    ])
+  })
+
+  it('captions Telegram media with plain text when the HTML would be over 1024 characters', async () => {
+    const { send, calls } = recorder()
+    const text = '&'.repeat(300)
+    await send('telegram', { text, media: { kind: 'photo', base64: 'A', filename: 'a.png' } })
+    expect(calls[0].payload).toEqual({ photo: 'A', caption: text, filename: 'a.png' })
+  })
+
+  it('is not resent when Telegram fails for any other reason', async () => {
+    let attempts = 0
+    const { send, draft } = createNotificationChannel(async () => {
+      attempts += 1
+      return { success: false, error: 'Unauthorized' }
+    })
+    expect(await send('telegram', { text: '**done**' })).toEqual({
+      success: false,
+      error: 'Unauthorized',
+    })
+    await draft('telegram', { id: 7 }, { text: '**Hel**' })
+    expect(attempts).toBe(2)
   })
 })

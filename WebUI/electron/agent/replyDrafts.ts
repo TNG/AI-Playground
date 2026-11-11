@@ -1,4 +1,5 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { ChannelText } from './channelText.ts'
 
 /**
  * An open draft on a Channel: Telegram's and LAN chat's draft id, and once its first
@@ -13,7 +14,7 @@ export type DraftEditOutcome =
 export type DraftEdit = (
   kind: ChannelKind,
   draft: ChannelDraft,
-  text: string,
+  text: ChannelText,
   replyTo?: string,
 ) => Promise<DraftEditOutcome>
 
@@ -25,6 +26,7 @@ export type ReplyDraft = {
 
 export type ReplyDraftOptions = {
   edit: DraftEdit
+  header?: string
   replyTo?: string
   /** The message an edit created, to record it as the Session's. */
   onPosted?: (ref: string) => void
@@ -99,10 +101,11 @@ function editNext(budget: EditBudget): void {
     budget.drafts.find((open) => due.includes(open))!
   budget.next = (budget.drafts.indexOf(draft) + 1) % budget.drafts.length
   const text = draft.wanted
+  const { header, replyTo } = draft.options
   budget.busy = true
   budget.lastEditAt = draft.lastEditAt = Date.now()
   draft.inFlight = draft.options
-    .edit(budget.kind, { ...draft.channelDraft }, text, draft.options.replyTo)
+    .edit(budget.kind, { ...draft.channelDraft }, { header, text }, replyTo)
     .then((outcome) => {
       if (!outcome.success) return
       draft.visible = true

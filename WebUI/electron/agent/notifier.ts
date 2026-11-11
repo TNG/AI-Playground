@@ -32,6 +32,7 @@ import {
   type ReplyDraft,
 } from './replyDrafts.ts'
 import { createChannelTyping } from './channelTyping.ts'
+import { plainTextOf, type ChannelText } from './channelText.ts'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
 // The one sender of Notifications (docs/adr/0010): only Reachable Sessions send, to every
@@ -46,13 +47,13 @@ export type NotificationDelivery =
 export type { ChannelMedia }
 
 /**
- * What the Notifier hands a channel. `replyTo` is the platform ref of the message it
- * answers; with `media`, `text` is the caption; `buttons` are rows of inline buttons;
- * `answerTitle` is the session label an Answer button answers; `draft` is the streamed
- * reply this message settles.
+ * What the Notifier hands a channel. `text` is the agent's markdown, or template text when
+ * `plain`; `header` and `footer` are plain lines around it. `replyTo` is the platform ref of
+ * the message it answers; with `media`, the text is the caption; `buttons` are rows of
+ * inline buttons; `answerTitle` is the session label an Answer button answers; `draft` is the
+ * streamed reply this message settles.
  */
-export type ChannelMessage = {
-  text: string
+export type ChannelMessage = ChannelText & {
   replyTo?: string
   media?: ChannelMedia
   buttons?: KeyboardButton[][]
@@ -221,10 +222,7 @@ async function sendStarted(sessionId: string, name: string): Promise<void> {
     title: session?.title || templates.untitled,
   })
   const text = fillTemplate(templates.agentStarted, { name, title })
-  const delivery = await deliver({ text, bare: true }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`agent start not delivered: ${delivery.reason}`, LOG_SOURCE)
-  }
+  await deliverOrWarn({ text, bare: true, plain: true }, sessionId, 'agent start')
 }
 
 /** A Scheduled Run's last Step: its result goes to every Channel when it completes. */
@@ -285,10 +283,11 @@ function streamReply(sessionId: string, turn: ReportedTurn): void {
     if (!heading || turn.ended) return
     turn.draft ??= openReplyDraft(kind, {
       edit: port.draft,
+      header: heading.header,
       ...(turn.answer?.replyTo ? { replyTo: turn.answer.replyTo } : {}),
       onPosted: (ref) => void recordSent(kind, ref, heading.owner),
     })
-    turn.draft.update(`${heading.header}\n${clipped(streamedText(turn))}`)
+    turn.draft.update(clipped(streamedText(turn)))
   })
 }
 
@@ -335,10 +334,7 @@ async function sendMedia(sessionId: string, files: string[]): Promise<void> {
       return []
     })
     for (const media of items) {
-      const delivery = await deliver({ text: '', media }, sessionId)
-      if (!delivery.delivered) {
-        appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
-      }
+      await deliverOrWarn({ text: '', media }, sessionId, 'answer media')
     }
   }
 }
@@ -366,7 +362,7 @@ export async function tellQueuesDroppedOnQuit(
     queued,
     channels: config.channels,
     template: config.templates.queueDroppedOnQuit,
-    send: (kind, text) => send(kind, { text }),
+    send: (kind, text) => send(kind, { text, plain: true }),
   })
 }
 
@@ -382,10 +378,8 @@ export async function sendNotification(
   const { sessionId } = options
   const turn = reportedTurnOf(sessionId)
   const attachments = options.attachments && notSentYet(options.attachments, turn)
-  const delivery = await deliver({ text, attachments }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
-  } else if (attachments) {
+  const delivery = await deliverOrWarn({ text, attachments }, sessionId)
+  if (delivery.delivered && attachments) {
     for (const file of attachments.paths) {
       turn?.attached.add(path.resolve(attachments.workspaceDir, file))
     }
@@ -415,6 +409,8 @@ type Body = {
   attachments?: NotificationOptions['attachments']
   /** Neither the header nor how to answer: an acknowledgement. */
   bare?: boolean
+  /** Template text, never read as markdown. */
+  plain?: boolean
   /** The streamed reply this text settles. */
   draft?: ChannelDraft
 }
@@ -423,6 +419,18 @@ type Body = {
 function channelsFor(sessionId: string): ChannelKind[] {
   const answer = reportedTurnOf(sessionId)?.answer
   return answer ? config.channels.filter((kind) => kind === answer.channel) : config.channels
+}
+
+async function deliverOrWarn(
+  body: Body,
+  sessionId: string,
+  what = 'notification',
+): Promise<NotificationDelivery> {
+  const delivery = await deliver(body, sessionId)
+  if (!delivery.delivered) {
+    appLoggerInstance.warn(`${what} not delivered: ${delivery.reason}`, LOG_SOURCE)
+  }
+  return delivery
 }
 
 async function deliver(body: Body, sessionId: string): Promise<NotificationDelivery> {
@@ -470,7 +478,9 @@ async function deliverOn(
   const header =
     takesCaption(body.media) && !body.bare ? fillTemplate(config.templates.header, { title }) : ''
   const message: ChannelMessage = {
-    text: [header, body.text].filter(Boolean).join('\n'),
+    ...(header ? { header } : {}),
+    text: body.text,
+    ...(body.plain ? { plain: true } : {}),
     ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
     ...(body.draft && kind === answer?.channel ? { draft: body.draft } : {}),
   }
@@ -519,7 +529,7 @@ function laidOut(
   const target = message.replyTo ? { replyTo: message.replyTo } : {}
   const uncaptioned = (item: ChannelMedia): ChannelMessage => ({ text: '', media: item, ...target })
   const [first, ...rest] = media
-  if (message.text.length > CAPTION_MAX_CHARS[kind] || !takesCaption(first)) {
+  if (plainTextOf(message).length > CAPTION_MAX_CHARS[kind] || !takesCaption(first)) {
     return [message, ...media.map(uncaptioned)]
   }
   return [{ ...message, media: first }, ...rest.map(uncaptioned)]
@@ -534,10 +544,7 @@ async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: stri
   const draft = await closeReply(turn)
   const text = reply ?? (draft ? streamedText(turn) : '')
   if (text) {
-    const delivery = await deliver({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
-    if (!delivery.delivered) {
-      appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
-    }
+    await deliverOrWarn({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
   }
   if (reply && turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
   await sendMedia(
@@ -568,10 +575,7 @@ async function speakReply(sessionId: string, answer: AgentAnswerOrigin, reply: s
   if (!clip?.audioBase64) return
   const filename = `reply.${CLIP_EXTENSIONS[clip.mediaType] ?? 'wav'}`
   const media: ChannelMedia = { kind: 'voice', base64: clip.audioBase64, filename }
-  const delivery = await deliver({ text: '', media }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`spoken reply not delivered: ${delivery.reason}`, LOG_SOURCE)
-  }
+  await deliverOrWarn({ text: '', media }, sessionId, 'spoken reply')
 }
 
 /** An agent's message with how to answer it on `kind`, or a pointer to the computer for a real-shell session. */
@@ -583,14 +587,14 @@ export function answerable(
 ): ChannelMessage {
   const { templates } = config
   if (config.realShellSessions.includes(sessionId)) {
-    return { ...message, text: `${message.text}\n${templates.answerOnComputer}` }
+    return { ...message, footer: templates.answerOnComputer }
   }
   const gesture = answerGesture(kind)
   const hint = gesture && GESTURE_WORDING[gesture].hint
   if (hint) {
     // A reply to an Answer is already part of the conversation and needs no pointer to it.
     if (message.replyTo) return message
-    return { ...message, text: `${message.text}\n${templates[hint]}` }
+    return { ...message, footer: templates[hint] }
   }
   const withButton = withAnswerButton(kind, message, templates.answerButton)
   return withButton === message ? message : { ...withButton, answerTitle: title }
@@ -632,9 +636,12 @@ async function notifyPaused(
   // A download pause is asked as a Channel Question by the window instead.
   if (reason?.kind === 'download') return
   if (!(await notifiesAutomatically(sessionId, turnId))) return
-  await sendNotification(
-    fillTemplate(config.templates.paused, { reason: pauseReasonText(reason) }),
-    { sessionId },
+  await deliverOrWarn(
+    {
+      text: fillTemplate(config.templates.paused, { reason: pauseReasonText(reason) }),
+      plain: true,
+    },
+    sessionId,
   )
 }
 
@@ -642,7 +649,10 @@ async function notifyFailed(sessionId: string, turnId: string, error: string): P
   if (!(await notifiesAutomatically(sessionId, turnId))) return
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
-  await sendNotification(fillTemplate(config.templates.failed, { error: reason }), { sessionId })
+  await deliverOrWarn(
+    { text: fillTemplate(config.templates.failed, { error: reason }), plain: true },
+    sessionId,
+  )
 }
 
 /** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */

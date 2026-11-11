@@ -81,6 +81,11 @@ _Avoid_: Agent Maker, Agents view, agent manager
 **Step**:
 One prompt of an Agent, sent as its own turn.
 
+**Start Prompt**:
+Text the user gives when starting an Agent, for that Agent Run only. It goes in with the first Step
+and applies to every Step it is relevant to; starting without one runs the Steps as written.
+_Avoid_: task, run instructions, input
+
 **Settings Template**:
 The settings an Agent's runs use, fixed on the Agent rather than taken from the Session.
 
@@ -145,6 +150,12 @@ _Avoid_: push, alert
 A reply to a Notification, sent from a Channel. It runs as a turn in the Harness Session that sent
 the Notification, so answering an Agent Run's Notification is a Follow-up.
 _Avoid_: reply (as a noun), response
+
+**Start Prompt Request**:
+A message asking the user, in a Channel, for the Start Prompt of one Agent in one Reachable Session.
+The first reply to it starts that Agent Run there with the reply as its Start Prompt; it is not an
+Answer, and it is forgotten when the app quits.
+_Avoid_: prompt question, pending start
 
 ## Settings
 

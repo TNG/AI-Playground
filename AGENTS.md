@@ -1131,6 +1131,10 @@ and pushes every `send_*` out as one Server-Sent Event. Things worth knowing bef
   `/new` and `/load` have to repaint it (`ChannelAdapter.replayHistory`, implemented only here).
 - **SSE has no message edit**, so a settled interactive prompt travels as its own `editMessage`
   action and the page retires the buttons; typing carries an explicit `state: start|stop`.
+- **Several replies can stream at once.** Every `update` carries a `draftId` and the page keeps
+  one bubble per open draft; the message that settles a reply carries the same `draftId` and takes
+  that bubble's place. Anything without one never touches a draft. Streaming is the Notifier's,
+  in main (`electron/agent/replyDrafts.ts`: one edit budget per chat, shared by its open drafts).
 - **Restarting binds a socket**, so config changes are serialized under `_start_lock` and wait for
   the previous server to close before rebinding the same port.
 - **It is reachable by other people.** Login is constant-time and rate-limited per source address,

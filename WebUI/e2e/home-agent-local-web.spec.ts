@@ -12,6 +12,7 @@ import {
   sendAndAwaitSessionReply,
   sendAndAwaitText,
   sendMessage,
+  settledBotBubbles,
   lanImages,
   lanVideos,
   userMessages,
@@ -51,6 +52,11 @@ const MEDIA_PROMPTS = {
   animateToVideo:
     'Lets bring this image to life. Animate this using LTX.2.3 i2v image to video. Have him waving hi and saying Hey Dudes, then jumping back into a cool pose that is consistent with his surfer, goofy character',
 }
+
+// A turn long enough to still be running when the next message arrives, and that message.
+const LONG_PROMPT =
+  'Write a detailed 1500-word short story about a lighthouse keeper who befriends a seagull.'
+const QUEUED_PROMPT = 'Also give the story a title.'
 
 // An agent session that pings the LAN chat, then the Answer that continues it.
 const NOTIFY_PROMPT =
@@ -145,6 +151,37 @@ test.describe('Channels — local web chat', () => {
         await sendMessage(page, '/load 1')
         await expect(polo).toHaveCount(1, { timeout: 60_000 })
         await expect(userMessages(page, 'And one word for it?')).toHaveCount(1)
+      })
+    } finally {
+      await page.close()
+    }
+  })
+
+  test('queues a message sent while the turn runs, and /stop calls both off', async ({
+    app,
+    window,
+    electronApp,
+  }) => {
+    test.setTimeout(30 * 60_000)
+    await bringUpLanChat(app, window)
+
+    const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
+    try {
+      await sendAndAwaitText(page, '/new', 'Started a new Session', 60_000)
+
+      await test.step('A message sent during the turn is queued with its place', async () => {
+        await sendMessage(page, LONG_PROMPT)
+        await sendAndAwaitText(page, QUEUED_PROMPT, 'Queued (1st)', MainPage.TEXT_TIMEOUT)
+      })
+
+      await test.step('/stop stops the turn and drops the queued message', async () => {
+        await sendAndAwaitText(page, '/stop', 'Queued messages dropped: 1.', 60_000)
+        await expect(settledBotBubbles(page).filter({ hasText: 'Stopped the turn' })).toHaveCount(1)
+      })
+
+      await test.step('Nothing is left running afterwards', async () => {
+        await sendAndAwaitText(page, '/stop', 'Nothing is running', 60_000)
+        await expect(agentRepliesTo(page, QUEUED_PROMPT)).toHaveCount(0)
       })
     } finally {
       await page.close()

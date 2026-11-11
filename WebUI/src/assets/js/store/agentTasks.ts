@@ -1162,6 +1162,16 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return run ? tasks.value.find((task) => task.id === run.taskId) : undefined
   }
 
+  /** The Agent Run in flight in the Session (between Steps too): its Agent's name and Step. */
+  function agentRunStepIn(
+    sessionRef: string,
+  ): { name: string; step: number; steps: number } | undefined {
+    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
+    if (!run) return undefined
+    const name = tasks.value.find((task) => task.id === run.taskId)?.name ?? ''
+    return { name, step: run.stepIndex, steps: run.stepCount }
+  }
+
   /** Each Session's prompt waiting for its Agent Run, by the Agent's name. Memory only. */
   const queuedPrompts = ref<Record<string, string>>({})
   const queuedHolds: Record<string, { release: (go: boolean) => void; prompt?: string }> = {}
@@ -1519,6 +1529,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     stopTask,
     stopRunIn,
     agentRunIn,
+    agentRunStepIn,
     isSessionLockedByTask,
     afterAgentRun,
     cancelQueuedPrompt,

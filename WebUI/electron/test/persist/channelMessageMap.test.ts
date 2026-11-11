@@ -112,9 +112,9 @@ describe('the channel message map', () => {
           sent.push({ target, message, origin })
           return { ok: true, queuePosition: null }
         },
-        pause: () => null,
-        held: () => {},
-        onTurnEnd: () => () => {},
+        activity: () => ({ kind: 'idle' }),
+        stop: async () => ({ kind: 'idle' }),
+        onSessionChange: () => () => {},
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
       pointers: { get: () => null, set: () => {} },

@@ -128,7 +128,7 @@ import {
   refreshWhileAsking,
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
-import { createInFlightWork } from './kernel/inFlightWork'
+import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -198,6 +198,7 @@ import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
   setNotificationChannel,
   setNotificationConfig,
+  tellQueuesDroppedOnQuit,
   setNotificationWindowShown,
   startAutoNotifications,
 } from './agent/notifier'
@@ -1218,6 +1219,11 @@ setRagAccess({
 // because its extensions flush state on shutdown (persistent memory writes what
 // it learned) and may still call into MCP, the services and the browser.
 // Before the agent, whose aborted turns the window would otherwise record as failed.
+// First, while the Channels' backend still runs: the window's queue dies with it.
+appShutdown.register({
+  name: 'channel queues',
+  run: () => tellQueuesDroppedOnQuit(queuedChannelMessages(inFlightWork.rendererWork())),
+})
 appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
 // After the agent, so no Trial Run turn still writes into a folder being removed.

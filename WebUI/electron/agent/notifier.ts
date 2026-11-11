@@ -23,6 +23,8 @@ import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
 import { readReachableSession } from '../session/sessionChannels.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { tellDroppedQueues } from './queueQuitNotice.ts'
+import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
 // The one sender of Notifications (docs/adr/0010): only Reachable Sessions send, to every
 // enabled Channel, except that what a Channel caused goes back to that Channel alone.
@@ -91,6 +93,7 @@ const OFF_CONFIG: NotificationConfig = {
     answerOnComputer: '',
     answerInThread: '',
     answerByReply: '',
+    queueDroppedOnQuit: '',
   },
 }
 
@@ -185,6 +188,20 @@ export function setNotificationConfig(next: NotificationConfig): void {
 
 export function setNotificationChannel(next: NotificationChannel | undefined): void {
   channel = next
+}
+
+/** On quit: each Channel with messages the window still had queued hears how many were dropped. */
+export async function tellQueuesDroppedOnQuit(
+  queued: Extract<InFlightWorkItem, { kind: 'channel-queue' }>[],
+): Promise<void> {
+  const send = channel?.send
+  if (!send || queued.length === 0) return
+  await tellDroppedQueues({
+    queued,
+    channels: config.channels,
+    template: config.templates.queueDroppedOnQuit,
+    send: (kind, text) => send(kind, { text }),
+  })
 }
 
 /** Whether the window is on screen: neither hidden to the tray nor minimized. Focus does not count. */

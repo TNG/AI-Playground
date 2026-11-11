@@ -4,6 +4,7 @@
 
 import { defineAsyncComponent, h, type Component } from 'vue'
 import type { ChannelKind } from './types'
+import { CHANNEL_NAMES } from '@/lib/channelNames'
 import { useTelegramSetup } from '../useTelegramSetup'
 import { useSlackSetup } from '../useSlackSetup'
 import { useLocalWebSetup } from '../useLocalWebSetup'
@@ -131,7 +132,7 @@ const LocalWebSetupSteps = defineAsyncComponent(() => import('@/components/Local
 export const CHANNELS: ChannelDescriptor[] = [
   {
     kind: 'local-web',
-    displayName: 'LAN chat',
+    displayName: CHANNEL_NAMES['local-web'],
     brandColor: '#10b981',
     icon: LocalWebIcon,
     setupComponent: LocalWebSetupSteps,
@@ -147,7 +148,7 @@ export const CHANNELS: ChannelDescriptor[] = [
   },
   {
     kind: 'telegram',
-    displayName: 'Telegram',
+    displayName: CHANNEL_NAMES.telegram,
     brandColor: '#26a5e4',
     icon: TelegramIcon,
     setupComponent: TelegramSetupSteps,
@@ -164,7 +165,7 @@ export const CHANNELS: ChannelDescriptor[] = [
   },
   {
     kind: 'slack',
-    displayName: 'Slack',
+    displayName: CHANNEL_NAMES.slack,
     brandColor: '#36C5F0',
     icon: SlackIcon,
     setupComponent: SlackSetupSteps,

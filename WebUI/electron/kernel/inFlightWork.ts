@@ -11,7 +11,7 @@ export type InFlightWorkSources = {
   artifactRuns: OpenArtifactRun[]
   /** An enabled Schedule is not In-flight Work; only a Task Run's marker is. */
   tasks: Pick<AgentTask, 'id' | 'name' | 'activeRuns'>[]
-  /** What only the window knows: Trial Runs, and Agent Runs whose marker is not on disk yet. */
+  /** What only the window knows: Trial Runs, Agent Runs whose marker is not on disk yet, queued Channel messages. */
   rendererWork: InFlightWorkItem[]
 }
 
@@ -31,6 +31,14 @@ function stepRuns(sources: InFlightWorkSources): InFlightWorkItem[] {
       .map((run) => taskRunWorkItem(task, run)),
   )
   return [...markers, ...reported]
+}
+
+/** The window's queued Channel messages, one item per Channel. */
+export function queuedChannelMessages(work: InFlightWorkItem[]) {
+  return work.filter(
+    (item): item is Extract<InFlightWorkItem, { kind: 'channel-queue' }> =>
+      item.kind === 'channel-queue',
+  )
 }
 
 /** In-flight Work, one item per turn or run; queued media runs are counted per mode. */
@@ -69,7 +77,7 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
   for (const [mode, count] of queued) {
     items.push({ kind: 'media-run', mode, state: { status: 'queued', count } })
   }
-  return items
+  return [...items, ...queuedChannelMessages(sources.rendererWork)]
 }
 
 export type InFlightWorkDeps = {
@@ -89,6 +97,8 @@ export function createInFlightWork(deps: InFlightWorkDeps) {
     setRendererWork(work: InFlightWorkItem[]): void {
       rendererWork = work
     },
+    /** The window's last report, as main last heard it. */
+    rendererWork: (): InFlightWorkItem[] => rendererWork,
     async list(): Promise<InFlightWorkItem[]> {
       const sessionIds = deps.openAgentTurnSessionIds()
       const names = await Promise.all(

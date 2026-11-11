@@ -36,4 +36,18 @@ describe('closeQuestionLines', () => {
 
     expect(lines).toEqual(['Trial Run: starting'])
   })
+
+  it('names the Channel whose messages are queued, and how many', () => {
+    const lines = closeQuestionLines(
+      {
+        items: [
+          { kind: 'channel-queue', channel: 'local-web', state: { status: 'queued', count: 2 } },
+        ],
+        more: 0,
+      },
+      en,
+    )
+
+    expect(lines).toEqual(['Messages queued from LAN chat: 2 queued'])
+  })
 })

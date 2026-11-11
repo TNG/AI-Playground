@@ -270,6 +270,11 @@ const MANIFEST_JSON = JSON.stringify(
           should_escape: false,
         },
         { command: '/new', description: 'Start a new Session', should_escape: false },
+        {
+          command: '/stop',
+          description: 'Stop the running turn or Agent Run and drop queued messages',
+          should_escape: false,
+        },
       ],
     },
     oauth_config: {

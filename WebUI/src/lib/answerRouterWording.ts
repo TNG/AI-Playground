@@ -22,24 +22,29 @@ export type AnswerRouterCopy = {
   voiceNoBackend: string
   voiceModelDeclined: string
   voiceFailed: string
-  /** `{title}`; an Answer held until the session's turn ends */
-  held: string
-  /** `{title}`; held while the turn waits for the download buttons in the channel */
-  heldDownload: string
-  /** `{title}`; held while the download is asked on another channel and on the computer */
-  heldDownloadElsewhere: string
-  /** `{title}`; held while the turn waits on the computer */
-  heldDesktop: string
-  /** A line under the held confirmation when it replaced an earlier Held Answer */
-  heldReplaced: string
-  /** `{title}`; the earlier Held Answer, told on its own channel when the newer came elsewhere */
-  heldReplacedElsewhere: string
-  /** `{title}`; the turn was stopped, or the Held Answer discarded, on the desktop */
-  heldDesktopTookOver: string
-  /** `{title}`; the session was deleted while the Answer was held */
-  heldSessionGone: string
-  /** `{title}`; told on the next start */
-  heldAppClosed: string
+  /** `{position}` (an ordinal), `{title}`, `{waitingFor}`; a message queued behind a busy Session */
+  queuedMessage: string
+  /** What a queued message waits for: the turn, or `{name}`, `{step}`, `{steps}` of an Agent Run */
+  queueAfterTurn: string
+  queueAfterAgentRun: string
+  /** A line under the queued acknowledgement while the turn is paused */
+  queueWaitsDownload: string
+  queueWaitsDownloadElsewhere: string
+  queueWaitsDesktop: string
+  /** `{title}`, `{limit}` */
+  queueFull: string
+  /** `{title}`, `{count}`; told on each Channel whose queued messages were dropped */
+  queueDroppedStopped: string
+  queueDroppedUnreachable: string
+  queueDroppedDeleted: string
+  /** `/stop`: what it stopped (`{title}`; an Agent Run's `{name}`, `{step}`, `{steps}`) */
+  stopTurn: string
+  stopAgentRun: string
+  /** `{count}`, the line under what `/stop` stopped */
+  stopDropped: string
+  /** `{title}` */
+  stopNothing: string
+  stopNoSession: string
   /** The `/help` line on answering agents, per channel gesture. */
   helpReply: string
   helpThread: string
@@ -62,6 +67,7 @@ export type AnswerRouterCopy = {
   helpSessions: string
   helpLoad: string
   helpNew: string
+  helpStop: string
   helpHelp: string
   helpPlain: string
   /** Above the `/sessions` buttons */
@@ -79,9 +85,11 @@ export type AnswerRouterCopy = {
   /** `{command}` */
   unknownCommand: string
   untitled: string
+  /** A queue position in the app language: 2 → "2nd". */
+  ordinal: (n: number) => string
 }
 
-const KEYS: Record<keyof AnswerRouterCopy, string> = {
+const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   starting: 'AGENT_ANSWER_STARTING',
   queued: 'AGENT_ANSWER_QUEUED',
   notSent: 'AGENT_ANSWER_NOT_SENT',
@@ -93,15 +101,21 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   voiceNoBackend: 'CHANNEL_VOICE_NO_BACKEND',
   voiceModelDeclined: 'CHANNEL_VOICE_MODEL_DECLINED',
   voiceFailed: 'CHANNEL_VOICE_FAILED',
-  held: 'AGENT_ANSWER_HELD',
-  heldDownload: 'AGENT_ANSWER_HELD_DOWNLOAD',
-  heldDownloadElsewhere: 'AGENT_ANSWER_HELD_DOWNLOAD_ELSEWHERE',
-  heldDesktop: 'AGENT_ANSWER_HELD_DESKTOP',
-  heldReplaced: 'AGENT_ANSWER_HELD_REPLACED',
-  heldReplacedElsewhere: 'AGENT_ANSWER_HELD_REPLACED_ELSEWHERE',
-  heldDesktopTookOver: 'AGENT_ANSWER_HELD_DESKTOP_TOOK_OVER',
-  heldSessionGone: 'AGENT_ANSWER_HELD_SESSION_GONE',
-  heldAppClosed: 'AGENT_ANSWER_HELD_APP_CLOSED',
+  queuedMessage: 'CHANNEL_QUEUED',
+  queueAfterTurn: 'CHANNEL_QUEUE_AFTER_TURN',
+  queueAfterAgentRun: 'CHANNEL_QUEUE_AFTER_AGENT_RUN',
+  queueWaitsDownload: 'CHANNEL_QUEUE_WAITS_DOWNLOAD',
+  queueWaitsDownloadElsewhere: 'CHANNEL_QUEUE_WAITS_DOWNLOAD_ELSEWHERE',
+  queueWaitsDesktop: 'CHANNEL_QUEUE_WAITS_DESKTOP',
+  queueFull: 'CHANNEL_QUEUE_FULL',
+  queueDroppedStopped: 'CHANNEL_QUEUE_DROPPED_STOPPED',
+  queueDroppedUnreachable: 'CHANNEL_QUEUE_DROPPED_UNREACHABLE',
+  queueDroppedDeleted: 'CHANNEL_QUEUE_DROPPED_DELETED',
+  stopTurn: 'CHANNEL_STOP_TURN',
+  stopAgentRun: 'CHANNEL_STOP_AGENT_RUN',
+  stopDropped: 'CHANNEL_STOP_DROPPED',
+  stopNothing: 'CHANNEL_STOP_NOTHING',
+  stopNoSession: 'CHANNEL_STOP_NO_SESSION',
   helpReply: 'AGENT_ANSWER_HELP_REPLY',
   helpThread: 'AGENT_ANSWER_HELP_THREAD',
   helpButton: 'AGENT_ANSWER_HELP_BUTTON',
@@ -117,6 +131,7 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   helpSessions: 'CHANNEL_HELP_SESSIONS',
   helpLoad: 'CHANNEL_HELP_LOAD',
   helpNew: 'CHANNEL_HELP_NEW',
+  helpStop: 'CHANNEL_HELP_STOP',
   helpHelp: 'CHANNEL_HELP_HELP',
   helpPlain: 'CHANNEL_HELP_PLAIN',
   sessionsPick: 'CHANNEL_SESSIONS_PICK',
@@ -130,10 +145,30 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   untitled: 'SESSIONS_UNTITLED',
 }
 
+const ENGLISH_SUFFIXES: Record<string, string> = { one: 'st', two: 'nd', few: 'rd', other: 'th' }
+const englishOrdinals = new Intl.PluralRules('en-US', { type: 'ordinal' })
+
+/** `n` as a place in a queue, written the way `language` (an app locale) writes ordinals. */
+export function ordinalIn(language: string, n: number): string {
+  const base = language.split('-')[0]
+  if (base === 'en') return `${n}${ENGLISH_SUFFIXES[englishOrdinals.select(n)]}`
+  if (base === 'de' || base === 'pl' || base === 'tr') return `${n}.`
+  if (base === 'zh' || base === 'ja') return `第${n}`
+  if (base === 'ko') return `${n}번째`
+  if (base === 'es' || base === 'it') return `${n}º`
+  return `#${n}`
+}
+
 /** The router's copy in the language `text` holds (the window's i18n state). */
-export function answerRouterCopyFrom(text: Record<string, string | undefined>): AnswerRouterCopy {
+export function answerRouterCopyFrom(
+  text: Record<string, string | undefined>,
+  language = 'en-US',
+): AnswerRouterCopy {
   const entries = Object.entries(KEYS).map(([field, key]) => [field, text[key] ?? ''])
-  return Object.fromEntries(entries) as AnswerRouterCopy
+  return {
+    ...(Object.fromEntries(entries) as Omit<AnswerRouterCopy, 'ordinal'>),
+    ordinal: (n) => ordinalIn(language, n),
+  }
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -149,7 +184,7 @@ export function answerRouterCopy(): AnswerRouterCopy {
   const copy = provider?.()
   if (!copy) return ENGLISH
   const filled = { ...copy }
-  for (const key of Object.keys(ENGLISH) as (keyof AnswerRouterCopy)[]) {
+  for (const key of Object.keys(KEYS) as (keyof typeof KEYS)[]) {
     if (!filled[key]) filled[key] = ENGLISH[key]
   }
   return filled

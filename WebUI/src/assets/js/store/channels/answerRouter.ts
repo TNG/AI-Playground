@@ -18,6 +18,14 @@ import {
   type AttachResult,
   type ChannelFile,
 } from './channelInbound'
+import {
+  CHANNEL_QUEUE_LIMIT,
+  combineMessages,
+  createChannelQueue,
+  type ChannelTurnMessage,
+  type QueuedChannelMessage,
+  type QueuedEntry,
+} from './channelQueue'
 import { createChannelSessions } from './channelSessions'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
 
@@ -25,23 +33,17 @@ import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage
 export type SessionSendResult =
   { ok: true; queuePosition: number | null } | { ok: false; reason: string; message: string }
 
-/** What a paused session waits on: the download buttons in the channel, or the computer. */
+/** What a paused turn waits on: the download buttons in the channel, or the computer. */
 export type SessionPause = 'download' | 'desktop'
 
-/** How the turn a Held Answer waits for ended, or what the desktop did to it instead. */
-export type SessionTurnEnd = 'completed' | 'failed' | 'stopped' | 'deleted' | 'discarded'
+/** What a Session is busy with: a queued message waits for it to end. */
+export type SessionActivity =
+  | { kind: 'idle' }
+  | { kind: 'turn'; paused?: SessionPause }
+  | { kind: 'agent-run'; name: string; step: number; steps: number }
 
-/** A Held Answer as the session shows it on the desktop. */
-export type HeldAnswerView = { text: string; channel: ChannelKind }
-
-/** A Held Answer outlives nothing but this note, so the channel hears it was lost. */
-export type HeldAnswerNote = { channel: ChannelKind; title: string; meta?: InboundMeta }
-
-/** Where Held Answer notes survive an app close. */
-export type HeldAnswerJournal = {
-  load: () => HeldAnswerNote[]
-  save: (notes: HeldAnswerNote[]) => void
-}
+/** The Session's turn and Agent Run are over, or it can no longer take queued messages. */
+export type SessionChange = 'settled' | 'unreachable' | 'deleted'
 
 /** A plain message goes to the Session's Assistant; an Answer to the Harness Session that asked. */
 export type SessionTarget = { sessionRef: string } | AnswerTarget
@@ -86,12 +88,12 @@ export type SessionPort = {
     message: string,
     origin: AgentAnswerOrigin,
   ) => Promise<SessionSendResult>
-  /** What the target's paused turn waits on, or null when it is not paused. */
-  pause: (target: AnswerTarget) => SessionPause | null
-  /** The target's Held Answer changed; null when it is gone. */
-  held: (target: AnswerTarget, answer: HeldAnswerView | null) => void
-  /** Hear every Harness Session's turn end and the desktop's discard; returns the unsubscribe. */
-  onTurnEnd: (listener: (harnessSessionId: string, end: SessionTurnEnd) => void) => () => void
+  /** The Session's turn in flight, or its Agent Run (also between Steps). */
+  activity: (sessionRef: string) => SessionActivity
+  /** Stops the Session's turn or Agent Run, the run's next Step included; returns what it was. */
+  stop: (sessionRef: string) => Promise<SessionActivity>
+  /** Hear each Session settle, become unreachable or be deleted; returns the unsubscribe. */
+  onSessionChange: (listener: (sessionRef: string, change: SessionChange) => void) => () => void
 }
 
 /**
@@ -117,8 +119,6 @@ export type AnswerRouter = {
    * to an open confirmation, and anything else to the Channel's Channel Session.
    */
   route: (adapter: ChannelAdapter, msg: InboundChannelMessage, meta?: InboundMeta) => Promise<void>
-  /** The channel is up: tells it which Held Answers the last app close lost. */
-  channelReady: (adapter: ChannelAdapter) => Promise<void>
 }
 
 /** Speech-to-text for a voice message: usable now, refused (the channel was told why), or downloading. */
@@ -144,8 +144,8 @@ export type AnswerRouterDeps = {
   /** The Channels an agent's download question is asked on; empty when only the computer asks. */
   downloadQuestionChannels?: () => readonly ChannelKind[]
   copy?: () => AnswerRouterCopy
-  /** Defaults to memory only: a lost Held Answer then goes unreported after a restart. */
-  journal?: HeldAnswerJournal
+  /** Each Session's queued messages as they change, for its timeline and In-flight Work. */
+  publishQueue?: (sessionRef: string, queued: QueuedChannelMessage[]) => void
   /** Where failures that reach no channel go: the window's error sink. */
   log: (message: string, error: unknown) => void
 }
@@ -153,123 +153,36 @@ export type AnswerRouterDeps = {
 // Refusals the user can only clear on the computer, so the reply says where to go.
 const FIXED_ON_DESKTOP = new Set(['missing-folder', 'settings-problems'])
 
+/** A message waiting for its Session's turn or Agent Run to end. */
+type QueuedMessage = {
+  adapter: ChannelAdapter
+  target: SessionTarget
+  message: ChannelTurnMessage
+  origin: AgentAnswerOrigin
+  meta?: InboundMeta
+}
+
 export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
   const log = deps.log
-  const journal = deps.journal ?? memoryJournal()
   const downloadQuestionChannels = deps.downloadQuestionChannels ?? (() => [])
 
-  type Held = {
-    adapter: ChannelAdapter
-    sessions: SessionPort
-    target: AnswerTarget
-    text: string
-    origin: AgentAnswerOrigin
-    title: string
-    meta?: InboundMeta
-  }
-  // These two are keyed by Harness Session id.
-  // One per Harness Session: a newer Answer replaces the one waiting.
-  const held = new Map<string, Held>()
-  // First sends still awaiting their result, flagged when the turn ends meanwhile.
-  const sending = new Map<string, { turnEnded: boolean }>()
+  const queue = createChannelQueue<QueuedMessage>({ onChange: deps.publishQueue })
+  // Sessions whose next queued batch is being sent.
+  const draining = new Set<string>()
   // Per Channel: its messages behind a voice message whose speech model downloads, in order.
   const waitingForSpeech = new Map<ChannelKind, Promise<void>>()
-  // Notes from the previous run, reported once their channel is up again.
-  let lost = readJournal()
   let unsubscribe: (() => void) | null = null
   let subscribedTo: SessionPort | null = null
-
-  function readJournal(): HeldAnswerNote[] {
-    try {
-      return [...journal.load()]
-    } catch (e) {
-      log('answerRouter: reading held Answers failed:', e)
-      return []
-    }
-  }
-
-  function writeJournal(): void {
-    const notes = [
-      ...lost,
-      ...[...held.values()].map((h) => ({
-        channel: h.adapter.kind,
-        title: h.title,
-        ...(h.meta ? { meta: h.meta } : {}),
-      })),
-    ]
-    try {
-      journal.save(notes)
-    } catch (e) {
-      log('answerRouter: saving held Answers failed:', e)
-    }
-  }
 
   function listen(sessions: SessionPort): void {
     if (subscribedTo === sessions) return
     unsubscribe?.()
     subscribedTo = sessions
-    unsubscribe = sessions.onTurnEnd((harnessSessionId, end) => void settle(harnessSessionId, end))
-  }
-
-  function setHeld(target: AnswerTarget, next: Held | null): void {
-    const key = target.harnessSessionId
-    const sessions = next?.sessions ?? held.get(key)?.sessions
-    if (next) held.set(key, next)
-    else held.delete(key)
-    writeJournal()
-    sessions?.held(target, next ? { text: next.text, channel: next.adapter.kind } : null)
-  }
-
-  async function hold(entry: Held): Promise<void> {
-    listen(entry.sessions)
-    const earlier = held.get(entry.target.harnessSessionId)
-    setHeld(entry.target, entry)
-    const wording = copy()
-    const pause = entry.sessions.pause(entry.target)
-    const template =
-      pause === 'download'
-        ? downloadHoldTemplate(entry.adapter.kind, wording)
-        : pause === 'desktop'
-          ? wording.heldDesktop
-          : wording.held
-    let confirmation = fillTemplate(template, { title: entry.title })
-    if (earlier && earlier.adapter.kind === entry.adapter.kind) {
-      confirmation += `\n${wording.heldReplaced}`
-    } else if (earlier) {
-      const replaced = fillTemplate(wording.heldReplacedElsewhere, { title: earlier.title })
-      await tell(earlier.adapter, replaced, earlier.meta)
-    }
-    await tell(entry.adapter, confirmation, entry.meta)
-  }
-
-  function downloadHoldTemplate(kind: ChannelKind, wording: AnswerRouterCopy): string {
-    const askedOn = downloadQuestionChannels()
-    if (askedOn.includes(kind)) return wording.heldDownload
-    return askedOn.length > 0 ? wording.heldDownloadElsewhere : wording.heldDesktop
-  }
-
-  async function settle(harnessSessionId: string, end: SessionTurnEnd): Promise<void> {
-    const attempt = sending.get(harnessSessionId)
-    if (attempt) attempt.turnEnded = true
-    const entry = held.get(harnessSessionId)
-    if (!entry) return
-    if (end === 'completed' || end === 'failed') {
-      await deliverHeld(entry)
-      return
-    }
-    setHeld(entry.target, null)
-    const wording = copy()
-    const template = end === 'deleted' ? wording.heldSessionGone : wording.heldDesktopTookOver
-    await tell(entry.adapter, fillTemplate(template, { title: entry.title }), entry.meta)
-  }
-
-  /** Sends a Held Answer; still busy (a Task run between two Steps) keeps it held. */
-  async function deliverHeld(entry: Held): Promise<void> {
-    const result = await send(entry.sessions, entry.target, entry.text, entry.origin)
-    if (!result.ok && isHold(result.reason)) return
-    if (held.get(entry.target.harnessSessionId) === entry) setHeld(entry.target, null)
-    await confirm(entry.adapter, entry.title, result, entry.meta)
+    unsubscribe = sessions.onSessionChange((sessionRef, change) => {
+      if (change === 'settled') void drain(sessions, sessionRef)
+      else void dropQueue(sessions, sessionRef, change)
+    })
   }
 
   async function send(
@@ -306,27 +219,124 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
-  /** A refusal answered after the turn already ended is retried, since no later end would free it. */
-  async function firstSend(
-    sessions: SessionPort,
-    target: AnswerTarget,
-    text: string,
-    origin: AgentAnswerOrigin,
-  ): Promise<SessionSendResult> {
+  /** Sends a Channel's message into its Session, or queues it while the Session is busy. */
+  async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<void> {
     listen(sessions)
-    const key = target.harnessSessionId
-    const attempt = { turnEnded: false }
-    sending.set(key, attempt)
-    try {
-      let result: SessionSendResult
-      do {
-        attempt.turnEnded = false
-        result = await send(sessions, target, text, origin)
-      } while (!result.ok && isHold(result.reason) && attempt.turnEnded)
-      return result
-    } finally {
-      if (sending.get(key) === attempt) sending.delete(key)
+    const { sessionRef } = entry.target
+    if (
+      queue.size(sessionRef) > 0 ||
+      draining.has(sessionRef) ||
+      sessions.activity(sessionRef).kind !== 'idle'
+    ) {
+      return enqueue(sessions, entry)
     }
+    const result = await send(sessions, entry.target, entry.message.text, entry.origin)
+    if (!result.ok && isBusy(result.reason)) return enqueue(sessions, entry)
+    await confirm(entry.adapter, sessions.label(entry.target), result, entry.meta)
+  }
+
+  async function enqueue(sessions: SessionPort, entry: QueuedMessage): Promise<void> {
+    const { sessionRef } = entry.target
+    const wording = copy()
+    const title = sessions.label(entry.target)
+    const position = queue.add(sessionRef, {
+      channel: entry.adapter.kind,
+      batchKey: 'harnessSessionId' in entry.target ? entry.target.harnessSessionId : sessionRef,
+      preview: entry.message.text,
+      item: entry,
+    })
+    if (position === null) {
+      const full = fillTemplate(wording.queueFull, { title, limit: CHANNEL_QUEUE_LIMIT })
+      return tell(entry.adapter, full, entry.meta)
+    }
+    const activity = sessions.activity(sessionRef)
+    const waitingFor =
+      activity.kind === 'agent-run'
+        ? fillTemplate(wording.queueAfterAgentRun, {
+            name: activity.name,
+            step: activity.step,
+            steps: activity.steps,
+          })
+        : wording.queueAfterTurn
+    const ack = fillTemplate(wording.queuedMessage, {
+      position: wording.ordinal(position),
+      title,
+      waitingFor,
+    })
+    const pause = activity.kind === 'turn' ? activity.paused : undefined
+    const pauseLine = pause ? pauseNote(pause, entry.adapter.kind, wording) : null
+    await tell(entry.adapter, pauseLine ? `${ack}\n${pauseLine}` : ack, entry.meta)
+    // The Session may have settled while the message was refused or acknowledged.
+    await drain(sessions, sessionRef)
+  }
+
+  function pauseNote(pause: SessionPause, kind: ChannelKind, wording: AnswerRouterCopy): string {
+    if (pause === 'desktop') return wording.queueWaitsDesktop
+    const askedOn = downloadQuestionChannels()
+    if (askedOn.includes(kind)) return wording.queueWaitsDownload
+    return askedOn.length > 0 ? wording.queueWaitsDownloadElsewhere : wording.queueWaitsDesktop
+  }
+
+  /** Runs the oldest Channel's queued messages as one turn once the Session is idle. */
+  async function drain(sessions: SessionPort, sessionRef: string): Promise<void> {
+    while (!draining.has(sessionRef) && sessions.activity(sessionRef).kind === 'idle') {
+      const batch = queue.takeBatch(sessionRef)
+      if (batch.length === 0) return
+      draining.add(sessionRef)
+      try {
+        const busy = await sendBatch(sessions, sessionRef, batch)
+        if (busy) return
+      } finally {
+        draining.delete(sessionRef)
+      }
+    }
+  }
+
+  /** True when the Session turned out busy and the batch went back to wait for it. */
+  async function sendBatch(
+    sessions: SessionPort,
+    sessionRef: string,
+    batch: QueuedEntry<QueuedMessage>[],
+  ): Promise<boolean> {
+    const last = batch[batch.length - 1].item
+    const message = combineMessages(batch.map((entry) => entry.item.message))
+    const replyTo = batch.findLast((entry) => entry.item.origin.replyTo)?.item.origin.replyTo
+    const origin = { ...last.origin, ...(replyTo ? { replyTo } : {}) }
+    const result = await send(sessions, last.target, message.text, origin)
+    if (!result.ok && isBusy(result.reason)) {
+      queue.putBack(sessionRef, batch)
+      return true
+    }
+    await confirm(last.adapter, sessions.label(last.target), result, last.meta)
+    return false
+  }
+
+  /** Drops the Session's queue, telling each Channel but `except` how many of its messages went. */
+  async function dropQueue(
+    sessions: SessionPort,
+    sessionRef: string,
+    why: 'stopped' | 'unreachable' | 'deleted',
+    except?: ChannelKind,
+  ): Promise<number> {
+    const dropped = queue.drop(sessionRef)
+    const wording = copy()
+    const template =
+      why === 'stopped'
+        ? wording.queueDroppedStopped
+        : why === 'unreachable'
+          ? wording.queueDroppedUnreachable
+          : wording.queueDroppedDeleted
+    const title = sessions.label({ sessionRef })
+    const byChannel = new Map<ChannelKind, QueuedEntry<QueuedMessage>[]>()
+    for (const entry of dropped) {
+      byChannel.set(entry.channel, [...(byChannel.get(entry.channel) ?? []), entry])
+    }
+    for (const [kind, entries] of byChannel) {
+      if (kind === except) continue
+      const last = entries[entries.length - 1].item
+      await tell(last.adapter, fillTemplate(template, { title, count: entries.length }), last.meta)
+    }
+    return dropped.length
   }
 
   async function answeredSession(
@@ -357,16 +367,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     origin: AgentAnswerOrigin,
     meta?: InboundMeta,
   ): Promise<void> {
-    const title = sessions.label(target)
-    const entry: Held = { adapter, sessions, target, text, origin, title, meta }
-    // Sending past a Held Answer would put the newer one first; it replaces it instead.
-    if (held.has(target.harnessSessionId)) {
-      await hold(entry)
-    } else {
-      const result = await firstSend(sessions, target, text, origin)
-      if (!result.ok && isHold(result.reason)) await hold(entry)
-      else await confirm(adapter, entry.title, result, meta)
-    }
+    await submit(sessions, { adapter, target, message: { text }, origin, meta })
   }
 
   async function deliver(
@@ -402,12 +403,70 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       pointers: deps.pointers,
       copy,
       tell,
-      confirm,
-      send: (target, text, origin) => send(sessions, target, text, origin),
+      submit: (adapter, target, message, origin, meta) =>
+        submit(sessions, { adapter, target, message, origin, meta }),
       attach: (adapter, target, msg, meta) =>
         attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta),
       log,
     })
+  }
+
+  /** The Session `/stop` is for: a Notification's it replies to, else the Channel Session. */
+  async function stopTarget(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<string | null> {
+    const owner = msg.replyTo ? await answeredSession(sessions, adapter.kind, msg.replyTo) : null
+    if (owner) {
+      if ('deletedSession' in owner || !(await sessions.exists(owner.sessionRef))) {
+        await tell(adapter, copy().noSession, meta)
+        return null
+      }
+      if (!(await sessions.isReachable(owner.sessionRef))) {
+        const title = sessions.label({ sessionRef: owner.sessionRef })
+        await tell(adapter, fillTemplate(copy().unreachable, { title }), meta)
+        return null
+      }
+      return owner.sessionRef
+    }
+    const current = await channelSessions(sessions).current(adapter, meta)
+    if (!current) await tell(adapter, copy().stopNoSession, meta)
+    return current
+  }
+
+  function stopCommand(sessions: SessionPort): ChannelCommand {
+    return {
+      name: 'stop',
+      usage: '/stop',
+      describe: (wording) => wording.helpStop,
+      run: async ({ adapter, msg, meta }) => {
+        const sessionRef = await stopTarget(adapter, sessions, msg, meta)
+        if (!sessionRef) return
+        const wording = copy()
+        const title = sessions.label({ sessionRef })
+        const running = sessions.activity(sessionRef)
+        if (running.kind === 'idle' && queue.size(sessionRef) === 0) {
+          return tell(adapter, fillTemplate(wording.stopNothing, { title }), meta)
+        }
+        // Dropped first, so the stopped turn's settle has nothing left to run.
+        const count = await dropQueue(sessions, sessionRef, 'stopped', adapter.kind)
+        const stopped = running.kind === 'idle' ? running : await sessions.stop(sessionRef)
+        const what =
+          stopped.kind === 'agent-run'
+            ? fillTemplate(wording.stopAgentRun, {
+                name: stopped.name,
+                title,
+                step: stopped.step,
+                steps: stopped.steps,
+              })
+            : stopped.kind === 'turn'
+              ? fillTemplate(wording.stopTurn, { title })
+              : fillTemplate(wording.stopNothing, { title })
+        await tell(adapter, `${what}\n${fillTemplate(wording.stopDropped, { count })}`, meta)
+      },
+    }
   }
 
   function helpCommand(commands: () => ChannelCommand[]): ChannelCommand {
@@ -432,8 +491,9 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   ): Promise<boolean> {
     const parsed = parseCommand(msg.text ?? '')
     if (!parsed) return false
+    listen(sessions)
     const own = channelSessions(sessions).commands
-    const commands: ChannelCommand[] = [...own, helpCommand(() => commands)]
+    const commands: ChannelCommand[] = [...own, stopCommand(sessions), helpCommand(() => commands)]
     const command = commands.find((entry) => entry.name === parsed.name.toLowerCase())
     if (!command) {
       const unknown = fillTemplate(copy().unknownCommand, { command: `/${parsed.name}` })
@@ -555,26 +615,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     await channelSessions(sessions).plainMessage(adapter, msg, meta)
   }
 
-  async function channelReady(adapter: ChannelAdapter): Promise<void> {
-    const notes = lost.filter((note) => note.channel === adapter.kind)
-    if (notes.length === 0) return
-    lost = lost.filter((note) => note.channel !== adapter.kind)
-    writeJournal()
-    const template = copy().heldAppClosed
-    for (const note of notes) {
-      await tell(adapter, fillTemplate(template, { title: note.title }), note.meta)
-    }
-  }
-
-  return { route, channelReady }
+  return { route }
 }
 
-/** A session busy with a turn or held by a Task run takes the Answer once that turn ends. */
-function isHold(reason: string): boolean {
+/** A Session busy with a turn, or held by an Agent Run, takes the message once that ends. */
+function isBusy(reason: string): boolean {
   return reason === 'busy' || reason === 'task-locked'
-}
-
-function memoryJournal(): HeldAnswerJournal {
-  let notes: HeldAnswerNote[] = []
-  return { load: () => notes, save: (next) => (notes = next) }
 }

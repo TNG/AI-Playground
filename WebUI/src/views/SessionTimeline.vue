@@ -25,6 +25,7 @@
         :chat-key="chatKey"
         @resend="agentMode.resendNotRun()"
       />
+      <ChannelQueuedBubbles :session-ref="sessions.openSessionId" />
     </div>
   </div>
 </template>
@@ -44,6 +45,7 @@ import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useSessions } from '@/assets/js/store/sessions'
 import AgentEmptyState from '@/components/AgentEmptyState.vue'
+import ChannelQueuedBubbles from '@/components/ChannelQueuedBubbles.vue'
 import GameBar from '@/components/GameBar.vue'
 import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'

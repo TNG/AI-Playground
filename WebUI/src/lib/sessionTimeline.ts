@@ -695,7 +695,6 @@ function markLiveAgentTurns(
       ...(errorLine ? { errorLine } : {}),
     }
     if (agent.open) last.questionKey = id
-    if (agent.heldAnswer) last.heldAnswer = agent.heldAnswer
   }
 }
 

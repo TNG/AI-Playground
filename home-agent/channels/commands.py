@@ -67,4 +67,7 @@ HOME_AGENT_COMMANDS: tuple[HomeAgentCommand, ...] = (
         "load", "Continue a Session (no number = pick from a list)", takes_args=True
     ),
     HomeAgentCommand("new", "Start a new Session"),
+    HomeAgentCommand(
+        "stop", "Stop the running turn or Agent Run and drop queued messages"
+    ),
 )

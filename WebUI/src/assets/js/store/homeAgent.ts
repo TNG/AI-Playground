@@ -43,6 +43,7 @@ import { escapeHtml } from './channels/adapterHelpers'
 import { createAppError, createCancellation } from '../errors/appError'
 import { useErrors } from './errors'
 import { useChannelSessionPointers } from './channelSessionPointers'
+import { useChannelQueue } from './channelQueue'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
@@ -51,7 +52,6 @@ import { fanOutDownloadQuestion } from './channels/downloadQuestionFanOut'
 import { createAnswerRouter } from './channels/answerRouter'
 import { createRemoteSpeech, type SpeechClip } from './channels/remoteSpeech'
 import { sessionPort } from './channels/sessionPort'
-import { heldAnswerJournal } from './channels/heldAnswerJournal'
 import {
   closeDownloadMessages,
   postDownloadMessage,
@@ -127,6 +127,7 @@ export const useHomeAgent = defineStore(
     const confirmations = useConfirmations()
     const errors = useErrors()
     const channelSessionPointers = useChannelSessionPointers()
+    const channelQueue = useChannelQueue()
 
     /**
      * Master Home Agent on/off — the single title-bar toggle. Persisted so the
@@ -231,8 +232,8 @@ export const useHomeAgent = defineStore(
       questions: channelQuestions,
       speech: remoteSpeech,
       downloadQuestionChannels: () => notificationChannels.value,
-      journal: heldAnswerJournal,
       pointers: channelSessionPointers,
+      publishQueue: (sessionRef, queued) => channelQueue.publish(sessionRef, queued),
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -950,7 +951,6 @@ export const useHomeAgent = defineStore(
       pollBusyByKind[kind] = true
       try {
         const msgs = await window.electronAPI.homeAgent.channel.poll(kind)
-        await answerRouter.channelReady(adapter)
         for (const msg of msgs ?? []) {
           if (!channels[kind].active) break
           // Threaded so adapters can target reactions / threaded sends at the originating message.

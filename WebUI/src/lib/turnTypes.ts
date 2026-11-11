@@ -188,7 +188,6 @@ export type AgentTurn = TurnOf<
     notRun?: boolean
     canResend?: boolean
     questionKey?: string
-    heldAnswer?: { channel: ChannelKind }
   }
 >
 
@@ -214,7 +213,6 @@ export type LiveAgentTurn = {
   notRunMessageId?: string
   canResend?: boolean
   open?: boolean
-  heldAnswer?: { channel: ChannelKind }
   error?: string
 }
 

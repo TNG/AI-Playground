@@ -1,4 +1,5 @@
 import type { ArtifactRunMode } from './artifactIpc'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 
 // In-flight Work (work the user started that has not finished) as the close question
 // names it: one item per piece of work, rendered by the window into the close dialog's lines.
@@ -17,6 +18,7 @@ export type InFlightWorkItem =
   | { kind: 'chat-turn'; name?: string; state: InFlightWorkState }
   | { kind: 'home-agent-turn'; state: InFlightWorkState }
   | { kind: 'media-run'; mode: ArtifactRunMode; state: InFlightWorkState }
+  | { kind: 'channel-queue'; channel: ChannelKind; state: { status: 'queued'; count: number } }
   | { kind: 'task-run'; taskId: string; sessionId?: string; name?: string; state: TaskRunWorkState }
   | {
       kind: 'trial-run'

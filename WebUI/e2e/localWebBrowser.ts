@@ -88,7 +88,7 @@ const promptButtons = (page: Page) =>
 
 /** Settled bot replies. The in-flight draft and the typing placeholder carry
  *  different accessible names, so this counts only finished messages. */
-function settledBotBubbles(page: Page) {
+export function settledBotBubbles(page: Page) {
   return page.getByRole('article', { name: 'Home Agent response', exact: true })
 }
 

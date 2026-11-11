@@ -20,13 +20,8 @@
     </template>
     <template #details>
       <TurnDetails :details="item.details" :hint="item.hint">
-        <template v-if="question || heldAnswer" #status>
-          <ChatConfirmation v-if="question" :conversation-key="question" />
-          <TurnHeldAnswer
-            v-if="heldAnswer && item.kind === 'agent'"
-            :channel="heldAnswer.channel"
-            @discard="agentMode.discardHeldAnswer(item.harnessSessionId)"
-          />
+        <template v-if="question" #status>
+          <ChatConfirmation :conversation-key="question" />
         </template>
         <template v-for="(part, index) in item.details.parts" :key="index">
           <p v-if="part.kind === 'workspace-path'" class="text-xs text-muted-foreground break-all">
@@ -127,7 +122,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { UIMessage } from 'ai'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -148,7 +142,6 @@ import SessionTurnFooter from '@/components/SessionTurnFooter.vue'
 import SessionTurnPrompt from '@/components/SessionTurnPrompt.vue'
 import TurnDetails from '@/components/TurnDetails.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
-import TurnHeldAnswer from '@/components/TurnHeldAnswer.vue'
 import TurnWorkflowParameters from '@/components/TurnWorkflowParameters.vue'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { agentRunControls } from '@/lib/sessionTimeline'
@@ -165,7 +158,6 @@ const props = defineProps<{
 const emit = defineEmits<{ resend: [] }>()
 
 const textInference = useTextInference()
-const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const { manageAgents } = useAgentLibraryEntry()
 const confirmations = useConfirmations()
@@ -188,8 +180,6 @@ const question = computed(() => {
     props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.questionKey : undefined
   return key && confirmations.forConversation(key) ? key : undefined
 })
-
-const heldAnswer = computed(() => (props.item.kind === 'agent' ? props.item.heldAnswer : undefined))
 
 function answersOf(): UIMessage[] {
   return props.item.kind === 'chat' || props.item.kind === 'agent' ? props.item.answers : []

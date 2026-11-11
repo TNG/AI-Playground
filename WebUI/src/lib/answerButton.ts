@@ -1,5 +1,4 @@
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
-import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
 import type { NotificationTemplates } from '@/types/notificationsIpc'
 
 /** The callback of the 💬 Answer button; the tapped message itself names the session. */
@@ -9,9 +8,9 @@ export type AnswerGesture = 'button' | 'thread' | 'reply'
 
 type GestureWording = {
   /** The `/help` line. */
-  help: keyof AnswerRouterCopy
+  help: 'helpReply' | 'helpThread' | 'helpButton'
   /** The setup screen's note. */
-  notice: keyof AnswerRouterCopy
+  notice: 'noticeReply' | 'noticeThread' | 'noticeButton'
   /** The last line of an answerable agent message; null where a button answers it instead. */
   hint: keyof Pick<NotificationTemplates, 'answerByReply' | 'answerInThread'> | null
 }

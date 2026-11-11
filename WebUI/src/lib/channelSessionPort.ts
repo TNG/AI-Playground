@@ -1,9 +1,12 @@
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useSessions } from '@/assets/js/store/sessions'
 import type {
   ChannelTranscriptMessage,
-  SessionPause,
+  SessionActivity,
+  SessionChange,
   SessionSendResult,
   SessionTarget,
 } from '@/assets/js/store/channels/answerRouter'
@@ -27,6 +30,8 @@ export type ChannelSessionLabels = {
 /** Lets the channels reach Sessions, over Agent Mode's send-to-session path. */
 export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
   const agentMode = useAgentMode()
+  const agentTasks = useAgentTasks()
+  const lifecycle = useSessionLifecycle()
   const sessions = useSessions()
 
   // A new turn is queued locally first; main then admits it or gives it a place in the queue.
@@ -114,12 +119,73 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     return { ok: true, queuePosition: await admitted(harnessSessionId) }
   }
 
-  function pause(target: SessionTarget): SessionPause | null {
-    if (!('harnessSessionId' in target)) return null
-    const kind = agentMode.sessionTurns[target.harnessSessionId]?.pauseReason?.kind
-    if (!kind) return null
-    return kind === 'download' ? 'download' : 'desktop'
+  /** The Session's Harness Sessions with a turn in this window, queued ones included. */
+  function liveHarnessTurns(sessionRef: string): string[] {
+    return Object.values(agentMode.sessions)
+      .filter((record) => record.sessionRef === sessionRef && agentMode.sessionTurns[record.id])
+      .map((record) => record.id)
   }
+
+  function activity(sessionRef: string): SessionActivity {
+    const run = agentTasks.agentRunStepIn(sessionRef)
+    if (run) return { kind: 'agent-run', ...run }
+    const turn = sessions.turns[sessionRef]
+    const live = liveHarnessTurns(sessionRef)
+    if (!turn && live.length === 0) return { kind: 'idle' }
+    const harness = turn?.harnessSessionId ? [turn.harnessSessionId, ...live] : live
+    const paused = harness
+      .map((id) => agentMode.sessionTurns[id]?.pauseReason?.kind)
+      .find((kind) => kind !== undefined)
+    if (!paused) return { kind: 'turn' }
+    return { kind: 'turn', paused: paused === 'download' ? 'download' : 'desktop' }
+  }
+
+  async function stop(sessionRef: string): Promise<SessionActivity> {
+    const was = activity(sessionRef)
+    if (was.kind === 'agent-run') {
+      await agentTasks.stopRunIn(sessionRef)
+    } else if (was.kind === 'turn') {
+      const stopped = await lifecycle.stopTurnIn(sessionRef)
+      // A turn still queued in this window has no turn in main's ledger yet.
+      if (!stopped) {
+        await Promise.all(liveHarnessTurns(sessionRef).map((id) => agentMode.stopSession(id)))
+      }
+    }
+    return was
+  }
+
+  const changeListeners = new Set<(sessionRef: string, change: SessionChange) => void>()
+  const busySessions = computed(
+    () =>
+      new Set([
+        ...Object.keys(sessions.turns),
+        ...Object.values(agentMode.sessions)
+          .filter((record) => record.sessionRef && agentMode.sessionTurns[record.id])
+          .map((record) => record.sessionRef!),
+        ...Object.keys(sessions.sessions).filter((id) => agentTasks.agentRunStepIn(id)),
+      ]),
+  )
+  const reachableSessions = computed(
+    () =>
+      new Set(
+        Object.values(sessions.sessions)
+          .filter((session) => session.reachable)
+          .map((session) => session.id),
+      ),
+  )
+  // Losing reachability goes first, so a queue dropped for it is not run by the same settle.
+  watch([reachableSessions, busySessions], ([reachable, busy], [wasReachable, wasBusy]) => {
+    const tell = (sessionRef: string, change: SessionChange) => {
+      for (const listener of [...changeListeners]) listener(sessionRef, change)
+    }
+    for (const sessionRef of wasReachable) {
+      if (reachable.has(sessionRef)) continue
+      tell(sessionRef, sessions.sessions[sessionRef] ? 'unreachable' : 'deleted')
+    }
+    for (const sessionRef of wasBusy) {
+      if (!busy.has(sessionRef)) tell(sessionRef, 'settled')
+    }
+  })
 
   async function transcript(sessionRef: string): Promise<ChannelTranscriptMessage[]> {
     const result = await window.electronAPI.sessions.open(sessionRef)
@@ -153,8 +219,11 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       return !!record && agentMode.isUnsandboxed(record.workspaceDir)
     },
     send,
-    pause,
-    held: ({ harnessSessionId }, answer) => agentMode.setHeldAnswer(harnessSessionId, answer),
-    onTurnEnd: (listener) => agentMode.onHeldAnswerSettled(listener),
+    activity,
+    stop,
+    onSessionChange: (listener) => {
+      changeListeners.add(listener)
+      return () => changeListeners.delete(listener)
+    },
   })
 }

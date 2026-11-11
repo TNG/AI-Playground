@@ -2,13 +2,9 @@ import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelAdapter, RawPart } from './adapter'
-import type {
-  ChannelSessionPointers,
-  InboundChannelMessage,
-  SessionPort,
-  SessionSendResult,
-} from './answerRouter'
+import type { ChannelSessionPointers, InboundChannelMessage, SessionPort } from './answerRouter'
 import type { ChannelCallback, ChannelCommand } from './channelCommands'
+import type { ChannelTurnMessage } from './channelQueue'
 import { inboundOrigin } from './channelInbound'
 import type { InboundMeta, KeyboardButton } from './types'
 
@@ -22,17 +18,14 @@ export type ChannelSessionDeps = {
   pointers: ChannelSessionPointers
   copy: () => AnswerRouterCopy
   tell: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
-  confirm: (
+  /** Sends into the Session, or queues while it is busy; the Channel is told either way. */
+  submit: (
     adapter: ChannelAdapter,
-    title: string,
-    result: SessionSendResult,
+    target: { sessionRef: string },
+    message: ChannelTurnMessage,
+    origin: AgentAnswerOrigin,
     meta?: InboundMeta,
   ) => Promise<void>
-  send: (
-    target: { sessionRef: string },
-    text: string,
-    origin: AgentAnswerOrigin,
-  ) => Promise<SessionSendResult>
   /** Stores the message's files in the Session: the prompt to send, or null when none runs. */
   attach: (
     adapter: ChannelAdapter,
@@ -82,8 +75,13 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     if (!sessionRef) return
     const prompt = await deps.attach(adapter, { sessionRef }, msg, meta)
     if (prompt === null) return
-    const result = await deps.send({ sessionRef }, prompt, inboundOrigin(adapter.kind, msg))
-    await deps.confirm(adapter, port.label({ sessionRef }), result, meta)
+    await deps.submit(
+      adapter,
+      { sessionRef },
+      { text: prompt },
+      inboundOrigin(adapter.kind, msg),
+      meta,
+    )
   }
 
   /** Repaints a Channel with no history of its own (LAN chat) with the Session's transcript. */
@@ -167,7 +165,7 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     },
   ]
 
-  return { plainMessage, commands, callbacks }
+  return { plainMessage, current, commands, callbacks }
 }
 
 function plainText(parts: RawPart[]): string {

@@ -8,7 +8,6 @@ function recordingSender() {
       sent.push(options.taskRun)
       return { ok: true }
     },
-    releaseHeldAnswer: () => {},
   }
   return { sender, sent }
 }

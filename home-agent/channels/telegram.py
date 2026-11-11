@@ -525,7 +525,8 @@ class TelegramChannel(ChannelBase):
                     chat_id,
                     args,
                 )
-                self.queue_append({"text": full_text, "chat_id": chat_id})
+                # A reply keeps its target: /stop replied to a Notification stops that Session.
+                self.queue_append(inbound_item(update.message, full_text))
 
             return handler
 

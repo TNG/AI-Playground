@@ -16,7 +16,6 @@ export type StepSender = {
       taskRun: { taskName: string; stepIndex: number; notifiesResult?: boolean }
     },
   ) => Promise<SendToSessionResult>
-  releaseHeldAnswer: (sessionId: string) => void
 }
 
 export type RunStep = {
@@ -51,10 +50,7 @@ export async function sendRunStep(
       ...(step.scheduled && step.stepIndex === steps.length ? { notifiesResult: true } : {}),
     },
   })
-  if (!result.ok && result.reason !== 'aborted') {
-    await onFailed(result.message)
-    sender.releaseHeldAnswer(step.sessionId)
-  }
+  if (!result.ok && result.reason !== 'aborted') await onFailed(result.message)
 }
 
 export type AfterStepTurn =

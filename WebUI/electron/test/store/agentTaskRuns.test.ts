@@ -1514,26 +1514,6 @@ describe('locking the Task Session', () => {
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
   })
 
-  it('lets a Held Answer go when the run ends on a Step that could not be sent', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-    const ends: [string, string][] = []
-    agentMode.onHeldAnswerSettled((id, end) => ends.push([id, end]))
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
-
-    await finishTurn(0)
-
-    await settledOutcome(tasks, 't1')
-    await vi.waitFor(() =>
-      expect(ends).toEqual([
-        [sessionId, 'completed'],
-        [sessionId, 'failed'],
-      ]),
-    )
-  })
-
   it('makes the open Task Session’s settings read-only while its run lasts', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')

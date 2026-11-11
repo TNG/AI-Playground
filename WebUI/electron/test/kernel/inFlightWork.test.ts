@@ -42,6 +42,15 @@ const reportedTaskRun = (index: number): InFlightWorkItem => ({
 })
 
 describe('collectInFlightWork', () => {
+  it('lists the Channel messages the window has queued', () => {
+    const queued: InFlightWorkItem = {
+      kind: 'channel-queue',
+      channel: 'telegram',
+      state: { status: 'queued', count: 3 },
+    }
+    expect(collectInFlightWork(sources({ rendererWork: [queued] }))).toEqual([queued])
+  })
+
   it('lists nothing for an enabled Schedule alone', () => {
     expect(collectInFlightWork(sources({ tasks: [dailyReport] }))).toEqual([])
   })

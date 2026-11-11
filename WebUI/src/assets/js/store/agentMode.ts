@@ -73,7 +73,6 @@ import { harnessTurnRefusal, type AgentAnswerOrigin, type GameLibraryEntry } fro
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { HarnessTurnRef, LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
-import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
   applySessionPresetNames,
   computedPresetSessions,
@@ -1200,9 +1199,6 @@ export const useAgentMode = defineStore(
           notRunMessageId: notRunMessages.value[id],
           canResend: canResendNotRun.value,
           open: true,
-          ...(heldAnswers.value[id]
-            ? { heldAnswer: { channel: heldAnswers.value[id].channel } }
-            : {}),
           ...(chat.value.error ? { error: chat.value.error.message } : {}),
         })
       }
@@ -1350,49 +1346,6 @@ export const useAgentMode = defineStore(
           ? { kind: 'error', message: extractMessage(chat?.error) }
           : { kind: 'completed' }
       for (const listener of [...turnSettledListeners]) listener(sessionId, outcome)
-      // After the Tasks store has heard it, so a finished run no longer holds the session.
-      if (!deletingSessions.has(sessionId)) {
-        settleHeldAnswer(
-          sessionId,
-          outcome.kind === 'completed'
-            ? 'completed'
-            : outcome.kind === 'error'
-              ? 'failed'
-              : 'stopped',
-        )
-      }
-    }
-
-    const heldAnswers = ref<Record<string, HeldAnswerView>>({})
-    type HeldAnswerListener = (sessionId: string, end: SessionTurnEnd) => void
-    const heldAnswerListeners = new Set<HeldAnswerListener>()
-    const deletingSessions = new Set<string>()
-
-    /** The Answer router keeps the Held Answer; the store only shows it. */
-    function setHeldAnswer(sessionId: string, answer: HeldAnswerView | null): void {
-      const { [sessionId]: _previous, ...rest } = heldAnswers.value
-      heldAnswers.value = answer ? { ...rest, [sessionId]: answer } : rest
-    }
-
-    function discardHeldAnswer(sessionId: string): void {
-      if (!heldAnswers.value[sessionId]) return
-      setHeldAnswer(sessionId, null)
-      settleHeldAnswer(sessionId, 'discarded')
-    }
-
-    /** A Steps run ended on a Step it could not send, so no turn settles to let the Answer go. */
-    function releaseHeldAnswer(sessionId: string): void {
-      if (!deletingSessions.has(sessionId)) settleHeldAnswer(sessionId, 'failed')
-    }
-
-    function settleHeldAnswer(sessionId: string, end: SessionTurnEnd): void {
-      for (const listener of [...heldAnswerListeners]) listener(sessionId, end)
-    }
-
-    /** Hear what decides each session's Held Answer; returns the unsubscribe. */
-    function onHeldAnswerSettled(listener: HeldAnswerListener): () => void {
-      heldAnswerListeners.add(listener)
-      return () => heldAnswerListeners.delete(listener)
     }
 
     type TurnSettledListener = (sessionId: string, outcome: TurnOutcome) => void
@@ -1757,13 +1710,7 @@ export const useAgentMode = defineStore(
     }
 
     async function deleteSession(id: string): Promise<void> {
-      // The stop below is the delete's, not the desktop taking over a Held Answer.
-      deletingSessions.add(id)
-      try {
-        await removeSession(id)
-      } finally {
-        deletingSessions.delete(id)
-      }
+      await removeSession(id)
     }
 
     async function removeSession(id: string): Promise<void> {
@@ -1774,7 +1721,6 @@ export const useAgentMode = defineStore(
       if (stopping) await stopSession(id)
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
-        if (stopping) settleHeldAnswer(id, 'stopped')
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
           category: 'unknown',
           code: 'agent/delete-session-failed',
@@ -1796,7 +1742,6 @@ export const useAgentMode = defineStore(
       } else {
         turns.release(id)
       }
-      settleHeldAnswer(id, 'deleted')
     }
 
     async function adoptWorkspace(dir: string): Promise<void> {
@@ -2394,11 +2339,6 @@ export const useAgentMode = defineStore(
       setTaskLockLookup,
       quietSessionErrors,
       onTurnSettled,
-      heldAnswers,
-      setHeldAnswer,
-      discardHeldAnswer,
-      releaseHeldAnswer,
-      onHeldAnswerSettled,
       stopSession,
       stop,
       newSession,

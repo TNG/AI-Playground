@@ -144,6 +144,7 @@ const CONFIG: NotificationConfig = {
     answerOnComputer: 'Answer on your computer',
     answerInThread: 'Reply in thread to answer.',
     answerByReply: '↩️ Reply to this message to answer.',
+    queueDroppedOnQuit: 'Dropped {count}.',
   },
 }
 

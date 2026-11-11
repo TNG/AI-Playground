@@ -1974,7 +1974,7 @@ describe('the live status line of a running Turn', () => {
     expect(liveTextOf(items[0])).toBe('Waiting for the running turn to finish…')
   })
 
-  it("puts an agent's question, held answer and error in its last Turn", () => {
+  it("puts an agent's question and error in its last Turn", () => {
     const items = sessionTimelineItems([], {
       agents: [
         liveAgent(
@@ -1986,19 +1986,15 @@ describe('the live status line of a running Turn', () => {
           {
             live: false,
             open: true,
-            heldAnswer: { channel: 'telegram' },
             error: 'backend died',
           },
         ),
       ],
     })
 
-    expect(items[0]).not.toHaveProperty('heldAnswer')
+    expect(items[0]).not.toHaveProperty('questionKey')
     expect(detailsOf(items[0]).error).toBeUndefined()
-    expect(items[1]).toMatchObject({
-      heldAnswer: { channel: 'telegram' },
-      questionKey: 'aipg-agent-1',
-    })
+    expect(items[1]).toMatchObject({ questionKey: 'aipg-agent-1' })
     expect(detailsOf(items[1]).error).toBe('backend died')
     expect(detailsOf(items[1]).errorLine).toBe('backend died')
     expect(detailsOf(items[1]).live).toBeUndefined()

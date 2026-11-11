@@ -1,6 +1,7 @@
 import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useChannelQueue } from '@/assets/js/store/channelQueue'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
@@ -63,6 +64,7 @@ export function startNotificationConfigPush(): void {
         answerOnComputer: text.AGENT_NOTIFY_ANSWER_ON_COMPUTER ?? '',
         answerInThread: text.AGENT_NOTIFY_ANSWER_IN_THREAD ?? '',
         answerByReply: text.AGENT_NOTIFY_ANSWER_BY_REPLY ?? '',
+        queueDroppedOnQuit: text.CHANNEL_QUEUE_DROPPED_QUIT ?? '',
       },
     }
   })
@@ -84,6 +86,8 @@ export function startNotificationConfigPush(): void {
   }
   // A Channel Question names its session the way main's Notifications do.
   const agentTasks = useAgentTasks()
+  const channelQueue = useChannelQueue()
+  agentTasks.contributeInFlightWork(() => channelQueue.inFlightWork)
   const label = (sessionId: string) =>
     notificationSessionLabel(
       config.value.templates,

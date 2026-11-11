@@ -3,16 +3,15 @@ import {
   createAnswerRouter,
   type SessionSendResult,
   type SessionPort,
-  type HeldAnswerJournal,
-  type HeldAnswerNote,
-  type SessionPause,
-  type SessionTurnEnd,
+  type SessionActivity,
+  type SessionChange,
   type VoicePreparation,
   type ChannelSessionPointers,
   type ChannelTranscriptMessage,
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter } from '../../../src/assets/js/store/channels/adapter'
+import type { QueuedChannelMessage } from '../../../src/assets/js/store/channels/channelQueue'
 import type {
   ChannelKind,
   InboundMeta,
@@ -67,7 +66,6 @@ type FakeSession = {
   /** What each send does, in order; the last one repeats. */
   results?: SessionSendResult[]
   result?: SessionSendResult
-  pause?: SessionPause
   realShell?: boolean
   /** Reachable from Channels unless false. */
   reachable?: boolean
@@ -112,9 +110,16 @@ function fakeSessions(
   const plain: { sessionRef: string; text: string; origin: AgentAnswerOrigin }[] = []
   const created: string[] = []
   const creation = { fails: false }
+  /** When on, a send that goes through starts a turn, so the Session is busy until it settles. */
+  const turns = { start: false }
   const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
-  const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
-  const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
+  /** What each Session is busy with, by Session ref; idle when absent. */
+  const activities: Record<string, SessionActivity> = {}
+  const stopped: string[] = []
+  const listeners = new Set<(sessionRef: string, change: SessionChange) => void>()
+  const tellListeners = (sessionRef: string, change: SessionChange) => {
+    for (const listener of [...listeners]) listener(sessionRef, change)
+  }
   /** Files attached, by the Harness Session or Session they went to. */
   const attached: { to: string; kind: string; filename: string }[] = []
   const attaching = { fails: false }
@@ -157,7 +162,12 @@ function fakeSessions(
     send: async (target, text, origin) => {
       if (!('harnessSessionId' in target)) {
         plain.push({ sessionRef: target.sessionRef, text, origin })
-        return channelSessions[target.sessionRef]?.result ?? { ok: true, queuePosition: null }
+        const result = channelSessions[target.sessionRef]?.result ?? {
+          ok: true,
+          queuePosition: null,
+        }
+        if (result.ok && turns.start) activities[target.sessionRef] = { kind: 'turn' }
+        return result
       }
       const { sessionRef, harnessSessionId: sessionId } = target
       if (sessionRef !== sessionRefOf(sessionId)) {
@@ -168,8 +178,14 @@ function fakeSessions(
       const session = sessions[sessionId]
       session?.duringSend?.()
       const queued = session?.results
-      if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
-      return session?.result ?? { ok: true, queuePosition: null }
+      const result =
+        queued && queued.length > 0
+          ? queued.length > 1
+            ? queued.shift()!
+            : queued[0]
+          : (session?.result ?? { ok: true, queuePosition: null })
+      if (result.ok && turns.start) activities[sessionRef] = { kind: 'turn' }
+      return result
     },
     attach: async (target, file) => {
       const answer = 'harnessSessionId' in target
@@ -180,21 +196,52 @@ function fakeSessions(
       attached.push({ to, kind: file.kind, filename: file.filename })
       return { ok: true, path: `attachments/${file.filename}` }
     },
-    pause: ({ harnessSessionId }) => sessions[harnessSessionId]?.pause ?? null,
-    held: ({ harnessSessionId }, answer) => {
-      held[harnessSessionId] = answer
+    activity: (sessionRef) => activities[sessionRef] ?? { kind: 'idle' },
+    stop: async (sessionRef) => {
+      const was = activities[sessionRef] ?? { kind: 'idle' }
+      stopped.push(sessionRef)
+      delete activities[sessionRef]
+      if (was.kind !== 'idle') tellListeners(sessionRef, 'settled')
+      return was
     },
-    onTurnEnd: (listener) => {
+    onSessionChange: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
   }
-  /** The session's turn ended (or the desktop acted on it). */
-  const end = async (sessionId: string, how: SessionTurnEnd) => {
-    for (const listener of [...listeners]) listener(sessionId, how)
+  /**
+   * The Session runs a turn, or an Agent Run, that later messages wait for; from then on each
+   * send that goes through starts a turn too.
+   */
+  const busy = (sessionRef: string, activity: SessionActivity = { kind: 'turn' }) => {
+    turns.start = true
+    activities[sessionRef] = activity
+  }
+  /** The Session's turn or Agent Run settled. */
+  const settle = async (sessionRef: string) => {
+    delete activities[sessionRef]
+    tellListeners(sessionRef, 'settled')
     await flush()
   }
-  return { port, received, origins, held, end, plain, created, creation, attached, attaching }
+  /** The Session stopped being reachable, or was deleted. */
+  const change = async (sessionRef: string, how: Exclude<SessionChange, 'settled'>) => {
+    tellListeners(sessionRef, how)
+    await flush()
+  }
+  return {
+    port,
+    received,
+    origins,
+    plain,
+    created,
+    creation,
+    busy,
+    settle,
+    change,
+    stopped,
+    attached,
+    attaching,
+  }
 }
 
 /** Each Channel's Channel Session, as the Channels store keeps it. */
@@ -244,25 +291,12 @@ function fakeVoicePreparation() {
 
 const voice = (data: string) => ({ audio: [{ mime: 'audio/ogg', data_base64: data }] })
 
-/** What survives an app close; the router itself does not. */
-function memoryJournal() {
-  let notes: HeldAnswerNote[] = []
-  const journal: HeldAnswerJournal = {
-    load: () => notes,
-    save: (next) => {
-      notes = JSON.parse(JSON.stringify(next))
-    },
-  }
-  return journal
-}
-
 function setup(
   sessions: Record<string, FakeSession> = { asteroids: { label: 'Asteroids clone' } },
   sentMessages: SentMessage[] = [
     { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
     { kind: 'slack', ref: '1234', sessionId: 'asteroids' },
   ],
-  journal: HeldAnswerJournal = memoryJournal(),
   channelSessions: Record<string, FakeChannelSession> = {},
   initialPointers: Partial<Record<ChannelKind, string>> = {},
 ) {
@@ -273,24 +307,27 @@ function setup(
   const voicePreparation = fakeVoicePreparation()
   // Where an agent's download question is asked: every enabled Channel.
   const downloads = { askedOn: ['telegram'] as ChannelKind[] }
+  const published: Record<string, QueuedChannelMessage[]> = {}
   const router = createAnswerRouter({
     sessions: () => fake.port,
     questions,
     speech: { prepare: voicePreparation.prepare, transcribe: speech.transcribe },
     downloadQuestionChannels: () => downloads.askedOn,
-    journal,
     pointers: channelPointers.pointers,
+    publishQueue: (sessionRef, queued) => {
+      published[sessionRef] = queued
+    },
     log: () => {},
   })
   return {
     router,
     questions,
     ...fake,
-    journal,
     sessions,
     speech,
     voicePreparation,
     downloads,
+    published,
     pointers: channelPointers.current,
   }
 }
@@ -376,7 +413,6 @@ describe('answer router', () => {
     const { router, received, plain } = setup(
       undefined,
       [],
-      undefined,
       {
         'session-home': { title: 'Home' },
       },
@@ -408,7 +444,6 @@ describe('answer router', () => {
 
   it('sends a reply to a message no agent sent to the Channel Session, as a plain message', async () => {
     const { router, received, plain } = setup(
-      undefined,
       undefined,
       undefined,
       { 'session-home': { title: 'Home' } },
@@ -563,300 +598,417 @@ describe('answer router', () => {
   })
 })
 
-describe('a Held Answer', () => {
-  function busy(extra: Partial<FakeSession> = {}) {
-    return setup({
-      asteroids: {
-        label: 'Asteroids clone',
-        results: [BUSY, { ok: true, queuePosition: null }],
-        ...extra,
-      },
-    })
+describe('a message to a busy Session', () => {
+  const TRIP = 'session-trip'
+  function busyTrip(kind: ChannelKind = 'telegram') {
+    const fixture = channelSetup({ [TRIP]: { title: 'Trip planning' } }, { [kind]: TRIP })
+    fixture.busy(TRIP)
+    return fixture
   }
 
-  it('is held while the session is busy and confirmed as queued for the session', async () => {
-    const { router, held } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+  it('is queued, not sent, and acknowledged with its place and what it waits for', async () => {
+    const { router, plain } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(plain).toEqual([])
     expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
-    ])
-    expect(held.asteroids).toEqual({ text: 'make it faster', channel: 'telegram' })
-  })
-
-  it('says it waits for the download buttons above while the turn is paused on a download', async () => {
-    const { router, held } = busy({ pause: 'download' })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting for the download buttons above.',
-    ])
-    expect(held.asteroids?.text).toBe('use the small one')
-  })
-
-  it('says the download is asked on the other channel when the Answer came elsewhere', async () => {
-    const { router, downloads } = busy({ pause: 'download' })
-    downloads.askedOn = ['slack']
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting for the download buttons in ' +
-        'your notifications chat, or on your computer.',
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
     ])
   })
 
-  it('says the download waits on the computer when no channel asks it', async () => {
-    const { router, downloads } = busy({ pause: 'download' })
-    downloads.askedOn = []
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'use the small one', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting on your computer.',
-    ])
-  })
-
-  it('is sent at once when the turn ended while its first send was being refused', async () => {
-    let fired = false
-    const fixture = setup({
-      asteroids: {
-        label: 'Asteroids clone',
-        results: [BUSY, { ok: true, queuePosition: null }],
-        duringSend: () => {
-          if (fired) return
-          fired = true
-          void fixture.end('asteroids', 'completed')
-        },
+  it('runs once the turn ends, replying on its Channel', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto', replyTarget: '42' })
+    await settle(TRIP)
+    expect(plain).toEqual([
+      {
+        sessionRef: TRIP,
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', replyTo: '42' },
       },
-    })
-    const ch = fakeChannel()
-    await fixture.router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await flush()
-    expect(fixture.received).toHaveLength(2)
-    expect(ch.replies).toEqual([])
-    expect(fixture.held.asteroids ?? null).toBeNull()
-  })
-
-  it('says it waits on the computer while the turn is paused on a confirmation', async () => {
-    const { router, held } = busy({ pause: 'desktop' })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'go ahead', replyTo: '1234' })
-    expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — the session is waiting on your computer.',
     ])
-    expect(held.asteroids?.text).toBe('go ahead')
   })
-
-  it('is held while a Task run holds the session', async () => {
-    const { router, held } = setup({
-      asteroids: { label: 'Asteroids clone', results: [TASK_LOCKED] },
-    })
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'add a summary', replyTo: '1234' })
+  it('keeps every message, never replacing one, and names each place', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await router.route(ch.adapter, { text: 'and one in Nara' })
+    await router.route(ch.adapter, { text: 'keep it cheap' })
     expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+      '⏳ Queued (2nd) for "Trip planning", runs after the current turn.',
+      '⏳ Queued (3rd) for "Trip planning", runs after the current turn.',
     ])
-    expect(held.asteroids?.text).toBe('add a summary')
+    await settle(TRIP)
+    expect(plain.map((p) => p.text)).toEqual([
+      'add a day in Kyoto\n\nand one in Nara\n\nkeep it cheap',
+    ])
   })
 
-  it('is replaced by a newer Answer, and the channel is told', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await router.route(ch.adapter, { text: 'no, make it slower', replyTo: '1234' })
-    expect(ch.replies[1]).toBe(
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.\n' +
-        'It replaces your earlier Answer, which will not be sent.',
+  it('keeps a voice message’s transcript and voice origin while it waits', async () => {
+    const { router, plain, settle, speech } = busyTrip()
+    speech.said['ogg-1'] = 'add a day in Kyoto'
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, voice('ogg-1'))
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+    ])
+    await settle(TRIP)
+    expect(plain).toEqual([
+      {
+        sessionRef: TRIP,
+        text: 'add a day in Kyoto',
+        origin: { channel: 'telegram', voice: true },
+      },
+    ])
+  })
+
+  it('replies to the combined turn under the last message', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto', replyTarget: '41' })
+    await router.route(ch.adapter, { text: 'and one in Nara', replyTarget: '42' })
+    await settle(TRIP)
+    expect(plain.map((p) => p.origin)).toEqual([{ channel: 'telegram', replyTo: '42' }])
+  })
+
+  it('runs one combined turn per Channel, oldest Channel first, each when the last ends', async () => {
+    const { router, plain, settle, busy } = channelSetup(
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP, slack: TRIP },
     )
-    expect(held.asteroids?.text).toBe('no, make it slower')
-    await end('asteroids', 'completed')
-    expect(received.slice(-1)).toEqual([{ sessionId: 'asteroids', text: 'no, make it slower' }])
-    expect(received.filter((r) => r.text === 'make it faster')).toHaveLength(1)
+    busy(TRIP)
+    const slack = fakeChannel('slack')
+    const telegram = fakeChannel('telegram')
+    await router.route(slack.adapter, { text: 'book the ryokan' })
+    await router.route(telegram.adapter, { text: 'add a day in Kyoto' })
+    await router.route(slack.adapter, { text: 'with breakfast' })
+    expect(slack.replies[1]).toBe(
+      '⏳ Queued (3rd) for "Trip planning", runs after the current turn.',
+    )
+    busy(TRIP)
+    await settle(TRIP)
+    expect(plain.map((p) => [p.origin.channel, p.text])).toEqual([
+      ['slack', 'book the ryokan\n\nwith breakfast'],
+    ])
+    busy(TRIP)
+    await settle(TRIP)
+    expect(plain.map((p) => [p.origin.channel, p.text])).toEqual([
+      ['slack', 'book the ryokan\n\nwith breakfast'],
+      ['telegram', 'add a day in Kyoto'],
+    ])
   })
 
-  it('tells the earlier Answer’s own channel when a newer one came on another', async () => {
-    const { router } = busy()
+  it('waits for an Agent Run’s last Step, naming the run and its Step', async () => {
+    const { router, plain, busy, settle } = channelSetup(
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP },
+    )
+    busy(TRIP, { kind: 'agent-run', name: 'Digest', step: 2, steps: 3 })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add sources' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after Agent Run “Digest” (Step 2 of 3).',
+    ])
+    expect(plain).toEqual([])
+    await settle(TRIP)
+    expect(plain.map((p) => p.text)).toEqual(['add sources'])
+  })
+
+  it('says a queued message waits on the computer while the turn is paused there', async () => {
+    const { router, busy } = busyTrip()
+    busy(TRIP, { kind: 'turn', paused: 'desktop' })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'go ahead' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.\n' +
+        'The turn is waiting on your computer.',
+    ])
+  })
+
+  it.each([
+    [['telegram'], 'The turn is waiting for the download buttons above.'],
+    [
+      ['slack'],
+      'The turn is waiting for the download buttons in your notifications chat, or on your computer.',
+    ],
+    [[], 'The turn is waiting on your computer.'],
+  ] as [ChannelKind[], string][])(
+    'says where a paused download is asked (asked on %j)',
+    async (askedOn, line) => {
+      const { router, busy, downloads } = busyTrip()
+      downloads.askedOn = askedOn
+      busy(TRIP, { kind: 'turn', paused: 'download' })
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: 'use the small one' })
+      expect(ch.replies[0].split('\n')[1]).toBe(line)
+    },
+  )
+
+  it('refuses the 11th queued message with a reply naming /stop', async () => {
+    const { router, plain, settle } = busyTrip()
+    const ch = fakeChannel('telegram')
+    for (let n = 1; n <= 11; n++) await router.route(ch.adapter, { text: `idea ${n}` })
+    expect(ch.replies[10]).toBe(
+      '⚠️ Not queued: "Trip planning" already has 10 messages waiting. ' +
+        'Send /stop to stop it and drop them.',
+    )
+    await settle(TRIP)
+    expect(plain[0].text.split('\n\n')).toEqual(
+      Array.from({ length: 10 }, (_, i) => `idea ${i + 1}`),
+    )
+  })
+
+  it('counts every Channel against the cap of 10', async () => {
+    const { router, busy } = channelSetup(
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP, slack: TRIP },
+    )
+    busy(TRIP)
     const telegram = fakeChannel('telegram')
     const slack = fakeChannel('slack')
-    await router.route(telegram.adapter, { text: 'make it faster', replyTo: '1234' })
-    await router.route(slack.adapter, { text: 'make it slower', replyTo: '1234' })
-    expect(telegram.replies[1]).toBe(
-      '⚠️ Not sent to "Asteroids clone": a newer Answer replaced it.',
+    for (let n = 1; n <= 10; n++) await router.route(telegram.adapter, { text: `idea ${n}` })
+    await router.route(slack.adapter, { text: 'one more' })
+    expect(slack.replies[0]).toContain('Not queued')
+  })
+
+  it('queues a message the Session refused as busy, and runs it when the turn ends', async () => {
+    const { router, plain, busy, settle } = channelSetup(
+      { [TRIP]: { title: 'Trip planning', result: BUSY } },
+      { telegram: TRIP },
+    )
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Trip planning", runs after the current turn.',
+    ])
+    busy(TRIP)
+    await settle(TRIP)
+    expect(plain.at(-1)?.text).toBe('add a day in Kyoto')
+    expect(ch.replies).toHaveLength(1)
+  })
+
+  it('queues an Answer an Agent Run refused, and sends it once the run settles', async () => {
+    const { router, received, busy, settle } = setup({
+      asteroids: {
+        label: 'Asteroids clone',
+        results: [TASK_LOCKED, { ok: true, queuePosition: null }],
+      },
+    })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a summary', replyTo: '1234' })
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Asteroids clone", runs after the current turn.',
+    ])
+    busy(sessionRefOf('asteroids'))
+    await settle(sessionRefOf('asteroids'))
+    expect(received.at(-1)).toEqual({ sessionId: 'asteroids', text: 'add a summary' })
+  })
+
+  it('tells the Channel when its combined turn could not be sent', async () => {
+    const { router, busy, settle } = channelSetup(
+      {
+        [TRIP]: {
+          title: 'Trip planning',
+          result: { ok: false, reason: 'settings-problems', message: 'No model.' },
+        },
+      },
+      { telegram: TRIP },
+    )
+    busy(TRIP)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await settle(TRIP)
+    expect(ch.replies[1]).toBe(
+      '⚠️ Not sent to "Trip planning": No model.\n' +
+        'Fix it in AI Playground on your computer, then answer again.',
     )
   })
 
-  it('is sent when the turn completes', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'completed')
-    expect(received).toEqual([
-      { sessionId: 'asteroids', text: 'make it faster' },
-      { sessionId: 'asteroids', text: 'make it faster' },
+  it('publishes the queue for the desktop, and empties it when the turn starts', async () => {
+    const { router, settle, published } = busyTrip()
+    const telegram = fakeChannel('telegram')
+    await router.route(telegram.adapter, { text: 'add a day in Kyoto' })
+    expect(published[TRIP]).toEqual([
+      { id: expect.any(String), channel: 'telegram', text: 'add a day in Kyoto' },
     ])
-    expect(ch.replies.slice(1)).toEqual([])
-    expect(held.asteroids).toBeNull()
+    await settle(TRIP)
+    expect(published[TRIP]).toEqual([])
   })
 
-  it('is said to be starting on Slack when the turn completes and it is sent', async () => {
-    const { router, end } = busy()
+  it('drops the queue when the Session is made unreachable, telling each Channel', async () => {
+    const { router, plain, settle, change, published } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await router.route(ch.adapter, { text: 'and Nara' })
+    await change(TRIP, 'unreachable')
+    expect(ch.replies[2]).toBe(
+      '⚠️ Your queued messages for "Trip planning" were dropped (2): ' +
+        'it is no longer reachable from Channels.',
+    )
+    expect(published[TRIP]).toEqual([])
+    await settle(TRIP)
+    expect(plain).toEqual([])
+  })
+
+  it('drops the queue when the Session is deleted, telling each Channel', async () => {
+    const { router, change } = busyTrip()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await change(TRIP, 'deleted')
+    expect(ch.replies[1]).toBe(
+      '⚠️ Your queued messages for "Trip planning" were dropped (1): the Session was deleted.',
+    )
+  })
+})
+
+describe('an Answer to a busy Session', () => {
+  const ASTEROIDS = sessionRefOf('asteroids')
+
+  it('is queued, and runs in its Harness Session once the turn ends', async () => {
+    const { router, received, busy, settle } = setup()
+    busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for "Asteroids clone", runs after the current turn.',
+    ])
+    await settle(ASTEROIDS)
+    expect(received).toEqual([{ sessionId: 'asteroids', text: 'make it faster' }])
+  })
+
+  it('is never combined with a plain message to the same Session', async () => {
+    const { router, received, plain, busy, settle } = setup(
+      undefined,
+      undefined,
+      { [ASTEROIDS]: { title: 'Asteroids' } },
+      { telegram: ASTEROIDS },
+    )
+    busy(ASTEROIDS)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
+    await router.route(ch.adapter, { text: 'and what about sound?' })
+    busy(ASTEROIDS)
+    await settle(ASTEROIDS)
+    expect(received.map((r) => r.text)).toEqual(['make it faster'])
+    expect(plain).toEqual([])
+    await settle(ASTEROIDS)
+    expect(plain.map((p) => p.text)).toEqual(['and what about sound?'])
+  })
+
+  it('says it is starting on Slack once its queued turn is sent', async () => {
+    const { router, busy, settle } = setup()
+    busy(ASTEROIDS)
     const ch = fakeChannel('slack')
     await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'completed')
+    await settle(ASTEROIDS)
     expect(ch.replies).toEqual([
-      '⏳ Queued for "Asteroids clone" — it is sent when the current turn ends.',
+      '⏳ Queued (1st) for "Asteroids clone", runs after the current turn.',
       '➡️ Sent to "Asteroids clone" — starting…',
     ])
   })
-
-  it('is sent with where it came from, so its turn replies under it', async () => {
-    const { router, origins, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234', replyTarget: '1300' })
-    await end('asteroids', 'completed')
-    expect(origins.slice(-1)).toEqual([
-      { sessionId: 'asteroids', origin: { channel: 'telegram', replyTo: '1300' } },
-    ])
-  })
-
-  it('is sent anyway when the turn fails', async () => {
-    const { router, received, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'what went wrong?', replyTo: '1234' })
-    await end('asteroids', 'failed')
-    expect(received.slice(-1)).toEqual([{ sessionId: 'asteroids', text: 'what went wrong?' }])
-    expect(ch.replies.slice(1)).toEqual([])
-  })
-
-  it('is dropped when the turn is stopped on the desktop, and the channel is told', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'stopped')
-    expect(received).toHaveLength(1)
-    expect(ch.replies.slice(1)).toEqual([
-      '⚠️ Not sent to "Asteroids clone": the desktop took over.',
-    ])
-    expect(held.asteroids).toBeNull()
-    await end('asteroids', 'completed')
-    expect(received).toHaveLength(1)
-  })
-
-  it('is dropped when it is discarded on the desktop, and the channel is told', async () => {
-    const { router, received, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'discarded')
-    expect(received).toHaveLength(1)
-    expect(ch.replies.slice(1)).toEqual([
-      '⚠️ Not sent to "Asteroids clone": the desktop took over.',
-    ])
-  })
-
-  it('is dropped when its session is deleted, and the channel is told it no longer exists', async () => {
-    const { router, received, held, end } = busy()
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'deleted')
-    expect(received).toHaveLength(1)
-    expect(ch.replies.slice(1)).toEqual([
-      '⚠️ Not sent to "Asteroids clone": that session no longer exists.',
-    ])
-    expect(held.asteroids).toBeNull()
-  })
-
-  it('is only reported back on the channel it came from', async () => {
-    const { router, end } = busy()
-    const telegram = fakeChannel('telegram')
-    const slack = fakeChannel('slack')
-    await router.route(slack.adapter, { text: 'make it faster', replyTo: '1234' })
-    await end('asteroids', 'completed')
-    expect(telegram.replies).toEqual([])
-    expect(slack.replies).toHaveLength(2)
-  })
 })
 
-describe('a Held Answer for a Task run', () => {
-  it('waits out every Step and is sent once the run’s last turn settles', async () => {
-    const { router, received, end } = setup(
-      {
-        digest: {
-          label: 'Digest — step 1 of 3',
-          results: [TASK_LOCKED, TASK_LOCKED, TASK_LOCKED, { ok: true, queuePosition: null }],
-        },
-      },
-      [{ kind: 'telegram', ref: '9', sessionId: 'digest' }],
-    )
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'add sources', replyTo: '9' })
-    await end('digest', 'completed')
-    await end('digest', 'completed')
-    expect(ch.replies).toHaveLength(1)
-    await end('digest', 'completed')
-    expect(received).toHaveLength(4)
-    expect(ch.replies.slice(1)).toEqual([])
+describe('/stop', () => {
+  const TRIP = 'session-trip'
+  const trip = { [TRIP]: { title: 'Trip planning' } }
+
+  it('stops the Channel Session’s turn and drops its queue, saying how many', async () => {
+    const { router, plain, busy, stopped, settle } = channelSetup(trip, { telegram: TRIP })
+    busy(TRIP)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    await router.route(ch.adapter, { text: 'and Nara' })
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([TRIP])
+    expect(ch.replies.slice(2)).toEqual([
+      '⏹️ Stopped the turn in "Trip planning".\nQueued messages dropped: 2.',
+    ])
+    await settle(TRIP)
+    expect(plain).toEqual([])
   })
 
-  it('continues a failed run’s session as an ordinary message', async () => {
-    const { router, received, end } = setup(
-      {
-        digest: { label: 'Digest', results: [TASK_LOCKED, { ok: true, queuePosition: null }] },
-      },
-      [{ kind: 'telegram', ref: '9', sessionId: 'digest' }],
-    )
-    const ch = fakeChannel()
-    await router.route(ch.adapter, { text: 'try again with fewer sources', replyTo: '9' })
-    await end('digest', 'failed')
-    expect(received.slice(-1)).toEqual([
-      { sessionId: 'digest', text: 'try again with fewer sources' },
+  it('stops an Agent Run, between its Steps too, naming it and its Step', async () => {
+    const { router, busy, stopped } = channelSetup(trip, { telegram: TRIP })
+    busy(TRIP, { kind: 'agent-run', name: 'Digest', step: 2, steps: 3 })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([TRIP])
+    expect(ch.replies).toEqual([
+      '⏹️ Stopped Agent Run “Digest” in "Trip planning" at Step 2 of 3.\n' +
+        'Queued messages dropped: 0.',
     ])
   })
-})
 
-describe('a Held Answer lost to an app close', () => {
-  it('is reported on its channel at the next start, once, and never sent', async () => {
-    const journal = memoryJournal()
-    const first = setup(
-      { asteroids: { label: 'Asteroids clone', results: [BUSY] } },
-      undefined,
-      journal,
-    )
-    await first.router.route(fakeChannel().adapter, { text: 'make it faster', replyTo: '1234' })
-
-    const next = setup({ asteroids: { label: 'Asteroids clone' } }, undefined, journal)
+  it('tells another Channel whose queued messages it dropped', async () => {
+    const { router, busy } = channelSetup(trip, { telegram: TRIP, slack: TRIP })
+    busy(TRIP)
     const slack = fakeChannel('slack')
-    await next.router.channelReady(slack.adapter)
-    expect(slack.replies).toEqual([])
     const telegram = fakeChannel('telegram')
-    await next.router.channelReady(telegram.adapter)
-    await next.router.channelReady(telegram.adapter)
+    await router.route(slack.adapter, { text: 'book the ryokan' })
+    await router.route(telegram.adapter, { text: '/stop' })
     expect(telegram.replies).toEqual([
-      '⚠️ Not sent to "Asteroids clone": AI Playground closed before it could be sent.',
+      '⏹️ Stopped the turn in "Trip planning".\nQueued messages dropped: 1.',
     ])
-    await next.end('asteroids', 'completed')
-    expect(next.received).toEqual([])
-
-    const third = setup(undefined, undefined, journal)
-    const again = fakeChannel('telegram')
-    await third.router.channelReady(again.adapter)
-    expect(again.replies).toEqual([])
+    expect(slack.replies[1]).toBe(
+      '⚠️ Your queued messages for "Trip planning" were dropped (1): ' +
+        'it was stopped from another Channel.',
+    )
   })
 
-  it('is not reported once it was sent', async () => {
-    const journal = memoryJournal()
-    const first = setup(
-      {
-        asteroids: { label: 'Asteroids clone', results: [BUSY, { ok: true, queuePosition: null }] },
-      },
+  it('stops the Session of the Notification it replies to', async () => {
+    const { router, busy, stopped } = setup(
       undefined,
-      journal,
+      undefined,
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP },
     )
-    await first.router.route(fakeChannel().adapter, { text: 'make it faster', replyTo: '1234' })
-    await first.end('asteroids', 'completed')
+    busy(sessionRefOf('asteroids'))
+    busy(TRIP)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '1234' })
+    expect(stopped).toEqual([sessionRefOf('asteroids')])
+    expect(ch.replies).toEqual([
+      '⏹️ Stopped the turn in "Untitled Session".\nQueued messages dropped: 0.',
+    ])
+  })
 
-    const next = setup(undefined, undefined, journal)
-    const telegram = fakeChannel('telegram')
-    await next.router.channelReady(telegram.adapter)
-    expect(telegram.replies).toEqual([])
+  it('says a Notification’s Session was deleted, and stops nothing', async () => {
+    const { router, stopped } = setup({}, [{ kind: 'telegram', ref: '1234', sessionId: 'gone' }])
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '1234' })
+    expect(stopped).toEqual([])
+    expect(ch.replies).toEqual(['⚠️ That Session was deleted'])
+  })
+
+  it('says nothing is running, and touches nothing, when the Session is idle', async () => {
+    const { router, stopped } = channelSetup(trip, { telegram: TRIP })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([])
+    expect(ch.replies).toEqual(['Nothing is running in "Trip planning".'])
+  })
+
+  it('says how to get a Channel Session when the Channel has none', async () => {
+    const { router, stopped, created } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop' })
+    expect(stopped).toEqual([])
+    expect(created).toEqual([])
+    expect(ch.replies).toEqual([
+      'You have no Channel Session to stop. Send a message to start one, or pick one with /sessions.',
+    ])
+  })
+
+  it('is listed in /help', async () => {
+    const { router } = channelSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/help' })
+    expect(ch.replies[0]).toContain(
+      '`/stop` — Stop the running turn or Agent Run and drop queued messages',
+    )
   })
 })
 
@@ -865,7 +1017,7 @@ function channelSetup(
   channelSessions: Record<string, FakeChannelSession> = {},
   pointers: Partial<Record<ChannelKind, string>> = {},
 ) {
-  return setup(undefined, undefined, undefined, channelSessions, pointers)
+  return setup(undefined, undefined, channelSessions, pointers)
 }
 
 describe('a plain message', () => {
@@ -953,7 +1105,6 @@ describe('a plain message', () => {
   })
 
   it.each([
-    ['busy', 'turn in flight', false],
     ['settings-problems', 'The selected model is not installed.', true],
     ['missing-folder', 'The workspace folder is missing: /files', true],
   ])('replies with a %s refusal', async (reason, message, onDesktop) => {

@@ -32,6 +32,8 @@ export type NotificationTemplates = {
   answerInThread: string
   /** Last line of an answerable Notification on a channel answered by replying to the message. */
   answerByReply: string
+  /** Told on each Channel whose queued messages a quit drops: `{count}` */
+  queueDroppedOnQuit: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0010). */

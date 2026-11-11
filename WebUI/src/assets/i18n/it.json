@@ -1096,6 +1096,7 @@
   "AGENT_FOLLOW_UP_NEVER_RUN": "Esegui prima {agent}",
   "AGENT_COMPOSER_RAN_SINCE": "{preset} è stato eseguito nel frattempo — Invio esegue {agent}",
   "AGENT_COMPOSER_EDITED": "Agente modificato — Invio esegue {agent}",
+  "AGENT_COMPOSER_START_PROMPT": "Prompt iniziale per {agent} (facoltativo)",
   "AGENT_STEPS_INSERT_AFTER": "Inserisci un passaggio dopo il passaggio {number}",
   "AGENT_AGENTS_DELETE": "Elimina",
   "AGENT_AGENTS_DELETE_LABEL": "Elimina {name}",

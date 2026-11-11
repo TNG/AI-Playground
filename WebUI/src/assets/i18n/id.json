@@ -1096,6 +1096,7 @@
   "AGENT_FOLLOW_UP_NEVER_RUN": "Jalankan {agent} terlebih dahulu",
   "AGENT_COMPOSER_RAN_SINCE": "{preset} berjalan sejak itu — Enter menjalankan {agent}",
   "AGENT_COMPOSER_EDITED": "Agen diedit — Enter menjalankan {agent}",
+  "AGENT_COMPOSER_START_PROMPT": "Prompt awal untuk {agent} (opsional)",
   "AGENT_STEPS_INSERT_AFTER": "Sisipkan langkah setelah langkah {number}",
   "AGENT_AGENTS_DELETE": "Hapus",
   "AGENT_AGENTS_DELETE_LABEL": "Hapus {name}",

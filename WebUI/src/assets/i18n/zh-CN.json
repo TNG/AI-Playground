@@ -1096,6 +1096,7 @@
   "AGENT_FOLLOW_UP_NEVER_RUN": "请先运行 {agent}",
   "AGENT_COMPOSER_RAN_SINCE": "之后运行了 {preset} — 按 Enter 运行 {agent}",
   "AGENT_COMPOSER_EDITED": "智能体已编辑 — 按 Enter 运行 {agent}",
+  "AGENT_COMPOSER_START_PROMPT": "{agent} 的启动提示词（可选）",
   "AGENT_STEPS_INSERT_AFTER": "在第 {number} 步之后插入步骤",
   "AGENT_AGENTS_DELETE": "删除",
   "AGENT_AGENTS_DELETE_LABEL": "删除 {name}",

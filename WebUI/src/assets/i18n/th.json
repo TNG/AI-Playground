@@ -1096,6 +1096,7 @@
   "AGENT_FOLLOW_UP_NEVER_RUN": "รัน {agent} ก่อน",
   "AGENT_COMPOSER_RAN_SINCE": "{preset} ทำงานหลังจากนั้น — Enter จะรัน {agent}",
   "AGENT_COMPOSER_EDITED": "แก้ไขเอเจนต์แล้ว — Enter จะรัน {agent}",
+  "AGENT_COMPOSER_START_PROMPT": "พรอมต์เริ่มต้นสำหรับ {agent} (ไม่บังคับ)",
   "AGENT_STEPS_INSERT_AFTER": "แทรกขั้นตอนหลังขั้นตอนที่ {number}",
   "AGENT_AGENTS_DELETE": "ลบ",
   "AGENT_AGENTS_DELETE_LABEL": "ลบ {name}",

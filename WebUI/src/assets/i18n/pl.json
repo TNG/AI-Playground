@@ -1096,6 +1096,7 @@
   "AGENT_FOLLOW_UP_NEVER_RUN": "Najpierw uruchom {agent}",
   "AGENT_COMPOSER_RAN_SINCE": "Od tego czasu działał {preset} — Enter uruchamia {agent}",
   "AGENT_COMPOSER_EDITED": "Agent edytowany — Enter uruchamia {agent}",
+  "AGENT_COMPOSER_START_PROMPT": "Prompt startowy dla {agent} (opcjonalnie)",
   "AGENT_STEPS_INSERT_AFTER": "Wstaw krok po kroku {number}",
   "AGENT_AGENTS_DELETE": "Usuń",
   "AGENT_AGENTS_DELETE_LABEL": "Usuń {name}",

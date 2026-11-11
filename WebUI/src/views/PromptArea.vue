@@ -657,6 +657,9 @@ function getTextAreaPlaceholder() {
   if (composer?.reason === 'agent-edited') {
     return fillTemplate(languages?.AGENT_COMPOSER_EDITED ?? '', { agent })
   }
+  if (pickedAgentName.value !== undefined) {
+    return fillTemplate(languages?.AGENT_COMPOSER_START_PROMPT ?? '', { agent })
+  }
   // The TTS preset runs in 'chat' mode but takes literal text to speak, not a
   // chat prompt — so it needs its own placeholder.
   const active = presetsStore.activePreset

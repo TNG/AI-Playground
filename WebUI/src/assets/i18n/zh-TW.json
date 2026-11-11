@@ -1096,6 +1096,7 @@
   "AGENT_FOLLOW_UP_NEVER_RUN": "請先執行 {agent}",
   "AGENT_COMPOSER_RAN_SINCE": "之後執行了 {preset} — 按 Enter 執行 {agent}",
   "AGENT_COMPOSER_EDITED": "代理已編輯 — 按 Enter 執行 {agent}",
+  "AGENT_COMPOSER_START_PROMPT": "{agent} 的啟動提示詞（選填）",
   "AGENT_STEPS_INSERT_AFTER": "在第 {number} 步之後插入步驟",
   "AGENT_AGENTS_DELETE": "刪除",
   "AGENT_AGENTS_DELETE_LABEL": "刪除 {name}",

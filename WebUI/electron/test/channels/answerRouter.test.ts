@@ -1818,9 +1818,53 @@ describe('/agents', () => {
       expect(published[TRIP].map((queued) => queued.text)).toEqual([
         '/agents Daily digest\nGermany',
       ])
-      expect(ch.edits.map((edit) => edit.text)).toEqual(['✅ Started with your prompt.'])
       await settle(TRIP)
       expect(agentStarts.map((start) => start.prompt)).toEqual(['Germany'])
+    })
+
+    it('marks a queued request used only once its start runs', async () => {
+      const { router, agentStarts, busy, settle, published } = prompted()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(ch.edits).toEqual([])
+      ch.replies.length = 0
+      await router.route(ch.adapter, { text: 'and France', replyTo: ch.asks[0].ref })
+      expect(ch.replies).toEqual(['Already queued. It starts once the Session is free.'])
+      expect(published[TRIP]).toHaveLength(1)
+      await settle(TRIP)
+      expect(agentStarts.map((start) => start.prompt)).toEqual(['Germany'])
+      expect(ch.edits).toEqual([{ ref: { messageId: 701 }, text: '✅ Started with your prompt.' }])
+    })
+
+    it('reopens a request whose queued start was dropped, for a new reply to start it', async () => {
+      const { router, agentStarts, busy, settle } = prompted()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      await router.route(ch.adapter, { text: '/stop' })
+      await settle(TRIP)
+      expect(agentStarts).toEqual([])
+      expect(ch.edits).toEqual([])
+      await router.route(ch.adapter, { text: 'France', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map((start) => start.prompt)).toEqual(['France'])
+      expect(ch.edits.map((edit) => edit.text)).toEqual(['✅ Started with your prompt.'])
+    })
+
+    it('reopens a request whose queued start was dropped with its Session', async () => {
+      const { router, agentStarts, busy, change, settle } = prompted()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      await change(TRIP, 'unreachable')
+      await settle(TRIP)
+      ch.replies.length = 0
+      await router.route(ch.adapter, { text: 'France', replyTo: ch.asks[0].ref })
+      expect(agentStarts.map((start) => start.prompt)).toEqual(['France'])
+      expect(ch.replies).not.toContain('Already queued. It starts once the Session is free.')
     })
 
     it('answers a reply to a request from before a restart that it has expired', async () => {

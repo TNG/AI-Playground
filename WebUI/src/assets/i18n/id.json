@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Prompt Awal untuk {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Dimulai dengan prompt Anda.",
   "CHANNEL_START_PROMPT_ALREADY": "Sudah dimulai. Balas hasilnya untuk menindaklanjuti.",
+  "CHANNEL_START_PROMPT_QUEUED": "Sudah dalam antrean. Akan dimulai begitu sesi bebas.",
   "CHANNEL_START_PROMPT_EXPIRED": "Permintaan itu sudah kedaluwarsa. Ketuk ✎ lagi.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} perlu mengunduh sebuah model sebelum dapat melanjutkan:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} perlu mengunduh {count} model sebelum dapat melanjutkan:",

@@ -207,7 +207,10 @@ type QueuedMessage = {
   target: SessionTarget
   origin: AgentAnswerOrigin
   meta?: InboundMeta
-} & ({ message: ChannelTurnMessage } | { agent: StartableAgent; prompt?: string })
+} & (
+  | { message: ChannelTurnMessage }
+  | { agent: StartableAgent; prompt?: string; settled?: (started: boolean) => void }
+)
 
 export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
@@ -346,6 +349,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const result = await startAgent(sessions, sessionRef, entry.agent, entry.origin, entry.prompt)
       if (!result.ok && isBusy(result.reason)) return 'busy'
       if (result.ok) agentRunStarts.set(sessionRef, { adapter: entry.adapter, meta: entry.meta })
+      entry.settled?.(result.ok)
       await confirmStart(sessions, entry, result)
       return result.ok ? 'started' : 'refused'
     }
@@ -391,6 +395,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       item: entry,
     })
     if (position === null) {
+      if ('agent' in entry) entry.settled?.(false)
       const full = fillTemplate(wording.queueFull, { title, limit: CHANNEL_QUEUE_LIMIT })
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
@@ -466,6 +471,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     except?: ChannelKind,
   ): Promise<number> {
     const dropped = queue.drop(sessionRef)
+    for (const { item } of dropped) if ('agent' in item) item.settled?.(false)
     const wording = copy()
     const template =
       why === 'stopped'
@@ -574,8 +580,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       tell,
       attach: (adapter, target, msg, meta) =>
         attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta),
-      start: (adapter, sessionRef, agent, origin, prompt, meta) =>
-        submit(sessions, { adapter, target: { sessionRef }, agent, prompt, origin, meta }),
+      start: (adapter, sessionRef, agent, origin, prompt, meta, settled) =>
+        submit(sessions, { adapter, target: { sessionRef }, agent, prompt, origin, meta, settled }),
       log,
     })
   }

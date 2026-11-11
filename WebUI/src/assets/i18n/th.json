@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Start Prompt สำหรับ {name}",
   "CHANNEL_START_PROMPT_USED": "✅ เริ่มพร้อมพรอมต์ของคุณแล้ว",
   "CHANNEL_START_PROMPT_ALREADY": "เริ่มไปแล้ว ตอบกลับผลลัพธ์เพื่อทำต่อ",
+  "CHANNEL_START_PROMPT_QUEUED": "อยู่ในคิวแล้ว จะเริ่มเมื่อเซสชันว่าง",
   "CHANNEL_START_PROMPT_EXPIRED": "คำขอนั้นหมดอายุแล้ว แตะ ✎ อีกครั้ง",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} ต้องดาวน์โหลดโมเดลหนึ่งรายการก่อนจึงจะดำเนินการต่อได้:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} ต้องดาวน์โหลดโมเดล {count} รายการก่อนจึงจะดำเนินการต่อได้:",

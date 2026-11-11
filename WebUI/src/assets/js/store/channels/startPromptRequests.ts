@@ -11,11 +11,14 @@ export type StartPromptRequest = {
 }
 
 /**
- * What a reply's message reference names: an open request, one a reply already used, or one
- * posted before a restart, which only the message map still knows.
+ * What a reply's message reference names: an open request, one whose reply's start waits in the
+ * Session's queue, one a reply already used, or one posted before a restart, which only the
+ * message map still knows.
  */
 export type StartPromptLookup =
-  { state: 'open'; request: StartPromptRequest } | { state: 'used' } | { state: 'expired' }
+  | { state: 'open' | 'queued'; request: StartPromptRequest }
+  | { state: 'used' }
+  | { state: 'expired' }
 
 /** The kernel's channel message map, which outlives a restart. */
 export type StartPromptMessageMap = {
@@ -28,6 +31,9 @@ export type StartPromptRequests = {
   open: (kind: ChannelKind, ref: string, request: StartPromptRequest) => Promise<void>
   /** Null when `ref` is no Start Prompt Request. */
   lookup: (kind: ChannelKind, ref: string) => Promise<StartPromptLookup | null>
+  /** A reply's start is on its way; a dropped one reopens the request. */
+  hold: (kind: ChannelKind, ref: string) => void
+  reopen: (kind: ChannelKind, ref: string) => void
   markUsed: (kind: ChannelKind, ref: string) => void
 }
 
@@ -51,6 +57,14 @@ export function createStartPromptRequests(messageMap: StartPromptMessageMap): St
       if (held) return held
       const owner = await messageMap.lookup(kind, ref)
       return owner && 'startPromptRequest' in owner ? { state: 'expired' } : null
+    },
+    hold: (kind, ref) => {
+      const held = entries.get(key(kind, ref))
+      if (held?.state === 'open') entries.set(key(kind, ref), { ...held, state: 'queued' })
+    },
+    reopen: (kind, ref) => {
+      const held = entries.get(key(kind, ref))
+      if (held?.state === 'queued') entries.set(key(kind, ref), { ...held, state: 'open' })
     },
     markUsed: (kind, ref) => {
       if (entries.has(key(kind, ref))) entries.set(key(kind, ref), { state: 'used' })

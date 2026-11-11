@@ -27,15 +27,19 @@ export type ChannelStartPromptDeps = {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ) => Promise<string | null>
-  /** Starts the Agent with its Start Prompt through the router's send path, or queues it. */
+  /**
+   * Starts the Agent with its Start Prompt through the router's send path, or queues it;
+   * `settled` hears whether the start ran, once it ran, was refused or its queue was dropped.
+   */
   start: (
     adapter: ChannelAdapter,
     sessionRef: string,
     agent: StartableAgent,
     origin: AgentAnswerOrigin,
     prompt: string,
-    meta?: InboundMeta,
-  ) => Promise<AgentStartOutcome>
+    meta: InboundMeta | undefined,
+    settled: (started: boolean) => void,
+  ) => Promise<unknown>
   log: (message: string, error: unknown) => void
 }
 
@@ -89,6 +93,10 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
       await tell(adapter, copy().startPromptAlready, replyMeta)
       return true
     }
+    if (found.state === 'queued') {
+      await tell(adapter, copy().startPromptQueued, replyMeta)
+      return true
+    }
     if (found.state === 'expired') {
       await tell(adapter, copy().startPromptExpired, replyMeta)
       return true
@@ -107,19 +115,29 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
     const prompt = await deps.attach(adapter, target, msg, replyMeta)
     if (prompt === null) return true
     const origin = inboundOrigin(adapter.kind, msg)
-    const outcome = await deps.start(
+    const ref = msg.replyTo
+    requests.hold(adapter.kind, ref)
+    await deps.start(
       adapter,
       target.sessionRef,
       request.agent,
       origin,
       prompt,
       replyMeta,
+      (started) => {
+        if (!started) return requests.reopen(adapter.kind, ref)
+        requests.markUsed(adapter.kind, ref)
+        void adapter
+          .editKeyboardMessage(
+            request.message,
+            adapter.formatMarkdown(copy().startPromptUsed),
+            meta,
+          )
+          .catch((e: unknown) =>
+            deps.log('channelStartPrompts: marking the request used failed:', e),
+          )
+      },
     )
-    if (outcome === 'refused') return true
-    requests.markUsed(adapter.kind, msg.replyTo)
-    await adapter
-      .editKeyboardMessage(request.message, adapter.formatMarkdown(copy().startPromptUsed), meta)
-      .catch((e: unknown) => deps.log('channelStartPrompts: marking the request used failed:', e))
     return true
   }
 

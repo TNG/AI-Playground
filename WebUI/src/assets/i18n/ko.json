@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name}의 시작 프롬프트",
   "CHANNEL_START_PROMPT_USED": "✅ 프롬프트와 함께 시작했습니다.",
   "CHANNEL_START_PROMPT_ALREADY": "이미 시작했습니다. 이어서 하려면 결과에 답장하세요.",
+  "CHANNEL_START_PROMPT_QUEUED": "이미 대기열에 있습니다. 세션이 비면 시작합니다.",
   "CHANNEL_START_PROMPT_EXPIRED": "이 요청은 만료되었습니다. ✎를 다시 누르세요.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label}을(를) 계속하려면 모델 1개를 다운로드해야 합니다:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label}을(를) 계속하려면 모델 {count}개를 다운로드해야 합니다:",

@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Start Prompt for {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Started with your prompt.",
   "CHANNEL_START_PROMPT_ALREADY": "Already started. Reply to the result to follow up.",
+  "CHANNEL_START_PROMPT_QUEUED": "Already queued. It starts once the Session is free.",
   "CHANNEL_START_PROMPT_EXPIRED": "That request has expired. Tap ✎ again.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} needs to download a model before it can continue:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} needs to download {count} models before it can continue:",

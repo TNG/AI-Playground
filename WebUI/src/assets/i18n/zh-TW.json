@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} 的啟動提示詞",
   "CHANNEL_START_PROMPT_USED": "✅ 已使用你的提示詞啟動。",
   "CHANNEL_START_PROMPT_ALREADY": "已經啟動。回覆結果即可繼續跟進。",
+  "CHANNEL_START_PROMPT_QUEUED": "已在佇列中。工作階段空閒後即啟動。",
   "CHANNEL_START_PROMPT_EXPIRED": "該請求已過期。請再點一次 ✎。",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} 需要下載 1 個模型才能繼續：",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} 需要下載 {count} 個模型才能繼續：",

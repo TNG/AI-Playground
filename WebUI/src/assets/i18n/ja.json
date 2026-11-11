@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} の開始プロンプト",
   "CHANNEL_START_PROMPT_USED": "✅ プロンプト付きで起動しました。",
   "CHANNEL_START_PROMPT_ALREADY": "すでに起動しています。続けるには結果に返信してください。",
+  "CHANNEL_START_PROMPT_QUEUED": "すでにキューに入っています。セッションが空き次第起動します。",
   "CHANNEL_START_PROMPT_EXPIRED": "そのリクエストは期限切れです。もう一度 ✎ をタップしてください。",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} を続行するには、モデルを 1 つダウンロードする必要があります:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} を続行するには、{count} 個のモデルをダウンロードする必要があります:",

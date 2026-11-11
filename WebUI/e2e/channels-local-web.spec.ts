@@ -203,7 +203,7 @@ test.describe('Channels — local web chat', () => {
       await test.step('Open a new Session and make it reachable from Channels', async () => {
         await app.shell.ensureSettingsClosed()
         await app.shell.startNewSession()
-        await app.shell.makeSessionReachable('Untitled Session')
+        await app.shell.makeOpenSessionReachable()
       })
 
       const ready = await app.prepareAgentPreset()
@@ -253,7 +253,7 @@ test.describe('Channels — local web chat', () => {
       await test.step('A reachable desktop Session sends a Notification', async () => {
         await app.shell.ensureSettingsClosed()
         await app.shell.startNewSession()
-        await app.shell.makeSessionReachable('Untitled Session')
+        await app.shell.makeOpenSessionReachable()
         const ready = await app.prepareAgentPreset()
         test.skip(!ready, 'Preset "Agent" is not available in this product mode')
         await app.runAgentTurn(NOTIFY_PROMPT, MainPage.TEXT_TIMEOUT)

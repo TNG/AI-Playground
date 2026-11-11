@@ -6,7 +6,6 @@ import { useConfirmations } from './confirmations'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
 import { fetchModelMeta } from '@/lib/modelDownloader'
-import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
@@ -26,53 +25,30 @@ import {
   type ChannelKind,
   type ChannelPrefs,
   type ChannelRuntimeState,
-  type InboundMeta,
 } from './channels/types'
 import type { ChannelAdapter } from './channels/adapter'
-import { escapeHtml } from './channels/adapterHelpers'
-import { createAppError, createCancellation } from '../errors/appError'
+import { createAppError } from '../errors/appError'
 import { useErrors } from './errors'
 import { useChannelSessionPointers } from './channelSessionPointers'
 import { useQueuedChannelMessages } from './queuedChannelMessages'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
-import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
-import { fanOutDownloadQuestion } from './channels/downloadQuestionFanOut'
+import { createChannelQuestionRegistry } from './channels/channelQuestions'
 import { createAnswerRouter } from './channels/answerRouter'
+import { channelQuestionNote, createChannelDownloadConsent } from './channels/downloadConsent'
 import { CHANNELS } from './channels/channelRegistry'
 import { createRemoteSpeech, type SpeechClip } from './channels/remoteSpeech'
 import { sessionPort } from './channels/sessionPort'
-import {
-  closeDownloadMessages,
-  postDownloadMessage,
-  runHeadlessDownload,
-  trackModelDownload,
-  type HeadlessDownloadText,
-} from './channels/headlessDownload'
-import {
-  modelDownloads,
-  throwUnlessDone,
-  type ModelDownloadOutcome,
-} from '../models/modelDownloadQueue'
-import { holdOpenDownloadQuestion } from '../models/openDownloadQuestions'
+import { closeDownloadMessages } from './channels/headlessDownload'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
-import { fillTemplate } from '@/lib/fillTemplate'
-import {
-  registerRemoteTurnPort,
-  type ChannelQuestionOutcome,
-  type DownloadChannelQuestion,
-} from '@/assets/js/permissions/remoteTurnPort'
+import { registerRemoteTurnPort } from '@/assets/js/permissions/remoteTurnPort'
 import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 
-// Read when called, never at import: the registry imports the setup composables, which import this store.
+// Read when called, never at import: the registry's setup composables import this store.
 const channelKinds = (): ChannelKind[] => CHANNELS.map((channel) => channel.kind)
 
 const POLL_INTERVAL_MS = 2000
-/** How long to wait for an in-channel yes/no before auto-cancelling a download. */
-const CONFIRM_TIMEOUT_MS = 2 * 60_000
-/** Title shown on the inline desktop confirmation card for remote downloads. */
-const DOWNLOAD_CONFIRM_TITLE = 'Download model?'
 
 /** Module-level so Vite HMR does not orphan intervals across Pinia setup
  *  closures. Indexed by ChannelKind so adding a kind = one map entry. */
@@ -170,15 +146,21 @@ export const useChannels = defineStore(
       'local-web': createLocalWebAdapter(),
     }
 
-    /**
-     * The Channel message being handled while its voice clip needs a speech model,
-     * so the download is asked on that Channel instead of in a desktop modal nobody sees.
-     */
-    let activeRemoteTurn: { adapter: ChannelAdapter; meta?: InboundMeta } | null = null
-
     const channelQuestions = createChannelQuestionRegistry({
       staleReply: () => channelQuestionTemplates().stale,
     })
+
+    const downloadConsent = createChannelDownloadConsent({
+      questions: channelQuestions,
+      confirmations,
+      adapterFor: (kind) => adapters[kind],
+      channels: () => notificationChannels.value,
+      conversationKey: () => conversations.activeKey,
+      modelMeta: (list) =>
+        fetchModelMeta(list, { apiHost: globalSetup.apiHost, hfToken: models.hfToken }),
+      log: (message, error) => reportSilently(message, error),
+    })
+    const { withRemoteTurn } = downloadConsent
 
     const remoteSpeech = createRemoteSpeech({
       transcription: {
@@ -302,252 +284,6 @@ export const useChannels = defineStore(
       )
     }
 
-    async function reply(adapter: ChannelAdapter, htmlSnippet: string, meta?: InboundMeta) {
-      return adapter.reply(adapter.formatRichSnippet(htmlSnippet), meta)
-    }
-
-    /** In-turn confirmation over the active channel: buttons or a typed yes/no, declined on timeout. */
-    function requestRemoteConfirmation(
-      adapter: ChannelAdapter,
-      summaryMarkdown: string,
-      meta?: InboundMeta,
-    ) {
-      return channelQuestions.ask({
-        adapter,
-        meta,
-        summaryMarkdown,
-        typedReply: true,
-        timeoutMs: CONFIRM_TIMEOUT_MS,
-      })
-    }
-
-    function settleFromDesktop(id: string, answer: boolean): void {
-      channelQuestions.settle(
-        id,
-        answer,
-        answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
-      )
-    }
-
-    /** True while a remote (Telegram/Slack) turn is being processed. Lets
-     *  desktop-only flows (e.g. the model-download modal) reroute to a remote
-     *  path instead of getting stuck waiting for a desktop click. */
-    function isRemoteTurnActive(): boolean {
-      return activeRemoteTurn !== null
-    }
-
-    /** Runs `work` as part of a remote turn, so its download questions go to that channel. */
-    async function withRemoteTurn<T>(
-      turn: { adapter: ChannelAdapter; meta?: InboundMeta },
-      work: () => Promise<T>,
-    ): Promise<T> {
-      const previous = activeRemoteTurn
-      activeRemoteTurn = previous ?? turn
-      try {
-        return await work()
-      } finally {
-        activeRemoteTurn = previous
-      }
-    }
-
-    /**
-     * Ask the remote user (mirrored on the desktop) to approve a download. `closedBy`
-     * answers it for them with a note, once a yes elsewhere downloads it all.
-     */
-    async function requestDownloadConfirmation(
-      turn: { adapter: ChannelAdapter; meta?: InboundMeta },
-      conversationKey: string,
-      summaryMarkdown: string,
-      closedBy: Promise<string>,
-    ): Promise<boolean | 'closed'> {
-      const kind = turn.adapter.kind
-      const mirror = confirmations.request({
-        conversationKey,
-        title: DOWNLOAD_CONFIRM_TITLE,
-        summaryMarkdown,
-        origin: 'remote',
-        channelLabel: kind,
-      })
-      const channel = requestRemoteConfirmation(turn.adapter, summaryMarkdown, turn.meta)
-      const answer = await Promise.race([
-        mirror,
-        channel.answer,
-        closedBy.then((note) => ({ note })),
-      ])
-      if (typeof answer === 'object') {
-        channelQuestions.settle(channel.id, false, answer.note)
-        confirmations.cancelForConversation(conversationKey, false)
-        return 'closed'
-      }
-      settleFromDesktop(channel.id, answer)
-      confirmations.cancelForConversation(conversationKey, answer)
-      return answer
-    }
-
-    /**
-     * Remote model-download path used when a readiness check finds missing
-     * models during a remote turn (no desktop user to drive the modal). Declines
-     * gated models that need browser interaction, asks approval in-channel
-     * (mirrored on the desktop) unless the caller passes a pre-grant's
-     * `skipConfirmation`, then waits on a Model Download in the shared queue with
-     * one edited progress message (`runHeadlessDownload`). Models another Model
-     * Download already covers are joined, not asked about again. Resolves on
-     * success; throws (silent/cancelled AppError) on decline or failure so the
-     * caller's `reject` unwinds the inference attempt cleanly.
-     */
-    async function handleRemoteModelDownload(
-      list: DownloadModelParam[],
-      options?: { skipConfirmation?: boolean; signal?: AbortSignal },
-    ): Promise<void> {
-      const turn = activeRemoteTurn
-      if (!turn) {
-        throw createAppError({
-          category: 'inference',
-          code: 'model/download-no-channel',
-          userMessage: 'A model download needs confirmation but no channel is active.',
-          surface: 'silent',
-        })
-      }
-      const { adapter, meta } = turn
-      const conversationKey = conversations.activeKey
-      const waiter = modelDownloads().waiter(conversationKey)
-      const leave = () => waiter.detach()
-      options?.signal?.addEventListener('abort', leave, { once: true })
-      if (options?.signal?.aborted) leave()
-      try {
-        // Models another Model Download already covers are waited on, never asked again.
-        const toAsk = waiter.attach(list)
-        const joined = toAsk.length > 0 && (await approveRemoteDownload(toAsk)) === 'joined'
-        await runHeadlessDownload(
-          {
-            adapter,
-            meta,
-            list: joined ? [] : toAsk,
-            waiter,
-            label: channelQuestionTemplates().forChannel,
-          },
-          { queue: modelDownloads(), log: reportSilently },
-        )
-      } catch (e) {
-        leave()
-        throw e
-      } finally {
-        options?.signal?.removeEventListener('abort', leave)
-      }
-
-      async function approveRemoteDownload(
-        toDownload: DownloadModelParam[],
-      ): Promise<'approved' | 'joined'> {
-        let metaList
-        try {
-          metaList = await fetchModelMeta(toDownload, {
-            apiHost: globalSetup.apiHost,
-            hfToken: models.hfToken,
-          })
-        } catch (e) {
-          await reply(adapter, '⚠️ Could not check the required model download. Try again.', meta)
-          throw createAppError({
-            category: 'inference',
-            code: 'model/download-meta-failed',
-            userMessage: 'Could not check the required model download.',
-            surface: 'silent',
-            cause: e,
-          })
-        }
-
-        const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
-        if (blocked.length > 0) {
-          const names = blocked.map((m) => m.repo_id).join(', ')
-          await reply(adapter, gatedDownloadText(blocked), meta)
-          throw createCancellation({
-            technicalMessage: `gated model(s) not downloadable remotely: ${names}`,
-          })
-        }
-
-        const summaryLines = metaList.map(
-          (m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`,
-        )
-        const summaryMarkdown = `I need to download ${metaList.length === 1 ? 'a model' : `${metaList.length} models`} before I can answer:\n${summaryLines.join('\n')}`
-        if (options?.skipConfirmation === true) return 'approved'
-        let join: (label: string) => void = () => {}
-        const joined = new Promise<string>((resolve) => {
-          join = (label) =>
-            resolve(fillTemplate(channelQuestionTemplates().alreadyDownloadingFor, { label }))
-        })
-        // A Model Download it already waits on was cancelled or failed mid-question.
-        let endedEarly = null as ModelDownloadOutcome | null
-        const ended = waiter.settled.then((outcome) => {
-          endedEarly = outcome
-          return channelQuestionTemplates().cancelledInApp
-        })
-        const stopHolding = holdOpenDownloadQuestion({ waiter, models: toDownload, join })
-        try {
-          const answer = await requestDownloadConfirmation(
-            { adapter, meta },
-            conversationKey,
-            summaryMarkdown,
-            Promise.race([joined, ended]),
-          )
-          if (answer === 'closed') {
-            if (endedEarly) {
-              throwUnlessDone(endedEarly, () =>
-                createCancellation({ technicalMessage: 'remote model download cancelled' }),
-              )
-            }
-            return 'joined'
-          }
-          if (!answer) {
-            throw createCancellation({ technicalMessage: 'remote model download declined' })
-          }
-          return 'approved'
-        } finally {
-          stopHolding()
-        }
-      }
-    }
-
-    function gatedDownloadText(blocked: { repo_id: string }[]): string {
-      const names = blocked.map((m) => m.repo_id).join(', ')
-      return `🔒 ${names} ${blocked.length === 1 ? 'is gated' : 'are gated'} and can't be downloaded remotely. Open AI Playground on your computer to accept the license / set a Hugging Face token, then try again.`
-    }
-
-    function channelQuestionNote(outcome: ChannelQuestionOutcome): string {
-      const text = channelQuestionTemplates()
-      if (typeof outcome === 'object') {
-        return fillTemplate(text.alreadyDownloadingFor, { label: outcome.alreadyDownloadingFor })
-      }
-      switch (outcome) {
-        case 'answered-elsewhere':
-          return text.answeredElsewhere
-        case 'answered-in-app':
-          return text.answeredInApp
-        case 'declined-in-app':
-          return text.declinedInApp
-        case 'closed':
-          return text.closed
-        case 'unavailable':
-          return text.unavailable
-      }
-    }
-
-    function downloadText(label: string): HeadlessDownloadText {
-      const text = channelQuestionTemplates()
-      return {
-        queued: text.queued,
-        starting: text.starting,
-        progress: (p) =>
-          fillTemplate(text.progress, {
-            model: p.repoId,
-            percent: String(p.percent),
-            completed: String(p.completed),
-            total: String(p.total),
-          }),
-        complete: fillTemplate(text.complete, { label }),
-        failed: (error) => fillTemplate(text.failed, { label, error }),
-        cancelled: text.cancelledInApp,
-      }
-    }
-
     function reportSilently(message: string, error: unknown): void {
       errors.report(error, { surface: 'silent', technicalMessage: message })
     }
@@ -565,143 +301,6 @@ export const useChannels = defineStore(
       closeDownloadMessages(channelQuestionTemplates().appClosed)
       channelQuestions.retireOutside([], channelQuestionNote('closed'))
     })
-
-    type DownloadQuestionContext = {
-      label: string
-      conversationKey: string
-      alreadyDownloading?: DownloadModelParam[]
-      answer?: AgentAnswerOrigin
-    }
-
-    /** An agent's download, asked on the Answer's Channel for a turn it started, else on every one. */
-    function askDownloadQuestion(
-      list: DownloadModelParam[],
-      context: DownloadQuestionContext,
-    ): DownloadChannelQuestion {
-      const origin = context.answer
-      const kinds = origin
-        ? notificationChannels.value.filter((kind) => kind === origin.channel)
-        : notificationChannels.value
-      let lookup: ReturnType<typeof fetchModelMeta> | null = null
-      const lookupOnce = () => {
-        lookup ??= fetchModelMeta(list, { apiHost: globalSetup.apiHost, hfToken: models.hfToken })
-        return lookup
-      }
-      return fanOutDownloadQuestion(
-        kinds.map((kind) => askDownloadQuestionOn(kind, context, lookupOnce)),
-        (question) => question.retire('answered-elsewhere'),
-      )
-    }
-
-    /** One Channel's download question; buttons only, no timeout. */
-    function askDownloadQuestionOn(
-      kind: ChannelKind,
-      context: DownloadQuestionContext,
-      lookupModelMeta: () => ReturnType<typeof fetchModelMeta>,
-    ): DownloadChannelQuestion {
-      const adapter = adapters[kind]
-      const { answer: origin } = context
-      const meta: InboundMeta | undefined =
-        origin?.channel === kind && origin.replyTo ? { threadTs: origin.replyTo } : undefined
-      let retired: ChannelQuestionOutcome | null = null
-      let asked: ChannelQuestion | null = null
-      // A desktop yes that came before the question reached the channel.
-      let answeredEarly: string | null = null
-      const never = new Promise<boolean>(() => {})
-
-      const answer = (async (): Promise<boolean> => {
-        if (!adapter) return never
-        let metaList
-        try {
-          metaList = await lookupModelMeta()
-        } catch (e) {
-          errors.report(e, { surface: 'silent' })
-          if (!retired) {
-            await reply(
-              adapter,
-              fillTemplate(channelQuestionTemplates().lookupFailed, {
-                label: escapeHtml(context.label),
-              }),
-              meta,
-            ).catch((err: unknown) => errors.report(err, { surface: 'silent' }))
-          }
-          return never
-        }
-        // The channel may have been left while the model sizes were looked up.
-        if (retired || !notificationChannels.value.includes(kind)) return never
-        const blocked = metaList.filter((m) => m.gated && !m.accessGranted)
-        if (blocked.length > 0) {
-          const gated = fillTemplate(channelQuestionTemplates().gated, {
-            label: escapeHtml(context.label),
-            models: escapeHtml(blocked.map((m) => m.repo_id).join(', ')),
-          })
-          await reply(adapter, gated, meta).catch((err: unknown) =>
-            errors.report(err, { surface: 'silent' }),
-          )
-          return never
-        }
-        const text = channelQuestionTemplates()
-        const lines = metaList.map((m) => `• \`${m.repo_id}\`${m.size ? ` (${m.size})` : ''}`)
-        const heading = fillTemplate(metaList.length === 1 ? text.askOne : text.askMany, {
-          label: context.label,
-          count: String(metaList.length),
-        })
-        const already = context.alreadyDownloading ?? []
-        const alreadyLine = already.length
-          ? `\n${fillTemplate(text.alreadyDownloading, {
-              models: already.map((m) => `\`${m.repo_id}\``).join(', '),
-            })}`
-          : ''
-        const summaryMarkdown = `${heading}\n${lines.join('\n')}${alreadyLine}`
-        if (answeredEarly) {
-          // No buttons to answer any more: the message only follows the download.
-          const prefix = channelQuestionNote('answered-in-app')
-          const posted = postDownloadMessage(
-            adapter,
-            `${summaryMarkdown}\n\n${prefix}`,
-            meta,
-            reportSilently,
-          )
-          followDownload(
-            answeredEarly,
-            (note) => posted.edit(`${summaryMarkdown}\n\n${note}`),
-            prefix,
-          )
-          return never
-        }
-        asked = channelQuestions.ask({ adapter, meta, summaryMarkdown, labels: text })
-        return asked.answer
-      })()
-
-      function followDownload(downloadId: string, edit: (note: string) => void, prefix?: string) {
-        trackModelDownload({
-          queue: modelDownloads(),
-          downloadId,
-          message: { edit },
-          text: downloadText(context.label),
-          prefix,
-        })
-      }
-
-      return {
-        answer,
-        follow: (downloadId, options) => {
-          const question = asked
-          if (!question) {
-            answeredEarly = downloadId
-            return
-          }
-          const prefix = options?.answeredInApp ? channelQuestionNote('answered-in-app') : undefined
-          if (prefix) channelQuestions.retire(question.id, prefix)
-          followDownload(downloadId, question.edit, prefix)
-        },
-        retire: (outcome) => {
-          if (retired) return
-          retired = outcome
-          if (asked) channelQuestions.retire(asked.id, channelQuestionNote(outcome))
-        },
-      }
-    }
 
     async function processChannelMessages(kind: ChannelKind) {
       const adapter = adapters[kind]
@@ -904,10 +503,10 @@ export const useChannels = defineStore(
     }
 
     registerRemoteTurnPort({
-      isActive: () => isRemoteTurnActive(),
-      downloadModels: (models, options) => handleRemoteModelDownload(models, options),
+      isActive: () => downloadConsent.isRemoteTurnActive(),
+      downloadModels: (list, options) => downloadConsent.handleRemoteModelDownload(list, options),
       canAskChannelQuestion,
-      askDownloadQuestion,
+      askDownloadQuestion: downloadConsent.askDownloadQuestion,
     })
 
     // ── Read-only convenience getters ───────────────────────────────────────

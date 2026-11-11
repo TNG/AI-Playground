@@ -369,19 +369,54 @@ describe('a Notification’s text, formatted per Channel', () => {
     })
   })
 
-  it.each(['local-web', 'slack'] as const)(
-    'reaches %s as the raw text it always was',
-    async (kind) => {
-      const { send, draft, calls } = recorder({ ts: '1700.01', channel: 'D42' })
-      await send(kind, { header, text: '**done**', footer: 'Answer below.' })
-      await draft(kind, { id: 7 }, { header, text: '**Hel**' })
-      expect(calls.map((call) => call.payload.text)).toEqual([
-        `${header}\n**done**\nAnswer below.`,
-        `${header}\n**Hel**`,
-      ])
-      expect(calls.some((call) => 'parse_mode' in call.payload)).toBe(false)
-    },
-  )
+  it('reaches LAN chat as the raw text it always was', async () => {
+    const { send, draft, calls } = recorder()
+    await send('local-web', { header, text: '**done**', footer: 'Answer below.' })
+    await draft('local-web', { id: 7 }, { header, text: '**Hel**' })
+    expect(calls.map((call) => call.payload.text)).toEqual([
+      `${header}\n**done**\nAnswer below.`,
+      `${header}\n**Hel**`,
+    ])
+    expect(calls.some((call) => 'parse_mode' in call.payload)).toBe(false)
+  })
+
+  it('reaches Slack as mrkdwn in the text field: the header escaped and bold, no blocks', async () => {
+    const { send, draft, calls } = recorder({ ts: '1700.01', channel: 'D42' })
+    const message = { header, text: '**done** & `x`', footer: '↩️ Reply <here>' }
+    const boldSlackHeader = '*🤖 Agent · "a&lt;b &amp; *c*"*'
+    const mrkdwn = `${boldSlackHeader}\n*done* &amp; \`x\`\n↩️ Reply &lt;here&gt;`
+    const posted = { id: 7, ref: '1700.01', chat: 'D42' }
+    await send('slack', { ...message, replyTo: '1700.00' })
+    await send('slack', { ...message, buttons: [[{ text: 'Go', callbackData: 'go' }]] })
+    await draft('slack', { id: 7 }, { header, text: '# T\n- a' }, '1700.00')
+    await draft('slack', posted, { header, text: '**Hel**' })
+    await send('slack', { ...message, draft: posted })
+    expect(calls).toEqual([
+      { kind: 'slack', action: 'reply', payload: { text: mrkdwn, thread_ts: '1700.00' } },
+      {
+        kind: 'slack',
+        action: 'keyboard',
+        payload: { text: mrkdwn, buttons: [[{ text: 'Go', callback_data: 'go' }]] },
+      },
+      {
+        kind: 'slack',
+        action: 'reply',
+        payload: { text: `${boldSlackHeader}\n*T*\n\n• a`, thread_ts: '1700.00' },
+      },
+      {
+        kind: 'slack',
+        action: 'update',
+        payload: { channel: 'D42', ts: '1700.01', text: `${boldSlackHeader}\n*Hel*` },
+      },
+      { kind: 'slack', action: 'update', payload: { channel: 'D42', ts: '1700.01', text: mrkdwn } },
+    ])
+  })
+
+  it('escapes a plain template body on Slack rather than reading it as markdown', async () => {
+    const { send, calls } = recorder({ ts: '1700.01' })
+    await send('slack', { text: '❌ Failed: no_such_file *x* <y>.', plain: true })
+    expect(calls[0].payload).toEqual({ text: '❌ Failed: no_such_file *x* &lt;y&gt;.' })
+  })
 
   it('is resent once as plain text when Telegram cannot parse the HTML', async () => {
     const calls: Array<[string, Record<string, unknown>]> = []

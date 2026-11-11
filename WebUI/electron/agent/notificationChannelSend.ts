@@ -1,6 +1,7 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_ANSWERING } from '@/lib/answerButton'
 import { channelMediaType } from '@/lib/channelMediaKind'
+import { escapeSlackText, markdownToSlackMrkdwn } from '@/lib/slackMrkdwn'
 import { escapeTelegramText, markdownToTelegramHtml } from '@/lib/telegramMarkdown'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
@@ -18,7 +19,7 @@ type TextAction = 'reply' | 'post' | 'keyboard' | 'update'
 /** A message's text: a plain header and footer around a body that is markdown unless `plain`. */
 export type ChannelText = Pick<ChannelMessage, 'header' | 'text' | 'footer' | 'plain'>
 
-/** The text as one plain string, the way LAN chat and Slack show it. */
+/** The text as one plain string, the way LAN chat shows it. */
 export function plainTextOf({ header, text, footer }: ChannelText): string {
   return [header, text, footer].filter(Boolean).join('\n')
 }
@@ -34,9 +35,19 @@ function telegramHtml({ header, text, footer, plain }: ChannelText): Formatted {
   return { text: lines.filter(Boolean).join('\n'), parse_mode: 'HTML' }
 }
 
+function slackMrkdwn({ header, text, footer, plain }: ChannelText): Formatted {
+  const lines = [
+    header && `*${escapeSlackText(header)}*`,
+    plain ? escapeSlackText(text) : markdownToSlackMrkdwn(text),
+    footer && escapeSlackText(footer),
+  ]
+  return { text: lines.filter(Boolean).join('\n') }
+}
+
 /** Channels that render the body's markdown; the others show the plain text. */
 const FORMATTERS: Partial<Record<ChannelKind, (text: ChannelText) => Formatted>> = {
   telegram: telegramHtml,
+  slack: slackMrkdwn,
 }
 
 const PARSE_ERROR = /can't parse entities/i

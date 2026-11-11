@@ -89,6 +89,10 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
       await tell(adapter, copy().startPromptAlready, replyMeta)
       return true
     }
+    if (found.state === 'expired') {
+      await tell(adapter, copy().startPromptExpired, replyMeta)
+      return true
+    }
     const { request } = found
     const target = { sessionRef: request.sessionRef }
     if (!(await port.exists(target.sessionRef))) {

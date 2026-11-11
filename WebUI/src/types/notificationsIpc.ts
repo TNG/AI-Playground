@@ -5,7 +5,10 @@ import type { PauseReason } from './kernelEvents'
 export type AnswerTarget = { sessionRef: string; harnessSessionId: string }
 
 /** Who sent a channel message: a live Harness Session, or one that has since been deleted. */
-export type ChannelMessageOwner = AnswerTarget | { deletedSession: true }
+export type SessionMessageOwner = AnswerTarget | { deletedSession: true }
+
+/** A channel message in the message map: a Session's, or a posted Start Prompt Request. */
+export type ChannelMessageOwner = SessionMessageOwner | { startPromptRequest: true }
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {

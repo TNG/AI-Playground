@@ -73,6 +73,24 @@ describe('the channel message map', () => {
     })
   })
 
+  it('remembers a Start Prompt Request across a reload, beside the Sessions’ messages', async () => {
+    const owner = await sessionWithHarness()
+    await messageMap.recordChannelMessage('telegram', '41', owner)
+    await messageMap.recordStartPromptRequest('telegram', '42')
+    await messageMap.recordChannelMessage('telegram', '43', owner)
+    messageMap.resetChannelMessageMapForTest()
+    messageMap.setChannelMessageMapDeps({ isDemoMode: () => false, harnessSessionOwners })
+    expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
+      startPromptRequest: true,
+    })
+    expect(await messageMap.channelMessageOwner('slack', '42')).toBeNull()
+    await messageMap.forgetSessionMessages(owner.sessionRef)
+    expect(await messageMap.channelMessageOwner('telegram', '41')).toEqual({ deletedSession: true })
+    expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
+      startPromptRequest: true,
+    })
+  })
+
   it('migrates entries written before Sessions owned them, by their Harness Session’s Session', async () => {
     const owner = await sessionWithHarness()
     await writeLegacyMap([
@@ -105,6 +123,7 @@ describe('the channel message map', () => {
         create: async () => 'session-new',
         transcript: async () => [],
         lookup: messageMap.channelMessageOwner,
+        recordStartPromptRequest: messageMap.recordStartPromptRequest,
         label: () => '"Asteroids clone"',
         usesRealShell: () => false,
         attach: async () => ({ ok: false, reason: 'error', message: 'no files here' }),

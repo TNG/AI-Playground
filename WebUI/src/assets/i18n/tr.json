@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} için Başlangıç İstemi",
   "CHANNEL_START_PROMPT_USED": "✅ İsteminle başlatıldı.",
   "CHANNEL_START_PROMPT_ALREADY": "Zaten başlatıldı. Devam etmek için sonucu yanıtla.",
+  "CHANNEL_START_PROMPT_EXPIRED": "Bu isteğin süresi doldu. ✎ simgesine yeniden dokun.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} devam edebilmek için bir model indirmeli:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} devam edebilmek için {count} model indirmeli:",
   "CHANNEL_QUESTION_LOOKUP_FAILED": "⏸ {label} bir model indirmesi gerektiriyor. Devam etmek için AI Playground'u açın.",

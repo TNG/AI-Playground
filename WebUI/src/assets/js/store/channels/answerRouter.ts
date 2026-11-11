@@ -1,7 +1,11 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
-import type { AnswerTarget, ChannelMessageOwner } from '@/types/notificationsIpc'
+import type {
+  AnswerTarget,
+  ChannelMessageOwner,
+  SessionMessageOwner,
+} from '@/types/notificationsIpc'
 import {
   ANSWER_CALLBACK,
   answerGesture,
@@ -87,6 +91,8 @@ export type SessionPort = {
   transcript: (sessionRef: string) => Promise<ChannelTranscriptMessage[]>
   /** The Session and Harness Session that sent this channel message, or null when none did. */
   lookup: (kind: ChannelKind, ref: string) => Promise<ChannelMessageOwner | null>
+  /** Puts a posted Start Prompt Request in the message map, to be recognized after a restart. */
+  recordStartPromptRequest: (kind: ChannelKind, ref: string) => Promise<void>
   /** The label, quoted (`"Asteroids clone"`, or a Task and its step for an Answer). */
   label: (target: SessionTarget) => string
   /** The folder runs the real system shell, which is never driven from a channel. */
@@ -207,7 +213,12 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
   const log = deps.log
   const downloadQuestionChannels = deps.downloadQuestionChannels ?? (() => [])
-  const startPromptRequests = deps.startPromptRequests ?? createStartPromptRequests()
+  const startPromptRequests =
+    deps.startPromptRequests ??
+    createStartPromptRequests({
+      record: async (kind, ref) => deps.sessions()?.recordStartPromptRequest(kind, ref),
+      lookup: async (kind, ref) => (await deps.sessions()?.lookup(kind, ref)) ?? null,
+    })
 
   const queue = createChannelQueue<QueuedMessage>({ onChange: deps.publishQueue })
   let agentStarts = 0
@@ -479,9 +490,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: SessionPort,
     kind: ChannelKind,
     ref: string,
-  ): Promise<ChannelMessageOwner | null> {
+  ): Promise<SessionMessageOwner | null> {
     try {
-      return await sessions.lookup(kind, ref)
+      const owner = await sessions.lookup(kind, ref)
+      return owner && 'startPromptRequest' in owner ? null : owner
     } catch (e) {
       log('answerRouter: message lookup failed:', e)
       return null
@@ -498,7 +510,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   async function deliver(
     adapter: ChannelAdapter,
     sessions: SessionPort,
-    owner: ChannelMessageOwner,
+    owner: SessionMessageOwner,
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ): Promise<void> {

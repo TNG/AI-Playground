@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Prompt startowy dla {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Uruchomiono z Twoim promptem.",
   "CHANNEL_START_PROMPT_ALREADY": "Już uruchomiono. Odpowiedz na wynik, aby kontynuować.",
+  "CHANNEL_START_PROMPT_EXPIRED": "Ta prośba wygasła. Stuknij ✎ ponownie.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} musi pobrać model, zanim będzie mogło kontynuować:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} musi pobrać modele (liczba: {count}), zanim będzie mogło kontynuować:",
   "CHANNEL_QUESTION_LOOKUP_FAILED": "⏸ {label} wymaga pobrania modelu. Otwórz AI Playground, aby kontynuować.",

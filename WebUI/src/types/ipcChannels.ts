@@ -851,6 +851,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ChannelKind, string],
     result: null as unknown as ChannelMessageOwner | null,
   },
+  /** Puts a posted Start Prompt Request in the message map, so a late reply is told it expired. */
+  'notifications:recordStartPromptRequest': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [ChannelKind, string],
+    result: null as unknown as void,
+  },
   /** The Channel state main's Notifier delivers through; pushed on every change. */
   'notifications:setConfig': {
     kind: 'send',

@@ -212,6 +212,8 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     create: () => sessions.createReachable(agentMode.agentDefaults().capabilities),
     transcript,
     lookup: (kind, ref) => window.electronAPI.notifications.lookupMessage(kind, ref),
+    recordStartPromptRequest: (kind, ref) =>
+      window.electronAPI.notifications.recordStartPromptRequest(kind, ref),
     label: (target) =>
       'harnessSessionId' in target
         ? labels.harness(target.harnessSessionId)

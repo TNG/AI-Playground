@@ -500,7 +500,12 @@ When adding/removing/renaming a command, update all of these:
 2. **Channel transports** — `home-agent/channels/commands.py`: add a `ChannelCommand` to
    `CHANNEL_COMMANDS`, and a button's callback prefix to `COMMAND_CALLBACKS`. These drive **both**
    the Telegram handlers + `set_my_commands` menu (`telegram.py`) and the Slack
-   `@bolt_app.command` / action handlers (`slack.py`), so they can never diverge.
+   `@bolt_app.command` / action handlers (`slack.py`), so they can never diverge. A
+   `COMMAND_CALLBACKS` value names the command the tap stands for (`"runAgent:": "/agents"` is
+   forwarded as `/agents <id>`); `None` forwards the tap itself as a callback
+   (`"promptAgent:"`, the ✎ button), for a button no command stands for. Both go through
+   `forwarded_callback()`. A tap whose prefix is missing there never reaches the router on
+   Telegram or Slack, even with a `ChannelCallback` for it.
 3. **Slack manifest** — `WebUI/src/components/SlackSetupSteps.vue`: add the command to
    `slash_commands` in `MANIFEST_JSON`. Slack only delivers slash commands declared in the
    app manifest the user installs, so this must match `commands.py`. (Separate process/language —

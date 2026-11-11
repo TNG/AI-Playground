@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Lời nhắc bắt đầu cho {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Đã khởi động với lời nhắc của bạn.",
   "CHANNEL_START_PROMPT_ALREADY": "Đã khởi động rồi. Trả lời kết quả để tiếp tục.",
+  "CHANNEL_START_PROMPT_EXPIRED": "Yêu cầu đó đã hết hạn. Hãy chạm ✎ lần nữa.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} cần tải xuống một mô hình trước khi có thể tiếp tục:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} cần tải xuống {count} mô hình trước khi có thể tiếp tục:",
   "CHANNEL_QUESTION_LOOKUP_FAILED": "⏸ {label} cần tải xuống mô hình. Mở AI Playground để tiếp tục.",

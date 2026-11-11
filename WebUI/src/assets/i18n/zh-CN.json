@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "{name} 的启动提示词",
   "CHANNEL_START_PROMPT_USED": "✅ 已使用你的提示词启动。",
   "CHANNEL_START_PROMPT_ALREADY": "已经启动。回复结果即可继续跟进。",
+  "CHANNEL_START_PROMPT_EXPIRED": "该请求已过期。请再点一次 ✎。",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} 需要下载 1 个模型才能继续：",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} 需要下载 {count} 个模型才能继续：",
   "CHANNEL_QUESTION_LOOKUP_FAILED": "⏸ {label} 需要下载模型。请打开 AI Playground 继续。",

@@ -1,3 +1,4 @@
+import type { ChannelMessageOwner } from '@/types/notificationsIpc'
 import type { StartableAgent } from './answerRouter'
 import type { ChannelKind, ChannelMessageRef } from './types'
 
@@ -9,8 +10,18 @@ export type StartPromptRequest = {
   message: ChannelMessageRef
 }
 
-/** What a reply's message reference names: an open request, or one a reply already used. */
-export type StartPromptLookup = { state: 'open'; request: StartPromptRequest } | { state: 'used' }
+/**
+ * What a reply's message reference names: an open request, one a reply already used, or one
+ * posted before a restart, which only the message map still knows.
+ */
+export type StartPromptLookup =
+  { state: 'open'; request: StartPromptRequest } | { state: 'used' } | { state: 'expired' }
+
+/** The kernel's channel message map, which outlives a restart. */
+export type StartPromptMessageMap = {
+  record: (kind: ChannelKind, ref: string) => Promise<void>
+  lookup: (kind: ChannelKind, ref: string) => Promise<ChannelMessageOwner | null>
+}
 
 /** The Start Prompt Requests posted on each Channel, keyed by the platform ref a reply names. */
 export type StartPromptRequests = {
@@ -26,15 +37,21 @@ export function replyRefOf(message: ChannelMessageRef | undefined): string | nul
   return message?.ts ?? null
 }
 
-/** Held in memory only, like queued messages (ADR 0002): a restart forgets them. */
-export function createStartPromptRequests(): StartPromptRequests {
+/** Held in memory only, like queued messages (ADR 0002): after a restart they are expired. */
+export function createStartPromptRequests(messageMap: StartPromptMessageMap): StartPromptRequests {
   const entries = new Map<string, StartPromptLookup>()
   const key = (kind: ChannelKind, ref: string) => `${kind}:${ref}`
   return {
     open: async (kind, ref, request) => {
       entries.set(key(kind, ref), { state: 'open', request })
+      await messageMap.record(kind, ref)
     },
-    lookup: async (kind, ref) => entries.get(key(kind, ref)) ?? null,
+    lookup: async (kind, ref) => {
+      const held = entries.get(key(kind, ref))
+      if (held) return held
+      const owner = await messageMap.lookup(kind, ref)
+      return owner && 'startPromptRequest' in owner ? { state: 'expired' } : null
+    },
     markUsed: (kind, ref) => {
       if (entries.has(key(kind, ref))) entries.set(key(kind, ref), { state: 'used' })
     },

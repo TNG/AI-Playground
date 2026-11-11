@@ -104,6 +104,8 @@ export type AnswerRouterCopy = {
   startPromptUsed: string
   /** A later reply to a used Start Prompt Request */
   startPromptAlready: string
+  /** A reply to a Start Prompt Request posted before the app restarted */
+  startPromptExpired: string
   /** LAN chat's Answer button, which makes a Start Prompt Request answerable there */
   answerButton: string
   /** `{command}` */
@@ -177,6 +179,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   startPromptPlaceholder: 'CHANNEL_START_PROMPT_PLACEHOLDER',
   startPromptUsed: 'CHANNEL_START_PROMPT_USED',
   startPromptAlready: 'CHANNEL_START_PROMPT_ALREADY',
+  startPromptExpired: 'CHANNEL_START_PROMPT_EXPIRED',
   answerButton: 'AGENT_NOTIFY_ANSWER_BUTTON',
   unknownCommand: 'CHANNEL_UNKNOWN_COMMAND',
   untitled: 'SESSIONS_UNTITLED',

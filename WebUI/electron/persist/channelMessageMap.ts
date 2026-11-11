@@ -12,13 +12,19 @@ import { getChannelMessageMapDemoFile, getChannelMessageMapFile } from './userDa
  * Harness Session lives; there is no time-based expiry, so a days-old Notification can still
  * be answered. Deleting ends that routing but keeps each entry as a tombstone (no owner):
  * dropping it would route a later Answer as a plain message, where the user
- * must instead be told the session no longer exists.
+ * must instead be told the session no longer exists. A Start Prompt Request is recorded too, with
+ * no Session, so a reply to one from before a restart can be told it has expired.
  */
 
 const LOG_SCOPE = 'channel-messages'
 
 const OwnerSchema = z.object({ sessionRef: z.string(), harnessSessionId: z.string() })
-const EntrySchema = z.object({ kind: z.string(), ref: z.string(), owner: OwnerSchema.nullable() })
+const StartPromptRequestSchema = z.object({ startPromptRequest: z.literal(true) })
+const EntrySchema = z.object({
+  kind: z.string(),
+  ref: z.string(),
+  owner: z.union([OwnerSchema, StartPromptRequestSchema]).nullable(),
+})
 const FileSchema = z.object({ schemaVersion: z.literal(2), entries: z.array(EntrySchema) })
 
 // Before Sessions owned these messages, an entry named only its Harness Session.
@@ -30,6 +36,7 @@ const LegacyFileSchema = z.object({
 })
 
 type Entry = z.infer<typeof EntrySchema>
+type Owner = NonNullable<Entry['owner']>
 
 export type ChannelMessageMapDeps = {
   isDemoMode: () => boolean
@@ -86,12 +93,7 @@ async function writeEntries(entries: Entry[]): Promise<void> {
   await atomicWriteJson(mapFile(), { schemaVersion: 2, entries })
 }
 
-export async function recordChannelMessage(
-  kind: ChannelKind,
-  ref: string,
-  owner: AnswerTarget,
-): Promise<void> {
-  if (!ref || !owner.sessionRef || !owner.harnessSessionId) return
+async function record(kind: ChannelKind, ref: string, owner: Owner): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
     const entries = (await readEntries()).filter((e) => e.kind !== kind || e.ref !== ref)
     entries.push({ kind, ref, owner })
@@ -99,7 +101,22 @@ export async function recordChannelMessage(
   })
 }
 
-/** Who sent this message: a live Harness Session, a deleted one, or null when no agent did. */
+export async function recordChannelMessage(
+  kind: ChannelKind,
+  ref: string,
+  owner: AnswerTarget,
+): Promise<void> {
+  if (!ref || !owner.sessionRef || !owner.harnessSessionId) return
+  return record(kind, ref, owner)
+}
+
+/** Only to recognize a reply to it after a restart, when the request itself is forgotten. */
+export async function recordStartPromptRequest(kind: ChannelKind, ref: string): Promise<void> {
+  if (!ref) return
+  return record(kind, ref, { startPromptRequest: true })
+}
+
+/** Who sent this message: a Harness Session, a deleted one, a Start Prompt Request, or null. */
 export async function channelMessageOwner(
   kind: ChannelKind,
   ref: string,
@@ -112,10 +129,11 @@ export async function channelMessageOwner(
 }
 
 async function tombstone(owned: (owner: AnswerTarget) => boolean): Promise<void> {
+  const hit = (owner: Owner | null) => !!owner && 'sessionRef' in owner && owned(owner)
   return serialize(FILE_CHAIN, async () => {
     const entries = await readEntries()
-    if (!entries.some((e) => e.owner && owned(e.owner))) return
-    await writeEntries(entries.map((e) => (e.owner && owned(e.owner) ? { ...e, owner: null } : e)))
+    if (!entries.some((e) => hit(e.owner))) return
+    await writeEntries(entries.map((e) => (hit(e.owner) ? { ...e, owner: null } : e)))
   })
 }
 

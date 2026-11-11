@@ -150,6 +150,8 @@ function fakeSessions(
   }[] = []
   /** What starting an Agent does; it goes through unless set. */
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
+  /** Start Prompt Requests recorded in the message map, which outlives a restart. */
+  const recordedRequests: { kind: ChannelKind; ref: string }[] = []
   const harnessOf = (sessionRef: string) =>
     Object.entries(sessions).find(([id]) => sessionRefOf(id) === sessionRef)?.[1]
   const reachable = (session: { gone?: boolean; reachable?: boolean } | undefined) =>
@@ -174,6 +176,9 @@ function fakeSessions(
     },
     transcript: async (sessionRef) => channelSessions[sessionRef]?.transcript ?? [],
     lookup: async (kind, ref) => {
+      if (recordedRequests.some((m) => m.kind === kind && m.ref === ref)) {
+        return { startPromptRequest: true }
+      }
       const sent = sentMessages.find((m) => m.kind === kind && m.ref === ref)
       if (!sent) return null
       const harnessSessionId = sent.sessionId
@@ -226,6 +231,9 @@ function fakeSessions(
       if (attaching.fails) return { ok: false, reason: 'error', message: 'disk full' }
       attached.push({ to, kind: file.kind, filename: file.filename })
       return { ok: true, path: `attachments/${file.filename}` }
+    },
+    recordStartPromptRequest: async (kind, ref) => {
+      recordedRequests.push({ kind, ref })
     },
     listStartableAgents: async () => [...startable],
     startAgent: async (sessionRef, agentId, origin, prompt) => {
@@ -366,22 +374,26 @@ function setup(
   const published: Record<string, QueuedChannelMessage[]> = {}
   /** Each Session's "a taken batch is being sent" flag, as the router reported it. */
   const sending: Record<string, boolean> = {}
-  const router = createAnswerRouter({
-    sessions: () => fake.port,
-    questions,
-    speech: { prepare: voicePreparation.prepare, transcribe: speech.transcribe },
-    downloadQuestionChannels: () => downloads.askedOn,
-    pointers: channelPointers.pointers,
-    publishQueue: (sessionRef, queued) => {
-      published[sessionRef] = queued
-    },
-    publishSending: (sessionRef, isSending) => {
-      sending[sessionRef] = isSending
-    },
-    log: () => {},
-  })
+  const makeRouter = () =>
+    createAnswerRouter({
+      sessions: () => fake.port,
+      questions,
+      speech: { prepare: voicePreparation.prepare, transcribe: speech.transcribe },
+      downloadQuestionChannels: () => downloads.askedOn,
+      pointers: channelPointers.pointers,
+      publishQueue: (sessionRef, queued) => {
+        published[sessionRef] = queued
+      },
+      publishSending: (sessionRef, isSending) => {
+        sending[sessionRef] = isSending
+      },
+      log: () => {},
+    })
+  const router = makeRouter()
   return {
     router,
+    /** The router after an app restart: the same Sessions and message map, nothing in memory. */
+    restarted: makeRouter,
     questions,
     ...fake,
     sessions,
@@ -1809,6 +1821,37 @@ describe('/agents', () => {
       expect(ch.edits.map((edit) => edit.text)).toEqual(['✅ Started with your prompt.'])
       await settle(TRIP)
       expect(agentStarts.map((start) => start.prompt)).toEqual(['Germany'])
+    })
+
+    it('answers a reply to a request from before a restart that it has expired', async () => {
+      const { router, restarted, agentStarts, plain } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await restarted().route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(agentStarts).toEqual([])
+      expect(plain).toEqual([])
+      expect(ch.replies).toEqual(['That request has expired. Tap ✎ again.'])
+    })
+
+    it('still starts the run from a request asked after the restart', async () => {
+      const { router, restarted, agentStarts } = prompted()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      const after = restarted()
+      await after.route(ch.adapter, { callback: 'promptAgent:agent-tidy' })
+      await after.route(ch.adapter, { text: 'only PDFs', replyTo: ch.asks[1].ref })
+      expect(agentStarts.map(({ agentId, prompt }) => [agentId, prompt])).toEqual([
+        ['agent-tidy', 'only PDFs'],
+      ])
+    })
+
+    it('runs /stop sent as a reply to an expired request for the Channel Session', async () => {
+      const { router, restarted, busy, stopped } = prompted()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      await restarted().route(ch.adapter, { text: '/stop', replyTo: ch.asks[0].ref })
+      expect(stopped).toEqual([TRIP])
     })
 
     it('refuses a reply when the request’s Session was deleted', async () => {

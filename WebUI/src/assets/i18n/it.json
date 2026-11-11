@@ -960,6 +960,7 @@
   "CHANNEL_START_PROMPT_PLACEHOLDER": "Prompt iniziale per {name}",
   "CHANNEL_START_PROMPT_USED": "✅ Avviato con il tuo prompt.",
   "CHANNEL_START_PROMPT_ALREADY": "Già avviato. Rispondi al risultato per proseguire.",
+  "CHANNEL_START_PROMPT_EXPIRED": "Questa richiesta è scaduta. Tocca di nuovo ✎.",
   "CHANNEL_QUESTION_DOWNLOAD_ONE": "{label} deve scaricare un modello prima di poter continuare:",
   "CHANNEL_QUESTION_DOWNLOAD_MANY": "{label} deve scaricare {count} modelli prima di poter continuare:",
   "CHANNEL_QUESTION_LOOKUP_FAILED": "⏸ {label} richiede il download di un modello. Apri AI Playground per continuare.",

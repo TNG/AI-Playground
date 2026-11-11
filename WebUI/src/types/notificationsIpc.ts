@@ -34,6 +34,8 @@ export type NotificationTemplates = {
   answerByReply: string
   /** Told on each Channel whose queued messages a quit drops: `{count}` */
   queueDroppedOnQuit: string
+  /** An Agent Run a Channel started: `{name}` (the Agent), `{title}` (the Session's label) */
+  agentStarted: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0010). */

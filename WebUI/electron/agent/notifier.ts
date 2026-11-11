@@ -94,6 +94,7 @@ const OFF_CONFIG: NotificationConfig = {
     answerInThread: '',
     answerByReply: '',
     queueDroppedOnQuit: '',
+    agentStarted: '',
   },
 }
 
@@ -114,7 +115,17 @@ type ReportedTurn = {
   answer?: AgentAnswerOrigin
   /** The reply is spoken too, after its text. */
   speaks?: boolean
+  /** A Step of an Agent Run before its last: its result is kept for the run's. */
+  quiet?: boolean
+  /** The "Started" message, sent before anything else of the run. */
+  started?: Promise<unknown>
 }
+
+/** A Channel-started Agent Run's Step, as its turn config names it. */
+export type ReportedStep = { taskName: string; stepIndex: number; notifiesResult?: boolean }
+
+/** What a Channel-started run's earlier Steps generated, for its last Step to send. */
+const runMedia = new Map<string, string[]>()
 
 /** Per Harness Session. */
 const reportedTurns = new Map<string, ReportedTurn>()
@@ -153,22 +164,43 @@ export function answerSpeaks(config: Pick<AgentModeTurnConfig, 'answer' | 'toolS
   return !!config.toolSpecs?.some((spec) => spec.name === 'synthesizeTextToSpeech')
 }
 
+/** A turn a Channel caused; each Step of an Agent Run it started reports only the run's result. */
 export function noteAnswerTurn(
   sessionId: string,
   turnId: string,
   workspaceDir: string,
   origin: AgentAnswerOrigin,
   speaks = false,
+  step?: ReportedStep,
 ): void {
   stopTyping(sessionId)
-  reportedTurns.set(sessionId, {
+  const media = step && step.stepIndex > 1 ? (runMedia.get(sessionId) ?? []) : []
+  runMedia.delete(sessionId)
+  const turn: ReportedTurn = {
     answer: origin,
     speaks,
     turnId,
     workspaceDir,
-    media: [],
+    media,
     attached: new Set(),
+    ...(step && !step.notifiesResult ? { quiet: true } : {}),
+  }
+  reportedTurns.set(sessionId, turn)
+  if (step?.stepIndex === 1) turn.started = sendStarted(sessionId, step.taskName)
+}
+
+async function sendStarted(sessionId: string, name: string): Promise<void> {
+  const { templates } = config
+  const sessionRef = await sessionOfHarnessSession(sessionId)
+  const session = sessionRef ? await readReachableSession(sessionRef) : null
+  const title = fillTemplate(templates.sessionLabel, {
+    title: session?.title || templates.untitled,
   })
+  const text = fillTemplate(templates.agentStarted, { name, title })
+  const delivery = await deliver({ text, bare: true }, sessionId)
+  if (!delivery.delivered) {
+    appLoggerInstance.warn(`agent start not delivered: ${delivery.reason}`, LOG_SOURCE)
+  }
 }
 
 /** A Scheduled Run's last Step: its result goes to every Channel when it completes. */
@@ -231,7 +263,13 @@ function takesCaption(media: ChannelMedia | undefined): boolean {
   return media?.kind !== 'document'
 }
 
-type Body = { text: string; media?: ChannelMedia; attachments?: NotificationOptions['attachments'] }
+type Body = {
+  text: string
+  media?: ChannelMedia
+  attachments?: NotificationOptions['attachments']
+  /** Neither the header nor how to answer: an acknowledgement. */
+  bare?: boolean
+}
 
 /** The Channels a message of `sessionId` goes to now: the Answer's alone, or every one. */
 function channelsFor(sessionId: string): ChannelKind[] {
@@ -281,14 +319,17 @@ async function deliverOn(
     ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
     : { media: [] }
   if ('error' in attached) return { delivered: false, reason: attached.error }
-  const header = takesCaption(body.media) ? fillTemplate(config.templates.header, { title }) : ''
+  const header =
+    takesCaption(body.media) && !body.bare ? fillTemplate(config.templates.header, { title }) : ''
   const message: ChannelMessage = {
     text: [header, body.text].filter(Boolean).join('\n'),
     ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
   }
   const messages = body.media
     ? [{ ...message, media: body.media }]
-    : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
+    : body.bare
+      ? [message]
+      : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
   const filesNotSent: string[] = []
   for (const [index, next] of messages.entries()) {
     const result = await port.send(kind, next)
@@ -342,6 +383,7 @@ const REPLY_MAX_CHARS = 3800
 
 /** The result of a reported turn: its last text, then what it generated. */
 async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: string | undefined) {
+  await turn.started
   if (reply) {
     const text = reply.length > REPLY_MAX_CHARS ? `${reply.slice(0, REPLY_MAX_CHARS)}…` : reply
     await sendNotification(text, { sessionId })
@@ -472,10 +514,16 @@ export function startAutoNotifications(): () => void {
   const stopFailures = onAgentTurnEnd((end) => {
     const reported = reportedTurnOf(end.sessionId, end.turnId)
     if (reported) stopTyping(end.sessionId)
+    if (reported?.quiet && end.outcome === 'completed') {
+      runMedia.set(
+        end.sessionId,
+        reported.media.filter((file) => !reported.attached.has(file)),
+      )
+    }
     const sending =
       end.outcome === 'failed'
         ? notifyFailed(end.sessionId, end.turnId, end.error)
-        : end.outcome === 'completed' && reported
+        : end.outcome === 'completed' && reported && !reported.quiet
           ? sendTurnResult(end.sessionId, reported, end.reply)
           : Promise.resolve()
     void sending

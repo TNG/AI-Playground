@@ -9,6 +9,7 @@ import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
 import { sessionHolding } from './sessionHolding'
+import { sessionOfHarnessSession } from '../../session/sessionHarness'
 
 // Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the
@@ -145,6 +146,7 @@ const CONFIG: NotificationConfig = {
     answerInThread: 'Reply in thread to answer.',
     answerByReply: '↩️ Reply to this message to answer.',
     queueDroppedOnQuit: 'Dropped {count}.',
+    agentStarted: '▶️ Started “{name}” in {title}.',
   },
 }
 
@@ -629,6 +631,83 @@ describe('a Scheduled Run’s last Step', () => {
     await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
     await settle()
     expect(sent).toEqual([])
+  }, 30000)
+})
+
+describe('an Agent Run started from a Channel', () => {
+  const STARTED_BY = { channel: 'telegram' as const, replyTo: 'agents-12' }
+  const step = (stepIndex: number, last = false): AgentModeTurnConfig => ({
+    ...configFor(TASK_SESSION),
+    answer: STARTED_BY,
+    taskRun: { taskName: 'Daily digest', stepIndex, ...(last ? { notifiesResult: true } : {}) },
+  })
+  const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 3/3)'
+
+  beforeEach(async () => {
+    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
+    notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
+  })
+
+  it('says it started, then reports only its result, to the starting Channel alone', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(1))
+    asks = []
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(2))
+    asks = []
+    finalText = 'Three headlines.'
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await settle()
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: '▶️ Started “Daily digest” in "Weekday news".',
+        replyTo: 'agents-12',
+      },
+      { kind: 'telegram', text: `${header}\nThree headlines.`, replyTo: 'agents-12' },
+    ])
+  }, 30000)
+
+  it('records its result, so a reply to it reaches the run’s Harness Session', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await settle()
+    const result = sent.findIndex((s) => s.text.includes('\ndone'))
+    expect(await messageMap.channelMessageOwner('telegram', `msg-${result + 1}`)).toMatchObject({
+      harnessSessionId: TASK_SESSION,
+    })
+  }, 30000)
+
+  it('sends what its earlier Steps generated with its result', async () => {
+    const media = await import('../../agent/generatedMedia')
+    const first = step(1)
+    const generated = path.join(first.workspaceDir, 'generated')
+    fs.mkdirSync(generated, { recursive: true })
+    fs.writeFileSync(path.join(generated, 'chart.png'), 'bytes')
+    await withWaitingTurn(
+      TASK_SESSION,
+      async () => media.noteGeneratedMedia(first.workspaceDir, ['generated/chart.png']),
+      first,
+    )
+    await settle()
+    expect(sent.filter((s) => s.media)).toEqual([])
+    asks = []
+    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await settle()
+    expect(sent.filter((s) => s.media).map((s) => [s.kind, s.media])).toEqual([
+      ['telegram', 'photo:chart.png'],
+    ])
+  }, 30000)
+
+  it('notifies a failed Step on the starting Channel, although the Session is on screen', async () => {
+    notifier.setNotificationConfig({
+      ...CONFIG,
+      channels: ['telegram', 'slack'],
+      sessionOnScreen: await sessionOfHarnessSession(TASK_SESSION),
+    })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', step(2))
+    await settle()
+    expect(sent.map((s) => [s.kind, s.replyTo, s.text.includes('❌ Failed')])).toEqual([
+      ['telegram', 'agents-12', true],
+    ])
   }, 30000)
 })
 

@@ -422,7 +422,14 @@ export async function startAgentTurn(
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
   if (config.answer) {
-    noteAnswerTurn(sessionId, turnId, config.workspaceDir, config.answer, answerSpeaks(config))
+    noteAnswerTurn(
+      sessionId,
+      turnId,
+      config.workspaceDir,
+      config.answer,
+      answerSpeaks(config),
+      config.taskRun,
+    )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
   emitAgentTurnState(sessionId, turnId, 'queued')

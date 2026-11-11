@@ -138,6 +138,7 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
       answerInThread: 'Reply in thread to answer.',
       answerByReply: '↩️ Reply to this message to answer.',
       queueDroppedOnQuit: 'Dropped {count}.',
+      agentStarted: 'Started {name} in {title}.',
     },
   })
 }

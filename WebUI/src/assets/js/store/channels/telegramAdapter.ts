@@ -1,7 +1,7 @@
 // Telegram ChannelAdapter — wraps the generic channel:send IPC and renders
 // Telegram-native HTML (parse_mode=HTML).
 
-import { markdownToTelegramHtml } from '../../telegramMarkdown'
+import { markdownToTelegramHtml } from '@/lib/telegramMarkdown'
 import type { ChannelAdapter, RawPart } from './adapter'
 import { escapeHtml, renderGenericToolMarker, stripAipgMediaReferences } from './adapterHelpers'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'

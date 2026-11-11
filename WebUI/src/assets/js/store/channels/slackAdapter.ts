@@ -1,7 +1,7 @@
 // Slack ChannelAdapter — wraps the generic channel:send IPC and renders
 // Slack mrkdwn / Block Kit.
 
-import { markdownToSlackMrkdwn } from '../../slackMrkdwn'
+import { markdownToSlackMrkdwn } from '@/lib/slackMrkdwn'
 import type { InboundMeta } from './types'
 import type { ChannelAdapter, RawPart } from './adapter'
 import { renderGenericToolMarker, stripAipgMediaReferences } from './adapterHelpers'

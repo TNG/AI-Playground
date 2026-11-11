@@ -81,7 +81,7 @@ const WORKFLOW_MODES: readonly string[] = ['imageGen', 'imageEdit', 'video']
 /**
  * A turn in flight outranks an unseen result: the dot is about the last turn, and
  * a new one has already started. Waiting on a Model Download is not a pause:
- * nobody is being asked anything (docs/adr/0005).
+ * nobody is being asked anything.
  */
 export function agentSessionStatus(input: {
   turn?: {

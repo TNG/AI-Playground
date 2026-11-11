@@ -26,7 +26,7 @@ import { answerDownloadSession } from './answerDownloadKey'
 /**
  * Renderer half of the Permissions prompt adapter (step 13). Main owns grant
  * lookup and skip-confirmation; this module decides which Download Question to
- * ask (docs/adr/0005): models a Model Download already covers are waited on, the
+ * ask: models a Model Download already covers are waited on, the
  * rest are asked in the held dialog — raced against a Channel Question for an
  * Agent Mode session — and a yes starts a Model Download in the shared queue.
  * `notify` stays local — it is display-only, not a consent decision.

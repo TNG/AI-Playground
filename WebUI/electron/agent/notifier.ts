@@ -6,6 +6,7 @@ import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
+import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
   GESTURE_WORDING,
@@ -134,7 +135,7 @@ type ReportedTurn = {
   /** The Session holding the turn, looked up once. */
   sessionRef?: Promise<string | null>
   answer?: AgentAnswerOrigin
-  /** The reply is spoken too, after its text. */
+  /** The reply is spoken too, after its text, unless the turn already sent a voice clip. */
   speaks?: boolean
   /** A Step of an Agent Run before its last: its result is kept for the run's. */
   quiet?: boolean
@@ -318,6 +319,7 @@ function noteTurnMedia(sessionId: string, turn: ReportedTurn, files: string[]): 
   const fresh = files.filter((file) => !turn.attached.has(file))
   for (const file of fresh) turn.attached.add(file)
   if (fresh.length === 0) return
+  if (fresh.some((file) => channelMediaKind(file) === 'voice')) turn.speaks = false
   turn.sending = turn.sending
     .then(async () => {
       await turn.started

@@ -1062,6 +1062,28 @@ describe('the turn an Answer started', () => {
       ])
     }, 30000)
 
+    it('is not spoken again when the turn already sent a voice clip', async () => {
+      const config = spokenAnswer()
+      const generated = path.join(config.workspaceDir, 'generated')
+      fs.mkdirSync(generated, { recursive: true })
+      fs.writeFileSync(path.join(generated, 'speech.wav'), 'RIFF')
+      const media = await import('../../agent/generatedMedia')
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          media.noteGeneratedMedia(config.workspaceDir, ['generated/speech.wav'])
+          await vi.waitFor(() => expect(sent).toHaveLength(1))
+        },
+        config,
+      )
+      await settle()
+      expect(asks).toHaveLength(1)
+      expect(sent).toEqual([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+        { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
+      ])
+    }, 30000)
+
     it('sends the text alone when no spoken reply could be made', async () => {
       await withWaitingTurn(SESSION, async () => {}, spokenAnswer())
       await vi.waitFor(() => expect(asks).toHaveLength(2))

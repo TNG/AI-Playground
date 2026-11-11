@@ -7,6 +7,7 @@ import {
   agentMessages,
   agentRepliesTo,
   answerAgentMessage,
+  draftBubbles,
   openLocalWebChat,
   sendAndAwaitMedia,
   sendAndAwaitSessionReply,
@@ -63,6 +64,10 @@ const NOTIFY_PROMPT =
   'Send me a notification with notify_user that says exactly "Ready for your answer", then stop.'
 const NOTIFICATION_TEXT = 'Ready for your answer'
 const ANSWER_TEXT = 'Reply with the single word PINEAPPLE.'
+
+// Two replies at once, each asked for a word of its own.
+const MANGO = 'Reply with the single word MANGO.'
+const PAPAYA = 'Reply with the single word PAPAYA.'
 
 /**
  * Install backends, ensure the channels backend is present (skipping when it isn't
@@ -226,6 +231,52 @@ test.describe('Channels — local web chat', () => {
         await expect(agentRepliesTo(page, ANSWER_TEXT).first()).toBeVisible({
           timeout: MainPage.TEXT_TIMEOUT,
         })
+      })
+    } finally {
+      await page.close()
+    }
+  })
+
+  test('two Sessions replying at once stream into separate bubbles', async ({
+    app,
+    window,
+    electronApp,
+  }) => {
+    test.setTimeout(45 * 60_000)
+    await bringUpLanChat(app, window)
+
+    // One reply comes from the Session that sent a Notification (an Answer), the other from
+    // the Channel Session (a plain message), both sent before either has replied. Each
+    // streams into its own draft and settles under the message that asked for it.
+    const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
+    try {
+      await test.step('A reachable desktop Session sends a Notification', async () => {
+        await app.shell.ensureSettingsClosed()
+        await app.shell.startNewSession()
+        await app.shell.makeSessionReachable('Untitled Session')
+        const ready = await app.prepareAgentPreset()
+        test.skip(!ready, 'Preset "Agent" is not available in this product mode')
+        await app.runAgentTurn(NOTIFY_PROMPT, MainPage.TEXT_TIMEOUT)
+        await expect(agentMessages(page, NOTIFICATION_TEXT).first()).toBeVisible({
+          timeout: 60_000,
+        })
+      })
+
+      await test.step('Answer it and message the Channel Session straight after', async () => {
+        await answerAgentMessage(page, agentMessages(page, NOTIFICATION_TEXT).first(), MANGO)
+        await sendMessage(page, PAPAYA)
+      })
+
+      await test.step('Each reply settles in its own bubble with its own text', async () => {
+        const mango = agentRepliesTo(page, MANGO).first()
+        const papaya = agentRepliesTo(page, PAPAYA).first()
+        await expect(mango).toBeVisible({ timeout: MainPage.TEXT_TIMEOUT })
+        await expect(papaya).toBeVisible({ timeout: MainPage.TEXT_TIMEOUT })
+        await expect(mango).toContainText('MANGO')
+        await expect(mango).not.toContainText('PAPAYA')
+        await expect(papaya).toContainText('PAPAYA')
+        await expect(papaya).not.toContainText('MANGO')
+        await expect(draftBubbles(page)).toHaveCount(0)
       })
     } finally {
       await page.close()

@@ -92,6 +92,11 @@ export function settledBotBubbles(page: Page) {
   return page.getByRole('article', { name: 'AI Playground response', exact: true })
 }
 
+/** Replies still streaming. */
+export function draftBubbles(page: Page) {
+  return page.getByRole('article', { name: 'AI Playground draft', exact: true })
+}
+
 /** Messages the user sent, optionally filtered to those containing `text`. */
 export function userMessages(page: Page, text?: string) {
   const messages = page.getByRole('article', { name: 'Your message', exact: true })
@@ -169,10 +174,9 @@ export type MediaKind = 'image' | 'video'
 
 /**
  * Send a prompt that should make the Channel Session generate media, and resolve once a
- * *new* inline `<img>`/`<video>` has rendered in the served log. The Session's Artifacts
- * arrive with its reply once the turn ends (streaming them earlier is a later step), so
- * the media itself is the only signal. A web-first assertion lets the auto-confirm
- * handler tap a model-download prompt mid-wait.
+ * *new* inline `<img>`/`<video>` has rendered in the served log. The Session sends its
+ * Artifacts as it makes them, apart from its reply, so the media itself is the signal. A
+ * web-first assertion lets the auto-confirm handler tap a model-download prompt mid-wait.
  */
 export async function sendAndAwaitMedia(
   page: Page,

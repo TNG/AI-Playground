@@ -1,4 +1,4 @@
-import type { ChannelMessageOwner } from '@/types/notificationsIpc'
+import { isStartPromptRequest, type ChannelMessageOwner } from '@/types/notificationsIpc'
 import type { StartableAgent } from './answerRouter'
 import type { ChannelKind, ChannelMessageRef } from './types'
 
@@ -56,7 +56,7 @@ export function createStartPromptRequests(messageMap: StartPromptMessageMap): St
       const held = entries.get(key(kind, ref))
       if (held) return held
       const owner = await messageMap.lookup(kind, ref)
-      return owner && 'startPromptRequest' in owner ? { state: 'expired' } : null
+      return owner && isStartPromptRequest(owner) ? { state: 'expired' } : null
     },
     hold: (kind, ref) => {
       const held = entries.get(key(kind, ref))

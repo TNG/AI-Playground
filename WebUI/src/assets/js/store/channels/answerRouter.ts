@@ -1,10 +1,11 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
-import type {
-  AnswerTarget,
-  ChannelMessageOwner,
-  SessionMessageOwner,
+import {
+  isStartPromptRequest,
+  type AnswerTarget,
+  type ChannelMessageOwner,
+  type SessionMessageOwner,
 } from '@/types/notificationsIpc'
 import {
   ANSWER_CALLBACK,
@@ -503,7 +504,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   ): Promise<SessionMessageOwner | null> {
     try {
       const owner = await sessions.lookup(kind, ref)
-      return owner && 'startPromptRequest' in owner ? null : owner
+      return owner && isStartPromptRequest(owner) ? null : owner
     } catch (e) {
       log('answerRouter: message lookup failed:', e)
       return null

@@ -1,7 +1,11 @@
 import fs from 'node:fs/promises'
 import { z } from 'zod'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
-import type { AnswerTarget, ChannelMessageOwner } from '@/types/notificationsIpc'
+import {
+  isStartPromptRequest,
+  type AnswerTarget,
+  type ChannelMessageOwner,
+} from '@/types/notificationsIpc'
 import { appLoggerInstance } from '../observability/logger'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
 import { getChannelMessageMapDemoFile, getChannelMessageMapFile } from './userDataPaths.ts'
@@ -129,7 +133,7 @@ export async function channelMessageOwner(
 }
 
 async function tombstone(owned: (owner: AnswerTarget) => boolean): Promise<void> {
-  const hit = (owner: Owner | null) => !!owner && 'sessionRef' in owner && owned(owner)
+  const hit = (owner: Owner | null) => !!owner && !isStartPromptRequest(owner) && owned(owner)
   return serialize(FILE_CHAIN, async () => {
     const entries = await readEntries()
     if (!entries.some((e) => hit(e.owner))) return

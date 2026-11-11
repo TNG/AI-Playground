@@ -339,10 +339,6 @@ export const useHomeAgent = defineStore(
         'running',
     )
 
-    const homeAgentBaseUrl = computed(
-      () => backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.baseUrl,
-    )
-
     /**
      * Single source of activation truth. A channel is active iff the backend
      * is available, the master switch is on, and the channel is both enabled
@@ -2619,7 +2615,6 @@ export const useHomeAgent = defineStore(
       slackUserId,
       isAvailable,
       hasConfiguredChannel,
-      homeAgentBaseUrl,
       // Remote conversation registry
       activeRemoteConversationKey,
       remoteConversationKeys,

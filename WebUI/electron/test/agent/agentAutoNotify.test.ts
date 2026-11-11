@@ -188,7 +188,6 @@ beforeAll(async () => {
     getService: () => ({ ensureBackendReadiness: async () => {}, baseUrl: null }),
     awaitChatWindow: async () => {},
     stopOvmsImageServer: async () => {},
-    notifyHomeAgentUpstreamReady: () => {},
   })
   const fakeWindow = {
     isDestroyed: () => false,

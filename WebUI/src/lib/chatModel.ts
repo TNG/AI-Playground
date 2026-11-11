@@ -115,7 +115,6 @@ export function buildChatModelConfig(): ChatModelConfig {
           },
         }
       : {}),
-    homeAgentUpstreamUrl: textInference.homeAgentUpstreamUrl || undefined,
     ...(isLocal
       ? {
           readiness: {

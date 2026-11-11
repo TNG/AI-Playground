@@ -45,7 +45,6 @@ export type ChatReadinessDeps = {
   getService: (serviceName: string) => ChatBackendHandle | undefined
   awaitChatWindow: (signal?: AbortSignal) => Promise<void>
   stopOvmsImageServer: () => Promise<void>
-  notifyHomeAgentUpstreamReady: (baseUrl: string) => void
   /** Stop+restart the previous local chat backend after a switch (was renderer lastUsed). */
   resetIdleChatBackend?: (serviceName: string) => Promise<void>
 }
@@ -179,7 +178,6 @@ export async function ensureChatBackendReady(
       }
       publishInferenceProfile()
     }
-    d.notifyHomeAgentUpstreamReady(service.baseUrl ?? '')
     appLogger.info(
       `Backend ${args.serviceName} ready for LLM: ${args.llmModelName}, ` +
         `Embedding: ${args.embeddingModelName || 'none'}`,

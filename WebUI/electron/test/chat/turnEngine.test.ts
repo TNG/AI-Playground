@@ -293,7 +293,6 @@ beforeEach(() => {
   setChatModelDeps({
     llmApiBase: () => 'http://127.0.0.1:39101',
     ensureBackendReadiness: vi.fn(),
-    homeAgentAuthToken: () => 'token',
     readCloudProviderKey: () => null,
   })
   vi.mocked(listMcpServers).mockReturnValue([])
@@ -380,7 +379,6 @@ describe('turn engine', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow,
       stopOvmsImageServer,
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     queueFetchMock(sse(textChunks('ok')))
     const base = turnRequest()
@@ -413,7 +411,6 @@ describe('turn engine', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow: vi.fn(async () => {}),
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     await ensureChatBackendReady({
       serviceName: 'llamacpp-backend',
@@ -1336,7 +1333,6 @@ describe('turn engine', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow,
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     const prepareRag = vi.fn(async (_rag, base: string) => ({
       systemPrompt: `${base}\n\nUse the following context from your knowledge base to answer the question:\n\nchunk`,
@@ -1481,7 +1477,6 @@ describe('chat turns in the Turn Queue', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow: vi.fn(async () => {}),
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     await holdAgentTurn()
     queueFetchMock(sse(textChunks('ok')))
@@ -1536,7 +1531,6 @@ describe('chat turns in the Turn Queue', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow: vi.fn(async () => {}),
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     const download = { answer: () => {} }
     executeChatSpeechToolMock.mockImplementationOnce(() =>

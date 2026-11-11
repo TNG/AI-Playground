@@ -1434,12 +1434,6 @@ function wireChatEngine(): void {
         await ovms.stopImageServer()
       }
     },
-    notifyHomeAgentUpstreamReady: (baseUrl) => {
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      if (homeAgentSvc instanceof HomeAgentBackendService) {
-        homeAgentSvc.notifyUpstreamReady(baseUrl)
-      }
-    },
     resetIdleChatBackend: async (serviceName) => {
       const service = serviceRegistry?.getService(serviceName)
       if (!service) return
@@ -1450,12 +1444,6 @@ function wireChatEngine(): void {
   setChatModelDeps({
     llmApiBase: (backend) => llmServerBaseUrl(backend),
     ensureBackendReadiness: (args) => ensureChatBackendReady(args),
-    homeAgentAuthToken: () => {
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      return homeAgentSvc instanceof HomeAgentBackendService
-        ? homeAgentSvc.getLoopbackAuthToken()
-        : ''
-    },
     readCloudProviderKey,
   })
   // Reuses the main-side aipg-media reader the agent attachments already use;

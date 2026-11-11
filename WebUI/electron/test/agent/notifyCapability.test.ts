@@ -154,7 +154,6 @@ beforeAll(async () => {
     getService: () => ({ ensureBackendReadiness: async () => {}, baseUrl: null }),
     awaitChatWindow: async () => {},
     stopOvmsImageServer: async () => {},
-    notifyHomeAgentUpstreamReady: () => {},
   })
   const bridge = await import('../../artifact/rendererBridge')
   const chatAsk = await import('../../chat/chatAsk')

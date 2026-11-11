@@ -804,30 +804,6 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     return this.channelDetectIdentity(kind, config)
   }
 
-  // ── Upstream URL ────────────────────────────────────────────────────────
-
-  async setUpstreamUrl(url: string): Promise<void> {
-    try {
-      const res = await net.fetch(`${this.baseUrl}/set-upstream`, {
-        method: 'POST',
-        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ url }),
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        throw new Error(`set-upstream returned ${res.status}: ${body}`)
-      }
-    } catch (e) {
-      this.appLogger.warn(`Failed to set upstream URL for home-agent: ${e}`, this.name)
-    }
-  }
-
-  notifyUpstreamReady(baseUrl: string): void {
-    if (this.currentStatus === 'running') {
-      void this.setUpstreamUrl(baseUrl)
-    }
-  }
-
   // ── IPC registration ────────────────────────────────────────────────────
 
   registerIpcHandlers(): void {

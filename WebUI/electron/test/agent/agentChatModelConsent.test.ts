@@ -94,7 +94,6 @@ beforeAll(async () => {
     }),
     awaitChatWindow: async () => {},
     stopOvmsImageServer: async () => {},
-    notifyHomeAgentUpstreamReady: () => {},
   })
   const fakeWindow = {
     isDestroyed: () => false,

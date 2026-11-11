@@ -35,7 +35,6 @@ import {
 } from '@/lib/ovmsMtp'
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
-import { useHomeAgent } from './homeAgent'
 import { useCloudMode, CLOUD_DEFAULT_MODEL, ASSUME_ALL_CAPABILITIES } from './cloudMode'
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
@@ -166,7 +165,6 @@ export const useTextInference = defineStore(
     const models = useModels()
     const presetsStore = usePresets()
     const developerSettings = useDeveloperSettings()
-    const homeAgent = useHomeAgent()
     const cloudMode = useCloudMode()
     const conversations = useConversations()
     const activities = useActivities()
@@ -997,10 +995,6 @@ export const useTextInference = defineStore(
       syncRagSelectionForActiveKey()
     }
 
-    // Raw URL of the selected local inference backend. When Home Agent is
-    // active, `currentBackendUrl` is that agent's loopback proxy instead
-    // (X-AIPG-Auth / X-Upstream-Url); callers that cannot attach those headers
-    // dial the backend through this.
     const localBackendUrl = computed(
       () =>
         backendServices.info.find((item) => item.serviceName === backendToService[backend.value])
@@ -1011,16 +1005,8 @@ export const useTextInference = defineStore(
       if (backend.value === 'cloud') {
         return cloudMode.activeProviderBaseUrl
       }
-      if (homeAgent.isHomeAgentActive && homeAgent.homeAgentBaseUrl) {
-        return homeAgent.homeAgentBaseUrl
-      }
       return localBackendUrl.value
     })
-
-    // When Home Agent is active, the real inference backend URL to proxy through
-    const homeAgentUpstreamUrl = computed(() =>
-      homeAgent.isHomeAgentActive ? localBackendUrl.value : undefined,
-    )
 
     async function getDownloadParamsForCurrentModelIfRequired(
       type: 'llm' | 'embedding',
@@ -1179,9 +1165,7 @@ export const useTextInference = defineStore(
       // Content is derived here from splitDB + the boundary-only mergedGroups — this
       // WarmupRequest payload is transient (never persisted), so carrying full text
       // in it is fine.
-      // Prefer the direct llama.cpp upstream URL when Home Agent is active —
-      // currentBackendUrl points at the Home Agent proxy, which does not own the KV cache.
-      const warmupBackendUrl = homeAgentUpstreamUrl.value ?? currentBackendUrl.value
+      const warmupBackendUrl = currentBackendUrl.value
       if (
         isPhisonKmRag.value &&
         langchainDocument.mergedGroups?.length &&
@@ -1373,16 +1357,6 @@ export const useTextInference = defineStore(
           // regardless of what triggered the (re)load.
           toast.error(error instanceof Error ? error.message : String(error))
           throw error
-        }
-      }
-
-      // If Home Agent is active, also ensure it is running
-      if (homeAgent.isHomeAgentActive) {
-        const homeAgentInfo = backendServices.info.find(
-          (s) => s.serviceName === 'home-agent-backend',
-        )
-        if (homeAgentInfo && homeAgentInfo.isSetUp && homeAgentInfo.status !== 'running') {
-          await backendServices.startService('home-agent-backend')
         }
       }
     }
@@ -2341,9 +2315,6 @@ export const useTextInference = defineStore(
 
       // RAG state
       willUseRag,
-
-      // Home Agent
-      homeAgentUpstreamUrl,
 
       // In-flight inference stream tracking (used by image tools to avoid
       // resetting an open chat-backend socket when freeing the GPU)

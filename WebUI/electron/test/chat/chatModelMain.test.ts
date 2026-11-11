@@ -53,21 +53,18 @@ function localConfig(overrides: Record<string, unknown> = {}): Record<string, un
 function wireDeps(overrides: Record<string, unknown> = {}): {
   llmApiBase: ReturnType<typeof vi.fn>
   ensureBackendReadiness: ReturnType<typeof vi.fn>
-  homeAgentAuthToken: ReturnType<typeof vi.fn>
   readCloudProviderKey: ReturnType<typeof vi.fn>
 } {
   const llmApiBase = vi.fn(() => 'http://127.0.0.1:39100')
   const ensureBackendReadiness = vi.fn(async () => {})
-  const homeAgentAuthToken = vi.fn(() => 'token-1')
   const readCloudProviderKey = vi.fn(() => 'sk-secret')
   setChatModelDeps({
     llmApiBase: llmApiBase as never,
     ensureBackendReadiness: ensureBackendReadiness as never,
-    homeAgentAuthToken,
     readCloudProviderKey,
     ...overrides,
   })
-  return { llmApiBase, ensureBackendReadiness, homeAgentAuthToken, readCloudProviderKey }
+  return { llmApiBase, ensureBackendReadiness, readCloudProviderKey }
 }
 
 async function generate(model: ReturnType<typeof createMainChatModel>): Promise<unknown> {
@@ -135,25 +132,20 @@ describe('createMainChatModel', () => {
     expect(body.chat_template_kwargs).toEqual({ enable_thinking: false })
   })
 
-  it('routes through the Home Agent proxy with auth and retries once on 401', async () => {
-    const { homeAgentAuthToken } = wireDeps()
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response('denied', { status: 401 }))
-      .mockResolvedValueOnce(jsonResponse(completionBody('hi'))) as FetchMock
+  it('sends a local turn straight to the backend, even from a stale Home Agent config', async () => {
+    wireDeps()
+    const fetchMock = vi.fn(async () => jsonResponse(completionBody('hi'))) as FetchMock
     vi.stubGlobal('fetch', fetchMock)
-    homeAgentAuthToken.mockReturnValueOnce('stale').mockReturnValueOnce('fresh')
     await generate(
       createMainChatModel(
         localConfig({ homeAgentUpstreamUrl: 'http://127.0.0.1:59000/v1' }) as never,
       ),
     )
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const first = fetchMock.mock.calls[0][1] as RequestInit
-    const second = fetchMock.mock.calls[1][1] as RequestInit
-    expect(new Headers(first.headers).get('X-Upstream-Url')).toBe('http://127.0.0.1:59000/v1')
-    expect(new Headers(first.headers).get('X-AIPG-Auth')).toBe('stale')
-    expect(new Headers(second.headers).get('X-AIPG-Auth')).toBe('fresh')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://127.0.0.1:39100/v1/chat/completions')
+    const headers = new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers)
+    expect(headers.get('X-Upstream-Url')).toBeNull()
+    expect(headers.get('X-AIPG-Auth')).toBeNull()
   })
 
   it('retries a transient restart signal until the route is mounted', async () => {

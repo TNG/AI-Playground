@@ -711,10 +711,11 @@ describe('an Agent Run started from a Channel', () => {
     expect(sent.filter((s) => s.media)).toEqual([])
     asks = []
     await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
-    await settle()
-    expect(sent.filter((s) => s.media).map((s) => [s.kind, s.media])).toEqual([
-      ['telegram', 'photo:chart.png'],
-    ])
+    await vi.waitFor(() =>
+      expect(sent.filter((s) => s.media).map((s) => [s.kind, s.media])).toEqual([
+        ['telegram', 'photo:chart.png'],
+      ]),
+    )
   }, 30000)
 
   it('notifies a failed Step on the starting Channel, although the Session is on screen', async () => {
@@ -725,10 +726,11 @@ describe('an Agent Run started from a Channel', () => {
     })
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', step(2))
-    await settle()
-    expect(sent.map((s) => [s.kind, s.replyTo, s.text.includes('❌ Failed')])).toEqual([
-      ['telegram', 'agents-12', true],
-    ])
+    await vi.waitFor(() =>
+      expect(sent.map((s) => [s.kind, s.replyTo, s.text.includes('❌ Failed')])).toEqual([
+        ['telegram', 'agents-12', true],
+      ]),
+    )
   }, 30000)
 })
 

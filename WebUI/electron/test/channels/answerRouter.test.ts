@@ -786,7 +786,7 @@ describe('a message to a busy Session', () => {
     [['telegram'], 'The turn is waiting for the download buttons above.'],
     [
       ['slack'],
-      'The turn is waiting for the download buttons in your notifications chat, or on your computer.',
+      'The turn is waiting for the download buttons in another Channel, or on your computer.',
     ],
     [[], 'The turn is waiting on your computer.'],
   ] as [ChannelKind[], string][])(
@@ -1367,7 +1367,7 @@ describe('Channel commands', () => {
     for (const gone of ['/imgGen', '/chat', '/history', '/reset', '/cancel']) {
       expect(help).not.toContain(gone)
     }
-    expect(help).toContain('To answer an agent, reply to its message.')
+    expect(help).toContain("To answer a Session's message, reply to it.")
   })
 
   it('names unknown commands and sends them nowhere', async () => {

@@ -97,10 +97,10 @@ const masterTitle = computed(() => {
     return 'Channels are not installed. Install them from App Settings → Installation Management.'
   if (!isAvailable.value) return 'The Channels service is starting…'
   if (!hasConfiguredChannel.value)
-    return 'No channels set up yet — open Setup to connect Telegram or Slack first.'
+    return 'No Channel set up yet. Open Setup to connect Telegram, Slack or LAN chat first.'
   return channelStore.masterEnabled
-    ? 'Channels are on — click to turn off. Enable individual channels in Setup.'
-    : 'Channels are off — click to turn on. Enable individual channels in Setup.'
+    ? 'Channels are on: Reachable Sessions can be reached and send Notifications. Click to turn everything off.'
+    : 'Channels are off: nothing goes in or out. Click to turn on. Enable individual Channels in Setup.'
 })
 
 function openSetup() {

@@ -259,7 +259,7 @@ const MANIFEST_JSON = JSON.stringify(
       },
       bot_user: { display_name: 'AI Playground', always_online: true },
       slash_commands: [
-        { command: '/help', description: 'List available commands', should_escape: false },
+        { command: '/help', description: 'Show available commands', should_escape: false },
         {
           command: '/sessions',
           description: 'List your Reachable Sessions to pick one',
@@ -267,7 +267,7 @@ const MANIFEST_JSON = JSON.stringify(
         },
         {
           command: '/load',
-          description: 'Continue a Session from the /sessions list',
+          description: 'Continue Session n from the /sessions list',
           usage_hint: '[n]',
           should_escape: false,
         },

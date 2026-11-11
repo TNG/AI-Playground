@@ -221,7 +221,7 @@ test.describe('Channels — local web chat', () => {
         const notification = agentMessages(page, NOTIFICATION_TEXT).first()
         await notification.getByRole('button', { name: 'Answer' }).click()
         await expect(target).toContainText('Replying to')
-        await sendAndAwaitText(page, '/help', 'To answer an agent', 60_000)
+        await sendAndAwaitText(page, '/help', "To answer a Session's message", 60_000)
         await expect(target).toBeVisible()
       })
 

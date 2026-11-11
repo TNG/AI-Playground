@@ -64,7 +64,7 @@ CHANNEL_COMMANDS: tuple[ChannelCommand, ...] = (
     ChannelCommand("help", "Show available commands", telegram_aliases=("start",)),
     ChannelCommand("sessions", "List your Reachable Sessions to pick one"),
     ChannelCommand(
-        "load", "Continue a Session (no number = pick from a list)", takes_args=True
+        "load", "Continue Session n from the /sessions list", takes_args=True
     ),
     ChannelCommand("new", "Start a new Session"),
     ChannelCommand(

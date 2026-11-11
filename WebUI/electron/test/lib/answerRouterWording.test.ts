@@ -4,13 +4,13 @@ import { answerHelpLine, answerableNotice } from '../../../src/lib/answerRouterW
 describe('answering wording per channel', () => {
   it('tells /help on each channel the gesture that answers there', () => {
     expect(answerHelpLine('telegram')).toBe(
-      'To answer an agent, reply to its message. Plain messages go to your Channel Session.',
+      "To answer a Session's message, reply to it. Plain messages go to your Channel Session.",
     )
     expect(answerHelpLine('slack')).toBe(
-      'To answer an agent, reply in its thread. Plain messages go to your Channel Session.',
+      "To answer a Session's message, reply in its thread. Plain messages go to your Channel Session.",
     )
     expect(answerHelpLine('local-web')).toBe(
-      'To answer an agent, tap 💬 Answer. Plain messages go to your Channel Session.',
+      "To answer a Session's message, tap 💬 Answer under it. Plain messages go to your Channel Session.",
     )
   })
 
@@ -20,13 +20,13 @@ describe('answering wording per channel', () => {
 
   it('describes the gesture of the channel being set up', () => {
     expect(answerableNotice('telegram')).toBe(
-      'Agents can message you on this channel. To answer one, reply to its message. Plain messages go to your Channel Session.',
+      'Sessions marked "Reachable from Channels" can message you here. To answer one, reply to its message. Plain messages go to your Channel Session.',
     )
     expect(answerableNotice('slack')).toBe(
-      'Agents can message you on this channel. To answer one, reply in its thread. Plain messages go to your Channel Session.',
+      'Sessions marked "Reachable from Channels" can message you here. To answer one, reply in its thread. Plain messages go to your Channel Session.',
     )
     expect(answerableNotice('local-web')).toBe(
-      'Agents can message you on this channel. To answer one, tap 💬 Answer. Plain messages go to your Channel Session.',
+      'Sessions marked "Reachable from Channels" can message you here. To answer one, tap 💬 Answer. Plain messages go to your Channel Session.',
     )
     expect(answerableNotice('discord')).toBeNull()
   })

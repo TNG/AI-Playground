@@ -1100,9 +1100,12 @@ A Channel reaches ordinary Sessions (ADR 0010): the user marks a Session reachab
 Notifications fan out to every active Channel, an Answer goes back to the Session it came from, and
 a plain message goes to that Channel's Channel Session. The renderer half is the Channels store
 (`store/channels.ts`, `useChannels`: polling, the title-bar master toggle, per-Channel
-enabled/verified state, remote download consent and speech) and the router in
-`store/channels/` (`answerRouter.ts`, the command table, the per-Session queue); the internal
-service is still named `home-agent-backend` and lives in `home-agent/`.
+enabled/verified state, remote speech) and the router in `store/channels/` (`answerRouter.ts`,
+the command table, the per-Session queue, `channelInbound.ts` for files and voice before routing,
+`downloadConsent.ts` for remote download consent); the desktop's copy of the queue is
+`store/queuedChannelMessages.ts`. Only a Reachable Session reaches a Channel; Channels off, or a
+Channel off or unverified, sends nothing. The internal service is still named
+`home-agent-backend` and lives in `home-agent/`.
 
 Each channel is one renderer `ChannelAdapter` (`src/assets/js/store/channels/`) plus one Python
 module (`home-agent/channels/`), wired together by `ChannelKind` in both languages and dispatched

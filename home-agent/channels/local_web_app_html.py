@@ -147,7 +147,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
   </div>
   <div id="chat-screen" class="screen hidden" role="group" aria-label="Chat">
     <div class="tg-header">
-      <div class="tg-avatar">HA</div>
+      <div class="tg-avatar">AI</div>
       <div class="tg-header-text">
         <div class="title">AI Playground</div>
         <div class="sub" id="status-line">online</div>
@@ -323,7 +323,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.style.width = '32px'
       av.style.height = '32px'
       av.style.fontSize = '11px'
-      av.textContent = avatarText || 'HA'
+      av.textContent = avatarText || 'AI'
       row.appendChild(av)
       row.appendChild(bubble)
       return row
@@ -360,7 +360,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     function setAnswering(id, title) {
       answering = { id: id, title: title }
-      replyChipText.textContent = title ? 'Replying to ' + title : 'Replying to the agent'
+      replyChipText.textContent = title ? 'Replying to ' + title : 'Replying to the Session'
       replyChip.classList.remove('hidden')
       log.classList.add('answering')
       input.focus()
@@ -488,7 +488,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.style.width = '32px'
       av.style.height = '32px'
       av.style.fontSize = '11px'
-      av.textContent = 'HA'
+      av.textContent = 'AI'
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
       bubble.setAttribute('role', 'status')
@@ -591,7 +591,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       }
     }
 
-    const SESSION_ENDED_MSG = 'Your session ended (was AI Playground restarted?). Please sign in again.'
+    const SESSION_ENDED_MSG = 'You were signed out (was AI Playground restarted?). Please sign in again.'
 
     async function doLogin() {
       loginError.textContent = ''
@@ -724,12 +724,12 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // `send: true` fires the command immediately; `false` pre-fills the composer
     // so the user can type an argument.
     const COMMANDS = [
-      { cmd: '/sessions', desc: 'Pick one of your Reachable Sessions', send: true },
-      { cmd: '/load', desc: 'Continue a Session from the /sessions list', send: true },
+      { cmd: '/sessions', desc: 'List your Reachable Sessions to pick one', send: true },
+      { cmd: '/load', desc: 'Continue Session n from the /sessions list', send: true },
       { cmd: '/new', desc: 'Start a new Session', send: true },
-      { cmd: '/agents', desc: 'List the agents you can start from here', send: true },
-      { cmd: '/stop', desc: 'Stop the running turn and drop queued messages', send: true },
-      { cmd: '/help', desc: 'Show all commands', send: true },
+      { cmd: '/agents', desc: 'List the agents you can start, or start one by name', send: true },
+      { cmd: '/stop', desc: 'Stop the running turn or Agent Run and drop queued messages', send: true },
+      { cmd: '/help', desc: 'Show available commands', send: true },
     ]
 
     function buildMenu() {

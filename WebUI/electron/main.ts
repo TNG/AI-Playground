@@ -202,7 +202,7 @@ import {
   setNotificationWindowShown,
   startAutoNotifications,
 } from './agent/notifier'
-import { homeAgentNotificationChannel } from './agent/notificationChannelSend'
+import { createNotificationChannel } from './agent/notificationChannelSend'
 import {
   buildNotificationsRegistry,
   buildNotificationsSendRegistry,
@@ -1318,7 +1318,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
     setNotificationChannel(
-      homeAgentNotificationChannel((kind, action, payload) =>
+      createNotificationChannel((kind, action, payload) =>
         homeAgent.channelSend(kind, action, payload),
       ),
     )

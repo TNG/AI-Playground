@@ -83,14 +83,14 @@ function startTypingHeartbeat(_action: string, meta?: InboundMeta): () => void {
   const ts = meta?.ts
   const name = 'eyes'
   if (!channel || !ts) return () => {}
-  void window.electronAPI.homeAgent.channel
+  void window.electronAPI.channels
     .send('slack', 'typing', { channel, ts, name, action: 'add' })
     .catch(() => {})
   let stopped = false
   return () => {
     if (stopped) return
     stopped = true
-    void window.electronAPI.homeAgent.channel
+    void window.electronAPI.channels
       .send('slack', 'typing', { channel, ts, name, action: 'remove' })
       .catch(() => {})
   }
@@ -109,7 +109,7 @@ export function createSlackAdapter(): ChannelAdapter {
   return {
     kind: 'slack',
     reply: async (text, meta) => {
-      const r = await window.electronAPI.homeAgent.channel.send('slack', 'reply', {
+      const r = await window.electronAPI.channels.send('slack', 'reply', {
         text,
         channel: meta?.channel,
         ...(meta?.threadTs ? { thread_ts: meta.threadTs } : {}),
@@ -117,14 +117,14 @@ export function createSlackAdapter(): ChannelAdapter {
       return withMessageRef(r)
     },
     photo: async (imageBase64, caption, meta) => {
-      return window.electronAPI.homeAgent.channel.send('slack', 'photo', {
+      return window.electronAPI.channels.send('slack', 'photo', {
         photo: imageBase64,
         caption,
         channel: meta?.channel,
       })
     },
     video: async (videoBase64, caption, filename, meta) => {
-      return window.electronAPI.homeAgent.channel.send('slack', 'video', {
+      return window.electronAPI.channels.send('slack', 'video', {
         video: videoBase64,
         caption,
         filename,
@@ -132,14 +132,14 @@ export function createSlackAdapter(): ChannelAdapter {
       })
     },
     voice: async (audioBase64, mime, meta) => {
-      return window.electronAPI.homeAgent.channel.send('slack', 'voice', {
+      return window.electronAPI.channels.send('slack', 'voice', {
         audio: audioBase64,
         mime,
         channel: meta?.channel,
       })
     },
     document: async (documentBase64, filename, caption, meta) => {
-      return window.electronAPI.homeAgent.channel.send('slack', 'document', {
+      return window.electronAPI.channels.send('slack', 'document', {
         document: documentBase64,
         filename,
         caption,
@@ -168,7 +168,7 @@ export function createSlackAdapter(): ChannelAdapter {
           })
         }
       }
-      const r = await window.electronAPI.homeAgent.channel.send('slack', 'keyboard', {
+      const r = await window.electronAPI.channels.send('slack', 'keyboard', {
         text,
         blocks,
         channel: meta?.channel,
@@ -178,7 +178,7 @@ export function createSlackAdapter(): ChannelAdapter {
     },
     post: async (text, meta) => {
       return withMessageRef(
-        await window.electronAPI.homeAgent.channel.send('slack', 'post', {
+        await window.electronAPI.channels.send('slack', 'post', {
           text,
           channel: meta?.channel,
           ...(meta?.threadTs ? { thread_ts: meta.threadTs } : {}),
@@ -189,7 +189,7 @@ export function createSlackAdapter(): ChannelAdapter {
       if (!ref.ts || !ref.channel) return { success: false, error: 'no message ref' }
       // chat.update with a single section block replaces the original message
       // (text + actions buttons) so the prompt no longer looks tappable.
-      const r = await window.electronAPI.homeAgent.channel.send('slack', 'update', {
+      const r = await window.electronAPI.channels.send('slack', 'update', {
         channel: ref.channel,
         ts: ref.ts,
         text,

@@ -86,7 +86,7 @@ export function useLocalWebSetup() {
     try {
       // Mirror the bind: with LAN access off the server only answers on loopback,
       // so listing this machine's other addresses would be dead links.
-      urls.value = await window.electronAPI.homeAgent.localWeb.getUrls(
+      urls.value = await window.electronAPI.channels.localWeb.getUrls(
         portNumber.value,
         allowLan.value,
       )
@@ -157,7 +157,7 @@ export function useLocalWebSetup() {
         verifyError.value = saveResult.error ?? 'Failed to save LAN chat config.'
         return
       }
-      const test = await window.electronAPI.homeAgent.channel.test('local-web')
+      const test = await window.electronAPI.channels.test('local-web')
       if (!test.success) {
         verifyStatus.value = 'error'
         verifyError.value = test.error ?? 'Could not start LAN chat server.'

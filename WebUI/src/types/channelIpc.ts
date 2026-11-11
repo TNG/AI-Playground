@@ -8,7 +8,7 @@
 import type { RemoteAudio, RemoteDocument, RemoteImage } from '@/assets/js/store/channels/types'
 
 /** One message drained from a channel platform's inbound queue. */
-export type HomeAgentInboundMessage = {
+export type ChannelInboundMessage = {
   text?: string
   chat_id: string
   channel?: string

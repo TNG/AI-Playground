@@ -264,7 +264,7 @@ export const useChannels = defineStore(
           if (identity && !payload[spec.identityField]) {
             payload[spec.identityField] = identity ?? undefined
           }
-          window.electronAPI.homeAgent.channel
+          window.electronAPI.channels
             .inject(kind, payload)
             .catch((e: unknown) => reportSilently(`channels: inject(${kind}) failed:`, e))
         },
@@ -307,7 +307,7 @@ export const useChannels = defineStore(
       if (!adapter || pollBusyByKind[kind]) return
       pollBusyByKind[kind] = true
       try {
-        const msgs = await window.electronAPI.homeAgent.channel.poll(kind)
+        const msgs = await window.electronAPI.channels.poll(kind)
         for (const msg of msgs ?? []) {
           if (!channels[kind].active) break
           // Threaded so adapters can target reactions / threaded sends at the originating message.
@@ -350,7 +350,7 @@ export const useChannels = defineStore(
       try {
         // safeStorage save (electron main process). Pass the flat config blob;
         // the main side partitions secret vs public fields.
-        const result = await window.electronAPI.homeAgent.channel.saveConfig(
+        const result = await window.electronAPI.channels.saveConfig(
           kind,
           config as Record<string, string>,
         )
@@ -381,7 +381,7 @@ export const useChannels = defineStore(
 
     async function clearChannelConfig(kind: ChannelKind): Promise<void> {
       try {
-        await window.electronAPI.homeAgent.channel.clearConfig(kind)
+        await window.electronAPI.channels.clearConfig(kind)
       } catch (e) {
         reportSilently(`channels.clearChannelConfig(${kind}) failed:`, e)
       }
@@ -397,7 +397,7 @@ export const useChannels = defineStore(
      * the durable backup re-read by `initConfig()` on the next launch.
      */
     function persistChannelPrefs(kind: ChannelKind): void {
-      void window.electronAPI.homeAgent.channel
+      void window.electronAPI.channels
         .savePrefs(kind, {
           verified: channelPrefs[kind].verified,
           enabled: channelPrefs[kind].enabled,
@@ -450,7 +450,7 @@ export const useChannels = defineStore(
     async function initConfig() {
       try {
         for (const kind of channelKinds()) {
-          const cfg = await window.electronAPI.homeAgent.channel.loadConfig(kind)
+          const cfg = await window.electronAPI.channels.loadConfig(kind)
           if (cfg) {
             channels[kind].config = { ...cfg, kind } as Partial<ChannelConfig>
             // Back-fill the prefs `.identity` from the saved config's identity
@@ -475,7 +475,7 @@ export const useChannels = defineStore(
           // (verified=false written to disk) can't be undone by a stale Pinia
           // value either.
           try {
-            const prefs = await window.electronAPI.homeAgent.channel.loadPrefs(kind)
+            const prefs = await window.electronAPI.channels.loadPrefs(kind)
             if (prefs) {
               channelPrefs[kind].verified = prefs.verified
               channelPrefs[kind].enabled = prefs.enabled

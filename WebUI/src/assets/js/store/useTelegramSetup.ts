@@ -38,7 +38,7 @@ export function useTelegramSetup() {
 
   async function pollForChatId(token: string): Promise<{ chatId: string } | { error: string }> {
     try {
-      const quick = await window.electronAPI.homeAgent.channel.detectIdentity('telegram', { token })
+      const quick = await window.electronAPI.channels.detectIdentity('telegram', { token })
       if ('identity' in quick) return { chatId: quick.identity }
     } catch (e) {
       console.error('pollForChatId initial detectIdentity failed:', e)
@@ -51,7 +51,7 @@ export function useTelegramSetup() {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, DETECT_POLL_INTERVAL_MS))
       try {
-        const r = await window.electronAPI.homeAgent.channel.detectIdentity('telegram', { token })
+        const r = await window.electronAPI.channels.detectIdentity('telegram', { token })
         if ('identity' in r) {
           detectError.value = ''
           return { chatId: r.identity }
@@ -76,13 +76,13 @@ export function useTelegramSetup() {
       const trimmedToken = tokenInput.value.trim()
       if (trimmedToken) {
         try {
-          await window.electronAPI.homeAgent.channel.inject('telegram', { token: trimmedToken })
+          await window.electronAPI.channels.inject('telegram', { token: trimmedToken })
         } catch (e) {
           console.error('runDetectChatId: inject(telegram) failed:', e)
         }
         result = await pollForChatId(trimmedToken)
       } else {
-        const r = await window.electronAPI.homeAgent.channel.detectIdentityFromSaved('telegram')
+        const r = await window.electronAPI.channels.detectIdentityFromSaved('telegram')
         result = 'identity' in r ? { chatId: r.identity } : { error: r.error }
       }
       if ('chatId' in result) {
@@ -91,7 +91,7 @@ export function useTelegramSetup() {
         const tok = tokenInput.value.trim() || currentSavedToken()
         if (tok) {
           try {
-            await window.electronAPI.homeAgent.channel.inject('telegram', {
+            await window.electronAPI.channels.inject('telegram', {
               token: tok,
               chatId: result.chatId,
             })
@@ -100,7 +100,7 @@ export function useTelegramSetup() {
           }
         }
         try {
-          await window.electronAPI.homeAgent.channel.flushPending('telegram')
+          await window.electronAPI.channels.flushPending('telegram')
         } catch (e) {
           console.error('runDetectChatId: flushPending(telegram) failed:', e)
         }
@@ -138,14 +138,14 @@ export function useTelegramSetup() {
         verifyError.value = 'No chat ID — complete Step 2 (Detect) first.'
         return
       }
-      const result = await window.electronAPI.homeAgent.channel.test('telegram')
+      const result = await window.electronAPI.channels.test('telegram')
       if (result.success) {
         channelStore.setVerified('telegram')
         verifyStatus.value = 'success'
         const tokForInject = token || currentSavedToken()
         if (tokForInject && chatId) {
           try {
-            await window.electronAPI.homeAgent.channel.inject('telegram', {
+            await window.electronAPI.channels.inject('telegram', {
               token: tokForInject,
               chatId,
             })

@@ -1,14 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// The adapters wrap window.electronAPI.homeAgent.channel.send. Stub it so
+// The adapters wrap window.electronAPI.channels.send. Stub it so
 // import-time and call-time references don't blow up under node-env vitest.
 const sendMock = vi.fn(async () => ({ success: true }) as Record<string, unknown>)
 vi.stubGlobal('window', {
   electronAPI: {
-    homeAgent: {
-      channel: {
-        send: sendMock,
-      },
+    channels: {
+      send: sendMock,
     },
   },
 })

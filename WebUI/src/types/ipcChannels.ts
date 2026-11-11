@@ -20,7 +20,7 @@ import type { LlamaCppVramInputs } from '../lib/vram/types'
 import type { GroupNameProblem } from '../lib/sessionGroupName'
 import type { ConversationBootstrap, ConversationSaveRequest } from './conversationIpc'
 import type { DemoConfigSaveResult, DemoConfigUpdate } from './demoModeIpc'
-import type { HomeAgentInboundMessage } from './homeAgentIpc'
+import type { ChannelInboundMessage } from './channelIpc'
 import type { KernelEvent, KernelSnapshot, PauseReason } from './kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from './lifecycleIpc'
 import type { MediaItemsBootstrap } from './mediaItemIpc'
@@ -64,7 +64,7 @@ import type { ModelLists, ModelPaths } from '@/assets/js/store/models'
 import type { DocumentEmbedding, EmbedInquiry, IndexedDocument } from '@/types/rag'
 import type { PhisonKmIngestConfig, WarmupRequest } from './phisonKmRag'
 
-export type IpcOwner = 'main' | 'homeAgent'
+export type IpcOwner = 'main' | 'channels'
 export type IpcKind = 'invoke' | 'send' | 'push'
 
 export type InvokeRow<A extends readonly unknown[] = readonly unknown[], R = unknown> = {
@@ -2052,108 +2052,108 @@ export const CHANNELS = {
 
   // ── LAN chat and Channel dispatch (batch 9c) ──
   // The `channel:*` channels pre-date the `ns:` convention, so their dotted
-  // `member` overrides place them inside the homeAgent bridge group. The
+  // `member` overrides place them inside the channels bridge group. The
   // channel handlers are registered by the Channels backend service (service-gated).
 
   /** Addresses the LAN chat page is reachable at (loopback only unless LAN is on). */
-  'homeAgent:localWeb:getUrls': {
+  'channels:localWeb:getUrls': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [number, boolean],
     result: null as unknown as string[],
   },
   /** Save one channel's config blob (secrets encrypted at rest by main). */
   'channel:saveConfig': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, Record<string, string>],
     result: null as unknown as IpcMutationResult,
-    member: 'homeAgent.channel.saveConfig' as const,
+    member: 'channels.saveConfig' as const,
   },
   /** One channel's decrypted config, or null when none is saved. */
   'channel:loadConfig': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as Record<string, string> | null,
-    member: 'homeAgent.channel.loadConfig' as const,
+    member: 'channels.loadConfig' as const,
   },
   /** Delete one channel's saved config file. */
   'channel:clearConfig': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as void,
-    member: 'homeAgent.channel.clearConfig' as const,
+    member: 'channels.clearConfig' as const,
   },
   /** Persist the verified/enabled setup flags without touching credentials. */
   'channel:savePrefs': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, { verified?: boolean; enabled?: boolean }],
     result: null as unknown as IpcMutationResult,
-    member: 'homeAgent.channel.savePrefs' as const,
+    member: 'channels.savePrefs' as const,
   },
   /** One channel's persisted setup flags, or null when none saved. */
   'channel:loadPrefs': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as { verified: boolean; enabled: boolean } | null,
-    member: 'homeAgent.channel.loadPrefs' as const,
+    member: 'channels.loadPrefs' as const,
   },
   /** Verify saved credentials with the platform from main (Telegram/Slack/LAN). */
   'channel:test': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as IpcMutationResult,
-    member: 'homeAgent.channel.test' as const,
+    member: 'channels.test' as const,
   },
   /** Inject credentials into the running backend so its channel bot starts. */
   'channel:inject': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, Record<string, string | undefined>],
     result: null as unknown as { status: string; error?: string },
-    member: 'homeAgent.channel.inject' as const,
+    member: 'channels.inject' as const,
   },
   /** Detect the chat id from a freshly pasted credential (saved config as fallback). */
   'channel:detectIdentity': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind, Record<string, string | undefined>],
     result: null as unknown as { identity: string } | { error: string },
-    member: 'homeAgent.channel.detectIdentity' as const,
+    member: 'channels.detectIdentity' as const,
   },
   /** Re-run identity detection from the saved config. */
   'channel:detectIdentityFromSaved': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as { identity: string } | { error: string },
-    member: 'homeAgent.channel.detectIdentityFromSaved' as const,
+    member: 'channels.detectIdentityFromSaved' as const,
   },
   /** Drain one channel's inbound message queue (empty when not running). */
   'channel:poll': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
-    result: null as unknown as HomeAgentInboundMessage[],
-    member: 'homeAgent.channel.poll' as const,
+    result: null as unknown as ChannelInboundMessage[],
+    member: 'channels.poll' as const,
   },
   /** Push any pending outbound messages through the backend. */
   'channel:flushPending': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [ChannelKind],
     result: null as unknown as void,
-    member: 'homeAgent.channel.flushPending' as const,
+    member: 'channels.flushPending' as const,
   },
   /** Send one channel-native action to the platform via the Python backend. */
   'channel:send': {
     kind: 'invoke',
-    owner: 'homeAgent',
+    owner: 'channels',
     args: [] as unknown as readonly [
       ChannelKind,
       (
@@ -2176,7 +2176,7 @@ export const CHANNELS = {
       channel?: string
       messageId?: number
     }>,
-    member: 'homeAgent.channel.send' as const,
+    member: 'channels.send' as const,
   },
 
   // ── Kernel stream (infra) — the event push itself stays hand-wired ──
@@ -2239,7 +2239,7 @@ type ChannelLeaf<S extends string> = S extends `${string}:${infer Leaf}` ? Chann
 
 // A channel's bridge member lives at a path of segments. The natural path is
 // the channel's own namespace segments plus its member name; a row overrides
-// the placement with a dotted `member` ('homeAgent.channel.send' — the whole
+// the placement with a dotted `member` ('channels.send' — the whole
 // path) or `flat: true` (a namespaced channel whose member sits at the top
 // level, like `lifecycle:reportWork`).
 

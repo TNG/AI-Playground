@@ -503,52 +503,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPermissionStatus: () => invoke('screenshot:getPermissionStatus'),
     openPermissionSettings: () => send('screenshot:openPermissionSettings'),
   },
-  homeAgent: {
+  channels: {
     // Local web chat — URL discovery (the chat server lives in the Python
     // backend; this only enumerates reachable addresses for the setup screen).
     // `allowLan` mirrors the bind: loopback only unless LAN access is on.
     localWeb: {
       getUrls: (port: number, allowLan: boolean): Promise<string[]> =>
-        invoke('homeAgent:localWeb:getUrls', port, allowLan),
+        invoke('channels:localWeb:getUrls', port, allowLan),
     },
     // Channel-agnostic dispatcher. Every method is keyed by ChannelKind
     // (`'telegram'` | `'slack'` | `'discord'` | `'local-web'`) so adding a new
     // platform requires zero edits here — only a new entry in the renderer-side
     // channel registry and a Python channel module.
-    channel: {
-      saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
-        invoke('channel:saveConfig', kind, config),
-      loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
-      clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
-      savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
-        invoke('channel:savePrefs', kind, prefs),
-      loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
-      test: (kind: ChannelKind) => invoke('channel:test', kind),
-      inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
-        invoke('channel:inject', kind, config),
-      detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
-        invoke('channel:detectIdentity', kind, config),
-      detectIdentityFromSaved: (kind: ChannelKind) =>
-        invoke('channel:detectIdentityFromSaved', kind),
-      poll: (kind: ChannelKind) => invoke('channel:poll', kind),
-      flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
-      send: (
-        kind: ChannelKind,
-        action:
-          | 'reply'
-          | 'update'
-          | 'photo'
-          | 'video'
-          | 'voice'
-          | 'document'
-          | 'typing'
-          | 'keyboard'
-          | 'editMessage'
-          | 'history'
-          | 'post',
-        payload: Record<string, unknown>,
-      ) => invoke('channel:send', kind, action, payload),
-    },
+    saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
+      invoke('channel:saveConfig', kind, config),
+    loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
+    clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
+    savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
+      invoke('channel:savePrefs', kind, prefs),
+    loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
+    test: (kind: ChannelKind) => invoke('channel:test', kind),
+    inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+      invoke('channel:inject', kind, config),
+    detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+      invoke('channel:detectIdentity', kind, config),
+    detectIdentityFromSaved: (kind: ChannelKind) => invoke('channel:detectIdentityFromSaved', kind),
+    poll: (kind: ChannelKind) => invoke('channel:poll', kind),
+    flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
+    send: (
+      kind: ChannelKind,
+      action:
+        | 'reply'
+        | 'update'
+        | 'photo'
+        | 'video'
+        | 'voice'
+        | 'document'
+        | 'typing'
+        | 'keyboard'
+        | 'editMessage'
+        | 'history'
+        | 'post',
+      payload: Record<string, unknown>,
+    ) => invoke('channel:send', kind, action, payload),
   },
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: {

@@ -9,7 +9,7 @@ import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 const PARSE_MODE = 'HTML' as const
 
 function sendTelegramReply(text: string) {
-  return window.electronAPI.homeAgent.channel.send('telegram', 'reply', {
+  return window.electronAPI.channels.send('telegram', 'reply', {
     text,
     parse_mode: PARSE_MODE,
   })
@@ -25,7 +25,7 @@ function withMessageRef(r: { success: boolean; error?: string; messageId?: numbe
 }
 
 function sendTelegramChatAction(action: string) {
-  return window.electronAPI.homeAgent.channel.send('telegram', 'typing', { action })
+  return window.electronAPI.channels.send('telegram', 'typing', { action })
 }
 
 /** Render one tool-comfyUI / tool-comfyUiImageEdit part as Telegram HTML. */
@@ -104,33 +104,33 @@ export function createTelegramAdapter(): ChannelAdapter {
       }
     },
     photo: async (imageBase64, caption) => {
-      return window.electronAPI.homeAgent.channel.send('telegram', 'photo', {
+      return window.electronAPI.channels.send('telegram', 'photo', {
         photo: imageBase64,
         caption,
       })
     },
     video: async (videoBase64, caption, filename) => {
-      return window.electronAPI.homeAgent.channel.send('telegram', 'video', {
+      return window.electronAPI.channels.send('telegram', 'video', {
         video: videoBase64,
         caption,
         filename,
       })
     },
     voice: async (audioBase64, mime) => {
-      return window.electronAPI.homeAgent.channel.send('telegram', 'voice', {
+      return window.electronAPI.channels.send('telegram', 'voice', {
         audio: audioBase64,
         mime,
       })
     },
     document: async (documentBase64, filename, caption) => {
-      return window.electronAPI.homeAgent.channel.send('telegram', 'document', {
+      return window.electronAPI.channels.send('telegram', 'document', {
         document: documentBase64,
         filename,
         caption,
       })
     },
     keyboard: async (text, buttons) => {
-      const r = await window.electronAPI.homeAgent.channel.send('telegram', 'keyboard', {
+      const r = await window.electronAPI.channels.send('telegram', 'keyboard', {
         text,
         parse_mode: PARSE_MODE,
         // Translate the channel-agnostic button matrix to snake_case Telegram-style
@@ -144,7 +144,7 @@ export function createTelegramAdapter(): ChannelAdapter {
     },
     post: async (text) => {
       return withMessageRef(
-        await window.electronAPI.homeAgent.channel.send('telegram', 'post', {
+        await window.electronAPI.channels.send('telegram', 'post', {
           text,
           parse_mode: PARSE_MODE,
         }),
@@ -152,7 +152,7 @@ export function createTelegramAdapter(): ChannelAdapter {
     },
     editKeyboardMessage: async (ref, text) => {
       if (typeof ref.messageId !== 'number') return { success: false, error: 'no message id' }
-      const r = await window.electronAPI.homeAgent.channel.send('telegram', 'editMessage', {
+      const r = await window.electronAPI.channels.send('telegram', 'editMessage', {
         message_id: ref.messageId,
         text,
         parse_mode: PARSE_MODE,

@@ -63,7 +63,7 @@ export function useSlackSetup() {
     const appT = (appTokenInput.value || currentSavedApp()).trim()
     if (!bot || !appT) return
     try {
-      await window.electronAPI.homeAgent.channel.inject('slack', {
+      await window.electronAPI.channels.inject('slack', {
         botToken: bot,
         appToken: appT,
         userId: detectedUserId.value || undefined,
@@ -76,7 +76,7 @@ export function useSlackSetup() {
   async function pollForUserId(): Promise<{ userId: string } | { error: string }> {
     const bot = botTokenInput.value.trim()
     try {
-      const quick = await window.electronAPI.homeAgent.channel.detectIdentity('slack', {
+      const quick = await window.electronAPI.channels.detectIdentity('slack', {
         botToken: bot,
       })
       if ('identity' in quick) return { userId: quick.identity }
@@ -91,7 +91,7 @@ export function useSlackSetup() {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, DETECT_POLL_INTERVAL_MS))
       try {
-        const r = await window.electronAPI.homeAgent.channel.detectIdentity('slack', {
+        const r = await window.electronAPI.channels.detectIdentity('slack', {
           botToken: bot,
         })
         if ('identity' in r) {
@@ -119,7 +119,7 @@ export function useSlackSetup() {
       const appT = appTokenInput.value.trim()
       if (bot && appT) {
         try {
-          await window.electronAPI.homeAgent.channel.inject('slack', {
+          await window.electronAPI.channels.inject('slack', {
             botToken: bot,
             appToken: appT,
           })
@@ -128,7 +128,7 @@ export function useSlackSetup() {
         }
         result = await pollForUserId()
       } else {
-        const r = await window.electronAPI.homeAgent.channel.detectIdentityFromSaved('slack')
+        const r = await window.electronAPI.channels.detectIdentityFromSaved('slack')
         result = 'identity' in r ? { userId: r.identity } : { error: r.error }
       }
       if ('userId' in result) {
@@ -138,7 +138,7 @@ export function useSlackSetup() {
         const appT2 = appTokenInput.value.trim() || currentSavedApp()
         if (bot2 && appT2) {
           try {
-            await window.electronAPI.homeAgent.channel.inject('slack', {
+            await window.electronAPI.channels.inject('slack', {
               botToken: bot2,
               appToken: appT2,
               userId: result.userId,
@@ -148,7 +148,7 @@ export function useSlackSetup() {
           }
         }
         try {
-          await window.electronAPI.homeAgent.channel.flushPending('slack')
+          await window.electronAPI.channels.flushPending('slack')
         } catch (e) {
           console.error('runDetectUserId: flushPending(slack) failed:', e)
         }
@@ -188,7 +188,7 @@ export function useSlackSetup() {
         verifyError.value = 'No DM partner detected — complete Step 3 (Detect) first.'
         return
       }
-      const result = await window.electronAPI.homeAgent.channel.test('slack')
+      const result = await window.electronAPI.channels.test('slack')
       if (result.success) {
         channelStore.setVerified('slack')
         verifyStatus.value = 'success'

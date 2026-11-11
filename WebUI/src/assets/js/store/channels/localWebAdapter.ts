@@ -1,7 +1,7 @@
 // Local web ChannelAdapter — delivers replies to browsers on the LAN via SSE.
 //
 // Structurally identical to the Telegram / Slack adapters: every method funnels
-// through `window.electronAPI.homeAgent.channel.send('local-web', …)`, i.e. the
+// through `window.electronAPI.channels.send('local-web', …)`, i.e. the
 // same generic IPC → Flask `/channel/local-web/send/<action>` path the other
 // channels use. The Python `LocalWebChannel` turns each send into one SSE event.
 
@@ -69,7 +69,7 @@ function send(
     | 'post',
   payload: Record<string, unknown>,
 ) {
-  return window.electronAPI.homeAgent.channel.send('local-web', action, payload)
+  return window.electronAPI.channels.send('local-web', action, payload)
 }
 
 /** Final message: coalesce every reasoning part into one collapsed block above

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { homeAgentNotificationChannel } from '../../agent/notificationChannelSend'
+import { createNotificationChannel } from '../../agent/notificationChannelSend'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 
 // What the Home Agent channel is asked to send for a Notification, per platform.
@@ -8,7 +8,7 @@ function recorder(
   result: { messageId?: number; ts?: string; channel?: string } = { messageId: 41 },
 ) {
   const calls: Array<{ kind: ChannelKind; action: string; payload: Record<string, unknown> }> = []
-  const channel = homeAgentNotificationChannel(async (kind, action, payload) => {
+  const channel = createNotificationChannel(async (kind, action, payload) => {
     calls.push({ kind, action, payload })
     return { success: true, ...result }
   })
@@ -223,7 +223,7 @@ describe('a Notification handed to the Home Agent channel', () => {
   })
 
   it('passes a failed send on', async () => {
-    const { send } = homeAgentNotificationChannel(async () => ({
+    const { send } = createNotificationChannel(async () => ({
       success: false,
       error: 'offline',
     }))

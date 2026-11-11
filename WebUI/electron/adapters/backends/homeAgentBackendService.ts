@@ -7,8 +7,8 @@ import { app, BrowserWindow, net, safeStorage } from 'electron'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import { ipcFail } from '../../kernel/typedIpc'
 import { registerInvokeHandlers } from '../../kernel/ipcRegistries'
-import { buildHomeAgentRegistry } from '../../kernel/registries/homeAgent'
-import type { HomeAgentInboundMessage } from '@/types/homeAgentIpc'
+import { buildChannelsRegistry } from '../../kernel/registries/channels'
+import type { ChannelInboundMessage } from '@/types/channelIpc'
 import type { IpcMutationResult, IpcOkWith } from '@/types/ipcChannels'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
 import { aipgBaseDir, checkBackend, installBackend } from '../install/uvBasedBackends/uv.ts'
@@ -524,13 +524,13 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
     }
   }
 
-  async channelPoll(kind: ChannelKind): Promise<HomeAgentInboundMessage[]> {
+  async channelPoll(kind: ChannelKind): Promise<ChannelInboundMessage[]> {
     if (this.currentStatus !== 'running') return []
     try {
       const res = await net.fetch(`${this.baseUrl}/channel/${kind}/poll`, {
         headers: this.authHeaders(),
       })
-      return (await res.json()) as HomeAgentInboundMessage[]
+      return (await res.json()) as ChannelInboundMessage[]
     } catch {
       return []
     }
@@ -808,6 +808,6 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
   // ── IPC registration ────────────────────────────────────────────────────
 
   registerIpcHandlers(): void {
-    registerInvokeHandlers(buildHomeAgentRegistry(this))
+    registerInvokeHandlers(buildChannelsRegistry(this))
   }
 }

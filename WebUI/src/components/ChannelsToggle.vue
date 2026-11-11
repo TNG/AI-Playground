@@ -4,14 +4,14 @@
       class="text-xs font-medium select-none text-foreground"
       style="line-height: 1; vertical-align: middle"
     >
-      Home Agent
+      Channels
     </span>
 
     <button
       type="button"
       role="switch"
       :aria-checked="isOn"
-      :aria-label="`Home Agent: ${isOn ? 'on' : 'off'}`"
+      :aria-label="`Channels: ${isOn ? 'on' : 'off'}`"
       :title="masterTitle"
       :disabled="!isAvailable || !hasConfiguredChannel"
       class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
@@ -34,8 +34,8 @@
 
     <button
       type="button"
-      title="Revisit Home Agent setup"
-      aria-label="Revisit Home Agent setup"
+      title="Revisit Channel setup"
+      aria-label="Revisit Channel setup"
       class="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       :disabled="!isInstalled"
       @click="openSetup"
@@ -76,16 +76,16 @@ const activeCount = computed(
 
 const masterTitle = computed(() => {
   if (!isInstalled.value)
-    return 'Home Agent is not installed. Install it from App Settings → Installation Management.'
-  if (!isAvailable.value) return 'Home Agent backend is starting…'
+    return 'Channels are not installed. Install them from App Settings → Installation Management.'
+  if (!isAvailable.value) return 'The Channels service is starting…'
   if (!hasConfiguredChannel.value)
     return 'No channels set up yet — open Setup to connect Telegram or Slack first.'
   return channelStore.masterEnabled
-    ? 'Home Agent is on — click to turn off. Enable individual channels in Setup.'
-    : 'Home Agent is off — click to turn on. Enable individual channels in Setup.'
+    ? 'Channels are on — click to turn off. Enable individual channels in Setup.'
+    : 'Channels are off — click to turn on. Enable individual channels in Setup.'
 })
 
 function openSetup() {
-  setupWizard.openHomeAgentSetup().catch((e: unknown) => errors.report(e, { surface: 'silent' }))
+  setupWizard.openChannelsSetup().catch((e: unknown) => errors.report(e, { surface: 'silent' }))
 }
 </script>

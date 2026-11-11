@@ -294,7 +294,7 @@ async function handlePrompt(request: PermissionsPromptPayload): Promise<void> {
   try {
     switch (request.kind) {
       case 'is-remote': {
-        // An Agent Mode turn is never a remote turn's, whatever the Home Agent is doing.
+        // An Agent Mode turn is never a remote turn's, whatever the Channels are doing.
         const key = request.conversationKey
         const remote =
           answerDownloadSession(key) !== null ||

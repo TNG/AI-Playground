@@ -197,7 +197,7 @@ class SlackChannel(ChannelBase):
             if posted:
                 return posted
         logger.warning(
-            "Slack upload %s not shared within %.1fs; a reply to it reaches Home Agent",
+            "Slack upload %s not shared within %.1fs; a reply to it is a plain message",
             file["id"],
             sum(_SHARE_LOOKUP_DELAYS),
         )

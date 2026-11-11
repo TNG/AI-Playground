@@ -155,7 +155,7 @@ export const CHANNELS: ChannelDescriptor[] = [
     composable: () => useTelegramSetup(),
     identityLabel: 'Telegram chat ID',
     identityHelp:
-      'The Telegram chat the Home Agent talks to. It only answers messages from this chat.',
+      'The Telegram chat AI Playground talks to. It only answers messages from this chat.',
     capabilities: {
       socketModeOnly: false,
       supportsDraftStream: true,
@@ -172,7 +172,7 @@ export const CHANNELS: ChannelDescriptor[] = [
     composable: () => useSlackSetup(),
     identityLabel: 'Slack member ID',
     identityHelp:
-      'Your Slack member ID. The Home Agent only replies to direct messages from this account.',
+      'Your Slack member ID. AI Playground only replies to direct messages from this account.',
     capabilities: {
       socketModeOnly: true,
       supportsDraftStream: true,

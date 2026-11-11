@@ -11,7 +11,7 @@ import { getChannelMessageMapDemoFile, getChannelMessageMapFile } from './userDa
  * the Session and Harness Session that sent it. An entry routes there as long as that
  * Harness Session lives; there is no time-based expiry, so a days-old Notification can still
  * be answered. Deleting ends that routing but keeps each entry as a tombstone (no owner):
- * dropping it would hand a later Answer to Home Agent as a plain message, where the user
+ * dropping it would route a later Answer as a plain message, where the user
  * must instead be told the session no longer exists.
  */
 
@@ -51,7 +51,7 @@ function mapFile(): string {
   return deps?.isDemoMode() ? getChannelMessageMapDemoFile() : getChannelMessageMapFile()
 }
 
-// Losing the map only turns later Answers into Home Agent messages, so an unreadable
+// Losing the map only turns later Answers into plain messages, so an unreadable
 // file is started over rather than kept. Only called on the file chain.
 async function readEntries(): Promise<Entry[]> {
   const read = await readJson(mapFile(), LOG_SCOPE)

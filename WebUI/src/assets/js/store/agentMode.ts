@@ -908,7 +908,7 @@ export const useAgentMode = defineStore(
       const missing = checked.filter((m) => !m.already_loaded)
       if (missing.length === 0) return { status: 'ready' }
       // The permissions layer owns the prompt (the shared download modal, or
-      // the in-channel question on a remote Home Agent turn), so the agent
+      // the in-channel question on a Channel turn), so the agent
       // store does not touch the dialog store directly — the same seam chat
       // and media use (AGENTS.md: "Report through the sink, not directly").
       try {

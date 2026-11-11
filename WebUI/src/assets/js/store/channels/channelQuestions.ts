@@ -25,7 +25,7 @@ export type ChannelQuestionAsk = {
   adapter: ChannelAdapter
   meta?: InboundMeta
   summaryMarkdown: string
-  /** Home Agent in-turn confirmations: a typed yes/no answers, anything else typed declines. */
+  /** In-turn confirmations: a typed yes/no answers, anything else typed declines. */
   typedReply?: boolean
   /** Declines after this long; omitted means the question stays open until settled. */
   timeoutMs?: number
@@ -53,7 +53,7 @@ export type ChannelQuestionRegistry = {
   /** Retires every button-only Channel Question not asked on one of `kinds`. */
   retireOutside: (kinds: readonly ChannelKind[], note: string) => void
   isOpen: (id: string) => boolean
-  /** True when the message answered a question, or tapped a closed one, and must not reach the Home Agent. */
+  /** True when the message answered a question, or tapped a closed one, and must not be routed on. */
   handleInbound: (adapter: ChannelAdapter, msg: InboundAnswer, meta?: InboundMeta) => boolean
 }
 

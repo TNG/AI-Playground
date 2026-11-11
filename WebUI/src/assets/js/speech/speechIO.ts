@@ -24,7 +24,7 @@ import type {
  * Speech I/O adapter — the one engine seam every speech driver crosses (§4.2
  * of docs/architecture-target.md): the mic and STT preset, the `transcribeAudio`
  * tool, "Speak replies" and the Speak button, the `synthesizeTextToSpeech`
- * tool, and the Home Agent voice paths. Engine selection, readiness, endpoint
+ * tool, and the Channel voice paths. Engine selection, readiness, endpoint
  * resolution and the engine clients (Whisper OVMS / standalone sidecar /
  * external, Qwen3-TTS / Kokoro / external) live behind this module; drivers
  * must not import the TTS/STT stores or branch on the engine themselves.
@@ -77,7 +77,7 @@ export type SynthesizeClipRequest = {
   text: string
   voice?: SpeechVoiceRequest
   /**
-   * Unattended callers (Home Agent channels): never prompt a download; return
+   * Unattended callers (Channels): never prompt a download; return
    * `null` instead when the engine's prerequisites (installed backend, model
    * on disk, configured endpoint) are missing.
    */
@@ -243,7 +243,7 @@ export async function transcribe(req: { audio: Blob }): Promise<TranscriptResult
 /**
  * Synthesize a speech clip through the user's selected engine — the shared
  * engine path of the `synthesizeTextToSpeech` tool (Artifact's `create-speech`
- * to be) and the Home Agent voice reply. Qwen3 honors the full voice request;
+ * to be) and the Channel voice reply. Qwen3 honors the full voice request;
  * Kokoro and the external endpoint synthesize with their configured voice.
  *
  * Attended synthesis throws on failure; only an `unattended` request can

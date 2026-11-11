@@ -418,7 +418,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
-  // A post, not a reply: a reply would settle a Home Agent answer still streaming.
+  // A post, not a reply: a reply would settle an answer still streaming.
   async function tell(adapter: ChannelAdapter, text: string, meta?: InboundMeta): Promise<void> {
     await adapter
       .post(adapter.formatMarkdown(text), meta)

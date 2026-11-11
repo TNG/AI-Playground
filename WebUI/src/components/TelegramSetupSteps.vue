@@ -114,8 +114,8 @@
       <div class="flex-1">
         <p class="text-sm font-medium">Verify Connection</p>
         <p class="text-xs text-muted-foreground pt-0.5">
-          Send a test message to confirm everything works. The Home Agent toggle will only be
-          enabled after a successful test.
+          Send a test message to confirm everything works. The Telegram toggle will only be enabled
+          after a successful test.
         </p>
         <div class="flex items-center gap-3 pt-2">
           <button

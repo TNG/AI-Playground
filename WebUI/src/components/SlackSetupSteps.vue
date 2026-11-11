@@ -17,7 +17,7 @@
           your workspace.
         </p>
         <p class="text-xs text-muted-foreground pt-1">
-          Home Agent uses
+          Channels use
           <a
             class="text-primary underline"
             href="#"
@@ -161,8 +161,8 @@
       <div class="flex-1">
         <p class="text-sm font-medium">Verify Connection</p>
         <p class="text-xs text-muted-foreground pt-0.5">
-          Send a test DM to confirm everything works. The Home Agent Slack toggle will only be
-          enabled after a successful test.
+          Send a test DM to confirm everything works. The Slack toggle will only be enabled after a
+          successful test.
         </p>
         <div class="flex items-center gap-3 pt-2">
           <button
@@ -247,7 +247,7 @@ function openExternalUrl(url: string) {
 const MANIFEST_JSON = JSON.stringify(
   {
     display_information: {
-      name: 'AI Playground Home Agent',
+      name: 'AI Playground',
       description: 'Chat with AI Playground from Slack — DMs only, runs over Socket Mode.',
       background_color: '#0f172a',
     },

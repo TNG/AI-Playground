@@ -94,7 +94,7 @@ if (initialPage !== null) {
 startMediaRequestBridge()
 // Chat tools run in main and ask this side by name for the few things that are
 // genuinely the window's: the speech engine (and its download prompt),
-// Chromium's audio decoder, and the Home Agent confirmation card.
+// Chromium's audio decoder, and a Channel's spoken reply.
 startChatAskBridge()
 startCloseAskBridge()
 startModelDownloader()

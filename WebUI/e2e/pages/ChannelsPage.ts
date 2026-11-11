@@ -1,31 +1,31 @@
 import { type Page, type Locator, test, expect } from '@playwright/test'
 
 /**
- * Page object for the Home Agent setup page (HomeAgentSetupPage.vue) and the
- * title-bar master toggle (HomeAgentToggle.vue). Scoped to the "Local web chat"
+ * Page object for the Channel setup page (ChannelsSetupPage.vue) and the
+ * title-bar master toggle (ChannelsToggle.vue). Scoped to the "Local web chat"
  * channel — the browser-served, LAN-reachable third option alongside Telegram
  * and Slack.
  */
-export class HomeAgentPage {
+export class ChannelsPage {
   constructor(private readonly window: Page) {}
 
   private get heading(): Locator {
-    return this.window.getByRole('heading', { name: 'Home Agent Setup' })
+    return this.window.getByRole('heading', { name: 'Channel Setup' })
   }
 
   private get setupCog(): Locator {
-    return this.window.getByRole('button', { name: 'Revisit Home Agent setup' })
+    return this.window.getByRole('button', { name: 'Revisit Channel setup' })
   }
 
   private get masterToggle(): Locator {
-    return this.window.getByRole('switch', { name: /^Home Agent: (on|off)$/ })
+    return this.window.getByRole('switch', { name: /^Channels: (on|off)$/ })
   }
 
-  /** Reach the Home Agent setup page — either it's already showing (we were
+  /** Reach the Channel setup page — either it's already showing (we were
    *  routed here straight after installing the backend) or we open it from the
    *  title-bar gear. */
   async open(): Promise<void> {
-    await test.step('Open Home Agent setup', async () => {
+    await test.step('Open Channel setup', async () => {
       if (await this.heading.isVisible().catch(() => false)) return
       await expect(this.setupCog).toBeEnabled({ timeout: 120_000 })
       await this.setupCog.click()
@@ -80,7 +80,7 @@ export class HomeAgentPage {
 
   /** Leave the setup page via the footer primary button ("Continue" / "Done"). */
   async finishSetup(): Promise<void> {
-    await test.step('Finish Home Agent setup', async () => {
+    await test.step('Finish Channel setup', async () => {
       const primary = this.window.getByRole('button', { name: /^(Continue|Done)$/ })
       if (await primary.isVisible().catch(() => false)) await primary.click()
       await expect(this.heading).toBeHidden({ timeout: 30_000 })
@@ -89,7 +89,7 @@ export class HomeAgentPage {
 
   /** Ensure the title-bar master switch is on so verified channels actually run. */
   async ensureMasterOn(): Promise<void> {
-    await test.step('Turn the Home Agent master switch on', async () => {
+    await test.step('Turn the Channels master switch on', async () => {
       await expect(this.masterToggle).toBeEnabled({ timeout: 60_000 })
       if ((await this.masterToggle.getAttribute('aria-checked')) !== 'true') {
         await this.masterToggle.click()

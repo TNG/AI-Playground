@@ -348,7 +348,7 @@ class LocalWebChannel(ChannelBase):
 
     def send_post(self, payload: dict) -> SendResult:
         # Its own action rather than a reply: a reply settles the streaming draft
-        # bubble, and this message must never take over a Home Agent answer.
+        # bubble, and this message must never take over a streaming answer.
         return self._send_with_id("post", {"text": payload.get("text", "")}, payload)
 
     def send_edit_message(self, payload: dict) -> SendResult:
@@ -533,7 +533,7 @@ class LocalWebChannel(ChannelBase):
         self._thread = t
         t.start()
         logger.info(
-            "Local web Home Agent listening on %s:%d (allowLan=%s)",
+            "Local web Channel listening on %s:%d (allowLan=%s)",
             host,
             port,
             allow_lan,

@@ -201,7 +201,7 @@
       </template>
     </template>
 
-    <!-- In a Session timeline both live in the Turn; this is the Home Agent thread view. -->
+    <!-- In a Session timeline both live in the Turn; this is the view of a chat with no Session open. -->
     <ChatActivityIndicator
       v-if="!section && last && hasActivity && !messageHasLiveMedia(message)"
       :conversation-key="conversationKey"

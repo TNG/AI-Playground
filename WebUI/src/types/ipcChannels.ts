@@ -851,7 +851,7 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ChannelKind, string],
     result: null as unknown as ChannelMessageOwner | null,
   },
-  /** The Home Agent state main's Notifier delivers through; pushed on every change. */
+  /** The Channel state main's Notifier delivers through; pushed on every change. */
   'notifications:setConfig': {
     kind: 'send',
     owner: 'main',

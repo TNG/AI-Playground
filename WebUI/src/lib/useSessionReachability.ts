@@ -34,6 +34,6 @@ export function useSessionReachability() {
     channelsSetUp,
     usesRealShell,
     setReachable,
-    openChannelSetup: () => setupWizard.openHomeAgentSetup(),
+    openChannelSetup: () => setupWizard.openChannelsSetup(),
   }
 }

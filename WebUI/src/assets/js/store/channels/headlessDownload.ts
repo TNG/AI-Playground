@@ -11,7 +11,7 @@ import type { ChannelMessageRef, InboundMeta } from './types'
 
 const EDIT_THROTTLE_MS = 3000
 
-/** The channel lines of a download; the Home Agent chat path keeps the English defaults. */
+/** The channel lines of a download; a Channel's own download keeps the English defaults. */
 export type HeadlessDownloadText = {
   /** Another Model Download runs first; a bare "Confirmed" would read as finished. */
   queued: string
@@ -132,7 +132,7 @@ function outcomeLine(outcome: ModelDownloadOutcome, text: HeadlessDownloadText):
 }
 
 /**
- * A Home Agent chat turn's approved download: one Model Download in the shared
+ * A Channel's approved download: one Model Download in the shared
  * queue, followed by one channel message that is edited in place. A turn that only
  * joined Model Downloads already running posts nothing.
  */

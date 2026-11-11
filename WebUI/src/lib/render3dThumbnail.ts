@@ -4,7 +4,7 @@ import skyboxImage from '@/assets/image/qwantani_moonrise_puresky_8k.jpg'
 /**
  * Render a still thumbnail of a 3D model (`.glb`) on-device using a hidden
  * `<model-viewer>` element. Chat clients (Telegram, Slack) have no inline
- * glTF preview, so Home Agent ships 3D models as a document accompanied by
+ * glTF preview, so a Channel ships 3D models as a document accompanied by
  * this thumbnail sent as a photo.
  *
  * The model URL (e.g. an `aipg-media://…` URL) is handed to `<model-viewer>`
@@ -33,7 +33,7 @@ export async function render3dThumbnail(
 
   // Register the <model-viewer> custom element on first use. Loaded lazily (rather
   // than as a top-level side-effect import) so this browser-only dependency stays
-  // out of the static import graph of headless callers (e.g. the Home Agent store
+  // out of the static import graph of headless callers (e.g. the Channels store
   // pulled in by Pinia stores under test).
   await import('@google/model-viewer')
 

@@ -364,7 +364,7 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(store.processing).toBe(false)
   })
 
-  it('adopts panel-owned runs it did not submit itself (Home Agent /imgGen)', async () => {
+  it('adopts panel-owned runs it did not submit itself', async () => {
     const store = useImageGenerationPresets()
     await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
     for (const listener of kernelListeners) {

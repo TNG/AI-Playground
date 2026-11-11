@@ -1,6 +1,6 @@
 /**
- * Home Agent channel IPC: the inbound message shape `channel:poll` answers.
- * The `channel:*` handlers are registered by the Home Agent backend service
+ * Channel IPC: the inbound message shape `channel:poll` answers.
+ * The `channel:*` handlers are registered by the Channels backend service
  * (`homeAgentBackendService.registerIpcHandlers`), so they exist only while
  * that service is installed.
  */

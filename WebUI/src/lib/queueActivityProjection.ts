@@ -12,7 +12,7 @@ import type { KernelQueueEvent, TurnWork } from '@/types/kernelEvents'
 // and restored when the run starts or is cancelled while queued. Panel runs
 // carry no activityId — a panel run waiting in the Turn Queue is labelled on the
 // generation overlay by the imageGenerationPresets store, with `turnQueuedLabel`.
-// A Chat / Home Agent turn waiting in the Turn Queue gets its own chat-scoped
+// A Chat turn waiting in the Turn Queue gets its own chat-scoped
 // activity ("Queued (2nd), waiting for …") until it takes the place; agent
 // turns show their wait on the session instead.
 

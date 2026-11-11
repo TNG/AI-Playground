@@ -1,7 +1,7 @@
 /**
  * A Session's shared chat transcript: the messages of its display timeline that
  * carry `metadata.chatTurn`. The chat store addresses it under a conversation
- * key of its own, so Home Agent threads keep their keys and their files.
+ * key of its own, beside the conversations that are no Session's.
  */
 
 const SESSION_CHAT_PREFIX = 'session:'

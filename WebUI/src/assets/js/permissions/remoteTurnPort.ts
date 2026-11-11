@@ -3,9 +3,9 @@ import type { AgentAnswerOrigin } from '@/types/agentIpc'
 /**
  * The thin remote-turn port (architecture-target §8.2 leftover, step 13).
  *
- * Permissions must not instantiate the Home Agent store: that store is the
+ * Permissions must not instantiate the Channels store: that store is the
  * rest of the renderer graph, and a consent prompt that reaches through it
- * cannot move into main. Home Agent registers `{ isActive, downloadModels }`
+ * cannot move into main. The Channels store registers `{ isActive, downloadModels }`
  * at store setup; callers that never register get a desktop-only fallback
  * (no remote turn is active).
  */

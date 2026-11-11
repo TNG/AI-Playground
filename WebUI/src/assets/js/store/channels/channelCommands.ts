@@ -13,7 +13,7 @@ export type ChannelCommandContext = {
 
 /**
  * A router-owned slash command. Every command also needs its Python, Slack manifest and LAN
- * chat menu entries (AGENTS.md, "Home Agent Slash Commands").
+ * chat menu entries (AGENTS.md, "Channel Slash Commands").
  */
 export type ChannelCommand = {
   /** Lowercase, without the slash. */

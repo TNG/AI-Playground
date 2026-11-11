@@ -1,6 +1,6 @@
 // Port parsing for the LAN chat setup step. Its own module (like
 // `confirmationReply.ts`) so the rule can be unit-tested without pulling the
-// Home Agent store into the test.
+// Channels store into the test.
 
 export const DEFAULT_LOCAL_WEB_PORT = 8765
 export const MIN_LOCAL_WEB_PORT = 1024

@@ -108,7 +108,7 @@ export function useLocalWebSetup() {
 
   async function ensureSecretStorageReady(): Promise<'ok' | 'cancelled' | 'failed'> {
     if (await window.electronAPI.safeStorage.isEncryptionAvailable()) return 'ok'
-    const confirmed = await dialogs.requestConfirmation(i18n.state.HOME_AGENT_LAN_INSECURE_STORAGE)
+    const confirmed = await dialogs.requestConfirmation(i18n.state.CHANNELS_LAN_INSECURE_STORAGE)
     if (!confirmed) return 'cancelled'
     const result = await window.electronAPI.safeStorage.enablePlainTextEncryption()
     return result.success ? 'ok' : 'failed'

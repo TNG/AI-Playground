@@ -1057,7 +1057,7 @@ async function createWindow() {
  * Load the app document into an already-created window.
  *
  * Split from createWindow so the renderer only boots once the service registry
- * exists: several stores fire IPC the moment they are created — homeAgent's
+ * exists: several stores fire IPC the moment they are created — the Channels store's
  * `channel:loadConfig`, whose handler is registered off the registry's
  * home-agent service, and the setup wizard's `getServices`. A renderer that won
  * that race got "No handler registered for 'channel:loadConfig'" and an empty
@@ -1418,7 +1418,7 @@ function wireChannelMessageMap(settings: LocalSettings): void {
  * Chat turns run in main (architecture-target §8 step 6): the renderer submits
  * a typed request over `chat:submitTurn` and consumes kernel `chat-chunk`
  * events. These deps are the only pieces of that engine that live outside the
- * chat modules — the service registry, last-load memory, the Home Agent
+ * chat modules — the service registry, last-load memory, the Channels
  * loopback token, and on-disk aipg-media bytes.
  */
 function wireChatEngine(): void {
@@ -1528,7 +1528,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
-  // Home Agent or in-process agent tool — is bracketed through these, so the
+  // Channels or in-process agent tool — is bracketed through these, so the
   // renderer's stop/return wraps and the occupancy refcount are gone.
   setOrchestratorDeps({
     stopChatForMedia: stopChatServicesForMedia,

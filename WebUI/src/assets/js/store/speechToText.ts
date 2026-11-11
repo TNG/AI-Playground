@@ -45,7 +45,7 @@ export type TranscriptionEndpoint = {
  * silently starting a recording when the download finishes captures whatever
  * happens to be said next — which then gets transcribed as gibberish. Callers
  * that only transcribe already-captured audio (the transcribeAudio tool, the
- * Home Agent voice pipeline) can ignore it and proceed.
+ * Channel voice pipeline) can ignore it and proceed.
  */
 export type SttReadyResult = { downloadPrompted: boolean }
 
@@ -82,7 +82,7 @@ export const useSpeechToText = defineStore(
     const productMode = useProductMode()
 
     /**
-     * App-wide fallback transcription endpoint. Shared by both the Home Agent
+     * App-wide fallback transcription endpoint. Shared by both the Channel
      * voice-message pipeline and the regular mic-STT path so transcription
      * works even without OVMS installed.
      */
@@ -258,7 +258,7 @@ export const useSpeechToText = defineStore(
 
     /**
      * Dialog-free variant of {@link ensureStandaloneReady} for unattended paths
-     * (the Home Agent's remote voice notes): start the sidecar if it is installed
+     * (voice messages from a Channel): start the sidecar if it is installed
      * and its model is already on disk, and otherwise do nothing. Never prompts —
      * a remote sender cannot answer a download popup on the host.
      */
@@ -367,7 +367,7 @@ export const useSpeechToText = defineStore(
       const engine = effectiveSttEngine.value
       // Standalone only when the sidecar can actually serve: installed-without-
       // its-model would otherwise return the sidecar URL and skip a configured
-      // external fallback (Home Agent's dialog-free path never prompts a download).
+      // external fallback (a Channel's dialog-free path never prompts a download).
       if (engine === 'standalone') {
         const endpoint = await resolveStandaloneEndpointIfReady()
         if (endpoint) return endpoint

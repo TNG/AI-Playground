@@ -40,7 +40,7 @@ export function useTelegramSetup() {
       if ('identity' in quick) return { chatId: quick.identity }
     } catch (e) {
       console.error('pollForChatId initial detectIdentity failed:', e)
-      detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+      detectError.value = 'Failed to contact the Channels service. Is it running?'
       return { error: detectError.value }
     }
 
@@ -56,7 +56,7 @@ export function useTelegramSetup() {
         }
       } catch (e) {
         console.error('pollForChatId poll detectIdentity failed:', e)
-        detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+        detectError.value = 'Failed to contact the Channels service. Is it running?'
         return { error: detectError.value }
       }
     }
@@ -172,7 +172,7 @@ export function useTelegramSetup() {
     try {
       await channelStore.clearChannelConfig('telegram')
     } catch (e) {
-      console.error('clearConfig: failed to clear Home Agent config:', e)
+      console.error('clearConfig: failed to clear the Telegram config:', e)
     } finally {
       tokenInput.value = ''
       detectedChatId.value = ''

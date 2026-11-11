@@ -9,7 +9,7 @@
  * submission and the websocket progress through to a settled outcome —
  * streaming phase/item events on the kernel bus so the renderer's stores are
  * pure projections of this module. One run is active at a time; later
- * submissions wait in the orchestrator's queues — panel and Home Agent runs in
+ * submissions wait in the orchestrator's queues — panel runs in
  * the Turn Queue, media nested in a turn (the chat tools' lane, in-process
  * agent direct tools) on the artifact queue.
  *
@@ -153,7 +153,7 @@ export type ArtifactRunnerDeps = {
   modelsMissing(preset: ComfyUiPreset): Promise<ArtifactMissingModel[]>
   /**
    * Ask the user for download consent through the renderer's permissions layer
-   * (dialog / Home Agent in-channel / pre-grants). `true` implies the download
+   * (dialog / Channel in-channel / pre-grants). `true` implies the download
    * completed; `false` means declined or cancelled. `onProgress` fires while
    * the download runs, re-arming the idle watchdog. `conversationKey` names the
    * turn the run belongs to, which pauses while the user is asked (`null`: none).

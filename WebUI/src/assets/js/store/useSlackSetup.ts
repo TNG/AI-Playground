@@ -82,7 +82,7 @@ export function useSlackSetup() {
       if ('identity' in quick) return { userId: quick.identity }
     } catch (e) {
       console.error('pollForUserId initial detectIdentity failed:', e)
-      detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+      detectError.value = 'Failed to contact the Channels service. Is it running?'
       return { error: detectError.value }
     }
 
@@ -100,7 +100,7 @@ export function useSlackSetup() {
         }
       } catch (e) {
         console.error('pollForUserId detectIdentity failed:', e)
-        detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+        detectError.value = 'Failed to contact the Channels service. Is it running?'
         return { error: detectError.value }
       }
     }

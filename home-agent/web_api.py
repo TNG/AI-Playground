@@ -230,7 +230,7 @@ if __name__ == "__main__":
 
     _install_log_redaction()
     logging.basicConfig(level=logging.INFO)
-    print(f"Home Agent backend starting on port {args.port}", flush=True)
+    print(f"Channels backend starting on port {args.port}", flush=True)
 
     # CLI / manual runs may seed credentials via env; Electron uses
     # /channel/<kind>/config exclusively so the subprocess never starts a bot

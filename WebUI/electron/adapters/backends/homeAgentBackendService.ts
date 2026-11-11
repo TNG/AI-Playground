@@ -569,7 +569,8 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
       | 'post',
     payload: ChannelSendPayload,
   ): Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>> {
-    if (this.currentStatus !== 'running') return { success: false, error: 'Home Agent not running' }
+    if (this.currentStatus !== 'running')
+      return { success: false, error: 'The Channels service is not running' }
     try {
       const url = `${this.baseUrl}/channel/${kind}/send/${action}`
       const res = await net.fetch(url, {
@@ -620,9 +621,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
           chat_id: chatId,
           parse_mode: 'HTML',
           text:
-            '✅ <b>Home Agent is connected!</b>\n\n' +
-            'Send me any message — the AI will decide whether to reply with text or generate an image.\n' +
-            'Use /help to see all explicit command overrides.',
+            '✅ <b>AI Playground is connected!</b>\n\n' +
+            'Send me a message to reach your Channel Session, or reply to a Notification to answer it.\n' +
+            'Use /help to see the commands.',
         }),
       })
       if (res.ok) return { success: true }
@@ -664,9 +665,9 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
         body: JSON.stringify({
           channel: userId,
           text:
-            ':white_check_mark: *Home Agent is connected to Slack!*\n\n' +
-            'Send me any message — the AI will decide whether to reply with text or generate an image.\n' +
-            'Use `/help` to see all explicit command overrides.',
+            ':white_check_mark: *AI Playground is connected to Slack!*\n\n' +
+            'Send me a message to reach your Channel Session, or answer a Notification in its thread.\n' +
+            'Use `/help` to see the commands.',
         }),
       })
       const postBody = (await post.json()) as { ok?: boolean; error?: string }
@@ -695,7 +696,7 @@ export class HomeAgentBackendService extends LongLivedPythonApiService {
    *  API to ping — a successful bind IS the verification. */
   private async testLocalWeb(): Promise<IpcMutationResult> {
     if (this.currentStatus !== 'running') {
-      return { success: false, error: 'Home Agent backend is not running yet.' }
+      return { success: false, error: 'The Channels service is not running yet.' }
     }
     const config = this.loadChannelConfig('local-web')
     if (!config || !config.password) {

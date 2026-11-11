@@ -1,4 +1,4 @@
-"""Self-contained chat + login page served by the local-web Home Agent server.
+"""Self-contained chat + login page served by the local-web Channel server.
 
 Ported verbatim from the PoC's ``WebUI/electron/localWebChatAppHtml.ts`` so the
 browser experience is identical, but served by the Python channel instead of an
@@ -17,7 +17,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Home Agent</title>
+  <title>AI Playground</title>
   <style>
     /* Palette mirrors the AI Playground app's shadcn tokens (WebUI index.css):
        light = :root, dark = .dark. Kept as a self-contained copy because this
@@ -137,8 +137,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 <body>
   <div id="login-screen" class="screen" role="group" aria-label="Sign in">
     <div class="login-card">
-      <h1>Home Agent</h1>
-      <p>Enter the password from AI Playground &rarr; Home Agent &rarr; LAN chat.</p>
+      <h1>AI Playground</h1>
+      <p>Enter the password from AI Playground &rarr; Channels &rarr; LAN chat.</p>
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password" placeholder="Password" />
       <div id="login-error"></div>
@@ -149,7 +149,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     <div class="tg-header">
       <div class="tg-avatar">HA</div>
       <div class="tg-header-text">
-        <div class="title">Home Agent</div>
+        <div class="title">AI Playground</div>
         <div class="sub" id="status-line">online</div>
       </div>
     </div>
@@ -197,11 +197,11 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // name (by screen readers, and by the e2e that plays the user), so a settled
     // reply has to be distinguishable from the in-flight draft.
     const LABEL_USER = 'Your message'
-    const LABEL_BOT = 'Home Agent response'
-    const LABEL_DRAFT = 'Home Agent draft'
+    const LABEL_BOT = 'AI Playground response'
+    const LABEL_DRAFT = 'AI Playground draft'
     // A prompt asks for input rather than answering, so it is named apart from a
     // settled reply — "wait for the reply" must not settle on the question.
-    const LABEL_PROMPT = 'Home Agent prompt'
+    const LABEL_PROMPT = 'AI Playground prompt'
     const LABEL_KEYBOARD = 'Choose an option'
     // A message from an agent session, which the user can answer.
     const LABEL_AGENT = 'Agent message'
@@ -337,7 +337,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       scrollBottom()
     }
 
-    /** An agent session's message: it never takes over a streaming Home Agent reply. */
+    /** An agent session's message: it never takes over a streaming reply. */
     function appendAgentHtml(html, media, replyTo) {
       const bubble = bubbleEl(LABEL_AGENT)
       bubble.innerHTML = html
@@ -483,7 +483,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
       bubble.setAttribute('role', 'status')
-      bubble.setAttribute('aria-label', 'Home Agent is typing')
+      bubble.setAttribute('aria-label', 'AI Playground is typing')
       bubble.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span>'
       typingRow.appendChild(av)
       typingRow.appendChild(bubble)
@@ -656,7 +656,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       await postUserMessage(bubble, t, { text: t })
     }
 
-    /** A command is always Home Agent's, so it leaves an Answer chip in place. */
+    /** A command is never an Answer, so it leaves an Answer chip in place. */
     async function sendCommand(cmd) {
       appendUser(cmd)
       await postChat({ text: cmd })

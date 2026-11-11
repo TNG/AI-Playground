@@ -91,7 +91,7 @@ export async function requestVramWarningConsent(req: {
   return answer.confirmed === true
 }
 
-/** Whether a Home Agent remote turn would take this prompt; never one for an Agent Mode turn. */
+/** Whether a Channel turn would take this prompt; never one for an Agent Mode turn. */
 async function isRemoteTurnActive(conversationKey: string | undefined): Promise<boolean> {
   try {
     return (

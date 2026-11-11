@@ -29,7 +29,7 @@ type ChannelAnswering = {
   replyKey: string
   /** The LAN page's chip names the session, so its button carries the title. */
   buttonCarriesTitle: boolean
-  /** A LAN chat `reply` settles the streaming Home Agent bubble; `post` stands on its own. */
+  /** A LAN chat `reply` settles a streaming reply bubble; `post` stands on its own. */
   sendsAsPost: boolean
   /** "typing…" while the turn an Answer started runs, and how it ends; null: main cannot show it. */
   typing: null | 'lapses' | 'stops'

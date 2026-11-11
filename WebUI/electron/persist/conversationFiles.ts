@@ -30,7 +30,7 @@ import {
 /**
  * The kernel's one-writer conversation store (architecture-target §6.1,
  * step 8). Threads live as user-data files — `AI-Playground/conversations/`
- * (`<id>.json` plus `index.json`) — and everything else (renderer, Home Agent
+ * (`<id>.json` plus `index.json`) — and everything else (renderer, Channels
  * surfaces) sends mutations here instead of touching the files.
  *
  * Correctness notes from §6.1, all implemented here: writes are atomic

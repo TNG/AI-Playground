@@ -1,7 +1,7 @@
 import { test } from './fixtures'
 
 // Assistant as a chat: plain text, reasoning, and a Session document the answer must come
-// from. aiDAPTIV™ and Home Agent are left out; media and speech have their own specs.
+// from. aiDAPTIV™ is left out; media and speech have their own specs.
 
 type ChatCase = {
   preset: string

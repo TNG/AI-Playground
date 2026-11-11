@@ -15,7 +15,7 @@ import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
  */
 export const BACKEND_DISPLAY_NAMES = {
   'ai-backend': 'Core Services',
-  'home-agent-backend': 'Home Agent',
+  'home-agent-backend': 'Channels',
   'qwen3-tts-backend': 'Text To Speech (Qwen3-TTS)',
   'whisper-backend': 'Speech To Text (Standalone Whisper)',
   'llamacpp-backend': 'Llama.cpp - GGUF',
@@ -39,7 +39,7 @@ export const CORE_DEPENDENT_DISPLAY_NAMES: BackendDisplayName[] = CORE_DEPENDENT
 )
 
 /**
- * The backends this suite installs (no Home Agent — it is off by default and
+ * The backends this suite installs (no Channels — they are off by default and
  * re-disabled on reopen; Hybrid Cloud is a frontend-only row and is left
  * untouched; the speech sidecars ride along with Core Services).
  * `required` backends can't be toggled off; `hasVersionAction` marks backends

@@ -244,7 +244,7 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   filterLargeMoeOnly: z.boolean().optional(), // Only show large MoE models (e.g. for the Phison aiDAPTIV+ preset)
   advancedMode: z.boolean().optional(), // Show advanced features: unspecified models + system prompt editing + vision model support
   // When true, the preset is hidden from the standard chat PresetSelector. Used for built-in
-  // presets that drive a specific feature (e.g. Home Agent / Telegram) and should not be
+  // presets that drive a specific feature (e.g. a Channel) and should not be
   // selectable from the normal Chat Settings picker.
   excludeFromChatPresetPicker: z.boolean().optional(),
 })

@@ -57,7 +57,7 @@ export const CHANNEL_FIELD_SPEC: Record<ChannelKind, ChannelFieldSpec> = {
   'local-web': { requiredSecrets: ['password'], identityField: 'sessionId' },
 }
 
-/** Runtime-only per-channel state. Lives inside `homeAgent.channels[kind]`,
+/** Runtime-only per-channel state. Lives inside `useChannels().channels[kind]`,
  *  is NEVER persisted (it holds the in-memory secret `config` blob), and is
  *  rebuilt on every launch: `config` is rehydrated from safeStorage and
  *  `active` is re-derived from `channelPrefs` + availability. */

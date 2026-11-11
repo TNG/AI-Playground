@@ -1,15 +1,15 @@
 <template>
   <div class="px-12 py-5 max-w-5xl w-5xl">
-    <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Home Agent Setup</h1>
+    <h1 class="text-center py-1 px-4 rounded-sm text-3xl font-bold">Channel Setup</h1>
     <p class="text-center text-sm text-muted-foreground">
-      {{ i18n.HOME_AGENT_ONLY_WHILE_OPEN }}
+      {{ i18n.CHANNELS_ONLY_WHILE_OPEN }}
     </p>
 
     <p
       v-if="!channelStore.masterEnabled && anyEnabled"
       class="text-center text-xs text-amber-500 pt-2"
     >
-      The Home Agent master switch is off — enabled channels won't run until you turn it on from the
+      The Channels master switch is off — enabled channels won't run until you turn it on from the
       title bar.
     </p>
 
@@ -211,7 +211,7 @@ const emit = defineEmits<{
 const wizard = useSetupWizard()
 const channelStore = useChannels()
 const i18n = useI18N().state
-const isEditMode = computed(() => wizard.homeAgentSetupOrigin === 'edit')
+const isEditMode = computed(() => wizard.channelsSetupOrigin === 'edit')
 
 const answerableNotices = computed(() =>
   channelStore.notificationChannels.flatMap((kind) => {

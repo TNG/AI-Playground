@@ -93,7 +93,7 @@ export class AppDriver {
   }
 
   /**
-   * Install every backend (no Home Agent), then verify via the settings menu that
+   * Install every backend (no Channels), then verify via the settings menu that
    * each is at its pinned version — updating any that are not. Idempotent: on a
    * machine where backends are already installed the wizard is skipped and only
    * the verification runs.
@@ -103,11 +103,11 @@ export class AppDriver {
       const startedOnWizard = await this.waitForWizardOrRunning()
 
       if (startedOnWizard) {
-        await test.step('Enable all backends in the Setup Wizard (no Home Agent)', async () => {
+        await test.step('Enable all backends in the Setup Wizard (no Channels)', async () => {
           await this.wizard.expectVisible()
-          // Home Agent is off by default on a fresh machine, but this also runs on
+          // Channels are off by default on a fresh machine, but this also runs on
           // one where a previous run installed it (which re-selects it on open).
-          await this.wizard.disableBackend('Home Agent')
+          await this.wizard.disableBackend('Channels')
           await this.wizard.enableAll(BACKENDS.map((b) => b.displayName))
         })
 
@@ -122,8 +122,8 @@ export class AppDriver {
         await this.shell.openSetupWizard()
         await this.wizard.expectVisible()
         // Re-opening the wizard reseeds install selection and re-enables any
-        // installed backend, so deactivate Home Agent again before continuing.
-        await this.wizard.disableBackend('Home Agent')
+        // installed backend, so deactivate Channels again before continuing.
+        await this.wizard.disableBackend('Channels')
 
         for (const backend of BACKENDS.filter((b) => b.hasVersionAction)) {
           await test.step(`Check ${backend.displayName} version`, async () => {
@@ -531,9 +531,9 @@ export class AppDriver {
     return test.step('Ensure the Text-to-Speech backend is installed', async () => {
       await this.shell.openSetupWizard()
       await this.wizard.expectVisible()
-      // Re-opening the wizard re-enables installed backends; keep Home Agent off so
+      // Re-opening the wizard re-enables installed backends; keep Channels off so
       // it doesn't divert to its setup page after install.
-      await this.wizard.disableBackend('Home Agent')
+      await this.wizard.disableBackend('Channels')
       // The speech sidecars are nested under Core Services and collapsed on open.
       await this.wizard.expandCoreServices()
 
@@ -550,22 +550,22 @@ export class AppDriver {
   }
 
   /**
-   * Ensure the Home Agent backend is installed and the app is running. Mirrors
+   * Ensure the Channels backend is installed and the app is running. Mirrors
    * {@link ensureTtsBackendInstalled}: {@link installAllBackends} deliberately
-   * turns Home Agent OFF (it diverts to its own setup page after install), so the
-   * Home-Agent specs re-enable and install it explicitly. Returns false (app left
-   * running) when Home Agent isn't offered in this product mode so the caller can
+   * turns Channels OFF (they divert to their own setup page after install), so the
+   * Channel specs re-enable and install it explicitly. Returns false (app left
+   * running) when Channels aren't offered in this product mode so the caller can
    * skip.
    */
-  async ensureHomeAgentBackendInstalled(): Promise<boolean> {
-    return test.step('Ensure the Home Agent backend is installed', async () => {
+  async ensureChannelsBackendInstalled(): Promise<boolean> {
+    return test.step('Ensure the Channels backend is installed', async () => {
       await this.shell.openSetupWizard()
       await this.wizard.expectVisible()
-      const available = await this.wizard.isAvailable('Home Agent')
-      if (available) await this.wizard.enable('Home Agent')
-      // "Install & Continue" when Home Agent is pending; else a no-op "Continue".
-      // Enabling Home Agent routes to its own setup page after install, so we do
-      // NOT assert the running shell here — the caller (HomeAgentPage) drives the
+      const available = await this.wizard.isAvailable('Channels')
+      if (available) await this.wizard.enable('Channels')
+      // "Install & Continue" when Channels are pending; else a no-op "Continue".
+      // Enabling Channels routes to its own setup page after install, so we do
+      // NOT assert the running shell here — the caller (ChannelsPage) drives the
       // setup screen next, whether we landed on it directly or on the shell.
       await this.wizard.installAndContinue()
       return available
@@ -822,8 +822,8 @@ export class AppDriver {
    * turn: raise max-new-tokens to its ceiling and turn thinking off. A heavy-context
    * agentic turn (the 'defaults' tool set fills a large part of the window) can otherwise
    * spend its whole output budget inside <think> and finish with an empty reply, which
-   * reads as "no assistant response". Works on Assistant and on a chat preset (Home
-   * Agent); each control is a best-effort no-op when the model/preset doesn't expose it.
+   * reads as "no assistant response". Works on Assistant and on a chat preset;
+   * each control is a best-effort no-op when the model/preset doesn't expose it.
    */
   async relaxChatGenerationBudget(): Promise<void> {
     await test.step('Raise max tokens and disable thinking for a reliable final answer', async () => {

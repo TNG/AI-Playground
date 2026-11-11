@@ -21,7 +21,7 @@
             id="agent-notify-hint"
             class="text-xs text-amber-500"
           >
-            {{ i18n.AGENT_NOTIFY_NEEDS_HOME_AGENT }}
+            {{ i18n.AGENT_NOTIFY_NEEDS_CHANNEL }}
           </span>
           <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
             {{ capability.unavailableReason }}

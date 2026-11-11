@@ -4,7 +4,7 @@ import { channelMediaType } from '@/lib/channelMediaKind'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
 
-/** The Home Agent backend's `channelSend`, narrowed to what a Notification uses. */
+/** The Channels backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
   kind: ChannelKind,
   action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'document' | 'typing',
@@ -59,7 +59,7 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   }
 }
 
-/** Sends Notifications through the Home Agent channel; the ref is Telegram's id or Slack's ts. */
+/** Sends Notifications through the Channel; the ref is Telegram's id or Slack's ts. */
 export function homeAgentNotificationChannel(send: HomeAgentChannelSend): NotificationChannel {
   return {
     send: async (kind, message) => {

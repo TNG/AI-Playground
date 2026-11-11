@@ -21,9 +21,9 @@
               <button
                 type="button"
                 class="text-primary underline-offset-2 hover:underline"
-                @click="setupWizard.openHomeAgentSetup()"
+                @click="setupWizard.openChannelsSetup()"
               >
-                {{ languages.SETTINGS_PERMISSIONS_SETUP_HOME_AGENT }}
+                {{ languages.SETTINGS_PERMISSIONS_SETUP_CHANNELS }}
               </button>
             </p>
           </div>

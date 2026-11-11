@@ -18,6 +18,7 @@ import { z } from 'zod'
 export const ConversationThreadMetaSchema = z.object({
   presetName: z.string(),
   variant: z.string().nullable().optional(),
+  /** Legacy: a Home Agent thread keeps `homeAgent` here until the Sessions migration reads it. */
   kind: z.enum(['main', 'homeAgent']).optional(),
 })
 

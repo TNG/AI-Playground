@@ -2,7 +2,7 @@ import { test, expect } from './fixtures'
 import type { AppDriver } from './appDriver'
 import type { Page } from '@playwright/test'
 import { MainPage } from './pages/MainPage'
-import { HomeAgentPage } from './pages/HomeAgentPage'
+import { ChannelsPage } from './pages/ChannelsPage'
 import {
   agentMessages,
   agentRepliesTo,
@@ -74,21 +74,21 @@ const ANSWER_TEXT = 'Reply with the single word PINEAPPLE.'
 async function bringUpLanChat(app: AppDriver, window: Page): Promise<void> {
   await app.installAllBackends()
 
-  const homeAgentAvailable = await app.ensureHomeAgentBackendInstalled()
-  test.skip(!homeAgentAvailable, 'Home Agent backend is not available in this product mode')
+  const channelsAvailable = await app.ensureChannelsBackendInstalled()
+  test.skip(!channelsAvailable, 'The Channels backend is not available in this product mode')
 
-  const homeAgent = new HomeAgentPage(window)
+  const channelSetup = new ChannelsPage(window)
   await test.step('Set up the local web chat channel and turn the agent on', async () => {
-    await homeAgent.open()
-    await homeAgent.configureLocalWeb({ port: LOCAL_WEB_PORT, password: LOCAL_WEB_PASSWORD })
-    await homeAgent.finishSetup()
-    await homeAgent.ensureMasterOn()
+    await channelSetup.open()
+    await channelSetup.configureLocalWeb({ port: LOCAL_WEB_PORT, password: LOCAL_WEB_PASSWORD })
+    await channelSetup.finishSetup()
+    await channelSetup.ensureMasterOn()
   })
 }
 
 test.describe('Channels — local web chat', () => {
   test('drives the served chat page end to end', async ({ app, window, electronApp }) => {
-    // Install + Home-Agent bring-up + a real (possibly first-time) model turn all
+    // Install + Channels bring-up + a real (possibly first-time) model turn all
     // exceed the default timeout — match the agentic smoke's budget.
     test.setTimeout(30 * 60_000)
     await bringUpLanChat(app, window)
@@ -189,7 +189,7 @@ test.describe('Channels — local web chat', () => {
   })
 
   test('answers an agent Notification from the LAN page', async ({ app, window, electronApp }) => {
-    // Install + Home Agent bring-up + the Agent preset's own model + two agent turns.
+    // Install + Channels bring-up + the Agent preset's own model + two agent turns.
     test.setTimeout(45 * 60_000)
     await bringUpLanChat(app, window)
 

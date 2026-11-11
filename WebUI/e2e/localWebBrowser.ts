@@ -1,4 +1,4 @@
-// Real-browser driver for the Home Agent "LAN chat" served page. It loads the
+// Real-browser driver for the Channels "LAN chat" served page. It loads the
 // served page in an actual browser and drives its own JavaScript — the login form,
 // the `EventSource('/api/events')` subscription, the `#send` handler POSTing
 // `/api/chat`, and the reply/media rendering. That is the "I typed something in the
@@ -89,7 +89,7 @@ const promptButtons = (page: Page) =>
 /** Settled bot replies. The in-flight draft and the typing placeholder carry
  *  different accessible names, so this counts only finished messages. */
 export function settledBotBubbles(page: Page) {
-  return page.getByRole('article', { name: 'Home Agent response', exact: true })
+  return page.getByRole('article', { name: 'AI Playground response', exact: true })
 }
 
 /** Messages the user sent, optionally filtered to those containing `text`. */
@@ -142,7 +142,7 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
 
 /**
  * Send a message/command and resolve once a *new* settled reply has rendered. Waits on
- * the (before+1)th "Home Agent response" via a web-first assertion — deliberately NOT a
+ * the (before+1)th "AI Playground response" via a web-first assertion — deliberately NOT a
  * bare `.count()` poll: a settled response only appears after the reply finished
  * streaming (the live draft carries a different name), and a web-first assertion is what
  * lets Playwright run the `addLocatorHandler` auto-confirm mid-wait. A `.count()` poll

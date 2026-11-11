@@ -514,7 +514,7 @@ class TestOutboundEvents(LocalWebChannelTestCase):
         events = self.sse_events(sock.recv(65536).decode())
         sock.close()
         # A post, not a reply: a reply would settle the streaming draft bubble and
-        # overwrite a Home Agent answer with download progress.
+        # overwrite a streaming answer with download progress.
         self.assertEqual(
             events,
             [

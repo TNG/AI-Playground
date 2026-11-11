@@ -1,6 +1,6 @@
 import type { SessionPort } from './answerRouter'
 
-// The window's composition file registers here because the Home Agent store cannot import
+// The window's composition file registers here because the Channels store cannot import
 // Agent Mode (import cycle).
 
 let registered: SessionPort | null = null

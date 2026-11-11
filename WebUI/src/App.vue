@@ -28,8 +28,8 @@
       <DemoModeIndicator />
     </div>
     <div class="flex justify-between items-center gap-5">
-      <HomeAgentToggle
-        v-if="globalSetup.loadingState === 'running' && showHomeAgentToggle"
+      <ChannelsToggle
+        v-if="globalSetup.loadingState === 'running' && showChannelsToggle"
         class="self-center"
       />
       <TrialRunIndicator v-if="globalSetup.loadingState === 'running'" />
@@ -279,7 +279,7 @@
     </TooltipProvider>
     <span v-else>v{{ productVersion }}</span>
   </footer>
-  <!-- Outside the running-only main: Home Agent setup lives in the wizard. -->
+  <!-- Outside the running-only main: Channels setup lives in the wizard. -->
   <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
   <close-dialog v-if="dialogStore.closeQuestion"></close-dialog>
 </template>
@@ -329,7 +329,7 @@ import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
 import DemoModeNotificationDots from '@/components/DemoModeNotificationDots.vue'
 import DemoModeAutoresetDialog from '@/components/DemoModeAutoresetDialog.vue'
-import HomeAgentToggle from '@/components/HomeAgentToggle.vue'
+import ChannelsToggle from '@/components/ChannelsToggle.vue'
 import ContextualHelpLayer from '@/components/ContextualHelpLayer.vue'
 import { useContextualHelp } from '@/assets/js/store/contextualHelp'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
@@ -368,8 +368,8 @@ const agentMode = useAgentMode()
 const sessions = useSessions()
 const sessionTabs = useSessionTabs()
 
-// Assistant sessions can notify over Home Agent; the games presets cannot.
-const showHomeAgentToggle = computed(() => {
+// Assistant sessions can notify over Channels; the games presets cannot.
+const showChannelsToggle = computed(() => {
   const mode = promptStore.getCurrentMode()
   if (mode === 'chat' || mode === 'imageGen') return true
   return mode === 'agent' && usesSessionSettings(agentMode.activeAgentPreset)

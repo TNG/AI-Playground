@@ -43,7 +43,7 @@ export async function migrateHomeAgentThreads(deps: HomeAgentThreadMigrationDeps
       createAppError({
         category: 'channel',
         code: 'channel/home-agent-thread-migration-failed',
-        userMessage: 'Home Agent threads could not be moved into Sessions',
+        userMessage: 'Remote threads from an earlier version could not be moved into Sessions',
         technicalMessage: result.error,
         surface: 'silent',
       }),

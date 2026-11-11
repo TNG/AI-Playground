@@ -46,6 +46,8 @@ let finalText = 'done'
 let notifyAttachment: string | null = null
 /** The clip the window hands back for the speech request. */
 let clipBase64 = ''
+/** What the model says before its tool call, which a Channel sees streaming. */
+let narration = ''
 
 function frame(chunk: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)
@@ -64,6 +66,7 @@ function completion(delta: Record<string, unknown>, finish: string | null = null
 /** The first step calls the speech tool; the step after its result just answers. */
 function toolCall(name: string, args: unknown) {
   return [
+    ...(narration ? [completion({ role: 'assistant', content: narration })] : []),
     completion({
       role: 'assistant',
       tool_calls: [
@@ -158,6 +161,9 @@ type Sent = {
   buttons?: unknown
 }
 let sent: Sent[] = []
+/** Each streamed draft edit, and the draft each final message settled. */
+let drafts: Array<{ kind: ChannelKind; id: number; ref?: string; text: string }> = []
+let settled: Array<{ kind: ChannelKind; text: string; draft?: number }> = []
 let typing: Array<{ kind: ChannelKind; typing: 'start' | 'stop' }> = []
 let asks: ChatAskPayload[] = []
 let prompts: PermissionsPromptPayload[] = []
@@ -216,11 +222,18 @@ beforeAll(async () => {
   bus.setKernelEventWindow(fakeWindow as never)
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannel({
+    draft: async (kind, draft, text) => {
+      drafts.push({ kind, id: draft.id, ref: draft.ref, text })
+      return kind === 'slack' && !draft.ref
+        ? { success: true, ref: `draft-${draft.id}`, chat: 'D1' }
+        : { success: true }
+    },
     typing: async (kind, state) => {
       typing.push({ kind, typing: state })
       return { success: true }
     },
     send: async (kind, message) => {
+      if (message.draft) settled.push({ kind, text: message.text, draft: message.draft.id })
       sent.push({
         kind,
         text: message.text,
@@ -253,6 +266,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   sent = []
+  drafts = []
+  settled = []
+  narration = ''
   typing = []
   asks = []
   prompts = []
@@ -946,6 +962,70 @@ describe('the turn an Answer started', () => {
     expect(sent).toEqual([])
   }, 30000)
 
+  describe('streams its reply', () => {
+    const header = '🤖 Agent · "Morning news"'
+
+    it('into one draft naming its Session, which its final text settles', async () => {
+      narration = 'Let me say it.'
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          await vi.waitFor(() => expect(drafts).toHaveLength(1))
+        },
+        answerTurn(),
+      )
+      await settle()
+      expect(drafts).toEqual([
+        { kind: 'telegram', id: expect.any(Number), text: `${header}\nLet me say it.` },
+      ])
+      expect(sent).toEqual([{ kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' }])
+      expect(settled).toEqual([{ kind: 'telegram', text: `${header}\ndone`, draft: drafts[0].id }])
+    }, 30000)
+
+    it('as a Slack message recorded as the Session’s, so a reply to it is an Answer', async () => {
+      narration = 'Let me say it.'
+      notifier.setNotificationConfig({ ...CONFIG, channels: ['slack'] })
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          await vi.waitFor(async () =>
+            expect(await messageMap.channelMessageOwner('slack', `draft-${drafts[0]?.id}`)).toEqual(
+              { sessionRef: newsSessionRef, harnessSessionId: SESSION },
+            ),
+          )
+        },
+        { ...configFor(SESSION), answer: { channel: 'slack', replyTo: '1700000000.0001' } },
+      )
+      await settle()
+      expect(settled).toEqual([{ kind: 'slack', text: `${header}\ndone`, draft: drafts[0].id }])
+    }, 30000)
+
+    it('and settles what it streamed before a failure reports it', async () => {
+      narration = 'Let me say it.'
+      await withWaitingTurn(
+        SESSION,
+        async () => {
+          await vi.waitFor(() => expect(drafts).toHaveLength(1))
+          modelRetired = true
+        },
+        answerTurn(),
+      ).catch(() => {})
+      await settle()
+      expect(sent.map((s) => s.text)).toEqual([
+        `${header}\nLet me say it.`,
+        `${header}\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.`,
+      ])
+      expect(settled.map((s) => s.draft)).toEqual([drafts[0].id])
+    }, 30000)
+
+    it('but not for a turn no Channel caused', async () => {
+      narration = 'Let me say it.'
+      await withWaitingTurn(SESSION, async () => {}, configFor(SESSION))
+      await settle()
+      expect(drafts).toEqual([])
+    }, 30000)
+  })
+
   it('records its reply, so replying to that is again an Answer to the session', async () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
@@ -1021,7 +1101,7 @@ describe('the turn an Answer started', () => {
     expect(sent).toEqual([])
   }, 30000)
 
-  it('sends the media the turn generated under the Answer too', async () => {
+  it('sends the media the turn generates under the Answer as soon as it is made', async () => {
     const config = answerTurn()
     const generated = path.join(config.workspaceDir, 'generated')
     fs.mkdirSync(generated, { recursive: true })
@@ -1037,17 +1117,18 @@ describe('the turn an Answer started', () => {
           'generated/intro.mp4',
           'generated/ship.glb',
         ])
+        await vi.waitFor(() => expect(sent).toHaveLength(4))
       },
       config,
     )
     await settle()
     const header = '🤖 Agent · "Morning news"'
     expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'video:intro.mp4' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
       { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
     expect(thumbnailAsks).toEqual([Buffer.from('bytes').toString('base64')])
   }, 30000)
@@ -1069,8 +1150,8 @@ describe('the turn an Answer started', () => {
     await settle()
     const header = '🤖 Agent · "Morning news"'
     expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
       { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
     expect(warn).toHaveBeenCalledWith(
       '3D screenshot not rendered: model load timed out',
@@ -1100,10 +1181,10 @@ describe('the turn an Answer started', () => {
     await settle()
     const header = '🤖 Agent · "Morning news"'
     expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
       { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
     expect(warn).toHaveBeenCalledWith('answer media not delivered: too large', 'notifier')
     warn.mockRestore()
@@ -1115,12 +1196,12 @@ describe('the turn an Answer started', () => {
     await settle()
     const header = '🤖 Agent · "Morning news"'
     expect(sent).toEqual([
-      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
       { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+      { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
   }, 30000)
 
-  it('does not send again at turn end what notify_user already sent during the turn', async () => {
+  it('leaves out of notify_user what the turn already sent as it was made', async () => {
     clipBase64 = Buffer.from('RIFF-wav').toString('base64')
     notifyAttachment = 'generated/speech.wav'
     await withWaitingTurn(SESSION, async () => {}, {
@@ -1129,18 +1210,19 @@ describe('the turn an Answer started', () => {
     })
     await settle()
     const header = '🤖 Agent · "Morning news"'
-    expect(sent).toEqual([
-      {
-        kind: 'telegram',
-        text: `${header}\nlisten`,
-        replyTo: 'answer-77',
-        media: 'voice:speech.wav',
-      },
+    // The clip and the notify_user step race; neither carries the clip twice.
+    expect(sent.slice(0, 2)).toEqual(
+      expect.arrayContaining([
+        { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
+        { kind: 'telegram', text: `${header}\nlisten`, replyTo: 'answer-77' },
+      ]),
+    )
+    expect(sent.slice(2)).toEqual([
       { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
   }, 30000)
 
-  it('does not send again at turn end a 3D model notify_user already sent during the turn', async () => {
+  it('leaves out of notify_user a 3D model the turn already sent as it was made', async () => {
     const config = { ...answerTurn(), capabilities: ['media', 'notify'] }
     const generated = path.join(config.workspaceDir, 'generated')
     fs.mkdirSync(generated, { recursive: true })
@@ -1149,19 +1231,18 @@ describe('the turn an Answer started', () => {
     const media = await import('../../agent/generatedMedia')
     await withWaitingTurn(
       SESSION,
-      async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb']),
+      async () => {
+        media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb'])
+        await vi.waitFor(() => expect(sent).toHaveLength(2))
+      },
       config,
     )
     await settle()
     const header = '🤖 Agent · "Morning news"'
     expect(sent).toEqual([
-      {
-        kind: 'telegram',
-        text: `${header}\nlisten`,
-        replyTo: 'answer-77',
-        media: 'photo:ship.jpg',
-      },
+      { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
       { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
+      { kind: 'telegram', text: `${header}\nlisten`, replyTo: 'answer-77' },
       { kind: 'telegram', text: `${header}\ndone`, replyTo: 'answer-77' },
     ])
   }, 30000)

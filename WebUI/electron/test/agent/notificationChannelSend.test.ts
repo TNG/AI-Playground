@@ -4,13 +4,15 @@ import type { ChannelKind } from '@/assets/js/store/channels/types'
 
 // What the Home Agent channel is asked to send for a Notification, per platform.
 
-function recorder(result: { messageId?: number; ts?: string } = { messageId: 41 }) {
+function recorder(
+  result: { messageId?: number; ts?: string; channel?: string } = { messageId: 41 },
+) {
   const calls: Array<{ kind: ChannelKind; action: string; payload: Record<string, unknown> }> = []
   const channel = homeAgentNotificationChannel(async (kind, action, payload) => {
     calls.push({ kind, action, payload })
     return { success: true, ...result }
   })
-  return { send: channel.send, typing: channel.typing, calls }
+  return { send: channel.send, typing: channel.typing, draft: channel.draft, calls }
 }
 
 describe('a Notification handed to the Home Agent channel', () => {
@@ -245,5 +247,75 @@ describe('typing handed to the Home Agent channel', () => {
     expect(await typing('telegram', 'stop')).toEqual({ success: true })
     await typing('local-web', 'stop')
     expect(calls).toEqual([{ kind: 'local-web', action: 'typing', payload: { action: 'stop' } }])
+  })
+})
+
+describe('a streamed reply handed to the channel', () => {
+  it('is a Telegram draft or a LAN chat draft, named by its draft id', async () => {
+    const { draft, calls } = recorder()
+    expect(await draft('telegram', { id: 7 }, 'Hel', '77')).toEqual({ success: true })
+    await draft('local-web', { id: 8 }, 'Hel', '5')
+    expect(calls).toEqual([
+      { kind: 'telegram', action: 'update', payload: { draft_id: 7, text: 'Hel' } },
+      { kind: 'local-web', action: 'update', payload: { draft_id: 8, text: 'Hel' } },
+    ])
+  })
+
+  it('posts a Slack message in the Answer’s thread first, then edits it', async () => {
+    const { draft, calls } = recorder({ ts: '1700.01', channel: 'D42' })
+    expect(await draft('slack', { id: 7 }, 'Hel', '1700.00')).toEqual({
+      success: true,
+      ref: '1700.01',
+      chat: 'D42',
+    })
+    await draft('slack', { id: 7, ref: '1700.01', chat: 'D42' }, 'Hello', '1700.00')
+    expect(calls).toEqual([
+      { kind: 'slack', action: 'reply', payload: { text: 'Hel', thread_ts: '1700.00' } },
+      {
+        kind: 'slack',
+        action: 'update',
+        payload: { channel: 'D42', ts: '1700.01', text: 'Hello' },
+      },
+    ])
+  })
+
+  it('settles in place: the Slack message edited, the LAN draft taken over by the reply', async () => {
+    const { send, calls } = recorder({ ts: undefined })
+    expect(
+      await send('slack', {
+        text: 'done',
+        replyTo: '1700.00',
+        draft: { id: 7, ref: '1700.01', chat: 'D42' },
+      }),
+    ).toEqual({ success: true, ref: '1700.01' })
+    await send('local-web', {
+      text: 'done',
+      replyTo: '5',
+      buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+      draft: { id: 8 },
+    })
+    await send('telegram', { text: 'done', replyTo: '77', draft: { id: 9 } })
+    expect(calls).toEqual([
+      {
+        kind: 'slack',
+        action: 'update',
+        payload: { channel: 'D42', ts: '1700.01', text: 'done' },
+      },
+      {
+        kind: 'local-web',
+        action: 'keyboard',
+        payload: {
+          text: 'done',
+          buttons: [[{ text: '💬 Answer', callback_data: 'answer' }]],
+          reply_to: '5',
+          draft_id: 8,
+        },
+      },
+      {
+        kind: 'telegram',
+        action: 'reply',
+        payload: { text: 'done', reply_to_message_id: '77' },
+      },
+    ])
   })
 })

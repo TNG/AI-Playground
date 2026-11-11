@@ -186,8 +186,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     const replyChip = document.getElementById('reply-chip')
     const replyChipText = document.getElementById('reply-chip-text')
     const replyChipCancel = document.getElementById('reply-chip-cancel')
-    let draftBubble = null
-    let draftRow = null
+    // Replies still streaming, by draft id: several Sessions can reply at once.
+    const drafts = new Map()
     let typingRow = null
     let es = null
     // Guards re-entrant session checks while the SSE stream is flapping.
@@ -331,21 +331,31 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     /** Adds a row above a reply that is still streaming, so the reply stays the newest bubble. */
     function appendAboveLive(row) {
-      const live = draftRow || typingRow
+      const first = drafts.values().next().value
+      const live = (first && first.row) || typingRow
       if (live && live.parentNode === log) log.insertBefore(row, live)
       else log.appendChild(row)
       scrollBottom()
     }
 
     /** An agent session's message: it never takes over a streaming reply. */
-    function appendAgentHtml(html, media, replyTo) {
+    function appendAgentHtml(html, media, replyTo, draftId) {
       const bubble = bubbleEl(LABEL_AGENT)
       bubble.innerHTML = html
       for (const node of (media || [])) bubble.appendChild(node)
       quoteReply(bubble, replyTo)
       stampTime(bubble)
-      appendAboveLive(botRow(bubble, 'AI'))
+      placeRow(botRow(bubble, 'AI'), draftId)
       return bubble
+    }
+
+    /** The message that settles a streamed reply takes its place; anything else goes above the live ones. */
+    function placeRow(row, draftId) {
+      const open = draftId ? drafts.get(Number(draftId)) : null
+      if (!open) { appendAboveLive(row); return }
+      open.row.replaceWith(row)
+      drafts.delete(Number(draftId))
+      scrollBottom()
     }
 
     function setAnswering(id, title) {
@@ -417,7 +427,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // carried.
     function appendHistory(messages) {
       log.innerHTML = ''
-      clearDraft()
+      clearDrafts()
       hideTyping()
       for (const m of messages) {
         if (!m) continue
@@ -450,7 +460,6 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // break out of an attribute. Media is inserted before the timestamp so the
     // time still reads last.
     function appendBotHtml(html, withTime, media) {
-      clearDraft()
       hideTyping()
       const bubble = bubbleEl(LABEL_BOT)
       bubble.innerHTML = html
@@ -471,7 +480,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     }
 
     function showTyping() {
-      if (typingRow || draftRow) return
+      if (typingRow || drafts.size) return
       typingRow = document.createElement('div')
       typingRow.className = 'row row-bot'
       const av = document.createElement('div')
@@ -497,50 +506,40 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       statusLine.textContent = 'online'
     }
 
-    function ensureDraftRow() {
+    function draftOf(id) {
+      const open = drafts.get(id)
+      if (open) return open
       hideTyping()
-      if (draftRow) return
-      draftRow = document.createElement('div')
-      draftRow.className = 'row row-bot'
-      const av = document.createElement('div')
-      av.className = 'tg-avatar'
-      av.style.width = '32px'
-      av.style.height = '32px'
-      av.style.fontSize = '11px'
-      av.textContent = 'HA'
-      draftBubble = bubbleEl(LABEL_DRAFT)
-      draftBubble.className = 'bubble streaming'
-      draftRow.appendChild(av)
-      draftRow.appendChild(draftBubble)
-      log.appendChild(draftRow)
+      const bubble = bubbleEl(LABEL_DRAFT)
+      bubble.className = 'bubble streaming'
+      const row = botRow(bubble, 'AI')
+      log.appendChild(row)
+      const created = { row: row, bubble: bubble }
+      drafts.set(id, created)
+      return created
     }
 
-    function setDraft(text) {
-      ensureDraftRow()
-      draftBubble.innerHTML = formatBotText(text) + '<span class="cursor">▋</span>'
+    function setDraft(id, text) {
+      draftOf(id).bubble.innerHTML = formatBotText(text) + '<span class="cursor">▋</span>'
       scrollBottom()
     }
 
-    function clearDraft() {
-      if (draftRow) { draftRow.remove(); draftRow = null; draftBubble = null }
+    function clearDrafts() {
+      for (const open of drafts.values()) open.row.remove()
+      drafts.clear()
     }
 
-    function finalizeBot(text) {
+    /** A reply's final text: in its draft's bubble when it streamed, else a bubble of its own. */
+    function finalizeBot(text, draftId) {
       const html = formatBotText(text)
-      if (draftBubble && draftRow) {
-        draftBubble.classList.remove('streaming')
-        draftBubble.setAttribute('aria-label', LABEL_BOT)
-        draftBubble.innerHTML = html
-        const tm = document.createElement('span')
-        tm.className = 'time'
-        tm.textContent = timeNow()
-        draftBubble.appendChild(tm)
-        draftRow = null
-        draftBubble = null
-        scrollBottom()
-        return
-      }
-      appendBotHtml(html)
+      const open = draftId ? drafts.get(Number(draftId)) : null
+      if (!open) { appendBotHtml(html); return }
+      drafts.delete(Number(draftId))
+      open.bubble.classList.remove('streaming')
+      open.bubble.setAttribute('aria-label', LABEL_BOT)
+      open.bubble.innerHTML = html
+      stampTime(open.bubble)
+      scrollBottom()
     }
 
     async function api(path, body) {
@@ -779,16 +778,16 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         else showTyping()
         return
       }
-      if (action === 'draftUpdate' || action === 'update') {
-        setDraft(d.text || '')
+      if (action === 'update') {
+        setDraft(Number(d.draftId) || 0, d.text || '')
         return
       }
-      if (action === 'draftFinal' || action === 'reply') {
-        finalizeBot(d.text || '')
+      if (action === 'reply') {
+        finalizeBot(d.text || '', d.draftId)
         return
       }
       if (action === 'post') {
-        appendBotNote(formatBotText(d.text || ''), d.id, d.replyTo)
+        appendBotNote(formatBotText(d.text || ''), d.id, d.replyTo, d.draftId)
         return
       }
       if (action === 'editMessage') {
@@ -832,6 +831,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
             formatBotText(d.text || ''),
             [answerRowEl(answerButton, d.id, d.answerTitle)],
             d.replyTo,
+            d.draftId,
           )
           if (d.id) bubble.dataset.mid = String(d.id)
           return
@@ -890,13 +890,13 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     }
 
     /** A message the app edits in place later; it never touches a streaming reply. */
-    function appendBotNote(html, id, replyTo) {
+    function appendBotNote(html, id, replyTo, draftId) {
       const bubble = bubbleEl(LABEL_BOT)
       bubble.innerHTML = html
       if (id) bubble.dataset.mid = String(id)
       quoteReply(bubble, replyTo)
       stampTime(bubble)
-      appendAboveLive(botRow(bubble))
+      placeRow(botRow(bubble), draftId)
     }
 
     /** Rewrites a tagged bubble's text and retires its buttons; false when it is gone. */
@@ -928,7 +928,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     function startChat() {
       log.innerHTML = ''
-      clearDraft()
+      clearDrafts()
       hideTyping()
       clearAnswering()
       appendSys('Connected · try /help')

@@ -7,7 +7,8 @@ import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './
 /** The Channels backend's `channelSend`, narrowed to what a Notification uses. */
 export type HomeAgentChannelSend = (
   kind: ChannelKind,
-  action: 'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'document' | 'typing',
+  action:
+    'reply' | 'post' | 'keyboard' | 'photo' | 'video' | 'voice' | 'document' | 'typing' | 'update',
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 
@@ -15,6 +16,9 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   const answering = CHANNEL_ANSWERING[kind]
   const target = message.replyTo ? { [answering.replyKey]: message.replyTo } : {}
   const { media, buttons, answerTitle } = message
+  // A LAN chat draft is taken over by the message that settles it.
+  const draft =
+    message.draft && !media && kind === 'local-web' ? { draft_id: message.draft.id } : {}
   const title = answering.buttonCarriesTitle && answerTitle ? { answer_title: answerTitle } : {}
   const keyboard = buttons
     ? {
@@ -27,12 +31,12 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
   if (buttons && !media) {
     return {
       action: 'keyboard' as const,
-      payload: { text: message.text, ...keyboard, ...target },
+      payload: { text: message.text, ...keyboard, ...target, ...draft },
     }
   }
   if (!media) {
     const action = answering.sendsAsPost ? ('post' as const) : ('reply' as const)
-    return { action, payload: { text: message.text, ...target } }
+    return { action, payload: { text: message.text, ...target, ...draft } }
   }
   if (media.kind === 'voice') {
     return {
@@ -63,10 +67,38 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
 export function homeAgentNotificationChannel(send: HomeAgentChannelSend): NotificationChannel {
   return {
     send: async (kind, message) => {
+      const settled = message.draft
+      if (kind === 'slack' && settled?.ref && settled.chat && !message.media) {
+        const result = await send(kind, 'update', {
+          channel: settled.chat,
+          ts: settled.ref,
+          text: message.text,
+        })
+        return result.success ? { success: true, ref: settled.ref } : result
+      }
       const { action, payload } = payloadOf(kind, message)
       const result = await send(kind, action, payload)
       if (!result.success) return result
       return { success: true, ref: result.messageId?.toString() ?? result.ts }
+    },
+    // Slack has no drafts: the first edit posts the message and later ones edit it.
+    draft: async (kind, draft, text, replyTo) => {
+      if (kind === 'slack') {
+        if (draft.ref && draft.chat) {
+          const result = await send(kind, 'update', { channel: draft.chat, ts: draft.ref, text })
+          return result.success ? { success: true } : result
+        }
+        const target = replyTo ? { [CHANNEL_ANSWERING.slack.replyKey]: replyTo } : {}
+        const result = await send(kind, 'reply', { text, ...target })
+        if (!result.success) return result
+        return {
+          success: true,
+          ...(result.ts ? { ref: result.ts } : {}),
+          ...(result.channel ? { chat: result.channel } : {}),
+        }
+      }
+      const result = await send(kind, 'update', { draft_id: draft.id, text })
+      return result.success ? { success: true } : result
     },
     // The payload the renderer adapters send: a platform chat action, or LAN chat's literal stop.
     typing: async (kind: ChannelKind, state: ChannelTypingState) => {

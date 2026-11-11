@@ -24,6 +24,13 @@ import { readReachableSession } from '../session/sessionChannels.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { tellDroppedQueues } from './queueQuitNotice.ts'
+import {
+  openReplyDraft,
+  type ChannelDraft,
+  type DraftEdit,
+  type ReplyDraft,
+} from './replyDrafts.ts'
+import { createChannelTyping } from './channelTyping.ts'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
 // The one sender of Notifications (docs/adr/0010): only Reachable Sessions send, to every
@@ -40,7 +47,8 @@ export type { ChannelMedia }
 /**
  * What the Notifier hands a channel. `replyTo` is the platform ref of the message it
  * answers; with `media`, `text` is the caption; `buttons` are rows of inline buttons;
- * `answerTitle` is the session label an Answer button answers.
+ * `answerTitle` is the session label an Answer button answers; `draft` is the streamed
+ * reply this message settles.
  */
 export type ChannelMessage = {
   text: string
@@ -48,6 +56,7 @@ export type ChannelMessage = {
   media?: ChannelMedia
   buttons?: KeyboardButton[][]
   answerTitle?: string
+  draft?: ChannelDraft
 }
 
 /** `ref` is the platform's id of the sent message, when it has one. */
@@ -67,7 +76,7 @@ export type ChannelTyping = (
 ) => Promise<{ success: true } | { success: false; error: string }>
 
 /** How the Notifier reaches the Channels. */
-export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping }
+export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping; draft: DraftEdit }
 
 export type NotificationOptions = {
   /** The sending Harness Session; its Session must be reachable and is named in the header. */
@@ -109,9 +118,21 @@ let windowShown: () => boolean = () => false
 type ReportedTurn = {
   turnId: string
   workspaceDir: string
+  /** Sent after the turn's text: what earlier Steps of its run generated. */
   media: string[]
-  /** Already sent by `notify_user`, so the turn's result leaves them out. */
+  /** Files already on the Channel, sent as made or by `notify_user`; not sent again. */
   attached: Set<string>
+  /** Media sent as it is made, in order. */
+  sending: Promise<unknown>
+  /** The text the turn has streamed, by text block. */
+  streamed: Map<string, string>
+  /** The Session's header and the owner its messages are recorded under; null when unreachable. */
+  heading?: Promise<Heading | null>
+  draft?: ReplyDraft
+  /** The turn ended: nothing more streams. */
+  ended?: boolean
+  /** The Session holding the turn, looked up once. */
+  sessionRef?: Promise<string | null>
   answer?: AgentAnswerOrigin
   /** The reply is spoken too, after its text. */
   speaks?: boolean
@@ -133,29 +154,35 @@ const reportedTurns = new Map<string, ReportedTurn>()
 // Telegram's indicator lapses after about 5 s.
 const TYPING_REPEAT_MS = 4000
 
-/** The running heartbeat of each session's Answer turn. */
-const typingHeartbeats = new Map<string, { channel: ChannelKind; timer: NodeJS.Timeout }>()
-
 function pulseTyping(kind: ChannelKind, state: ChannelTypingState): void {
   void channel
     ?.typing(kind, state)
     .catch((error) => appLoggerInstance.warn(`typing not sent: ${error}`, LOG_SOURCE))
 }
 
-function startTyping(sessionId: string, kind: ChannelKind): void {
-  if (!hasAnswerTyping(kind) || typingHeartbeats.has(sessionId)) return
-  if (!config.channels.includes(kind)) return
-  pulseTyping(kind, 'start')
-  const timer = setInterval(() => pulseTyping(kind, 'start'), TYPING_REPEAT_MS)
-  typingHeartbeats.set(sessionId, { channel: kind, timer })
+const typing = createChannelTyping(pulseTyping, TYPING_REPEAT_MS)
+
+function startTyping(turnId: string, kind: ChannelKind): void {
+  if (!hasAnswerTyping(kind) || !config.channels.includes(kind)) return
+  typing.start(turnId, kind)
 }
 
-function stopTyping(sessionId: string): void {
-  const heartbeat = typingHeartbeats.get(sessionId)
-  if (!heartbeat) return
-  clearInterval(heartbeat.timer)
-  typingHeartbeats.delete(sessionId)
-  pulseTyping(heartbeat.channel, 'stop')
+/** A new reported turn of `sessionId` replaces its last one, whose typing must not linger. */
+function replaceReportedTurn(sessionId: string, turn: ReportedTurn): void {
+  const previous = reportedTurns.get(sessionId)
+  if (previous) typing.stop(previous.turnId)
+  reportedTurns.set(sessionId, turn)
+}
+
+function newReportedTurn(turnId: string, workspaceDir: string, media: string[]): ReportedTurn {
+  return {
+    turnId,
+    workspaceDir,
+    media,
+    attached: new Set(),
+    sending: Promise.resolve(),
+    streamed: new Map(),
+  }
 }
 
 /** A voice message's turn speaks its reply when it has the text-to-speech tool on. */
@@ -173,25 +200,21 @@ export function noteAnswerTurn(
   speaks = false,
   step?: ReportedStep,
 ): void {
-  stopTyping(sessionId)
   const media = step && step.stepIndex > 1 ? (runMedia.get(sessionId) ?? []) : []
   runMedia.delete(sessionId)
   const turn: ReportedTurn = {
+    ...newReportedTurn(turnId, workspaceDir, media),
     answer: origin,
     speaks,
-    turnId,
-    workspaceDir,
-    media,
-    attached: new Set(),
     ...(step && !step.notifiesResult ? { quiet: true } : {}),
   }
-  reportedTurns.set(sessionId, turn)
+  replaceReportedTurn(sessionId, turn)
   if (step?.stepIndex === 1) turn.started = sendStarted(sessionId, step.taskName)
 }
 
 async function sendStarted(sessionId: string, name: string): Promise<void> {
   const { templates } = config
-  const sessionRef = await sessionOfHarnessSession(sessionId)
+  const sessionRef = await sessionRefOf(sessionId)
   const session = sessionRef ? await readReachableSession(sessionRef) : null
   const title = fillTemplate(templates.sessionLabel, {
     title: session?.title || templates.untitled,
@@ -205,8 +228,117 @@ async function sendStarted(sessionId: string, name: string): Promise<void> {
 
 /** A Scheduled Run's last Step: its result goes to every Channel when it completes. */
 export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: string): void {
-  stopTyping(sessionId)
-  reportedTurns.set(sessionId, { turnId, workspaceDir, media: [], attached: new Set() })
+  replaceReportedTurn(sessionId, newReportedTurn(turnId, workspaceDir, []))
+}
+
+type Owner = { sessionRef: string; harnessSessionId: string }
+type Heading = { header: string; owner: Owner }
+
+/** The Session holding `sessionId`, looked up once per reported turn: it never changes. */
+function sessionRefOf(sessionId: string): Promise<string | null> {
+  const turn = reportedTurns.get(sessionId)
+  if (!turn) return sessionOfHarnessSession(sessionId)
+  turn.sessionRef ??= sessionOfHarnessSession(sessionId).then((ref) => {
+    if (!ref) turn.sessionRef = undefined
+    return ref
+  })
+  return turn.sessionRef
+}
+
+async function headingOf(sessionId: string): Promise<Heading | null> {
+  const sessionRef = await sessionRefOf(sessionId)
+  const session = sessionRef ? await readReachableSession(sessionRef) : null
+  if (!sessionRef || !session) return null
+  const title = await sessionLabel(sessionId, session.title)
+  return {
+    header: fillTemplate(config.templates.header, { title }),
+    owner: { sessionRef, harnessSessionId: sessionId },
+  }
+}
+
+function recordSent(kind: ChannelKind, ref: string, owner: Owner): Promise<void> {
+  return recordChannelMessage(kind, ref, owner).catch((error) =>
+    appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
+  )
+}
+
+/** Telegram refuses a message over 4096 characters; the header needs room too. */
+function clipped(text: string): string {
+  return text.length > REPLY_MAX_CHARS ? `${text.slice(0, REPLY_MAX_CHARS)}…` : text
+}
+
+function streamedText(turn: ReportedTurn): string {
+  return [...turn.streamed.values()]
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/** What a Channel-caused turn has written so far, as a draft under the Answer. */
+function streamReply(sessionId: string, turn: ReportedTurn): void {
+  const kind = turn.answer?.channel
+  const port = channel
+  if (!kind || turn.quiet || !port || !config.channels.includes(kind)) return
+  turn.heading ??= headingOf(sessionId).catch(() => null)
+  void turn.heading.then((heading) => {
+    if (!heading || turn.ended) return
+    turn.draft ??= openReplyDraft(kind, {
+      edit: port.draft,
+      ...(turn.answer?.replyTo ? { replyTo: turn.answer.replyTo } : {}),
+      onPosted: (ref) => void recordSent(kind, ref, heading.owner),
+    })
+    turn.draft.update(`${heading.header}\n${clipped(streamedText(turn))}`)
+  })
+}
+
+/** Ends the turn's streaming; resolves with the draft its final message settles, if one showed. */
+async function closeReply(turn: ReportedTurn): Promise<ChannelDraft | null> {
+  turn.ended = true
+  await turn.heading
+  return turn.draft ? turn.draft.close() : null
+}
+
+/** A turn that ended without its result still settles what it streamed. */
+async function settleStreamed(sessionId: string, turn: ReportedTurn): Promise<void> {
+  await turn.sending
+  const draft = await closeReply(turn)
+  if (!draft) return
+  const delivery = await deliver({ text: clipped(streamedText(turn)), draft }, sessionId)
+  if (!delivery.delivered) {
+    appLoggerInstance.warn(`streamed reply not settled: ${delivery.reason}`, LOG_SOURCE)
+  }
+}
+
+/** Media a reported turn made, sent at once unless its run's result keeps it. */
+function noteTurnMedia(sessionId: string, turn: ReportedTurn, files: string[]): void {
+  if (turn.quiet) {
+    turn.media.push(...files)
+    return
+  }
+  const fresh = files.filter((file) => !turn.attached.has(file))
+  for (const file of fresh) turn.attached.add(file)
+  if (fresh.length === 0) return
+  turn.sending = turn.sending
+    .then(async () => {
+      await turn.started
+      await sendMedia(sessionId, fresh)
+    })
+    .catch((error) => appLoggerInstance.warn(`generated media not sent: ${error}`, LOG_SOURCE))
+}
+
+async function sendMedia(sessionId: string, files: string[]): Promise<void> {
+  for (const file of files) {
+    const items = await channelMediaOf(file).catch((error) => {
+      appLoggerInstance.warn(`generated media not readable: ${error}`, LOG_SOURCE)
+      return []
+    })
+    for (const media of items) {
+      const delivery = await deliver({ text: '', media }, sessionId)
+      if (!delivery.delivered) {
+        appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
+      }
+    }
+  }
 }
 
 function reportedTurnOf(sessionId: string, turnId?: string): ReportedTurn | undefined {
@@ -245,17 +377,29 @@ export async function sendNotification(
   text: string,
   options: NotificationOptions,
 ): Promise<NotificationDelivery> {
-  const { sessionId, attachments } = options
+  const { sessionId } = options
+  const turn = reportedTurnOf(sessionId)
+  const attachments = options.attachments && notSentYet(options.attachments, turn)
   const delivery = await deliver({ text, attachments }, sessionId)
   if (!delivery.delivered) {
     appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
   } else if (attachments) {
-    const turn = reportedTurnOf(sessionId)
     for (const file of attachments.paths) {
       turn?.attached.add(path.resolve(attachments.workspaceDir, file))
     }
   }
   return delivery
+}
+
+/** The attachments the turn has not already put on the Channel; undefined when none are left. */
+function notSentYet(
+  attachments: NonNullable<NotificationOptions['attachments']>,
+  turn: ReportedTurn | undefined,
+): NotificationOptions['attachments'] {
+  const paths = attachments.paths.filter(
+    (file) => !turn?.attached.has(path.resolve(attachments.workspaceDir, file)),
+  )
+  return paths.length > 0 ? { ...attachments, paths } : undefined
 }
 
 /** A document goes as a bare file: it never carries the text, which goes before it instead. */
@@ -269,6 +413,8 @@ type Body = {
   attachments?: NotificationOptions['attachments']
   /** Neither the header nor how to answer: an acknowledgement. */
   bare?: boolean
+  /** The streamed reply this text settles. */
+  draft?: ChannelDraft
 }
 
 /** The Channels a message of `sessionId` goes to now: the Answer's alone, or every one. */
@@ -281,7 +427,7 @@ async function deliver(body: Body, sessionId: string): Promise<NotificationDeliv
   const kinds = channelsFor(sessionId)
   if (!channel || kinds.length === 0) return { delivered: false, reason: 'no Channel is on' }
   try {
-    const sessionRef = await sessionOfHarnessSession(sessionId)
+    const sessionRef = await sessionRefOf(sessionId)
     const session = sessionRef ? await readReachableSession(sessionRef) : null
     if (!sessionRef || !session) {
       return { delivered: false, reason: 'the Session is not reachable from Channels' }
@@ -310,7 +456,7 @@ async function deliverOn(
   kind: ChannelKind,
   port: NotificationChannel,
   body: Body,
-  owner: { sessionRef: string; harnessSessionId: string },
+  owner: Owner,
   title: string,
 ): Promise<NotificationDelivery> {
   const sessionId = owner.harnessSessionId
@@ -324,6 +470,7 @@ async function deliverOn(
   const message: ChannelMessage = {
     text: [header, body.text].filter(Boolean).join('\n'),
     ...(answer?.replyTo ? { replyTo: answer.replyTo } : {}),
+    ...(body.draft && kind === answer?.channel ? { draft: body.draft } : {}),
   }
   const messages = body.media
     ? [{ ...message, media: body.media }]
@@ -339,9 +486,7 @@ async function deliverOn(
     }
     if (!result.success) return { delivered: false, reason: result.error }
     if (result.ref) {
-      await recordChannelMessage(kind, result.ref, owner).catch((error) =>
-        appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
-      )
+      await recordSent(kind, result.ref, owner)
     } else {
       appLoggerInstance.warn(
         `${kind} returned no message ref; a reply to it is no Answer`,
@@ -378,30 +523,25 @@ function laidOut(
   return [{ ...message, media: first }, ...rest.map(uncaptioned)]
 }
 
-// Telegram refuses a message over 4096 characters; the header needs room too.
 const REPLY_MAX_CHARS = 3800
 
-/** The result of a reported turn: its last text, then what it generated. */
+/** A reported turn's result: its last text, settling its draft, then what earlier Steps made. */
 async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: string | undefined) {
   await turn.started
-  if (reply) {
-    const text = reply.length > REPLY_MAX_CHARS ? `${reply.slice(0, REPLY_MAX_CHARS)}…` : reply
-    await sendNotification(text, { sessionId })
-    if (turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
-  }
-  for (const file of turn.media) {
-    if (turn.attached.has(file)) continue
-    const items = await channelMediaOf(file).catch((error) => {
-      appLoggerInstance.warn(`generated media not readable: ${error}`, LOG_SOURCE)
-      return []
-    })
-    for (const media of items) {
-      const delivery = await deliver({ text: '', media }, sessionId)
-      if (!delivery.delivered) {
-        appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
-      }
+  await turn.sending
+  const draft = await closeReply(turn)
+  const text = reply ?? (draft ? streamedText(turn) : '')
+  if (text) {
+    const delivery = await deliver({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
+    if (!delivery.delivered) {
+      appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
     }
   }
+  if (reply && turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
+  await sendMedia(
+    sessionId,
+    turn.media.filter((file) => !turn.attached.has(file)),
+  )
 }
 
 const CLIP_EXTENSIONS: Record<string, string> = {
@@ -457,7 +597,7 @@ export function answerable(
 /** The window is hidden or shows another Session. */
 async function offScreen(sessionId: string): Promise<boolean> {
   if (!windowShown() || config.sessionOnScreen === null) return true
-  return (await sessionOfHarnessSession(sessionId)) !== config.sessionOnScreen
+  return (await sessionRefOf(sessionId)) !== config.sessionOnScreen
 }
 
 function pauseReasonText(reason: PauseReason | undefined): string {
@@ -506,14 +646,15 @@ async function notifyFailed(sessionId: string, turnId: string, error: string): P
 /** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */
 export function startAutoNotifications(): () => void {
   const stopMedia = onGeneratedMedia((workspaceDir, relativePaths) => {
-    for (const turn of reportedTurns.values()) {
+    for (const [sessionId, turn] of reportedTurns) {
       if (path.resolve(turn.workspaceDir) !== path.resolve(workspaceDir)) continue
-      turn.media.push(...relativePaths.map((file) => path.resolve(workspaceDir, file)))
+      const files = relativePaths.map((file) => path.resolve(workspaceDir, file))
+      noteTurnMedia(sessionId, turn, files)
     }
   })
   const stopFailures = onAgentTurnEnd((end) => {
     const reported = reportedTurnOf(end.sessionId, end.turnId)
-    if (reported) stopTyping(end.sessionId)
+    if (reported) typing.stop(end.turnId)
     if (reported?.quiet && end.outcome === 'completed') {
       runMedia.set(
         end.sessionId,
@@ -521,11 +662,13 @@ export function startAutoNotifications(): () => void {
       )
     }
     const sending =
-      end.outcome === 'failed'
-        ? notifyFailed(end.sessionId, end.turnId, end.error)
-        : end.outcome === 'completed' && reported && !reported.quiet
-          ? sendTurnResult(end.sessionId, reported, end.reply)
-          : Promise.resolve()
+      end.outcome === 'completed' && reported && !reported.quiet
+        ? sendTurnResult(end.sessionId, reported, end.reply)
+        : (reported ? settleStreamed(end.sessionId, reported) : Promise.resolve()).then(() =>
+            end.outcome === 'failed'
+              ? notifyFailed(end.sessionId, end.turnId, end.error)
+              : undefined,
+          )
     void sending
       .catch((error) =>
         appLoggerInstance.warn(`turn-end notification failed: ${error}`, LOG_SOURCE),
@@ -536,14 +679,22 @@ export function startAutoNotifications(): () => void {
   })
   const pausedTurns = new Set<string>()
   const stopPauses = onKernelEvent((event) => {
+    if (event.type === 'agent-chunk') {
+      const turn = reportedTurnOf(event.sessionId, event.turnId)
+      const chunk = event.chunk as { type?: string; id?: string; delta?: string }
+      if (!turn?.answer || turn.ended || chunk.type !== 'text-delta' || !chunk.id) return
+      turn.streamed.set(chunk.id, (turn.streamed.get(chunk.id) ?? '') + (chunk.delta ?? ''))
+      streamReply(event.sessionId, turn)
+      return
+    }
     if (event.type === 'agent-turn-done') {
       pausedTurns.delete(event.turnId)
       return
     }
     if (event.type !== 'agent-turn-state') return
     const answer = reportedTurnOf(event.sessionId, event.turnId)?.answer
-    if (answer && event.state === 'running') startTyping(event.sessionId, answer.channel)
-    else if (answer) stopTyping(event.sessionId)
+    if (answer && event.state === 'running') startTyping(event.turnId, answer.channel)
+    else if (answer) typing.stop(event.turnId)
     if (event.state !== 'paused') {
       pausedTurns.delete(event.turnId)
       return
@@ -559,6 +710,6 @@ export function startAutoNotifications(): () => void {
     stopMedia()
     stopFailures()
     stopPauses()
-    for (const sessionId of [...typingHeartbeats.keys()]) stopTyping(sessionId)
+    typing.stopAll()
   }
 }

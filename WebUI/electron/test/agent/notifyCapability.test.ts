@@ -179,6 +179,7 @@ beforeAll(async () => {
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannel({
     typing: async () => ({ success: true }),
+    draft: async () => ({ success: true }),
     send: async (kind, message) => {
       sent.push({ kind, ...message })
       if (refusedFiles.includes(message.media?.filename ?? ''))

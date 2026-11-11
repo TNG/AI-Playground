@@ -104,6 +104,7 @@ describe('a Notification handed to the Home Agent channel', () => {
         payload: {
           photo: 'AAA',
           caption: 'header',
+          parse_mode: 'HTML',
           filename: 'cover.png',
           reply_to_message_id: '77',
         },
@@ -111,7 +112,7 @@ describe('a Notification handed to the Home Agent channel', () => {
       {
         kind: 'telegram',
         action: 'video',
-        payload: { video: 'BBB', caption: 'header', filename: 'intro.mp4' },
+        payload: { video: 'BBB', caption: 'header', parse_mode: 'HTML', filename: 'intro.mp4' },
       },
     ])
   })
@@ -182,6 +183,7 @@ describe('a Notification handed to the Home Agent channel', () => {
           audio: 'CCC',
           mime: 'audio/wav',
           caption: 'header',
+          parse_mode: 'HTML',
           filename: 'summary.wav',
           reply_to_message_id: '77',
         },
@@ -360,6 +362,27 @@ describe('a Notification’s text, formatted per Channel', () => {
     ])
   })
 
+  it('captions Telegram media with the same HTML as a text Notification', async () => {
+    const { send, calls } = recorder()
+    const message = { header, text: '**done**', footer: '↩️ Reply <here>' }
+    const caption = `${boldHeader}\n<b>done</b>\n↩️ Reply &lt;here&gt;`
+    await send('telegram', { ...message, media: { kind: 'photo', base64: 'A', filename: 'a.png' } })
+    await send('telegram', { ...message, media: { kind: 'video', base64: 'V', filename: 'v.mp4' } })
+    await send('telegram', { ...message, media: { kind: 'voice', base64: 'S', filename: 's.ogg' } })
+    await send('telegram', {
+      ...message,
+      media: { kind: 'document', base64: 'D', filename: 'd.glb' },
+    })
+    expect(
+      calls.map(({ action, payload }) => [action, payload.caption, payload.parse_mode]),
+    ).toEqual([
+      ['photo', caption, 'HTML'],
+      ['video', caption, 'HTML'],
+      ['voice', caption, 'HTML'],
+      ['document', caption, 'HTML'],
+    ])
+  })
+
   it('escapes a plain template body on Telegram rather than reading it as markdown', async () => {
     const { send, calls } = recorder()
     await send('telegram', { header, text: '❌ Failed: no_such_file *x* <y>.', plain: true })
@@ -441,6 +464,42 @@ describe('a Notification’s text, formatted per Channel', () => {
       ['reply', { text: `${header}\n**done**`, reply_to_message_id: '77' }],
       ['update', { draft_id: 7, text: `${boldHeader}\n<b>Hel</b>`, parse_mode: 'HTML' }],
       ['update', { draft_id: 7, text: `${header}\n**Hel**` }],
+    ])
+  })
+
+  it('resends a caption Telegram cannot parse once, as plain text', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const { send } = createNotificationChannel(async (_kind, action, payload) => {
+      calls.push([action, payload])
+      return payload.parse_mode
+        ? { success: false, error: "Bad Request: can't parse entities: unclosed tag" }
+        : { success: true, messageId: 43 }
+    })
+    const media = { kind: 'photo', base64: 'AAA', filename: 'cover.png' } as const
+    expect(await send('telegram', { header, text: '**done**', replyTo: '77', media })).toEqual({
+      success: true,
+      ref: '43',
+    })
+    expect(calls).toEqual([
+      [
+        'photo',
+        {
+          photo: 'AAA',
+          caption: `${boldHeader}\n<b>done</b>`,
+          parse_mode: 'HTML',
+          filename: 'cover.png',
+          reply_to_message_id: '77',
+        },
+      ],
+      [
+        'photo',
+        {
+          photo: 'AAA',
+          caption: `${header}\n**done**`,
+          filename: 'cover.png',
+          reply_to_message_id: '77',
+        },
+      ],
     ])
   })
 

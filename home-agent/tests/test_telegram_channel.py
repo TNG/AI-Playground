@@ -267,6 +267,31 @@ class TelegramOutboundTest(unittest.TestCase):
         self.assertIsNone(kwargs["caption"])
         self.assertEqual(self.reply_target(0)["message_id"], 77)
 
+    def test_every_media_caption_is_sent_in_the_parse_mode_it_was_given(self) -> None:
+        data = base64.b64encode(b"OggS").decode()
+        formatted = {"caption": "<b>done</b>", "parse_mode": "HTML"}
+        self.channel.send_photo({"photo": data, **formatted})
+        self.channel.send_video({"video": data, **formatted})
+        self.channel.send_voice({"audio": data, "mime": "audio/ogg", **formatted})
+        self.channel.send_document({"document": data, **formatted})
+        self.assertEqual(
+            [
+                (method, kwargs["caption"], kwargs["parse_mode"])
+                for method, kwargs in self.bot.calls
+            ],
+            [
+                ("send_photo", "<b>done</b>", "HTML"),
+                ("send_video", "<b>done</b>", "HTML"),
+                ("send_voice", "<b>done</b>", "HTML"),
+                ("send_document", "<b>done</b>", "HTML"),
+            ],
+        )
+
+    def test_a_caption_with_no_parse_mode_is_plain_text(self) -> None:
+        data = base64.b64encode(b"bytes").decode()
+        self.channel.send_photo({"photo": data, "caption": "*x*"})
+        self.assertIsNone(self.bot.calls[0][1]["parse_mode"])
+
 
 if __name__ == "__main__":
     unittest.main()

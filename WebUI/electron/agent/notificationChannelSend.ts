@@ -50,25 +50,35 @@ const FORMATTERS: Partial<Record<ChannelKind, (text: ChannelText) => Formatted>>
   slack: slackMrkdwn,
 }
 
+/** Channels that render a media caption's markdown; the others caption with the plain text. */
+const CAPTION_FORMATTERS: Partial<Record<ChannelKind, (text: ChannelText) => Formatted>> = {
+  telegram: telegramHtml,
+}
+
 const PARSE_ERROR = /can't parse entities/i
+
+type MediaAction = 'photo' | 'video' | 'voice' | 'document'
 
 /** Sends the text formatted for `kind`; markup the platform cannot parse goes again as plain text. */
 async function sendText(
   send: ChannelSend,
   kind: ChannelKind,
-  action: TextAction,
+  action: TextAction | MediaAction,
   payload: Record<string, unknown>,
   content: ChannelText,
+  field: 'text' | 'caption' = 'text',
 ) {
-  const formatted = FORMATTERS[kind]?.(content) ?? { text: plainTextOf(content) }
-  const result = await send(kind, action, { ...payload, ...formatted })
-  if (result.success || !formatted.parse_mode || !PARSE_ERROR.test(result.error)) return result
-  return send(kind, action, { ...payload, text: plainTextOf(content) })
+  const plain = plainTextOf(content)
+  const format = field === 'text' ? FORMATTERS[kind] : plain && CAPTION_FORMATTERS[kind]
+  const { text, ...mode } = (format && format(content)) || { text: plain }
+  const result = await send(kind, action, { ...payload, [field]: text, ...mode })
+  if (result.success || !mode.parse_mode || !PARSE_ERROR.test(result.error)) return result
+  return send(kind, action, { ...payload, [field]: plain })
 }
 
 type Outgoing =
   | { action: TextAction; payload: Record<string, unknown>; content: ChannelText }
-  | { action: 'photo' | 'video' | 'voice' | 'document'; payload: Record<string, unknown> }
+  | { action: MediaAction; payload: Record<string, unknown>; caption: ChannelText }
 
 function payloadOf(kind: ChannelKind, message: ChannelMessage): Outgoing {
   const answering = CHANNEL_ANSWERING[kind]
@@ -94,29 +104,28 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage): Outgoing {
     const action = answering.sendsAsPost ? 'post' : 'reply'
     return { action, payload: { ...target, ...draft }, content: message }
   }
-  const caption = plainTextOf(message)
   if (media.kind === 'voice') {
     return {
       action: 'voice',
       payload: {
         audio: media.base64,
         mime: channelMediaType(media.filename) ?? 'audio/wav',
-        caption,
         filename: media.filename,
         ...keyboard,
         ...target,
       },
+      caption: message,
     }
   }
   return {
     action: media.kind,
     payload: {
       [media.kind]: media.base64,
-      caption,
       filename: media.filename,
       ...keyboard,
       ...target,
     },
+    caption: message,
   }
 }
 
@@ -135,7 +144,14 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
       const result =
         'content' in outgoing
           ? await sendText(send, kind, outgoing.action, outgoing.payload, outgoing.content)
-          : await send(kind, outgoing.action, outgoing.payload)
+          : await sendText(
+              send,
+              kind,
+              outgoing.action,
+              outgoing.payload,
+              outgoing.caption,
+              'caption',
+            )
       if (!result.success) return result
       return { success: true, ref: result.messageId?.toString() ?? result.ts }
     },

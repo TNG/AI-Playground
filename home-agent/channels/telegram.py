@@ -45,6 +45,19 @@ def inbound_item(message, text: str, **attachments) -> QueueItem:
     return item
 
 
+def _parse_mode(payload: dict) -> str | None:
+    """The parse mode the payload names, in either spelling, or None for plain text."""
+    return payload.get("parse_mode") or payload.get("parseMode") or None
+
+
+def _caption(payload: dict) -> dict:
+    """The send kwargs for a media caption, in the parse mode the payload names."""
+    return {
+        "caption": payload.get("caption") or None,
+        "parse_mode": _parse_mode(payload),
+    }
+
+
 def _reply_parameters(payload: dict) -> dict:
     """The send kwargs naming the message a send replies to, when the payload names one."""
     raw = payload.get("reply_to_message_id")
@@ -205,7 +218,7 @@ class TelegramChannel(ChannelBase):
 
     def send_reply(self, payload: dict) -> SendResult:
         text = payload.get("text", "")
-        parse_mode = payload.get("parse_mode") or payload.get("parseMode") or None
+        parse_mode = _parse_mode(payload)
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
@@ -233,7 +246,7 @@ class TelegramChannel(ChannelBase):
             payload.get("draft_id") if "draft_id" in payload else payload.get("draftId")
         )
         text = payload.get("text", "") or ""
-        parse_mode = payload.get("parse_mode") or payload.get("parseMode") or None
+        parse_mode = _parse_mode(payload)
         try:
             draft_id = int(raw_draft_id) if raw_draft_id is not None else 0
         except (TypeError, ValueError):
@@ -262,7 +275,6 @@ class TelegramChannel(ChannelBase):
 
     def send_photo(self, payload: dict) -> SendResult:
         photo_b64 = payload.get("photo", "") or payload.get("imageBase64", "")
-        caption = payload.get("caption", "")
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
@@ -272,7 +284,7 @@ class TelegramChannel(ChannelBase):
                 self._app_instance.bot.send_photo(  # type: ignore[union-attr]
                     chat_id=target,
                     photo=photo_bytes,
-                    caption=caption or None,
+                    **_caption(payload),
                     **_reply_parameters(payload),
                 ),
                 timeout=120,
@@ -283,7 +295,6 @@ class TelegramChannel(ChannelBase):
 
     def send_video(self, payload: dict) -> SendResult:
         video_b64 = payload.get("video", "") or payload.get("videoBase64", "")
-        caption = payload.get("caption", "")
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
@@ -293,7 +304,7 @@ class TelegramChannel(ChannelBase):
                 self._app_instance.bot.send_video(  # type: ignore[union-attr]
                     chat_id=target,
                     video=video_bytes,
-                    caption=caption or None,
+                    **_caption(payload),
                     supports_streaming=True,
                     **_reply_parameters(payload),
                 ),
@@ -306,7 +317,6 @@ class TelegramChannel(ChannelBase):
     def send_voice(self, payload: dict) -> SendResult:
         audio_b64 = payload.get("audio", "") or payload.get("audioBase64", "")
         mime = (payload.get("mime") or "").lower()
-        caption = payload.get("caption", "")
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
@@ -328,7 +338,7 @@ class TelegramChannel(ChannelBase):
             bot = self._app_instance.bot  # type: ignore[union-attr]
             common = {
                 "chat_id": target,
-                "caption": caption or None,
+                **_caption(payload),
                 **_reply_parameters(payload),
             }
             if voice_bytes is not None:
@@ -346,7 +356,6 @@ class TelegramChannel(ChannelBase):
     def send_document(self, payload: dict) -> SendResult:
         doc_b64 = payload.get("document", "") or payload.get("documentBase64", "")
         filename = payload.get("filename") or "file.bin"
-        caption = payload.get("caption", "")
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}
@@ -361,7 +370,7 @@ class TelegramChannel(ChannelBase):
                 self._app_instance.bot.send_document(  # type: ignore[union-attr]
                     chat_id=target,
                     document=input_file,
-                    caption=caption or None,
+                    **_caption(payload),
                     **_reply_parameters(payload),
                 ),
                 timeout=180,
@@ -387,7 +396,7 @@ class TelegramChannel(ChannelBase):
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         text = payload.get("text", "")
-        parse_mode = payload.get("parse_mode") or payload.get("parseMode") or None
+        parse_mode = _parse_mode(payload)
         rows = payload.get("buttons", []) or []
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
@@ -429,7 +438,7 @@ class TelegramChannel(ChannelBase):
             else payload.get("messageId")
         )
         text = payload.get("text", "") or ""
-        parse_mode = payload.get("parse_mode") or payload.get("parseMode") or None
+        parse_mode = _parse_mode(payload)
         target = self._outbound_chat_id(payload.get("channel"))
         if not self.is_running() or not target:
             return {"error": "Telegram not configured", "_http_status": 400}

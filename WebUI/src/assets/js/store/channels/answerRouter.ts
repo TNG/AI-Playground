@@ -35,7 +35,7 @@ import {
 } from './channelQueue'
 import { createChannelSessions } from './channelSessions'
 import { createChannelAgents } from './channelAgents'
-import { createChannelStartPrompts, type AgentStartOutcome } from './channelStartPrompts'
+import { createChannelStartPrompts } from './channelStartPrompts'
 import { createStartPromptRequests, type StartPromptRequests } from './startPromptRequests'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
 
@@ -206,6 +206,9 @@ export type AnswerRouterDeps = {
 // Refusals the user can only clear on the computer, so the reply says where to go.
 const FIXED_ON_DESKTOP = new Set(['missing-folder', 'settings-problems'])
 
+/** How a submitted message or Agent start went: sent, waiting in the Session's queue, or refused. */
+type SubmitOutcome = 'started' | 'queued' | 'refused'
+
 /** A message, or an Agent start, waiting for its Session's turn or Agent Run to end. */
 type QueuedMessage = {
   adapter: ChannelAdapter
@@ -348,7 +351,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     sessions: SessionPort,
     entry: QueuedMessage,
     text?: string,
-  ): Promise<'busy' | 'started' | 'refused'> {
+  ): Promise<Exclude<SubmitOutcome, 'queued'> | 'busy'> {
     if ('agent' in entry) {
       const { sessionRef } = entry.target
       const result = await startAgent(sessions, sessionRef, entry.agent, entry.origin, entry.prompt)
@@ -365,7 +368,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   }
 
   /** Sends a Channel's message into its Session, or queues it while the Session is busy. */
-  async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<AgentStartOutcome> {
+  async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<SubmitOutcome> {
     listen(sessions)
     const { sessionRef } = entry.target
     if (
@@ -388,7 +391,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   async function enqueue(
     sessions: SessionPort,
     entry: QueuedMessage,
-  ): Promise<'queued' | 'refused'> {
+  ): Promise<Exclude<SubmitOutcome, 'started'>> {
     const { sessionRef } = entry.target
     const wording = copy()
     const title = sessions.label(entry.target)
@@ -546,9 +549,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       pointers: deps.pointers,
       copy,
       tell,
-      submit: async (adapter, target, message, origin, meta) => {
-        await submit(sessions, { adapter, target, message, origin, meta })
-      },
+      submit: (adapter, target, message, origin, meta) =>
+        submit(sessions, { adapter, target, message, origin, meta }),
       attach: (adapter, target, msg, meta) =>
         attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta),
       log,
@@ -561,9 +563,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       listStartable: () => sessions.listStartableAgents(),
       agentName: (agentId) => sessions.agentName(agentId),
       channelSession: (adapter, meta) => forSessions.currentOrNew(adapter, meta),
-      start: async (adapter, sessionRef, agent, origin, meta) => {
-        await submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta })
-      },
+      start: (adapter, sessionRef, agent, origin, meta) =>
+        submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta }),
       askForPrompt: (adapter, sessionRef, agent, meta) =>
         startPrompts(sessions).ask(adapter, sessionRef, agent, meta),
       copy,

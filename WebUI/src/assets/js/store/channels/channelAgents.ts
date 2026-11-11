@@ -25,7 +25,7 @@ export type ChannelAgentDeps = {
     agent: StartableAgent,
     origin: AgentAnswerOrigin,
     meta?: InboundMeta,
-  ) => Promise<void>
+  ) => Promise<unknown>
   /** Posts a Start Prompt Request for the Agent in the Session. */
   askForPrompt: (
     adapter: ChannelAdapter,

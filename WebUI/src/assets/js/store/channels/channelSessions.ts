@@ -25,7 +25,7 @@ export type ChannelSessionDeps = {
     message: ChannelTurnMessage,
     origin: AgentAnswerOrigin,
     meta?: InboundMeta,
-  ) => Promise<void>
+  ) => Promise<unknown>
   /** Stores the message's files in the Session: the prompt to send, or null when none runs. */
   attach: (
     adapter: ChannelAdapter,

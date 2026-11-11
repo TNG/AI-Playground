@@ -13,9 +13,6 @@ import { answerMeta, inboundOrigin, replyReachable } from './channelInbound'
 import { replyRefOf, type StartPromptRequests } from './startPromptRequests'
 import type { InboundMeta } from './types'
 
-/** How a submitted Agent start went: started, waiting in the Session's queue, or refused. */
-export type AgentStartOutcome = 'started' | 'queued' | 'refused'
-
 export type ChannelStartPromptDeps = {
   port: SessionPort
   requests: StartPromptRequests

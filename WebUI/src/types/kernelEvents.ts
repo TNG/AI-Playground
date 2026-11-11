@@ -93,7 +93,7 @@ export type ArtifactPhase =
 
 /**
  * Who a run's progress belongs to. `panel` is the Image Gen / Edit / Video
- * panel (and Home Agent `/imgGen`); `tool` is the tool call that submitted it,
+ * panel; `tool` is the tool call that submitted it,
  * with `parentToolCallId` naming the delegating `media` call for specialist runs.
  */
 export type ArtifactRunOwner =
@@ -183,8 +183,8 @@ export type KernelMediaAgentEvent = {
 }
 
 /**
- * What a Turn Queue member is: an agent turn, a Chat / Home Agent turn, a title
- * summary, or a panel / Home Agent media run.
+ * What a Turn Queue member is: an agent turn, a Chat turn, a title
+ * summary, or a panel media run.
  */
 export type TurnWork = 'agent' | 'chat' | 'summary' | 'generation'
 

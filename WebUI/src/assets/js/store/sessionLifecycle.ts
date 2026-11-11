@@ -88,7 +88,12 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
 
   /** Stops the open Session's turn by the engine that runs it; false when there is none. */
   async function stopOpenTurn(): Promise<boolean> {
-    const turn = sessions.openTurn
+    return sessions.openSessionId ? stopTurnIn(sessions.openSessionId) : false
+  }
+
+  /** Stops the Session's turn by the engine that runs it; false when there is none. */
+  async function stopTurnIn(sessionId: string): Promise<boolean> {
+    const turn = sessions.turns[sessionId]
     if (!turn) return false
     if (turn.kind === 'agent' && turn.harnessSessionId) {
       await agentMode.stopSession(turn.harnessSessionId)
@@ -105,7 +110,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     return false
   }
 
-  return { openSession, newSession, rowStatus, stopOpenTurn }
+  return { openSession, newSession, rowStatus, stopOpenTurn, stopTurnIn }
 })
 
 if (import.meta.hot) {

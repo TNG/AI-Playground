@@ -76,6 +76,12 @@
             </span>
           </span>
         </label>
+        <p
+          v-if="!agentMode.unsandboxed && sessions.openSession?.reachable"
+          class="text-xs text-muted-foreground"
+        >
+          {{ languages.AGENT_SETTINGS_REAL_SHELL_UNREACHABLE }}
+        </p>
         <p v-if="agentMode.unsandboxed" class="text-xs text-amber-500">
           {{
             languages.AGENT_SETTINGS_REAL_SHELL_WARNING.replace('{folder}', agentMode.workspaceDir)
@@ -196,6 +202,7 @@ import { useAgentMode } from '@/assets/js/store/agentMode'
 import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useMcp } from '@/assets/js/store/mcp'
+import { useSessions } from '@/assets/js/store/sessions'
 import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
 import AgentMcpServerChecklist from '@/components/AgentMcpServerChecklist.vue'
 import AgentPresetDefaultsActions from '@/components/AgentPresetDefaultsActions.vue'
@@ -214,6 +221,7 @@ import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 const languages = useI18N().state
 const agentMode = useAgentMode()
 const mcp = useMcp()
+const sessions = useSessions()
 
 const props = defineProps<{
   /** An Agent's Settings Template instead of the open Session's settings. */

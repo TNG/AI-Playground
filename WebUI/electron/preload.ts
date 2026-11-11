@@ -24,7 +24,7 @@ import type {
 import type { AgentDraft, AgentTask, TrialRunRecord } from '@/types/agentTaskIpc'
 import type { PresetSessionSettings } from '@/types/sessionSettings'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
-import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
+import type { ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ComputeSnapshot } from '@/types/computeMetrics'
@@ -281,13 +281,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setConfig: (config: NotificationConfig) => send('notifications:setConfig', config),
     lookupMessage: (kind: ChannelKind, ref: string) =>
       invoke('notifications:lookupMessage', kind, ref),
+    recordStartPromptRequest: (kind: ChannelKind, ref: string) =>
+      invoke('notifications:recordStartPromptRequest', kind, ref),
   },
   chat: {
     submitTurn: (request: ChatTurnRequest) => invoke('chat:submitTurn', cloneForIpc(request)),
     resumeTurn: (conversationKey: string) => invoke('chat:resumeTurn', conversationKey),
     cancelTurn: (conversationKey: string, turnId: string) =>
       invoke('chat:cancelTurn', conversationKey, turnId),
-    summarize: (request: ChatSummarizeRequest) => invoke('chat:summarize', request),
     answer: (payload: ChatAnswerPayload) => invoke('chat:answer', cloneForIpc(payload)),
     onAsk: (callback: (payload: ChatAskPayload) => void) => onPush('chat:ask', callback),
   },
@@ -296,6 +297,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (groupId?: string) => invoke('sessions:create', groupId),
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
+    setReachable: (id: string, reachable: boolean, options?: { defaultCapabilities?: string[] }) =>
+      invoke('sessions:setReachable', id, reachable, options && cloneForIpc(options)),
+    setRealShellFolders: (folders: string[]) =>
+      invoke('sessions:setRealShellFolders', cloneForIpc(folders)),
+    migrateHomeAgentThreads: (input: {
+      routingKey: string | null
+      defaultCapabilities?: string[]
+    }) => invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
     pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
     createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),
@@ -496,55 +505,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPermissionStatus: () => invoke('screenshot:getPermissionStatus'),
     openPermissionSettings: () => send('screenshot:openPermissionSettings'),
   },
-  homeAgent: {
-    // Persist an inbound document (base64) to disk for RAG ingestion.
-    saveDocument: (filename: string, base64: string) =>
-      invoke('saveHomeAgentDocument', filename, base64),
+  channels: {
     // Local web chat — URL discovery (the chat server lives in the Python
     // backend; this only enumerates reachable addresses for the setup screen).
     // `allowLan` mirrors the bind: loopback only unless LAN access is on.
     localWeb: {
       getUrls: (port: number, allowLan: boolean): Promise<string[]> =>
-        invoke('homeAgent:localWeb:getUrls', port, allowLan),
+        invoke('channels:localWeb:getUrls', port, allowLan),
     },
     // Channel-agnostic dispatcher. Every method is keyed by ChannelKind
     // (`'telegram'` | `'slack'` | `'discord'` | `'local-web'`) so adding a new
     // platform requires zero edits here — only a new entry in the renderer-side
     // channel registry and a Python channel module.
-    channel: {
-      saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
-        invoke('channel:saveConfig', kind, config),
-      loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
-      clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
-      savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
-        invoke('channel:savePrefs', kind, prefs),
-      loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
-      test: (kind: ChannelKind) => invoke('channel:test', kind),
-      inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
-        invoke('channel:inject', kind, config),
-      detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
-        invoke('channel:detectIdentity', kind, config),
-      detectIdentityFromSaved: (kind: ChannelKind) =>
-        invoke('channel:detectIdentityFromSaved', kind),
-      poll: (kind: ChannelKind) => invoke('channel:poll', kind),
-      flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
-      send: (
-        kind: ChannelKind,
-        action:
-          | 'reply'
-          | 'update'
-          | 'photo'
-          | 'video'
-          | 'voice'
-          | 'document'
-          | 'typing'
-          | 'keyboard'
-          | 'editMessage'
-          | 'history'
-          | 'post',
-        payload: Record<string, unknown>,
-      ) => invoke('channel:send', kind, action, payload),
-    },
+    saveConfig: (kind: ChannelKind, config: Record<string, string>) =>
+      invoke('channel:saveConfig', kind, config),
+    loadConfig: (kind: ChannelKind) => invoke('channel:loadConfig', kind),
+    clearConfig: (kind: ChannelKind) => invoke('channel:clearConfig', kind),
+    savePrefs: (kind: ChannelKind, prefs: { verified?: boolean; enabled?: boolean }) =>
+      invoke('channel:savePrefs', kind, prefs),
+    loadPrefs: (kind: ChannelKind) => invoke('channel:loadPrefs', kind),
+    test: (kind: ChannelKind) => invoke('channel:test', kind),
+    inject: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+      invoke('channel:inject', kind, config),
+    detectIdentity: (kind: ChannelKind, config: Record<string, string | undefined>) =>
+      invoke('channel:detectIdentity', kind, config),
+    detectIdentityFromSaved: (kind: ChannelKind) => invoke('channel:detectIdentityFromSaved', kind),
+    poll: (kind: ChannelKind) => invoke('channel:poll', kind),
+    flushPending: (kind: ChannelKind) => invoke('channel:flushPending', kind),
+    send: (
+      kind: ChannelKind,
+      action:
+        | 'reply'
+        | 'update'
+        | 'photo'
+        | 'video'
+        | 'voice'
+        | 'document'
+        | 'typing'
+        | 'keyboard'
+        | 'editMessage'
+        | 'history'
+        | 'post',
+      payload: Record<string, unknown>,
+    ) => invoke('channel:send', kind, action, payload),
   },
   // Cloud Mode provider secrets, encrypted at rest via safeStorage in main.
   cloudProvider: {

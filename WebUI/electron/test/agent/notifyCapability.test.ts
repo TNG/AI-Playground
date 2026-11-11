@@ -4,10 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
-import type { NotificationRoute } from '@/types/notificationsIpc'
 import type { ChatAskPayload } from '@/types/chatRequests'
 import type { ChannelMedia, ChannelSendOutcome } from '../../agent/notifier'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
+import { sessionHolding } from './sessionHolding'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.
@@ -26,6 +26,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
   getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
   getChannelMessageMapFile: () => path.join(tempRoot, 'channel-messages.json'),
+  getSessionsDir: () => path.join(tempRoot, 'sessions'),
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -112,16 +113,16 @@ let sent: Array<{
   answerTitle?: string
 }> = []
 let channelResult: ChannelSendOutcome = { success: true, ref: '42' }
+let channelResultFor: Partial<Record<ChannelKind, ChannelSendOutcome>> = {}
 /** Refs handed out one per send before falling back to `channelResult`. */
 let refs: string[] = []
 let refusedFiles: string[] = []
 let thumbnail: FakeThumbnail = { base64: 'anBlZw==' }
 
-function route(next: NotificationRoute, realShellSessions: string[] = []): void {
+function route(channels: ChannelKind[], realShellSessions: string[] = []): void {
   notifier.setNotificationConfig({
-    ...next,
-    autoNotify: false,
-    sessionInView: null,
+    channels,
+    sessionOnScreen: null,
     realShellSessions,
     templates: {
       header: '🤖 Agent · {title}',
@@ -136,6 +137,8 @@ function route(next: NotificationRoute, realShellSessions: string[] = []): void 
       answerOnComputer: 'Answer on your computer',
       answerInThread: 'Reply in thread to answer.',
       answerByReply: '↩️ Reply to this message to answer.',
+      queueDroppedOnQuit: 'Dropped {count}.',
+      agentStarted: 'Started {name} in {title}.',
     },
   })
 }
@@ -154,7 +157,6 @@ beforeAll(async () => {
     getService: () => ({ ensureBackendReadiness: async () => {}, baseUrl: null }),
     awaitChatWindow: async () => {},
     stopOvmsImageServer: async () => {},
-    notifyHomeAgentUpstreamReady: () => {},
   })
   const bridge = await import('../../artifact/rendererBridge')
   const chatAsk = await import('../../chat/chatAsk')
@@ -177,10 +179,13 @@ beforeAll(async () => {
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannel({
     typing: async () => ({ success: true }),
+    draft: async () => ({ success: true }),
     send: async (kind, message) => {
       sent.push({ kind, ...message })
       if (refusedFiles.includes(message.media?.filename ?? ''))
         return { success: false, error: 'too large' }
+      const forKind = channelResultFor[kind]
+      if (forKind) return forKind
       const ref = refs.shift()
       return ref ? { success: true, ref } : channelResult
     },
@@ -198,10 +203,11 @@ beforeEach(() => {
   notifyArgs = { message: SUMMARY }
   sent = []
   channelResult = { success: true, ref: '42' }
+  channelResultFor = {}
   refs = []
   refusedFiles = []
   thumbnail = { base64: 'anBlZw==' }
-  route({ homeAgentEnabled: true, notificationChannel: 'telegram' })
+  route(['telegram'])
   workspace = fs.mkdtempSync(path.join(tempRoot, 'ws-'))
 })
 
@@ -222,7 +228,14 @@ function toolResultText(): string {
   return typeof tool?.content === 'string' ? tool.content : JSON.stringify(tool?.content)
 }
 
-async function runTurn(sessionId: string, capabilities = ['notify']): Promise<void> {
+/** Runs a turn of `sessionId`, held by a Reachable Session unless `held` is false. */
+async function runTurn(
+  sessionId: string,
+  capabilities = ['notify'],
+  { held = true }: { held?: boolean } = {},
+): Promise<void> {
+  const { sessionOfHarnessSession } = await import('../../session/sessionHarness')
+  if (held && !(await sessionOfHarnessSession(sessionId))) await sessionHolding(sessionId)
   await manager.startAgentTurn(
     crypto.randomUUID(),
     'send me the news',
@@ -231,7 +244,7 @@ async function runTurn(sessionId: string, capabilities = ['notify']): Promise<vo
 }
 
 describe('notify_user', () => {
-  it('sends the message to the Notification Channel and tells the model it was delivered', async () => {
+  it('sends the message to the Channel and tells the model it was delivered', async () => {
     await runTurn('aipg-agent-notify-ok')
     expect(sent).toEqual([
       {
@@ -243,7 +256,7 @@ describe('notify_user', () => {
   }, 30000)
 
   it('gives a LAN chat Notification the Answer button, naming the session it answers', async () => {
-    route({ homeAgentEnabled: true, notificationChannel: 'local-web' })
+    route(['local-web'])
     await runTurn('aipg-agent-notify-lan')
     expect(sent).toEqual([
       {
@@ -256,7 +269,7 @@ describe('notify_user', () => {
   }, 30000)
 
   it('gives a session that uses the real system shell no Answer button, only a pointer to the computer', async () => {
-    route({ homeAgentEnabled: true, notificationChannel: 'telegram' }, ['aipg-agent-notify-shell'])
+    route(['telegram'], ['aipg-agent-notify-shell'])
     await runTurn('aipg-agent-notify-shell')
     expect(sent).toEqual([
       {
@@ -267,7 +280,7 @@ describe('notify_user', () => {
   }, 30000)
 
   it('tells a Slack user to reply in the thread instead of showing a button', async () => {
-    route({ homeAgentEnabled: true, notificationChannel: 'slack' })
+    route(['slack'])
     await runTurn('aipg-agent-notify-slack')
     expect(sent).toEqual([
       {
@@ -278,9 +291,7 @@ describe('notify_user', () => {
   }, 30000)
 
   it('points a Slack user at the computer for a session that uses the real system shell', async () => {
-    route({ homeAgentEnabled: true, notificationChannel: 'slack' }, [
-      'aipg-agent-notify-slack-shell',
-    ])
+    route(['slack'], ['aipg-agent-notify-slack-shell'])
     await runTurn('aipg-agent-notify-slack-shell')
     expect(sent).toEqual([
       {
@@ -290,25 +301,41 @@ describe('notify_user', () => {
     ])
   }, 30000)
 
-  it('records the sent message so a reply to it reaches the session', async () => {
+  it('records the sent message as its Session’s, so a reply to it reaches the session', async () => {
+    const sessionRef = await sessionHolding('aipg-agent-notify-answerable')
     await runTurn('aipg-agent-notify-answerable')
     expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
-      sessionId: 'aipg-agent-notify-answerable',
+      sessionRef,
+      harnessSessionId: 'aipg-agent-notify-answerable',
     })
   }, 30000)
 
-  it('sends nothing with Home Agent off and returns the reason', async () => {
-    route({ homeAgentEnabled: false, notificationChannel: 'telegram' })
-    await runTurn('aipg-agent-notify-off')
+  it('sends nothing for a Session that is not reachable and returns the reason', async () => {
+    await sessionHolding('aipg-agent-notify-unreachable', { reachable: false })
+    await runTurn('aipg-agent-notify-unreachable')
     expect(sent).toEqual([])
-    expect(toolResultText()).toContain('not delivered: Home Agent is off')
+    expect(toolResultText()).toContain('not delivered: the Session is not reachable from Channels')
   }, 30000)
 
-  it('sends nothing without a Notification Channel and returns the reason', async () => {
-    route({ homeAgentEnabled: true, notificationChannel: null })
-    await runTurn('aipg-agent-notify-none')
+  it('sends nothing for a Harness Session no Session holds, such as a Trial Run’s', async () => {
+    await runTurn('aipg-agent-notify-trial-run', ['notify'], { held: false })
     expect(sent).toEqual([])
-    expect(toolResultText()).toContain('not delivered: no Notification Channel set up')
+    expect(toolResultText()).toContain('not delivered: the Session is not reachable from Channels')
+  }, 30000)
+
+  it('sends nothing while the Channels toggle is off or no Channel is set up', async () => {
+    route([])
+    await runTurn('aipg-agent-notify-off')
+    expect(sent).toEqual([])
+    expect(toolResultText()).toContain('not delivered: no Channel is on')
+  }, 30000)
+
+  it('sends to every Channel and is delivered when any of them took it', async () => {
+    route(['telegram', 'slack'])
+    channelResultFor = { telegram: { success: false, error: 'Telegram not configured' } }
+    await runTurn('aipg-agent-notify-every')
+    expect(sent.map((s) => s.kind)).toEqual(['telegram', 'slack'])
+    expect(toolResultText()).toBe('delivered')
   }, 30000)
 
   it('returns a channel send error as not delivered', async () => {
@@ -392,9 +419,11 @@ describe('notify_user attachments', () => {
     attach('shot.jpg')
     notifyArgs = { message: SUMMARY, attachments: ['shot.jpg'] }
     channelResult = { success: true, ref: '77' }
+    const sessionRef = await sessionHolding('aipg-agent-notify-photo-answerable')
     await runTurn('aipg-agent-notify-photo-answerable')
     expect(await messageMap.channelMessageOwner('telegram', '77')).toEqual({
-      sessionId: 'aipg-agent-notify-photo-answerable',
+      sessionRef,
+      harnessSessionId: 'aipg-agent-notify-photo-answerable',
     })
   }, 30000)
 
@@ -570,10 +599,12 @@ describe('notify_user attachments', () => {
     attach('b.webm')
     notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.webm'] }
     refs = ['81', '82']
+    const sessionRef = await sessionHolding('aipg-agent-notify-several-answerable')
     await runTurn('aipg-agent-notify-several-answerable')
     for (const ref of ['81', '82']) {
       expect(await messageMap.channelMessageOwner('telegram', ref)).toEqual({
-        sessionId: 'aipg-agent-notify-several-answerable',
+        sessionRef,
+        harnessSessionId: 'aipg-agent-notify-several-answerable',
       })
     }
   }, 30000)
@@ -587,7 +618,7 @@ describe('notify_user attachments', () => {
   }, 30000)
 
   it('keeps the Answer button on the captioned attachment on LAN chat', async () => {
-    route({ homeAgentEnabled: true, notificationChannel: 'local-web' })
+    route(['local-web'])
     attach('a.png')
     attach('b.png')
     notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.png'] }

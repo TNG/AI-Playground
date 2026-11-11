@@ -79,6 +79,8 @@ export const AgentTaskSchema = z.object({
   activeRuns: z.array(AgentTaskActiveRunSchema).optional(),
   /** At most one per Session. */
   schedules: z.array(AgentSessionScheduleSchema).optional(),
+  /** `/agents` on a Channel lists and starts it; false when absent. */
+  startableFromChannel: z.boolean().optional(),
 })
 export type AgentTask = z.infer<typeof AgentTaskSchema>
 

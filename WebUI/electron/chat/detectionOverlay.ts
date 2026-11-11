@@ -6,7 +6,7 @@ import { nativeImage } from 'electron'
  * There is no canvas here, so the image is decoded to its raw BGRA bitmap
  * (`nativeImage`), written into directly, and re-encoded as PNG. The output
  * stays a PNG data URL because every consumer — the chat card, the gallery
- * extractor, the Home Agent channel shipper — treats it as a photo; an SVG
+ * extractor, the Channel shipper — treats it as a photo; an SVG
  * would render in the app and be rejected by Telegram.
  *
  * Labels are drawn from a 5x7 bitmap font rather than a system font: main has

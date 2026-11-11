@@ -1,5 +1,4 @@
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
-import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
 import type { NotificationTemplates } from '@/types/notificationsIpc'
 
 /** The callback of the 💬 Answer button; the tapped message itself names the session. */
@@ -9,18 +8,30 @@ export type AnswerGesture = 'button' | 'thread' | 'reply'
 
 type GestureWording = {
   /** The `/help` line. */
-  help: keyof AnswerRouterCopy
+  help: 'helpReply' | 'helpThread' | 'helpButton'
   /** The setup screen's note. */
-  notice: keyof AnswerRouterCopy
+  notice: 'noticeReply' | 'noticeThread' | 'noticeButton'
   /** The last line of an answerable agent message; null where a button answers it instead. */
   hint: keyof Pick<NotificationTemplates, 'answerByReply' | 'answerInThread'> | null
+  /** How a Start Prompt Request asks for its reply. */
+  request: 'startPromptRequest' | 'startPromptRequestThread'
 }
 
 /** How each gesture is worded wherever answering is explained. */
 export const GESTURE_WORDING: Record<AnswerGesture, GestureWording> = {
-  reply: { help: 'helpReply', notice: 'noticeReply', hint: 'answerByReply' },
-  thread: { help: 'helpThread', notice: 'noticeThread', hint: 'answerInThread' },
-  button: { help: 'helpButton', notice: 'noticeButton', hint: null },
+  reply: {
+    help: 'helpReply',
+    notice: 'noticeReply',
+    hint: 'answerByReply',
+    request: 'startPromptRequest',
+  },
+  thread: {
+    help: 'helpThread',
+    notice: 'noticeThread',
+    hint: 'answerInThread',
+    request: 'startPromptRequestThread',
+  },
+  button: { help: 'helpButton', notice: 'noticeButton', hint: null, request: 'startPromptRequest' },
 }
 
 /** How a channel answers an agent's message, and how a send there names the message it replies to. */
@@ -30,10 +41,16 @@ type ChannelAnswering = {
   replyKey: string
   /** The LAN page's chip names the session, so its button carries the title. */
   buttonCarriesTitle: boolean
-  /** A LAN chat `reply` settles the streaming Home Agent bubble; `post` stands on its own. */
+  /** A LAN chat `reply` settles a streaming reply bubble; `post` stands on its own. */
   sendsAsPost: boolean
   /** "typing…" while the turn an Answer started runs, and how it ends; null: main cannot show it. */
   typing: null | 'lapses' | 'stops'
+  /**
+   * How a streaming reply shows. `draft`: a platform draft, then a separate final message;
+   * `taken-over`: the same, but the final message takes the draft's place; `edited-post`: no
+   * drafts, so the first update posts the message and later ones, the final included, edit it.
+   */
+  streaming: 'draft' | 'taken-over' | 'edited-post'
 }
 
 export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
@@ -43,6 +60,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: false,
     sendsAsPost: false,
     typing: 'lapses',
+    streaming: 'draft',
   },
   slack: {
     gesture: 'thread',
@@ -50,6 +68,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: false,
     sendsAsPost: false,
     typing: null,
+    streaming: 'edited-post',
   },
   'local-web': {
     gesture: 'button',
@@ -57,6 +76,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: true,
     sendsAsPost: true,
     typing: 'stops',
+    streaming: 'taken-over',
   },
   discord: {
     gesture: null,
@@ -64,6 +84,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: false,
     sendsAsPost: false,
     typing: null,
+    streaming: 'draft',
   },
 }
 

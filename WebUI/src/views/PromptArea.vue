@@ -510,14 +510,18 @@ const audioPreview = computed(() =>
   attachmentPreview.value.filter((item) => item.part.mediaType?.startsWith('audio/')),
 )
 
-/** The Agent Run in the open Session a sent prompt waits for. */
+/** What a prompt sent in the open Session waits for: its Agent Run or queued Channel messages. */
 const queuedBehindRun = computed(() =>
   sessions.openSessionId ? agentTasks.queuedPrompts[sessions.openSessionId] : undefined,
 )
 
-const queuedBehindRunNote = computed(() =>
-  agentRunQueuedLabel(languages ?? {}, queuedBehindRun.value ?? ''),
-)
+const queuedBehindRunNote = computed(() => {
+  const held = queuedBehindRun.value
+  if (held?.behind === 'channel-messages') {
+    return languages?.COM_ACTIVITY_TURN_QUEUED_FOR_CHANNEL_MESSAGES ?? ''
+  }
+  return agentRunQueuedLabel(languages ?? {}, held?.name ?? '')
+})
 
 // Between two Steps no turn is in flight, yet the run still holds the Session.
 const openSessionRunning = computed(
@@ -652,6 +656,9 @@ function getTextAreaPlaceholder() {
   }
   if (composer?.reason === 'agent-edited') {
     return fillTemplate(languages?.AGENT_COMPOSER_EDITED ?? '', { agent })
+  }
+  if (pickedAgentName.value !== undefined) {
+    return fillTemplate(languages?.AGENT_COMPOSER_START_PROMPT ?? '', { agent })
   }
   // The TTS preset runs in 'chat' mode but takes literal text to speak, not a
   // chat prompt — so it needs its own placeholder.

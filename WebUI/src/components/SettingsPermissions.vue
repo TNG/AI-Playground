@@ -7,30 +7,30 @@
           <div class="flex flex-col gap-1 min-w-0">
             <Label
               for="remote-download-pregrant"
-              :class="{ 'opacity-50': !homeAgent.hasConfiguredChannel }"
+              :class="{ 'opacity-50': !channelStore.hasConfiguredChannel }"
               >{{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS }}</Label
             >
             <p class="text-xs text-muted-foreground">
               {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_INFO }}
             </p>
             <p
-              v-if="!homeAgent.hasConfiguredChannel"
+              v-if="!channelStore.hasConfiguredChannel"
               class="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2"
             >
               {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_NO_CHANNEL }}
               <button
                 type="button"
                 class="text-primary underline-offset-2 hover:underline"
-                @click="setupWizard.openHomeAgentSetup()"
+                @click="setupWizard.openChannelsSetup()"
               >
-                {{ languages.SETTINGS_PERMISSIONS_SETUP_HOME_AGENT }}
+                {{ languages.SETTINGS_PERMISSIONS_SETUP_CHANNELS }}
               </button>
             </p>
           </div>
           <Checkbox
             id="remote-download-pregrant"
             class="mt-0.5"
-            :disabled="!homeAgent.hasConfiguredChannel && !remoteDownloadsGranted"
+            :disabled="!channelStore.hasConfiguredChannel && !remoteDownloadsGranted"
             :model-value="remoteDownloadsGranted"
             @update:model-value="(v) => setRemoteDownloads(v === true)"
           />
@@ -131,7 +131,7 @@ import {
   VRAM_WARNING_GRANT_PREFIX,
   type PermissionGrant,
 } from '@/assets/js/store/permissionGrants'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useChannels } from '@/assets/js/store/channels'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useErrors } from '@/assets/js/store/errors'
@@ -151,7 +151,7 @@ import { createAppError } from '@/assets/js/errors/appError'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 const grants = usePermissionGrants()
-const homeAgent = useHomeAgent()
+const channelStore = useChannels()
 const setupWizard = useSetupWizard()
 const errors = useErrors()
 const languages = useI18N().state

@@ -62,13 +62,24 @@ export function sessionPaths(id: string): SessionFolderPaths {
 }
 
 function summaryOf(file: SessionFile): SessionSummary {
-  const { id, title, renamed, pinned, groupId, createdAt, updatedAt, presetsUsed, pickedAgentId } =
-    file
+  const {
+    id,
+    title,
+    renamed,
+    pinned,
+    groupId,
+    createdAt,
+    updatedAt,
+    presetsUsed,
+    pickedAgentId,
+    reachable,
+  } = file
   return {
     id,
     title,
     renamed,
     pinned,
+    reachable,
     ...(groupId === undefined ? {} : { groupId }),
     createdAt,
     updatedAt,
@@ -112,6 +123,7 @@ async function createSessionFile(groupId: string | undefined): Promise<SessionSu
     retiredHarnessSessions: [],
     taskRunHarnessSessions: [],
     updateCursors: {},
+    reachable: false,
   }
   await serializeSession(file.id, () => createSessionFolder(file))
   return summaryOf(file)
@@ -131,6 +143,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
         title: UNAVAILABLE_TITLE,
         renamed: false,
         pinned: false,
+        reachable: false,
         unreadable: true,
         createdAt: time,
         updatedAt: time,

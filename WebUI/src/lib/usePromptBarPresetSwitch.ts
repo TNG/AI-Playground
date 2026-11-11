@@ -1,8 +1,5 @@
 import { computed } from 'vue'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
-import { useSessionChat } from '@/assets/js/store/sessionChat'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useBackendServices } from '@/assets/js/store/backendServices'
@@ -14,12 +11,9 @@ import { presetGate, type PresetGate } from '@/lib/presetGate'
 import { presetToMode } from '@/lib/presetModes'
 import * as toast from '@/assets/js/toast'
 
-/** The one preset switch behind every prompt-bar picker, gate and conversation routing included. */
+/** The one preset switch behind every prompt-bar picker, gate included. */
 export function usePromptBarPresetSwitch() {
   const presetSwitching = usePresetSwitching()
-  const conversations = useConversations()
-  const sessionChat = useSessionChat()
-  const homeAgent = useHomeAgent()
   const presetsStore = usePresets()
   const promptStore = usePromptStore()
   const backendServices = useBackendServices()
@@ -39,13 +33,9 @@ export function usePromptBarPresetSwitch() {
   function gateOf(preset: Preset): PresetGate {
     return presetGate(preset, {
       phisonUsable: phisonUsable.value,
-      homeAgentEnabled: homeAgent.masterEnabled,
-      homeAgentAvailable: homeAgent.isAvailable,
     })
   }
 
-  // Mirrors SettingsChatInferencing: Home Agent jumps to its remote thread, and leaving one
-  // returns to the Session's chat so nothing is written into Home Agent state.
   async function switchTo(presetName: string, options: { announce?: boolean } = {}) {
     const preset = presetsStore.presets.find((p) => p.name === presetName)
     if (!preset) return false
@@ -64,7 +54,6 @@ export function usePromptBarPresetSwitch() {
     }
     if (!promptStore.ensureModeAvailable(mode)) return false
 
-    const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
     const result = await presetSwitching.switchPreset(presetName)
     if (!result.success) {
       if (result.error) {
@@ -81,11 +70,6 @@ export function usePromptBarPresetSwitch() {
         )
       }
       return false
-    }
-    if (presetName === HOME_AGENT_CHAT_PRESET_NAME) {
-      conversations.activeKey = homeAgent.ensureActiveRemoteConversation()
-    } else if (onHomeAgentThread) {
-      sessionChat.returnToSessionChat()
     }
     if (options.announce !== false) {
       toast.success(

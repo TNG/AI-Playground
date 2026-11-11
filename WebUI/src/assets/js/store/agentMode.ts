@@ -73,7 +73,6 @@ import { harnessTurnRefusal, type AgentAnswerOrigin, type GameLibraryEntry } fro
 import type { AgentTurnState, PauseReason } from '@/types/kernelEvents'
 import type { HarnessTurnRef, LiveAgentTurn } from '@/lib/turnTypes'
 import type { ChannelKind } from './channels/types'
-import type { HeldAnswerView, SessionTurnEnd } from './channels/answerRouter'
 import {
   applySessionPresetNames,
   computedPresetSessions,
@@ -318,6 +317,13 @@ export const useAgentMode = defineStore(
       void port.whenLoaded().then(() => {
         if (heldBySession()) applyOpenSessionSettings(port.read(agentPresetName.value)?.settings)
       })
+    }
+
+    /** Main changed the open Session's stored settings: take them into the live controls. */
+    function reloadOpenSessionSettings(): void {
+      const port = settingsPort.value
+      if (port && heldBySession())
+        applyOpenSessionSettings(port.read(agentPresetName.value)?.settings)
     }
 
     /** The open Harness Session's settings live in its Session, not on its own record. */
@@ -902,7 +908,7 @@ export const useAgentMode = defineStore(
       const missing = checked.filter((m) => !m.already_loaded)
       if (missing.length === 0) return { status: 'ready' }
       // The permissions layer owns the prompt (the shared download modal, or
-      // the in-channel question on a remote Home Agent turn), so the agent
+      // the in-channel question on a Channel turn), so the agent
       // store does not touch the dialog store directly — the same seam chat
       // and media use (AGENTS.md: "Report through the sink, not directly").
       try {
@@ -1193,9 +1199,6 @@ export const useAgentMode = defineStore(
           notRunMessageId: notRunMessages.value[id],
           canResend: canResendNotRun.value,
           open: true,
-          ...(heldAnswers.value[id]
-            ? { heldAnswer: { channel: heldAnswers.value[id].channel } }
-            : {}),
           ...(chat.value.error ? { error: chat.value.error.message } : {}),
         })
       }
@@ -1216,7 +1219,6 @@ export const useAgentMode = defineStore(
     function inView(sessionId: string): boolean {
       return viewShown.value && openSessionId.value === sessionId
     }
-    const sessionInView = computed(() => (viewShown.value && openSessionId.value) || null)
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
     // session is in view, so a Paused Session never pops up over other work.
@@ -1240,6 +1242,11 @@ export const useAgentMode = defineStore(
         return new Promise<void>((resolve) => (turnEndWaiters[sessionId] ??= []).push(resolve))
       },
       answerOrigin: (sessionId) => turnContexts[sessionId]?.answer,
+      reachesChannels: (sessionId) => {
+        if (turnContexts[sessionId]?.answer) return true
+        const sessionRef = sessions.value[sessionId]?.sessionRef
+        return !!sessionRef && sessionsStore.sessions[sessionRef]?.reachable === true
+      },
     })
 
     function settleHeldPrompts(sessionId: string, how: 'show' | 'drop'): void {
@@ -1344,49 +1351,6 @@ export const useAgentMode = defineStore(
           ? { kind: 'error', message: extractMessage(chat?.error) }
           : { kind: 'completed' }
       for (const listener of [...turnSettledListeners]) listener(sessionId, outcome)
-      // After the Tasks store has heard it, so a finished run no longer holds the session.
-      if (!deletingSessions.has(sessionId)) {
-        settleHeldAnswer(
-          sessionId,
-          outcome.kind === 'completed'
-            ? 'completed'
-            : outcome.kind === 'error'
-              ? 'failed'
-              : 'stopped',
-        )
-      }
-    }
-
-    const heldAnswers = ref<Record<string, HeldAnswerView>>({})
-    type HeldAnswerListener = (sessionId: string, end: SessionTurnEnd) => void
-    const heldAnswerListeners = new Set<HeldAnswerListener>()
-    const deletingSessions = new Set<string>()
-
-    /** The Answer router keeps the Held Answer; the store only shows it. */
-    function setHeldAnswer(sessionId: string, answer: HeldAnswerView | null): void {
-      const { [sessionId]: _previous, ...rest } = heldAnswers.value
-      heldAnswers.value = answer ? { ...rest, [sessionId]: answer } : rest
-    }
-
-    function discardHeldAnswer(sessionId: string): void {
-      if (!heldAnswers.value[sessionId]) return
-      setHeldAnswer(sessionId, null)
-      settleHeldAnswer(sessionId, 'discarded')
-    }
-
-    /** A Steps run ended on a Step it could not send, so no turn settles to let the Answer go. */
-    function releaseHeldAnswer(sessionId: string): void {
-      if (!deletingSessions.has(sessionId)) settleHeldAnswer(sessionId, 'failed')
-    }
-
-    function settleHeldAnswer(sessionId: string, end: SessionTurnEnd): void {
-      for (const listener of [...heldAnswerListeners]) listener(sessionId, end)
-    }
-
-    /** Hear what decides each session's Held Answer; returns the unsubscribe. */
-    function onHeldAnswerSettled(listener: HeldAnswerListener): () => void {
-      heldAnswerListeners.add(listener)
-      return () => heldAnswerListeners.delete(listener)
     }
 
     type TurnSettledListener = (sessionId: string, outcome: TurnOutcome) => void
@@ -1751,13 +1715,7 @@ export const useAgentMode = defineStore(
     }
 
     async function deleteSession(id: string): Promise<void> {
-      // The stop below is the delete's, not the desktop taking over a Held Answer.
-      deletingSessions.add(id)
-      try {
-        await removeSession(id)
-      } finally {
-        deletingSessions.delete(id)
-      }
+      await removeSession(id)
     }
 
     async function removeSession(id: string): Promise<void> {
@@ -1768,7 +1726,6 @@ export const useAgentMode = defineStore(
       if (stopping) await stopSession(id)
       const result = await window.electronAPI.agentMode.deleteSession(id)
       if (!result.success) {
-        if (stopping) settleHeldAnswer(id, 'stopped')
         errors.report(new Error(result.error ?? 'Failed to delete session.'), {
           category: 'unknown',
           code: 'agent/delete-session-failed',
@@ -1790,7 +1747,6 @@ export const useAgentMode = defineStore(
       } else {
         turns.release(id)
       }
-      settleHeldAnswer(id, 'deleted')
     }
 
     async function adoptWorkspace(dir: string): Promise<void> {
@@ -2181,6 +2137,22 @@ export const useAgentMode = defineStore(
       return { ok: true }
     }
 
+    /** Whether a turn sent with `useStoredSettings` would run on a model that sees images. */
+    async function storedTurnSeesImages(sessionId: string): Promise<boolean> {
+      const record = sessions.value[sessionId]
+      if (!record) return false
+      const inSession =
+        record.sessionRef && settingsPort.value
+          ? await settingsPort.value.readStored(
+              record.sessionRef,
+              record.presetName ?? HARNESS_CHAT_PRESET,
+            )
+          : null
+      const context = storedTurnContext(record, inSession ?? undefined)
+      const stored = textInference.inferenceForSettings(context.presetName, context.settings ?? {})
+      return stored.inference.modelSupportsVision
+    }
+
     /** Main rewinds before the new answer streams, so until then the old one stays. */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
@@ -2320,6 +2292,7 @@ export const useAgentMode = defineStore(
       setPlanningThinkingOnly,
       openSessionSettings,
       bindSessionSettingsPort,
+      reloadOpenSessionSettings,
       ensureOpenSessionId,
       sessionScoped,
       settingsProblems,
@@ -2338,6 +2311,7 @@ export const useAgentMode = defineStore(
       indexingDocuments,
       removeSessionDocument,
       attachFiles,
+      storedTurnSeesImages,
       removeAttachment,
       clearAttachments,
       processing,
@@ -2370,11 +2344,6 @@ export const useAgentMode = defineStore(
       setTaskLockLookup,
       quietSessionErrors,
       onTurnSettled,
-      heldAnswers,
-      setHeldAnswer,
-      discardHeldAnswer,
-      releaseHeldAnswer,
-      onHeldAnswerSettled,
       stopSession,
       stop,
       newSession,
@@ -2383,7 +2352,6 @@ export const useAgentMode = defineStore(
       setViewShown,
       liveTurnsIn,
       streamingMessagesOf,
-      sessionInView,
       deleteSession,
       restoreOpenSession,
     }

@@ -14,12 +14,12 @@ export type MainSendChannelName = {
   [K in SendChannelName]: ChannelManifest[K]['owner'] extends 'main' ? K : never
 }[SendChannelName]
 
-export type HomeAgentInvokeChannelName = {
-  [K in InvokeChannelName]: ChannelManifest[K]['owner'] extends 'homeAgent' ? K : never
+export type ChannelsInvokeChannelName = {
+  [K in InvokeChannelName]: ChannelManifest[K]['owner'] extends 'channels' ? K : never
 }[InvokeChannelName]
 
-export type HomeAgentSendChannelName = {
-  [K in SendChannelName]: ChannelManifest[K]['owner'] extends 'homeAgent' ? K : never
+export type ChannelsSendChannelName = {
+  [K in SendChannelName]: ChannelManifest[K]['owner'] extends 'channels' ? K : never
 }[SendChannelName]
 
 export type InvokeHandlerMap<Names extends InvokeChannelName> = {

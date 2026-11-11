@@ -9,7 +9,7 @@ import { createCancellation, isCancellation } from '../errors/appError'
  * named-verb facade the rest of the renderer calls:
  *
  * - `requestDownload` — model-download consent. Main decides whether a remote
- *   Home Agent turn may skip the in-channel question (`download:remote-turns`
+ *   Channel turn may skip the in-channel question (`download:remote-turns`
  *   pre-grant); the renderer adapter shows the modal or routes to the channel.
  * - `requestVramWarning` — the gated high-memory / video-VRAM preset warning.
  *   "Do not show again" becomes a `remember` grant in main.
@@ -17,7 +17,7 @@ import { createCancellation, isCancellation } from '../errors/appError'
  *   the setup wizard). No grant, nothing to remember; stays renderer-local.
  *
  * There is no silent auto-allow. Named verbs stay; grant vocabulary is not
- * this row. The Home Agent store is never imported here — a remote turn
+ * this row. The Channels store is never imported here — a remote turn
  * registers a port (`remoteTurnPort.ts`) that the adapter consults.
  */
 
@@ -27,7 +27,7 @@ export { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey }
  * Ask consent for downloading the given models and run the download.
  * Resolves when the download completed; rejects when it was declined or
  * failed. A Chat turn passes its conversation, which then shows the download
- * card instead of a progress dialog. On a remote Home Agent turn the request is answered in-channel
+ * card instead of a progress dialog. On a Channel turn the request is answered in-channel
  * (mirrored on the desktop); the `download:remote-turns` pre-grant skips the
  * in-channel question — gated models are still declined, progress still
  * streams to the channel.

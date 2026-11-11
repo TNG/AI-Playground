@@ -1,3 +1,4 @@
+import { CHANNEL_NAMES } from './channelNames'
 import { fillTemplate } from './fillTemplate'
 import type { CloseQuestion, InFlightWorkItem } from '@/types/lifecycleIpc'
 
@@ -11,8 +12,6 @@ function itemLabel(item: InFlightWorkItem, t: Strings): string {
       return named(item.name, 'CLOSE_ITEM_AGENT', 'CLOSE_ITEM_AGENT_UNNAMED')
     case 'chat-turn':
       return named(item.name, 'CLOSE_ITEM_CHAT', 'CLOSE_ITEM_CHAT_UNNAMED')
-    case 'home-agent-turn':
-      return t.CLOSE_ITEM_HOME_AGENT
     case 'media-run':
       return item.mode === 'video'
         ? t.CLOSE_ITEM_VIDEO
@@ -23,6 +22,8 @@ function itemLabel(item: InFlightWorkItem, t: Strings): string {
       return named(item.name, 'CLOSE_ITEM_TASK', 'CLOSE_ITEM_AGENT_UNNAMED')
     case 'trial-run':
       return named(item.name, 'CLOSE_ITEM_TRIAL_RUN', 'CLOSE_ITEM_TRIAL_RUN_UNNAMED')
+    case 'channel-queue':
+      return fillTemplate(t.CLOSE_ITEM_CHANNEL_QUEUE, { channel: CHANNEL_NAMES[item.channel] })
   }
 }
 

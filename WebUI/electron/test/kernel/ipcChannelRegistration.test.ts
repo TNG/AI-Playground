@@ -9,7 +9,7 @@ import { CHANNELS } from '@/types/ipcChannels'
 // manifest row registers through a per-owner registry literal that
 // `satisfies` an owner-scoped mapped type (electron/kernel/ipcRegistries.ts),
 // so a missing handler or an unhandled new row is a build error — pinned by
-// the planted-omission fixture in ipcRegistries.test.ts — and a homeAgent key
+// the planted-omission fixture in ipcRegistries.test.ts — and a channels key
 // cannot satisfy a Main* map (or vice versa). What a type cannot see survives
 // here as source-text scans: raw `ipcMain.handle`/`ipcMain.on`/
 // `webContents.send`/`ipcRenderer.*` registrations bypass the typed seam

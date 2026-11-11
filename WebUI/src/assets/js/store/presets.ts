@@ -87,7 +87,7 @@ export const usePresets = defineStore(
     // user enabled an external transcription endpoint (which needs no OpenVINO).
     // We read that flag from the speechToText store, but load it lazily (browser
     // only) so this module stays importable in the headless/node preset tests:
-    // `speechToText` pulls the renderer store graph (setupWizard → homeAgent) that
+    // `speechToText` pulls the renderer store graph (setupWizard → channels) that
     // touches `window` at import time. The ref keeps the flag reactive.
     type SttFallbackFlagStore = { fallback: { enabled: boolean; baseUrl: string } }
     const sttFallbackStore = shallowRef<SttFallbackFlagStore | null>(null)
@@ -452,7 +452,7 @@ export const usePresets = defineStore(
           // If type is specified, filter by type
           if (type && preset.type !== type) return false
 
-          // Hide chat presets that opt out of the standard picker (e.g. Home Agent)
+          // Hide chat presets that opt out of the standard picker
           if (preset.type === 'chat' && (preset as ChatPreset).excludeFromChatPresetPicker) {
             return false
           }

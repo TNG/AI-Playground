@@ -54,12 +54,10 @@ export const ChatModelConfigSchema = z.object({
       authStyle: z.string(),
     })
     .optional(),
-  /** Home Agent active: route through its Flask proxy with upstream + auth headers. */
-  homeAgentUpstreamUrl: z.string().optional(),
   /**
    * Local backend load facts: `runChatTurn` admits the turn as a text request,
-   * then loads before streaming. Absent for cloud / Home Agent relays, which
-   * are never restarted mid-turn.
+   * then loads before streaming. Absent for cloud turns, which are never
+   * restarted mid-turn.
    */
   readiness: z
     .object({
@@ -132,51 +130,6 @@ export const ChatTurnPersistSchema = z.object({
 })
 export type ChatTurnPersist = z.infer<typeof ChatTurnPersistSchema>
 
-/**
- * What the Home Agent's own settings tools read, frozen at submit time. The
- * live values are resolved by the renderer's `textInference` / `backendServices`
- * stores, so main is handed the resolved picture rather than asking for it
- * tool-call by tool-call.
- */
-const HomeAgentModelSchema = z.object({
-  name: z.string(),
-  downloaded: z.boolean().optional(),
-  maxContextSize: z.number().optional(),
-  supportsToolCalling: z.boolean().optional(),
-  supportsVision: z.boolean().optional(),
-})
-const HomeAgentDeviceSchema = z.object({ id: z.string(), name: z.string() }).passthrough()
-export const HomeAgentInferenceSnapshotSchema = z.object({
-  backend: z.enum(['llamaCPP', 'openVINO', 'cloud']),
-  current: z.object({
-    model: z.string().nullable(),
-    embeddingModel: z.string().nullable(),
-    deviceId: z.string().nullable(),
-    temperature: z.number(),
-    maxTokens: z.number(),
-    contextSize: z.number(),
-    systemPrompt: z.string(),
-    aipgToolsEnabled: z.boolean(),
-    mcpToolsEnabled: z.boolean(),
-    metricsEnabled: z.boolean(),
-    ragDocumentCount: z.number(),
-  }),
-  currentDeviceName: z.string().nullable().optional(),
-  modelMaxContextSize: z.number().nullable().optional(),
-  llmModels: z.object({
-    llamaCPP: z.array(HomeAgentModelSchema),
-    openVINO: z.array(HomeAgentModelSchema),
-    cloud: z.array(HomeAgentModelSchema),
-  }),
-  embeddingModels: z.array(z.object({ name: z.string(), downloaded: z.boolean() })),
-  devices: z.object({
-    llamaCPP: z.array(HomeAgentDeviceSchema),
-    openVINO: z.array(HomeAgentDeviceSchema),
-    cloud: z.array(HomeAgentDeviceSchema).optional(),
-  }),
-})
-export type HomeAgentInferenceSnapshot = z.infer<typeof HomeAgentInferenceSnapshotSchema>
-
 export const ChatTurnRequestSchema = z.object({
   conversationKey: z.string().min(1),
   trigger: z.enum(['submit-message', 'regenerate-message']),
@@ -197,8 +150,6 @@ export const ChatTurnRequestSchema = z.object({
       comfyUiImageEdit: WorkflowRepairDataSchema.optional(),
     })
     .optional(),
-  /** Home Agent preset: enable its temporary per-turn diagnostics logging. */
-  homeAgentDiagnostics: z.boolean().optional(),
   /** MCP tools are exposed: append running servers' instructions to the prompt. */
   includeMcpInstructions: z.boolean().optional(),
   /**
@@ -212,8 +163,6 @@ export const ChatTurnRequestSchema = z.object({
   screenshotWindow: z.object({ id: z.string(), name: z.string() }).optional(),
   /** Thread title for the TTS file name — the title lives in the renderer's thread list. */
   conversationLabel: z.string().optional(),
-  /** Home Agent preset: what its own settings tools read and diff against. */
-  homeAgentInference: HomeAgentInferenceSnapshotSchema.optional(),
   /** The Session whose chat transcript this is; its file replaces the conversation file. */
   sessionRef: z.string().optional(),
   /** The chat preset (and variant) the turn ran with, for its History Entry. */
@@ -292,11 +241,3 @@ export const MediaAgentRunResultSchema = z.object({
   ),
 })
 export type MediaAgentRunResult = z.infer<typeof MediaAgentRunResultSchema>
-
-// ── One-shot helpers ──────────────────────────────────────────────────────────
-
-export const ChatSummarizeRequestSchema = z.object({
-  messagesText: z.string(),
-  model: ChatModelConfigSchema,
-})
-export type ChatSummarizeRequest = z.infer<typeof ChatSummarizeRequestSchema>

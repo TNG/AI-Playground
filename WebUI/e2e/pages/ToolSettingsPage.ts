@@ -21,7 +21,7 @@ const WORKFLOW_TOOLS = ['Generate media', 'Transform image'] as const
 const SPEECH_TOOLS = ['Text To Speech', 'Speech To Text'] as const
 
 /**
- * The Attributes tab's tool selection: Home Agent's "Built-in tools" panel, or the Media
+ * The Attributes tab's tool selection: a chat preset's "Built-in tools" panel, or the Media
  * tools slice under Assistant's Media generation capability, which has no master switch.
  * Settings outlive a run, so the selection is enforced, not assumed.
  */

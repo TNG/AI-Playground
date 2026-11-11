@@ -7,12 +7,8 @@ dependencies = [
   # werkzeug 3.1.9: clears CVE-2026-102598. Transitive via Flask.
   "werkzeug>=3.1.9",
   "flask-cors",
-  "Requests",
-  # urllib3 2.8.0: clears GHSA-vxq7-64xx-v4gw, GHSA-8988-9cw3-xx77 and
-  # GHSA-gh4c-6fx4-qh6g. Transitive via Requests (urllib3<3).
-  "urllib3>=2.8.0",
   # certifi 2026.10.19: clears GHSA-6q48-6c7w-9gw2 (emSign roots with compromised
-  # intermediate CA keys). Transitive via Requests.
+  # intermediate CA keys). Transitive via httpx (python-telegram-bot).
   "certifi>=2026.10.19",
   "python-telegram-bot",
   "slack-bolt",

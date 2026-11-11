@@ -57,7 +57,7 @@ export const CHANNEL_FIELD_SPEC: Record<ChannelKind, ChannelFieldSpec> = {
   'local-web': { requiredSecrets: ['password'], identityField: 'sessionId' },
 }
 
-/** Runtime-only per-channel state. Lives inside `homeAgent.channels[kind]`,
+/** Runtime-only per-channel state. Lives inside `useChannels().channels[kind]`,
  *  is NEVER persisted (it holds the in-memory secret `config` blob), and is
  *  rebuilt on every launch: `config` is rehydrated from safeStorage and
  *  `active` is re-derived from `channelPrefs` + availability. */
@@ -109,8 +109,8 @@ export type RemoteImage = { mime: string; data_base64: string }
 /** Single inbound audio payload (voice note / uploaded audio) from a channel. */
 export type RemoteAudio = { mime: string; data_base64: string }
 
-/** Single inbound document payload (uploaded file) from a channel. Ingested
- *  into the RAG knowledge base rather than passed to the model directly. */
+/** Single inbound document payload (uploaded file) from a channel; it becomes an
+ *  Attached Document of the Session it is sent to. */
 export type RemoteDocument = { filename: string; mime: string; data_base64: string }
 
 /** Single keyboard button rendered by the adapter (Block Kit action, Telegram
@@ -135,32 +135,3 @@ export type ChannelSendResult = {
   ref?: ChannelMessageRef
   error?: string
 }
-
-/** Bag of formatted message fragments the adapter assembles into a final
- *  channel-native draft / final string. Lets the store stay channel-agnostic
- *  while still describing rich structure (reasoning, text, tool markers). */
-export type DraftParts = {
-  reasoning?: { text: string }[]
-  text?: string[]
-  toolMarkers?: {
-    phase: '🎨' | '✅'
-    verb: 'Generating' | 'Generated'
-    workflow?: string
-    prompt?: string
-  }[]
-}
-
-export type FinalParts = DraftParts & {
-  reasoningElapsedMs?: number
-}
-
-/** Image-generation phase passed from the store into `formatImgGenPhase`.
- *  Adapters decide whether to render with HTML, mrkdwn, or plain text. */
-export type ImgGenPhase =
-  | { kind: 'install_workflow_components' }
-  | { kind: 'load_workflow_components' }
-  | { kind: 'load_model' }
-  | { kind: 'load_model_components' }
-  | { kind: 'generating'; step?: string }
-  | { kind: 'image_out' }
-  | { kind: 'preparing'; presetName: string }

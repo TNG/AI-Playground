@@ -109,13 +109,13 @@ const showReinstall = computed(() => {
 const showSettings = computed(() => {
   return ['comfyui-backend', 'llamacpp-backend', 'openvino-backend'].includes(props.backend)
 })
-const showHomeAgentSetup = computed(() => {
+const showChannelsSetup = computed(() => {
   return props.backend === 'home-agent-backend' && isSetUp.value
 })
 
-const handleHomeAgentSetup = () => {
+const handleChannelsSetup = () => {
   menuOpen.value = false
-  void setupWizard.openHomeAgentSetup()
+  void setupWizard.openChannelsSetup()
 }
 
 // Get backend-specific placeholders and descriptions
@@ -370,10 +370,7 @@ const clearOverride = () => {
 
 const showMenuButton = computed(
   () =>
-    showReinstall.value ||
-    showSettings.value ||
-    showVersionAction.value ||
-    showHomeAgentSetup.value,
+    showReinstall.value || showSettings.value || showVersionAction.value || showChannelsSetup.value,
 )
 </script>
 
@@ -393,7 +390,7 @@ const showMenuButton = computed(
       {{ versionActionLabel }}
     </DropdownMenuItem>
 
-    <DropdownMenuItem v-if="showHomeAgentSetup" @select="handleHomeAgentSetup">{{
+    <DropdownMenuItem v-if="showChannelsSetup" @select="handleChannelsSetup">{{
       i18nState.COM_GO_TO_SETUP || 'Setup'
     }}</DropdownMenuItem>
 

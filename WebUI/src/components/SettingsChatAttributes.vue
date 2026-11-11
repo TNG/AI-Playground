@@ -1,6 +1,6 @@
 <template>
   <TooltipProvider :delay-duration="200">
-    <SettingsTabLayout :machine-only="isHomeAgentPresetActive" :machine-note="machineNote">
+    <SettingsTabLayout>
       <PresetVariantPicker @update:variant="changeVariant" />
 
       <SettingsRow v-if="advancedMode" align="start">
@@ -123,7 +123,7 @@ const showUploader = ref(false)
 const languages = useI18N().state
 const textInference = useTextInference()
 
-const { activeChatPreset, isHomeAgentPresetActive, machineNote } = useActiveChatPreset()
+const { activeChatPreset } = useActiveChatPreset()
 const { changeVariant } = usePresetPicker({})
 
 const { activeName: activeEmbeddingModelName, items: embeddingModelItems } =

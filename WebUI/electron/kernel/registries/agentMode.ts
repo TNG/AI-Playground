@@ -38,7 +38,7 @@ import type {
   saveAgentDraft,
   saveAgentTask,
 } from '../../persist/agentTaskFiles'
-import type { forgetSessionMessages } from '../../persist/channelMessageMap'
+import type { forgetHarnessSessionMessages } from '../../persist/channelMessageMap'
 import type {
   discardTrialRun,
   readTrialRuns,
@@ -80,7 +80,7 @@ export type AgentModeDeps = {
   discardTrialRun: typeof discardTrialRun
   readTrialRuns: typeof readTrialRuns
   saveTrialRun: typeof saveTrialRun
-  forgetSessionMessages: typeof forgetSessionMessages
+  forgetHarnessSessionMessages: typeof forgetHarnessSessionMessages
   appLogger: typeof appLoggerInstance
 }
 
@@ -260,7 +260,7 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         if (!live.success) return live
         // A tombstone, not a removal: an Answer to its messages is told the session is gone.
         await deps
-          .forgetSessionMessages(sessionId)
+          .forgetHarnessSessionMessages(sessionId)
           .catch((e) =>
             deps.appLogger.warn(
               `channel messages of deleted session ${sessionId} not forgotten: ${ipcErrorText(e)}`,

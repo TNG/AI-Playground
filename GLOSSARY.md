@@ -81,6 +81,11 @@ _Avoid_: Agent Maker, Agents view, agent manager
 **Step**:
 One prompt of an Agent, sent as its own turn.
 
+**Start Prompt**:
+Text the user gives when starting an Agent, for that Agent Run only. It goes in with the first Step
+and applies to every Step it is relevant to; starting without one runs the Steps as written.
+_Avoid_: task, run instructions, input
+
 **Settings Template**:
 The settings an Agent's runs use, fixed on the Agent rather than taken from the Session.
 
@@ -117,6 +122,40 @@ A folder on the user's machine that Assistant's turns or an Agent's runs can rea
 Session Folder, added by the user to the Session Settings or to the Agent's Settings Template, and
 either read-only or read-write.
 _Avoid_: extra folder, attached folder, workspace
+
+## Channels
+
+**Channel**:
+A messaging app through which the user reaches the app from elsewhere: Telegram, Slack or LAN chat.
+_Avoid_: Home Agent, bot, integration
+
+**Reachable Session**:
+A Session the user has opted in to being reached from Channels — from every Channel that is set up.
+Only a Reachable Session sends Notifications or takes Answers; a Session created from a Channel
+starts reachable.
+_Avoid_: remote session, Home Agent thread
+
+**Channel Session**:
+The Reachable Session that a Channel's messages go to unless they answer a Notification. Each
+Channel has its own; the Session open on the desktop never changes it.
+_Avoid_: current session, active thread, focused session
+
+**Notification**:
+A message a turn in a Reachable Session sends to Channels: something it chose to tell the user, its
+reply to an Answer, or word that it paused or failed. A reply to something sent from a Channel goes
+to that Channel alone; every other Notification goes to every Channel.
+_Avoid_: push, alert
+
+**Answer**:
+A reply to a Notification, sent from a Channel. It runs as a turn in the Harness Session that sent
+the Notification, so answering an Agent Run's Notification is a Follow-up.
+_Avoid_: reply (as a noun), response
+
+**Start Prompt Request**:
+A message asking the user, in a Channel, for the Start Prompt of one Agent in one Reachable Session.
+The first reply to it starts that Agent Run there with the reply as its Start Prompt; it is not an
+Answer, and it is forgotten when the app quits.
+_Avoid_: prompt question, pending start
 
 ## Settings
 

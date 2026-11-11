@@ -32,7 +32,7 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
       name: NOTIFY_USER_TOOL,
       label: NOTIFY_USER_TOOL,
       description:
-        "Send a short notification to the user's Home Agent channel (Telegram, Slack or LAN " +
+        'Send a short notification to every Channel the user has set up (Telegram, Slack or LAN ' +
         'chat), which reaches them away from AI Playground. The user can answer it; an answer ' +
         'arrives in this session as their next message. ' +
         'Call it whenever the user asks to be notified, pinged, messaged, alerted or told about ' +
@@ -43,7 +43,7 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
         'receives a picture of it plus the file. Generated files are not sent ' +
         'unless attached, and the user cannot open a workspace path, so attach the file instead ' +
         'of naming its location.',
-      promptSnippet: 'Notify the user on their Home Agent channel (Telegram, Slack, LAN chat)',
+      promptSnippet: 'Notify the user on their Channels (Telegram, Slack, LAN chat)',
       promptGuidelines: [
         'When the user asks to be notified, pinged, messaged or told when something happens, ' +
           'call notify_user once it happens; a reply in this chat does not count as notifying them',
@@ -68,13 +68,13 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
   ]
 }
 
-// No `unavailableReason`: Home Agent state can change mid-session, so delivery is
+// No `unavailableReason`: Channels and reachability can change mid-session, so delivery is
 // checked at call time and the tool always exists.
 export const notifyCapability: AgentCapability = {
   id: NOTIFY_CAPABILITY_ID,
   label: 'Channel notifications',
   summary:
-    'Sends the user a notification on their Home Agent channel. Activate it whenever the user ' +
+    'Sends the user a notification on their Channels. Activate it whenever the user ' +
     'asks to be notified, pinged or told when something happens.',
   buildTools: buildNotifyTools,
   lazyEligible: true,

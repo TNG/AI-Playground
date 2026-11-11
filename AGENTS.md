@@ -19,7 +19,7 @@ Electron main process orchestrates Vue.js frontend and multiple Python/native ba
   runtime/dependencies (torch, servers, etc.) — **never** model weights. Weights download **on
   demand**, only when the user has selected a preset/engine **and** actually tries to use it, via
   the Permissions layer (`permissions.requestDownload` — the shared download modal, or the
-  in-channel question on a remote Home Agent turn). Mirror the existing pattern:
+  in-channel question on a Channel turn). Mirror the existing pattern:
   `qwen3TextToSpeech.ensureModelInstalled`, `speechToText.ensureWhisperReady` /
   `ensureStandaloneReady` — check `models.checkTranscriptionModelExists(...)` /
   `getMissing...Model(...)`, then prompt. Selecting an engine in settings must not trigger a
@@ -91,7 +91,7 @@ npm run lint:bandit   # bandit security scan, whole repo
 Its tests are stdlib `unittest`, no pytest needed:
 
 ```bash
-python -m unittest discover -s home-agent/tests   # Home Agent channels (real sockets, ~5s)
+python -m unittest discover -s home-agent/tests   # Channels transports (real sockets, ~5s)
 python -m unittest discover -s service/tests      # model-management backend
 ```
 
@@ -150,13 +150,13 @@ relaunch.
 **Files:** `fixtures.ts` (launch + `window`/`app` fixtures), `appDriver.ts` (`AppDriver`,
 the high-level entry point; exposes `wizard`, `shell`, `main`, `settings`), `pages/*.ts`
 (Page Objects: `SetupWizardPage`, `AppShellPage`, `MainPage` = prompt area + results,
-`SpecificSettingsPage` = the active preset's Inferencing and Attributes tabs, `HomeAgentPage` =
-Home Agent setup + title-bar master toggle), `backends.ts` (parametric model + types), `helpers.ts`,
+`SpecificSettingsPage` = the active preset's Inferencing and Attributes tabs, `ChannelsPage` =
+Channel setup + title-bar master toggle), `backends.ts` (parametric model + types), `helpers.ts`,
 `agentic-smoke.spec.ts` (quick `e2e` gate), `assistant-media-flow.spec.ts` (full agentic
 reference spec: install + image → edit → video), and for the LAN chat channel
 `localWebBrowser.ts` (drives the _served page_ in a real BrowserWindow, so a break in the
 page's own JS — login, EventSource, send, reply/media rendering — is caught) and
-`home-agent-local-web.spec.ts`.
+`channels-local-web.spec.ts`.
 
 **Rules:**
 
@@ -184,11 +184,11 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
 
 - Installing is **one button**: enable each backend's toggle, then click **"Install &
   Continue"** — there are no per-backend install buttons.
-- **Deactivate a backend with its toggle.** For "no Home Agent",
-  `wizard.disableBackend('Home Agent')`.
+- **Deactivate a backend with its toggle.** For "no Channels",
+  `wizard.disableBackend('Channels')`.
 - **Re-disable on every wizard open** — reopening reseeds install selection and re-enables
   installed backends, so a toggled-off backend comes back on.
-- **Home Agent left enabled diverts the wizard** to its setup page after install instead of
+- **Channels left enabled divert the wizard** to their setup page after install instead of
   the running app (a common cause of downstream click timeouts).
 - **NVIDIA mode:** OpenVINO is unavailable (dimmed row, disabled toggle) — skip such
   backends via `wizard.isAvailable(name)`.
@@ -212,8 +212,8 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   Attributes tab's `LoadImage` inputs (accessible name = the field label); chat vision/RAG
   presets attach a fixture via the prompt-area "+" input (`aria-label="Attach image or document"`).
 - **Settings are tabs, not a sidebar.** The open Session's view (`SessionTabView.vue`) is a
-  `tablist` named "Session" whose tabs are Viewport, Inferencing, Attributes and Artifacts
-  (a Home Agent thread has no Artifacts); each panel is a `tabpanel` named after its tab. Every mode and Agent
+  `tablist` named "Session" whose tabs are Viewport, Inferencing, Attributes, Artifacts
+  and Agent Schedules; each panel is a `tabpanel` named after its tab. Every mode and Agent
   Preset puts its settings in Inferencing and Attributes, so a page object finds a control with
   `sessionTabPanel(page, 'Inferencing' | 'Attributes')` and shows it with `showSessionTab` (both
   in `pages/uiControls.ts`). There is no per-mode "<Mode> Settings" region or button any more:
@@ -252,8 +252,8 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   thread's transcript), because it keeps no history of its own. Counting reply bubbles
   therefore cannot detect completion of those commands — the repaint drops the bubbles you
   counted; wait for the reply's text (`sendAndAwaitText`) instead. Its bubbles are named by
-  role: `Your message`, `Home Agent response` (settled), `Home Agent draft` (streaming),
-  `Home Agent prompt` (awaiting a tap), `Agent message` (an agent session's Notification or
+  role: `Your message`, `AI Playground response` (settled), `AI Playground draft` (streaming),
+  `AI Playground prompt` (awaiting a tap), `Agent message` (an agent session's Notification or
   reply, with its Answer button outside the `Choose an option` group so the auto-confirm
   handler never taps it), plus `role="status"` while typing — so "wait for the reply" never
   settles on a draft or a question.
@@ -375,7 +375,7 @@ through it — never surface errors ad hoc.
   (caught `unknown`, rejected promises) can be passed straight to `errors.report(value, overrides)`
   and are normalized automatically.
 - `surface` controls UX: `'toast'` (default for user-facing), `'inline'`, `'modal'`, or `'silent'`
-  (log/track only — use for background work like Home Agent threads, or when another layer already
+  (log/track only — use for background work like Channel traffic, or when another layer already
   shows the message). `severity` is `'info' | 'warn' | 'error' | 'fatal'`.
 - Global capture is wired in `main.ts` (Vue `errorHandler`, `unhandledrejection`, `window.error`),
   so uncaught failures already reach the sink. De-duplication keys off the `AppError` instance, so
@@ -448,7 +448,7 @@ name, argument types, result type, direction (`invoke`/`send`/`push`), owner, an
 row's documentation. All three sides are enforced through it: main registers per-owner
 registries (`electron/kernel/registries/*.ts`, each a handler-map builder whose literal is
 `satisfies`-exhaustive against the owner-scoped mapped types in `electron/kernel/ipcRegistries.ts`,
-wired up by `registerInvokeHandlers`/`registerSendHandlers` — the Home Agent backend service
+wired up by `registerInvokeHandlers`/`registerSendHandlers` — the Channels backend service
 registers its own registry, and only when the service exists), the preload's member types derive
 from the rows and its hand-written members are audited as one object (`satisfies ElectronApi`), and
 the renderer's `electronAPI` type is a one-line derivation in `env.d.ts`. A channel missing on any
@@ -482,22 +482,30 @@ Enforcement is end-to-end:
   the preload member the whole-object `satisfies` demands (it names the missing member and its
   expected shape), and the renderer type arrives via `env.d.ts` for free.
 
-## Home Agent Slash Commands (Five-Place Rule)
+## Channel Slash Commands (Five-Place Rule)
 
-A Home Agent slash command (e.g. `/reset`, `/imgGen`) is only fully wired up when it is
-registered in **every** layer. The dispatcher recognizing the text is NOT enough — each chat
-platform only forwards commands it has been told about, so a command handled by the dispatcher
-but missing from a transport is silently dropped (Telegram) or rejected by the platform (Slack).
+A Channel slash command (`/help`, `/sessions`, `/load <n>`, `/new`, `/agents [name]`, `/stop`) is
+only fully wired up when it is registered in **every** layer. The router recognizing the text is
+not enough — each chat platform only forwards commands it has been told about, so a command the
+router handles but a transport lacks is silently dropped (Telegram) or rejected by the platform
+(Slack).
 
 When adding/removing/renaming a command, update all of these:
 
-1. **Dispatcher + help** — `WebUI/src/assets/js/store/homeAgent.ts`: add the `*_REGEX`, a branch in
-   the message-processing loop, and an entry in `HELP_MESSAGE`. (Per-command behavior — inherently
-   manual.)
-2. **Channel transports** — `home-agent/channels/commands.py`: add a `HomeAgentCommand` to
-   `HOME_AGENT_COMMANDS`. This single source of truth drives **both** the Telegram handlers +
-   `set_my_commands` menu (`telegram.py`) and the Slack `@bolt_app.command` handlers (`slack.py`),
-   so they can never diverge.
+1. **Router + help** — the command table (`ChannelCommand` in
+   `WebUI/src/assets/js/store/channels/channelCommands.ts`; the Channel Session commands live in
+   `channelSessions.ts`, `/agents` in `channelAgents.ts`, `/help` in `answerRouter.ts`). An
+   entry's `usage` and `describe` are its `/help` line, so behavior and help cannot drift. A button
+   it sends needs a callback prefix (`ChannelCallback`).
+2. **Channel transports** — `home-agent/channels/commands.py`: add a `ChannelCommand` to
+   `CHANNEL_COMMANDS`, and a button's callback prefix to `COMMAND_CALLBACKS`. These drive **both**
+   the Telegram handlers + `set_my_commands` menu (`telegram.py`) and the Slack
+   `@bolt_app.command` / action handlers (`slack.py`), so they can never diverge. A
+   `COMMAND_CALLBACKS` value names the command the tap stands for (`"runAgent:": "/agents"` is
+   forwarded as `/agents <id>`); `None` forwards the tap itself as a callback
+   (`"promptAgent:"`, the ✎ button), for a button no command stands for. Both go through
+   `forwarded_callback()`. A tap whose prefix is missing there never reaches the router on
+   Telegram or Slack, even with a `ChannelCallback` for it.
 3. **Slack manifest** — `WebUI/src/components/SlackSetupSteps.vue`: add the command to
    `slash_commands` in `MANIFEST_JSON`. Slack only delivers slash commands declared in the
    app manifest the user installs, so this must match `commands.py`. (Separate process/language —
@@ -507,8 +515,8 @@ When adding/removing/renaming a command, update all of these:
    has (it never sees `commands.py`), so an omission means the command exists but nobody can find
    it, and a stale entry offers one that no longer works.
 
-Slack commands must be lowercase; use `queued`/`telegram_aliases` in `commands.py` for camelCase
-spellings (e.g. `/imgGen`). LAN chat reaches the dispatcher through its own served page rather than
+Slack commands must be lowercase; use `queued`/`telegram_aliases` in `commands.py` for other
+spellings (e.g. `/start` → `/help`). LAN chat reaches the router through its own served page rather than
 through `commands.py`, so a command working there does NOT prove it works on Telegram/Slack.
 
 ## i18n / Translations (English is the Source of Truth)
@@ -556,7 +564,7 @@ This section eliminates the need for codebase exploration at the start of each s
 There is **no Vue Router**. Navigation is state-driven:
 
 - `App.vue` checks `globalSetup.loadingState` (`verifyBackend` → `manageInstallations` → `loading` → `running`/`failed`)
-- Once running, the main area is **one view in every mode**: `SessionTimeline.vue`, the open Session's timeline, which is never remounted or restyled by a mode or preset switch. `sessionTimelineItems()` (`src/lib/sessionTimeline.ts`) lays every live turn over the saved timeline — the streaming chat turn, the open and running Harness Sessions (`agentMode.liveTurnsIn`, Task Runs included), the in-flight media run and the running audio turn — so each one shows whichever mode is active. Chat and agent messages, live or settled, render through one `SessionMessage.vue` (shared `SessionUserBubble` / `SessionAssistantBubble`, which `MediaTurnBlock` / `AudioTurnBlock` use too; the answer body is `ChatMessageParts` or `AgentMessageParts` by the engine that produced it). Mode only decides the edges: the prompt bar's submit/cancel per mode (`src/lib/useModePromptHandlers.ts`, registered once from `App.vue`), the Game Agent bar, the agent empty state and status line. `Chat.vue` remains only for a conversation that is no Session's (a Home Agent thread). Turns settle ( a panel run settles into its Session Folder and Session History from `electron/session/sessionMediaTurn.ts`, a TTS/STT turn — driven by `store/sessionAudio.ts` — from `electron/session/sessionAudioTurn.ts` over `sessions:recordAudioTurn`)
+- Once running, the main area is **one view in every mode**: `SessionTimeline.vue`, the open Session's timeline, which is never remounted or restyled by a mode or preset switch. `sessionTimelineItems()` (`src/lib/sessionTimeline.ts`) lays every live turn over the saved timeline — the streaming chat turn, the open and running Harness Sessions (`agentMode.liveTurnsIn`, Task Runs included), the in-flight media run and the running audio turn — so each one shows whichever mode is active. Chat and agent messages, live or settled, render through one `SessionMessage.vue` (shared `SessionUserBubble` / `SessionAssistantBubble`, which `MediaTurnBlock` / `AudioTurnBlock` use too; the answer body is `ChatMessageParts` or `AgentMessageParts` by the engine that produced it). Mode only decides the edges: the prompt bar's submit/cancel per mode (`src/lib/useModePromptHandlers.ts`, registered once from `App.vue`), the Game Agent bar, the agent empty state and status line. `Chat.vue` remains only for a chat while no Session is open. Turns settle ( a panel run settles into its Session Folder and Session History from `electron/session/sessionMediaTurn.ts`, a TTS/STT turn — driven by `store/sessionAudio.ts` — from `electron/session/sessionAudioTurn.ts` over `sessions:recordAudioTurn`)
 - Each mode maps to a preset category (`chat`, `audio`, `create-images`, `edit-images`, `create-videos`). `chat`, `agent` and `audio` all run on `chat`-type presets; `audio` holds the speech presets (Text to Speech / Speech to Text) and gets its own settings tabs (`SettingsAudioInferencing.vue` / `SettingsAudioAttributes.vue`)
 - `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) — the same tabs under every preset. Agents are made, edited and scheduled in the Agent Library overlay (`views/AgentLibrary.vue`, ADR 0007), never in a Session; an Agent Run's Turn offers Stop while it runs and Edit Agent. Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; the only sidebar left is App Settings (`SideModalAppSettings.vue`)
 - **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
@@ -597,9 +605,9 @@ Managed by `electron/adapters/backends/apiServiceRegistry.ts`. Each service spaw
 
 Assistant does not take this path: it runs on Pi (Agent Mode, `electron/agent/`), and its attached
 documents are searched by the `rag` tool rather than injected. The chat turn engine below serves
-the other chat presets — Home Agent threads and aiDAPTIV, whose global document list it keeps.
+the other chat presets — aiDAPTIV, whose global document list it keeps.
 
-User sends message → download consent (`checkModelAvailability` / `requestDownload`) → the chat store resolves the turn (model config via `buildChatModelConfig`, optional `ChatRagRequest` via `buildChatRagRequest`, tools via the registry, `persist` via `buildTurnExtras`) and submits it over `chat:submitTurn` → main's turn engine writes the conversation file (`saveConversation`: user messages on turn start, assembled assistant on turn end), admits the GPU, loads the local LLM when `model.readiness` is present, retrieves RAG after that admit when `rag` is set, then runs Vercel AI SDK `streamText()` against the backend's `/v1/chat/completions` → chunks cross the kernel bus as `chat-chunk` events (adjacent deltas coalesced); RAG sources as `chat-rag` → the renderer's `Chat` consumes them through `kernelChatTransport` and updates the live Pinia copy only (`applyConversationMessages`, not `saveThread`). A reload mid-turn resumes from the kernel snapshot (`chat:resumeTurn`). The nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`), its inner Comfy tools in-process against the Artifact runner; one-shot summary is `chat:summarize` (occupies as `text`, loads with `remember: false`). Agent Mode ships `readiness` on the turn and `startAgentTurn` occupies + loads the same way (Pi stays a second harness).
+User sends message → download consent (`checkModelAvailability` / `requestDownload`) → the chat store resolves the turn (model config via `buildChatModelConfig`, optional `ChatRagRequest` via `buildChatRagRequest`, tools via the registry, `persist` via `buildTurnExtras`) and submits it over `chat:submitTurn` → main's turn engine writes the conversation file (`saveConversation`: user messages on turn start, assembled assistant on turn end), admits the GPU, loads the local LLM when `model.readiness` is present, retrieves RAG after that admit when `rag` is set, then runs Vercel AI SDK `streamText()` against the backend's `/v1/chat/completions` → chunks cross the kernel bus as `chat-chunk` events (adjacent deltas coalesced); RAG sources as `chat-rag` → the renderer's `Chat` consumes them through `kernelChatTransport` and updates the live Pinia copy only (`applyConversationMessages`, not `saveThread`). A reload mid-turn resumes from the kernel snapshot (`chat:resumeTurn`). The nested media specialist runs in main too (`electron/chat/mediaAgentRunner.ts`), its inner Comfy tools in-process against the Artifact runner. Agent Mode ships `readiness` on the turn and `startAgentTurn` occupies + loads the same way (Pi stays a second harness).
 
 ### Model catalog (`WebUI/external/models.json`)
 
@@ -826,7 +834,7 @@ modeled as an explicit FSM rather than loose flags.
   - Main (`electron/artifact/runner.ts`): owns readiness (backend start, custom-node/python
     installs), the ComfyUI websocket engine, per-item seeds, the watchdog and cancellation, and
     streams phase + item events on the kernel stream. Admission is the orchestrator's
-    (`electron/kernel/orchestrator.ts`, steps 7 + 10): panel and Home Agent submissions fail
+    (`electron/kernel/orchestrator.ts`, steps 7 + 10): panel submissions fail
     fast when a run is active or a local chat turn occupies the GPU, while chat-tool submissions
     and in-process Pi tool runs queue (FIFO) behind it — nested media for a live chat turn stays
     with that turn. Each run brackets a GPU window — chat backends stopped before, ComfyUI
@@ -860,8 +868,8 @@ has no store deps (avoids cycles); reconciliation lives in the producing stores.
 an inference or download path needs is a request/response through it, and no inference/download
 code instantiates the dialog store (the settings-setup flows, `useLocalWebSetup`, and the dialog
 components are the remaining `useDialogStore` consumers). `requestDownload(models)` prompts
-through the desktop download modal, or — while a remote Home Agent turn is active — asks
-in-channel via `homeAgent.handleRemoteModelDownload` (mirrored on the desktop); the
+through the desktop download modal, or — while a Channel turn is active — asks in-channel
+through the remote-turn port the Channels store registers (mirrored on the desktop); the
 `download:remote-turns` pre-grant skips that in-channel question while gated models still
 decline and progress still streams. `requestVramWarning({ presetName, message })` gates the
 high-memory / video-VRAM presets — a confirmed "do not show again" records a `remember` grant
@@ -878,7 +886,7 @@ before the kernel move or as a small fix.
 
 **Kernel stream (M→R notifications)**: `kernel:event` — service status, agent-turn events (chunk / tool progress / tool image / turn done), artifact-phase/item events, chat turns (`chat-chunk` — delta-coalesced — and `chat-turn-done`), media-specialist progress (`media-agent-event`), and orchestrator queue events (`queue-event` — enqueued/started/finished per run; the renderer relabels the queued tool's activity with its queue position, `src/lib/queueActivityProjection.ts`), all stamped with one monotonic `seq`; `kernel:getSnapshot` (R→M) hydrates a (re)connecting renderer, which resumes a running agent or chat turn via `Chat.resumeStream()`. Remaining event types, leftover `webContents.send` channels, and resume-gap buffering are parked in `docs/architecture-target.md` §8.2.
 
-**Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness` (6th arg `skipGpuAdmission` = Keep Models Loaded; optional 7th `{ remember?: boolean }`; Home Agent summarizer passes `remember: false`), `setLastChatBackendLoadActive`, `rememberChatBackendLoad` (dropdown → last-load snapshot, no service start)
+**Service lifecycle**: `getServices`, `startService`, `stopService`, `setUpService`, `serviceSetUpProgress` (M→R), `uninstall`, `updateServiceSettings`, `detectDevices`, `selectDevice`, `ensureBackendReadiness` (6th arg `skipGpuAdmission` = Keep Models Loaded; optional 7th `{ remember?: boolean }`), `setLastChatBackendLoadActive`, `rememberChatBackendLoad` (dropdown → last-load snapshot, no service start)
 
 **Models**: `loadModels`, `updateModelPaths`, `restorePathsSettings`, `getDownloadedGGUFLLMs`, `getDownloadedOpenVINOLLMModels`, `getDownloadedEmbeddingModels`
 
@@ -892,7 +900,7 @@ before the kernel move or as a small fix.
 
 **Artifact pipeline** (step 5): `artifact:run`, `artifact:cancel`, `artifact:respond` (R→M), `artifact:request` (M→R — model checks and download consent; replies keyed by requestId, `{progress: true}` pings re-arm the runner's watchdog)
 
-**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:ask` (M→R) + `chat:answer` (R→M — the question channel a main-side tool uses when it needs the window: the speech engine, Chromium's audio decoder, the Home Agent confirmation card and the store write behind it), `chat:summarize` (the nested media specialist runs in-process in main)
+**Chat turns** (step 6): `chat:submitTurn`, `chat:resumeTurn`, `chat:cancelTurn` (R→M), `chat:ask` (M→R) + `chat:answer` (R→M — the question channel a main-side tool uses when it needs the window: the speech engine, Chromium's audio decoder, a Channel's spoken reply, a 3D thumbnail; the nested media specialist runs in-process in main)
 
 **Conversations** (steps 8 + 11): `conversations:bootstrap`, `conversations:migrate` (one-shot legacy upload), `conversations:save`, `conversations:delete`, `conversations:saveLastMainKey` (R→M — user mutations; chat-turn transcripts are written by `turnEngine` via `saveConversation` on start and end, under `AI-Playground/conversations/`)
 
@@ -909,7 +917,7 @@ before the kernel move or as a small fix.
 **Window**: `getWinSize`, `setWinSize`, `miniWindow`, `setFullScreen`, `zoomIn`, `zoomOut`
 
 **Closing the app** (`docs/architecture-target.md` §5.1): there is no hidden window and no
-background mode — Schedules and Home Agent run only while the app is open. Every close (the
+background mode — Schedules and Channels run only while the app is open. Every close (the
 in-app X via `lifecycle:requestClose`, the OS close, Cmd+Q) goes to main's close coordinator
 (`electron/kernel/closeCoordinator.ts`), which quits when there is no **In-flight Work** (work
 the user started that has not finished) and otherwise asks the window over `lifecycle:askClose` /
@@ -991,11 +999,11 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Chat/LLM**: `views/SessionTimeline.vue` (`components/SessionMessage.vue`) → stores: `openAiCompatibleChat`, `textInference`, `conversations`, `presets` → electron: `ensureBackendReadiness` IPC → backend: `llamacpp`/`openvino` via Vercel AI SDK
 
-**Image/Video Generation**: `views/SessionTimeline.vue` and Home Agent `/imgGen` → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Chat and Agent Mode submit in-process through the orchestrator's queue (`electron/kernel/orchestrator.ts`, which owns the GPU window): Pi `generateImage`/`editImage` via `electron/agent/capabilities/mediaDirect.ts`, Chat parent `comfyUI`/`comfyUiImageEdit` via `electron/chat/chatComfyTool.ts`, and the NL `media` specialist (`electron/chat/mediaAgentRunner.ts`) — all inner Comfy through `electron/artifact/inProcessComfy.ts`. Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
+**Image/Video Generation**: `views/SessionTimeline.vue` → `src/assets/js/artifact/runArtifact.ts` (one resolved `ArtifactRequest` in, one settled `ArtifactResult` out; no preset switch, no UI-state mutation) → IPC `artifact:run` → `electron/artifact/runner.ts` (engine, readiness, watchdog) → backend: `comfyui-backend` via direct HTTP. Chat and Agent Mode submit in-process through the orchestrator's queue (`electron/kernel/orchestrator.ts`, which owns the GPU window): Pi `generateImage`/`editImage` via `electron/agent/capabilities/mediaDirect.ts`, Chat parent `comfyUI`/`comfyUiImageEdit` via `electron/chat/chatComfyTool.ts`, and the NL `media` specialist (`electron/chat/mediaAgentRunner.ts`) — all inner Comfy through `electron/artifact/inProcessComfy.ts`. Progress reaches the UI through kernel `artifact-phase`/`artifact-item` events (renderer-originated runs only)
 
-**Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies in `lib/useModePromptHandlers.ts` + Speak button in `components/ChatMessageActions.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the Audio mode's TTS/STT preset turns in `store/sessionAudio.ts`, Home Agent voice paths, and both main-side tool bodies — `electron/chat/chatSpeechTools.ts` for a chat turn, `electron/agent/capabilities/mediaSpeech.ts` for an agent one, which reach this side over `chat:ask`) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
+**Speech (STT/TTS)**: every driver (mic + STT preset in `views/PromptArea.vue`, speak-replies in `lib/useModePromptHandlers.ts` + Speak button in `components/ChatMessageActions.vue`, `tools/transcribeAudio`, `tools/synthesizeTextToSpeech`, the Audio mode's TTS/STT preset turns in `store/sessionAudio.ts`, Channel voice paths, and both main-side tool bodies — `electron/chat/chatSpeechTools.ts` for a chat turn, `electron/agent/capabilities/mediaSpeech.ts` for an agent one, which reach this side over `chat:ask`) → `src/assets/js/speech/speechIO.ts` — the one engine seam: interactive vs dialog-free unattended readiness, endpoint resolution, the Qwen3/Kokoro/external branch, and desktop playback state. Drivers import no TTS/STT store; the stores (`speechToText`, `textToSpeech`, `qwen3TextToSpeech`) keep engine config, persistence and the engine clients, consumed by the adapter (settings panels read them directly)
 
-**Download consent**: every download prompt (chat models in `textInference`, ComfyUI models via the artifact runner + `imageGenerationPresets`, Whisper/Kokoro/Qwen3-TTS readiness, the model library) → `src/assets/js/permissions/permissions.ts` (`requestDownload`) — desktop download modal, Home Agent in-channel approval, pre-grants. Gated-preset VRAM warnings (`presetSwitching`) and install-needed notices go through it too (`requestVramWarning` / `notify`)
+**Download consent**: every download prompt (chat models in `textInference`, ComfyUI models via the artifact runner + `imageGenerationPresets`, Whisper/Kokoro/Qwen3-TTS readiness, the model library) → `src/assets/js/permissions/permissions.ts` (`requestDownload`) — desktop download modal, Channel in-channel approval, pre-grants. Gated-preset VRAM warnings (`presetSwitching`) and install-needed notices go through it too (`requestVramWarning` / `notify`)
 
 **Model Management**: stores: `models` → electron: `loadModels`, `getDownloaded*` IPC → backend: `ai-backend` Flask `/api/*` via HTTP
 
@@ -1029,8 +1037,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 | `electron/chat/turnEngine.ts`                          | Main-side chat turn engine (step 6): streamText, tool bridge, turn lifecycle                                                                                 |
 | `electron/chat/mediaAgentRunner.ts`                    | Nested media specialist (step 12): tool loop in main, inner Comfy in-process                                                                                 |
 | `electron/artifact/inProcessComfy.ts`                  | Shared in-process Comfy for generateImage/editImage and specialist inner tools                                                                               |
-| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness, Home-Agent proxy)                                                                                   |
-| `electron/chat/chatSummarize.ts`                       | One-shot conversation title summarization                                                                                                                    |
+| `electron/chat/chatModelMain.ts`                       | Chat model factory for main (backend routing, readiness)                                                                                                     |
 | `electron/chat/chatAsk.ts`                             | Main→renderer request/response for the one answer a chat tool needs from the window                                                                          |
 | `electron/observability/logger.ts`                     | Logging, sends `debugLog` events to renderer                                                                                                                 |
 
@@ -1092,7 +1099,18 @@ in `models.json`. To test inference:
 (HuggingFace Xet CDN). This domain must be in the egress allowlist. Allowlist changes
 only take effect on new VM sessions — a running VM will not pick up changes.
 
-### Home Agent channels (`telegram`, `slack`, `local-web`, dev-only `mock`)
+### Channels (`telegram`, `slack`, `local-web`)
+
+A Channel reaches ordinary Sessions (ADR 0010): the user marks a Session reachable, its Agent
+Notifications fan out to every active Channel, an Answer goes back to the Session it came from, and
+a plain message goes to that Channel's Channel Session. The renderer half is the Channels store
+(`store/channels.ts`, `useChannels`: polling, the title-bar master toggle, per-Channel
+enabled/verified state, remote speech) and the router in `store/channels/` (`answerRouter.ts`,
+the command table, the per-Session queue, `channelInbound.ts` for files and voice before routing,
+`downloadConsent.ts` for remote download consent); the desktop's copy of the queue is
+`store/queuedChannelMessages.ts`. Only a Reachable Session reaches a Channel; Channels off, or a
+Channel off or unverified, sends nothing. The internal service is still named
+`home-agent-backend` and lives in `home-agent/`.
 
 Each channel is one renderer `ChannelAdapter` (`src/assets/js/store/channels/`) plus one Python
 module (`home-agent/channels/`), wired together by `ChannelKind` in both languages and dispatched
@@ -1121,6 +1139,10 @@ and pushes every `send_*` out as one Server-Sent Event. Things worth knowing bef
   `/new` and `/load` have to repaint it (`ChannelAdapter.replayHistory`, implemented only here).
 - **SSE has no message edit**, so a settled interactive prompt travels as its own `editMessage`
   action and the page retires the buttons; typing carries an explicit `state: start|stop`.
+- **Several replies can stream at once.** Every `update` carries a `draftId` and the page keeps
+  one bubble per open draft; the message that settles a reply carries the same `draftId` and takes
+  that bubble's place. Anything without one never touches a draft. Streaming is the Notifier's,
+  in main (`electron/agent/replyDrafts.ts`: one edit budget per chat, shared by its open drafts).
 - **Restarting binds a socket**, so config changes are serialized under `_start_lock` and wait for
   the previous server to close before rebinding the same port.
 - **It is reachable by other people.** Login is constant-time and rate-limited per source address,
@@ -1304,8 +1326,8 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   dispatch those tool calls in parallel. All media work therefore queues **main-side**, on the
   orchestrator (`electron/kernel/orchestrator.ts`, steps 7 + 10): one FIFO for artifact runs,
   one lane for a whole `media` request, and chat-turn occupancy as `text` requests, nested in
-  that order only (the renderer's `mediaPipeline.ts` / `chatBackends.ts` are deleted). Panel and
-  Home Agent submissions still fail fast ("Another generation is already in progress", or
+  that order only (the renderer's `mediaPipeline.ts` / `chatBackends.ts` are deleted). Panel
+  submissions still fail fast ("Another generation is already in progress", or
   "A chat turn is already in progress" when a local turn occupies); chat-tool submissions and
   in-process Pi tool runs queue instead, and the queue batches the GPU swaps: with
   **Keep Models Loaded** off, a run that still sees work queued behind it
@@ -1314,27 +1336,25 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   parked chat tool's activity relabels to its queue position through `queue-event` kernel
   events.
 
-### Verifying Home Agent features (LAN chat)
+### Verifying Channels (LAN chat)
 
-**`local-web` is the way to drive the Home Agent by hand.** It needs no Telegram/Slack
-credentials — a password and a browser tab on loopback — and it goes through the same
-`processChannelMessages` → `drainCommonQueue` → handlers path in `store/homeAgent.ts` that
-every other channel does, so what works there works there for real. (A dev-only in-memory
-`mock` channel used to exist for this; it was removed once the LAN page could do the job,
-and unlike the mock it also proves the Python side and the served page.)
+**`local-web` is the way to drive Channels by hand.** It needs no Telegram/Slack credentials — a
+password and a browser tab on loopback — and it goes through the same poll →
+`answerRouter.route` path in `store/channels.ts` that every other Channel does, so what works there
+works there for real, the Python side and the served page included.
 
-Set it up in the Home Agent setup screen (the gear next to the title-bar toggle), then open
-the printed URL and log in. From there `/help`, `/imgGen`, `/reset`, an image attachment or
-a plain chat prompt all exercise the real pipeline, including the outbound media path.
+Set it up in Channel setup (the gear next to the title-bar toggle), then open the printed URL and
+log in. From there `/help`, `/sessions`, `/new`, a plain message to the Channel Session, an image
+attachment, or an Answer to a Notification from a Reachable Session exercise the real pipeline,
+outbound media included.
 
-**What needs a model vs. not:** slash commands like `/help`, `/cancel`, `/reset` are
-deterministic and need no LLM. Chat/agentic turns and `/imgGen` require a selected chat
-model (and ComfyUI for image gen) — see "Testing inference end-to-end" above to get a
-model ready first.
+**What needs a model vs. not:** `/help`, `/sessions`, `/load` and `/new` are deterministic and
+need no LLM. A plain message or an Answer runs a turn in its Session and needs that Session's
+model (and ComfyUI for media) — see "Testing inference end-to-end" above to get one ready.
 
-Automated coverage: `electron/test/channels/adapters.test.ts` and
+Automated coverage: `electron/test/channels/` and
 `electron/test/adapters/backends/localWebConfig.test.ts` for the units,
-`e2e/home-agent-local-web.spec.ts` for the whole page in a real browser window.
+`e2e/channels-local-web.spec.ts` for the whole page in a real browser window.
 
 ### Tracing agent and chat turns (Laminar)
 

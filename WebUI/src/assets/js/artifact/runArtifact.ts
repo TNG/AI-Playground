@@ -14,7 +14,7 @@ import { presetToMode } from '@/lib/presetModes'
 
 /**
  * Renderer-side Artifact capability: one fully-resolved request in, one settled
- * result out. Callers (the Image Gen UI, the chat media tools, Home Agent
+ * result out. Callers (the Image Gen UI, the chat media tools, Channels
  * channels) never touch selection state to make a run happen — no preset
  * switch, no variant activation, no prompt-field mutation. Everything that
  * decides the output travels on the request; everything the run produces is

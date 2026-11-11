@@ -6,7 +6,7 @@ import type {
 } from '@/lib/modelDownloader'
 
 /**
- * The Model Download queue (docs/adr/0005): every download the app starts runs
+ * The Model Download queue: every download the app starts runs
  * through it, one at a time, and any number of waiters can wait on the same Model
  * Download. The ai-backend has a single downloader, so a second request would stop
  * the first — this queue is what guarantees it never gets one.

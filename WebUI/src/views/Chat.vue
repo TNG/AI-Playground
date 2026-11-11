@@ -42,7 +42,7 @@ import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionMessage from '@/components/SessionMessage.vue'
 import { useStickToBottom } from '@/lib/useStickToBottom'
 
-/** A conversation that is not a Session's (a Home Agent thread), drawn like a Session's chat. */
+/** A chat while no Session is open, drawn like a Session's chat. */
 const chat = useOpenAiCompatibleChat()
 const conversations = useConversations()
 const activities = useActivities()

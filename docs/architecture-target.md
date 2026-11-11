@@ -1,5 +1,8 @@
 # Target architecture — capabilities, drivers, state ownership
 
+> The Home Agent named below has since been replaced by Channels, which reach ordinary Sessions
+> ([ADR 0010](./adr/0010-channels-reach-sessions.md)); its `/imgGen` command and `/load` summarization are gone.
+
 **Status: steps 1–15 of the migration order (§8 / §8.3) have landed.** Steps 1–8 were nine
 kernel-owned persist slices (conversations, agent-session files, generated-media records, user
 preferences, per-preset settings knobs, backend launch flags, the RAG document list, the agent

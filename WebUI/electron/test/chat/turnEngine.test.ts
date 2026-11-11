@@ -91,7 +91,7 @@ const {
 } = await import('../../chat/chatReadiness')
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
-const { handleChatAnswer, resetChatAskForTest } = await import('../../chat/chatAsk')
+const { resetChatAskForTest } = await import('../../chat/chatAsk')
 const { listMcpServers, getMcpServerStatus, invokeMcpServerTool } =
   await import('../../adapters/mcp/mcpManager')
 const orchestrator = await import('../../kernel/orchestrator')
@@ -241,33 +241,6 @@ function turnRequest(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** The Home Agent inference picture a turn ships when that preset is active. */
-function homeAgentSnapshot() {
-  return {
-    backend: 'llamaCPP' as const,
-    current: {
-      model: 'qwen-9b',
-      embeddingModel: 'bge-small',
-      deviceId: 'GPU.0',
-      temperature: 0.7,
-      maxTokens: 1024,
-      contextSize: 8192,
-      systemPrompt: 'You are helpful.',
-      aipgToolsEnabled: true,
-      mcpToolsEnabled: false,
-      metricsEnabled: false,
-      ragDocumentCount: 0,
-    },
-    llmModels: {
-      llamaCPP: [{ name: 'qwen-9b', downloaded: true, maxContextSize: 32768 }],
-      openVINO: [],
-      cloud: [],
-    },
-    embeddingModels: [{ name: 'bge-small', downloaded: true }],
-    devices: { llamaCPP: [{ id: 'GPU.0', name: 'Intel Arc' }], openVINO: [] },
-  }
-}
-
 // ── Harness ────────────────────────────────────────────────────────────────────
 
 let events: KernelEvent[]
@@ -293,7 +266,6 @@ beforeEach(() => {
   setChatModelDeps({
     llmApiBase: () => 'http://127.0.0.1:39101',
     ensureBackendReadiness: vi.fn(),
-    homeAgentAuthToken: () => 'token',
     readCloudProviderKey: () => null,
   })
   vi.mocked(listMcpServers).mockReturnValue([])
@@ -380,7 +352,6 @@ describe('turn engine', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow,
       stopOvmsImageServer,
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     queueFetchMock(sse(textChunks('ok')))
     const base = turnRequest()
@@ -413,7 +384,6 @@ describe('turn engine', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow: vi.fn(async () => {}),
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     await ensureChatBackendReady({
       serviceName: 'llamacpp-backend',
@@ -472,128 +442,6 @@ describe('turn engine', () => {
     await waitForTurnDone(second.turnId)
     expect(chatTurnActive('conv-1')).toBe(false)
     expect(chatTurnActive('conv-2')).toBe(false)
-  })
-
-  it('answers a Home Agent read tool from the snapshot the turn shipped', async () => {
-    queueFetchMock(sse(toolCallChunks('getHomeAgentSettings', '{}')), sse(textChunks('read it')))
-    submitChatTurn(
-      turnRequest({
-        tools: [
-          { name: 'getHomeAgentSettings', description: 'Read', inputSchema: { type: 'object' } },
-        ],
-        homeAgentInference: homeAgentSnapshot(),
-      }),
-    )
-    await vi.waitFor(() => {
-      expect(doneTurnIds().length).toBeGreaterThan(0)
-    })
-
-    expect(sent.some((p) => p.channel === 'chat:ask')).toBe(false)
-    const toolMessage = (
-      requests[1].body.messages as Array<{ role: string; content: unknown }>
-    ).find((m) => m.role === 'tool')
-    expect(JSON.stringify(toolMessage!.content)).toContain('qwen-9b')
-    expect(chatChunks().some((c) => c.type === 'tool-input-available')).toBe(true)
-    expect(chatChunks().some((c) => c.type === 'finish')).toBe(true)
-    const outputChunk = chatChunks().find((c) => c.type === 'tool-output-available')
-    expect(outputChunk).not.toHaveProperty('dynamic', true)
-  })
-
-  it('refuses a Home Agent settings change when the turn carries no snapshot', async () => {
-    queueFetchMock(
-      sse(toolCallChunks('configureHomeAgent', '{"temperature":0.9}')),
-      sse(textChunks('cannot')),
-    )
-    submitChatTurn(
-      turnRequest({
-        tools: [
-          { name: 'configureHomeAgent', description: 'Configure', inputSchema: { type: 'object' } },
-        ],
-      }),
-    )
-    await vi.waitFor(() => {
-      expect(doneTurnIds().length).toBeGreaterThan(0)
-    })
-
-    expect(sent.some((p) => p.channel === 'chat:ask')).toBe(false)
-    const toolMessage = (
-      requests[1].body.messages as Array<{ role: string; content: unknown }>
-    ).find((m) => m.role === 'tool')
-    expect(JSON.stringify(toolMessage!.content)).toMatch(
-      /Home Agent preset is not active|only be changed/,
-    )
-  })
-
-  it('diffs a settings change in main and applies it after the card is confirmed', async () => {
-    queueFetchMock(
-      sse(toolCallChunks('configureHomeAgent', '{"temperature":0.9}')),
-      sse(textChunks('done')),
-    )
-    submitChatTurn(
-      turnRequest({
-        tools: [
-          { name: 'configureHomeAgent', description: 'Configure', inputSchema: { type: 'object' } },
-        ],
-        homeAgentInference: homeAgentSnapshot(),
-      }),
-    )
-
-    const confirm = await vi.waitFor(() => {
-      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-confirm')
-      expect(found).toBeDefined()
-      return found as { requestId: string; summaryMarkdown: string }
-    })
-    // The diff is main's: the card is handed a rendered summary, not the request.
-    expect(confirm.summaryMarkdown).toContain('Temperature')
-    expect(confirm.summaryMarkdown).toContain('0.9')
-    handleChatAnswer({ requestId: confirm.requestId, result: true })
-
-    const apply = await vi.waitFor(() => {
-      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-apply')
-      expect(found).toBeDefined()
-      return found as { requestId: string; changes: Array<{ field: string; value: unknown }> }
-    })
-    expect(apply.changes).toEqual([expect.objectContaining({ field: 'temperature', value: 0.9 })])
-    handleChatAnswer({ requestId: apply.requestId, result: { backendChanged: false } })
-
-    await vi.waitFor(() => {
-      expect(doneTurnIds().length).toBeGreaterThan(0)
-    })
-    const toolMessage = (
-      requests[1].body.messages as Array<{ role: string; content: unknown }>
-    ).find((m) => m.role === 'tool')
-    expect(JSON.stringify(toolMessage!.content)).toContain('applied')
-  })
-
-  it('leaves the configuration alone when the card is declined', async () => {
-    queueFetchMock(
-      sse(toolCallChunks('configureHomeAgent', '{"temperature":0.9}')),
-      sse(textChunks('ok then')),
-    )
-    submitChatTurn(
-      turnRequest({
-        tools: [
-          { name: 'configureHomeAgent', description: 'Configure', inputSchema: { type: 'object' } },
-        ],
-        homeAgentInference: homeAgentSnapshot(),
-      }),
-    )
-
-    const confirm = await vi.waitFor(() => {
-      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-confirm')
-      expect(found).toBeDefined()
-      return found as { requestId: string }
-    })
-    handleChatAnswer({ requestId: confirm.requestId, result: false })
-
-    await vi.waitFor(() => {
-      expect(doneTurnIds().length).toBeGreaterThan(0)
-    })
-    expect(sent.some((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-apply')).toBe(false)
-    const toolMessage = (
-      requests[1].body.messages as Array<{ role: string; content: unknown }>
-    ).find((m) => m.role === 'tool')
-    expect(JSON.stringify(toolMessage!.content)).toContain('declined')
   })
 
   it('registers built-in tools as static and MCP tools as dynamic', () => {
@@ -1336,7 +1184,6 @@ describe('turn engine', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow,
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     const prepareRag = vi.fn(async (_rag, base: string) => ({
       systemPrompt: `${base}\n\nUse the following context from your knowledge base to answer the question:\n\nchunk`,
@@ -1481,7 +1328,6 @@ describe('chat turns in the Turn Queue', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow: vi.fn(async () => {}),
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     await holdAgentTurn()
     queueFetchMock(sse(textChunks('ok')))
@@ -1536,7 +1382,6 @@ describe('chat turns in the Turn Queue', () => {
       getService: () => ({ ensureBackendReadiness, baseUrl: 'http://127.0.0.1:39101' }),
       awaitChatWindow: vi.fn(async () => {}),
       stopOvmsImageServer: vi.fn(async () => {}),
-      notifyHomeAgentUpstreamReady: vi.fn(),
     })
     const download = { answer: () => {} }
     executeChatSpeechToolMock.mockImplementationOnce(() =>
@@ -1590,26 +1435,26 @@ describe('chat turns in the Turn Queue', () => {
     finishTextRequest('agent-c')
   })
 
-  it('gives up its place while a confirmation card is open', async () => {
+  it('gives up its place while the window reports a question open', async () => {
     const { setAwaitingUser } = await import('../../kernel/userWait')
+    const question = { answer: () => {} }
+    executeChatSpeechToolMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          question.answer = () => resolve({ ok: true, message: 'done' })
+        }),
+    )
     queueFetchMock(
-      sse(toolCallChunks('configureHomeAgent', '{"temperature":0.9}')),
+      sse(toolCallChunks('synthesizeTextToSpeech', '{"text":"hello"}')),
       sse(textChunks('done')),
     )
     const { turnId } = submitChatTurn(
       turnRequest({
-        tools: [
-          { name: 'configureHomeAgent', description: 'Configure', inputSchema: { type: 'object' } },
-        ],
-        homeAgentInference: homeAgentSnapshot(),
+        tools: [{ name: 'synthesizeTextToSpeech', description: 'Speak', inputSchema: {} }],
       }),
     )
-    const confirm = await vi.waitFor(() => {
-      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-confirm')
-      expect(found).toBeDefined()
-      return found as { requestId: string }
-    })
-    // What the window's confirmation store reports as the card opens.
+    await vi.waitFor(() => expect(executeChatSpeechToolMock).toHaveBeenCalled())
+    // What the window's confirmation store reports as a question opens.
     setAwaitingUser('conv-1', true)
     await submitTextRequest({
       runId: 'agent-b',
@@ -1621,13 +1466,7 @@ describe('chat turns in the Turn Queue', () => {
     expect(orchestrator.turnQueueHolder()).toBe('agent-b')
 
     setAwaitingUser('conv-1', false)
-    handleChatAnswer({ requestId: confirm.requestId, result: true })
-    const apply = await vi.waitFor(() => {
-      const found = sent.find((p) => p.channel === 'chat:ask' && p.kind === 'home-agent-apply')
-      expect(found).toBeDefined()
-      return found as { requestId: string }
-    })
-    handleChatAnswer({ requestId: apply.requestId, result: { backendChanged: false } })
+    question.answer()
     await settle()
     expect(requests).toHaveLength(1)
 

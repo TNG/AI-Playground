@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { presetGate } from '@/lib/presetGate'
 import type { Preset } from '@/assets/js/store/presets'
 
-const usable = { phisonUsable: true, homeAgentEnabled: true, homeAgentAvailable: true }
+const usable = { phisonUsable: true }
 
 const chat = (name: string, extra: Record<string, unknown> = {}) =>
   ({ type: 'chat', name, category: 'chat', ...extra }) as unknown as Preset
@@ -22,19 +22,6 @@ describe('preset gate', () => {
     expect(presetGate(phison, { ...usable, phisonUsable: false })).toEqual({
       enabled: false,
       reason: 'PRESET_GATE_PHISON',
-    })
-  })
-
-  it('greys out Home Agent chat until the Home Agent is on and running', () => {
-    const homeAgent = chat('Home Agent')
-    expect(presetGate(homeAgent, usable)).toEqual({ enabled: true })
-    expect(presetGate(homeAgent, { ...usable, homeAgentEnabled: false })).toEqual({
-      enabled: false,
-      reason: 'PRESET_GATE_HOME_AGENT_DISABLED',
-    })
-    expect(presetGate(homeAgent, { ...usable, homeAgentAvailable: false })).toEqual({
-      enabled: false,
-      reason: 'PRESET_GATE_HOME_AGENT_UNAVAILABLE',
     })
   })
 })

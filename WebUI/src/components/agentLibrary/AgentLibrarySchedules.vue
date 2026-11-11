@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Schedules belong to the saved Agent, not its Draft: each change here is written at once.
+// Schedules belong to the saved Agent, not its Draft: each change here is
+// written at once.
 import { computed, ref } from 'vue'
 import { PencilSquareIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import {

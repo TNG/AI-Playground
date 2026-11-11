@@ -2,10 +2,10 @@
   <div
     class="z-10 text-foreground rounded-xl bg-background/70 backdrop-blur-sm border border-border shadow-lg"
   >
-    <HomeAgentSetupPage
-      v-if="wizard.wizardPage === 'homeAgentSetup'"
+    <ChannelsSetupPage
+      v-if="wizard.wizardPage === 'channelsSetup'"
       @back="wizard.wizardPage = 'main'"
-      @done="wizard.finishHomeAgentSetup()"
+      @done="wizard.finishChannelsSetup()"
     />
 
     <CloudModeSetupPage
@@ -196,7 +196,7 @@
             <div class="flex flex-col gap-1.5">
               <!-- AI Playground: the core service plus the features layered on it.
                    Core cannot be turned off, so the group toggle drives only the
-                   optional members (Home Agent, Hybrid Cloud). -->
+                   optional members (Channels, Hybrid Cloud). -->
               <SetupWizardGroup
                 title="AI Playground"
                 :info-url="AI_PLAYGROUND_INFO_URL"
@@ -272,7 +272,7 @@
                      to a regular backend row via the shared component. -->
                 <SetupWizardRow :row="cloudRow" compact @toggle="(v) => cloudMode.toggleFeature(v)">
                   <template #options>
-                    <!-- Identical to the Home Agent gear menu (see BackendOptions):
+                    <!-- Identical to the Channels gear menu (see BackendOptions):
                          a single "Setup" item that opens the setup page. -->
                     <SettingsMenu
                       v-model:open="cloudMenuOpen"
@@ -489,7 +489,7 @@ import {
 import PhisonAidaptivOptions from '@/components/PhisonAidaptivOptions.vue'
 import ErrorDetailsModal from '@/components/ErrorDetailsModal.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
-import HomeAgentSetupPage from '@/components/HomeAgentSetupPage.vue'
+import ChannelsSetupPage from '@/components/ChannelsSetupPage.vue'
 import CloudModeSetupPage from '@/components/CloudModeSetupPage.vue'
 import DemoModeSetupPage from '@/components/DemoModeSetupPage.vue'
 
@@ -625,7 +625,7 @@ async function setGroup(rows: BackendRowViewModel[], value: boolean) {
 
 async function setAiPlaygroundGroup(value: boolean) {
   // Only the group's own optional members: the speech sidecars nested under Core
-  // Services are core dependents, so a master switch meant for Home Agent must
+  // Services are core dependents, so a master switch meant for Channels must
   // not silently skip the app's audio runtimes. Their opt-out is their own row.
   await setGroup(aiPlaygroundRows.value, value)
   // Hybrid Cloud is opt-in and defaults to off: it needs no install, and switching

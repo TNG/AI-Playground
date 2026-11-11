@@ -1,14 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// The adapters wrap window.electronAPI.homeAgent.channel.send. Stub it so
+// The adapters wrap window.electronAPI.channels.send. Stub it so
 // import-time and call-time references don't blow up under node-env vitest.
 const sendMock = vi.fn(async () => ({ success: true }) as Record<string, unknown>)
 vi.stubGlobal('window', {
   electronAPI: {
-    homeAgent: {
-      channel: {
-        send: sendMock,
-      },
+    channels: {
+      send: sendMock,
     },
   },
 })
@@ -50,19 +48,6 @@ describe('channel adapters', () => {
     expect(slack.escapeInline('<safe>')).not.toContain('<')
   })
 
-  it('emit channel-native draft text', () => {
-    const parts: RawPart[] = [
-      { type: 'reasoning', text: 'thinking…' },
-      { type: 'text', text: '**bold**' },
-    ]
-    const tg = telegram.formatDraft(parts)
-    const sl = slack.formatDraft(parts)
-    expect(tg).toContain('<blockquote>')
-    expect(sl).not.toContain('<blockquote>')
-    // Slack reasoning is quoted with `> 💭`
-    expect(sl).toContain('> 💭')
-  })
-
   it('local web stops the typing indicator when the turn ends', async () => {
     // Regression: the disposer was a no-op, so a turn that produced no output left
     // the browser showing the typing dots for good.
@@ -85,6 +70,52 @@ describe('channel adapters', () => {
     expect(sendMock).toHaveBeenCalledWith('local-web', 'editMessage', {
       text: 'Confirmed.',
       message_id: 7,
+    })
+  })
+
+  describe('asking for a reply (a Start Prompt Request)', () => {
+    const request = {
+      placeholder: 'Start Prompt for Daily digest',
+      answerLabel: '💬 Answer',
+      answerTitle: 'Daily digest',
+    }
+
+    it('opens the reply box with its hint on Telegram', async () => {
+      sendMock.mockClear()
+      sendMock.mockResolvedValueOnce({ success: true, messageId: 12 })
+      const res = await telegram.askForReply('What should it do?', request)
+      expect(res.ref).toEqual({ messageId: 12 })
+      expect(sendMock).toHaveBeenCalledWith('telegram', 'post', {
+        text: 'What should it do?',
+        parse_mode: 'HTML',
+        force_reply_placeholder: 'Start Prompt for Daily digest',
+      })
+    })
+
+    it('posts top-level on Slack, so its own thread takes the reply', async () => {
+      sendMock.mockClear()
+      sendMock.mockResolvedValueOnce({ success: true, ts: '1.2', channel: 'D1' })
+      const res = await slack.askForReply('What should it do?', request, {
+        channel: 'D1',
+        threadTs: '0.9',
+      })
+      expect(res.ref).toEqual({ ts: '1.2', channel: 'D1' })
+      expect(sendMock).toHaveBeenCalledWith('slack', 'post', {
+        text: 'What should it do?',
+        channel: 'D1',
+      })
+    })
+
+    it('carries the Answer button naming the Agent on LAN chat', async () => {
+      sendMock.mockClear()
+      sendMock.mockResolvedValueOnce({ success: true, messageId: 5 })
+      const res = await localWeb.askForReply('What should it do?', request)
+      expect(res.ref).toEqual({ messageId: 5 })
+      expect(sendMock).toHaveBeenCalledWith('local-web', 'keyboard', {
+        text: 'What should it do?',
+        buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+        answer_title: 'Daily digest',
+      })
     })
   })
 
@@ -116,7 +147,7 @@ describe('channel adapters', () => {
     ])
   })
 
-  it('local web renders the image preset + prompt (draft and final)', () => {
+  it('local web renders the image preset + prompt', () => {
     // Regression: the generic tool marker skips image tools (Telegram renders
     // them specially), so without a dedicated image renderer the browser only
     // got the finished photo — never the "Generating using preset … <prompt>"
@@ -128,11 +159,6 @@ describe('channel adapters', () => {
         input: { workflow: 'Line Art', prompt: 'a friendly lizard on a surfboard' },
       },
     ]
-    const draft = localWeb.formatDraft(parts)
-    expect(draft).toContain('Line Art')
-    expect(draft).toContain('a friendly lizard on a surfboard')
-    expect(draft).toContain('Generating')
-
     const doneParts: RawPart[] = [{ ...parts[0], state: 'output-available' }]
     const final = localWeb.formatFinal(doneParts)
     expect(final).toContain('Line Art')
@@ -182,23 +208,5 @@ describe('channel adapters', () => {
       'update',
       expect.objectContaining({ channel: 'C1', ts: '111.222', text: '✅ Confirmed.' }),
     )
-  })
-
-  it('formatImgGenPhase reports the same lifecycle stages', () => {
-    const tg = telegram.formatImgGenPhase({
-      presetName: 'foo',
-      state: 'generating',
-      step: 'step 1 of 4',
-    })
-    const sl = slack.formatImgGenPhase({
-      presetName: 'foo',
-      state: 'generating',
-      step: 'step 1 of 4',
-    })
-    expect(tg).toContain('✨')
-    expect(sl).toContain('✨')
-    // Telegram escapes HTML, Slack leaves it raw.
-    expect(tg).toContain('step 1 of 4')
-    expect(sl).toContain('step 1 of 4')
   })
 })

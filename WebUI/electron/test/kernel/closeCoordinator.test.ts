@@ -71,7 +71,6 @@ describe('close coordinator', () => {
       { kind: 'agent-turn', name: 'Asteroids', state: { status: 'paused' } },
     ],
     ['a queued chat turn', { kind: 'chat-turn', name: 'Recipes', state: { status: 'queued' } }],
-    ['a Home Agent turn', { kind: 'home-agent-turn', state: { status: 'running' } }],
     [
       'an executing image run',
       { kind: 'media-run', mode: 'imageGen', state: { status: 'running' } },

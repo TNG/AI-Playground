@@ -166,7 +166,6 @@ beforeEach(async () => {
   setChatModelDeps({
     llmApiBase: () => 'http://127.0.0.1:39101',
     ensureBackendReadiness: vi.fn(),
-    homeAgentAuthToken: () => 'token',
     readCloudProviderKey: () => null,
   })
 })

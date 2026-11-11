@@ -4,6 +4,7 @@ import {
   isAgentSessionTurn,
   sessionAnswerOrigin,
   sessionLabel,
+  sessionTurnReachesChannels,
   whenSessionInView,
   whenSessionTurnEnds,
 } from './sessionPromptPort'
@@ -25,7 +26,7 @@ import { answerDownloadSession } from './answerDownloadKey'
 /**
  * Renderer half of the Permissions prompt adapter (step 13). Main owns grant
  * lookup and skip-confirmation; this module decides which Download Question to
- * ask (docs/adr/0005): models a Model Download already covers are waited on, the
+ * ask: models a Model Download already covers are waited on, the
  * rest are asked in the held dialog — raced against a Channel Question for an
  * Agent Mode session — and a yes starts a Model Download in the shared queue.
  * `notify` stays local — it is display-only, not a consent decision.
@@ -80,7 +81,7 @@ type DownloadAnswer =
   { kind: 'yes'; accepted: DownloadModelParam[]; fromChannel: boolean } | { kind: 'joined' }
 
 /**
- * The first answer, from the modal or the Channel Question, wins (docs/adr/0004).
+ * The first answer, from the modal or a Channel Question, wins (docs/adr/0010).
  * The question ends early when its waiter settles first: the turn stopped, or a
  * Model Download it already waits on was cancelled or failed.
  */
@@ -132,7 +133,7 @@ async function askDownloadQuestion(args: {
         return { kind: 'yes', accepted: winner.accepted, fromChannel: false }
       case 'channel':
         desktop.dismiss()
-        if (!winner.answer) throw declined('Download declined in the Notification Channel')
+        if (!winner.answer) throw declined('Download declined in a Channel')
         return { kind: 'yes', accepted: models, fromChannel: true }
     }
   } finally {
@@ -147,7 +148,8 @@ function channelQuestionFor(
   alreadyDownloading: DownloadModelParam[],
 ): DownloadChannelQuestion | null {
   const forAnswer = answerDownloadSession(conversationKey) !== null
-  if (!forAnswer && !isAgentSessionTurn(conversationKey)) return null
+  const reaches = isAgentSessionTurn(conversationKey) && sessionTurnReachesChannels(conversationKey)
+  if (!forAnswer && !reaches) return null
   const port = remoteTurnPort()
   if (!port.canAskChannelQuestion()) return null
   const answer = sessionAnswerOrigin(conversationKey)
@@ -294,7 +296,7 @@ async function handlePrompt(request: PermissionsPromptPayload): Promise<void> {
   try {
     switch (request.kind) {
       case 'is-remote': {
-        // An Agent Mode turn is never a remote turn's, whatever the Home Agent is doing.
+        // An Agent Mode turn is never a remote turn's, whatever the Channels are doing.
         const key = request.conversationKey
         const remote =
           answerDownloadSession(key) !== null ||

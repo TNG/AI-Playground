@@ -3,7 +3,7 @@ import {
   createRemoteSpeech,
   type RemoteSpeechDeps,
 } from '../../../src/assets/js/store/channels/remoteSpeech'
-import type { VoiceAnswerPreparation } from '../../../src/assets/js/store/channels/answerRouter'
+import type { VoicePreparation } from '../../../src/assets/js/store/channels/answerRouter'
 import {
   answerRouterCopyFrom,
   registerAnswerRouterCopy,
@@ -48,12 +48,11 @@ function fakeDeps(overrides: {
   sttReady?: boolean
   transcripts?: Record<string, string>
   transcribeError?: Error
-  speakAllowed?: boolean
   ttsReady?: boolean
   synthesizeError?: Error
   sttInstalled?: boolean
   sttModelMissing?: boolean
-  downloadAnswer?: 'approve' | 'decline'
+  downloadAnswer?: 'approve' | 'decline' | Error
   preGranted?: boolean
   ttsModelMissing?: boolean
   ttsDownloadAnswer?: 'yes' | 'no' | Error
@@ -76,7 +75,6 @@ function fakeDeps(overrides: {
       isNoEndpoint: (e) => e === NO_ENDPOINT,
     },
     synthesis: {
-      allowed: () => overrides.speakAllowed ?? true,
       synthesize: async (text) => {
         if (overrides.synthesizeError) throw overrides.synthesizeError
         if (overrides.ttsReady === false || !ttsModelOnDisk) return null
@@ -87,10 +85,11 @@ function fakeDeps(overrides: {
     transcriptionModel: {
       installed: () => overrides.sttInstalled ?? true,
       missing: async () => (sttModelOnDisk ? [] : [STT_MODEL]),
-      download: async (models) => {
+      download: async (models, adapter) => {
         if (!overrides.preGranted) {
-          events.push(`question:${models.map((m) => m.repo_id).join(',')}`)
+          events.push(`question:${adapter.kind}:${models.map((m) => m.repo_id).join(',')}`)
           if (overrides.downloadAnswer === 'decline') return false
+          if (overrides.downloadAnswer instanceof Error) throw overrides.downloadAnswer
         }
         events.push('download')
         sttModelOnDisk = true
@@ -108,7 +107,6 @@ function fakeDeps(overrides: {
         return true
       },
     },
-    answerDownload: async () => true,
     log: (message) => logged.push(message),
   }
   return { deps, logged, spoken, events }
@@ -150,7 +148,11 @@ describe('remote speech: transcribing a channel voice message', () => {
     const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
 
     expect(text).toBe('hello')
-    expect(events).toEqual(['question:OpenVINO/whisper-base-fp16-ov', 'download', 'transcribe'])
+    expect(events).toEqual([
+      'question:telegram:OpenVINO/whisper-base-fp16-ov',
+      'download',
+      'transcribe',
+    ])
     expect(sent).toEqual([])
   })
 
@@ -175,7 +177,7 @@ describe('remote speech: transcribing a channel voice message', () => {
     const text = await createRemoteSpeech(deps).transcribe(adapter, [clip('a')])
 
     expect(text).toBeNull()
-    expect(events).toEqual(['question:OpenVINO/whisper-base-fp16-ov'])
+    expect(events).toEqual(['question:telegram:OpenVINO/whisper-base-fp16-ov'])
     expect(sent).toEqual(['Voice not transcribed: speech model not downloaded. Send text instead.'])
   })
 
@@ -211,156 +213,107 @@ describe('remote speech: transcribing a channel voice message', () => {
   })
 })
 
-describe('remote speech: speaking a reply', () => {
-  it('sends the reply as a voice message, read without its markdown', async () => {
-    const { adapter, voices } = fakeChannel()
+describe('remote speech: a spoken reply', () => {
+  it('is the reply read aloud without its markdown', async () => {
+    const { adapter } = fakeChannel()
     const { deps } = fakeDeps({})
-    const meta = { chatId: 7 } as unknown as InboundMeta
 
-    await createRemoteSpeech(deps).speak(adapter, '**Done.** See you', meta)
+    const clip = await createRemoteSpeech(deps).voiceClip(adapter, '**Done.** See you')
 
-    expect(voices).toEqual([{ base64: 'wav:Done. See you', mime: 'audio/wav', meta }])
+    expect(clip).toEqual({ audioBase64: 'wav:Done. See you', mediaType: 'audio/wav' })
   })
 
-  it('silently sends no voice message when no text-to-speech engine can serve', async () => {
-    const { adapter, sent, voices } = fakeChannel()
+  it('is nothing when no text-to-speech engine can serve', async () => {
+    const { adapter, sent } = fakeChannel()
     const { deps } = fakeDeps({ ttsReady: false })
 
-    await createRemoteSpeech(deps).speak(adapter, 'Done.')
-
-    expect(voices).toEqual([])
+    expect(await createRemoteSpeech(deps).voiceClip(adapter, 'Done.')).toBeNull()
     expect(sent).toEqual([])
   })
 
-  it('does not synthesize when spoken replies are off', async () => {
-    const { adapter, voices } = fakeChannel()
-    const { deps, spoken } = fakeDeps({ speakAllowed: false })
-
-    await createRemoteSpeech(deps).speak(adapter, 'Done.')
-
-    expect(spoken).toEqual([])
-    expect(voices).toEqual([])
-  })
-
-  it('does not synthesize a reply with nothing to say', async () => {
-    const { adapter, voices } = fakeChannel()
+  it('is not synthesized for a reply with nothing to say', async () => {
+    const { adapter } = fakeChannel()
     const { deps, spoken } = fakeDeps({})
 
-    await createRemoteSpeech(deps).speak(adapter, '   ')
-
+    expect(await createRemoteSpeech(deps).voiceClip(adapter, '   ')).toBeNull()
     expect(spoken).toEqual([])
-    expect(voices).toEqual([])
   })
 
   it('keeps a failed synthesis out of the channel', async () => {
-    const { adapter, sent, voices } = fakeChannel()
+    const { adapter, sent } = fakeChannel()
     const { deps, logged } = fakeDeps({ synthesizeError: new Error('engine crashed') })
 
-    await createRemoteSpeech(deps).speak(adapter, 'Done.')
-
-    expect(voices).toEqual([])
+    expect(await createRemoteSpeech(deps).voiceClip(adapter, 'Done.')).toBeNull()
     expect(sent).toEqual([])
     expect(logged).toHaveLength(1)
   })
 })
 
-describe('remote speech: speaking a reply with the text-to-speech model missing', () => {
-  it('asks the sender to download the model, then sends the voice message', async () => {
-    const { adapter, voices } = fakeChannel()
+describe('remote speech: a spoken reply with the text-to-speech model missing', () => {
+  it('asks the sender to download the model, then reads the reply', async () => {
+    const { adapter } = fakeChannel()
     const { deps, events } = fakeDeps({ ttsModelMissing: true })
     const meta = { chatId: 7 } as unknown as InboundMeta
 
-    await createRemoteSpeech(deps).speak(adapter, 'Done.', meta)
+    const clip = await createRemoteSpeech(deps).voiceClip(adapter, 'Done.', meta)
 
     expect(events).toEqual(['asked:{"chatId":7}'])
-    expect(voices).toEqual([{ base64: 'wav:Done.', mime: 'audio/wav', meta }])
+    expect(clip).toEqual({ audioBase64: 'wav:Done.', mediaType: 'audio/wav' })
   })
 
-  it('sends nothing more when the sender declines the download', async () => {
-    const { adapter, sent, voices } = fakeChannel()
+  it('is nothing when the sender declines the download', async () => {
+    const { adapter, sent } = fakeChannel()
     const { deps, logged, spoken } = fakeDeps({ ttsModelMissing: true, ttsDownloadAnswer: 'no' })
 
-    await createRemoteSpeech(deps).speak(adapter, 'Done.')
-
+    expect(await createRemoteSpeech(deps).voiceClip(adapter, 'Done.')).toBeNull()
     expect(spoken).toEqual([])
-    expect(voices).toEqual([])
     expect(sent).toEqual([])
     expect(logged).toEqual([])
   })
 
   it('keeps a failed download out of the channel', async () => {
-    const { adapter, sent, voices } = fakeChannel()
+    const { adapter, sent } = fakeChannel()
     const { deps, logged } = fakeDeps({
       ttsModelMissing: true,
       ttsDownloadAnswer: new Error('network down'),
     })
 
-    await createRemoteSpeech(deps).speak(adapter, 'Done.')
-
-    expect(voices).toEqual([])
+    expect(await createRemoteSpeech(deps).voiceClip(adapter, 'Done.')).toBeNull()
     expect(sent).toEqual([])
     expect(logged).toHaveLength(1)
   })
-
-  it('does not ask about a download when spoken replies are off', async () => {
-    const { adapter, voices } = fakeChannel()
-    const { deps, events } = fakeDeps({ ttsModelMissing: true, speakAllowed: false })
-
-    await createRemoteSpeech(deps).speak(adapter, 'Done.')
-
-    expect(events).toEqual([])
-    expect(voices).toEqual([])
-  })
 })
 
-function answerDeps(overrides: {
-  sttInstalled?: boolean
-  sttModelMissing?: boolean
-  download?: 'declined' | Error
-}) {
-  const { deps } = fakeDeps(overrides)
-  const asked: { models: DownloadModelParam[]; sessionId: string }[] = []
-  deps.answerDownload = async (models, sessionId) => {
-    asked.push({ models, sessionId })
-    if (overrides.download === 'declined') return false
-    if (overrides.download) throw overrides.download
-    return true
-  }
-  return { deps, asked }
-}
-
-async function settled(preparation: VoiceAnswerPreparation) {
+async function settled(preparation: VoicePreparation) {
   return 'downloading' in preparation ? { downloaded: await preparation.downloading } : preparation
 }
 
-describe('remote speech: readying a voice Answer to an agent', () => {
+describe('remote speech: readying speech-to-text for a voice message', () => {
   it('is ready at once when the speech model is already there', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps, asked } = answerDeps({})
+    const { deps, events } = fakeDeps({})
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toEqual({
-      ready: true,
-    })
-    expect(asked).toEqual([])
+    expect(await createRemoteSpeech(deps).prepare(adapter)).toEqual({ ready: true })
+    expect(events).toEqual([])
     expect(posted).toEqual([])
   })
 
-  it('asks the answered session’s download question for a missing model, then goes on', async () => {
+  it('asks the channel to download a missing model, then goes on', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps, asked } = answerDeps({ sttModelMissing: true })
+    const { deps, events } = fakeDeps({ sttModelMissing: true })
 
-    const preparation = await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')
+    const preparation = await createRemoteSpeech(deps).prepare(adapter)
 
     expect(await settled(preparation)).toEqual({ downloaded: true })
-    expect(asked).toEqual([{ models: [STT_MODEL], sessionId: 'asteroids' }])
+    expect(events).toEqual(['question:telegram:OpenVINO/whisper-base-fp16-ov', 'download'])
     expect(posted).toEqual([])
   })
 
   it('says the voice was not transcribed when the download was declined', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps } = answerDeps({ sttModelMissing: true, download: 'declined' })
+    const { deps } = fakeDeps({ sttModelMissing: true, downloadAnswer: 'decline' })
 
-    const preparation = await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')
+    const preparation = await createRemoteSpeech(deps).prepare(adapter)
 
     expect(await settled(preparation)).toEqual({ downloaded: false })
     expect(posted).toEqual([
@@ -370,9 +323,9 @@ describe('remote speech: readying a voice Answer to an agent', () => {
 
   it('says why when the download failed', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps } = answerDeps({ sttModelMissing: true, download: new Error('disk full') })
+    const { deps } = fakeDeps({ sttModelMissing: true, downloadAnswer: new Error('disk full') })
 
-    const preparation = await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')
+    const preparation = await createRemoteSpeech(deps).prepare(adapter)
 
     expect(await settled(preparation)).toEqual({ downloaded: false })
     expect(posted).toEqual(['⚠️ Could not transcribe the audio: disk full'])
@@ -380,12 +333,10 @@ describe('remote speech: readying a voice Answer to an agent', () => {
 
   it('says a backend must be installed on the desktop when there is none', async () => {
     const { adapter, posted } = fakeChannel()
-    const { deps, asked } = answerDeps({ sttInstalled: false })
+    const { deps, events } = fakeDeps({ sttInstalled: false })
 
-    expect(await createRemoteSpeech(deps).prepareAnswer(adapter, 'asteroids')).toEqual({
-      ready: false,
-    })
-    expect(asked).toEqual([])
+    expect(await createRemoteSpeech(deps).prepare(adapter)).toEqual({ ready: false })
+    expect(events).toEqual([])
     expect(posted).toEqual([NO_BACKEND])
   })
 })

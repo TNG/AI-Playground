@@ -178,6 +178,22 @@ export const useSessions = defineStore('sessions', () => {
     return result.session.id
   }
 
+  /** A new Reachable Session for a Channel, never opened here; throws with main's reason. */
+  async function createReachable(defaultCapabilities: string[]): Promise<string> {
+    const created = await window.electronAPI.sessions.create()
+    if (!created.success) throw new Error(created.error)
+    const id = created.session.id
+    const reachable = await window.electronAPI.sessions.setReachable(id, true, {
+      defaultCapabilities,
+    })
+    if (!reachable.success) {
+      await window.electronAPI.sessions.delete(id)
+      throw new Error(reachable.error)
+    }
+    remember(reachable.session)
+    return id
+  }
+
   /** Opens a Session; resolves with the preset and variant of its last turn. */
   async function open(
     id: string,
@@ -199,6 +215,19 @@ export const useSessions = defineStore('sessions', () => {
       window.electronAPI.sessions.rename(id, title),
     )
     if (result) remember(result.session)
+  }
+
+  /** `defaultCapabilities` are Assistant's, for a Session whose settings name none; false when refused. */
+  async function setReachable(
+    id: string,
+    reachable: boolean,
+    defaultCapabilities?: string[],
+  ): Promise<boolean> {
+    const result = await call('sessions/set-reachable-failed', () =>
+      window.electronAPI.sessions.setReachable(id, reachable, { defaultCapabilities }),
+    )
+    if (result) remember(result.session)
+    return !!result
   }
 
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
@@ -356,10 +385,12 @@ export const useSessions = defineStore('sessions', () => {
     openSession,
     init,
     create,
+    createReachable,
     open,
     rename,
     setPinned,
     pickAgent,
+    setReachable,
     createGroup,
     moveToGroup,
     renameGroup,

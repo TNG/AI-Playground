@@ -37,6 +37,8 @@ import type {
   newestArtifact,
 } from '../../session/sessionArtifacts'
 import type { harnessSessionFor } from '../../session/sessionHarness'
+import type { setRealShellFolders, setSessionReachable } from '../../session/sessionChannels'
+import type { migrateHomeAgentThreads } from '../../session/homeAgentThreadMigration'
 import type { taskRunHarnessFor } from '../../session/sessionTaskRuns'
 import type { upsertTimelineMessages } from '../../session/sessionTimeline'
 import type { ChatTranscriptMessage, saveChatTranscript } from '../../session/sessionChatTurn'
@@ -50,6 +52,9 @@ export type SessionsDeps = {
   openSession: typeof openSession
   renameSession: typeof renameSession
   pinSession: typeof pinSession
+  setSessionReachable: typeof setSessionReachable
+  setRealShellFolders: typeof setRealShellFolders
+  migrateHomeAgentThreads: typeof migrateHomeAgentThreads
   pickSessionAgent: typeof pickSessionAgent
   listSessionGroups: typeof listSessionGroups
   createSessionGroup: typeof createSessionGroup
@@ -84,6 +89,10 @@ function timelineMessages(value: unknown): { id: string }[] {
     }
   }
   return value as { id: string }[]
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
 }
 
 function requireString(value: unknown, what: string): string {
@@ -140,6 +149,47 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
           requireString(title, 'title'),
         )
         return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:setReachable': async (_event, id, reachable, options) => {
+      try {
+        if (typeof reachable !== 'boolean') throw new Error('reachable must be a boolean')
+        const defaults = options?.defaultCapabilities
+        if (defaults !== undefined && !isStringArray(defaults)) {
+          throw new Error('default capabilities must be strings')
+        }
+        const session = await deps.setSessionReachable(requireString(id, 'session id'), reachable, {
+          ...(defaults ? { defaultCapabilities: defaults } : {}),
+        })
+        return { success: true as const, session }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:migrateHomeAgentThreads': async (_event, input) => {
+      try {
+        const routingKey = input?.routingKey ?? null
+        if (routingKey !== null) requireString(routingKey, 'routing key')
+        const defaults = input?.defaultCapabilities
+        if (defaults !== undefined && !isStringArray(defaults)) {
+          throw new Error('default capabilities must be strings')
+        }
+        const { channelSession } = await deps.migrateHomeAgentThreads({
+          routingKey,
+          ...(defaults ? { defaultCapabilities: defaults } : {}),
+        })
+        return { success: true as const, channelSession }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:setRealShellFolders': async (_event, folders) => {
+      try {
+        if (!isStringArray(folders)) throw new Error('folders must be strings')
+        await deps.setRealShellFolders(folders)
+        return { success: true as const }
       } catch (e) {
         return ipcFail(e)
       }

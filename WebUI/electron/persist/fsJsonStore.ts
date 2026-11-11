@@ -33,7 +33,7 @@ export async function readJson(file: string, scope: string): Promise<JsonRead> {
   }
 }
 
-/** Timestamp ids, uuids, the legacy Home Agent singleton; never a path or `index`. */
+/** Timestamp ids, uuids, the legacy remote-thread singleton; never a path or `index`. */
 export function isSafeFileId(id: string): boolean {
   return id.length > 0 && id.length <= 200 && id !== 'index' && /^[\w.-]+$/.test(id)
 }

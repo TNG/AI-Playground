@@ -7,8 +7,7 @@ import { chatTranscriptOf, sessionChatKey } from '@/lib/sessionChat'
 
 /**
  * Binds the chat store to the open Session: every non-agent chat preset writes
- * into the Session's one chat transcript, while Home Agent threads keep their
- * own conversations.
+ * into the Session's one chat transcript.
  */
 export const useSessionChat = defineStore('sessionChat', () => {
   const sessions = useSessions()
@@ -26,7 +25,7 @@ export const useSessionChat = defineStore('sessionChat', () => {
   watch(
     () => sessions.openSessionId,
     (id) => {
-      if (!id || conversations.getThreadKind(conversations.activeKey) === 'homeAgent') return
+      if (!id) return
       returnToSessionChat()
     },
     { immediate: true },

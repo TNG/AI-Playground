@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import HOME_AGENT_COMMANDS
+from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, forwarded_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,8 @@ _SLACK_TOKEN_RE = re.compile(
     r"xox[abporsb]-[A-Za-z0-9-]{10,}|xapp-\d+-[A-Za-z0-9-]{20,}"
 )
 
-# Document extensions the RAG ingestion pipeline (langchain loaders) accepts.
-# Mirrors the desktop uploader (WebUI/src/components/Rag.vue).
+# Document extensions a Session takes as Attached Documents.
+# Mirrors DOCUMENT_EXTENSIONS in WebUI/src/types/rag.ts.
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
@@ -197,7 +197,7 @@ class SlackChannel(ChannelBase):
             if posted:
                 return posted
         logger.warning(
-            "Slack upload %s not shared within %.1fs; a reply to it reaches Home Agent",
+            "Slack upload %s not shared within %.1fs; a reply to it is a plain message",
             file["id"],
             sum(_SHARE_LOOKUP_DELAYS),
         )
@@ -458,19 +458,20 @@ class SlackChannel(ChannelBase):
 
         async def _download_slack_files(
             files: list[dict], client_token: str
-        ) -> tuple[list[dict], list[dict], list[dict]]:
+        ) -> tuple[list[dict], list[dict], list[dict], list[str]]:
             """Download supported Slack file uploads.
 
-            Returns an ``(images, audio, documents)`` tuple. ``image/*`` and
+            Returns an ``(images, audio, documents, refused)`` tuple. ``image/*`` and
             ``audio/*`` files are collected by mime; document uploads are matched
-            by file extension (txt/md/doc/docx/pdf) for RAG ingestion. Everything
-            else is ignored.
+            by file extension (txt/md/doc/docx/pdf). ``refused`` holds a notice for
+            each file left unread: another type, or a document over the size cap.
             """
             import aiohttp
 
             images: list[dict] = []
             audio: list[dict] = []
             documents: list[dict] = []
+            refused: list[str] = []
             async with aiohttp.ClientSession(
                 headers={"Authorization": f"Bearer {client_token}"}
             ) as session:
@@ -489,12 +490,18 @@ class SlackChannel(ChannelBase):
                         ext = (f.get("filetype") or "").lower()
                     is_document = ext in _SUPPORTED_DOC_EXTENSIONS
                     if not is_image and not is_audio and not is_document:
+                        refused.append(
+                            f"⚠️ Not sent: {filename} is not a file a Session takes. "
+                            "Send an image, or a "
+                            f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} document."
+                        )
                         continue
                     size = f.get("size") or 0
                     if is_document and size and size > _MAX_DOC_BYTES:
                         logger.warning(
                             "slack document too large, skipping: %s", filename
                         )
+                        refused.append(f"⚠️ Not sent: {filename} is over 25 MB.")
                         continue
                     url = f.get("url_private_download") or f.get("url_private")
                     if not url:
@@ -523,7 +530,7 @@ class SlackChannel(ChannelBase):
                                 "data_base64": data_b64,
                             }
                         )
-            return images, audio, documents
+            return images, audio, documents, refused
 
         async def run() -> None:
             self._loop = asyncio.get_event_loop()
@@ -564,10 +571,10 @@ class SlackChannel(ChannelBase):
                 text = event.get("text") or ""
                 ts = event.get("ts") or ""
                 files = event.get("files") or []
-                images, audio, documents = (
+                images, audio, documents, refused = (
                     await _download_slack_files(files, bot_token)
                     if files
-                    else ([], [], [])
+                    else ([], [], [], [])
                 )
                 if text:
                     text_payload = text
@@ -593,6 +600,7 @@ class SlackChannel(ChannelBase):
                         **({"images": images} if images else {}),
                         **({"audio": audio} if audio else {}),
                         **({"documents": documents} if documents else {}),
+                        **({"refused": "\n".join(refused)} if refused else {}),
                     )
                 )
 
@@ -607,7 +615,7 @@ class SlackChannel(ChannelBase):
                     command.get("channel_id") or "",
                 )
 
-            # Slash commands are derived from the shared HOME_AGENT_COMMANDS
+            # Slash commands are derived from the shared CHANNEL_COMMANDS
             # source of truth (see channels/commands.py) so they stay in lockstep
             # with the Telegram transport. The matching Slack app manifest
             # (WebUI/src/components/SlackSetupSteps.vue) must declare the same set.
@@ -621,25 +629,8 @@ class SlackChannel(ChannelBase):
 
                 return handler
 
-            for cmd in HOME_AGENT_COMMANDS:
+            for cmd in CHANNEL_COMMANDS:
                 bolt_app.command(cmd.slash)(_make_slash_handler(cmd))
-
-            @bolt_app.action(re.compile(r"^imgGen:"))
-            async def on_imggen_action(ack, body, action):  # type: ignore[no-untyped-def]
-                await ack()
-                user = (body.get("user") or {}).get("id") or ""
-                channel = (body.get("channel") or {}).get("id") or ""
-                await _maybe_remember_user(user, channel)
-                if self._allowed_user_id and user != self._allowed_user_id:
-                    logger.warning(
-                        "Ignoring imgGen action from unauthorized user_id: %s", user
-                    )
-                    return
-                value = action.get("value") or action.get("action_id") or ""
-                logger.info("Slack imgGen action: user=%s value=%s", user, value)
-                self.queue_append(
-                    {"chat_id": user, "channel": channel, "callback": value}
-                )
 
             @bolt_app.action(re.compile(r"^confirm:"))
             async def on_confirm_action(ack, body, action):  # type: ignore[no-untyped-def]
@@ -658,31 +649,25 @@ class SlackChannel(ChannelBase):
                     {"chat_id": user, "channel": channel, "callback": value}
                 )
 
-            @bolt_app.action(re.compile(r"^loadConv:"))
-            async def on_loadconv_action(ack, body, action):  # type: ignore[no-untyped-def]
+            async def on_command_action(ack, body, action):  # type: ignore[no-untyped-def]
                 await ack()
                 user = (body.get("user") or {}).get("id") or ""
                 channel = (body.get("channel") or {}).get("id") or ""
                 await _maybe_remember_user(user, channel)
                 if self._allowed_user_id and user != self._allowed_user_id:
                     logger.warning(
-                        "Ignoring loadConv action from unauthorized user_id: %s", user
+                        "Ignoring command action from unauthorized user_id: %s", user
                     )
                     return
                 value = action.get("value") or action.get("action_id") or ""
-                key = (
-                    value[len("loadConv:") :]
-                    if value.startswith("loadConv:")
-                    else value
-                )
-                logger.info("Slack loadConv action: user=%s key=%s", user, key)
-                self.queue_append(
-                    {
-                        "text": f"/load {key}".strip(),
-                        "chat_id": user,
-                        "channel": channel,
-                    }
-                )
+                forwarded = forwarded_callback(value)
+                if forwarded is None:
+                    return
+                logger.info("Slack command action: user=%s %r", user, forwarded)
+                self.queue_append({**forwarded, "chat_id": user, "channel": channel})
+
+            for prefix in COMMAND_CALLBACKS:
+                bolt_app.action(re.compile(f"^{re.escape(prefix)}"))(on_command_action)
 
             handler = AsyncSocketModeHandler(bolt_app, app_token)
             try:

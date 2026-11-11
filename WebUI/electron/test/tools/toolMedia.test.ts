@@ -15,7 +15,7 @@ describe('extractToolMedia', () => {
   it('ignores non-media tools', () => {
     expect(
       extractToolMedia({
-        type: 'tool-configureHomeAgent',
+        type: 'tool-captureScreenshot',
         state: 'output-available',
         output: { ok: true },
       }),

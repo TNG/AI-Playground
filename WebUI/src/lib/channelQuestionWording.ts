@@ -22,6 +22,8 @@ export type ChannelQuestionTemplates = {
   /** `{label}`, `{error}` */
   failed: string
   answeredInApp: string
+  /** A tap on another Channel answered a question asked on several. */
+  answeredElsewhere: string
   /** A desktop decline of a question also asked in the channel. */
   declinedInApp: string
   closed: string
@@ -36,7 +38,7 @@ export type ChannelQuestionTemplates = {
   /** Who started a Model Download, for `{label}` above. */
   forChat: string
   forOther: string
-  forHomeAgent: string
+  forChannel: string
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -56,6 +58,7 @@ const ENGLISH: ChannelQuestionTemplates = {
   complete: '✅ Download complete. {label} is continuing.',
   failed: '⚠️ The model download for {label} failed: {error}',
   answeredInApp: '✔ Answered in AI Playground.',
+  answeredElsewhere: '✔ Answered in another Channel.',
   declinedInApp: '✖ Declined in AI Playground.',
   closed: '⏹ No longer needed — the session stopped waiting for this download.',
   unavailable: '⏹ No longer answerable here — answer it in AI Playground.',
@@ -66,7 +69,7 @@ const ENGLISH: ChannelQuestionTemplates = {
   appClosed: '⏹ Stopped — AI Playground closed.',
   forChat: 'a Chat conversation',
   forOther: 'another task in AI Playground',
-  forHomeAgent: 'the Home Agent',
+  forChannel: 'this Channel',
 }
 
 let provider: (() => ChannelQuestionTemplates) | null = null

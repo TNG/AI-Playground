@@ -11,20 +11,20 @@
 // - the typed queue (`KernelRequestMap`): text turns (chat occupancy) and
 //   artifact runs, plus a request lane for whole media-request brackets.
 //   Artifact `queue` submissions (media nested in a turn) park FIFO on the
-//   artifact queue; panel and Home Agent runs (`turn`) are Turn Queue members.
+//   artifact queue; panel runs (`turn`) are Turn Queue members.
 //   Queue lifecycle crosses the kernel bus as `queue-event`.
 // - the GPU window: which side holds the GPU, the LLM⇄ComfyUI swap, the
 //   skip-when-queued rule (a spritesheet costs one swap, not one per sprite),
 //   and the wait for open chat HTTP before stopping a backend mid-stream — no
 //   proceed-anyway bound.
-// - chat readiness admission: Chat, Agent, and Home Agent `/load` occupy as
+// - chat readiness admission: Chat and Agent occupy as
 //   `text` requests first; `ensureChatBackendReady` then loads with
 //   `skipGpuAdmission` because the window wait already happened.
 //
 // - the Turn Queue: text requests that `joinsTurnQueue` (agent turns, local and
-//   cloud; local Chat and Home Agent turns; title summaries) and panel / Home
-//   Agent media runs hold one exclusive place for their whole turn and wait FIFO
-//   for it. Cloud Chat / Home Agent turns stay outside it. Media nested in the
+//   cloud; local Chat turns; title summaries) and panel
+//   media runs hold one exclusive place for their whole turn and wait FIFO
+//   for it. Cloud Chat turns stay outside it. Media nested in the
 //   holder's turn runs within it (same conversation key); members still waiting
 //   never block it. Waiting members
 //   carry their 1-based position and the holder's kind of work on `queue-event`
@@ -35,7 +35,7 @@
 //   before it continues. The yield and the reclaim are separate on purpose: a
 //   run reclaims when it next needs the model, not when the user answers, so a
 //   nested generation still finishing for it can never wait on the place.
-//   Panel / Home Agent runs ask for their missing models as they are submitted;
+//   Panel runs ask for their missing models as they are submitted;
 //   one that gets the place while the user is still deciding gives it up the
 //   same way and takes it back at the front once answered. Media nested in a
 //   turn asks at submit too, as a pause of that turn, before it is admitted.
@@ -172,7 +172,7 @@ const textOccupancy = new Map<string, TextOccupancy>()
 // submission order, each with the callback that hands it the place.
 let turnHolder: string | null = null
 const turnQueue: Array<{ runId: string; take: () => void; drop: () => void }> = []
-// Panel / Home Agent runs that are Turn Queue members, from submission until they
+// Panel runs that are Turn Queue members, from submission until they
 // settle, each with the abort that withdraws or cancels it.
 const turnMemberRuns = new Map<string, AbortController>()
 // Runs nested in a turn while their models are checked or the user is asked for them.
@@ -281,7 +281,7 @@ function unrelatedLocalTextOpen(conversationKey?: string): boolean {
 // ── Artifact run queue ────────────────────────────────────────────────────────
 
 /**
- * Submits a resolved run. `queue: 'turn'` (panel / Home Agent) joins the Turn
+ * Submits a resolved run. `queue: 'turn'` (panel) joins the Turn
  * Queue: it waits FIFO with turns for the place and holds it while it runs.
  * `'queue'` (chat tool lanes, in-process agent tools) parks FIFO on the artifact
  * queue and may run nested inside its parent turn, never behind waiting members.
@@ -1148,7 +1148,7 @@ async function considerRelease(): Promise<void> {
 
 /**
  * Resolves once the GPU window is back on chat and no swap-back is running.
- * Chat, Agent, and Home Agent `/load` wait here via `submitTextRequest`.
+ * Chat and Agent wait here via `submitTextRequest`.
  * No proceed-anyway bound: abort the signal (cancel the turn) to give up.
  */
 export async function awaitChatWindow(signal?: AbortSignal): Promise<void> {

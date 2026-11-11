@@ -1,5 +1,4 @@
-import type { ConfigChange } from '@/assets/js/tools/configureHomeAgentLogic'
-import type { LlmBackend } from '@/assets/js/store/textInference'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
 
 /**
  * Main → renderer questions a chat tool needs answered.
@@ -8,8 +7,7 @@ import type { LlmBackend } from '@/assets/js/store/textInference'
  * window, and this is how main asks for them rather than handing the whole tool
  * back: the speech engine seam (`speechIO`), where a missing voice model opens
  * the download prompt; Chromium's audio decoder, which turns a non-WAV
- * attachment into something an STT server takes; the Home Agent confirmation
- * card; writing an approved settings change into the live stores; and a
+ * attachment into something an STT server takes; a Channel's spoken reply; and a
  * screenshot of a 3D model for a channel, which needs a WebGL `<model-viewer>`.
  *
  * The wire shape is `artifact:request`'s: main sends, the current window
@@ -43,22 +41,11 @@ export type SpeechClipPayload = {
   language?: string
 }
 
-/** What applying an approved Home Agent change reports back. */
-export type HomeAgentApplyResult = {
-  /** A model / backend / device / context change means the backend reloads. */
-  backendChanged: boolean
-}
-
 export type ChatAskBody =
   | { kind: 'speech-synthesize'; text: string; voice: SpeechVoiceSelection }
   | { kind: 'speech-transcribe'; audioBase64: string; mediaType?: string }
-  | {
-      kind: 'home-agent-confirm'
-      conversationKey: string
-      toolCallId?: string
-      summaryMarkdown: string
-    }
-  | { kind: 'home-agent-apply'; targetBackend: LlmBackend; changes: ConfigChange[] }
+  /** A Channel reply read aloud; null when none could be made. Its model download is asked on `channel`. */
+  | { kind: 'channel-voice-reply'; channel: ChannelKind; text: string; replyTo?: string }
   /** The `.glb` travels as bytes: a workspace file is under no root the window can load. */
   | { kind: 'render-3d-thumbnail'; modelBase64: string }
 
@@ -68,7 +55,7 @@ export type Render3dThumbnailResult = { base64: string; mime: 'image/jpeg' }
 export type ChatAskPayload = ChatAskBody & { requestId: string }
 
 /** Phases a long request reports while it runs, for the tool's activity. */
-export type ChatAskPhase = 'loading-model' | 'generating' | 'awaiting-confirmation' | 'applying'
+export type ChatAskPhase = 'loading-model' | 'generating'
 
 export type ChatAnswerPayload =
   | { requestId: string; progress: true; phase?: ChatAskPhase }

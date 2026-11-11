@@ -379,6 +379,7 @@ afterEach(async () => {
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
+const { useQueuedChannelMessages } = await import('@/assets/js/store/queuedChannelMessages')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -929,6 +930,76 @@ describe('a run that fails', () => {
         expect.objectContaining({ code: 'agent/turn-failed', surface: 'toast' }),
       ),
     )
+  })
+})
+
+describe('a run a Channel started whose Step is refused in this window', () => {
+  const ORIGIN = { channel: 'telegram' as const, replyTo: 'msg-9' }
+  const startable = (prompts: string[]) => task('t1', prompts, { startableFromChannel: true })
+
+  it('answers the start with the refusal when its first Step is refused', async () => {
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+    const { tasks } = await readyStores(startable(['one']))
+
+    const result = await tasks.startFromChannel('t1', SESSION, ORIGIN)
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'not-started',
+      message: expect.stringContaining('/work/task'),
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('puts a Start Prompt into the first Step and onto the run, as a desktop start does', async () => {
+    const { agentMode, tasks } = await readyStores(startable(['one', 'two']))
+
+    expect(
+      await tasks.startFromChannel('t1', SESSION, ORIGIN, '  only news from Germany '),
+    ).toEqual({ ok: true })
+
+    await turnIdOf(0)
+    expect(sentPrompts()).toEqual([firstStepTurn('only news from Germany', ['one', 'two'])])
+    expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
+      trigger: 'channel',
+      channel: 'telegram',
+      input: 'only news from Germany',
+    })
+  })
+
+  it('tells the starting Channel when a later Step is refused', async () => {
+    const { tasks } = await readyStores(startable(['one', 'two']))
+    const refusals: unknown[] = []
+    tasks.onChannelRunRefused((sessionRef, refusal) => refusals.push({ sessionRef, ...refusal }))
+    expect(await tasks.startFromChannel('t1', SESSION, ORIGIN)).toEqual({ ok: true })
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+
+    await finishTurn(0)
+
+    await vi.waitFor(() =>
+      expect(refusals).toEqual([
+        {
+          sessionRef: SESSION,
+          origin: ORIGIN,
+          name: 'Task t1',
+          step: 2,
+          reason: expect.stringContaining('/work/task'),
+        },
+      ]),
+    )
+  })
+
+  it('tells no Channel about a refused Step of a run started on the computer', async () => {
+    const { tasks } = await readyStores(startable(['one', 'two']))
+    const refusals: unknown[] = []
+    tasks.onChannelRunRefused((sessionRef, refusal) => refusals.push({ sessionRef, ...refusal }))
+    await tasks.runTask('t1')
+    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
+
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+
+    expect(refusals).toEqual([])
   })
 })
 
@@ -1514,26 +1585,6 @@ describe('locking the Task Session', () => {
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
   })
 
-  it('lets a Held Answer go when the run ends on a Step that could not be sent', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-    const ends: [string, string][] = []
-    agentMode.onHeldAnswerSettled((id, end) => ends.push([id, end]))
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
-
-    await finishTurn(0)
-
-    await settledOutcome(tasks, 't1')
-    await vi.waitFor(() =>
-      expect(ends).toEqual([
-        [sessionId, 'completed'],
-        [sessionId, 'failed'],
-      ]),
-    )
-  })
-
   it('makes the open Task Session’s settings read-only while its run lasts', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')
@@ -2027,7 +2078,7 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     await turnIdOf(0)
 
     const prompt = tasks.afterAgentRun(SESSION)
-    expect(tasks.queuedPrompts).toEqual({ [SESSION]: 'Task t1' })
+    expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'agent-run', name: 'Task t1' } })
 
     await finishTurn(0)
     await prompt
@@ -2112,6 +2163,30 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     expect(tasks.takeUnsentPrompt('session-2')).toBeUndefined()
     expect(tasks.takeUnsentPrompt(SESSION)).toBe('summarise the logs')
     expect(tasks.takeUnsentPrompt(SESSION)).toBeUndefined()
+  })
+
+  it('waits until the Channel messages queued in its Session have run', async () => {
+    const { tasks } = await readyStores()
+    const queuedChannelMessages = useQueuedChannelMessages(pinia)
+    queuedChannelMessages.publish(SESSION, [{ id: 'q1', channel: 'telegram', text: 'add Kyoto' }])
+
+    const prompt = track(tasks.afterAgentRun(SESSION))
+    expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'channel-messages' } })
+
+    queuedChannelMessages.publish(SESSION, [])
+    queuedChannelMessages.setSending(SESSION, true)
+    await settleMicrotasks()
+    expect(prompt.settled).toBe(false)
+
+    setSessionTurns({ [SESSION]: { turnId: 'from-telegram', kind: 'agent' } })
+    queuedChannelMessages.setSending(SESSION, false)
+    await settleMicrotasks()
+    expect(prompt.settled).toBe(false)
+
+    setSessionTurns({})
+
+    await vi.waitFor(() => expect(prompt).toEqual({ settled: true, value: true }))
+    expect(tasks.queuedPrompts).toEqual({})
   })
 
   it('knows the run in the Session and stops it from there, as the prompt bar does', async () => {

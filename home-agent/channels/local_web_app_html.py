@@ -1,4 +1,4 @@
-"""Self-contained chat + login page served by the local-web Home Agent server.
+"""Self-contained chat + login page served by the local-web Channel server.
 
 Ported verbatim from the PoC's ``WebUI/electron/localWebChatAppHtml.ts`` so the
 browser experience is identical, but served by the Python channel instead of an
@@ -17,7 +17,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Home Agent</title>
+  <title>AI Playground</title>
   <style>
     /* Palette mirrors the AI Playground app's shadcn tokens (WebUI index.css):
        light = :root, dark = .dark. Kept as a self-contained copy because this
@@ -116,7 +116,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     .file-chip { display: inline-block; margin-top: 6px; padding: 4px 8px; border-radius: var(--radius); background: var(--muted); color: var(--fg); font-size: 13px; }
     .row-user .file-chip { background: rgb(255 255 255 / 0.18); color: var(--primary-fg); }
     a.doc-link { color: inherit; text-decoration: underline; font-size: 14px; }
-    .kbd-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .kbd-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
+    .kbd-line { display: flex; flex-wrap: wrap; gap: 6px; }
     .kbd-row button { background: var(--muted); color: var(--fg); border: 1px solid var(--border); font-weight: 500; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); cursor: pointer; }
     .answer-row { margin-top: 8px; }
     .answer-row button { background: var(--primary); color: var(--primary-fg); border: none; font-weight: 600; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); cursor: pointer; }
@@ -137,8 +138,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 <body>
   <div id="login-screen" class="screen" role="group" aria-label="Sign in">
     <div class="login-card">
-      <h1>Home Agent</h1>
-      <p>Enter the password from AI Playground &rarr; Home Agent &rarr; LAN chat.</p>
+      <h1>AI Playground</h1>
+      <p>Enter the password from AI Playground &rarr; Channels &rarr; LAN chat.</p>
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password" placeholder="Password" />
       <div id="login-error"></div>
@@ -147,9 +148,9 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
   </div>
   <div id="chat-screen" class="screen hidden" role="group" aria-label="Chat">
     <div class="tg-header">
-      <div class="tg-avatar">HA</div>
+      <div class="tg-avatar">AI</div>
       <div class="tg-header-text">
-        <div class="title">Home Agent</div>
+        <div class="title">AI Playground</div>
         <div class="sub" id="status-line">online</div>
       </div>
     </div>
@@ -186,8 +187,8 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     const replyChip = document.getElementById('reply-chip')
     const replyChipText = document.getElementById('reply-chip-text')
     const replyChipCancel = document.getElementById('reply-chip-cancel')
-    let draftBubble = null
-    let draftRow = null
+    // Replies still streaming, by draft id: several Sessions can reply at once.
+    const drafts = new Map()
     let typingRow = null
     let es = null
     // Guards re-entrant session checks while the SSE stream is flapping.
@@ -197,11 +198,11 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // name (by screen readers, and by the e2e that plays the user), so a settled
     // reply has to be distinguishable from the in-flight draft.
     const LABEL_USER = 'Your message'
-    const LABEL_BOT = 'Home Agent response'
-    const LABEL_DRAFT = 'Home Agent draft'
+    const LABEL_BOT = 'AI Playground response'
+    const LABEL_DRAFT = 'AI Playground draft'
     // A prompt asks for input rather than answering, so it is named apart from a
     // settled reply — "wait for the reply" must not settle on the question.
-    const LABEL_PROMPT = 'Home Agent prompt'
+    const LABEL_PROMPT = 'AI Playground prompt'
     const LABEL_KEYBOARD = 'Choose an option'
     // A message from an agent session, which the user can answer.
     const LABEL_AGENT = 'Agent message'
@@ -323,7 +324,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.style.width = '32px'
       av.style.height = '32px'
       av.style.fontSize = '11px'
-      av.textContent = avatarText || 'HA'
+      av.textContent = avatarText || 'AI'
       row.appendChild(av)
       row.appendChild(bubble)
       return row
@@ -331,26 +332,36 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     /** Adds a row above a reply that is still streaming, so the reply stays the newest bubble. */
     function appendAboveLive(row) {
-      const live = draftRow || typingRow
+      const first = drafts.values().next().value
+      const live = (first && first.row) || typingRow
       if (live && live.parentNode === log) log.insertBefore(row, live)
       else log.appendChild(row)
       scrollBottom()
     }
 
-    /** An agent session's message: it never takes over a streaming Home Agent reply. */
-    function appendAgentHtml(html, media, replyTo) {
+    /** An agent session's message: it never takes over a streaming reply. */
+    function appendAgentHtml(html, media, replyTo, draftId) {
       const bubble = bubbleEl(LABEL_AGENT)
       bubble.innerHTML = html
       for (const node of (media || [])) bubble.appendChild(node)
       quoteReply(bubble, replyTo)
       stampTime(bubble)
-      appendAboveLive(botRow(bubble, 'AI'))
+      placeRow(botRow(bubble, 'AI'), draftId)
       return bubble
+    }
+
+    /** The message that settles a streamed reply takes its place; anything else goes above the live ones. */
+    function placeRow(row, draftId) {
+      const open = draftId ? drafts.get(Number(draftId)) : null
+      if (!open) { appendAboveLive(row); return }
+      open.row.replaceWith(row)
+      drafts.delete(Number(draftId))
+      scrollBottom()
     }
 
     function setAnswering(id, title) {
       answering = { id: id, title: title }
-      replyChipText.textContent = title ? 'Replying to ' + title : 'Replying to the agent'
+      replyChipText.textContent = title ? 'Replying to ' + title : 'Replying to the Session'
       replyChip.classList.remove('hidden')
       log.classList.add('answering')
       input.focus()
@@ -417,7 +428,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // carried.
     function appendHistory(messages) {
       log.innerHTML = ''
-      clearDraft()
+      clearDrafts()
       hideTyping()
       for (const m of messages) {
         if (!m) continue
@@ -450,7 +461,6 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     // break out of an attribute. Media is inserted before the timestamp so the
     // time still reads last.
     function appendBotHtml(html, withTime, media) {
-      clearDraft()
       hideTyping()
       const bubble = bubbleEl(LABEL_BOT)
       bubble.innerHTML = html
@@ -471,7 +481,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     }
 
     function showTyping() {
-      if (typingRow || draftRow) return
+      if (typingRow || drafts.size) return
       typingRow = document.createElement('div')
       typingRow.className = 'row row-bot'
       const av = document.createElement('div')
@@ -479,11 +489,11 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       av.style.width = '32px'
       av.style.height = '32px'
       av.style.fontSize = '11px'
-      av.textContent = 'HA'
+      av.textContent = 'AI'
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
       bubble.setAttribute('role', 'status')
-      bubble.setAttribute('aria-label', 'Home Agent is typing')
+      bubble.setAttribute('aria-label', 'AI Playground is typing')
       bubble.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span>'
       typingRow.appendChild(av)
       typingRow.appendChild(bubble)
@@ -497,50 +507,40 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       statusLine.textContent = 'online'
     }
 
-    function ensureDraftRow() {
+    function draftOf(id) {
+      const open = drafts.get(id)
+      if (open) return open
       hideTyping()
-      if (draftRow) return
-      draftRow = document.createElement('div')
-      draftRow.className = 'row row-bot'
-      const av = document.createElement('div')
-      av.className = 'tg-avatar'
-      av.style.width = '32px'
-      av.style.height = '32px'
-      av.style.fontSize = '11px'
-      av.textContent = 'HA'
-      draftBubble = bubbleEl(LABEL_DRAFT)
-      draftBubble.className = 'bubble streaming'
-      draftRow.appendChild(av)
-      draftRow.appendChild(draftBubble)
-      log.appendChild(draftRow)
+      const bubble = bubbleEl(LABEL_DRAFT)
+      bubble.className = 'bubble streaming'
+      const row = botRow(bubble, 'AI')
+      log.appendChild(row)
+      const created = { row: row, bubble: bubble }
+      drafts.set(id, created)
+      return created
     }
 
-    function setDraft(text) {
-      ensureDraftRow()
-      draftBubble.innerHTML = formatBotText(text) + '<span class="cursor">▋</span>'
+    function setDraft(id, text) {
+      draftOf(id).bubble.innerHTML = formatBotText(text) + '<span class="cursor">▋</span>'
       scrollBottom()
     }
 
-    function clearDraft() {
-      if (draftRow) { draftRow.remove(); draftRow = null; draftBubble = null }
+    function clearDrafts() {
+      for (const open of drafts.values()) open.row.remove()
+      drafts.clear()
     }
 
-    function finalizeBot(text) {
+    /** A reply's final text: in its draft's bubble when it streamed, else a bubble of its own. */
+    function finalizeBot(text, draftId) {
       const html = formatBotText(text)
-      if (draftBubble && draftRow) {
-        draftBubble.classList.remove('streaming')
-        draftBubble.setAttribute('aria-label', LABEL_BOT)
-        draftBubble.innerHTML = html
-        const tm = document.createElement('span')
-        tm.className = 'time'
-        tm.textContent = timeNow()
-        draftBubble.appendChild(tm)
-        draftRow = null
-        draftBubble = null
-        scrollBottom()
-        return
-      }
-      appendBotHtml(html)
+      const open = draftId ? drafts.get(Number(draftId)) : null
+      if (!open) { appendBotHtml(html); return }
+      drafts.delete(Number(draftId))
+      open.bubble.classList.remove('streaming')
+      open.bubble.setAttribute('aria-label', LABEL_BOT)
+      open.bubble.innerHTML = html
+      stampTime(open.bubble)
+      scrollBottom()
     }
 
     async function api(path, body) {
@@ -592,7 +592,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       }
     }
 
-    const SESSION_ENDED_MSG = 'Your session ended (was AI Playground restarted?). Please sign in again.'
+    const SESSION_ENDED_MSG = 'You were signed out (was AI Playground restarted?). Please sign in again.'
 
     async function doLogin() {
       loginError.textContent = ''
@@ -656,7 +656,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       await postUserMessage(bubble, t, { text: t })
     }
 
-    /** A command is always Home Agent's, so it leaves an Answer chip in place. */
+    /** A command is never an Answer, so it leaves an Answer chip in place. */
     async function sendCommand(cmd) {
       appendUser(cmd)
       await postChat({ text: cmd })
@@ -723,16 +723,14 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     // ── Command menu (parity with Telegram's command list) ──────────────────
     // `send: true` fires the command immediately; `false` pre-fills the composer
-    // so the user can type an argument (e.g. the message after /chat).
+    // so the user can type an argument.
     const COMMANDS = [
-      { cmd: '/imgGen', desc: 'Generate an image — pick a preset, then send a prompt', send: true },
-      { cmd: '/chat', desc: 'Force a plain text reply (type your message after)', send: false },
-      { cmd: '/new', desc: 'Start a fresh chat thread', send: true },
-      { cmd: '/history', desc: 'List your saved chat threads', send: true },
-      { cmd: '/load', desc: 'Pick a recent chat to resume', send: true },
-      { cmd: '/reset', desc: 'Restore Home Agent settings to their defaults', send: true },
-      { cmd: '/cancel', desc: 'Cancel a pending /imgGen flow', send: true },
-      { cmd: '/help', desc: 'Show all commands', send: true },
+      { cmd: '/sessions', desc: 'List your Reachable Sessions to pick one', send: true },
+      { cmd: '/load', desc: 'Continue Session n from the /sessions list', send: true },
+      { cmd: '/new', desc: 'Start a new Session', send: true },
+      { cmd: '/agents', desc: 'List the agents you can start, or start one by name', send: true },
+      { cmd: '/stop', desc: 'Stop the running turn or Agent Run and drop queued messages', send: true },
+      { cmd: '/help', desc: 'Show available commands', send: true },
     ]
 
     function buildMenu() {
@@ -781,16 +779,16 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         else showTyping()
         return
       }
-      if (action === 'draftUpdate' || action === 'update') {
-        setDraft(d.text || '')
+      if (action === 'update') {
+        setDraft(Number(d.draftId) || 0, d.text || '')
         return
       }
-      if (action === 'draftFinal' || action === 'reply') {
-        finalizeBot(d.text || '')
+      if (action === 'reply') {
+        finalizeBot(d.text || '', d.draftId)
         return
       }
       if (action === 'post') {
-        appendBotNote(formatBotText(d.text || ''), d.id, d.replyTo)
+        appendBotNote(formatBotText(d.text || ''), d.id, d.replyTo, d.draftId)
         return
       }
       if (action === 'editMessage') {
@@ -834,6 +832,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
             formatBotText(d.text || ''),
             [answerRowEl(answerButton, d.id, d.answerTitle)],
             d.replyTo,
+            d.draftId,
           )
           if (d.id) bubble.dataset.mid = String(d.id)
           return
@@ -845,19 +844,35 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
         const bubble = appendBotHtml(formatBotText(d.text || ''), false, [row])
         bubble.setAttribute('aria-label', LABEL_PROMPT)
         if (d.id) bubble.dataset.mid = String(d.id)
-        for (const btn of buttons) {
-          const cb = callbackOf(btn)
-          const b = document.createElement('button')
-          b.type = 'button'
-          b.textContent = btn.text || cb
-          b.onclick = () => {
-            // Consume before posting: the row is the only thing stopping a second
-            // tap from re-running the callback (a duplicate image generation, a
-            // second download confirmation, …).
-            consumeKeyboard(row, b.textContent)
-            postChat({ callback: cb })
+        // Each row of the keyboard stays a line of its own, so a row's buttons
+        // (an agent's start and its Start Prompt) never wrap apart.
+        const lines = d.buttons.filter((line) => Array.isArray(line) && line.length > 0)
+        for (const line of lines) {
+          const lineEl = document.createElement('div')
+          lineEl.className = 'kbd-line'
+          const lead = line[0].text || callbackOf(line[0])
+          if (lines.length > 1 && line.length > 1) {
+            lineEl.setAttribute('role', 'group')
+            lineEl.setAttribute('aria-label', lead)
           }
-          row.appendChild(b)
+          for (const btn of line) {
+            const cb = callbackOf(btn)
+            const b = document.createElement('button')
+            b.type = 'button'
+            b.textContent = btn.text || cb
+            b.onclick = () => {
+              // Consume before posting: the row is the only thing stopping a second
+              // tap from re-running the callback (a duplicate image generation, a
+              // second download confirmation, …).
+              const choice = lines.length > 1 && btn !== line[0]
+                ? lead + ' ' + b.textContent
+                : b.textContent
+              consumeKeyboard(row, choice)
+              postChat({ callback: cb })
+            }
+            lineEl.appendChild(b)
+          }
+          row.appendChild(lineEl)
         }
         const tm = document.createElement('span')
         tm.className = 'time'
@@ -892,13 +907,13 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     }
 
     /** A message the app edits in place later; it never touches a streaming reply. */
-    function appendBotNote(html, id, replyTo) {
+    function appendBotNote(html, id, replyTo, draftId) {
       const bubble = bubbleEl(LABEL_BOT)
       bubble.innerHTML = html
       if (id) bubble.dataset.mid = String(id)
       quoteReply(bubble, replyTo)
       stampTime(bubble)
-      appendAboveLive(botRow(bubble))
+      placeRow(botRow(bubble), draftId)
     }
 
     /** Rewrites a tagged bubble's text and retires its buttons; false when it is gone. */
@@ -930,7 +945,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     function startChat() {
       log.innerHTML = ''
-      clearDraft()
+      clearDrafts()
       hideTyping()
       clearAnswering()
       appendSys('Connected · try /help')

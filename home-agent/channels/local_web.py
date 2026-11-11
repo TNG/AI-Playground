@@ -246,7 +246,12 @@ class LocalWebChannel(ChannelBase):
         return self._send_with_id("reply", {"text": payload.get("text", "")}, payload)
 
     def send_update(self, payload: dict) -> SendResult:
-        return self._broadcast("update", payload)
+        # Several replies can stream at once; the page keeps one bubble per draft.
+        event: dict = {"text": payload.get("text", "")}
+        draft_id = _message_ref(payload.get("draft_id"))
+        if draft_id is not None:
+            event["draftId"] = draft_id
+        return self._broadcast("update", event)
 
     def send_photo(self, payload: dict) -> SendResult:
         # Normalize the base64 key the adapter uses (`base64`) plus the legacy
@@ -331,6 +336,10 @@ class LocalWebChannel(ChannelBase):
         reply_to = _message_ref((payload or {}).get("reply_to"))
         if reply_to is not None:
             event = {**event, "replyTo": reply_to}
+        # The streamed reply this message settles, which the page replaces with it.
+        draft_id = _message_ref((payload or {}).get("draft_id"))
+        if draft_id is not None:
+            event = {**event, "draftId": draft_id}
         result = self._broadcast(action, {**event, "id": message_id})
         # Match the other channels' contract: a handle the renderer edits the
         # message by. The page tags the bubble with it.
@@ -348,7 +357,7 @@ class LocalWebChannel(ChannelBase):
 
     def send_post(self, payload: dict) -> SendResult:
         # Its own action rather than a reply: a reply settles the streaming draft
-        # bubble, and this message must never take over a Home Agent answer.
+        # bubble, and this message must never take over a streaming answer.
         return self._send_with_id("post", {"text": payload.get("text", "")}, payload)
 
     def send_edit_message(self, payload: dict) -> SendResult:
@@ -533,7 +542,7 @@ class LocalWebChannel(ChannelBase):
         self._thread = t
         t.start()
         logger.info(
-            "Local web Home Agent listening on %s:%d (allowLan=%s)",
+            "Local web Channel listening on %s:%d (allowLan=%s)",
             host,
             port,
             allow_lan,

@@ -101,7 +101,7 @@ export function mapServiceNameToDisplayName(serviceName: string) {
     case 'openvino-backend':
       return 'OpenVINO'
     case 'home-agent-backend':
-      return 'Home Agent'
+      return 'Channels'
     // Both audio sidecars name their engine: the app can reach the same feature
     // through OpenVINO (Kokoro for TTS, OVMS Whisper for STT), so a bare "Text To
     // Speech" / "Speech To Text" row read as if it were the only way to get it.
@@ -451,7 +451,7 @@ export async function downscaleImageTo1MP(file: File): Promise<File> {
  * Downscale an image supplied as a base64 data URI so its pixel count does not
  * exceed 1MP. Returns the original data URI unchanged when it is already small
  * enough or when downscaling fails. Used for images arriving over remote
- * channels (e.g. Home Agent) which never pass through the File-based path.
+ * Channels, which never pass through the File-based path.
  */
 export async function downscaleDataUriTo1MP(dataUri: string): Promise<string> {
   return new Promise((resolve) => {

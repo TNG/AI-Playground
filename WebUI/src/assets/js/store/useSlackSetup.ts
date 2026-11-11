@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { useHomeAgent } from './homeAgent'
+import { useChannels } from './channels'
 
 const DETECT_POLL_INTERVAL_MS = 2000
 const DETECT_TIMEOUT_MS = 8000
@@ -13,7 +13,7 @@ const APP_TOKEN_RE = /^xapp-\d+-[A-Z0-9]+-[A-Za-z0-9]+$/
  * (paste tokens → detect user → verify → save).
  */
 export function useSlackSetup() {
-  const homeAgent = useHomeAgent()
+  const channelStore = useChannels()
 
   const botTokenInput = ref('')
   const appTokenInput = ref('')
@@ -25,15 +25,15 @@ export function useSlackSetup() {
   const verifyError = ref('')
 
   const isAlreadyConfigured = computed(() => {
-    const cfg = homeAgent.channels.slack.config as { botToken?: string; appToken?: string }
+    const cfg = channelStore.channels.slack.config as { botToken?: string; appToken?: string }
     return !!(cfg.botToken && cfg.appToken)
   })
 
   function currentSavedBot(): string {
-    return (homeAgent.channels.slack.config as { botToken?: string }).botToken?.trim() ?? ''
+    return (channelStore.channels.slack.config as { botToken?: string }).botToken?.trim() ?? ''
   }
   function currentSavedApp(): string {
-    return (homeAgent.channels.slack.config as { appToken?: string }).appToken?.trim() ?? ''
+    return (channelStore.channels.slack.config as { appToken?: string }).appToken?.trim() ?? ''
   }
 
   // Soft format validation — we don't enforce on the inputs themselves so a
@@ -63,7 +63,7 @@ export function useSlackSetup() {
     const appT = (appTokenInput.value || currentSavedApp()).trim()
     if (!bot || !appT) return
     try {
-      await window.electronAPI.homeAgent.channel.inject('slack', {
+      await window.electronAPI.channels.inject('slack', {
         botToken: bot,
         appToken: appT,
         userId: detectedUserId.value || undefined,
@@ -76,13 +76,13 @@ export function useSlackSetup() {
   async function pollForUserId(): Promise<{ userId: string } | { error: string }> {
     const bot = botTokenInput.value.trim()
     try {
-      const quick = await window.electronAPI.homeAgent.channel.detectIdentity('slack', {
+      const quick = await window.electronAPI.channels.detectIdentity('slack', {
         botToken: bot,
       })
       if ('identity' in quick) return { userId: quick.identity }
     } catch (e) {
       console.error('pollForUserId initial detectIdentity failed:', e)
-      detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+      detectError.value = 'Failed to contact the Channels service. Is it running?'
       return { error: detectError.value }
     }
 
@@ -91,7 +91,7 @@ export function useSlackSetup() {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, DETECT_POLL_INTERVAL_MS))
       try {
-        const r = await window.electronAPI.homeAgent.channel.detectIdentity('slack', {
+        const r = await window.electronAPI.channels.detectIdentity('slack', {
           botToken: bot,
         })
         if ('identity' in r) {
@@ -100,7 +100,7 @@ export function useSlackSetup() {
         }
       } catch (e) {
         console.error('pollForUserId detectIdentity failed:', e)
-        detectError.value = 'Failed to contact Home Agent backend. Is it running?'
+        detectError.value = 'Failed to contact the Channels service. Is it running?'
         return { error: detectError.value }
       }
     }
@@ -119,7 +119,7 @@ export function useSlackSetup() {
       const appT = appTokenInput.value.trim()
       if (bot && appT) {
         try {
-          await window.electronAPI.homeAgent.channel.inject('slack', {
+          await window.electronAPI.channels.inject('slack', {
             botToken: bot,
             appToken: appT,
           })
@@ -128,7 +128,7 @@ export function useSlackSetup() {
         }
         result = await pollForUserId()
       } else {
-        const r = await window.electronAPI.homeAgent.channel.detectIdentityFromSaved('slack')
+        const r = await window.electronAPI.channels.detectIdentityFromSaved('slack')
         result = 'identity' in r ? { userId: r.identity } : { error: r.error }
       }
       if ('userId' in result) {
@@ -138,7 +138,7 @@ export function useSlackSetup() {
         const appT2 = appTokenInput.value.trim() || currentSavedApp()
         if (bot2 && appT2) {
           try {
-            await window.electronAPI.homeAgent.channel.inject('slack', {
+            await window.electronAPI.channels.inject('slack', {
               botToken: bot2,
               appToken: appT2,
               userId: result.userId,
@@ -148,7 +148,7 @@ export function useSlackSetup() {
           }
         }
         try {
-          await window.electronAPI.homeAgent.channel.flushPending('slack')
+          await window.electronAPI.channels.flushPending('slack')
         } catch (e) {
           console.error('runDetectUserId: flushPending(slack) failed:', e)
         }
@@ -166,12 +166,12 @@ export function useSlackSetup() {
   async function verify() {
     const bot = botTokenInput.value.trim()
     const appT = appTokenInput.value.trim()
-    const userId = detectedUserId.value || homeAgent.slackUserId || ''
+    const userId = detectedUserId.value || channelStore.slackUserId || ''
     verifyStatus.value = 'loading'
     verifyError.value = ''
     try {
       if (bot && appT && userId) {
-        const saveResult = await homeAgent.saveChannelConfig('slack', {
+        const saveResult = await channelStore.saveChannelConfig('slack', {
           kind: 'slack',
           botToken: bot,
           appToken: appT,
@@ -188,9 +188,9 @@ export function useSlackSetup() {
         verifyError.value = 'No DM partner detected — complete Step 3 (Detect) first.'
         return
       }
-      const result = await window.electronAPI.homeAgent.channel.test('slack')
+      const result = await window.electronAPI.channels.test('slack')
       if (result.success) {
-        homeAgent.setVerified('slack')
+        channelStore.setVerified('slack')
         verifyStatus.value = 'success'
         await injectIfPossible()
       } else {
@@ -205,12 +205,12 @@ export function useSlackSetup() {
   }
 
   function syncSetupFieldsFromStore() {
-    if (homeAgent.slackUserId) detectedUserId.value = homeAgent.slackUserId
+    if (channelStore.slackUserId) detectedUserId.value = channelStore.slackUserId
   }
 
   async function clearConfig() {
     try {
-      await homeAgent.clearChannelConfig('slack')
+      await channelStore.clearChannelConfig('slack')
     } catch (e) {
       console.error('clearConfig (slack) failed:', e)
     } finally {
@@ -225,7 +225,7 @@ export function useSlackSetup() {
   }
 
   return {
-    homeAgent,
+    channelStore,
     botTokenInput,
     appTokenInput,
     showTokens,

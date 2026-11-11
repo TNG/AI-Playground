@@ -1,0 +1,53 @@
+import { acceptHMRUpdate, defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+import type { QueuedChannelMessage } from '@/assets/js/store/channels/channelQueue'
+import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { InFlightWorkItem } from '@/types/lifecycleIpc'
+
+/**
+ * What the Channels' router has queued, per Session, as the desktop shows it. Memory only:
+ * the queue itself lives in the router and never survives a restart (ADR 0002).
+ */
+export const useQueuedChannelMessages = defineStore('queuedChannelMessages', () => {
+  const queued = ref<Record<string, QueuedChannelMessage[]>>({})
+  /** Sessions whose next batch of queued messages the router is sending now. */
+  const sending = ref<Record<string, true>>({})
+
+  function publish(sessionRef: string, messages: QueuedChannelMessage[]): void {
+    const { [sessionRef]: _previous, ...rest } = queued.value
+    queued.value = messages.length > 0 ? { ...rest, [sessionRef]: messages } : rest
+  }
+
+  function setSending(sessionRef: string, isSending: boolean): void {
+    const { [sessionRef]: _previous, ...rest } = sending.value
+    sending.value = isSending ? { ...rest, [sessionRef]: true } : rest
+  }
+
+  /** A prompt sent from the desktop waits behind the Session's queued Channel messages. */
+  function holdsPrompts(sessionRef: string): boolean {
+    return (queued.value[sessionRef]?.length ?? 0) > 0 || !!sending.value[sessionRef]
+  }
+
+  function queuedIn(sessionRef: string | null): QueuedChannelMessage[] {
+    return sessionRef ? (queued.value[sessionRef] ?? []) : []
+  }
+
+  /** One item per Channel with queued messages, for the close question. */
+  const inFlightWork = computed<InFlightWorkItem[]>(() => {
+    const counts = new Map<ChannelKind, number>()
+    for (const message of Object.values(queued.value).flat()) {
+      counts.set(message.channel, (counts.get(message.channel) ?? 0) + 1)
+    }
+    return [...counts].map(([channel, count]) => ({
+      kind: 'channel-queue',
+      channel,
+      state: { status: 'queued', count },
+    }))
+  })
+
+  return { queued, sending, publish, setSending, holdsPrompts, queuedIn, inFlightWork }
+})
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useQueuedChannelMessages, import.meta.hot))
+}

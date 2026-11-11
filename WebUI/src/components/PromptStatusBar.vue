@@ -243,6 +243,7 @@
       </Tooltip>
     </TooltipProvider>
     <div class="ml-auto flex flex-none items-center gap-2">
+      <SessionReachabilityChip />
       <!-- Live GPU / RAM, gated on the same Metrics checkbox as the chat footer. -->
       <TooltipProvider v-if="textInference.metricsEnabled && computeChip" :delay-duration="0">
         <Tooltip>
@@ -354,6 +355,7 @@ import ModelCapabilities from '@/components/ModelCapabilities.vue'
 import ModelVramFit from '@/components/ModelVramFit.vue'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
+import SessionReachabilityChip from '@/components/SessionReachabilityChip.vue'
 import AgentLibraryMenuItems from '@/components/agentLibrary/AgentLibraryMenuItems.vue'
 import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'

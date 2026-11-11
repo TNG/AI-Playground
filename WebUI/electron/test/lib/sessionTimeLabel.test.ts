@@ -58,6 +58,7 @@ describe('a Session row label in the panel', () => {
     title: id,
     renamed: false,
     pinned: false,
+    reachable: false,
     createdAt: 0,
     updatedAt: 0,
     presetsUsed: [],

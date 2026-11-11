@@ -19,6 +19,22 @@ export class AppShellPage {
     return this.page.getByRole('region', { name: 'Sessions' })
   }
 
+  /** Opens a fresh, untitled Session on the desktop; it lists first among the untitled ones. */
+  async startNewSession(): Promise<void> {
+    await this.sessionsPanel.getByRole('button', { name: 'New Session', exact: true }).click()
+  }
+
+  /** Turns on "Reachable from Channels" for the open Session, on the prompt bar. */
+  async makeOpenSessionReachable(): Promise<void> {
+    const reachable = this.page.getByRole('button', {
+      name: 'Reachable from Channels',
+      exact: true,
+    })
+    await expect(reachable).toBeVisible()
+    if ((await reachable.getAttribute('aria-pressed')) !== 'true') await reachable.click()
+    await expect(reachable).toHaveAttribute('aria-pressed', 'true')
+  }
+
   get openDeveloperConsoleButton(): Locator {
     return this.page
       .getByRole('region', { name: 'App Settings' })

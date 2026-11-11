@@ -326,8 +326,8 @@
                 </TooltipTrigger>
                 <TooltipContent side="left" class="max-w-[300px] text-sm">
                   Answer aloud when your input was speech: the app auto-plays the reply to a
-                  microphone message, and the Home Agent replies to a voice message with a voice
-                  message. Applies to the active preset.
+                  microphone message. Applies to the active preset. A Channel answers a voice
+                  message aloud whenever Text to Speech is on.
                 </TooltipContent>
               </Tooltip>
             </div>

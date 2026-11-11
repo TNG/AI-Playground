@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import HOME_AGENT_COMMANDS
+from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, forwarded_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 # because tokens embed inside URLs (`…/bot<id>:<token>/…`).
 _TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 
-# Document extensions the RAG ingestion pipeline (langchain loaders) accepts.
-# Mirrors the desktop uploader (WebUI/src/components/Rag.vue).
+# Document extensions a Session takes as Attached Documents.
+# Mirrors DOCUMENT_EXTENSIONS in WebUI/src/types/rag.ts.
 _SUPPORTED_DOC_EXTENSIONS = ("txt", "md", "doc", "docx", "pdf")
 # Cap inbound document payload size to avoid bloating the poll/IPC channel.
 _MAX_DOC_BYTES = 25 * 1024 * 1024
@@ -64,17 +64,31 @@ def _reply_parameters(payload: dict) -> dict:
     }
 
 
+# Telegram refuses a longer input field placeholder.
+_PLACEHOLDER_MAX_CHARS = 64
+
+
+def _force_reply(payload: dict) -> dict:
+    """The send kwargs that open the reply box on this message, when the payload asks."""
+    placeholder = payload.get("force_reply_placeholder")
+    if not isinstance(placeholder, str) or not placeholder:
+        return {}
+    from telegram import ForceReply
+
+    return {
+        "reply_markup": ForceReply(
+            input_field_placeholder=placeholder[:_PLACEHOLDER_MAX_CHARS]
+        )
+    }
+
+
 def inbound_text_item(message) -> QueueItem:
     """The queue item for a typed message."""
     return inbound_item(message, message.text or "")
 
 
-def refused_document_item(message, notice: str) -> QueueItem | None:
-    """A refused document that replies to a message, queued so the renderer decides who
-    is told what: an Answer to an agent hears it must be text, Home Agent gets `notice`.
-    None when it replies to nothing; the notice is then sent here."""
-    if getattr(message, "reply_to_message", None) is None:
-        return None
+def refused_document_item(message, notice: str) -> QueueItem:
+    """A document refused unread, queued so the renderer tells the sender `notice`."""
     return inbound_item(
         message, getattr(message, "caption", None) or "", refused=notice
     )
@@ -202,6 +216,7 @@ class TelegramChannel(ChannelBase):
                     text=text,
                     parse_mode=parse_mode,
                     **_reply_parameters(payload),
+                    **_force_reply(payload),
                 )
             )
             return {"status": "ok", "message_id": getattr(msg, "message_id", None)}
@@ -529,37 +544,10 @@ class TelegramChannel(ChannelBase):
                     chat_id,
                     args,
                 )
-                self.queue_append({"text": full_text, "chat_id": chat_id})
+                # A reply keeps its target: /stop replied to a Notification stops that Session.
+                self.queue_append(inbound_item(update.message, full_text))
 
             return handler
-
-        async def handle_imggen_callback(
-            update: Update, context: ContextTypes.DEFAULT_TYPE
-        ) -> None:
-            cq = update.callback_query
-            if cq is None or cq.message is None:
-                return
-            chat_id = str(cq.message.chat_id)
-            allow = self._allowed_chat_id
-            self._record_authorized_chat_id(chat_id)
-            if allow and chat_id != allow:
-                logger.warning(
-                    "Ignoring imgGen callback from unauthorized chat_id: %s", chat_id
-                )
-                try:
-                    await cq.answer()
-                except Exception as exc:
-                    logger.debug("imgGen unauthorized ack failed: %s", exc)
-                return
-            data = cq.data or ""
-            try:
-                await cq.answer()
-            except Exception as exc:
-                logger.warning("Failed to ack imgGen callback_query: %s", exc)
-            if not data.startswith("imgGen:"):
-                return
-            logger.info("Telegram imgGen callback: chat_id=%s data=%r", chat_id, data)
-            self.queue_append({"chat_id": chat_id, "callback": data})
 
         async def handle_confirm_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -610,7 +598,7 @@ class TelegramChannel(ChannelBase):
             logger.info("Telegram answer callback: chat_id=%s", chat_id)
             self.queue_append(answer_callback_item(cq))
 
-        async def handle_load_callback(
+        async def handle_command_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
         ) -> None:
             cq = update.callback_query
@@ -626,19 +614,18 @@ class TelegramChannel(ChannelBase):
                 try:
                     await cq.answer()
                 except Exception as exc:
-                    logger.debug("loadConv unauthorized ack failed: %s", exc)
+                    logger.debug("command callback unauthorized ack failed: %s", exc)
                 return
             data = cq.data or ""
             try:
                 await cq.answer()
             except Exception as exc:
                 logger.warning("Failed to ack callback_query: %s", exc)
-            if not data.startswith("loadConv:"):
+            forwarded = forwarded_callback(data)
+            if forwarded is None:
                 return
-            key = data[len("loadConv:") :]
-            full_text = f"/load {key}".strip()
-            logger.info("Telegram load-menu callback: chat_id=%s key=%r", chat_id, key)
-            self.queue_append({"text": full_text, "chat_id": chat_id})
+            logger.info("Telegram command callback: chat_id=%s %r", chat_id, forwarded)
+            self.queue_append({**forwarded, "chat_id": chat_id})
 
         async def handle_photo(
             update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -758,21 +745,13 @@ class TelegramChannel(ChannelBase):
             notice = None
             if ext not in _SUPPORTED_DOC_EXTENSIONS:
                 notice = (
-                    "Unsupported document type. Send a "
-                    f"{', '.join(_SUPPORTED_DOC_EXTENSIONS)} file to add it to the "
-                    "knowledge base."
+                    f"⚠️ Not sent: {filename} is not a file a Session takes. Send an "
+                    f"image, or a {', '.join(_SUPPORTED_DOC_EXTENSIONS)} document."
                 )
             elif doc.file_size and doc.file_size > _MAX_DOC_BYTES:
-                notice = "That document is too large to add to the knowledge base."
+                notice = f"⚠️ Not sent: {filename} is over 25 MB."
             if notice:
-                refused = refused_document_item(update.message, notice)
-                if refused is not None:
-                    self.queue_append(refused)
-                    return
-                try:
-                    await update.message.reply_text(notice)
-                except Exception as exc:
-                    logger.debug("Failed to send refused-document notice: %s", exc)
+                self.queue_append(refused_document_item(update.message, notice))
                 return
             try:
                 tg_file = await context.bot.get_file(doc.file_id)
@@ -819,12 +798,12 @@ class TelegramChannel(ChannelBase):
             application.add_handler(
                 MessageHandler(filters.Document.ALL, handle_document)
             )
-            # All slash commands are derived from the shared HOME_AGENT_COMMANDS
+            # All slash commands are derived from the shared CHANNEL_COMMANDS
             # source of truth (see channels/commands.py) so a command can never be
             # registered on one transport but forgotten on another. CommandHandler
-            # matches case-sensitively, so camelCase aliases (e.g. /imgGen) are
-            # registered alongside the lowercase menu entry.
-            for cmd in HOME_AGENT_COMMANDS:
+            # matches case-sensitively, so aliases (e.g. /start) are registered
+            # alongside the lowercase menu entry.
+            for cmd in CHANNEL_COMMANDS:
                 application.add_handler(
                     CommandHandler(
                         [cmd.name, *cmd.telegram_aliases],
@@ -833,12 +812,12 @@ class TelegramChannel(ChannelBase):
                         ),
                     )
                 )
-            application.add_handler(
-                CallbackQueryHandler(handle_load_callback, pattern=r"^loadConv:")
-            )
-            application.add_handler(
-                CallbackQueryHandler(handle_imggen_callback, pattern=r"^imgGen:")
-            )
+            for prefix in COMMAND_CALLBACKS:
+                application.add_handler(
+                    CallbackQueryHandler(
+                        handle_command_callback, pattern=f"^{re.escape(prefix)}"
+                    )
+                )
             application.add_handler(
                 CallbackQueryHandler(handle_confirm_callback, pattern=r"^confirm:")
             )
@@ -851,10 +830,7 @@ class TelegramChannel(ChannelBase):
 
             try:
                 await application.bot.set_my_commands(
-                    [
-                        BotCommand(cmd.name, cmd.description)
-                        for cmd in HOME_AGENT_COMMANDS
-                    ]
+                    [BotCommand(cmd.name, cmd.description) for cmd in CHANNEL_COMMANDS]
                 )
                 logger.info("Registered Telegram bot command menu")
             except Exception as exc:

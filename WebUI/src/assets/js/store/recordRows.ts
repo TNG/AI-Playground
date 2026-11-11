@@ -1,8 +1,6 @@
 import type { UIMessage } from 'ai'
-import type { ThreadKind } from './conversations'
 import type { GenerationSettings, MediaItem } from './imageGenerationPresets'
 import { sessionListedUnderPreset } from './agentModeSessions'
-import type { HeldAnswerView } from './channels/answerRouter'
 import { extractToolMedia, type ToolMediaItem } from '@/assets/js/tools/toolMedia'
 import type { PauseReason } from '@/types/kernelEvents'
 
@@ -23,10 +21,9 @@ export type EntryBase = {
   updatedAt: number
 }
 
-/** Assistant, Text to Speech, Speech to Text, Home Agent — anything with a transcript. */
+/** Assistant, Text to Speech, Speech to Text — anything with a transcript. */
 export type ConversationEntry = EntryBase & {
   kind: 'conversation'
-  threadKind: ThreadKind
   variant?: string | null
   ragDocHashes?: string[]
   messages: UIMessage[]
@@ -50,8 +47,6 @@ export type AgentEntry = EntryBase & {
   /** The Model Download it waits on, only while `downloading`. */
   download?: SessionDownload
   taskId?: string
-  /** A channel's Answer waiting for this session's turn to end. */
-  heldAnswer?: HeldAnswerView
 }
 
 /** Overall percent of the Model Download a session waits on, or that it is still queued. */
@@ -77,12 +72,6 @@ export type FilterContext = {
   currentMode: ModeType
   /** Agent preset the Agent list belongs to; Game Agent and Quick Coder share one. */
   agentPresetName?: string
-  /**
-   * Which transcripts the current-mode list is about. Home Agent behaves like a
-   * mode of its own: while the app is on a remote thread, local chats are as
-   * out of scope as an image would be.
-   */
-  threadScope?: ThreadKind
   /** Thread the app is sitting on, so its unsent draft can still be shown. */
   activeConversationId?: string | null
 }
@@ -92,7 +81,7 @@ const WORKFLOW_MODES: readonly string[] = ['imageGen', 'imageEdit', 'video']
 /**
  * A turn in flight outranks an unseen result: the dot is about the last turn, and
  * a new one has already started. Waiting on a Model Download is not a pause:
- * nobody is being asked anything (docs/adr/0005).
+ * nobody is being asked anything.
  */
 export function agentSessionStatus(input: {
   turn?: {
@@ -274,9 +263,7 @@ export function matchesFilter(entry: RecordRow, context: FilterContext): boolean
   if (context.filter === 'all') return true
   switch (entry.kind) {
     case 'conversation':
-      return (
-        entry.mode === context.currentMode && entry.threadKind === (context.threadScope ?? 'main')
-      )
+      return entry.mode === context.currentMode
     case 'agent':
       return (
         context.currentMode === 'agent' &&

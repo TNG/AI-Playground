@@ -4,6 +4,7 @@
 
 import { defineAsyncComponent, h, type Component } from 'vue'
 import type { ChannelKind } from './types'
+import { CHANNEL_NAMES } from '@/lib/channelNames'
 import { useTelegramSetup } from '../useTelegramSetup'
 import { useSlackSetup } from '../useSlackSetup'
 import { useLocalWebSetup } from '../useLocalWebSetup'
@@ -61,10 +62,6 @@ export type ChannelCapabilities = {
    *  Telegram (long-poll) and Slack (Socket Mode) qualify; future SSE/webhook
    *  channels would be `false`. Drives wording in the toggle UI. */
   socketModeOnly: boolean
-  /** Adapter implements `createDraftStream` (animated streaming preview).
-   *  False channels still render the final message but skip the streaming
-   *  intermediate updates. */
-  supportsDraftStream: boolean
   /** Adapter implements typing indicators (Telegram chat actions, Slack
    *  reactions). False channels treat `startTypingHeartbeat` as a no-op. */
   supportsTyping: boolean
@@ -131,7 +128,7 @@ const LocalWebSetupSteps = defineAsyncComponent(() => import('@/components/Local
 export const CHANNELS: ChannelDescriptor[] = [
   {
     kind: 'local-web',
-    displayName: 'LAN chat',
+    displayName: CHANNEL_NAMES['local-web'],
     brandColor: '#10b981',
     icon: LocalWebIcon,
     setupComponent: LocalWebSetupSteps,
@@ -140,41 +137,38 @@ export const CHANNELS: ChannelDescriptor[] = [
     identityHelp: 'Browsers on your LAN sign in with the password you set here.',
     capabilities: {
       socketModeOnly: false,
-      supportsDraftStream: true,
       supportsTyping: true,
       supportsKeyboard: true,
     },
   },
   {
     kind: 'telegram',
-    displayName: 'Telegram',
+    displayName: CHANNEL_NAMES.telegram,
     brandColor: '#26a5e4',
     icon: TelegramIcon,
     setupComponent: TelegramSetupSteps,
     composable: () => useTelegramSetup(),
     identityLabel: 'Telegram chat ID',
     identityHelp:
-      'The Telegram chat the Home Agent talks to. It only answers messages from this chat.',
+      'The Telegram chat AI Playground talks to. It only answers messages from this chat.',
     capabilities: {
       socketModeOnly: false,
-      supportsDraftStream: true,
       supportsTyping: true,
       supportsKeyboard: true,
     },
   },
   {
     kind: 'slack',
-    displayName: 'Slack',
+    displayName: CHANNEL_NAMES.slack,
     brandColor: '#36C5F0',
     icon: SlackIcon,
     setupComponent: SlackSetupSteps,
     composable: () => useSlackSetup(),
     identityLabel: 'Slack member ID',
     identityHelp:
-      'Your Slack member ID. The Home Agent only replies to direct messages from this account.',
+      'Your Slack member ID. AI Playground only replies to direct messages from this account.',
     capabilities: {
       socketModeOnly: true,
-      supportsDraftStream: true,
       supportsTyping: true,
       supportsKeyboard: true,
     },

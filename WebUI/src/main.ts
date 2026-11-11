@@ -17,6 +17,7 @@ import { useAgentTrialRuns } from './assets/js/store/agentTrialRuns'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
 import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
+import { useChannelSessionPointers } from './assets/js/store/channelSessionPointers'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
 import { useTextToSpeech } from './assets/js/store/textToSpeech'
@@ -35,6 +36,11 @@ import { usePermissionGrants } from './assets/js/store/permissionGrants'
 import { startQueueActivityProjection } from './lib/queueActivityProjection'
 import { startNotificationConfigPush } from './lib/notificationConfigPush'
 import { startKernelLedgerProjection } from './lib/kernelLedgerProjection'
+import {
+  LEGACY_HOME_AGENT_STORAGE_KEY,
+  migrateHomeAgentThreads,
+} from './lib/homeAgentThreadMigration'
+import { demoAwareStorage } from './assets/js/demoAwareStorage'
 
 const [settings, initialPage] = await Promise.all([
   window.electronAPI.getDemoModeSettings(),
@@ -68,7 +74,11 @@ app.config.errorHandler = (err, _instance, info) => {
 window.addEventListener('unhandledrejection', (event) => {
   errors.report(event.reason, { code: 'global/unhandled-rejection', severity: 'error' })
 })
+// Chromium's notice that resize notifications were deferred a frame; nothing failed.
+const RESIZE_OBSERVER_NOTICE =
+  /^ResizeObserver loop (completed with undelivered notifications|limit exceeded)/
 window.addEventListener('error', (event) => {
+  if (RESIZE_OBSERVER_NOTICE.test(event.message)) return
   errors.report(event.error ?? event.message, {
     code: 'global/uncaught-error',
     severity: 'error',
@@ -88,7 +98,7 @@ if (initialPage !== null) {
 startMediaRequestBridge()
 // Chat tools run in main and ask this side by name for the few things that are
 // genuinely the window's: the speech engine (and its download prompt),
-// Chromium's audio decoder, and the Home Agent confirmation card.
+// Chromium's audio decoder, and a Channel's spoken reply.
 startChatAskBridge()
 startCloseAskBridge()
 startModelDownloader()
@@ -132,6 +142,7 @@ await useImageGenerationPresets().init()
 await Promise.all([
   useTheme().init(),
   usePromptBarStyle().init(),
+  useChannelSessionPointers().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),
   useTextToSpeech().init(),
@@ -144,6 +155,16 @@ await Promise.all([
 
 // Needs both the agent store's persisted defaults and the hydrated Default Settings.
 useAgentMode().adoptDefaultCapabilities()
+
+// Once Default Settings and the Channel pointers have hydrated: a migrated Session takes the
+// defaults, and the pointers' live copy takes the Channel Session main set.
+await migrateHomeAgentThreads({
+  storedHomeAgentState: () => demoAwareStorage.getItem(LEGACY_HOME_AGENT_STORAGE_KEY),
+  defaultCapabilities: () => useAgentMode().agentDefaults().capabilities,
+  migrate: (input) => window.electronAPI.sessions.migrateHomeAgentThreads(input),
+  setChannelSession: (kind, sessionRef) => useChannelSessionPointers().set(kind, sessionRef),
+  report: (error) => errors.report(error),
+})
 
 // Binds every other preset's settings to the open Session once the Default Settings
 // they copy from have hydrated (ADR-0004).

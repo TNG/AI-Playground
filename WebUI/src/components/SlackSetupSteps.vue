@@ -17,7 +17,7 @@
           your workspace.
         </p>
         <p class="text-xs text-muted-foreground pt-1">
-          Home Agent uses
+          Channels use
           <a
             class="text-primary underline"
             href="#"
@@ -142,10 +142,10 @@
           Paste both tokens above first.
         </p>
         <p
-          v-if="isAlreadyConfigured && homeAgent.slackUserId && !detectedUserId"
+          v-if="isAlreadyConfigured && channelStore.slackUserId && !detectedUserId"
           class="text-xs text-muted-foreground pt-1"
         >
-          Previously detected: {{ homeAgent.slackUserId }}
+          Previously detected: {{ channelStore.slackUserId }}
         </p>
       </div>
     </div>
@@ -154,13 +154,15 @@
     <div class="flex gap-3">
       <StepBadge
         :step="4"
-        :done="verifyStatus === 'success' || (homeAgent.slackVerified && verifyStatus === 'idle')"
+        :done="
+          verifyStatus === 'success' || (channelStore.slackVerified && verifyStatus === 'idle')
+        "
       />
       <div class="flex-1">
         <p class="text-sm font-medium">Verify Connection</p>
         <p class="text-xs text-muted-foreground pt-0.5">
-          Send a test DM to confirm everything works. The Home Agent Slack toggle will only be
-          enabled after a successful test.
+          Send a test DM to confirm everything works. The Slack toggle will only be enabled after a
+          successful test.
         </p>
         <div class="flex items-center gap-3 pt-2">
           <button
@@ -178,7 +180,7 @@
             ❌ {{ verifyError }}
           </span>
           <span
-            v-else-if="homeAgent.slackVerified && verifyStatus === 'idle'"
+            v-else-if="channelStore.slackVerified && verifyStatus === 'idle'"
             class="text-xs text-green-500"
           >
             ✅ Previously verified
@@ -207,7 +209,7 @@ const emit = defineEmits<{
 
 const setup = useSlackSetup()
 const {
-  homeAgent,
+  channelStore,
   botTokenInput,
   appTokenInput,
   showTokens,
@@ -245,7 +247,7 @@ function openExternalUrl(url: string) {
 const MANIFEST_JSON = JSON.stringify(
   {
     display_information: {
-      name: 'AI Playground Home Agent',
+      name: 'AI Playground',
       description: 'Chat with AI Playground from Slack — DMs only, runs over Socket Mode.',
       background_color: '#0f172a',
     },
@@ -257,35 +259,28 @@ const MANIFEST_JSON = JSON.stringify(
       },
       bot_user: { display_name: 'AI Playground', always_online: true },
       slash_commands: [
-        { command: '/help', description: 'List available commands', should_escape: false },
+        { command: '/help', description: 'Show available commands', should_escape: false },
         {
-          command: '/chat',
-          description: 'Force a text chat reply',
-          usage_hint: 'your message',
-          should_escape: false,
-        },
-        {
-          command: '/imggen',
-          description: 'Open the image-generation picker',
-          usage_hint: '[prompt]',
-          should_escape: false,
-        },
-        { command: '/new', description: 'Start a fresh chat thread', should_escape: false },
-        {
-          command: '/history',
-          description: 'List your saved Home Agent chats',
+          command: '/sessions',
+          description: 'List your Reachable Sessions to pick one',
           should_escape: false,
         },
         {
           command: '/load',
-          description: 'Resume a recent chat',
-          usage_hint: '[id]',
+          description: 'Continue Session n from the /sessions list',
+          usage_hint: '[n]',
           should_escape: false,
         },
-        { command: '/cancel', description: 'Cancel a pending /imggen flow', should_escape: false },
+        { command: '/new', description: 'Start a new Session', should_escape: false },
         {
-          command: '/reset',
-          description: 'Restore Home Agent settings to defaults',
+          command: '/agents',
+          description: 'List the agents you can start, or start one by name',
+          usage_hint: '[name]',
+          should_escape: false,
+        },
+        {
+          command: '/stop',
+          description: 'Stop the running turn or Agent Run and drop queued messages',
           should_escape: false,
         },
       ],

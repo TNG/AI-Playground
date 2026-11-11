@@ -1,4 +1,5 @@
 import type { SendToSessionResult, TurnOutcome } from '@/assets/js/store/agentMode'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentTaskStep } from '@/types/agentTaskIpc'
 import { cloneForIpc } from '@/lib/cloneForIpc'
@@ -13,10 +14,10 @@ export type StepSender = {
       settings: AgentSessionSettings
       signal: AbortSignal
       quietErrors: boolean
-      taskRun: { taskName: string; stepIndex: number }
+      answer?: AgentAnswerOrigin
+      taskRun: { taskName: string; stepIndex: number; notifiesResult?: boolean }
     },
   ) => Promise<SendToSessionResult>
-  releaseHeldAnswer: (sessionId: string) => void
 }
 
 export type RunStep = {
@@ -26,8 +27,12 @@ export type RunStep = {
   steps: readonly AgentTaskStep[]
   settingsTemplate: AgentSessionSettings
   signal: AbortSignal
+  /** A Scheduled Run, whose last Step sends its result to every Channel. */
+  scheduled?: boolean
   /** The user's message, framing Step 1. */
   prompt?: string
+  /** Where a Channel-started run came from: its Steps report there, its last Step the result. */
+  origin?: AgentAnswerOrigin
 }
 
 /** Send one Step of an Agent Run or Trial Run; a refusal other than an abort fails the run. */
@@ -43,12 +48,16 @@ export async function sendRunStep(
     settings: cloneForIpc(step.settingsTemplate),
     signal: step.signal,
     quietErrors: true,
-    taskRun: { taskName: step.taskName, stepIndex: step.stepIndex },
+    ...(step.origin ? { answer: step.origin } : {}),
+    taskRun: {
+      taskName: step.taskName,
+      stepIndex: step.stepIndex,
+      ...((step.scheduled || step.origin) && step.stepIndex === steps.length
+        ? { notifiesResult: true }
+        : {}),
+    },
   })
-  if (!result.ok && result.reason !== 'aborted') {
-    await onFailed(result.message)
-    sender.releaseHeldAnswer(step.sessionId)
-  }
+  if (!result.ok && result.reason !== 'aborted') await onFailed(result.message)
 }
 
 export type AfterStepTurn =

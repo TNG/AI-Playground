@@ -30,6 +30,9 @@ describe('per-owner handler registries', () => {
       | 'sessions:create'
       | 'sessions:open'
       | 'sessions:rename'
+      | 'sessions:setReachable'
+      | 'sessions:migrateHomeAgentThreads'
+      | 'sessions:setRealShellFolders'
       | 'sessions:pin'
       | 'sessions:pickAgent'
       | 'sessions:createGroup'
@@ -57,9 +60,9 @@ describe('per-owner handler registries', () => {
     >().toEqualTypeOf<SessionsInvokeName>()
   })
 
-  it('keeps homeAgent-owned rows out of the main-side names', () => {
+  it('keeps channels-owned rows out of the main-side names', () => {
     expectTypeOf<
-      Extract<MainInvokeChannelName, `channel:${string}` | `homeAgent:${string}`>
+      Extract<MainInvokeChannelName, `channel:${string}` | `channels:${string}`>
     >().toBeNever()
   })
 

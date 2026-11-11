@@ -13,7 +13,7 @@ import { emitActivity, emitFailure, setInferenceProfileSnapshot } from '../kerne
 // in-process. Which model to load still arrives as data (IPC args or the turn's
 // `readiness`); download consent stays renderer-side.
 //
-// Transient loads (Home Agent summarizer) pass remember: false so they cannot
+// Transient loads pass remember: false so they cannot
 // overwrite the snapshot a later swap-back would restore. Cloud disarms the
 // snapshot without forgetting it (`setLastChatBackendLoadActive`) so Image Gen
 // while on cloud does not bring a local LLM back, and switching back to local
@@ -45,7 +45,6 @@ export type ChatReadinessDeps = {
   getService: (serviceName: string) => ChatBackendHandle | undefined
   awaitChatWindow: (signal?: AbortSignal) => Promise<void>
   stopOvmsImageServer: () => Promise<void>
-  notifyHomeAgentUpstreamReady: (baseUrl: string) => void
   /** Stop+restart the previous local chat backend after a switch (was renderer lastUsed). */
   resetIdleChatBackend?: (serviceName: string) => Promise<void>
 }
@@ -179,7 +178,6 @@ export async function ensureChatBackendReady(
       }
       publishInferenceProfile()
     }
-    d.notifyHomeAgentUpstreamReady(service.baseUrl ?? '')
     appLogger.info(
       `Backend ${args.serviceName} ready for LLM: ${args.llmModelName}, ` +
         `Embedding: ${args.embeddingModelName || 'none'}`,

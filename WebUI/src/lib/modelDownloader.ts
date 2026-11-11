@@ -1,5 +1,5 @@
 // Headless model-download helpers, decoupled from any UI. Shared by the desktop
-// DownloadDialog and the Home Agent remote-download path so the SSE / metadata
+// DownloadDialog and the Channel remote-download path so the SSE / metadata
 // logic lives in exactly one place.
 
 import { aipgFetch } from '@/lib/loopbackAuth'

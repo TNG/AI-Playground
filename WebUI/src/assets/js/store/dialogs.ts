@@ -118,8 +118,8 @@ export const useDialogStore = defineStore('dialog', () => {
   /**
    * Promise-based confirmation built on the warning dialog UI. Resolves `true`
    * when the user confirms and `false` when they cancel (or the dialog is
-   * dismissed). Used for human-in-the-loop approvals (e.g. the Home Agent
-   * self-configuration tool on the desktop).
+   * dismissed). Used for human-in-the-loop approvals (e.g. a Channel's
+   * download question, mirrored on the desktop).
    */
   function requestConfirmation(
     message: string,

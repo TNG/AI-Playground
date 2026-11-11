@@ -213,7 +213,7 @@ export const test = base.extend<E2EFixtures>({
     })
 
     // Linux without a keyring: saving a LAN chat password opens the same in-app
-    // Warning dialog. Confirm so Home Agent setup can finish; scoped by copy so
+    // Warning dialog. Confirm so Channel setup can finish; scoped by copy so
     // it never consumes an unrelated warning.
     const insecureStorageWarning = window
       .getByRole('dialog', { name: 'Warning' })

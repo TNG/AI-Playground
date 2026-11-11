@@ -62,7 +62,7 @@ const activeVariantName = ref<Record<string, string>>({})
 
 vi.mock('@/assets/js/artifact/runArtifact', () => ({ runArtifact: runArtifactMock }))
 vi.mock('@/assets/js/store/comfyUiPresets', () => ({ useComfyUiPresets: () => anyMemberStore() }))
-vi.mock('@/assets/js/store/homeAgent', () => ({ useHomeAgent: () => anyMemberStore() }))
+vi.mock('@/assets/js/store/channels', () => ({ useChannels: () => anyMemberStore() }))
 vi.mock('@/assets/js/store/dialogs', () => ({
   useDialogStore: () => anyMemberStore(),
   // The runner (mocked above) is the only real consumer; the SUT imports the
@@ -364,7 +364,7 @@ describe('imageGenerationPresets.generate (UI wrapper)', () => {
     expect(store.processing).toBe(false)
   })
 
-  it('adopts panel-owned runs it did not submit itself (Home Agent /imgGen)', async () => {
+  it('adopts panel-owned runs it did not submit itself', async () => {
     const store = useImageGenerationPresets()
     await vi.waitFor(() => expect(kernelListeners.length).toBeGreaterThan(0))
     for (const listener of kernelListeners) {

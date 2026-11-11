@@ -792,7 +792,7 @@ describe('the Turn Queue', () => {
     })
     const summary = submitTextRequest({
       runId: 'summary',
-      conversationKey: 'home-agent-summarize',
+      conversationKey: 'summarize',
       needsGpu: true,
       joinsTurnQueue: true,
       work: 'summary',

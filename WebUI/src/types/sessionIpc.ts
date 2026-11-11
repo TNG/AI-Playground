@@ -35,6 +35,8 @@ export const SessionFileSchema = z.object({
   updateCursors: z.record(z.string(), z.string()).default({}),
   /** The Agent picked in the prompt bar, run on Assistant; absent means Assistant itself. */
   pickedAgentId: z.string().optional(),
+  /** Channels may send it messages and it may notify them (Reachable Session). */
+  reachable: z.boolean().default(false),
 })
 
 export type SessionFile = z.infer<typeof SessionFileSchema>
@@ -51,6 +53,7 @@ export type SessionSummary = Pick<
   | 'updatedAt'
   | 'presetsUsed'
   | 'pickedAgentId'
+  | 'reachable'
 > & { unreadable?: boolean }
 
 /** What opening a Session hands the renderer: its row plus the display timeline. */

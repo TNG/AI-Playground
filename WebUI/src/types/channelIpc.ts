@@ -1,0 +1,26 @@
+/**
+ * Channel IPC: the inbound message shape `channel:poll` answers.
+ * The `channel:*` handlers are registered by the Channels backend service
+ * (`homeAgentBackendService.registerIpcHandlers`), so they exist only while
+ * that service is installed.
+ */
+
+import type { RemoteAudio, RemoteDocument, RemoteImage } from '@/assets/js/store/channels/types'
+
+/** One message drained from a channel platform's inbound queue. */
+export type ChannelInboundMessage = {
+  text?: string
+  chat_id: string
+  channel?: string
+  ts?: string
+  images?: RemoteImage[]
+  audio?: RemoteAudio[]
+  documents?: RemoteDocument[]
+  callback?: string
+  /** The platform id of the message this one replies to. */
+  reply_to?: string
+  /** The platform ref an outbound reply to this message names (Telegram: its message id). */
+  reply_target?: string
+  /** The channel's notice for a file it refused to read (unsupported type, too large). */
+  refused?: string
+}

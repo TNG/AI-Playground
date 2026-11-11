@@ -3,7 +3,7 @@ import type { SessionTurn, SessionTurns } from '@/types/sessionIpc'
 
 /**
  * A Session admits one turn in flight at a time, whatever its kind; the Turn Queue
- * (ADR-0002) still decides when that turn runs. Turns outside a Session (Home Agent)
+ * (ADR-0002) still decides when that turn runs. Turns outside a Session (Channels)
  * and media nested in a chat or agent turn never claim one.
  */
 

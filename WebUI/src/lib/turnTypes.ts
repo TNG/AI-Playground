@@ -96,6 +96,7 @@ export type TurnDetails = {
 /** Which Agent ran and what started it, shown in its Turn's prompt bubble. */
 export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
   trigger: NonNullable<AgentRunTag['trigger']>
+  channel?: AgentRunTag['channel']
   name: string
   agentId?: string
 }
@@ -188,7 +189,6 @@ export type AgentTurn = TurnOf<
     notRun?: boolean
     canResend?: boolean
     questionKey?: string
-    heldAnswer?: { channel: ChannelKind }
   }
 >
 
@@ -214,7 +214,6 @@ export type LiveAgentTurn = {
   notRunMessageId?: string
   canResend?: boolean
   open?: boolean
-  heldAnswer?: { channel: ChannelKind }
   error?: string
 }
 

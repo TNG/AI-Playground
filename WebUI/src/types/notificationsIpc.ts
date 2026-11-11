@@ -1,15 +1,21 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { PauseReason } from './kernelEvents'
 
-/** Where a Notification goes, and whether it can go at all. */
-export type NotificationRoute = {
-  /** The title-bar master toggle is on and the Home Agent backend is running. */
-  homeAgentEnabled: boolean
-  notificationChannel: ChannelKind | null
-}
+/** The Harness Session an Answer runs in, and the Session it belongs to. */
+export type AnswerTarget = { sessionRef: string; harnessSessionId: string }
 
-/** Who sent a channel message: a live agent session, or one that has since been deleted. */
-export type ChannelMessageOwner = { sessionId: string } | { deletedSession: true }
+/** Who sent a channel message: a live Harness Session, or one that has since been deleted. */
+export type SessionMessageOwner = AnswerTarget | { deletedSession: true }
+
+/** A posted Start Prompt Request, which the message map records with no Session. */
+export type StartPromptRequestOwner = { startPromptRequest: true }
+
+/** A channel message in the message map: a Session's, or a posted Start Prompt Request. */
+export type ChannelMessageOwner = SessionMessageOwner | StartPromptRequestOwner
+
+export function isStartPromptRequest(owner: ChannelMessageOwner): owner is StartPromptRequestOwner {
+  return 'startPromptRequest' in owner
+}
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {
@@ -36,15 +42,19 @@ export type NotificationTemplates = {
   answerInThread: string
   /** Last line of an answerable Notification on a channel answered by replying to the message. */
   answerByReply: string
+  /** Told on each Channel whose queued messages a quit drops: `{count}` */
+  queueDroppedOnQuit: string
+  /** An Agent Run a Channel started: `{name}` (the Agent), `{title}` (the Session's label) */
+  agentStarted: string
 }
 
-/** What main needs from the window to deliver a Notification (docs/adr/0003). */
-export type NotificationConfig = NotificationRoute & {
-  /** Background Sessions notify when they pause or fail. */
-  autoNotify: boolean
-  /** The Agent Mode session open on screen; null while Agent Mode is not shown. */
-  sessionInView: string | null
-  /** Sessions whose folder uses the real system shell; Answers to them are refused. */
+/** What main needs from the window to deliver a Notification (docs/adr/0010). */
+export type NotificationConfig = {
+  /** The enabled, verified Channels; empty while the Channels toggle is off. */
+  channels: ChannelKind[]
+  /** The Session open in the window, shown or not; null when none is. */
+  sessionOnScreen: string | null
+  /** Harness Sessions whose folder uses the real system shell; Answers to them are refused. */
   realShellSessions: string[]
   templates: NotificationTemplates
 }

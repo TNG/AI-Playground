@@ -42,6 +42,15 @@ const reportedTaskRun = (index: number): InFlightWorkItem => ({
 })
 
 describe('collectInFlightWork', () => {
+  it('lists the Channel messages the window has queued', () => {
+    const queued: InFlightWorkItem = {
+      kind: 'channel-queue',
+      channel: 'telegram',
+      state: { status: 'queued', count: 3 },
+    }
+    expect(collectInFlightWork(sources({ rendererWork: [queued] }))).toEqual([queued])
+  })
+
   it('lists nothing for an enabled Schedule alone', () => {
     expect(collectInFlightWork(sources({ tasks: [dailyReport] }))).toEqual([])
   })
@@ -141,14 +150,6 @@ describe('collectInFlightWork', () => {
     )
 
     expect(items[1]).toEqual({ kind: 'agent-turn', name: 'Other', state: { status: 'paused' } })
-  })
-
-  it('names a Home Agent reply without its thread title', () => {
-    expect(
-      collectInFlightWork(
-        sources({ chatTurns: [{ conversationKey: 'c-1', homeAgent: true, title: 'Telegram' }] }),
-      ),
-    ).toEqual([{ kind: 'home-agent-turn', state: { status: 'running' } }])
   })
 
   it('counts queued media runs per mode and lists executing ones each', () => {

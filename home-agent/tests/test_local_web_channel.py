@@ -312,11 +312,11 @@ class TestInbound(LocalWebChannelTestCase):
             cookie=cookie,
         )
         self.request(
-            "POST", "/api/chat", {"callback": "imgGen:preset:Draft"}, cookie=cookie
+            "POST", "/api/chat", {"callback": "runAgent:agent-1"}, cookie=cookie
         )
         queued = self.channel.poll()
         self.assertEqual(len(queued[0]["images"]), 1)
-        self.assertEqual(queued[1]["callback"], "imgGen:preset:Draft")
+        self.assertEqual(queued[1]["callback"], "runAgent:agent-1")
 
 
 class TestAnswers(LocalWebChannelTestCase):
@@ -490,6 +490,39 @@ class TestOutboundEvents(LocalWebChannelTestCase):
             ],
         )
 
+    def test_each_streamed_reply_is_named_by_its_draft_until_its_reply_settles_it(self):
+        _, cookie = self.login()
+        sock = self.open_sse(cookie)
+        time.sleep(0.3)
+        self.channel.send_update({"draft_id": 7, "text": "first"})
+        self.channel.send_update({"draft_id": 8, "text": "second"})
+        settled = self.channel.send_keyboard(
+            {
+                "text": "first, done",
+                "buttons": [[{"text": "Answer", "callback_data": "answer"}]],
+                "reply_to": "3",
+                "draft_id": 7,
+            }
+        )
+        time.sleep(0.3)
+        events = self.sse_events(sock.recv(65536).decode())
+        sock.close()
+        self.assertEqual(
+            events,
+            [
+                {"action": "update", "draftId": 7, "text": "first"},
+                {"action": "update", "draftId": 8, "text": "second"},
+                {
+                    "action": "keyboard",
+                    "text": "first, done",
+                    "buttons": [[{"text": "Answer", "callback_data": "answer"}]],
+                    "replyTo": 3,
+                    "draftId": 7,
+                    "id": settled["message_id"],
+                },
+            ],
+        )
+
     def test_settling_a_prompt_is_its_own_action(self):
         _, cookie = self.login()
         sock = self.open_sse(cookie)
@@ -514,7 +547,7 @@ class TestOutboundEvents(LocalWebChannelTestCase):
         events = self.sse_events(sock.recv(65536).decode())
         sock.close()
         # A post, not a reply: a reply would settle the streaming draft bubble and
-        # overwrite a Home Agent answer with download progress.
+        # overwrite a streaming answer with download progress.
         self.assertEqual(
             events,
             [

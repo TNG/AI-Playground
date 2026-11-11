@@ -128,7 +128,7 @@ import {
   refreshWhileAsking,
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
-import { createInFlightWork } from './kernel/inFlightWork'
+import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -198,17 +198,19 @@ import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
   setNotificationChannel,
   setNotificationConfig,
+  tellQueuesDroppedOnQuit,
   setNotificationWindowShown,
   startAutoNotifications,
 } from './agent/notifier'
-import { homeAgentNotificationChannel } from './agent/notificationChannelSend'
+import { createNotificationChannel } from './agent/notificationChannelSend'
 import {
   buildNotificationsRegistry,
   buildNotificationsSendRegistry,
 } from './kernel/registries/notifications'
 import {
   channelMessageOwner,
-  forgetSessionMessages,
+  forgetHarnessSessionMessages,
+  recordStartPromptRequest,
   setChannelMessageMapDeps,
   wipeDemoChannelMessageMap,
 } from './persist/channelMessageMap'
@@ -229,7 +231,6 @@ import {
   setChatEngineDeps,
   submitChatTurn,
 } from './chat/turnEngine'
-import { summarizeConversationText } from './chat/chatSummarize'
 import { setChatModelDeps } from './chat/chatModelMain'
 import { setRagRetrievalDeps } from './chat/ragRetrieval'
 import { activeMediaAgentRunKeys, cancelMediaAgentRun } from './chat/mediaAgentRunner'
@@ -271,8 +272,21 @@ import {
   missingArtifactUrls,
   newestArtifact,
 } from './session/sessionArtifacts'
-import { cleanUpHarnessSessionsOnDelete, harnessSessionFor } from './session/sessionHarness'
+import {
+  cleanUpHarnessSessionsOnDelete,
+  harnessSessionFor,
+  harnessSessionOwners,
+} from './session/sessionHarness'
 import { dropSchedulesWithSession, taskRunHarnessFor } from './session/sessionTaskRuns'
+import {
+  forgetChannelMessagesOnDelete,
+  setRealShellFolders,
+  setSessionReachable,
+} from './session/sessionChannels'
+import {
+  migrateHomeAgentThreads,
+  setHomeAgentThreadMigrationDeps,
+} from './session/homeAgentThreadMigration'
 import { upsertTimelineMessages } from './session/sessionTimeline'
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
@@ -873,35 +887,9 @@ async function createWindow() {
     void appShutdown.shutdown('session-end', 3000)
   })
 
-  // [HA-DIAG] Temporary: surface renderer `[HA-DIAG]` perf logs in the main
-  // terminal stream (renderer console.log normally only reaches DevTools).
-  // Remove together with the renderer-side [HA-DIAG] logging.
-  win.webContents.on('console-message', (event: unknown, ...rest: unknown[]) => {
-    const e = event as { message?: string }
-    // Electron 35+ passes a single event object with `.message`; older builds
-    // pass (event, level, message, line, sourceId).
-    const message =
-      typeof e?.message === 'string' ? e.message : ((rest[1] as string | undefined) ?? '')
-    // Route through appLogger so the line reaches the in-app debug viewer (fed
-    // by the `debugLog` IPC). appLogger also mirrors back to the renderer, which
-    // App.vue re-logs as `[ha-diag] <message>` — that re-enters this handler. The
-    // `[ha-diag]` source prefix (absent from the original renderer line) marks
-    // the echo, so skipping it breaks the otherwise-infinite loop.
-    if (message.includes('[HA-DIAG]') && !message.includes('[ha-diag]')) {
-      appLogger.info(message, 'ha-diag')
-    }
-  })
-
   win.webContents.on('did-finish-load', () => {
     setTimeout(() => {
       appLogger.onWebcontentReady(win!.webContents)
-      // [HA-DIAG] One-shot marker: if you see this line, the rebuilt main process
-      // with the renderer-log forwarder is running. If it's absent, main.ts did
-      // not reload — fully restart Electron (HMR only reloads the renderer).
-      appLogger.info(
-        '[HA-DIAG] forwarder installed — renderer perf logs will appear here',
-        'ha-diag',
-      )
     }, 100)
 
     // Check the kernel-owned preferences file after page loads. `undefined`
@@ -1070,7 +1058,7 @@ async function createWindow() {
  * Load the app document into an already-created window.
  *
  * Split from createWindow so the renderer only boots once the service registry
- * exists: several stores fire IPC the moment they are created — homeAgent's
+ * exists: several stores fire IPC the moment they are created — the Channels store's
  * `channel:loadConfig`, whose handler is registered off the registry's
  * home-agent service, and the setup wizard's `getServices`. A renderer that won
  * that race got "No handler registered for 'channel:loadConfig'" and an empty
@@ -1205,6 +1193,11 @@ setRagAccess({
 // because its extensions flush state on shutdown (persistent memory writes what
 // it learned) and may still call into MCP, the services and the browser.
 // Before the agent, whose aborted turns the window would otherwise record as failed.
+// First, while the Channels' backend still runs: the window's queue dies with it.
+appShutdown.register({
+  name: 'channel queues',
+  run: () => tellQueuesDroppedOnQuit(queuedChannelMessages(inFlightWork.rendererWork())),
+})
 appShutdown.register({ name: 'task runs', run: (cause) => settleTaskRunsOnQuit(cause) })
 appShutdown.register({ name: 'agent mode', run: () => shutdownAgentMode() })
 // After the agent, so no Trial Run turn still writes into a folder being removed.
@@ -1326,7 +1319,7 @@ async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) 
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
     setNotificationChannel(
-      homeAgentNotificationChannel((kind, action, payload) =>
+      createNotificationChannel((kind, action, payload) =>
         homeAgent.channelSend(kind, action, payload),
       ),
     )
@@ -1360,12 +1353,14 @@ function wireConversations(settings: LocalSettings): void {
 /** Same demo discipline for Sessions (ADR-0003). */
 function wireSessions(settings: LocalSettings): void {
   setSessionDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  setHomeAgentThreadMigrationDeps({ isDemoMode: () => settings.isDemoModeEnabled })
   if (settings.isDemoModeEnabled) void wipeDemoSessions()
   cleanUpHarnessSessionsOnDelete(async (harnessSessionId) => {
     await deleteAgentSessionRecord(harnessSessionId)
     await deleteAgentSession(harnessSessionId)
   })
   dropSchedulesWithSession()
+  forgetChannelMessagesOnDelete()
   setAppMediaPathResolver(getLocalPathFromAipgMediaUrl)
 }
 
@@ -1413,7 +1408,10 @@ function wireAgentTasks(settings: LocalSettings): void {
 
 /** Same demo discipline for the map of channel messages agents sent. */
 function wireChannelMessageMap(settings: LocalSettings): void {
-  setChannelMessageMapDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  setChannelMessageMapDeps({
+    isDemoMode: () => settings.isDemoModeEnabled,
+    harnessSessionOwners,
+  })
   if (settings.isDemoModeEnabled) void wipeDemoChannelMessageMap()
 }
 
@@ -1421,7 +1419,7 @@ function wireChannelMessageMap(settings: LocalSettings): void {
  * Chat turns run in main (architecture-target §8 step 6): the renderer submits
  * a typed request over `chat:submitTurn` and consumes kernel `chat-chunk`
  * events. These deps are the only pieces of that engine that live outside the
- * chat modules — the service registry, last-load memory, the Home Agent
+ * chat modules — the service registry, last-load memory, the Channels
  * loopback token, and on-disk aipg-media bytes.
  */
 function wireChatEngine(): void {
@@ -1434,12 +1432,6 @@ function wireChatEngine(): void {
         await ovms.stopImageServer()
       }
     },
-    notifyHomeAgentUpstreamReady: (baseUrl) => {
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      if (homeAgentSvc instanceof HomeAgentBackendService) {
-        homeAgentSvc.notifyUpstreamReady(baseUrl)
-      }
-    },
     resetIdleChatBackend: async (serviceName) => {
       const service = serviceRegistry?.getService(serviceName)
       if (!service) return
@@ -1450,12 +1442,6 @@ function wireChatEngine(): void {
   setChatModelDeps({
     llmApiBase: (backend) => llmServerBaseUrl(backend),
     ensureBackendReadiness: (args) => ensureChatBackendReady(args),
-    homeAgentAuthToken: () => {
-      const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
-      return homeAgentSvc instanceof HomeAgentBackendService
-        ? homeAgentSvc.getLoopbackAuthToken()
-        : ''
-    },
     readCloudProviderKey,
   })
   // Reuses the main-side aipg-media reader the agent attachments already use;
@@ -1543,7 +1529,7 @@ function wireArtifactRunner(settings: LocalSettings): void {
   })
 
   // The orchestrator owns GPU policy (step 7): every run — panel, chat tool,
-  // Home Agent or in-process agent tool — is bracketed through these, so the
+  // Channels or in-process agent tool — is bracketed through these, so the
   // renderer's stop/return wraps and the occupancy refcount are gone.
   setOrchestratorDeps({
     stopChatForMedia: stopChatServicesForMedia,
@@ -1825,6 +1811,7 @@ function initEventHandle() {
   registerInvokeHandlers(
     buildNotificationsRegistry({
       channelMessageOwner,
+      recordStartPromptRequest,
       appLogger: appLoggerInstance,
     }),
   )
@@ -1853,7 +1840,6 @@ function initEventHandle() {
       resumeChatTurn,
       cancelChatTurn,
       handleChatAnswer,
-      summarizeConversationText,
     }),
   )
 
@@ -1864,6 +1850,9 @@ function initEventHandle() {
       openSession,
       renameSession,
       pinSession,
+      setSessionReachable,
+      setRealShellFolders,
+      migrateHomeAgentThreads,
       pickSessionAgent,
       listSessionGroups,
       createSessionGroup,
@@ -1943,7 +1932,7 @@ function initEventHandle() {
       discardTrialRun,
       readTrialRuns,
       saveTrialRun,
-      forgetSessionMessages,
+      forgetHarnessSessionMessages,
       appLogger: appLoggerInstance,
     }),
   )

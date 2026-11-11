@@ -45,12 +45,8 @@ describe('chatAsk', () => {
 
   it('settles a question when the turn it belongs to is cancelled', async () => {
     const controller = new AbortController()
-    const answer = askRenderer<boolean>(
-      {
-        kind: 'home-agent-confirm',
-        conversationKey: 'conv-1',
-        summaryMarkdown: 'Switch backend',
-      },
+    const answer = askRenderer<{ text: string }>(
+      { kind: 'speech-transcribe', audioBase64: 'QQ==' },
       { abortSignal: controller.signal },
     )
 
@@ -58,7 +54,7 @@ describe('chatAsk', () => {
 
     await expect(answer).rejects.toThrow(/cancelled/i)
     expect(chatAsksPending()).toBe(0)
-    // The card the user was looking at may still answer; it must find nobody.
+    // The window may still answer; it must find nobody.
     expect(() => handleChatAnswer({ requestId: lastRequestId(), result: true })).not.toThrow()
   })
 

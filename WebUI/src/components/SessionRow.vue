@@ -77,6 +77,18 @@
               : languages.SESSIONS_SCHEDULED
           }}</TooltipContent>
         </Tooltip>
+        <Tooltip v-if="session.reachable">
+          <TooltipTrigger as-child>
+            <span
+              role="img"
+              :aria-label="languages.SESSIONS_REACHABLE"
+              class="inline-flex flex-none"
+            >
+              <ChatBubbleLeftRightIcon class="size-3.5 text-muted-foreground" aria-hidden="true" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ languages.SESSIONS_REACHABLE }}</TooltipContent>
+        </Tooltip>
         <span
           v-if="presetIcons.length > 0"
           role="list"
@@ -225,6 +237,7 @@
 import { computed, ref } from 'vue'
 import {
   ArrowDownTrayIcon,
+  ChatBubbleLeftRightIcon,
   ClockIcon,
   EllipsisVerticalIcon,
   HandRaisedIcon,

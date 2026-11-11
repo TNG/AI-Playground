@@ -8,8 +8,11 @@ export type NotificationRoute = {
   notificationChannel: ChannelKind | null
 }
 
-/** Who sent a channel message: a live agent session, or one that has since been deleted. */
-export type ChannelMessageOwner = { sessionId: string } | { deletedSession: true }
+/** The Harness Session an Answer runs in, and the Session it belongs to. */
+export type AnswerTarget = { sessionRef: string; harnessSessionId: string }
+
+/** Who sent a channel message: a live Harness Session, or one that has since been deleted. */
+export type ChannelMessageOwner = AnswerTarget | { deletedSession: true }
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {

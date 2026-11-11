@@ -7,7 +7,7 @@ import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPor
 import { notificationSessionLabel } from '@/lib/notificationLabel'
 import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { answerRouterCopyFrom, registerAnswerRouterCopy } from '@/lib/answerRouterWording'
-import { registerAgentAnswerSessions } from '@/lib/agentAnswerSessions'
+import { registerChannelSessionPort } from '@/lib/channelSessionPort'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
 // Main delivers Notifications while the window is hidden, so it keeps its own copy.
@@ -63,7 +63,7 @@ export function startNotificationConfigPush(): void {
       agentTasks.tasks,
     )
   registerSessionLabeler(label)
-  registerAgentAnswerSessions(label)
+  registerChannelSessionPort(label)
   registerAnswerRouterCopy(() => answerRouterCopyFrom(i18n.state))
   registerChannelQuestionTemplates(() => {
     const text = i18n.state

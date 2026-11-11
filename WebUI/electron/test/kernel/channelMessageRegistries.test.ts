@@ -13,38 +13,38 @@ function deleteSessionWith(
   live: { success: boolean; error?: string },
   forget: () => Promise<void> = async () => {},
 ) {
-  const forgetSessionMessages = vi.fn(forget)
+  const forgetHarnessSessionMessages = vi.fn(forget)
   const appLogger = logger()
   const registry = buildAgentModeRegistry({
     deleteAgentSessionRecord: async () => record,
     deleteAgentSession: async () => live,
-    forgetSessionMessages,
+    forgetHarnessSessionMessages,
     appLogger,
   } as unknown as AgentModeDeps)
   const deleteSession = registry['agentMode:deleteSession'] as (
     e: Electron.IpcMainInvokeEvent,
     id: unknown,
   ) => Promise<{ success: boolean }>
-  return { deleteSession, forgetSessionMessages, appLogger }
+  return { deleteSession, forgetHarnessSessionMessages, appLogger }
 }
 
 describe('deleting an agent session', () => {
   it('marks its channel messages as a deleted session’s once both halves are gone', async () => {
-    const { deleteSession, forgetSessionMessages } = deleteSessionWith(
+    const { deleteSession, forgetHarnessSessionMessages } = deleteSessionWith(
       { success: true },
       { success: true },
     )
     expect(await deleteSession(event, 's1')).toEqual({ success: true })
-    expect(forgetSessionMessages).toHaveBeenCalledWith('s1')
+    expect(forgetHarnessSessionMessages).toHaveBeenCalledWith('s1')
   })
 
   it.each([
     ['its record', { success: false, error: 'disk full' }, { success: true }],
     ['its Pi session', { success: true }, { success: false, error: 'busy' }],
   ])('keeps its channel messages answerable when %s could not be deleted', async (_, r, l) => {
-    const { deleteSession, forgetSessionMessages } = deleteSessionWith(r, l)
+    const { deleteSession, forgetHarnessSessionMessages } = deleteSessionWith(r, l)
     expect((await deleteSession(event, 's1')).success).toBe(false)
-    expect(forgetSessionMessages).not.toHaveBeenCalled()
+    expect(forgetHarnessSessionMessages).not.toHaveBeenCalled()
   })
 
   it('logs a failure to forget its channel messages, and still reports the delete', async () => {

@@ -68,7 +68,7 @@ import { createLocalWebAdapter } from './channels/localWebAdapter'
 import { createChannelQuestionRegistry, type ChannelQuestion } from './channels/channelQuestions'
 import { createAnswerRouter } from './channels/answerRouter'
 import { createRemoteSpeech } from './channels/remoteSpeech'
-import { answerSessions } from './channels/answerSessionsPort'
+import { sessionPort } from './channels/sessionPort'
 import { heldAnswerJournal } from './channels/heldAnswerJournal'
 import {
   closeDownloadMessages,
@@ -294,7 +294,7 @@ export const useHomeAgent = defineStore(
     })
 
     const answerRouter = createAnswerRouter({
-      sessions: answerSessions,
+      sessions: sessionPort,
       questions: channelQuestions,
       transcribe: remoteSpeech.transcribe,
       prepareVoiceAnswer: remoteSpeech.prepareAnswer,

@@ -8,6 +8,7 @@ import type { NotificationRoute } from '@/types/notificationsIpc'
 import type { ChatAskPayload } from '@/types/chatRequests'
 import type { ChannelMedia, ChannelSendOutcome } from '../../agent/notifier'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
+import { sessionHolding } from './sessionHolding'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.
@@ -26,6 +27,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
   getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
   getChannelMessageMapFile: () => path.join(tempRoot, 'channel-messages.json'),
+  getSessionsDir: () => path.join(tempRoot, 'sessions'),
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -289,11 +291,20 @@ describe('notify_user', () => {
     ])
   }, 30000)
 
-  it('records the sent message so a reply to it reaches the session', async () => {
+  it('records the sent message as its Session’s, so a reply to it reaches the session', async () => {
+    const sessionRef = await sessionHolding('aipg-agent-notify-answerable')
     await runTurn('aipg-agent-notify-answerable')
     expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
-      sessionId: 'aipg-agent-notify-answerable',
+      sessionRef,
+      harnessSessionId: 'aipg-agent-notify-answerable',
     })
+  }, 30000)
+
+  it('records nothing for a Harness Session no Session holds, such as a Trial Run’s', async () => {
+    channelResult = { success: true, ref: '43' }
+    await runTurn('aipg-agent-notify-trial-run')
+    expect(sent).toHaveLength(1)
+    expect(await messageMap.channelMessageOwner('telegram', '43')).toBeNull()
   }, 30000)
 
   it('sends nothing with Home Agent off and returns the reason', async () => {
@@ -391,9 +402,11 @@ describe('notify_user attachments', () => {
     attach('shot.jpg')
     notifyArgs = { message: SUMMARY, attachments: ['shot.jpg'] }
     channelResult = { success: true, ref: '77' }
+    const sessionRef = await sessionHolding('aipg-agent-notify-photo-answerable')
     await runTurn('aipg-agent-notify-photo-answerable')
     expect(await messageMap.channelMessageOwner('telegram', '77')).toEqual({
-      sessionId: 'aipg-agent-notify-photo-answerable',
+      sessionRef,
+      harnessSessionId: 'aipg-agent-notify-photo-answerable',
     })
   }, 30000)
 
@@ -569,10 +582,12 @@ describe('notify_user attachments', () => {
     attach('b.webm')
     notifyArgs = { message: SUMMARY, attachments: ['a.png', 'b.webm'] }
     refs = ['81', '82']
+    const sessionRef = await sessionHolding('aipg-agent-notify-several-answerable')
     await runTurn('aipg-agent-notify-several-answerable')
     for (const ref of ['81', '82']) {
       expect(await messageMap.channelMessageOwner('telegram', ref)).toEqual({
-        sessionId: 'aipg-agent-notify-several-answerable',
+        sessionRef,
+        harnessSessionId: 'aipg-agent-notify-several-answerable',
       })
     }
   }, 30000)

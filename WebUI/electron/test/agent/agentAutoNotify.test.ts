@@ -8,6 +8,7 @@ import type { ChatAskPayload } from '@/types/chatRequests'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
+import { sessionHolding } from './sessionHolding'
 
 // Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the
@@ -31,6 +32,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => sessionsDir,
   getAgentTasksFile: () => tasksFile,
   getChannelMessageMapFile: () => messageMapFile,
+  getSessionsDir: () => path.join(tempRoot, 'sessions'),
   getAudioDir: () => path.join(tempRoot, 'audio'),
 }))
 
@@ -117,6 +119,8 @@ afterAll(() => {
 })
 
 const SESSION = 'aipg-agent-news'
+/** The Session holding SESSION. */
+let newsSessionRef = ''
 
 const CONFIG: NotificationConfig = {
   homeAgentEnabled: true,
@@ -237,6 +241,7 @@ beforeAll(async () => {
     updatedAt: 1,
     messages: [],
   })
+  newsSessionRef = await sessionHolding(SESSION)
 })
 
 afterAll(async () => {
@@ -527,7 +532,8 @@ describe('a sent Notification', () => {
     await failingTurn()
     expect(sent).toHaveLength(1)
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
-      sessionId: SESSION,
+      sessionRef: newsSessionRef,
+      harnessSessionId: SESSION,
     })
     expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toBeNull()
     expect(await messageMap.channelMessageOwner('telegram', 'msg-2')).toBeNull()
@@ -535,7 +541,7 @@ describe('a sent Notification', () => {
 
   it('is forgotten when its session is deleted, but still known as a deleted session’s', async () => {
     await failingTurn()
-    await messageMap.forgetSessionMessages(SESSION)
+    await messageMap.forgetHarnessSessionMessages(SESSION)
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
       deletedSession: true,
     })
@@ -656,7 +662,10 @@ describe('the turn an Answer started', () => {
         replyTo: '1700000000.0001',
       },
     ])
-    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toEqual({ sessionId: SESSION })
+    expect(await messageMap.channelMessageOwner('slack', 'msg-1')).toEqual({
+      sessionRef: newsSessionRef,
+      harnessSessionId: SESSION,
+    })
   }, 30000)
 
   it('notifies a pause under the Answer although the session is in view', async () => {
@@ -702,7 +711,8 @@ describe('the turn an Answer started', () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await settle()
     expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
-      sessionId: SESSION,
+      sessionRef: newsSessionRef,
+      harnessSessionId: SESSION,
     })
   }, 30000)
 

@@ -208,7 +208,7 @@ import {
 } from './kernel/registries/notifications'
 import {
   channelMessageOwner,
-  forgetSessionMessages,
+  forgetHarnessSessionMessages,
   setChannelMessageMapDeps,
   wipeDemoChannelMessageMap,
 } from './persist/channelMessageMap'
@@ -271,7 +271,11 @@ import {
   missingArtifactUrls,
   newestArtifact,
 } from './session/sessionArtifacts'
-import { cleanUpHarnessSessionsOnDelete, harnessSessionFor } from './session/sessionHarness'
+import {
+  cleanUpHarnessSessionsOnDelete,
+  harnessSessionFor,
+  harnessSessionOwners,
+} from './session/sessionHarness'
 import { dropSchedulesWithSession, taskRunHarnessFor } from './session/sessionTaskRuns'
 import { upsertTimelineMessages } from './session/sessionTimeline'
 import { saveChatTranscript } from './session/sessionChatTurn'
@@ -1413,7 +1417,10 @@ function wireAgentTasks(settings: LocalSettings): void {
 
 /** Same demo discipline for the map of channel messages agents sent. */
 function wireChannelMessageMap(settings: LocalSettings): void {
-  setChannelMessageMapDeps({ isDemoMode: () => settings.isDemoModeEnabled })
+  setChannelMessageMapDeps({
+    isDemoMode: () => settings.isDemoModeEnabled,
+    harnessSessionOwners,
+  })
   if (settings.isDemoModeEnabled) void wipeDemoChannelMessageMap()
 }
 
@@ -1931,7 +1938,7 @@ function initEventHandle() {
       discardTrialRun,
       readTrialRuns,
       saveTrialRun,
-      forgetSessionMessages,
+      forgetHarnessSessionMessages,
       appLogger: appLoggerInstance,
     }),
   )

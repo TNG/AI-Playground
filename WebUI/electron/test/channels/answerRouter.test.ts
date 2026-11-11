@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   createAnswerRouter,
-  type AnswerSendResult,
-  type AnswerSessions,
+  type SessionSendResult,
+  type SessionPort,
   type HeldAnswerJournal,
   type HeldAnswerNote,
   type SessionPause,
@@ -47,38 +47,47 @@ function fakeChannel(kind: ChannelKind = 'telegram') {
 type FakeSession = {
   label: string
   /** What each send does, in order; the last one repeats. */
-  results?: AnswerSendResult[]
-  result?: AnswerSendResult
+  results?: SessionSendResult[]
+  result?: SessionSendResult
   pause?: SessionPause
   realShell?: boolean
   /** Runs while a send is in flight, before it resolves. */
   duringSend?: () => void
 }
 
-const BUSY: AnswerSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
-const TASK_LOCKED: AnswerSendResult = {
+const BUSY: SessionSendResult = { ok: false, reason: 'busy', message: 'turn in flight' }
+const TASK_LOCKED: SessionSendResult = {
   ok: false,
   reason: 'task-locked',
   message: 'Agent “Digest” is running.',
 }
 
-/** Agent sessions as the router sees them: which message each sent, and what a send does. */
+/** Harness Sessions as the router sees them: which message each sent, and what a send does. */
 type SentMessage = { kind: ChannelKind; ref: string; sessionId: string }
+
+/** The Session each fake Harness Session belongs to. */
+const sessionRefOf = (harnessSessionId: string) => `session-of-${harnessSessionId}`
 
 function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentMessage[]) {
   const received: { sessionId: string; text: string }[] = []
   const origins: { sessionId: string; origin: AgentAnswerOrigin }[] = []
   const held: Record<string, { text: string; channel: ChannelKind } | null> = {}
   const listeners = new Set<(sessionId: string, end: SessionTurnEnd) => void>()
-  const port: AnswerSessions = {
+  const port: SessionPort = {
     lookup: async (kind, ref) => {
       const sent = sentMessages.find((m) => m.kind === kind && m.ref === ref)
       if (!sent) return null
-      return sessions[sent.sessionId] ? { sessionId: sent.sessionId } : { deletedSession: true }
+      const harnessSessionId = sent.sessionId
+      return sessions[harnessSessionId]
+        ? { sessionRef: sessionRefOf(harnessSessionId), harnessSessionId }
+        : { deletedSession: true }
     },
-    label: (sessionId) => `"${sessions[sessionId]?.label ?? 'An agent run'}"`,
-    usesRealShell: (sessionId) => !!sessions[sessionId]?.realShell,
-    send: async (sessionId, text, origin) => {
+    label: ({ harnessSessionId }) => `"${sessions[harnessSessionId]?.label ?? 'An agent run'}"`,
+    usesRealShell: ({ harnessSessionId }) => !!sessions[harnessSessionId]?.realShell,
+    send: async ({ sessionRef, harnessSessionId: sessionId }, text, origin) => {
+      if (sessionRef !== sessionRefOf(sessionId)) {
+        return { ok: false, reason: 'wrong-session', message: `${sessionRef} ≠ ${sessionId}` }
+      }
       received.push({ sessionId, text })
       origins.push({ sessionId, origin })
       const session = sessions[sessionId]
@@ -87,9 +96,9 @@ function fakeSessions(sessions: Record<string, FakeSession>, sentMessages: SentM
       if (queued && queued.length > 0) return queued.length > 1 ? queued.shift()! : queued[0]
       return session?.result ?? { ok: true, queuePosition: null }
     },
-    pause: (sessionId) => sessions[sessionId]?.pause ?? null,
-    held: (sessionId, answer) => {
-      held[sessionId] = answer
+    pause: ({ harnessSessionId }) => sessions[harnessSessionId]?.pause ?? null,
+    held: ({ harnessSessionId }, answer) => {
+      held[harnessSessionId] = answer
     },
     onTurnEnd: (listener) => {
       listeners.add(listener)

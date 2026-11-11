@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { ensureSessionFilesDir } from '../persist/sessionMediaFiles'
 import { getGamesDir } from '../persist/userDataPaths'
+import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
 import { mutateSession, onSessionDeleted } from './sessions'
 import type { HarnessGameWorkspace, HarnessSessionRef, SessionFile } from '@/types/sessionIpc'
 
@@ -76,16 +77,35 @@ export async function harnessSessionFor(
   return { harnessSessionId: file.harnessSessions[presetName], workspaceDir }
 }
 
+function harnessSessionsOf(file: SessionFile): string[] {
+  return [
+    ...Object.values(file.harnessSessions),
+    ...file.retiredHarnessSessions,
+    ...file.taskRunHarnessSessions,
+  ]
+}
+
+/** Every Harness Session id → the Session it belongs to. Trial Runs belong to none. */
+export async function harnessSessionOwners(): Promise<Map<string, string>> {
+  const owners = new Map<string, string>()
+  for (const { id } of await listSessionFolders()) {
+    const read = await readSessionFile(id)
+    if (read.status !== 'ok') continue
+    for (const harnessSessionId of harnessSessionsOf(read.file)) owners.set(harnessSessionId, id)
+  }
+  return owners
+}
+
+export async function sessionOfHarnessSession(harnessSessionId: string): Promise<string | null> {
+  return (await harnessSessionOwners()).get(harnessSessionId) ?? null
+}
+
 export type HarnessCleanup = (harnessSessionId: string) => Promise<unknown>
 
 /** Deleting a Session deletes its Harness Sessions' Pi files and records; returns the unsubscribe. */
 export function cleanUpHarnessSessionsOnDelete(cleanup: HarnessCleanup): () => void {
   return onSessionDeleted(async (_id, deleted) => {
-    const ids = [
-      ...Object.values(deleted?.harnessSessions ?? {}),
-      ...(deleted?.retiredHarnessSessions ?? []),
-      ...(deleted?.taskRunHarnessSessions ?? []),
-    ]
+    const ids = deleted ? harnessSessionsOf(deleted) : []
     for (const harnessSessionId of ids) {
       await cleanup(harnessSessionId)
     }

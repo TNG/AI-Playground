@@ -1,14 +1,14 @@
 import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
-import type { ChannelMessageOwner } from '@/types/notificationsIpc'
+import type { AnswerTarget, ChannelMessageOwner } from '@/types/notificationsIpc'
 import { hasAnswerTyping } from '@/lib/answerButton'
 import type { ChannelAdapter } from './adapter'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
 
-/** How sending an Answer into its session went; `queuePosition` is set while it waits its turn. */
-export type AnswerSendResult =
+/** How sending into a Session went; `queuePosition` is set while it waits its turn. */
+export type SessionSendResult =
   { ok: true; queuePosition: number | null } | { ok: false; reason: string; message: string }
 
 /** What a paused session waits on: the download buttons in the channel, or the computer. */
@@ -29,22 +29,26 @@ export type HeldAnswerJournal = {
   save: (notes: HeldAnswerNote[]) => void
 }
 
-/** The agent sessions an Answer can reach; registered by the window's composition file. */
-export type AnswerSessions = {
-  /** The session that sent this channel message, or null when no agent did. */
+/** The Sessions a channel reaches, keyed by Session (`docs/adr/0010`); registered by the window. */
+export type SessionPort = {
+  /** The Session and Harness Session that sent this channel message, or null when none did. */
   lookup: (kind: ChannelKind, ref: string) => Promise<ChannelMessageOwner | null>
-  /** The session's Notification label, quoted (`"Asteroids clone"`, or a Task and its step). */
-  label: (sessionId: string) => string
-  /** The session's folder runs the real system shell, which is never driven from a channel. */
-  usesRealShell: (sessionId: string) => boolean
-  /** `origin` is where the Answer came from; the turn's result is replied under it. */
-  send: (sessionId: string, text: string, origin: AgentAnswerOrigin) => Promise<AnswerSendResult>
-  /** What the session's paused turn waits on, or null when it is not paused. */
-  pause: (sessionId: string) => SessionPause | null
-  /** The session's Held Answer changed; null when it is gone. */
-  held: (sessionId: string, answer: HeldAnswerView | null) => void
-  /** Hear every session's turn end and the desktop's discard; returns the unsubscribe. */
-  onTurnEnd: (listener: (sessionId: string, end: SessionTurnEnd) => void) => () => void
+  /** The Notification label, quoted (`"Asteroids clone"`, or a Task and its step). */
+  label: (target: AnswerTarget) => string
+  /** The folder runs the real system shell, which is never driven from a channel. */
+  usesRealShell: (target: AnswerTarget) => boolean
+  /** `origin` is where the message came from; the turn's result is replied under it. */
+  send: (
+    target: AnswerTarget,
+    message: string,
+    origin: AgentAnswerOrigin,
+  ) => Promise<SessionSendResult>
+  /** What the target's paused turn waits on, or null when it is not paused. */
+  pause: (target: AnswerTarget) => SessionPause | null
+  /** The target's Held Answer changed; null when it is gone. */
+  held: (target: AnswerTarget, answer: HeldAnswerView | null) => void
+  /** Hear every Harness Session's turn end and the desktop's discard; returns the unsubscribe. */
+  onTurnEnd: (listener: (harnessSessionId: string, end: SessionTurnEnd) => void) => () => void
 }
 
 /**
@@ -81,7 +85,7 @@ export type VoiceAnswerPreparation = { ready: boolean } | { downloading: Promise
 
 export type AnswerRouterDeps = {
   /** Null until Agent Mode has registered; replies then reach Home Agent as before. */
-  sessions: () => AnswerSessions | null
+  sessions: () => SessionPort | null
   questions: Pick<ChannelQuestionRegistry, 'handleInbound'>
   /** Home Agent's speech-to-text; null means it failed and already told the channel why. */
   transcribe?: (
@@ -91,7 +95,7 @@ export type AnswerRouterDeps = {
   ) => Promise<string | null>
   prepareVoiceAnswer: (
     adapter: ChannelAdapter,
-    sessionId: string,
+    harnessSessionId: string,
     meta?: InboundMeta,
   ) => Promise<VoiceAnswerPreparation>
   /** The channel an agent's download question is asked on, or null when only the computer asks. */
@@ -114,22 +118,24 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   type Held = {
     adapter: ChannelAdapter
-    sessions: AnswerSessions
+    sessions: SessionPort
+    target: AnswerTarget
     text: string
     origin: AgentAnswerOrigin
     title: string
     meta?: InboundMeta
   }
-  // One per session: a newer Answer replaces the one waiting.
+  // These three are keyed by Harness Session id.
+  // One per Harness Session: a newer Answer replaces the one waiting.
   const held = new Map<string, Held>()
-  // First sends still awaiting their result, flagged when the session's turn ends meanwhile.
+  // First sends still awaiting their result, flagged when the turn ends meanwhile.
   const sending = new Map<string, { turnEnded: boolean }>()
-  // Per session: Answers queued behind a voice Answer's speech model download, kept in order.
+  // Answers queued behind a voice Answer's speech model download, kept in order.
   const waitingBehindDownload = new Map<string, Promise<void>>()
   // Notes from the previous run, reported once their channel is up again.
   let lost = readJournal()
   let unsubscribe: (() => void) | null = null
-  let subscribedTo: AnswerSessions | null = null
+  let subscribedTo: SessionPort | null = null
 
   function readJournal(): HeldAnswerNote[] {
     try {
@@ -156,27 +162,28 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
-  function listen(sessions: AnswerSessions): void {
+  function listen(sessions: SessionPort): void {
     if (subscribedTo === sessions) return
     unsubscribe?.()
     subscribedTo = sessions
-    unsubscribe = sessions.onTurnEnd((sessionId, end) => void settle(sessionId, end))
+    unsubscribe = sessions.onTurnEnd((harnessSessionId, end) => void settle(harnessSessionId, end))
   }
 
-  function setHeld(sessionId: string, next: Held | null): void {
-    const sessions = next?.sessions ?? held.get(sessionId)?.sessions
-    if (next) held.set(sessionId, next)
-    else held.delete(sessionId)
+  function setHeld(target: AnswerTarget, next: Held | null): void {
+    const key = target.harnessSessionId
+    const sessions = next?.sessions ?? held.get(key)?.sessions
+    if (next) held.set(key, next)
+    else held.delete(key)
     writeJournal()
-    sessions?.held(sessionId, next ? { text: next.text, channel: next.adapter.kind } : null)
+    sessions?.held(target, next ? { text: next.text, channel: next.adapter.kind } : null)
   }
 
-  async function hold(entry: Held, sessionId: string): Promise<void> {
+  async function hold(entry: Held): Promise<void> {
     listen(entry.sessions)
-    const earlier = held.get(sessionId)
-    setHeld(sessionId, entry)
+    const earlier = held.get(entry.target.harnessSessionId)
+    setHeld(entry.target, entry)
     const wording = copy()
-    const pause = entry.sessions.pause(sessionId)
+    const pause = entry.sessions.pause(entry.target)
     const template =
       pause === 'download'
         ? downloadHoldTemplate(entry.adapter.kind, wording)
@@ -199,37 +206,37 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return askedOn ? wording.heldDownloadElsewhere : wording.heldDesktop
   }
 
-  async function settle(sessionId: string, end: SessionTurnEnd): Promise<void> {
-    const attempt = sending.get(sessionId)
+  async function settle(harnessSessionId: string, end: SessionTurnEnd): Promise<void> {
+    const attempt = sending.get(harnessSessionId)
     if (attempt) attempt.turnEnded = true
-    const entry = held.get(sessionId)
+    const entry = held.get(harnessSessionId)
     if (!entry) return
     if (end === 'completed' || end === 'failed') {
-      await deliverHeld(entry, sessionId)
+      await deliverHeld(entry)
       return
     }
-    setHeld(sessionId, null)
+    setHeld(entry.target, null)
     const wording = copy()
     const template = end === 'deleted' ? wording.heldSessionGone : wording.heldDesktopTookOver
     await tell(entry.adapter, fillTemplate(template, { title: entry.title }), entry.meta)
   }
 
   /** Sends a Held Answer; still busy (a Task run between two Steps) keeps it held. */
-  async function deliverHeld(entry: Held, sessionId: string): Promise<void> {
-    const result = await send(entry.sessions, sessionId, entry.text, entry.origin)
+  async function deliverHeld(entry: Held): Promise<void> {
+    const result = await send(entry.sessions, entry.target, entry.text, entry.origin)
     if (!result.ok && isHold(result.reason)) return
-    if (held.get(sessionId) === entry) setHeld(sessionId, null)
+    if (held.get(entry.target.harnessSessionId) === entry) setHeld(entry.target, null)
     await confirm(entry.adapter, entry.title, result, entry.meta)
   }
 
   async function send(
-    sessions: AnswerSessions,
-    sessionId: string,
+    sessions: SessionPort,
+    target: AnswerTarget,
     text: string,
     origin: AgentAnswerOrigin,
-  ): Promise<AnswerSendResult> {
+  ): Promise<SessionSendResult> {
     try {
-      return await sessions.send(sessionId, text, origin)
+      return await sessions.send(target, text, origin)
     } catch (e) {
       return { ok: false, reason: 'error', message: e instanceof Error ? e.message : String(e) }
     }
@@ -238,7 +245,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   async function confirm(
     adapter: ChannelAdapter,
     title: string,
-    result: AnswerSendResult,
+    result: SessionSendResult,
     meta?: InboundMeta,
   ): Promise<void> {
     const wording = copy()
@@ -258,28 +265,29 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   /** A refusal answered after the turn already ended is retried, since no later end would free it. */
   async function firstSend(
-    sessions: AnswerSessions,
-    sessionId: string,
+    sessions: SessionPort,
+    target: AnswerTarget,
     text: string,
     origin: AgentAnswerOrigin,
-  ): Promise<AnswerSendResult> {
+  ): Promise<SessionSendResult> {
     listen(sessions)
+    const key = target.harnessSessionId
     const attempt = { turnEnded: false }
-    sending.set(sessionId, attempt)
+    sending.set(key, attempt)
     try {
-      let result: AnswerSendResult
+      let result: SessionSendResult
       do {
         attempt.turnEnded = false
-        result = await send(sessions, sessionId, text, origin)
+        result = await send(sessions, target, text, origin)
       } while (!result.ok && isHold(result.reason) && attempt.turnEnded)
       return result
     } finally {
-      if (sending.get(sessionId) === attempt) sending.delete(sessionId)
+      if (sending.get(key) === attempt) sending.delete(key)
     }
   }
 
   async function answeredSession(
-    sessions: AnswerSessions,
+    sessions: SessionPort,
     kind: ChannelKind,
     ref: string,
   ): Promise<ChannelMessageOwner | null> {
@@ -300,8 +308,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   async function answer(
     adapter: ChannelAdapter,
-    sessions: AnswerSessions,
-    sessionId: string,
+    sessions: SessionPort,
+    target: AnswerTarget,
     text: string,
     replyTarget: string | undefined,
     meta?: InboundMeta,
@@ -310,20 +318,21 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       channel: adapter.kind,
       ...(replyTarget ? { replyTo: replyTarget } : {}),
     }
-    const entry: Held = { adapter, sessions, text, origin, title: sessions.label(sessionId), meta }
+    const title = sessions.label(target)
+    const entry: Held = { adapter, sessions, target, text, origin, title, meta }
     // Sending past a Held Answer would put the newer one first; it replaces it instead.
-    if (held.has(sessionId)) {
-      await hold(entry, sessionId)
+    if (held.has(target.harnessSessionId)) {
+      await hold(entry)
     } else {
-      const result = await firstSend(sessions, sessionId, text, origin)
-      if (!result.ok && isHold(result.reason)) await hold(entry, sessionId)
+      const result = await firstSend(sessions, target, text, origin)
+      if (!result.ok && isHold(result.reason)) await hold(entry)
       else await confirm(adapter, entry.title, result, meta)
     }
   }
 
   async function deliver(
     adapter: ChannelAdapter,
-    sessions: AnswerSessions,
+    sessions: SessionPort,
     owner: ChannelMessageOwner,
     msg: InboundChannelMessage,
     meta?: InboundMeta,
@@ -332,33 +341,37 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (msg.images?.length || msg.documents?.length || msg.refused) {
       return tell(adapter, copy().textOnly, meta)
     }
-    const { sessionId } = owner
-    if (sessions.usesRealShell(sessionId)) {
-      const title = sessions.label(sessionId)
+    const target: AnswerTarget = {
+      sessionRef: owner.sessionRef,
+      harnessSessionId: owner.harnessSessionId,
+    }
+    if (sessions.usesRealShell(target)) {
+      const title = sessions.label(target)
       return tell(adapter, fillTemplate(copy().realShell, { title }), meta)
     }
-    if (waitingBehindDownload.has(sessionId)) {
-      afterDownload(sessionId, () => answerMessage(adapter, sessions, sessionId, msg, meta, true))
+    if (waitingBehindDownload.has(target.harnessSessionId)) {
+      afterDownload(target, () => answerMessage(adapter, sessions, target, msg, meta, true))
       return
     }
-    await answerMessage(adapter, sessions, sessionId, msg, meta, false)
+    await answerMessage(adapter, sessions, target, msg, meta, false)
   }
 
-  /** Runs `work` once the session's earlier Answers are through, off the channel's poll loop. */
-  function afterDownload(sessionId: string, work: () => Promise<void>): void {
-    const next = (waitingBehindDownload.get(sessionId) ?? Promise.resolve())
+  /** Runs `work` once the target's earlier Answers are through, off the channel's poll loop. */
+  function afterDownload(target: AnswerTarget, work: () => Promise<void>): void {
+    const key = target.harnessSessionId
+    const next = (waitingBehindDownload.get(key) ?? Promise.resolve())
       .then(work)
       .catch((e: unknown) => log('answerRouter: voice Answer failed:', e))
-    waitingBehindDownload.set(sessionId, next)
+    waitingBehindDownload.set(key, next)
     void next.then(() => {
-      if (waitingBehindDownload.get(sessionId) === next) waitingBehindDownload.delete(sessionId)
+      if (waitingBehindDownload.get(key) === next) waitingBehindDownload.delete(key)
     })
   }
 
   async function answerMessage(
     adapter: ChannelAdapter,
-    sessions: AnswerSessions,
-    sessionId: string,
+    sessions: SessionPort,
+    target: AnswerTarget,
     msg: InboundChannelMessage,
     meta: InboundMeta | undefined,
     queued: boolean,
@@ -366,28 +379,28 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const audio = msg.audio
     if (!audio?.length || !deps.transcribe) {
       const text = msg.text?.trim() ?? ''
-      if (text) await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
+      if (text) await answer(adapter, sessions, target, text, msg.replyTarget, meta)
       return
     }
     const voiceMsg = { ...msg, audio }
-    const preparation = await deps.prepareVoiceAnswer(adapter, sessionId, meta)
+    const preparation = await deps.prepareVoiceAnswer(adapter, target.harnessSessionId, meta)
     if (!('downloading' in preparation)) {
-      if (preparation.ready) await answerByVoice(adapter, sessions, sessionId, voiceMsg, meta)
+      if (preparation.ready) await answerByVoice(adapter, sessions, target, voiceMsg, meta)
       return
     }
     const { downloading } = preparation
     const finish = async () => {
-      if (await downloading) await answerByVoice(adapter, sessions, sessionId, voiceMsg, meta)
+      if (await downloading) await answerByVoice(adapter, sessions, target, voiceMsg, meta)
     }
     // A download can take minutes: the channel's other messages go on meanwhile.
     if (queued) await finish()
-    else afterDownload(sessionId, finish)
+    else afterDownload(target, finish)
   }
 
   async function answerByVoice(
     adapter: ChannelAdapter,
-    sessions: AnswerSessions,
-    sessionId: string,
+    sessions: SessionPort,
+    target: AnswerTarget,
     msg: InboundChannelMessage & { audio: RemoteAudio[] },
     meta?: InboundMeta,
   ): Promise<void> {
@@ -395,7 +408,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (transcript == null) return
     const text = [msg.text?.trim(), transcript.trim()].filter(Boolean).join(' ')
     if (!text) return tell(adapter, copy().noSpeech, meta)
-    await answer(adapter, sessions, sessionId, text, msg.replyTarget, meta)
+    await answer(adapter, sessions, target, text, msg.replyTarget, meta)
   }
 
   async function route(

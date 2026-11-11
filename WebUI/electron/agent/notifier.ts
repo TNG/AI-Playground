@@ -17,6 +17,7 @@ import { onGeneratedMedia } from './generatedMedia.ts'
 import { readAgentSessionTitle } from '../persist/agentSessionFiles.ts'
 import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
+import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 
@@ -207,6 +208,13 @@ async function deliver(
     const messages = body.media
       ? [{ ...message, media: body.media }]
       : laidOut(kind, answerable(kind, message, sessionId, title), attached.media)
+    const sessionRef = sessionId ? await sessionOfHarnessSession(sessionId) : null
+    if (sessionId && !sessionRef) {
+      appLoggerInstance.warn(
+        `${sessionId} belongs to no Session; an Answer to it reaches Home Agent`,
+        LOG_SOURCE,
+      )
+    }
     const filesNotSent: string[] = []
     for (const [index, next] of messages.entries()) {
       const result = await channel.send(kind, next)
@@ -215,11 +223,13 @@ async function deliver(
         continue
       }
       if (!result.success) return { delivered: false, reason: result.error }
-      if (sessionId && result.ref) {
-        await recordChannelMessage(kind, result.ref, sessionId).catch((error) =>
+      if (!sessionId || !sessionRef) continue
+      if (result.ref) {
+        const owner = { sessionRef, harnessSessionId: sessionId }
+        await recordChannelMessage(kind, result.ref, owner).catch((error) =>
           appLoggerInstance.warn(`notification not recorded: ${error}`, LOG_SOURCE),
         )
-      } else if (sessionId) {
+      } else {
         appLoggerInstance.warn(
           `${kind} returned no message ref; an Answer to it reaches Home Agent`,
           LOG_SOURCE,

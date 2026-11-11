@@ -21,6 +21,7 @@ const isAgentSessionTurn = vi.fn((_key: string | undefined) => false)
 const whenSessionInView = vi.fn(async (_key: string | undefined) => {})
 const whenSessionTurnEnds = vi.fn((_key: string) => new Promise<void>(() => {}))
 const sessionAnswerOrigin = vi.fn((_key: string): AgentAnswerOrigin | undefined => undefined)
+const sessionTurnReachesChannels = vi.fn((_key: string) => true)
 const respondMock = vi.fn(async (_payload: unknown) => {})
 const onPromptMock = vi.fn<(callback: (payload: PermissionsPromptPayload) => void) => () => void>()
 
@@ -74,6 +75,7 @@ vi.mock('@/assets/js/permissions/sessionPromptPort', () => ({
   whenSessionTurnEnds,
   isAgentSessionTurn,
   sessionAnswerOrigin,
+  sessionTurnReachesChannels,
   sessionLabel: (key: string) => `"${key} title"`,
 }))
 
@@ -129,6 +131,7 @@ beforeEach(() => {
   isActive.mockReturnValue(false)
   canAskChannelQuestion.mockReturnValue(false)
   isAgentSessionTurn.mockImplementation((key) => key === SESSION || key === OTHER)
+  sessionTurnReachesChannels.mockReturnValue(true)
   whenSessionInView.mockImplementation(async () => {})
   whenSessionTurnEnds.mockImplementation(() => new Promise<void>(() => {}))
   finals.clear()
@@ -369,6 +372,13 @@ describe('an Agent Mode download asked as a Channel Question', () => {
     await vi.waitFor(() => expect(dialogs).toHaveLength(1))
     expect(askDownloadQuestion).not.toHaveBeenCalled()
     expect(downloadModels).not.toHaveBeenCalled()
+  })
+
+  it('is not asked for a turn whose Session no Channel reaches', async () => {
+    sessionTurnReachesChannels.mockImplementation((key) => key !== SESSION)
+    void download('q13', [X], SESSION)
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1))
+    expect(askDownloadQuestion).not.toHaveBeenCalled()
   })
 
   it('is not asked for a desktop Chat or panel download', async () => {

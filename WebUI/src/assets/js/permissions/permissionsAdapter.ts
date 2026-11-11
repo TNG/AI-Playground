@@ -4,6 +4,7 @@ import {
   isAgentSessionTurn,
   sessionAnswerOrigin,
   sessionLabel,
+  sessionTurnReachesChannels,
   whenSessionInView,
   whenSessionTurnEnds,
 } from './sessionPromptPort'
@@ -147,7 +148,8 @@ function channelQuestionFor(
   alreadyDownloading: DownloadModelParam[],
 ): DownloadChannelQuestion | null {
   const forAnswer = answerDownloadSession(conversationKey) !== null
-  if (!forAnswer && !isAgentSessionTurn(conversationKey)) return null
+  const reaches = isAgentSessionTurn(conversationKey) && sessionTurnReachesChannels(conversationKey)
+  if (!forAnswer && !reaches) return null
   const port = remoteTurnPort()
   if (!port.canAskChannelQuestion()) return null
   const answer = sessionAnswerOrigin(conversationKey)

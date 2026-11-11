@@ -86,6 +86,14 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     .row-user .bubble code { background: rgb(255 255 255 / 0.18); }
     .bubble strong { font-weight: 600; }
     .bubble em { font-style: italic; }
+    .bubble pre { margin: 6px 0; padding: 8px 10px; background: rgb(0 0 0 / 0.06); border-radius: 6px; overflow-x: auto; white-space: pre; }
+    .bubble pre code { background: none; padding: 0; font-size: 13px; }
+    .bubble h1, .bubble h2, .bubble h3, .bubble h4, .bubble h5, .bubble h6 { margin: 8px 0 4px; line-height: 1.3; font-weight: 600; }
+    .bubble h1 { font-size: 1.2em; }
+    .bubble h2 { font-size: 1.1em; }
+    .bubble h3, .bubble h4, .bubble h5, .bubble h6 { font-size: 1em; }
+    .bubble ul, .bubble ol { margin: 4px 0; padding-left: 22px; }
+    .bubble a { color: var(--primary); text-decoration: underline; }
     .sys { align-self: center; font-size: 12px; color: var(--muted-fg); background: var(--muted); padding: 4px 10px; border-radius: 999px; margin: 4px 0; }
     .typing-dots { display: inline-flex; gap: 4px; padding: 4px 0; }
     .typing-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-fg); animation: bounce 1.2s infinite ease-in-out; }
@@ -241,28 +249,96 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
     const EM_OPEN = String.fromCharCode(5)
     const EM_CLOSE = String.fromCharCode(6)
     const EM_RE = new RegExp(EM_OPEN + '([\\s\\S]*?)' + EM_CLOSE, 'g')
-    function renderReasoning(s) {
-      return s.replace(THINK_RE, function (_m, label, body) {
-        const lbl = label.trim()
-        const summary = lbl ? '💭 ' + lbl : '💭 Thinking…'
-        return '<details class="reasoning"><summary>' + summary +
-               '</summary><div class="reasoning-body">' + body + '</div></details>'
-      })
+    function renderReasoning(label, bodyHtml) {
+      const lbl = label.trim()
+      const summary = lbl ? '💭 ' + lbl : '💭 Thinking…'
+      return '<details class="reasoning"><summary>' + summary +
+             '</summary><div class="reasoning-body">' + bodyHtml + '</div></details>'
     }
+    // Only these schemes become anchors; anything else (javascript:, data:) stays text.
+    const SAFE_LINK_RE = /^(?:https?:|mailto:)/i
+    // Code spans are set aside first so nothing inside them is read as markup.
+    const CODE_SLOT = String.fromCharCode(16)
+    const CODE_SLOT_RE = new RegExp(CODE_SLOT + '(\\d+)' + CODE_SLOT, 'g')
+    function renderInline(s) {
+      const spans = []
+      s = s.replace(/`([^`]+)`/g, function (_m, code) {
+        spans.push('<code>' + code + '</code>')
+        return CODE_SLOT + (spans.length - 1) + CODE_SLOT
+      })
+      s = s.replace(EM_RE, '<em>$1</em>')
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      s = s.replace(/\[([^\]\n]+)\]\(([^)\s<]+)\)/g, function (m, text, url) {
+        if (!SAFE_LINK_RE.test(url)) return m
+        return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>'
+      })
+      return s.replace(CODE_SLOT_RE, function (_m, n) { return spans[n] })
+    }
+    const FENCE_RE = /^\s{0,3}```/
+    const HEADING_RE = /^(#{1,6})\s+(.+)$/
+    const BULLET_RE = /^\s*[-*+]\s+(.*)$/
+    const NUMBERED_RE = /^\s*(\d+)[.)]\s+(.*)$/
+    // Takes already-escaped text. An unclosed fence runs to the end, so a streaming
+    // draft shows its code block while it grows.
+    function renderMarkdown(s) {
+      const lines = s.split('\n')
+      const out = []
+      let text = []
+      const flushText = function () {
+        if (text.length) out.push(renderInline(text.join('\n')).replace(/\n/g, '<br>'))
+        text = []
+      }
+      let i = 0
+      while (i < lines.length) {
+        const line = lines[i]
+        let m
+        if (FENCE_RE.test(line)) {
+          flushText()
+          const code = []
+          i++
+          while (i < lines.length && !FENCE_RE.test(lines[i])) code.push(lines[i++])
+          i++
+          out.push('<pre><code>' + code.join('\n') + '</code></pre>')
+        } else if ((m = HEADING_RE.exec(line))) {
+          flushText()
+          const level = m[1].length
+          out.push('<h' + level + '>' + renderInline(m[2]) + '</h' + level + '>')
+          i++
+        } else if (BULLET_RE.test(line) || NUMBERED_RE.test(line)) {
+          flushText()
+          const first = NUMBERED_RE.exec(line)
+          const itemRe = first ? NUMBERED_RE : BULLET_RE
+          const items = []
+          while (i < lines.length && (m = itemRe.exec(lines[i]))) {
+            items.push('<li>' + renderInline(m[m.length - 1]) + '</li>')
+            i++
+          }
+          const start = first && first[1] !== '1' ? ' start="' + Number(first[1]) + '"' : ''
+          out.push(first ? '<ol' + start + '>' + items.join('') + '</ol>'
+                         : '<ul>' + items.join('') + '</ul>')
+        } else {
+          text.push(line)
+          i++
+        }
+      }
+      flushText()
+      return out.join('')
+    }
+    const BLOCK_TAGS = '(?:details|pre|ul|ol|h[1-6])'
+    // Block elements carry their own spacing; <br>s hugging them would leave a gap.
+    const BR_BEFORE_BLOCK_RE = new RegExp('(?:<br>\\s*)+(<' + BLOCK_TAGS + '[\\s>])', 'g')
+    const BR_AFTER_BLOCK_RE = new RegExp('(</' + BLOCK_TAGS + '>)(?:\\s*<br>)+', 'g')
     function formatBotText(raw) {
       if (!raw) return ''
-      let s = escapeHtml(raw)
-      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      s = s.replace(/`([^`]+)`/g, '<code>$1</code>')
-      s = s.replace(EM_RE, '<em>$1</em>')
-      s = s.replace(/\n/g, '<br>')
-      // Rewrite reasoning sentinels last so the block body already carries the
-      // inline (bold/code/italic) + <br> formatting applied above.
-      s = renderReasoning(s)
-      // The reasoning block is block-level; strip <br>s hugging it so there is
-      // no big empty gap between the thinking block and the answer text.
-      s = s.replace(/(?:<br>\s*)+(<details)/g, '$1').replace(/(<\/details>)(?:\s*<br>)+/g, '$1')
-      return s
+      const s = escapeHtml(raw)
+      let html = ''
+      let last = 0
+      for (const m of s.matchAll(THINK_RE)) {
+        html += renderMarkdown(s.slice(last, m.index)) + renderReasoning(m[1], renderMarkdown(m[2]))
+        last = m.index + m[0].length
+      }
+      html += renderMarkdown(s.slice(last))
+      return html.replace(BR_BEFORE_BLOCK_RE, '$1').replace(BR_AFTER_BLOCK_RE, '$1')
     }
     function timeNow() {
       const d = new Date()

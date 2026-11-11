@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Schedules and Channel starts belong to the saved Agent, not its Draft: each change here is
+// Schedules belong to the saved Agent, not its Draft: each change here is
 // written at once.
 import { computed, ref } from 'vue'
 import { PencilSquareIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
@@ -54,10 +54,6 @@ const rows = computed(() =>
     }),
 )
 
-const startableFromChannel = computed(
-  () => agentTasks.tasks.find((task) => task.id === props.agent.id)?.startableFromChannel === true,
-)
-
 const addable = computed(() =>
   agentTasks
     .schedulableSessions(props.agent.id)
@@ -105,21 +101,6 @@ function add(): void {
       {{ i18n.AGENT_LIBRARY_SCHEDULES_SAVE_FIRST }}
     </p>
     <TooltipProvider v-else :delay-duration="200">
-      <label class="flex max-w-xl items-start gap-3 rounded-md bg-muted px-3 py-2">
-        <Switch
-          :model-value="startableFromChannel"
-          :aria-label="i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL"
-          @update:model-value="
-            (startable: boolean) => agentTasks.setStartableFromChannel(agent.id, startable)
-          "
-        />
-        <span class="flex min-w-0 flex-1 flex-col">
-          <span class="text-sm">{{ i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL }}</span>
-          <span class="text-xs text-muted-foreground">
-            {{ i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL_INFO }}
-          </span>
-        </span>
-      </label>
       <ul v-if="rows.length > 0" class="flex max-w-xl flex-col gap-1">
         <li
           v-for="row in rows"

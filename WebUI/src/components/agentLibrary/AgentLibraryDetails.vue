@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useAgentTasks, type LibraryAgent } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { createAppError } from '@/assets/js/errors/appError'
 import { presetIconFromFile } from '@/lib/presetIcon'
@@ -15,6 +16,10 @@ const props = defineProps<{ agent: LibraryAgent }>()
 const agentTasks = useAgentTasks()
 const errors = useErrors()
 const i18n = useI18N().state
+
+const startableFromChannel = computed(
+  () => agentTasks.tasks.find((task) => task.id === props.agent.id)?.startableFromChannel === true,
+)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -66,6 +71,31 @@ async function pickImage(event: Event): Promise<void> {
         "
       />
     </div>
+    <!-- Written at once to the saved Agent, unlike the Draft fields around it. -->
+    <label
+      class="flex max-w-xl items-start gap-3 rounded-md bg-muted px-3 py-2"
+      :class="{ 'opacity-60': !agent.saved }"
+    >
+      <Switch
+        :model-value="startableFromChannel"
+        :disabled="!agent.saved"
+        :aria-label="i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL"
+        aria-describedby="agent-library-startable-info"
+        @update:model-value="
+          (startable: boolean) => agentTasks.setStartableFromChannel(agent.id, startable)
+        "
+      />
+      <span class="flex min-w-0 flex-1 flex-col">
+        <span class="text-sm">{{ i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL }}</span>
+        <span id="agent-library-startable-info" class="text-xs text-muted-foreground">
+          {{
+            agent.saved
+              ? i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL_INFO
+              : i18n.AGENT_LIBRARY_STARTABLE_FROM_CHANNEL_SAVE_FIRST
+          }}
+        </span>
+      </span>
+    </label>
     <div class="flex flex-col gap-1.5">
       <span id="agent-library-image" class="text-sm font-medium">
         {{ i18n.AGENT_LIBRARY_IMAGE }}

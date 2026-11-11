@@ -27,11 +27,18 @@ import {
   type QueuedEntry,
 } from './channelQueue'
 import { createChannelSessions } from './channelSessions'
+import { createChannelAgents } from './channelAgents'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
 
 /** How sending into a Session went; `queuePosition` is set while it waits its turn. */
 export type SessionSendResult =
   { ok: true; queuePosition: number | null } | { ok: false; reason: string; message: string }
+
+/** How starting an Agent Run went; a busy Session takes the start once its turn ends. */
+export type AgentStartResult = { ok: true } | { ok: false; reason: string; message: string }
+
+/** An Agent marked "Can be started from a Channel". */
+export type StartableAgent = { agentId: string; name: string }
 
 /** What a paused turn waits on: the download buttons in the channel, or the computer. */
 export type SessionPause = 'download' | 'desktop'
@@ -88,6 +95,17 @@ export type SessionPort = {
     message: string,
     origin: AgentAnswerOrigin,
   ) => Promise<SessionSendResult>
+  /** The Agents marked "Can be started from a Channel", in the Agent Library's order. */
+  listStartableAgents: () => Promise<StartableAgent[]>
+  /**
+   * Starts an Agent Run of the Agent in the Session on its Settings Template; the run's result is
+   * replied under `origin`.
+   */
+  startAgent: (
+    sessionRef: string,
+    agentId: string,
+    origin: AgentAnswerOrigin,
+  ) => Promise<AgentStartResult>
   /** The Session's turn in flight, or its Agent Run (also between Steps). */
   activity: (sessionRef: string) => SessionActivity
   /** Stops the Session's turn or Agent Run, the run's next Step included; returns what it was. */
@@ -153,14 +171,13 @@ export type AnswerRouterDeps = {
 // Refusals the user can only clear on the computer, so the reply says where to go.
 const FIXED_ON_DESKTOP = new Set(['missing-folder', 'settings-problems'])
 
-/** A message waiting for its Session's turn or Agent Run to end. */
+/** A message, or an Agent start, waiting for its Session's turn or Agent Run to end. */
 type QueuedMessage = {
   adapter: ChannelAdapter
   target: SessionTarget
-  message: ChannelTurnMessage
   origin: AgentAnswerOrigin
   meta?: InboundMeta
-}
+} & ({ message: ChannelTurnMessage } | { agent: StartableAgent })
 
 export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
@@ -168,6 +185,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const downloadQuestionChannels = deps.downloadQuestionChannels ?? (() => [])
 
   const queue = createChannelQueue<QueuedMessage>({ onChange: deps.publishQueue })
+  let agentStarts = 0
   // Sessions whose next queued batch is being sent.
   const draining = new Set<string>()
   // Per Channel: its messages behind a voice message whose speech model downloads, in order.
@@ -219,6 +237,55 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
+  async function startAgent(
+    sessions: SessionPort,
+    sessionRef: string,
+    agent: StartableAgent,
+    origin: AgentAnswerOrigin,
+  ): Promise<AgentStartResult> {
+    try {
+      return await sessions.startAgent(sessionRef, agent.agentId, origin)
+    } catch (e) {
+      return { ok: false, reason: 'error', message: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  /** The Notifier says an Agent Run started, once its first Step runs; only a refusal is told here. */
+  async function confirmStart(
+    sessions: SessionPort,
+    entry: QueuedMessage & { agent: StartableAgent },
+    result: AgentStartResult,
+  ): Promise<void> {
+    if (result.ok) return
+    const wording = copy()
+    const title = sessions.label(entry.target)
+    const notStarted = fillTemplate(wording.agentNotStarted, {
+      name: entry.agent.name,
+      title,
+      reason: result.message,
+    })
+    const fixable = FIXED_ON_DESKTOP.has(result.reason)
+    await tell(
+      entry.adapter,
+      fixable ? `${notStarted}\n${wording.agentFixOnDesktop}` : notStarted,
+      entry.meta,
+    )
+  }
+
+  /** True when the Session turned out busy, so the entry has to wait for it. */
+  async function run(sessions: SessionPort, entry: QueuedMessage, text?: string): Promise<boolean> {
+    if ('agent' in entry) {
+      const result = await startAgent(sessions, entry.target.sessionRef, entry.agent, entry.origin)
+      if (!result.ok && isBusy(result.reason)) return true
+      await confirmStart(sessions, entry, result)
+      return false
+    }
+    const result = await send(sessions, entry.target, text ?? entry.message.text, entry.origin)
+    if (!result.ok && isBusy(result.reason)) return true
+    await confirm(entry.adapter, sessions.label(entry.target), result, entry.meta)
+    return false
+  }
+
   /** Sends a Channel's message into its Session, or queues it while the Session is busy. */
   async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<void> {
     listen(sessions)
@@ -230,9 +297,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     ) {
       return enqueue(sessions, entry)
     }
-    const result = await send(sessions, entry.target, entry.message.text, entry.origin)
-    if (!result.ok && isBusy(result.reason)) return enqueue(sessions, entry)
-    await confirm(entry.adapter, sessions.label(entry.target), result, entry.meta)
+    if (await run(sessions, entry)) return enqueue(sessions, entry)
   }
 
   async function enqueue(sessions: SessionPort, entry: QueuedMessage): Promise<void> {
@@ -241,8 +306,13 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const title = sessions.label(entry.target)
     const position = queue.add(sessionRef, {
       channel: entry.adapter.kind,
-      batchKey: 'harnessSessionId' in entry.target ? entry.target.harnessSessionId : sessionRef,
-      preview: entry.message.text,
+      batchKey:
+        'agent' in entry
+          ? `agent-start-${++agentStarts}`
+          : 'harnessSessionId' in entry.target
+            ? entry.target.harnessSessionId
+            : sessionRef,
+      preview: 'agent' in entry ? `/agents ${entry.agent.name}` : entry.message.text,
       item: entry,
     })
     if (position === null) {
@@ -299,16 +369,12 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     batch: QueuedEntry<QueuedMessage>[],
   ): Promise<boolean> {
     const last = batch[batch.length - 1].item
-    const message = combineMessages(batch.map((entry) => entry.item.message))
+    const messages = batch.flatMap(({ item }) => ('message' in item ? [item.message] : []))
     const replyTo = batch.findLast((entry) => entry.item.origin.replyTo)?.item.origin.replyTo
     const origin = { ...last.origin, ...(replyTo ? { replyTo } : {}) }
-    const result = await send(sessions, last.target, message.text, origin)
-    if (!result.ok && isBusy(result.reason)) {
-      queue.putBack(sessionRef, batch)
-      return true
-    }
-    await confirm(last.adapter, sessions.label(last.target), result, last.meta)
-    return false
+    const busy = await run(sessions, { ...last, origin }, combineMessages(messages).text)
+    if (busy) queue.putBack(sessionRef, batch)
+    return busy
   }
 
   /** Drops the Session's queue, telling each Channel but `except` how many of its messages went. */
@@ -359,17 +425,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       .catch((e: unknown) => log('answerRouter: confirmation failed:', e))
   }
 
-  async function answer(
-    adapter: ChannelAdapter,
-    sessions: SessionPort,
-    target: AnswerTarget,
-    text: string,
-    origin: AgentAnswerOrigin,
-    meta?: InboundMeta,
-  ): Promise<void> {
-    await submit(sessions, { adapter, target, message: { text }, origin, meta })
-  }
-
   async function deliver(
     adapter: ChannelAdapter,
     sessions: SessionPort,
@@ -394,7 +449,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
     const prompt = await attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta)
     if (prompt === null) return
-    await answer(adapter, sessions, target, prompt, inboundOrigin(adapter.kind, msg), meta)
+    const origin = inboundOrigin(adapter.kind, msg)
+    await submit(sessions, { adapter, target, message: { text: prompt }, origin, meta })
   }
 
   function channelSessions(sessions: SessionPort) {
@@ -407,6 +463,19 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
         submit(sessions, { adapter, target, message, origin, meta }),
       attach: (adapter, target, msg, meta) =>
         attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta),
+      log,
+    })
+  }
+
+  function channelAgents(sessions: SessionPort) {
+    const forSessions = channelSessions(sessions)
+    return createChannelAgents({
+      listStartable: () => sessions.listStartableAgents(),
+      channelSession: (adapter, meta) => forSessions.currentOrNew(adapter, meta),
+      start: (adapter, sessionRef, agent, origin, meta) =>
+        submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta }),
+      copy,
+      tell,
       log,
     })
   }
@@ -492,8 +561,12 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const parsed = parseCommand(msg.text ?? '')
     if (!parsed) return false
     listen(sessions)
-    const own = channelSessions(sessions).commands
-    const commands: ChannelCommand[] = [...own, stopCommand(sessions), helpCommand(() => commands)]
+    const commands: ChannelCommand[] = [
+      ...channelSessions(sessions).commands,
+      ...channelAgents(sessions).commands,
+      stopCommand(sessions),
+      helpCommand(() => commands),
+    ]
     const command = commands.find((entry) => entry.name === parsed.name.toLowerCase())
     if (!command) {
       const unknown = fillTemplate(copy().unknownCommand, { command: `/${parsed.name}` })
@@ -511,9 +584,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     meta?: InboundMeta,
   ): Promise<boolean> {
     const data = msg.callback ?? ''
-    const callback = channelSessions(sessions).callbacks.find((entry) =>
-      data.startsWith(entry.prefix),
-    )
+    const callbacks = [...channelSessions(sessions).callbacks, ...channelAgents(sessions).callbacks]
+    const callback = callbacks.find((entry) => data.startsWith(entry.prefix))
     if (!callback) return false
     await callback.run({ adapter, msg, meta }, data.slice(callback.prefix.length))
     return true

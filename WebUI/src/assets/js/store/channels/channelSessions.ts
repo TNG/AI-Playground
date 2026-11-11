@@ -71,7 +71,7 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
   ): Promise<void> {
     const hasFiles = !!(msg.images?.length || msg.documents?.length)
     if (!msg.text?.trim() && !hasFiles) return
-    const sessionRef = (await current(adapter, meta)) ?? (await startSession(adapter, meta))
+    const sessionRef = await currentOrNew(adapter, meta)
     if (!sessionRef) return
     const prompt = await deps.attach(adapter, { sessionRef }, msg, meta)
     if (prompt === null) return
@@ -165,7 +165,12 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     },
   ]
 
-  return { plainMessage, current, commands, callbacks }
+  /** The Channel Session, or a new one when the Channel has none (as a plain message makes). */
+  async function currentOrNew(adapter: ChannelAdapter, meta?: InboundMeta) {
+    return (await current(adapter, meta)) ?? (await startSession(adapter, meta))
+  }
+
+  return { plainMessage, current, currentOrNew, commands, callbacks }
 }
 
 function plainText(parts: RawPart[]): string {

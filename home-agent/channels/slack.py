@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import HOME_AGENT_COMMANDS
+from .commands import COMMAND_CALLBACKS, HOME_AGENT_COMMANDS, command_for_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -666,31 +666,25 @@ class SlackChannel(ChannelBase):
                     {"chat_id": user, "channel": channel, "callback": value}
                 )
 
-            @bolt_app.action(re.compile(r"^loadConv:"))
-            async def on_loadconv_action(ack, body, action):  # type: ignore[no-untyped-def]
+            async def on_command_action(ack, body, action):  # type: ignore[no-untyped-def]
                 await ack()
                 user = (body.get("user") or {}).get("id") or ""
                 channel = (body.get("channel") or {}).get("id") or ""
                 await _maybe_remember_user(user, channel)
                 if self._allowed_user_id and user != self._allowed_user_id:
                     logger.warning(
-                        "Ignoring loadConv action from unauthorized user_id: %s", user
+                        "Ignoring command action from unauthorized user_id: %s", user
                     )
                     return
                 value = action.get("value") or action.get("action_id") or ""
-                key = (
-                    value[len("loadConv:") :]
-                    if value.startswith("loadConv:")
-                    else value
-                )
-                logger.info("Slack loadConv action: user=%s key=%s", user, key)
-                self.queue_append(
-                    {
-                        "text": f"/load {key}".strip(),
-                        "chat_id": user,
-                        "channel": channel,
-                    }
-                )
+                text = command_for_callback(value)
+                if text is None:
+                    return
+                logger.info("Slack command action: user=%s %r", user, text)
+                self.queue_append({"text": text, "chat_id": user, "channel": channel})
+
+            for prefix in COMMAND_CALLBACKS:
+                bolt_app.action(re.compile(f"^{re.escape(prefix)}"))(on_command_action)
 
             handler = AsyncSocketModeHandler(bolt_app, app_token)
             try:

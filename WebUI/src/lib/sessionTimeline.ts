@@ -937,6 +937,7 @@ export function agentRunControls<M, A>(turn: SessionTimelineItem<M, A>): AgentRu
 function openRun(key: string, id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {
   const agentRun: AgentRunIdentity = {
     trigger: taskRun.trigger ?? 'manual',
+    ...(taskRun.channel ? { channel: taskRun.channel } : {}),
     name: taskRun.taskName,
     startedAt: taskRun.startedAt,
     ...(taskRun.taskId ? { agentId: taskRun.taskId } : {}),

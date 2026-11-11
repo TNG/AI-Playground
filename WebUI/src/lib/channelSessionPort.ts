@@ -111,8 +111,11 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     } catch (error) {
       return { ok: false, reason: 'error', message: extractMessage(error) }
     }
+    // Answering an Agent Run's result continues that run, as a Follow-up.
+    const followUp =
+      'harnessSessionId' in target ? agentTasks.followUpOf(harnessSessionId) : undefined
     const result = await agentMode.sendToSession(harnessSessionId, message, {
-      useStoredSettings: true,
+      ...(followUp ?? { useStoredSettings: true }),
       answer,
     })
     if (!result.ok) return { ok: false, reason: result.reason, message: result.message }
@@ -219,6 +222,9 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       return !!record && agentMode.isUnsandboxed(record.workspaceDir)
     },
     send,
+    listStartableAgents: async () => agentTasks.startableAgents,
+    startAgent: (sessionRef, agentId, origin) =>
+      agentTasks.startFromChannel(agentId, sessionRef, origin),
     activity,
     stop,
     onSessionChange: (listener) => {

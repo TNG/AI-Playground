@@ -112,6 +112,8 @@ describe('the channel message map', () => {
           sent.push({ target, message, origin })
           return { ok: true, queuePosition: null }
         },
+        listStartableAgents: async () => [],
+        startAgent: async () => ({ ok: false, reason: 'no-task', message: '' }),
         activity: () => ({ kind: 'idle' }),
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},

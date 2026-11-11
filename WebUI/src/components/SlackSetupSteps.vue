@@ -271,6 +271,12 @@ const MANIFEST_JSON = JSON.stringify(
         },
         { command: '/new', description: 'Start a new Session', should_escape: false },
         {
+          command: '/agents',
+          description: 'List the agents you can start, or start one by name',
+          usage_hint: '[name]',
+          should_escape: false,
+        },
+        {
           command: '/stop',
           description: 'Stop the running turn or Agent Run and drop queued messages',
           should_escape: false,

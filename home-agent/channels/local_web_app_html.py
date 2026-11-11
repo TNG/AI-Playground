@@ -728,6 +728,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       { cmd: '/sessions', desc: 'Pick one of your Reachable Sessions', send: true },
       { cmd: '/load', desc: 'Continue a Session from the /sessions list', send: true },
       { cmd: '/new', desc: 'Start a new Session', send: true },
+      { cmd: '/agents', desc: 'List the agents you can start from here', send: true },
       { cmd: '/stop', desc: 'Stop the running turn and drop queued messages', send: true },
       { cmd: '/help', desc: 'Show all commands', send: true },
     ]

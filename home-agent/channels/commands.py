@@ -12,7 +12,8 @@ here and must be kept in sync by hand — see AGENTS.md "Home Agent slash
 commands" for the full checklist:
 
   * the router's command table in `WebUI/src/assets/js/store/channels/`
-    (`answerRouter.ts`, `channelSessions.ts`: the behavior and the `/help` text), and
+    (`answerRouter.ts`, `channelSessions.ts`, `channelAgents.ts`: the behavior
+    and the `/help` text), and
   * the Slack app manifest in `WebUI/src/components/SlackSetupSteps.vue`
     (`slash_commands`), which the user copies into Slack.
 """
@@ -68,6 +69,23 @@ HOME_AGENT_COMMANDS: tuple[HomeAgentCommand, ...] = (
     ),
     HomeAgentCommand("new", "Start a new Session"),
     HomeAgentCommand(
+        "agents",
+        "List the agents you can start, or start one by name",
+        takes_args=True,
+    ),
+    HomeAgentCommand(
         "stop", "Stop the running turn or Agent Run and drop queued messages"
     ),
 )
+
+# A tap on a router button with one of these prefixes is forwarded as that command,
+# its value the argument. Telegram and Slack only deliver taps on known prefixes.
+COMMAND_CALLBACKS: dict[str, str] = {"loadConv:": "/load", "runAgent:": "/agents"}
+
+
+def command_for_callback(data: str) -> str | None:
+    """The command a tapped router button stands for; None for any other button."""
+    for prefix, command in COMMAND_CALLBACKS.items():
+        if data.startswith(prefix):
+            return f"{command} {data[len(prefix) :]}".strip()
+    return None

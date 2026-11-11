@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import HOME_AGENT_COMMANDS
+from .commands import COMMAND_CALLBACKS, HOME_AGENT_COMMANDS, command_for_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -607,7 +607,7 @@ class TelegramChannel(ChannelBase):
             logger.info("Telegram answer callback: chat_id=%s", chat_id)
             self.queue_append(answer_callback_item(cq))
 
-        async def handle_load_callback(
+        async def handle_command_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
         ) -> None:
             cq = update.callback_query
@@ -623,18 +623,17 @@ class TelegramChannel(ChannelBase):
                 try:
                     await cq.answer()
                 except Exception as exc:
-                    logger.debug("loadConv unauthorized ack failed: %s", exc)
+                    logger.debug("command callback unauthorized ack failed: %s", exc)
                 return
             data = cq.data or ""
             try:
                 await cq.answer()
             except Exception as exc:
                 logger.warning("Failed to ack callback_query: %s", exc)
-            if not data.startswith("loadConv:"):
+            full_text = command_for_callback(data)
+            if full_text is None:
                 return
-            key = data[len("loadConv:") :]
-            full_text = f"/load {key}".strip()
-            logger.info("Telegram load-menu callback: chat_id=%s key=%r", chat_id, key)
+            logger.info("Telegram command callback: chat_id=%s %r", chat_id, full_text)
             self.queue_append({"text": full_text, "chat_id": chat_id})
 
         async def handle_photo(
@@ -822,9 +821,12 @@ class TelegramChannel(ChannelBase):
                         ),
                     )
                 )
-            application.add_handler(
-                CallbackQueryHandler(handle_load_callback, pattern=r"^loadConv:")
-            )
+            for prefix in COMMAND_CALLBACKS:
+                application.add_handler(
+                    CallbackQueryHandler(
+                        handle_command_callback, pattern=f"^{re.escape(prefix)}"
+                    )
+                )
             application.add_handler(
                 CallbackQueryHandler(handle_imggen_callback, pattern=r"^imgGen:")
             )

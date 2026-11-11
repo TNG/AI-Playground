@@ -68,6 +68,7 @@ export type AnswerRouterCopy = {
   helpLoad: string
   helpNew: string
   helpStop: string
+  helpAgents: string
   helpHelp: string
   helpPlain: string
   /** Above the `/sessions` buttons */
@@ -82,6 +83,15 @@ export type AnswerRouterCopy = {
   sessionLost: string
   /** `{reason}` */
   sessionNotCreated: string
+  /** Above the `/agents` buttons */
+  agentsPick: string
+  agentsNone: string
+  /** `{name}`, what the user asked `/agents` for */
+  agentNotFound: string
+  /** `{name}` (the Agent), `{title}` (a quoted Session title), `{reason}` */
+  agentNotStarted: string
+  /** Follows `agentNotStarted` when the reason can only be fixed on the computer. */
+  agentFixOnDesktop: string
   /** `{command}` */
   unknownCommand: string
   untitled: string
@@ -132,6 +142,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   helpLoad: 'CHANNEL_HELP_LOAD',
   helpNew: 'CHANNEL_HELP_NEW',
   helpStop: 'CHANNEL_HELP_STOP',
+  helpAgents: 'CHANNEL_HELP_AGENTS',
   helpHelp: 'CHANNEL_HELP_HELP',
   helpPlain: 'CHANNEL_HELP_PLAIN',
   sessionsPick: 'CHANNEL_SESSIONS_PICK',
@@ -141,6 +152,11 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   sessionNotFound: 'CHANNEL_SESSION_NOT_FOUND',
   sessionLost: 'CHANNEL_SESSION_LOST',
   sessionNotCreated: 'CHANNEL_SESSION_NOT_CREATED',
+  agentsPick: 'CHANNEL_AGENTS_PICK',
+  agentsNone: 'CHANNEL_AGENTS_NONE',
+  agentNotFound: 'CHANNEL_AGENT_NOT_FOUND',
+  agentNotStarted: 'CHANNEL_AGENT_NOT_STARTED',
+  agentFixOnDesktop: 'CHANNEL_AGENT_FIX_ON_DESKTOP',
   unknownCommand: 'CHANNEL_UNKNOWN_COMMAND',
   untitled: 'SESSIONS_UNTITLED',
 }

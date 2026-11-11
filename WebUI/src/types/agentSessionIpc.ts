@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { llmBackendTypes } from './shared'
 
 /**
@@ -68,7 +69,9 @@ export const AgentRunTagSchema = z.object({
   taskId: z.string().optional(),
   taskName: z.string(),
   startedAt: z.number(),
-  trigger: z.enum(['manual', 'scheduled']).optional(),
+  trigger: z.enum(['manual', 'scheduled', 'channel']).optional(),
+  /** The Channel a `channel` run was started from. */
+  channel: ChannelKindSchema.optional(),
   /** What the user typed for this run, folded into Step 1. */
   input: z.string().optional(),
   end: z.object({ kind: z.enum(['failed', 'stopped']), message: z.string().optional() }).optional(),

@@ -96,6 +96,7 @@ export type TurnDetails = {
 /** Which Agent ran and what started it, shown in its Turn's prompt bubble. */
 export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
   trigger: NonNullable<AgentRunTag['trigger']>
+  channel?: AgentRunTag['channel']
   name: string
   agentId?: string
 }

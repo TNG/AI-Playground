@@ -127,6 +127,10 @@ const languages = i18nStore.state
 function runLabel(run: AgentRunIdentity): string {
   if (run.trigger === 'manual')
     return fillTemplate(languages.AGENT_RUN_PROMPT_MANUAL, { name: run.name })
+  if (run.trigger === 'channel' && run.channel) {
+    const channel = getDescriptor(run.channel)?.displayName ?? run.channel
+    return fillTemplate(languages.AGENT_RUN_PROMPT_CHANNEL, { name: run.name, channel })
+  }
   const time = formatRunTime(run.startedAt, i18nStore.langName)
   return fillTemplate(languages.AGENT_RUN_PROMPT_SCHEDULED, { time })
 }

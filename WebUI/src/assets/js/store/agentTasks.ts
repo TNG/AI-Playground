@@ -1,7 +1,11 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, reactive, ref, shallowRef, watch } from 'vue'
-import { MODEL_DOWNLOAD_DECLINED, promptHasImageAttachment } from '@/types/agentIpc'
-import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import {
+  MODEL_DOWNLOAD_DECLINED,
+  promptHasImageAttachment,
+  type AgentAnswerOrigin,
+} from '@/types/agentIpc'
+import type { AgentFollowUpTag, AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionSummary } from '@/types/sessionIpc'
@@ -52,6 +56,12 @@ import {
 } from '@/lib/sessionSettingsProblems'
 
 export type TaskDraft = { name: string; steps: AgentTaskStep[] }
+
+/** How starting an Agent Run from a Channel went; a busy Session takes it once its turn ends. */
+export type ChannelStartResult =
+  | { ok: true }
+  | { ok: false; reason: 'no-task' | 'busy' | 'task-locked' | 'not-started'; message: string }
+  | { ok: false; reason: 'settings-problems'; message: string }
 
 /** What the Agent Library edits on an Agent; it goes to the Agent's Draft. */
 export type AgentDraftEdit = Partial<
@@ -214,7 +224,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
   const runContexts: Record<
     string,
-    { plan: AgentTask; abort: AbortController; scheduled: boolean; prompt?: string }
+    {
+      plan: AgentTask
+      abort: AbortController
+      scheduled: boolean
+      prompt?: string
+      origin?: AgentAnswerOrigin
+    }
   > = {}
 
   /** Runs (by `runSlot`) whose ▶ Run is still being checked, possibly waiting on a download. */
@@ -1046,7 +1062,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const task = stillScheduled(id, sessionRef)
     if (!task) return
     const refusal = scheduledRefusal(task)
-    if (!refusal) return startRun(task, sessionRef, true)
+    if (!refusal) {
+      await startRun(task, sessionRef, true)
+      return
+    }
     await recordNotStarted(task, refusal, true)
   }
 
@@ -1084,13 +1103,92 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return null
   }
 
-  /** A run gets a fresh Harness Session in its Session, so it carries no earlier context. */
+  /** The Agents `/agents` lists on a Channel. */
+  const startableAgents = computed(() =>
+    tasks.value
+      .filter((task) => task.startableFromChannel)
+      .map((task) => ({ agentId: task.id, name: task.name })),
+  )
+
+  /** Lets a Channel list and start the Agent, or no longer; written at once like a Schedule. */
+  async function setStartableFromChannel(id: string, startable: boolean): Promise<boolean> {
+    const saved = tasks.value.find((entry) => entry.id === id)
+    if (!saved) return false
+    const { startableFromChannel: _was, ...rest } = saved
+    const task = replaceTask(startable ? { ...rest, startableFromChannel: true } : rest)
+    if (await persistTask(task)) return true
+    const latest = tasks.value.find((entry) => entry.id === id)
+    if (latest) replaceTask({ ...latest, startableFromChannel: saved.startableFromChannel })
+    return false
+  }
+
+  /**
+   * An Agent Run a Channel asked for, in that Channel's Session on the Agent's Settings Template.
+   * Like a Scheduled Run nobody watches, a missing model is asked for by its first Step.
+   */
+  async function startFromChannel(
+    id: string,
+    sessionRef: string,
+    origin: AgentAnswerOrigin,
+  ): Promise<ChannelStartResult> {
+    const notStartable = () => ({
+      ok: false as const,
+      reason: 'no-task' as const,
+      message:
+        i18n.state.AGENT_TASK_NOT_STARTABLE_FROM_CHANNEL ??
+        'This agent can no longer be started from a Channel.',
+    })
+    const slot = runSlot(id, sessionRef)
+    if (!tasks.value.find((entry) => entry.id === id)?.startableFromChannel) return notStartable()
+    const running = agentRunIn(sessionRef)
+    if (running || starting.has(slot) || minting.has(slot)) {
+      return { ok: false, reason: 'task-locked', message: running?.name ?? '' }
+    }
+    if (sessionBusy(sessionRef)) return { ok: false, reason: 'busy', message: '' }
+    starting.add(slot)
+    try {
+      const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate
+      await agentMode.loadMcpServersFor(capabilities?.capabilities ?? [])
+      // A delete, an edit or another run may have overtaken the wait.
+      const task = tasks.value.find((entry) => entry.id === id)
+      if (!task?.startableFromChannel || deleting.has(id)) return notStartable()
+      if (agentRunIn(sessionRef)) return { ok: false, reason: 'task-locked', message: '' }
+      const refusal = scheduledRefusal(task)
+      if (refusal) return { ok: false, reason: 'settings-problems', message: refusal }
+      const failed = await startRun(task, sessionRef, false, '', origin)
+      return failed === null ? { ok: true } : { ok: false, reason: 'not-started', message: failed }
+    } finally {
+      starting.delete(slot)
+    }
+  }
+
+  /**
+   * A message to an Agent Run's Harness Session is a Follow-up on its Agent's saved Settings
+   * Template; undefined when the Harness Session is no saved Agent's run.
+   */
+  function followUpOf(
+    harnessSessionId: string,
+  ): { settings: AgentSessionSettings; followUp: AgentFollowUpTag } | undefined {
+    const taskId = agentMode.sessions[harnessSessionId]?.taskRun?.taskId
+    const agent = taskId ? tasks.value.find((entry) => entry.id === taskId) : undefined
+    if (!agent) return undefined
+    return {
+      settings: cloneForIpc(agent.settingsTemplate),
+      followUp: { agentId: agent.id, agentName: agent.name },
+    }
+  }
+
+  /**
+   * A run gets a fresh Harness Session in its Session, so it carries no earlier context. Returns
+   * why it did not start, or null; a run overtaken by a delete or another run counts as started.
+   */
   async function startRun(
     task: AgentTask,
     sessionRef: string,
     scheduled: boolean,
     prompt = '',
-  ): Promise<void> {
+    origin?: AgentAnswerOrigin,
+  ): Promise<string | null> {
     const id = task.id
     const slot = runSlot(id, sessionRef)
     const plan = cloneForIpc(task)
@@ -1102,14 +1200,15 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       harness = result.harness
     } catch (error) {
       minting.delete(slot)
-      if (!deleting.has(id)) await recordNotStarted(task, extractMessage(error), scheduled)
-      return
+      const message = extractMessage(error)
+      if (!deleting.has(id)) await recordNotStarted(task, message, scheduled)
+      return message
     }
     minting.delete(slot)
     // A delete, pause or manual Run may have overtaken the wait.
     const current = tasks.value.find((entry) => entry.id === id)
-    if (!current || runIn(id, sessionRef) || deleting.has(id)) return
-    if (scheduled && scheduleIn(current, sessionRef)?.enabled !== true) return
+    if (!current || runIn(id, sessionRef) || deleting.has(id)) return null
+    if (scheduled && scheduleIn(current, sessionRef)?.enabled !== true) return null
     const sessionId = agentMode.createSession({
       id: harness.harnessSessionId,
       sessionRef,
@@ -1122,11 +1221,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         taskId: plan.id,
         taskName: plan.name,
         startedAt: Date.now(),
-        trigger: scheduled ? 'scheduled' : 'manual',
+        trigger: origin ? 'channel' : scheduled ? 'scheduled' : 'manual',
+        ...(origin ? { channel: origin.channel } : {}),
         ...(prompt.trim() ? { input: prompt.trim() } : {}),
       },
     })
-    runContexts[sessionId] = { plan, abort: new AbortController(), scheduled, prompt }
+    runContexts[sessionId] = {
+      plan,
+      abort: new AbortController(),
+      scheduled,
+      prompt,
+      ...(origin ? { origin } : {}),
+    }
     runs.value = {
       ...runs.value,
       [sessionId]: {
@@ -1138,6 +1244,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       },
     }
     void sendStep(sessionId, 1)
+    return null
   }
 
   /** A Session runs one turn at a time: a Step due while it has one in flight waits for it. */
@@ -1277,6 +1384,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         signal: abort.signal,
         ...(context.scheduled ? { scheduled: true } : {}),
         ...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
+        ...(context.origin ? { origin: context.origin } : {}),
       },
       (message) => settleRun(sessionId, { kind: 'failed', stepIndex, message }),
     )
@@ -1526,6 +1634,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     taskState,
     taskProblems,
     runTask,
+    startableAgents,
+    setStartableFromChannel,
+    startFromChannel,
+    followUpOf,
     stopTask,
     stopRunIn,
     agentRunIn,

@@ -1,48 +1,65 @@
 <template>
-  <div class="inline-flex items-center gap-3" :title="masterTitle">
-    <span
-      class="text-xs font-medium select-none text-foreground"
-      style="line-height: 1; vertical-align: middle"
-    >
-      Channels
-    </span>
-
-    <button
-      type="button"
-      role="switch"
-      :aria-checked="isOn"
-      :aria-label="`Channels: ${isOn ? 'on' : 'off'}`"
-      :title="masterTitle"
-      :disabled="!isAvailable || !hasConfiguredChannel"
-      class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-      :class="
-        isOn
-          ? 'bg-primary/15 border-primary text-foreground'
-          : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted'
-      "
-      @click="channelStore.toggleMaster()"
-    >
+  <TooltipProvider :delay-duration="200">
+    <div class="inline-flex items-center gap-3">
       <span
-        class="w-1.5 h-1.5 rounded-full"
-        :style="{ backgroundColor: isOn ? 'var(--color-primary, #22c55e)' : 'currentColor' }"
-      />
-      <span class="tabular-nums">{{ isOn ? 'On' : 'Off' }}</span>
-      <span v-if="isOn && activeCount > 0" class="text-muted-foreground">
-        · {{ activeCount }} {{ activeCount === 1 ? 'channel' : 'channels' }}
+        class="text-xs font-medium select-none text-foreground"
+        style="line-height: 1; vertical-align: middle"
+      >
+        Channels
       </span>
-    </button>
 
-    <button
-      type="button"
-      title="Revisit Channel setup"
-      aria-label="Revisit Channel setup"
-      class="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-      :disabled="!isInstalled"
-      @click="openSetup"
-    >
-      <Cog6ToothIcon class="w-4 h-4" />
-    </button>
-  </div>
+      <Tooltip>
+        <!-- The wrapper carries the tip: a disabled button gets no pointer events. -->
+        <TooltipTrigger as-child>
+          <span class="inline-flex">
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="isOn"
+              :aria-label="`Channels: ${isOn ? 'on' : 'off'}`"
+              :disabled="!isAvailable || !hasConfiguredChannel"
+              class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              :class="
+                isOn
+                  ? 'bg-primary/15 border-primary text-foreground'
+                  : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted'
+              "
+              @click="channelStore.toggleMaster()"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full"
+                :style="{
+                  backgroundColor: isOn ? 'var(--color-primary, #22c55e)' : 'currentColor',
+                }"
+              />
+              <span class="tabular-nums">{{ isOn ? 'On' : 'Off' }}</span>
+              <span v-if="isOn && activeCount > 0" class="text-muted-foreground">
+                · {{ activeCount }} {{ activeCount === 1 ? 'channel' : 'channels' }}
+              </span>
+            </button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{{ masterTitle }}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <span class="inline-flex">
+            <button
+              type="button"
+              aria-label="Revisit Channel setup"
+              class="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              :disabled="!isInstalled"
+              @click="openSetup"
+            >
+              <Cog6ToothIcon class="w-4 h-4" />
+            </button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Revisit Channel setup</TooltipContent>
+      </Tooltip>
+    </div>
+  </TooltipProvider>
 </template>
 
 <script setup lang="ts">
@@ -53,6 +70,7 @@ import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { CHANNELS } from '@/assets/js/store/channels/channelRegistry'
 import { useErrors } from '@/assets/js/store/errors'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 const channelStore = useChannels()
 const setupWizard = useSetupWizard()

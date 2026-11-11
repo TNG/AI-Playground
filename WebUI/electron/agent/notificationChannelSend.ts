@@ -1,9 +1,11 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_ANSWERING } from '@/lib/answerButton'
 import { channelMediaType } from '@/lib/channelMediaKind'
-import { escapeSlackText, markdownToSlackMrkdwn } from '@/lib/slackMrkdwn'
-import { escapeTelegramText, markdownToTelegramHtml } from '@/lib/telegramMarkdown'
+import { escapeMarkupText } from '@/lib/escapeMarkupText'
+import { markdownToSlackMrkdwn } from '@/lib/slackMrkdwn'
+import { markdownToTelegramHtml } from '@/lib/telegramMarkdown'
 import type { IpcOkWith } from '@/types/ipcChannels'
+import { plainTextOf, type ChannelText } from './channelText.ts'
 import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
 
 /** The Channels backend's `channelSend`, narrowed to what a Notification uses. */
@@ -15,41 +17,44 @@ export type ChannelSend = (
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 
 type TextAction = 'reply' | 'post' | 'keyboard' | 'update'
-
-/** A message's text: a plain header and footer around a body that is markdown unless `plain`. */
-export type ChannelText = Pick<ChannelMessage, 'header' | 'text' | 'footer' | 'plain'>
-
-/** The text as one plain string, the way LAN chat shows it. */
-export function plainTextOf({ header, text, footer }: ChannelText): string {
-  return [header, text, footer].filter(Boolean).join('\n')
-}
+type MediaAction = 'photo' | 'video' | 'voice' | 'document'
 
 type Formatted = { text: string; parse_mode?: 'HTML' }
 
-function telegramHtml({ header, text, footer, plain }: ChannelText): Formatted {
-  const lines = [
-    header && `<b>${escapeTelegramText(header)}</b>`,
-    plain ? escapeTelegramText(text) : markdownToTelegramHtml(text),
-    footer && escapeTelegramText(footer),
-  ]
-  return { text: lines.filter(Boolean).join('\n'), parse_mode: 'HTML' }
+type Markup = {
+  convert: (markdown: string) => string
+  wrapHeader: (escapedHeader: string) => string
+  parseMode?: 'HTML'
+}
+
+function formatterOf({ convert, wrapHeader, parseMode }: Markup) {
+  return ({ header, text, footer, plain }: ChannelText): Formatted => {
+    const lines = [
+      header && wrapHeader(escapeMarkupText(header)),
+      plain ? escapeMarkupText(text) : convert(text),
+      footer && escapeMarkupText(footer),
+    ]
+    return {
+      text: lines.filter(Boolean).join('\n'),
+      ...(parseMode ? { parse_mode: parseMode } : {}),
+    }
+  }
 }
 
 // Slack mrkdwn has no escape for its markers, so a title's own would end the bold early.
 const SLACK_MARKER_LOOKALIKES: Record<string, string> = { '*': '∗', _: '＿', '~': '∼' }
 
-function slackBoldSafe(text: string): string {
-  return text.replace(/[*_~]/g, (marker) => SLACK_MARKER_LOOKALIKES[marker])
-}
+const telegramHtml = formatterOf({
+  convert: markdownToTelegramHtml,
+  wrapHeader: (header) => `<b>${header}</b>`,
+  parseMode: 'HTML',
+})
 
-function slackMrkdwn({ header, text, footer, plain }: ChannelText): Formatted {
-  const lines = [
-    header && `*${slackBoldSafe(escapeSlackText(header))}*`,
-    plain ? escapeSlackText(text) : markdownToSlackMrkdwn(text),
-    footer && escapeSlackText(footer),
-  ]
-  return { text: lines.filter(Boolean).join('\n') }
-}
+const slackMrkdwn = formatterOf({
+  convert: markdownToSlackMrkdwn,
+  wrapHeader: (header) =>
+    `*${header.replace(/[*_~]/g, (marker) => SLACK_MARKER_LOOKALIKES[marker])}*`,
+})
 
 type Formatter = { format: (text: ChannelText) => Formatted; maxChars: number }
 
@@ -64,16 +69,15 @@ const CAPTION_FORMATTERS: Partial<Record<ChannelKind, Formatter>> = {
 
 const PARSE_ERROR = /can't parse entities/i
 
-type MediaAction = 'photo' | 'video' | 'voice' | 'document'
+type Outgoing = { payload: Record<string, unknown>; content: ChannelText } & (
+  { action: TextAction; field?: 'text' } | { action: MediaAction; field: 'caption' }
+)
 
-/** Sends the text formatted for `kind`; markup the platform cannot parse goes again as plain text. */
-async function sendText(
+/** Sends the text formatted for `kind`; markup the platform rejects or cannot fit goes as plain text. */
+async function sendFormatted(
   send: ChannelSend,
   kind: ChannelKind,
-  action: TextAction | MediaAction,
-  payload: Record<string, unknown>,
-  content: ChannelText,
-  field: 'text' | 'caption' = 'text',
+  { action, payload, content, field = 'text' }: Outgoing,
 ) {
   const plain = plainTextOf(content)
   const format = field === 'text' ? FORMATTERS[kind] : plain && CAPTION_FORMATTERS[kind]
@@ -84,10 +88,6 @@ async function sendText(
   if (result.success || !mode.parse_mode || !PARSE_ERROR.test(result.error)) return result
   return send(kind, action, { ...payload, [field]: plain })
 }
-
-type Outgoing =
-  | { action: TextAction; payload: Record<string, unknown>; content: ChannelText }
-  | { action: MediaAction; payload: Record<string, unknown>; caption: ChannelText }
 
 function payloadOf(kind: ChannelKind, message: ChannelMessage): Outgoing {
   const answering = CHANNEL_ANSWERING[kind]
@@ -123,7 +123,8 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage): Outgoing {
         ...keyboard,
         ...target,
       },
-      caption: message,
+      content: message,
+      field: 'caption',
     }
   }
   return {
@@ -134,7 +135,8 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage): Outgoing {
       ...keyboard,
       ...target,
     },
-    caption: message,
+    content: message,
+    field: 'caption',
   }
 }
 
@@ -146,21 +148,14 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
       const editsPost = CHANNEL_ANSWERING[kind].streaming === 'edited-post'
       if (editsPost && settled?.ref && settled.chat && !message.media) {
         const target = { channel: settled.chat, ts: settled.ref }
-        const result = await sendText(send, kind, 'update', target, message)
+        const result = await sendFormatted(send, kind, {
+          action: 'update',
+          payload: target,
+          content: message,
+        })
         return result.success ? { success: true, ref: settled.ref } : result
       }
-      const outgoing = payloadOf(kind, message)
-      const result =
-        'content' in outgoing
-          ? await sendText(send, kind, outgoing.action, outgoing.payload, outgoing.content)
-          : await sendText(
-              send,
-              kind,
-              outgoing.action,
-              outgoing.payload,
-              outgoing.caption,
-              'caption',
-            )
+      const result = await sendFormatted(send, kind, payloadOf(kind, message))
       if (!result.success) return result
       return { success: true, ref: result.messageId?.toString() ?? result.ts }
     },
@@ -169,11 +164,19 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
       if (answering.streaming === 'edited-post') {
         if (draft.ref && draft.chat) {
           const target = { channel: draft.chat, ts: draft.ref }
-          const result = await sendText(send, kind, 'update', target, text)
+          const result = await sendFormatted(send, kind, {
+            action: 'update',
+            payload: target,
+            content: text,
+          })
           return result.success ? { success: true } : result
         }
         const target = replyTo ? { [answering.replyKey]: replyTo } : {}
-        const result = await sendText(send, kind, 'reply', target, text)
+        const result = await sendFormatted(send, kind, {
+          action: 'reply',
+          payload: target,
+          content: text,
+        })
         if (!result.success) return result
         return {
           success: true,
@@ -181,7 +184,11 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
           ...(result.channel ? { chat: result.channel } : {}),
         }
       }
-      const result = await sendText(send, kind, 'update', { draft_id: draft.id }, text)
+      const result = await sendFormatted(send, kind, {
+        action: 'update',
+        payload: { draft_id: draft.id },
+        content: text,
+      })
       return result.success ? { success: true } : result
     },
     // The payload the renderer adapters send: a platform chat action, or LAN chat's literal stop.

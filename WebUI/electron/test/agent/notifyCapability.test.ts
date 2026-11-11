@@ -8,7 +8,7 @@ import type { ChatAskPayload } from '@/types/chatRequests'
 import type { ChannelMedia, ChannelSendOutcome } from '../../agent/notifier'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
 import { sessionHolding } from './sessionHolding'
-import { plainTextOf } from '../../agent/notificationChannelSend'
+import { plainTextOf } from '../../agent/channelText'
 
 // The `notify_user` tool as the model uses it: a real Pi session against a fake
 // OpenAI-compatible backend (faked through `fetch`) and a fake Home Agent channel.

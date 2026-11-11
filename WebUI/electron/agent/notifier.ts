@@ -32,7 +32,7 @@ import {
   type ReplyDraft,
 } from './replyDrafts.ts'
 import { createChannelTyping } from './channelTyping.ts'
-import { plainTextOf } from './notificationChannelSend.ts'
+import { plainTextOf, type ChannelText } from './channelText.ts'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
 // The one sender of Notifications (docs/adr/0010): only Reachable Sessions send, to every
@@ -53,11 +53,7 @@ export type { ChannelMedia }
  * inline buttons; `answerTitle` is the session label an Answer button answers; `draft` is the
  * streamed reply this message settles.
  */
-export type ChannelMessage = {
-  header?: string
-  text: string
-  footer?: string
-  plain?: boolean
+export type ChannelMessage = ChannelText & {
   replyTo?: string
   media?: ChannelMedia
   buttons?: KeyboardButton[][]
@@ -226,10 +222,7 @@ async function sendStarted(sessionId: string, name: string): Promise<void> {
     title: session?.title || templates.untitled,
   })
   const text = fillTemplate(templates.agentStarted, { name, title })
-  const delivery = await deliver({ text, bare: true, plain: true }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`agent start not delivered: ${delivery.reason}`, LOG_SOURCE)
-  }
+  await deliverOrWarn({ text, bare: true, plain: true }, sessionId, 'agent start')
 }
 
 /** A Scheduled Run's last Step: its result goes to every Channel when it completes. */
@@ -341,10 +334,7 @@ async function sendMedia(sessionId: string, files: string[]): Promise<void> {
       return []
     })
     for (const media of items) {
-      const delivery = await deliver({ text: '', media }, sessionId)
-      if (!delivery.delivered) {
-        appLoggerInstance.warn(`answer media not delivered: ${delivery.reason}`, LOG_SOURCE)
-      }
+      await deliverOrWarn({ text: '', media }, sessionId, 'answer media')
     }
   }
 }
@@ -388,10 +378,8 @@ export async function sendNotification(
   const { sessionId } = options
   const turn = reportedTurnOf(sessionId)
   const attachments = options.attachments && notSentYet(options.attachments, turn)
-  const delivery = await deliver({ text, attachments }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
-  } else if (attachments) {
+  const delivery = await deliverOrWarn({ text, attachments }, sessionId)
+  if (delivery.delivered && attachments) {
     for (const file of attachments.paths) {
       turn?.attached.add(path.resolve(attachments.workspaceDir, file))
     }
@@ -431,6 +419,18 @@ type Body = {
 function channelsFor(sessionId: string): ChannelKind[] {
   const answer = reportedTurnOf(sessionId)?.answer
   return answer ? config.channels.filter((kind) => kind === answer.channel) : config.channels
+}
+
+async function deliverOrWarn(
+  body: Body,
+  sessionId: string,
+  what = 'notification',
+): Promise<NotificationDelivery> {
+  const delivery = await deliver(body, sessionId)
+  if (!delivery.delivered) {
+    appLoggerInstance.warn(`${what} not delivered: ${delivery.reason}`, LOG_SOURCE)
+  }
+  return delivery
 }
 
 async function deliver(body: Body, sessionId: string): Promise<NotificationDelivery> {
@@ -544,10 +544,7 @@ async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: stri
   const draft = await closeReply(turn)
   const text = reply ?? (draft ? streamedText(turn) : '')
   if (text) {
-    const delivery = await deliver({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
-    if (!delivery.delivered) {
-      appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
-    }
+    await deliverOrWarn({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
   }
   if (reply && turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
   await sendMedia(
@@ -578,10 +575,7 @@ async function speakReply(sessionId: string, answer: AgentAnswerOrigin, reply: s
   if (!clip?.audioBase64) return
   const filename = `reply.${CLIP_EXTENSIONS[clip.mediaType] ?? 'wav'}`
   const media: ChannelMedia = { kind: 'voice', base64: clip.audioBase64, filename }
-  const delivery = await deliver({ text: '', media }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`spoken reply not delivered: ${delivery.reason}`, LOG_SOURCE)
-  }
+  await deliverOrWarn({ text: '', media }, sessionId, 'spoken reply')
 }
 
 /** An agent's message with how to answer it on `kind`, or a pointer to the computer for a real-shell session. */
@@ -642,8 +636,11 @@ async function notifyPaused(
   // A download pause is asked as a Channel Question by the window instead.
   if (reason?.kind === 'download') return
   if (!(await notifiesAutomatically(sessionId, turnId))) return
-  await sendTemplate(
-    fillTemplate(config.templates.paused, { reason: pauseReasonText(reason) }),
+  await deliverOrWarn(
+    {
+      text: fillTemplate(config.templates.paused, { reason: pauseReasonText(reason) }),
+      plain: true,
+    },
     sessionId,
   )
 }
@@ -652,14 +649,10 @@ async function notifyFailed(sessionId: string, turnId: string, error: string): P
   if (!(await notifiesAutomatically(sessionId, turnId))) return
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
-  await sendTemplate(fillTemplate(config.templates.failed, { error: reason }), sessionId)
-}
-
-async function sendTemplate(text: string, sessionId: string): Promise<void> {
-  const delivery = await deliver({ text, plain: true }, sessionId)
-  if (!delivery.delivered) {
-    appLoggerInstance.warn(`notification not delivered: ${delivery.reason}`, LOG_SOURCE)
-  }
+  await deliverOrWarn(
+    { text: fillTemplate(config.templates.failed, { error: reason }), plain: true },
+    sessionId,
+  )
 }
 
 /** Notifies when a Background Session's turn pauses for the user or fails; returns the unsubscribe. */

@@ -10,7 +10,7 @@ import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
 import { sessionHolding } from './sessionHolding'
 import { sessionOfHarnessSession } from '../../session/sessionHarness'
-import { plainTextOf } from '../../agent/notificationChannelSend'
+import { plainTextOf } from '../../agent/channelText'
 
 // Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the

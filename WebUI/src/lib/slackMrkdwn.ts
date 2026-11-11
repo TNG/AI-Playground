@@ -1,4 +1,5 @@
 import { Marked, type Token, type Tokens } from 'marked'
+import { escapeMarkupText } from './escapeMarkupText'
 
 const lexer = new Marked({ pedantic: false, gfm: true, breaks: true, async: false })
 
@@ -6,12 +7,6 @@ const lexer = new Marked({ pedantic: false, gfm: true, breaks: true, async: fals
 // 3000. Stay under the section-block ceiling so the same converted output can
 // be reused inside Block Kit when needed.
 const SLACK_MAX_CHARS = 3000
-
-export function escapeSlackText(s: string): string {
-  // Only Slack's three "control" chars need escaping inside mrkdwn so they
-  // don't accidentally start a link/user-mention/channel-mention.
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 
 function renderInline(tokens: Token[] | undefined): string {
   if (!tokens) return ''
@@ -25,7 +20,7 @@ function renderListItem(item: Tokens.ListItem): string {
   for (const tok of item.tokens) {
     if (tok.type === 'text') {
       const tt = tok as Tokens.Text
-      out += tt.tokens ? renderInline(tt.tokens) : escapeSlackText(tt.text)
+      out += tt.tokens ? renderInline(tt.tokens) : escapeMarkupText(tt.text)
     } else if (tok.type === 'paragraph') {
       out += renderInline((tok as Tokens.Paragraph).tokens)
     } else if (tok.type === 'list') {
@@ -47,7 +42,7 @@ function renderTable(t: Tokens.Table): string {
   const rows: string[][] = []
   rows.push(t.header.map((c) => c.text))
   for (const row of t.rows) rows.push(row.map((c) => c.text))
-  return rows.map((r) => r.map((c) => escapeSlackText(c)).join(' | ')).join('\n')
+  return rows.map((r) => r.map((c) => escapeMarkupText(c)).join(' | ')).join('\n')
 }
 
 function renderToken(t: Token): string {
@@ -55,10 +50,10 @@ function renderToken(t: Token): string {
     case 'text': {
       const tt = t as Tokens.Text
       if (tt.tokens && tt.tokens.length > 0) return renderInline(tt.tokens)
-      return escapeSlackText(tt.text)
+      return escapeMarkupText(tt.text)
     }
     case 'escape':
-      return escapeSlackText((t as Tokens.Escape).text)
+      return escapeMarkupText((t as Tokens.Escape).text)
     case 'strong':
       return `*${renderInline((t as Tokens.Strong).tokens)}*`
     case 'em':
@@ -66,7 +61,7 @@ function renderToken(t: Token): string {
     case 'del':
       return `~${renderInline((t as Tokens.Del).tokens)}~`
     case 'codespan':
-      return '`' + escapeSlackText((t as Tokens.Codespan).text) + '`'
+      return '`' + escapeMarkupText((t as Tokens.Codespan).text) + '`'
     case 'br':
       return '\n'
     case 'link': {
@@ -84,7 +79,7 @@ function renderToken(t: Token): string {
       // Slack mrkdwn doesn't support inline images here (we ship images
       // separately via files.upload_v2). Show alt/title text as a fallback.
       const it = t as Tokens.Image
-      return escapeSlackText(it.text || it.title || '')
+      return escapeMarkupText(it.text || it.title || '')
     }
     case 'paragraph':
       return renderInline((t as Tokens.Paragraph).tokens) + '\n\n'
@@ -123,14 +118,14 @@ function renderToken(t: Token): string {
       return '\n'
     case 'html': {
       const ht = t as Tokens.HTML | Tokens.Tag
-      return escapeSlackText((ht.raw as string | undefined) ?? ht.text ?? '')
+      return escapeMarkupText((ht.raw as string | undefined) ?? ht.text ?? '')
     }
     case 'table':
       return renderTable(t as Tokens.Table) + '\n'
     default: {
       const anyT = t as { tokens?: Token[]; text?: string }
       if (anyT.tokens) return renderInline(anyT.tokens)
-      return anyT.text ? escapeSlackText(anyT.text) : ''
+      return anyT.text ? escapeMarkupText(anyT.text) : ''
     }
   }
 }
@@ -160,7 +155,7 @@ export function markdownToSlackMrkdwn(md: string): string {
     text = renderBlocks(tokens)
   } catch (e) {
     console.error('markdownToSlackMrkdwn: lexer/render failed, falling back to plain text', e)
-    text = escapeSlackText(md)
+    text = escapeMarkupText(md)
   }
   text = text.replace(/\n{3,}/g, '\n\n').trim()
   if (text.length > SLACK_MAX_CHARS) {

@@ -1,4 +1,5 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
+import type { ChannelText } from './channelText.ts'
 
 /**
  * An open draft on a Channel: Telegram's and LAN chat's draft id, and once its first
@@ -9,14 +10,11 @@ export type ChannelDraft = { id: number; ref?: string; chat?: string }
 export type DraftEditOutcome =
   { success: true; ref?: string; chat?: string } | { success: false; error: string }
 
-/** A draft's plain header line over its markdown `text`. */
-export type DraftText = { header?: string; text: string }
-
 /** Shows `text` in `draft`, creating the message on the first edit where the Channel needs one. */
 export type DraftEdit = (
   kind: ChannelKind,
   draft: ChannelDraft,
-  text: DraftText,
+  text: ChannelText,
   replyTo?: string,
 ) => Promise<DraftEditOutcome>
 

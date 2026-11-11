@@ -406,7 +406,7 @@ describe('a Notification’s text, formatted per Channel', () => {
   it('reaches Slack as mrkdwn in the text field: the header escaped and bold, no blocks', async () => {
     const { send, draft, calls } = recorder({ ts: '1700.01', channel: 'D42' })
     const message = { header, text: '**done** & `x`', footer: '↩️ Reply <here>' }
-    const boldSlackHeader = '*🤖 Agent · "a&lt;b &amp; *c*"*'
+    const boldSlackHeader = '*🤖 Agent · "a&lt;b &amp; ∗c∗"*'
     const mrkdwn = `${boldSlackHeader}\n*done* &amp; \`x\`\n↩️ Reply &lt;here&gt;`
     const posted = { id: 7, ref: '1700.01', chat: 'D42' }
     await send('slack', { ...message, replyTo: '1700.00' })
@@ -433,6 +433,12 @@ describe('a Notification’s text, formatted per Channel', () => {
       },
       { kind: 'slack', action: 'update', payload: { channel: 'D42', ts: '1700.01', text: mrkdwn } },
     ])
+  })
+
+  it('keeps a Slack header bold whole when the session title has its own *, _ or ~', async () => {
+    const { send, calls } = recorder({ ts: '1700.01' })
+    await send('slack', { header: '🤖 "*star* _under_ ~strike~"', text: 'done' })
+    expect(calls[0].payload).toEqual({ text: '*🤖 "∗star∗ ＿under＿ ∼strike∼"*\ndone' })
   })
 
   it('escapes a plain template body on Slack rather than reading it as markdown', async () => {
@@ -501,6 +507,24 @@ describe('a Notification’s text, formatted per Channel', () => {
         },
       ],
     ])
+  })
+
+  it('goes to Telegram as plain text when the HTML would be over its 4096-character limit', async () => {
+    const { send, draft, calls } = recorder()
+    const text = 'a'.repeat(4090)
+    await send('telegram', { header: 'H', text, replyTo: '77' })
+    await draft('telegram', { id: 7 }, { header: 'H', text })
+    expect(calls.map((call) => call.payload)).toEqual([
+      { text: `H\n${text}`, reply_to_message_id: '77' },
+      { draft_id: 7, text: `H\n${text}` },
+    ])
+  })
+
+  it('captions Telegram media with plain text when the HTML would be over 1024 characters', async () => {
+    const { send, calls } = recorder()
+    const text = '&'.repeat(300)
+    await send('telegram', { text, media: { kind: 'photo', base64: 'A', filename: 'a.png' } })
+    expect(calls[0].payload).toEqual({ photo: 'A', caption: text, filename: 'a.png' })
   })
 
   it('is not resent when Telegram fails for any other reason', async () => {

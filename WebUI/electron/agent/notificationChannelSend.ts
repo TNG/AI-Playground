@@ -35,24 +35,31 @@ function telegramHtml({ header, text, footer, plain }: ChannelText): Formatted {
   return { text: lines.filter(Boolean).join('\n'), parse_mode: 'HTML' }
 }
 
+// Slack mrkdwn has no escape for its markers, so a title's own would end the bold early.
+const SLACK_MARKER_LOOKALIKES: Record<string, string> = { '*': '∗', _: '＿', '~': '∼' }
+
+function slackBoldSafe(text: string): string {
+  return text.replace(/[*_~]/g, (marker) => SLACK_MARKER_LOOKALIKES[marker])
+}
+
 function slackMrkdwn({ header, text, footer, plain }: ChannelText): Formatted {
   const lines = [
-    header && `*${escapeSlackText(header)}*`,
+    header && `*${slackBoldSafe(escapeSlackText(header))}*`,
     plain ? escapeSlackText(text) : markdownToSlackMrkdwn(text),
     footer && escapeSlackText(footer),
   ]
   return { text: lines.filter(Boolean).join('\n') }
 }
 
-/** Channels that render the body's markdown; the others show the plain text. */
-const FORMATTERS: Partial<Record<ChannelKind, (text: ChannelText) => Formatted>> = {
-  telegram: telegramHtml,
-  slack: slackMrkdwn,
+type Formatter = { format: (text: ChannelText) => Formatted; maxChars: number }
+
+const FORMATTERS: Partial<Record<ChannelKind, Formatter>> = {
+  telegram: { format: telegramHtml, maxChars: 4096 },
+  slack: { format: slackMrkdwn, maxChars: 40000 },
 }
 
-/** Channels that render a media caption's markdown; the others caption with the plain text. */
-const CAPTION_FORMATTERS: Partial<Record<ChannelKind, (text: ChannelText) => Formatted>> = {
-  telegram: telegramHtml,
+const CAPTION_FORMATTERS: Partial<Record<ChannelKind, Formatter>> = {
+  telegram: { format: telegramHtml, maxChars: 1024 },
 }
 
 const PARSE_ERROR = /can't parse entities/i
@@ -70,7 +77,9 @@ async function sendText(
 ) {
   const plain = plainTextOf(content)
   const format = field === 'text' ? FORMATTERS[kind] : plain && CAPTION_FORMATTERS[kind]
-  const { text, ...mode } = (format && format(content)) || { text: plain }
+  const formatted = format && format.format(content)
+  const fits = formatted && formatted.text.length <= format.maxChars
+  const { text, ...mode } = (fits && formatted) || { text: plain }
   const result = await send(kind, action, { ...payload, [field]: text, ...mode })
   if (result.success || !mode.parse_mode || !PARSE_ERROR.test(result.error)) return result
   return send(kind, action, { ...payload, [field]: plain })

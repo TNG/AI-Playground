@@ -74,7 +74,11 @@ app.config.errorHandler = (err, _instance, info) => {
 window.addEventListener('unhandledrejection', (event) => {
   errors.report(event.reason, { code: 'global/unhandled-rejection', severity: 'error' })
 })
+// Chromium's notice that resize notifications were deferred a frame; nothing failed.
+const RESIZE_OBSERVER_NOTICE =
+  /^ResizeObserver loop (completed with undelivered notifications|limit exceeded)/
 window.addEventListener('error', (event) => {
+  if (RESIZE_OBSERVER_NOTICE.test(event.message)) return
   errors.report(event.error ?? event.message, {
     code: 'global/uncaught-error',
     severity: 'error',

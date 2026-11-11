@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type StyleValue } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type StyleValue } from 'vue'
 import { useElementSize } from '@vueuse/core'
 import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -41,6 +41,7 @@ import * as util from '@/assets/js/util'
 import {
   ARTIFACT_GRID_GAP_PX,
   artifactGrid,
+  artifactGridWidth,
   type ArtifactAction,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
@@ -55,6 +56,16 @@ const imageGeneration = useImageGenerationPresets()
 const promptStore = usePromptStore()
 const anchor = ref<HTMLElement | null>(null)
 const { width: anchorWidth } = useElementSize(anchor)
+const gridWidth = ref(0)
+let pendingFrame = 0
+// Next frame, so a column change never resizes the layout inside the ResizeObserver callback.
+watch(anchorWidth, (measured) => {
+  cancelAnimationFrame(pendingFrame)
+  pendingFrame = requestAnimationFrame(() => {
+    gridWidth.value = artifactGridWidth(props.artifacts, gridWidth.value, measured)
+  })
+})
+onBeforeUnmount(() => cancelAnimationFrame(pendingFrame))
 const infoId = ref<string | null>(null)
 const confirmingDelete = ref<string | null>(null)
 
@@ -63,7 +74,7 @@ const infoArtifact = computed(
 )
 
 const gridStyle = computed<StyleValue>(() => {
-  const grid = artifactGrid(props.artifacts, anchorWidth.value)
+  const grid = artifactGrid(props.artifacts, gridWidth.value)
   return {
     gap: `${ARTIFACT_GRID_GAP_PX}px`,
     gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,

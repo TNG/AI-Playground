@@ -314,6 +314,7 @@ export function artifactFrameSize(
 
 export const ARTIFACT_GRID_GAP_PX = 12
 const ARTIFACT_GRID_MIN_CELL_PX = 240
+const SCROLLBAR_SLACK_PX = 20
 
 export type ArtifactGrid = { columns: number; maxWidth?: number }
 
@@ -330,4 +331,19 @@ export function artifactGrid(
   const widths = artifacts.flatMap((artifact) => (artifact.size ? [artifact.size.width] : []))
   if (widths.length === 0 || widths.length < artifacts.length) return { columns }
   return { columns, maxWidth: columns * Math.max(...widths) + (columns - 1) * ARTIFACT_GRID_GAP_PX }
+}
+
+/**
+ * A change in columns resizes the timeline, which can toggle its scrollbar and so the measured
+ * width; ignoring a scrollbar's worth of change at a column boundary stops that feedback loop.
+ */
+export function artifactGridWidth(
+  artifacts: readonly Pick<TurnArtifact, 'size'>[],
+  settled: number,
+  measured: number,
+): number {
+  if (Math.abs(measured - settled) > SCROLLBAR_SLACK_PX) return measured
+  const columnsChange =
+    artifactGrid(artifacts, measured).columns !== artifactGrid(artifacts, settled).columns
+  return columnsChange ? settled : measured
 }

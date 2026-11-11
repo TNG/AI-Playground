@@ -11,7 +11,12 @@ import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
-import { artifactFrameSize, artifactGrid, type TurnArtifact } from '@/lib/turnArtifacts'
+import {
+  artifactFrameSize,
+  artifactGrid,
+  artifactGridWidth,
+  type TurnArtifact,
+} from '@/lib/turnArtifacts'
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { AgentTurnTag } from '@/types/sessionTimeline'
@@ -2870,6 +2875,28 @@ describe('the grid a Result lays its artifacts out in', () => {
 
   it('leaves the grid uncapped when an artifact has no requested size', () => {
     expect(artifactGrid([sized(512, 512), {}], 2400).maxWidth).toBeUndefined()
+  })
+})
+
+describe('the width an artifact grid is laid out at', () => {
+  const batch = Array(4).fill({ size: { width: 1024, height: 1024 } })
+
+  it('takes the first measurement as it is', () => {
+    expect(artifactGridWidth(batch, 0, 1000)).toBe(1000)
+  })
+
+  it('follows the width while the columns stay the same', () => {
+    expect(artifactGridWidth(batch, 1000, 1010)).toBe(1010)
+  })
+
+  it('keeps its columns when a scrollbar coming or going is all that would change them', () => {
+    expect(artifactGrid(batch, 990).columns).not.toBe(artifactGrid(batch, 1000).columns)
+    expect(artifactGridWidth(batch, 1000, 990)).toBe(1000)
+    expect(artifactGridWidth(batch, 990, 1000)).toBe(990)
+  })
+
+  it('changes columns once the width really moved past the boundary', () => {
+    expect(artifactGridWidth(batch, 1000, 960)).toBe(960)
   })
 })
 

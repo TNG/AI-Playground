@@ -1,10 +1,9 @@
 """
-Home Agent Backend — thin proxy forwarding /v1/chat/completions to llamaCPP /
-OpenVINO and exposing channel-agnostic REST routes for chat-platform bots.
+Channels backend — channel-agnostic REST routes for chat-platform bots.
 
 Channel-specific behavior lives in `channels/<kind>.py`; this file dispatches
 generic `/channel/<kind>/*` routes against the `channels.registry.CHANNELS`
-map and handles upstream URL configuration plus loopback auth.
+map and handles loopback auth.
 """
 
 import argparse
@@ -12,14 +11,12 @@ import logging
 import os
 import re
 import sys
-import threading
 
 from channels import registry
 from channels.actions import send_method_name
 from channels.types import ALL_CHANNEL_KINDS
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from llm_proxy import proxy_chat_completions
 
 # Shared loopback-auth lives in a sibling backend_shared/ directory so the same
 # logic is used by every local Python backend (see backend_shared/).
@@ -133,11 +130,6 @@ def _install_log_redaction() -> None:
     logging._aipg_redaction_installed = True  # type: ignore[attr-defined]
 
 
-# ── Upstream LLM URL ──────────────────────────────────────────────────────────
-
-_upstream_url: str | None = None
-_upstream_lock = threading.Lock()
-
 logger = logging.getLogger(__name__)
 
 
@@ -147,21 +139,6 @@ logger = logging.getLogger(__name__)
 @app.get("/healthy")
 def healthy():
     return jsonify({"status": "ok"})
-
-
-# ── Upstream control ──────────────────────────────────────────────────────────
-
-
-@app.post("/set-upstream")
-def set_upstream():
-    global _upstream_url
-    data = request.get_json(silent=True) or {}
-    url = data.get("url")
-    if not url:
-        return jsonify({"error": "url is required"}), 400
-    with _upstream_lock:
-        _upstream_url = url.rstrip("/")
-    return jsonify({"status": "ok", "upstream": _upstream_url})
 
 
 # ── Channel registry — generic dispatch ───────────────────────────────────────
@@ -242,19 +219,6 @@ def channel_send(kind: str, action: str):
         return jsonify({"error": f"channel {kind} does not support {action}"}), 404
     result = method(payload)
     return _result_to_response(result)
-
-
-# ── Chat completions proxy ────────────────────────────────────────────────────
-
-
-@app.post("/v1/chat/completions")
-def chat_completions():
-    upstream = request.headers.get("X-Upstream-Url")
-    with _upstream_lock:
-        upstream = upstream or _upstream_url
-    if not upstream:
-        return jsonify({"error": "No upstream URL provided"}), 400
-    return proxy_chat_completions(upstream, request)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

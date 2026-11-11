@@ -33,6 +33,12 @@ type ChannelAnswering = {
   sendsAsPost: boolean
   /** "typing…" while the turn an Answer started runs, and how it ends; null: main cannot show it. */
   typing: null | 'lapses' | 'stops'
+  /**
+   * How a streaming reply shows. `draft`: a platform draft, then a separate final message;
+   * `taken-over`: the same, but the final message takes the draft's place; `edited-post`: no
+   * drafts, so the first update posts the message and later ones, the final included, edit it.
+   */
+  streaming: 'draft' | 'taken-over' | 'edited-post'
 }
 
 export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
@@ -42,6 +48,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: false,
     sendsAsPost: false,
     typing: 'lapses',
+    streaming: 'draft',
   },
   slack: {
     gesture: 'thread',
@@ -49,6 +56,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: false,
     sendsAsPost: false,
     typing: null,
+    streaming: 'edited-post',
   },
   'local-web': {
     gesture: 'button',
@@ -56,6 +64,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: true,
     sendsAsPost: true,
     typing: 'stops',
+    streaming: 'taken-over',
   },
   discord: {
     gesture: null,
@@ -63,6 +72,7 @@ export const CHANNEL_ANSWERING: Record<ChannelKind, ChannelAnswering> = {
     buttonCarriesTitle: false,
     sendsAsPost: false,
     typing: null,
+    streaming: 'draft',
   },
 }
 

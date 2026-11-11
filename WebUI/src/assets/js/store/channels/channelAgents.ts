@@ -87,7 +87,7 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     await deps.start(adapter, sessionRef, agent, inboundOrigin(adapter.kind, msg), meta)
   }
 
-  async function askForPrompt(
+  async function askForPromptById(
     adapter: ChannelAdapter,
     agentId: string,
     meta?: InboundMeta,
@@ -117,7 +117,7 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     },
     {
       prefix: PROMPT_AGENT_CALLBACK,
-      run: ({ adapter, meta }, agentId) => askForPrompt(adapter, agentId, meta),
+      run: ({ adapter, meta }, agentId) => askForPromptById(adapter, agentId, meta),
     },
   ]
 

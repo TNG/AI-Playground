@@ -1,6 +1,7 @@
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { CHANNEL_ANSWERING } from '@/lib/answerButton'
 import { channelMediaType } from '@/lib/channelMediaKind'
+import { escapeTelegramText, markdownToTelegramHtml } from '@/lib/telegramMarkdown'
 import type { IpcOkWith } from '@/types/ipcChannels'
 import type { ChannelMessage, ChannelTypingState, NotificationChannel } from './notifier.ts'
 
@@ -12,7 +13,53 @@ export type ChannelSend = (
   payload: Record<string, unknown>,
 ) => Promise<IpcOkWith<{ ts?: string; channel?: string; messageId?: number }>>
 
-function payloadOf(kind: ChannelKind, message: ChannelMessage) {
+type TextAction = 'reply' | 'post' | 'keyboard' | 'update'
+
+/** A message's text: a plain header and footer around a body that is markdown unless `plain`. */
+export type ChannelText = Pick<ChannelMessage, 'header' | 'text' | 'footer' | 'plain'>
+
+/** The text as one plain string, the way LAN chat and Slack show it. */
+export function plainTextOf({ header, text, footer }: ChannelText): string {
+  return [header, text, footer].filter(Boolean).join('\n')
+}
+
+type Formatted = { text: string; parse_mode?: 'HTML' }
+
+function telegramHtml({ header, text, footer, plain }: ChannelText): Formatted {
+  const lines = [
+    header && `<b>${escapeTelegramText(header)}</b>`,
+    plain ? escapeTelegramText(text) : markdownToTelegramHtml(text),
+    footer && escapeTelegramText(footer),
+  ]
+  return { text: lines.filter(Boolean).join('\n'), parse_mode: 'HTML' }
+}
+
+/** Channels that render the body's markdown; the others show the plain text. */
+const FORMATTERS: Partial<Record<ChannelKind, (text: ChannelText) => Formatted>> = {
+  telegram: telegramHtml,
+}
+
+const PARSE_ERROR = /can't parse entities/i
+
+/** Sends the text formatted for `kind`; markup the platform cannot parse goes again as plain text. */
+async function sendText(
+  send: ChannelSend,
+  kind: ChannelKind,
+  action: TextAction,
+  payload: Record<string, unknown>,
+  content: ChannelText,
+) {
+  const formatted = FORMATTERS[kind]?.(content) ?? { text: plainTextOf(content) }
+  const result = await send(kind, action, { ...payload, ...formatted })
+  if (result.success || !formatted.parse_mode || !PARSE_ERROR.test(result.error)) return result
+  return send(kind, action, { ...payload, text: plainTextOf(content) })
+}
+
+type Outgoing =
+  | { action: TextAction; payload: Record<string, unknown>; content: ChannelText }
+  | { action: 'photo' | 'video' | 'voice' | 'document'; payload: Record<string, unknown> }
+
+function payloadOf(kind: ChannelKind, message: ChannelMessage): Outgoing {
   const answering = CHANNEL_ANSWERING[kind]
   const target = message.replyTo ? { [answering.replyKey]: message.replyTo } : {}
   const { media, buttons, answerTitle } = message
@@ -30,22 +77,20 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
       }
     : {}
   if (buttons && !media) {
-    return {
-      action: 'keyboard' as const,
-      payload: { text: message.text, ...keyboard, ...target, ...draft },
-    }
+    return { action: 'keyboard', payload: { ...keyboard, ...target, ...draft }, content: message }
   }
   if (!media) {
-    const action = answering.sendsAsPost ? ('post' as const) : ('reply' as const)
-    return { action, payload: { text: message.text, ...target, ...draft } }
+    const action = answering.sendsAsPost ? 'post' : 'reply'
+    return { action, payload: { ...target, ...draft }, content: message }
   }
+  const caption = plainTextOf(message)
   if (media.kind === 'voice') {
     return {
-      action: 'voice' as const,
+      action: 'voice',
       payload: {
         audio: media.base64,
         mime: channelMediaType(media.filename) ?? 'audio/wav',
-        caption: message.text,
+        caption,
         filename: media.filename,
         ...keyboard,
         ...target,
@@ -56,7 +101,7 @@ function payloadOf(kind: ChannelKind, message: ChannelMessage) {
     action: media.kind,
     payload: {
       [media.kind]: media.base64,
-      caption: message.text,
+      caption,
       filename: media.filename,
       ...keyboard,
       ...target,
@@ -71,15 +116,15 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
       const settled = message.draft
       const editsPost = CHANNEL_ANSWERING[kind].streaming === 'edited-post'
       if (editsPost && settled?.ref && settled.chat && !message.media) {
-        const result = await send(kind, 'update', {
-          channel: settled.chat,
-          ts: settled.ref,
-          text: message.text,
-        })
+        const target = { channel: settled.chat, ts: settled.ref }
+        const result = await sendText(send, kind, 'update', target, message)
         return result.success ? { success: true, ref: settled.ref } : result
       }
-      const { action, payload } = payloadOf(kind, message)
-      const result = await send(kind, action, payload)
+      const outgoing = payloadOf(kind, message)
+      const result =
+        'content' in outgoing
+          ? await sendText(send, kind, outgoing.action, outgoing.payload, outgoing.content)
+          : await send(kind, outgoing.action, outgoing.payload)
       if (!result.success) return result
       return { success: true, ref: result.messageId?.toString() ?? result.ts }
     },
@@ -87,11 +132,12 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
       const answering = CHANNEL_ANSWERING[kind]
       if (answering.streaming === 'edited-post') {
         if (draft.ref && draft.chat) {
-          const result = await send(kind, 'update', { channel: draft.chat, ts: draft.ref, text })
+          const target = { channel: draft.chat, ts: draft.ref }
+          const result = await sendText(send, kind, 'update', target, text)
           return result.success ? { success: true } : result
         }
         const target = replyTo ? { [answering.replyKey]: replyTo } : {}
-        const result = await send(kind, 'reply', { text, ...target })
+        const result = await sendText(send, kind, 'reply', target, text)
         if (!result.success) return result
         return {
           success: true,
@@ -99,7 +145,7 @@ export function createNotificationChannel(send: ChannelSend): NotificationChanne
           ...(result.channel ? { chat: result.channel } : {}),
         }
       }
-      const result = await send(kind, 'update', { draft_id: draft.id, text })
+      const result = await sendText(send, kind, 'update', { draft_id: draft.id }, text)
       return result.success ? { success: true } : result
     },
     // The payload the renderer adapters send: a platform chat action, or LAN chat's literal stop.

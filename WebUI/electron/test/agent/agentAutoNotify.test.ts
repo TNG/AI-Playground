@@ -10,6 +10,7 @@ import type { PermissionsPromptPayload } from '@/types/permissionsIpc'
 import { thumbnailAnswer, type FakeThumbnail } from './fakeThumbnail'
 import { sessionHolding } from './sessionHolding'
 import { sessionOfHarnessSession } from '../../session/sessionHarness'
+import { plainTextOf } from '../../agent/notificationChannelSend'
 
 // Automatic Notifications for a Background Session, seen at the Channel: a real Pi
 // session against a fake backend calls a speech tool and waits on the window, the
@@ -159,6 +160,7 @@ type Sent = {
   replyTo?: string
   media?: string
   buttons?: unknown
+  plain?: boolean
 }
 let sent: Sent[] = []
 /** Each streamed draft edit, and the draft each final message settled. */
@@ -223,7 +225,7 @@ beforeAll(async () => {
   manager.setAgentModeMainWindow(fakeWindow as never)
   notifier.setNotificationChannel({
     draft: async (kind, draft, text) => {
-      drafts.push({ kind, id: draft.id, ref: draft.ref, text })
+      drafts.push({ kind, id: draft.id, ref: draft.ref, text: plainTextOf(text) })
       return kind === 'slack' && !draft.ref
         ? { success: true, ref: `draft-${draft.id}`, chat: 'D1' }
         : { success: true }
@@ -233,13 +235,15 @@ beforeAll(async () => {
       return { success: true }
     },
     send: async (kind, message) => {
-      if (message.draft) settled.push({ kind, text: message.text, draft: message.draft.id })
+      const text = plainTextOf(message)
+      if (message.draft) settled.push({ kind, text, draft: message.draft.id })
       sent.push({
         kind,
-        text: message.text,
+        text,
         replyTo: message.replyTo,
         media: message.media && `${message.media.kind}:${message.media.filename}`,
         buttons: message.buttons,
+        plain: message.plain,
       })
       if (failingKinds.includes(kind)) return { success: false, error: `${kind} is down` }
       if (refusedFiles.includes(message.media?.filename ?? ''))
@@ -362,7 +366,7 @@ const QUESTION_TEXT =
 describe('a Background Session pausing for the user', () => {
   it('sends one Notification naming the session and the question', async () => {
     await withWaitingTurn(SESSION, pauseForQuestion)
-    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT, plain: true }])
   }, 30000)
 
   it('sends no Notification for a download pause, which the window asks as a Channel Question', async () => {
@@ -495,7 +499,7 @@ describe('a Background Session pausing for the user', () => {
     notifier.setNotificationConfig({ ...CONFIG, sessionOnScreen: newsSessionRef })
     windowShown = false
     await withWaitingTurn(SESSION, pauseForQuestion)
-    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT, plain: true }])
   }, 30000)
 
   it.each([['the Channels toggle is off', { channels: [] }]])(
@@ -677,6 +681,7 @@ describe('an Agent Run started from a Channel', () => {
         kind: 'telegram',
         text: '▶️ Started “Daily digest” in "Weekday news".',
         replyTo: 'agents-12',
+        plain: true,
       },
       { kind: 'telegram', text: `${header}\nThree headlines.`, replyTo: 'agents-12' },
     ])
@@ -767,7 +772,7 @@ describe('a Background Session whose turn fails', () => {
 
   it('sends one Notification with the error the app shows', async () => {
     await failingTurn()
-    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT + REPLY_HINT }])
+    expect(sent).toEqual([{ kind: 'telegram', text: FAILED_TEXT + REPLY_HINT, plain: true }])
   }, 30000)
 
   it('stays quiet for the session open on screen', async () => {
@@ -928,7 +933,7 @@ describe('the turn an Answer started', () => {
     await withWaitingTurn(SESSION, pauseForQuestion, answerTurn())
     await settle()
     expect(sent).toEqual([
-      { kind: 'telegram', text: QUESTION_TEXT, replyTo: 'answer-77' },
+      { kind: 'telegram', text: QUESTION_TEXT, replyTo: 'answer-77', plain: true },
       { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
     ])
   }, 30000)
@@ -945,6 +950,7 @@ describe('the turn an Answer started', () => {
           '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
           'Open AI Playground for details.',
         replyTo: 'answer-77',
+        plain: true,
       },
     ])
   }, 30000)

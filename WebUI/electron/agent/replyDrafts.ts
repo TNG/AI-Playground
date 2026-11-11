@@ -9,11 +9,14 @@ export type ChannelDraft = { id: number; ref?: string; chat?: string }
 export type DraftEditOutcome =
   { success: true; ref?: string; chat?: string } | { success: false; error: string }
 
+/** A draft's plain header line over its markdown `text`. */
+export type DraftText = { header?: string; text: string }
+
 /** Shows `text` in `draft`, creating the message on the first edit where the Channel needs one. */
 export type DraftEdit = (
   kind: ChannelKind,
   draft: ChannelDraft,
-  text: string,
+  text: DraftText,
   replyTo?: string,
 ) => Promise<DraftEditOutcome>
 
@@ -25,6 +28,7 @@ export type ReplyDraft = {
 
 export type ReplyDraftOptions = {
   edit: DraftEdit
+  header?: string
   replyTo?: string
   /** The message an edit created, to record it as the Session's. */
   onPosted?: (ref: string) => void
@@ -99,10 +103,11 @@ function editNext(budget: EditBudget): void {
     budget.drafts.find((open) => due.includes(open))!
   budget.next = (budget.drafts.indexOf(draft) + 1) % budget.drafts.length
   const text = draft.wanted
+  const { header, replyTo } = draft.options
   budget.busy = true
   budget.lastEditAt = draft.lastEditAt = Date.now()
   draft.inFlight = draft.options
-    .edit(budget.kind, { ...draft.channelDraft }, text, draft.options.replyTo)
+    .edit(budget.kind, { ...draft.channelDraft }, { header, text }, replyTo)
     .then((outcome) => {
       if (!outcome.success) return
       draft.visible = true

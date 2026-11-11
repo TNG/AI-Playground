@@ -5,7 +5,14 @@ import { openReplyDraft, type ChannelDraft, type DraftEdit } from '../../agent/r
 // Streamed replies as a Channel sees them: the edits each open draft makes, and how
 // open drafts on one chat share its edit budget.
 
-type Edit = { at: number; kind: ChannelKind; draft: ChannelDraft; text: string; replyTo?: string }
+type Edit = {
+  at: number
+  kind: ChannelKind
+  draft: ChannelDraft
+  header?: string
+  text: string
+  replyTo?: string
+}
 
 let edits: Edit[] = []
 let start = 0
@@ -14,7 +21,7 @@ let hours = 0
 
 function recorder(outcome?: (draft: ChannelDraft) => { ref?: string; chat?: string }): DraftEdit {
   return async (kind, draft, text, replyTo) => {
-    edits.push({ at: Date.now() - start, kind, draft: { ...draft }, text, replyTo })
+    edits.push({ at: Date.now() - start, kind, draft: { ...draft }, ...text, replyTo })
     return { success: true, ...outcome?.(draft) }
   }
 }
@@ -41,6 +48,19 @@ describe('a reply draft', () => {
     expect(edits.map(({ at, text }) => [at, text])).toEqual([
       [0, 'Hello wor'],
       [1000, 'Hello world'],
+    ])
+    await draft.close()
+  })
+
+  it('carries its header beside the text on every edit', async () => {
+    const draft = openReplyDraft('local-web', { edit: recorder(), header: '🤖 Agent' })
+    draft.update('Hel')
+    await vi.advanceTimersByTimeAsync(0)
+    draft.update('Hello')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(edits.map(({ header, text }) => [header, text])).toEqual([
+      ['🤖 Agent', 'Hel'],
+      ['🤖 Agent', 'Hello'],
     ])
     await draft.close()
   })
@@ -112,7 +132,7 @@ describe('a reply draft', () => {
     let land: () => void = () => {}
     const draft = openReplyDraft('local-web', {
       edit: async (kind, open, text) => {
-        edits.push({ at: Date.now() - start, kind, draft: open, text })
+        edits.push({ at: Date.now() - start, kind, draft: open, ...text })
         await new Promise<void>((resolve) => (land = resolve))
         return { success: true }
       },

@@ -2,9 +2,16 @@ import { answerRouterCopy, type AnswerRouterCopy } from '@/lib/answerRouterWordi
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { AnswerTarget, ChannelMessageOwner } from '@/types/notificationsIpc'
-import { hasAnswerTyping } from '@/lib/answerButton'
-import type { ChannelAdapter } from './adapter'
+import {
+  ANSWER_CALLBACK,
+  answerGesture,
+  GESTURE_WORDING,
+  hasAnswerTyping,
+} from '@/lib/answerButton'
+import type { ChannelAdapter, RawPart } from './adapter'
+import { helpText, parseCommand, type ChannelCommand } from './channelCommands'
 import type { ChannelQuestionRegistry, InboundAnswer } from './channelQuestions'
+import { createChannelSessions } from './channelSessions'
 import type { ChannelKind, InboundMeta, RemoteAudio, RemoteDocument, RemoteImage } from './types'
 
 /** How sending into a Session went; `queuePosition` is set while it waits its turn. */
@@ -29,21 +36,41 @@ export type HeldAnswerJournal = {
   save: (notes: HeldAnswerNote[]) => void
 }
 
+/** A plain message goes to the Session's Assistant; an Answer to the Harness Session that asked. */
+export type SessionTarget = { sessionRef: string } | AnswerTarget
+
+/** One message of a Session's transcript, for repainting a Channel that keeps no history. */
+export type ChannelTranscriptMessage = { role: 'user' | 'assistant'; parts: RawPart[] }
+
+/** Each Channel's Channel Session, kept by the window across restarts. */
+export type ChannelSessionPointers = {
+  get: (kind: ChannelKind) => string | null
+  set: (kind: ChannelKind, sessionRef: string | null) => void
+}
+
 /** The Sessions a channel reaches, keyed by Session (`docs/adr/0010`); registered by the window. */
 export type SessionPort = {
   /** The Session has not been deleted. */
   exists: (sessionRef: string) => Promise<boolean>
   /** The Session exists and is a Reachable Session; nothing else is ever driven from a channel. */
   isReachable: (sessionRef: string) => Promise<boolean>
+  /** The Reachable Sessions, newest first; an untitled one has an empty title. */
+  listReachable: () => Promise<{ sessionRef: string; title: string }[]>
+  /** A new Reachable Session, not opened on the desktop; throws when it could not be made. */
+  create: () => Promise<string>
+  transcript: (sessionRef: string) => Promise<ChannelTranscriptMessage[]>
   /** The Session and Harness Session that sent this channel message, or null when none did. */
   lookup: (kind: ChannelKind, ref: string) => Promise<ChannelMessageOwner | null>
-  /** The Notification label, quoted (`"Asteroids clone"`, or a Task and its step). */
-  label: (target: AnswerTarget) => string
+  /** The label, quoted (`"Asteroids clone"`, or a Task and its step for an Answer). */
+  label: (target: SessionTarget) => string
   /** The folder runs the real system shell, which is never driven from a channel. */
   usesRealShell: (target: AnswerTarget) => boolean
-  /** `origin` is where the message came from; the turn's result is replied under it. */
+  /**
+   * `origin` is where the message came from; the turn's result is replied under it. A plain
+   * message runs in the Session's Assistant Harness Session, minted on first use.
+   */
   send: (
-    target: AnswerTarget,
+    target: SessionTarget,
     message: string,
     origin: AgentAnswerOrigin,
   ) => Promise<SessionSendResult>
@@ -71,15 +98,11 @@ export type InboundChannelMessage = InboundAnswer & {
 
 export type AnswerRouter = {
   /**
-   * Routes one inbound message ahead of Home Agent: a button tap to its Channel Question,
-   * a reply to an agent's message to that session, a typed yes/no to an open Home Agent
-   * confirmation. False means it is Home Agent's.
+   * Routes everything a Channel sends: a button tap to its Channel Question or command, a
+   * command, a reply to a Session's message to that Harness Session as an Answer, a typed yes/no
+   * to an open confirmation, and anything else to the Channel's Channel Session.
    */
-  route: (
-    adapter: ChannelAdapter,
-    msg: InboundChannelMessage,
-    meta?: InboundMeta,
-  ) => Promise<boolean>
+  route: (adapter: ChannelAdapter, msg: InboundChannelMessage, meta?: InboundMeta) => Promise<void>
   /** The channel is up: tells it which Held Answers the last app close lost. */
   channelReady: (adapter: ChannelAdapter) => Promise<void>
 }
@@ -88,8 +111,9 @@ export type AnswerRouter = {
 export type VoiceAnswerPreparation = { ready: boolean } | { downloading: Promise<boolean> }
 
 export type AnswerRouterDeps = {
-  /** Null until Agent Mode has registered; replies then reach Home Agent as before. */
+  /** Null until the window has registered it; messages are dropped until then. */
   sessions: () => SessionPort | null
+  pointers: ChannelSessionPointers
   questions: Pick<ChannelQuestionRegistry, 'handleInbound'>
   /** Home Agent's speech-to-text; null means it failed and already told the channel why. */
   transcribe?: (
@@ -235,7 +259,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   async function send(
     sessions: SessionPort,
-    target: AnswerTarget,
+    target: SessionTarget,
     text: string,
     origin: AgentAnswerOrigin,
   ): Promise<SessionSendResult> {
@@ -421,22 +445,94 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     await answer(adapter, sessions, target, text, msg.replyTarget, meta)
   }
 
+  function channelSessions(sessions: SessionPort) {
+    return createChannelSessions({
+      port: sessions,
+      pointers: deps.pointers,
+      copy,
+      tell,
+      confirm,
+      send: (target, text, origin) => send(sessions, target, text, origin),
+      log,
+    })
+  }
+
+  function helpCommand(commands: () => ChannelCommand[]): ChannelCommand {
+    return {
+      name: 'help',
+      usage: '/help',
+      describe: (wording) => wording.helpHelp,
+      run: async ({ adapter, meta }) => {
+        const wording = copy()
+        const gesture = answerGesture(adapter.kind)
+        const answering = gesture ? wording[GESTURE_WORDING[gesture].help] : null
+        await tell(adapter, helpText(commands(), wording, answering), meta)
+      },
+    }
+  }
+
+  async function runCommand(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<boolean> {
+    const parsed = parseCommand(msg.text ?? '')
+    if (!parsed) return false
+    const own = channelSessions(sessions).commands
+    const commands: ChannelCommand[] = [...own, helpCommand(() => commands)]
+    const command = commands.find((entry) => entry.name === parsed.name.toLowerCase())
+    if (!command) {
+      const unknown = fillTemplate(copy().unknownCommand, { command: `/${parsed.name}` })
+      await tell(adapter, unknown, meta)
+      return true
+    }
+    await command.run({ adapter, msg, meta, args: parsed.args })
+    return true
+  }
+
+  async function runCallback(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<boolean> {
+    const data = msg.callback ?? ''
+    const callback = channelSessions(sessions).callbacks.find((entry) =>
+      data.startsWith(entry.prefix),
+    )
+    if (!callback) return false
+    await callback.run({ adapter, msg, meta }, data.slice(callback.prefix.length))
+    return true
+  }
+
   async function route(
     adapter: ChannelAdapter,
     msg: InboundChannelMessage,
     meta?: InboundMeta,
-  ): Promise<boolean> {
-    if (msg.callback) return deps.questions.handleInbound(adapter, msg, meta)
+  ): Promise<void> {
     const sessions = deps.sessions()
-    if (sessions && msg.replyTo) {
+    if (msg.callback) {
+      if (msg.callback === ANSWER_CALLBACK) return
+      if (sessions && (await runCallback(adapter, sessions, msg, meta))) return
+      await deps.questions.handleInbound(adapter, msg, meta)
+      return
+    }
+    if (!sessions) {
+      log('answerRouter: a channel message arrived before Sessions were reachable', null)
+      return
+    }
+    if (await runCommand(adapter, sessions, msg, meta)) return
+    if (msg.replyTo) {
       const owner = await answeredSession(sessions, adapter.kind, msg.replyTo)
       if (owner) {
         const answerMeta = msg.replyTarget ? { ...meta, threadTs: msg.replyTarget } : meta
         await deliver(adapter, sessions, owner, msg, answerMeta)
-        return true
+        return
       }
     }
-    return deps.questions.handleInbound(adapter, msg, meta)
+    if (await deps.questions.handleInbound(adapter, msg, meta)) return
+    await channelSessions(sessions).plainMessage(adapter, msg, meta)
   }
 
   async function channelReady(adapter: ChannelAdapter): Promise<void> {

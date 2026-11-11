@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AnswerTarget } from '@/types/notificationsIpc'
+import type { SessionTarget } from '../../../src/assets/js/store/channels/answerRouter'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
 const dirs = vi.hoisted(() => ({ root: '' }))
@@ -95,11 +96,14 @@ describe('the channel message map', () => {
   it('routes an Answer to a migrated entry into the Harness Session that sent it', async () => {
     const owner = await sessionWithHarness()
     await writeLegacyMap([{ kind: 'telegram', ref: '1234', sessionId: owner.harnessSessionId }])
-    const sent: { target: AnswerTarget; message: string; origin: AgentAnswerOrigin }[] = []
+    const sent: { target: SessionTarget; message: string; origin: AgentAnswerOrigin }[] = []
     const router = createAnswerRouter({
       sessions: () => ({
         exists: async () => true,
         isReachable: async () => true,
+        listReachable: async () => [],
+        create: async () => 'session-new',
+        transcript: async () => [],
         lookup: messageMap.channelMessageOwner,
         label: () => '"Asteroids clone"',
         usesRealShell: () => false,
@@ -113,6 +117,7 @@ describe('the channel message map', () => {
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
       prepareVoiceAnswer: async () => ({ ready: true }),
+      pointers: { get: () => null, set: () => {} },
       log: () => {},
     })
     const channel = {
@@ -122,13 +127,12 @@ describe('the channel message map', () => {
       reply: async () => ({ success: true }),
     } as unknown as ChannelAdapter
 
-    const routed = await router.route(channel, {
+    await router.route(channel, {
       text: 'try a smaller level',
       replyTo: '1234',
       replyTarget: '1300',
     })
 
-    expect(routed).toBe(true)
     expect(sent).toEqual([
       {
         target: owner,

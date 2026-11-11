@@ -1,24 +1,17 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, reactive, computed, watch } from 'vue'
-import type { FileUIPart } from 'ai'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
-import { useImageGenerationPresets, isImage, isVideo, is3D } from './imageGenerationPresets'
-import { usePromptStore } from './promptArea'
-import { artifactKindForMedia, runArtifact } from '../artifact/runArtifact'
-import { usePresets } from './presets'
 import { useConfirmations } from './confirmations'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
 import { fetchModelMeta } from '@/lib/modelDownloader'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
-import { extractToolMedia } from '@/assets/js/tools/toolMedia'
 // Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
 // which already instantiates useHomeAgent() at the top of its own setup.
 import { useTextInference } from './textInference'
-import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
   installSynthesisModel,
@@ -36,8 +29,6 @@ import {
   HOME_AGENT_CONVERSATION_TITLE,
   HOME_AGENT_CHAT_PRESET_NAME,
 } from './conversations'
-import { saveImageToMediaInput, downscaleDataUriTo1MP } from '@/lib/utils'
-import { render3dThumbnail } from '@/lib/render3dThumbnail'
 import * as toast from '../toast'
 import {
   CHANNEL_FIELD_SPEC,
@@ -46,16 +37,13 @@ import {
   type ChannelPrefs,
   type ChannelRuntimeState,
   type InboundMeta,
-  type RemoteImage,
-  type RemoteDocument,
-  type KeyboardButton,
-  type ChannelQueueItem,
 } from './channels/types'
-import type { ChannelAdapter, RawPart } from './channels/adapter'
+import type { ChannelAdapter } from './channels/adapter'
 import { escapeHtml } from './channels/adapterHelpers'
-import { isAppError, extractMessage, createAppError, createCancellation } from '../errors/appError'
+import { createAppError, createCancellation } from '../errors/appError'
 import { answerDownloadKey } from '@/assets/js/permissions/answerDownloadKey'
 import { useErrors } from './errors'
+import { useChannelSessionPointers } from './channelSessionPointers'
 import { createTelegramAdapter } from './channels/telegramAdapter'
 import { createSlackAdapter } from './channels/slackAdapter'
 import { createLocalWebAdapter } from './channels/localWebAdapter'
@@ -80,7 +68,6 @@ import {
 import { holdOpenDownloadQuestion } from '../models/openDownloadQuestions'
 import { channelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { fillTemplate } from '@/lib/fillTemplate'
-import { answerHelpLine } from '@/lib/answerRouterWording'
 import {
   registerRemoteTurnPort,
   type ChannelQuestionOutcome,
@@ -93,20 +80,7 @@ import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 // list and dropping in a new adapter — no other edits to this file.
 const KINDS = ['telegram', 'slack', 'local-web'] as readonly ChannelKind[]
 
-/**
- * Pending state for the interactive `/imgGen` preset picker.
- * `awaitingPresetTap` is set after the user runs `/imgGen` until they tap
- * a preset (or Cancel). `awaitingPrompt` is set after a preset is chosen
- * until the user sends the next plain-text message as the prompt.
- */
-type ImgGenPending =
-  | { phase: 'awaitingPresetTap'; cachedPrompt: string; deadline: number }
-  | { phase: 'awaitingPrompt'; presetName: string; deadline: number }
-
 const POLL_INTERVAL_MS = 2000
-const MAX_QUEUE_SIZE = 20
-const IMGGEN_PENDING_TIMEOUT_MS = 5 * 60_000
-const IMG_GEN_TIMEOUT_MS = 120_000
 /** How long to wait for an in-channel yes/no before auto-cancelling a settings change. */
 const CONFIRM_TIMEOUT_MS = 2 * 60_000
 /** Title shown on the inline desktop confirmation card for settings changes. */
@@ -117,7 +91,8 @@ const DOWNLOAD_CONFIRM_TITLE = 'Download model?'
 /** Module-level so Vite HMR does not orphan intervals across Pinia setup
  *  closures. Indexed by ChannelKind so adding a kind = one map entry. */
 const pollIntervalIds: Partial<Record<ChannelKind, ReturnType<typeof setInterval>>> = {}
-const drainBusyByKind: Partial<Record<ChannelKind, boolean>> = {}
+// One poll per Channel at a time, so its messages are routed in the order they came.
+const pollBusyByKind: Partial<Record<ChannelKind, boolean>> = {}
 
 function disposePoll(kind: ChannelKind) {
   const id = pollIntervalIds[kind]
@@ -143,29 +118,16 @@ function emptyPrefs(): ChannelPrefs {
   return { verified: false, identity: null, enabled: false }
 }
 
-function extractAssistantReply(messages: AipgUiMessage[] | undefined): string | null {
-  if (!messages || messages.length === 0) return null
-  const last = messages[messages.length - 1]
-  if (last.role !== 'assistant') return null
-  const text = (last.parts as { type: string; text?: string }[])
-    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-    .map((p) => p.text)
-    .join('')
-  return text || null
-}
-
 export const useHomeAgent = defineStore(
   'homeAgent',
   () => {
     const backendServices = useBackendServices()
     const chatStore = useOpenAiCompatibleChat()
     const textInference = useTextInference()
-    const imageGenStore = useImageGenerationPresets()
-    const promptStore = usePromptStore()
     const conversations = useConversations()
-    const presetsStore = usePresets()
     const confirmations = useConfirmations()
     const errors = useErrors()
+    const channelSessionPointers = useChannelSessionPointers()
 
     /**
      * Master Home Agent on/off — the single title-bar toggle. Persisted so the
@@ -197,15 +159,6 @@ export const useHomeAgent = defineStore(
       'local-web': emptyRuntimeState('local-web'),
     })
 
-    // Per-channel message queues — `channels[kind].active` flips the polling
-    // on/off but the queues live here so HMR doesn't lose in-flight messages.
-    const messageQueues = {
-      telegram: [] as ChannelQueueItem[],
-      slack: [] as ChannelQueueItem[],
-      discord: [] as ChannelQueueItem[],
-      'local-web': [] as ChannelQueueItem[],
-    } satisfies Record<ChannelKind, ChannelQueueItem[]>
-
     // Adapter instances — one per kind. Created at setup time; their methods
     // close over the IPC bridge so the renderer always uses the same adapter
     // identity (matters for the draft-stream cache the streaming code uses).
@@ -231,13 +184,6 @@ export const useHomeAgent = defineStore(
         .filter(([_, meta]) => meta?.kind === 'homeAgent')
         .map(([key]) => key),
     )
-
-    /**
-     * Pending state for the interactive `/imgGen` flow. Not persisted —
-     * picker sessions are short-lived (5-minute timeout) and re-routing the
-     * preset choice across restarts would surprise the user.
-     */
-    const pendingImgGen = ref<ImgGenPending | null>(null)
 
     /**
      * The channel turn currently being handled (set while a remote agentic /
@@ -290,6 +236,7 @@ export const useHomeAgent = defineStore(
       prepareVoiceAnswer: remoteSpeech.prepareAnswer,
       downloadQuestionChannels: () => notificationChannels.value,
       journal: heldAnswerJournal,
+      pointers: channelSessionPointers,
       log: (message, error) => reportSilently(message, error),
     })
 
@@ -415,66 +362,6 @@ export const useHomeAgent = defineStore(
       },
     )
 
-    const IMG_GEN_REGEX = /^\/imgGen\s*/i
-    const CHAT_REGEX = /^\/chat\s*/i
-    const HELP_REGEX = /^\/help$/i
-    const CANCEL_REGEX = /^\/cancel\s*$/i
-    const NEW_REGEX = /^\/new\s*$/i
-    const HISTORY_REGEX = /^\/history\s*$/i
-    const LOAD_REGEX = /^\/load\s+(\S+)\s*$/i
-    const LOAD_BARE_REGEX = /^\/load\s*$/i
-    const RESET_REGEX = /^\/reset(?:Config)?\s*$/i
-
-    const helpMessage = (kind: ChannelKind) =>
-      '🤖 <b>Available commands</b>\n\n' +
-      '/imgGen\n' +
-      'Open the image-generation picker. Tap a preset, then send your prompt as the next message.\n' +
-      'You can also pre-fill the prompt with <code>/imgGen </code><i>&lt;prompt&gt;</i> — after you tap a preset the image generates immediately.\n\n' +
-      '/cancel\n' +
-      'Cancel a pending /imgGen flow (or tap the ✖ Cancel button on the picker).\n\n' +
-      '<code>/chat </code><i>&lt;message&gt;</i>\n' +
-      'Force a text chat reply (no image generation).\n\n' +
-      '/new\n' +
-      'Start a fresh chat thread. Subsequent messages go into it.\n\n' +
-      '/history\n' +
-      'List your saved Home Agent chat threads.\n\n' +
-      '/load\n' +
-      'Pick a recent chat from a tappable menu (the bot summarizes each one).\n\n' +
-      '<code>/load </code><i>&lt;id&gt;</i>\n' +
-      'Resume a specific chat. Use the id from <code>/history</code>.\n\n' +
-      '/reset\n' +
-      'Restore the Home Agent settings (model, system prompt, etc.) to their defaults. Use this if a settings change broke something.\n\n' +
-      '/help\n' +
-      'Show this help message.\n\n' +
-      'Any other message is handled by the AI in <b>agentic mode</b>: it decides whether to reply with text or generate an image based on your request.\n\n' +
-      answeringHelp(kind) +
-      '📷 <b>Photos</b>\n' +
-      'Send a photo (with or without a caption) and the AI will answer based on what it sees. ' +
-      'Requires a <b>vision-capable model</b> selected in Chat settings.\n\n' +
-      '🎙️ <b>Voice messages</b>\n' +
-      'Send a voice note or audio file and it will be transcribed and handled like a typed message. ' +
-      'Requires Speech To Text (OVMS) enabled, or a fallback transcription endpoint configured in Settings.\n' +
-      'When Text To Speech is enabled, the reply to a voice message is also sent back as a voice message.\n\n' +
-      '📄 <b>Documents</b>\n' +
-      'Send a <code>txt</code>, <code>md</code>, <code>doc</code>, <code>docx</code> or <code>pdf</code> file and it is added to the knowledge base. ' +
-      'Future questions are answered using the content of the documents you upload.'
-
-    function answeringHelp(kind: ChannelKind): string {
-      const line = answerHelpLine(kind)
-      return line ? `💬 ${escapeHtml(line)}\n\n` : ''
-    }
-
-    function resolveLoadTarget(idArg: string): string | null {
-      const items = listRemoteConversations()
-      // Allow either the 1-based index from /history or the raw conversation key.
-      const asIndex = Number.parseInt(idArg, 10)
-      if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= items.length) {
-        return items[asIndex - 1].key
-      }
-      const direct = items.find((i) => i.key === idArg)
-      return direct?.key ?? null
-    }
-
     function homeAgentTitleFor(key: string): string {
       // Legacy singleton keeps its historical title for continuity.
       if (key === HOME_AGENT_CONVERSATION_KEY) return HOME_AGENT_CONVERSATION_TITLE
@@ -486,15 +373,6 @@ export const useHomeAgent = defineStore(
         minute: '2-digit',
       })
       return `Home Agent - ${stamp}`
-    }
-
-    function maybeSetHomeAgentConversationTitle(key: string | null) {
-      if (!key) return
-      const msgs = conversations.conversationList[key]
-      const first = msgs?.[0]
-      if (first && !first.metadata?.conversationTitle) {
-        conversations.renameConversationTitle(key, homeAgentTitleFor(key))
-      }
     }
 
     /**
@@ -534,119 +412,6 @@ export const useHomeAgent = defineStore(
       return true
     }
 
-    /** Flatten a message's visible text parts into a single string. */
-    function messagePlainText(m: AipgUiMessage): string {
-      return (m.parts as { type: string; text?: string }[])
-        .filter((p): p is { type: 'text'; text: string } => p.type === 'text' && !!p.text)
-        .map((p) => p.text)
-        .join('')
-        .trim()
-    }
-
-    /** Collect the media URLs a message carries — attached `file` parts plus any
-     *  media emitted by tool calls (ComfyUI etc.) — so history replay can re-ship
-     *  pictures, clips and 3D/model files, not just the text. */
-    function messageMedia(m: AipgUiMessage): {
-      images: string[]
-      videos: string[]
-      models: string[]
-    } {
-      const images: string[] = []
-      const videos: string[] = []
-      const models: string[] = []
-      for (const part of m.parts as RawPart[]) {
-        const p = part as RawPart & { url?: string; mediaType?: string }
-        if (p.type === 'file' && p.url) {
-          const mt = p.mediaType ?? 'image/'
-          if (mt.startsWith('video/')) videos.push(p.url)
-          else if (mt.startsWith('image/')) images.push(p.url)
-          else models.push(p.url)
-          continue
-        }
-        for (const item of extractToolMedia(part)) {
-          if (item.kind === 'image') images.push(item.url)
-          else if (item.kind === 'video') videos.push(item.url)
-          else if (item.kind === 'model3d') models.push(item.url)
-        }
-      }
-      return { images, videos, models }
-    }
-
-    /**
-     * Repaint a channel that has no history of its own (the LAN web page) with a
-     * conversation's full transcript. No-op for channels that keep history
-     * natively (Telegram/Slack leave `replayHistory` undefined), so loading a
-     * chat there relies on the platform's own scrollback.
-     */
-    async function replayHistoryToChannel(adapter: ChannelAdapter, key: string): Promise<void> {
-      if (!adapter.replayHistory) return
-      const msgs = chatStore.getMessagesForKey(key) ?? conversations.conversationList[key] ?? []
-      const history: {
-        role: 'user' | 'assistant'
-        text: string
-        images?: string[]
-        videos?: { base64: string; filename: string }[]
-        documents?: { base64: string; filename: string }[]
-      }[] = []
-      for (const m of msgs) {
-        const role = (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant'
-        // Assistant turns render through the SAME formatter as the live reply, so
-        // reasoning blocks, image-gen preset/prompt markers and tool notes look
-        // identical on reload. User turns are just their plain text.
-        const text =
-          role === 'assistant' ? adapter.formatFinal(m.parts as RawPart[]) : messagePlainText(m)
-        // Resolve each media URL (aipg-media://…) to base64 the browser can render
-        // inline — the same conversion the live photo/video sends use.
-        const { images: imageUrls, videos: videoUrls, models: modelUrls } = messageMedia(m)
-        // A media file that can't be read is dropped from the replay, which the
-        // user sees as a missing picture — report it so the omission is traceable
-        // rather than silent. Silent surface: one toast per missing file while
-        // repainting a long thread would be worse than the gap itself.
-        const reportMediaFailure = (cause: unknown, mediaKind: string, url: string) =>
-          errors.report(cause, {
-            category: 'channel',
-            code: 'channel/history-media-read-failed',
-            userMessage: `A ${mediaKind} could not be included when reloading this chat.`,
-            surface: 'silent',
-            context: { mediaKind, url },
-          })
-        const images: string[] = []
-        for (const url of imageUrls) {
-          try {
-            images.push(await mediaToBase64(url))
-          } catch (e) {
-            reportMediaFailure(e, 'image', url)
-          }
-        }
-        const videos: { base64: string; filename: string }[] = []
-        for (const url of videoUrls) {
-          try {
-            videos.push({
-              base64: await mediaToBase64(url),
-              filename: basenameForUrl(url, 'video.mp4'),
-            })
-          } catch (e) {
-            reportMediaFailure(e, 'video', url)
-          }
-        }
-        const documents: { base64: string; filename: string }[] = []
-        for (const url of modelUrls) {
-          try {
-            documents.push({
-              base64: await mediaToBase64(url),
-              filename: basenameForUrl(url, 'model.glb'),
-            })
-          } catch (e) {
-            reportMediaFailure(e, '3D model', url)
-          }
-        }
-        if (text || images.length || videos.length || documents.length) {
-          history.push({ role, text, images, videos, documents })
-        }
-      }
-      await adapter.replayHistory(history)
-    }
-
     function ensureActiveRemoteConversation(): string {
       const current = activeRemoteConversationKey.value
       if (current && conversations.conversationList[current]) return current
@@ -681,14 +446,6 @@ export const useHomeAgent = defineStore(
       // so newer chats land on top; the legacy singleton string key parses to
       // NaN → 0 so it falls to the bottom.
       return entries.sort((a, b) => (parseInt(b.key) || 0) - (parseInt(a.key) || 0))
-    }
-
-    /** Show Chat view on the active Home Agent thread so remote traffic is visible. */
-    function focusRemoteChatDiscussion() {
-      const key = ensureActiveRemoteConversation()
-      conversations.ensureConversationBucket(key)
-      conversations.activeKey = key
-      promptStore.setModeOnly('chat')
     }
 
     /** Flatten the last 5 messages of a conversation into a "User: …" /
@@ -732,18 +489,6 @@ export const useHomeAgent = defineStore(
 
     async function reply(adapter: ChannelAdapter, htmlSnippet: string, meta?: InboundMeta) {
       return adapter.reply(adapter.formatRichSnippet(htmlSnippet), meta)
-    }
-
-    async function replyMarkdown(adapter: ChannelAdapter, md: string, meta?: InboundMeta) {
-      return adapter.reply(adapter.formatMarkdown(md), meta)
-    }
-
-    // Surface a failed turn to the remote user. Stream failures are reported
-    // silently for side-channels (and never thrown), so without this the channel
-    // would just go quiet on errors like a context-size overflow.
-    async function relayTurnError(adapter: ChannelAdapter, error: unknown, meta?: InboundMeta) {
-      const message = isAppError(error) ? error.userMessage : extractMessage(error)
-      await reply(adapter, `⚠️ ${escapeHtml(message)}`, meta)
     }
 
     /** In-turn confirmation over the active channel: buttons or a typed yes/no, declined on timeout. */
@@ -1204,1225 +949,30 @@ export const useHomeAgent = defineStore(
       textInference.resetActivePresetSettings()
     }
 
-    /** A voice message gets a spoken reply too, when "Speak replies" is on for the Home Agent preset. */
-    async function maybeSendVoiceReply(
-      adapter: ChannelAdapter,
-      text: string,
-      fromVoice: boolean,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      if (fromVoice) await remoteSpeech.speak(adapter, text, meta)
-    }
-
-    async function keyboard(
-      adapter: ChannelAdapter,
-      htmlIntro: string,
-      buttons: KeyboardButton[][],
-      meta?: InboundMeta,
-    ) {
-      return adapter.keyboard(adapter.formatRichSnippet(htmlIntro), buttons, meta)
-    }
-
-    async function photo(
-      adapter: ChannelAdapter,
-      base64: string,
-      caption: string,
-      meta?: InboundMeta,
-    ) {
-      return adapter.photo(base64, caption, meta)
-    }
-
-    function typing(adapter: ChannelAdapter, action: string, meta?: InboundMeta): () => void {
-      return adapter.startTypingHeartbeat(action, meta)
-    }
-
-    function draftStream(adapter: ChannelAdapter, meta?: InboundMeta) {
-      return adapter.createDraftStream(meta)
-    }
-
-    /**
-     * Pin the live preset to Home Agent so `buildChatModelConfig()` ships that
-     * model on `chat:summarize`. Main occupies and loads (remember: false).
-     * Returns a restore callback, or `false` after messaging the channel when
-     * the preset cannot be applied. Callers restore after summaries so the
-     * request and the load name the same model.
-     */
-    async function ensureSummarizerReady(
-      adapter: ChannelAdapter,
-      meta?: InboundMeta,
-    ): Promise<false | (() => void)> {
-      const textInference = useTextInference()
-      const previousPreset = presetsStore.activePresetName
-      const previousVariant = previousPreset
-        ? (presetsStore.activeVariantName[previousPreset] ?? null)
-        : null
-      const resumeSelectionMemory = textInference.pauseChatBackendSelectionMemory()
-      try {
-        textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
-      } catch (e) {
-        resumeSelectionMemory()
-        console.error('homeAgent: apply Home Agent preset for summary failed:', e)
-        await reply(
-          adapter,
-          '⚠️ Could not prepare the model to summarize chats. Try again later.',
-          meta,
-        )
-        return false
-      }
-      return () => {
-        if (previousPreset && previousPreset !== HOME_AGENT_CHAT_PRESET_NAME) {
-          try {
-            textInference.applyPresetToGlobals(previousPreset, previousVariant)
-          } catch (err) {
-            console.error('homeAgent: failed to restore previous preset:', err)
-          }
-        }
-        resumeSelectionMemory()
-      }
-    }
-
-    /**
-     * Handle a bare `/load` (no argument) by sending a keyboard with the 3
-     * most recent Home Agent chats. Button labels are AI-generated 5-word-or-
-     * less summaries; tapping is equivalent to `/load <key>`.
-     */
-    async function handleLoadMenu(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
-      focusRemoteChatDiscussion()
-
-      const candidates = listRemoteConversations().slice(0, 3)
-      if (candidates.length === 0) {
-        await reply(adapter, '📭 No saved chats yet. Send a message to start one.', meta)
-        return
-      }
-
-      // Quick acknowledgement so the user knows the bot is working — summary
-      // generation can take a few seconds (3 sequential LLM calls worst case).
-      await reply(adapter, '🤔 Preparing recent chats…', meta)
-
-      const stopTyping = typing(adapter, 'typing', meta)
-      const restore = await ensureSummarizerReady(adapter, meta)
-      if (!restore) {
-        stopTyping()
-        return
-      }
-      try {
-        const items: Array<{ key: string; label: string }> = []
-        for (const c of candidates) {
-          const summary = await summarizeConversation(c.key)
-          const label = c.isActive ? `${summary} (active)` : summary
-          items.push({ key: c.key, label })
-        }
-
-        const buttons = items.map((it) => [{ text: it.label, callbackData: `loadConv:${it.key}` }])
-
-        await keyboard(adapter, '📂 Pick a chat to resume:', buttons, meta)
-      } catch (e) {
-        console.error('homeAgent: summarizeConversation failed:', e)
-        await reply(
-          adapter,
-          '⚠️ Could not prepare the model to summarize chats. Try again later.',
-          meta,
-        )
-      } finally {
-        restore()
-        stopTyping()
-      }
-    }
-
-    /** Cap on the number of /history entries that get AI-generated summaries.
-     *  Keeps the worst-case latency bounded; older entries get a "…" stub. */
-    const MAX_HISTORY_SUMMARIES = 10
-
-    async function handleHistoryCommand(
-      adapter: ChannelAdapter,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      focusRemoteChatDiscussion()
-
-      const items = listRemoteConversations()
-      if (items.length === 0) {
-        await reply(
-          adapter,
-          '📭 No saved Home Agent chat threads yet. Send a message to start one.',
-          meta,
-        )
-        return
-      }
-
-      const summaryTargets = items.slice(0, MAX_HISTORY_SUMMARIES)
-
-      const anyNeedsGen = summaryTargets.some((c) => {
-        const cached = summaryCache.value[c.key]
-        return !cached || cached.messageCount !== c.messageCount
-      })
-
-      const stopTyping = anyNeedsGen ? typing(adapter, 'typing', meta) : () => undefined
-      let restore: () => void = () => undefined
-      if (anyNeedsGen) {
-        const ready = await ensureSummarizerReady(adapter, meta)
-        if (!ready) {
-          stopTyping()
-          return
-        }
-        restore = ready
-      }
-      try {
-        if (anyNeedsGen) {
-          await reply(adapter, '🤔 Preparing chat history…', meta)
-        }
-
-        const summaries: Record<string, string> = {}
-        for (const c of summaryTargets) {
-          summaries[c.key] = await summarizeConversation(c.key)
-        }
-
-        const lines = items.map((item, idx) => {
-          const marker = item.isActive ? ' • <i>(active)</i>' : ''
-          const summary = summaries[item.key] ?? '…'
-          const escapedSummary = escapeHtml(summary)
-          return `${idx + 1}. <code>${idx + 1}</code> — ${escapedSummary} (${item.messageCount} msg)${marker}`
-        })
-
-        const trimmedCount = Math.max(0, items.length - MAX_HISTORY_SUMMARIES)
-        const footer =
-          trimmedCount > 0
-            ? `\n\n…and <b>${trimmedCount}</b> older chat${trimmedCount === 1 ? '' : 's'} (no summary).`
-            : ''
-
-        await reply(
-          adapter,
-          '📜 <b>Your Home Agent chats</b>\n\n' +
-            lines.join('\n') +
-            footer +
-            '\n\nResume one with <code>/load &lt;id&gt;</code> or just <code>/load</code> for a tap menu.',
-          meta,
-        )
-      } catch (e) {
-        console.error('homeAgent: summarizeConversation failed:', e)
-        await reply(
-          adapter,
-          '⚠️ Could not prepare the model to summarize chats. Try again later.',
-          meta,
-        )
-      } finally {
-        restore()
-        stopTyping()
-      }
-    }
-
-    /**
-     * Convert remote image payloads into persisted `aipg-media://` URLs and
-     * return them as AI SDK `FileUIPart`s.
-     */
-    async function prepareRemoteFiles(
-      images: RemoteImage[] | undefined,
-      sourceLabel: string,
-    ): Promise<FileUIPart[] | undefined> {
-      if (!images || images.length === 0) return undefined
-      const parts: FileUIPart[] = []
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i]
-        try {
-          const dataUri = `data:${img.mime};base64,${img.data_base64}`
-          // Match the regular chat path: cap images at 1MP before persisting so
-          // oversized remote images aren't passed full-resolution to the model.
-          const downscaledUri = await downscaleDataUriTo1MP(dataUri)
-          const aipgUrl = await saveImageToMediaInput(downscaledUri)
-          const ext = img.mime === 'image/jpeg' ? 'jpg' : img.mime.replace('image/', '')
-          parts.push({
-            type: 'file',
-            mediaType: img.mime,
-            url: aipgUrl,
-            filename: `${sourceLabel}-${Date.now()}-${i}.${ext}`,
-          })
-        } catch (e) {
-          console.error(`homeAgent: failed to persist ${sourceLabel} image:`, e)
-        }
-      }
-      return parts.length > 0 ? parts : undefined
-    }
-
-    /**
-     * If the active chat model does not support vision, reply to the channel
-     * and return `false`. Returns `true` when it's safe to proceed.
-     */
-    async function ensureVisionCapableForImages(
-      adapter: ChannelAdapter,
-      hasImages: boolean,
-      meta?: InboundMeta,
-    ): Promise<boolean> {
-      if (!hasImages) return true
-      const textInference = useTextInference()
-      if (textInference.modelSupportsVision) return true
-      await reply(
-        adapter,
-        '⚠️ The active chat model does not support images. Select a vision-capable model in Chat settings, then resend the image.',
-        meta,
-      )
-      return false
-    }
-
-    const SUPPORTED_DOC_EXTENSIONS: ValidFileExtension[] = ['txt', 'doc', 'docx', 'md', 'pdf']
-
-    /**
-     * Ingest inbound document attachments into the shared RAG knowledge base.
-     * Each document is persisted to disk (langchain loaders require a real
-     * filepath) and added to `textInference.ragList` auto-checked, so the next
-     * Home Agent turn retrieves it (the `home-agent-chat` preset has
-     * `enableRAG: true`). Best-effort: failures are logged and reported back to
-     * the channel without breaking the rest of the message handling.
-     */
-    async function ingestRemoteDocuments(
-      adapter: ChannelAdapter,
-      documents: RemoteDocument[],
-      meta?: InboundMeta,
-    ): Promise<void> {
-      // Make the remote thread the active conversation before ingesting so the
-      // auto-checked documents are persisted to *that* thread's RAG selection
-      // (selection is per-conversation). Without this, an enabled upload could
-      // land on whatever conversation happened to be active at the desktop.
-      focusRemoteChatDiscussion()
-      const textInference = useTextInference()
-      const stopTyping = typing(adapter, 'typing', meta)
-      const added: string[] = []
-      const failed: string[] = []
-      try {
-        for (const doc of documents) {
-          const filename = doc.filename || 'document'
-          const ext = filename.includes('.')
-            ? (filename.split('.').pop()!.toLowerCase() as ValidFileExtension)
-            : ('' as ValidFileExtension)
-          if (!SUPPORTED_DOC_EXTENSIONS.includes(ext)) {
-            failed.push(filename)
-            continue
-          }
-          try {
-            const result = await window.electronAPI.homeAgent.saveDocument(
-              filename,
-              doc.data_base64,
-            )
-            if (!result.success) {
-              throw new Error(result.error)
-            }
-            const stub: IndexedDocument = {
-              filename,
-              filepath: result.filepath,
-              type: ext,
-              splitDB: [],
-              hash: '',
-              isChecked: true,
-            }
-            await textInference.addDocumentToRagList(stub)
-            added.push(filename)
-          } catch (e) {
-            console.error(`homeAgent: failed to ingest document ${filename}:`, e)
-            failed.push(filename)
-          }
-        }
-      } finally {
-        stopTyping()
-      }
-
-      if (added.length > 0) {
-        const list = added.map((n) => `• ${escapeHtml(n)}`).join('\n')
-        await reply(
-          adapter,
-          `📄 Added ${added.length} document${added.length === 1 ? '' : 's'} to the knowledge base:\n${list}\nAsk me a question and I'll use them as context.`,
-          meta,
-        )
-      }
-      if (failed.length > 0) {
-        await reply(
-          adapter,
-          `⚠️ Couldn't add ${failed.length} file${failed.length === 1 ? '' : 's'}. Supported types: ${SUPPORTED_DOC_EXTENSIONS.join(', ')}.`,
-          meta,
-        )
-      }
-    }
-
-    async function handleChatMessage(
-      adapter: ChannelAdapter,
-      text: string,
-      images?: RemoteImage[],
-      meta?: InboundMeta,
-      fromVoice = false,
-    ): Promise<void> {
-      focusRemoteChatDiscussion()
-      const targetKey = ensureActiveRemoteConversation()
-      if (!(await ensureVisionCapableForImages(adapter, !!images?.length, meta))) return
-      const files = await prepareRemoteFiles(images, adapter.kind)
-      const stopTyping = typing(adapter, 'typing', meta)
-      activeRemoteTurn = { adapter, meta }
-      try {
-        await chatStore.generate(text, {
-          conversationKey: targetKey,
-          clearInputs: false,
-          files,
-        })
-        maybeSetHomeAgentConversationTitle(targetKey)
-        if (!isHomeAgentActive.value) return
-        // A stream failure (e.g. context overflow) is swallowed by the chat's
-        // onError and generate() returns normally — surface it to the channel.
-        const turnError = chatStore.consumeTurnError(targetKey)
-        if (turnError) {
-          await relayTurnError(adapter, turnError, meta)
-          return
-        }
-        const assistantReply = extractAssistantReply(chatStore.getMessagesForKey(targetKey))
-        if (assistantReply) {
-          await replyMarkdown(adapter, assistantReply, meta)
-          await maybeSendVoiceReply(adapter, assistantReply, fromVoice, meta)
-        }
-      } catch (e) {
-        // A pre-stream failure (backend/model prep, RAG) is thrown instead.
-        if (isHomeAgentActive.value) await relayTurnError(adapter, e, meta)
-      } finally {
-        activeRemoteTurn = null
-        stopTyping()
-      }
-    }
-
-    /**
-     * Poll the live assistant message on a tight interval during an agentic
-     * turn and stream it via the adapter's draft stream. Reasoning, text and
-     * tool-call markers are concatenated into one growing message that
-     * animates in place; photos produced by ComfyUI tool calls still ship as
-     * separate adapter.photo() calls.
-     */
-    function watchAndStreamToChannel(
-      adapter: ChannelAdapter,
-      targetKey: string,
-      meta?: InboundMeta,
-    ): { flush: () => Promise<void>; checkpoint: () => Promise<void> } {
-      const sentMediaForPart = new WeakSet<object>()
-      let sendChain: Promise<void> = Promise.resolve()
-      let stopped = false
-      // The current draft segment. A confirmation `checkpoint()` finalizes the
-      // segment in place and opens a fresh one, so a confirmation prompt (and
-      // everything after it) lands below a settled message instead of editing
-      // the message above. `frozenPartCount` is the number of leading assistant
-      // parts already committed to earlier (frozen) segments.
-      let draft = draftStream(adapter, meta)
-      let frozenPartCount = 0
-      // While > 0 a media (photo/video/3D) send is mid-flight: pause draft text
-      // updates so the next segment's narration can't post above the media it
-      // should follow.
-      let mediaInFlight = 0
-
-      // Snapshot the assistant message that already exists on this thread so
-      // we don't stream/ship parts that belong to a previous turn.
-      const preExistingMsgs = chatStore.getMessagesForKey(targetKey) ?? []
-      const preExistingAssistantId = [...preExistingMsgs]
-        .reverse()
-        .find((m) => m.role === 'assistant')?.id
-
-      // Parts of the assistant message for THIS turn (empty if only the
-      // pre-existing assistant from a previous turn is present).
-      function currentTurnParts(): RawPart[] {
-        const msgs = chatStore.getMessagesForKey(targetKey) ?? []
-        const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
-        if (!lastAssistant || lastAssistant.id === preExistingAssistantId) return []
-        return lastAssistant.parts as RawPart[]
-      }
-
-      // Serialize a media send onto the send chain, first freezing the current
-      // draft segment so the "Generating …" marker settles ABOVE the media and
-      // any later narration streams into a fresh segment BELOW it (instead of the
-      // message above the media being rewritten Generating -> Generated after it
-      // appears).
-      function enqueueMedia(fn: () => Promise<unknown>) {
-        mediaInFlight++
-        sendChain = sendChain
-          .then(() => checkpoint())
-          .then(() => fn())
-          .then(() => undefined)
-          .catch((e) => console.error('homeAgent stream media send failed:', e))
-          .finally(() => {
-            mediaInFlight--
-          })
-      }
-
-      function shipPendingImages(parts: RawPart[]) {
-        // `extractToolMedia` is the single source of truth for which tools emit
-        // shippable media and where it lives in their output — so a new media
-        // tool is forwarded automatically once it's registered there.
-        for (const part of parts) {
-          const items = extractToolMedia(part)
-          if (items.length === 0) continue
-          if (sentMediaForPart.has(part as object)) continue
-          sentMediaForPart.add(part as object)
-          enqueueMedia(async () => {
-            for (const item of items) {
-              if (item.kind === 'image') {
-                await sendImageToChannel(adapter, item.url, '', meta)
-              } else if (item.kind === 'video') {
-                await sendVideoToChannel(adapter, item.url, '', meta)
-              } else if (item.kind === 'audio') {
-                await sendVoiceToChannel(adapter, item.url, meta)
-              } else {
-                await send3DModelToChannel(adapter, item.url, '', meta)
-              }
-            }
-          })
-        }
-      }
-
-      function tick() {
-        const parts = currentTurnParts()
-        if (parts.length === 0) return
-        // Hold off on text updates while media is being shipped so the next
-        // segment can't surface above the media it should follow.
-        if (mediaInFlight === 0) {
-          // Only stream parts that belong to the current (unfrozen) segment.
-          const draftText = adapter.formatDraft(parts.slice(frozenPartCount))
-          if (draftText) draft.update(draftText)
-        }
-        // Image sends scan all parts (deduped via WeakSet) so nothing is missed
-        // across segment boundaries.
-        shipPendingImages(parts)
-      }
-
-      const intervalId = setInterval(() => {
-        if (!stopped) tick()
-      }, 250)
-
-      // Freeze the current segment as a settled message and open a fresh draft
-      // for whatever streams next. Called right before a confirmation prompt is
-      // posted so the prompt appears below, not above, the in-progress reply.
-      async function checkpoint() {
-        if (stopped) return
-        const parts = currentTurnParts()
-        const segmentParts = parts.slice(frozenPartCount)
-        // Finalize "as-is" (draft rendering) — the tool is still mid-execution,
-        // so present-tense markers (e.g. "Using …") are the accurate snapshot.
-        const segmentText = adapter.formatDraft(segmentParts)
-        await draft.finalize(segmentText)
-        frozenPartCount = parts.length
-        draft = draftStream(adapter, meta)
-      }
-
-      async function flush() {
-        stopped = true
-        clearInterval(intervalId)
-        const parts = currentTurnParts()
-        shipPendingImages(parts)
-        const finalText = adapter.formatFinal(parts.slice(frozenPartCount))
-        await draft.finalize(finalText)
-        await sendChain
-      }
-
-      return { flush, checkpoint }
-    }
-
-    async function handleAgenticMessage(
-      adapter: ChannelAdapter,
-      text: string,
-      images?: RemoteImage[],
-      meta?: InboundMeta,
-      fromVoice = false,
-    ): Promise<void> {
-      focusRemoteChatDiscussion()
-      const targetKey = ensureActiveRemoteConversation()
-      if (!(await ensureVisionCapableForImages(adapter, !!images?.length, meta))) return
-      const files = await prepareRemoteFiles(images, adapter.kind)
-      // Show "typing…" the moment we accept the turn — covers the silent
-      // window before the watcher has any reasoning/text/tool part to send.
-      const stopTyping = typing(adapter, 'typing', meta)
-      const { flush, checkpoint } = watchAndStreamToChannel(adapter, targetKey, meta)
-      activeRemoteTurn = { adapter, meta, checkpoint }
-      // Captured from a thrown pre-stream failure or a swallowed stream failure,
-      // and relayed to the channel after the streamed content is flushed.
-      let turnError: unknown = null
-      try {
-        await chatStore.generate(text, {
-          conversationKey: targetKey,
-          clearInputs: false,
-          files,
-        })
-        maybeSetHomeAgentConversationTitle(targetKey)
-        turnError = chatStore.consumeTurnError(targetKey)
-      } catch (e) {
-        turnError = e
-      } finally {
-        activeRemoteTurn = null
-        stopTyping()
-        if (isHomeAgentActive.value) {
-          // Flush first so any partial streamed content (e.g. the browse trace)
-          // lands before the error notice.
-          await flush()
-          if (turnError) {
-            await relayTurnError(adapter, turnError, meta)
-          } else {
-            // After the streamed text reply is delivered, send a voice version
-            // if the inbound turn was itself a voice message.
-            const assistantReply = extractAssistantReply(chatStore.getMessagesForKey(targetKey))
-            if (assistantReply) {
-              await maybeSendVoiceReply(adapter, assistantReply, fromVoice, meta)
-            }
-          }
-        } else {
-          // Home Agent was disabled mid-generation: still drain so already
-          // enqueued sends complete, but do not block the caller.
-          flush().catch((e: unknown) => console.error('homeAgent: final flush failed:', e))
-        }
-      }
-    }
-
-    async function sendImageToChannel(
-      adapter: ChannelAdapter,
-      imageUrl: string,
-      caption: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      try {
-        const t0 = Date.now()
-        const base64 = await mediaToBase64(imageUrl)
-        console.log(
-          `[HA-DIAG] sendImage read ok url=${imageUrl.slice(0, 40)} b64Bytes=${base64.length} readMs=${Date.now() - t0}`,
-        )
-        const t1 = Date.now()
-        const result = await photo(adapter, base64, caption, meta)
-        console.log(
-          `[HA-DIAG] sendImage photo result success=${result.success} sendMs=${Date.now() - t1} error=${result.error ?? '-'}`,
-        )
-        if (!result.success) {
-          throw new Error(result.error ?? 'photo returned failure')
-        }
-      } catch (e) {
-        console.error('[HA-DIAG] sendImage FAILED:', e)
-        await reply(
-          adapter,
-          `⚠️ Image was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
-          meta,
-        )
-      }
-    }
-
-    async function sendVideoToChannel(
-      adapter: ChannelAdapter,
-      videoUrl: string,
-      caption: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      try {
-        const base64 = await mediaToBase64(videoUrl)
-        const result = await adapter.video(
-          base64,
-          caption,
-          basenameForUrl(videoUrl, 'video.mp4'),
-          meta,
-        )
-        if (!result.success) {
-          throw new Error(result.error ?? 'video returned failure')
-        }
-      } catch (e) {
-        await reply(
-          adapter,
-          `⚠️ Video was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
-          meta,
-        )
-      }
-    }
-
-    async function sendVoiceToChannel(
-      adapter: ChannelAdapter,
-      audioPath: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      try {
-        const read = await window.electronAPI.readLocalAudioAsDataUri(audioPath)
-        if (!read.success) throw new Error(read.error)
-        const match = /^data:([^;,]+)[^,]*;base64,(.*)$/s.exec(read.dataUri)
-        if (!match) throw new Error('Malformed audio data URI')
-        const result = await adapter.voice(match[2], match[1], meta)
-        if (!result.success) {
-          throw new Error(result.error ?? 'voice returned failure')
-        }
-      } catch (e) {
-        reportSilently('homeAgent: sending speech to the channel failed', e)
-        await reply(
-          adapter,
-          `⚠️ Speech was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
-          meta,
-        )
-      }
-    }
-
-    /**
-     * Ship a generated 3D model. Chat clients have no inline glTF preview, so
-     * we render a thumbnail on-device and send it as a photo first, then ship
-     * the `.glb` as a document. If thumbnail rendering fails we still send the
-     * document so the user gets the file.
-     */
-    async function send3DModelToChannel(
-      adapter: ChannelAdapter,
-      model3dUrl: string,
-      caption: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      try {
-        try {
-          const thumb = await render3dThumbnail(model3dUrl)
-          await photo(adapter, thumb.base64, caption, meta)
-        } catch (e) {
-          console.error('homeAgent: 3D thumbnail render failed, sending document only:', e)
-        }
-        const base64 = await mediaToBase64(model3dUrl)
-        const result = await adapter.document(
-          base64,
-          basenameForUrl(model3dUrl, 'model.glb'),
-          caption,
-          meta,
-        )
-        if (!result.success) {
-          throw new Error(result.error ?? 'document returned failure')
-        }
-      } catch (e) {
-        await reply(
-          adapter,
-          `⚠️ 3D model was generated but could not be sent: ${e instanceof Error ? e.message : String(e)}`,
-          meta,
-        )
-      }
-    }
-
-    /** Extract a filename from an `aipg-media://`/http(s) URL, falling back to
-     *  `fallback` for data URIs or empty basenames. */
-    function basenameForUrl(url: string, fallback: string): string {
-      try {
-        const withoutScheme = url.replace(/^aipg-media:\/\//, '').split(/[?#]/)[0]
-        const base = withoutScheme.split('/').pop()
-        return base && base.length > 0 ? base : fallback
-      } catch {
-        return fallback
-      }
-    }
-
-    async function mediaToBase64(mediaUrl: string): Promise<string> {
-      if (mediaUrl.startsWith('aipg-media://')) {
-        const result = await window.electronAPI.readAipgMediaAsBase64(mediaUrl)
-        if (!result.success) {
-          throw new Error(`readAipgMediaAsBase64 failed: ${result.error}`)
-        }
-        return result.data
-      }
-      if (mediaUrl.startsWith('data:')) {
-        const comma = mediaUrl.indexOf('base64,')
-        if (comma === -1) throw new Error('Malformed media data URI')
-        return mediaUrl.slice(comma + 'base64,'.length)
-      }
-      const resp = await fetch(mediaUrl)
-      if (!resp.ok) throw new Error(`fetch failed (${resp.status})`)
-      const arrayBuf = await resp.arrayBuffer()
-      const bytes = new Uint8Array(arrayBuf)
-      let binary = ''
-      const CHUNK = 8192
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-      }
-      return btoa(binary)
-    }
-
-    /**
-     * After generate() is called, wait for all newly enqueued images to
-     * finish (done or stopped/error) sending each one as soon as it's ready.
-     */
-    async function waitAndSendAllImages(
-      adapter: ChannelAdapter,
-      newImageIds: Set<string>,
-      prompt: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      const deadline = Date.now() + IMG_GEN_TIMEOUT_MS
-      const sentIds = new Set<string>()
-
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 500))
-
-        for (const id of newImageIds) {
-          if (sentIds.has(id)) continue
-          const img = imageGenStore.generatedImages.find((i) => i.id === id)
-          if (!img) continue
-
-          if (img.state === 'done') {
-            sentIds.add(id)
-            if (isImage(img) && img.imageUrl) {
-              await sendImageToChannel(adapter, img.imageUrl, prompt, meta)
-            } else if (isVideo(img) && img.videoUrl) {
-              await sendVideoToChannel(adapter, img.videoUrl, prompt, meta)
-            } else if (is3D(img) && img.model3dUrl) {
-              await send3DModelToChannel(adapter, img.model3dUrl, prompt, meta)
-            }
-          } else if (img.state === 'stopped') {
-            sentIds.add(id) // count as handled, don't send
-          }
-        }
-
-        if (imageGenStore.currentState === 'error') {
-          const remaining = [...newImageIds].filter((id) => !sentIds.has(id))
-          if (remaining.length > 0) {
-            await reply(
-              adapter,
-              '⚠️ Image generation failed. Please check AI Playground for details.',
-              meta,
-            )
-          }
-          return
-        }
-
-        if (sentIds.size === newImageIds.size) return
-      }
-
-      const unsent = [...newImageIds].filter((id) => !sentIds.has(id))
-      if (unsent.length > 0) {
-        await reply(adapter, `⚠️ ${unsent.length} image(s) timed out and were not sent.`, meta)
-      }
-    }
-
-    /** Clear `pendingImgGen` if its deadline has elapsed. */
-    function expireImgGenPendingIfStale(): void {
-      const p = pendingImgGen.value
-      if (p && Date.now() > p.deadline) {
-        pendingImgGen.value = null
-      }
-    }
-
-    async function showImgGenPresetPicker(
-      adapter: ChannelAdapter,
-      cachedPrompt: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      focusRemoteChatDiscussion()
-
-      const presetsList = presetsStore
-        .getPresetsByCategories(['create-images'], 'comfy')
-        .filter((p) => !p.excludeFromHomeAgentPicker)
-      if (presetsList.length === 0) {
-        await reply(
-          adapter,
-          '⚠️ No image generation presets are available. Configure one in AI Playground.',
-          meta,
-        )
-        return
-      }
-
-      // Telegram caps callback_data at 64 bytes; Slack caps action_id at 255
-      // bytes but truncates button labels at 75 chars. Both limits matter —
-      // gate on the tighter Telegram cap so the same picker works for either.
-      const encoder = new TextEncoder()
-      const buttons: KeyboardButton[][] = []
-      for (const p of presetsList) {
-        const cb = `imgGen:preset:${p.name}`
-        if (encoder.encode(cb).length > 64) continue
-        const label = p.name.length > 30 ? `${p.name.slice(0, 29)}…` : p.name
-        buttons.push([{ text: label, callbackData: cb }])
-      }
-      if (buttons.length === 0) {
-        await reply(
-          adapter,
-          '⚠️ No image generation presets with safe-length names. Configure one in AI Playground.',
-          meta,
-        )
-        return
-      }
-      buttons.push([{ text: '✖ Cancel', callbackData: 'imgGen:cancel' }])
-
-      pendingImgGen.value = {
-        phase: 'awaitingPresetTap',
-        cachedPrompt,
-        deadline: Date.now() + IMGGEN_PENDING_TIMEOUT_MS,
-      }
-
-      const intro = cachedPrompt
-        ? '🎨 Pick a preset to generate your image:'
-        : '🎨 Pick a preset, then send your prompt as the next message:'
-      await keyboard(adapter, intro, buttons, meta)
-    }
-
-    /**
-     * Generate an image using the named preset and the given prompt. Reused
-     * by both the cached-prompt fast-path and the awaitingPrompt → free-text
-     * path.
-     */
-    async function runImgGenWithPreset(
-      adapter: ChannelAdapter,
-      presetName: string,
-      prompt: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      // Resolve without selecting: the runner drives the generation, so the
-      // desktop view (mode, preset, form) stays exactly as it was.
-      const targetPreset = presetsStore.resolvePresetVariant(
-        presetName,
-        presetsStore.activeVariantName[presetName],
-      )
-      if (!targetPreset || targetPreset.type !== 'comfy') {
-        const presetLabel = adapter.formatItalic(adapter.escapeInline(presetName))
-        await reply(adapter, `⚠️ Preset ${presetLabel} is not available.`, meta)
-        return
-      }
-
-      // Match the typing indicator to the eventual delivery so Telegram shows
-      // "sending a photo/video/document…" during the ComfyUI render. Slack
-      // ignores the action name and just toggles the :eyes: reaction.
-      const targetMediaType = targetPreset.mediaType
-      const uploadAction =
-        targetMediaType === 'video'
-          ? 'upload_video'
-          : targetMediaType === 'model3d'
-            ? 'upload_document'
-            : 'upload_photo'
-      const stopTyping = typing(adapter, uploadAction, meta)
-
-      // Phase-aware draft. Drafts auto-expire 30 s after the last update on
-      // Telegram (Slack has no expiry); the keep-alive timer inside the
-      // Telegram draft stream covers the gap between long ComfyUI state
-      // transitions.
-      const draft = draftStream(adapter, meta)
-      let phaseStopped = false
-      const updateDraftPhase = () => {
-        if (phaseStopped) return
-        draft.update(
-          adapter.formatImgGenPhase({
-            presetName,
-            state: imageGenStore.currentState,
-            step: imageGenStore.stepText,
-          }),
-        )
-      }
-      updateDraftPhase()
-      const phaseIntervalId = setInterval(updateDraftPhase, 500)
-      const stopDraft = () => {
-        if (phaseStopped) return
-        phaseStopped = true
-        clearInterval(phaseIntervalId)
-        draft.cancel()
-      }
-      // Settle the phase draft to a final line BEFORE the media is sent, so the
-      // progress message becomes a stable header above the result instead of
-      // being left on a stale phase (e.g. "Finalizing image…" on Slack, which
-      // keeps the edited message) or rewritten after the media appears.
-      const settlePhaseDraft = async (finalText: string) => {
-        if (phaseStopped) return
-        phaseStopped = true
-        clearInterval(phaseIntervalId)
-        await draft.finalize(finalText)
-      }
-
-      // Mark this as a remote turn so any required model downloads route their
-      // approval + progress to the channel (via handleRemoteModelDownload)
-      // instead of popping a desktop-only modal nobody at the channel can see.
-      // Backend start and node/package installs are the runner's — same as the
-      // desktop UI. Installs run on this machine; missing models still go
-      // through the in-channel download flow.
-      activeRemoteTurn = { adapter, meta }
-      try {
-        let result
-        try {
-          result = await runArtifact({
-            kind: artifactKindForMedia(targetMediaType, false),
-            workflow: presetName,
-            mode: 'imageGen',
-            prompt,
-          })
-        } catch {
-          return
-        }
-
-        // Also a declined required-model download: the in-channel flow already said so.
-        if (result.state === 'cancelled') return
-
-        if (result.state === 'failed') {
-          await reply(
-            adapter,
-            `⚠️ Image generation failed: ${result.error ?? 'unknown error'}`,
-            meta,
-          )
-          return
-        }
-
-        const newImageIds = new Set(result.items.map((img) => img.id))
-        if (newImageIds.size === 0) {
-          await reply(adapter, '⚠️ Image generation did not produce any images.', meta)
-          return
-        }
-
-        await settlePhaseDraft(adapter.formatItalic(`🎨 Generated using preset ${presetName}`))
-        await waitAndSendAllImages(adapter, newImageIds, prompt, meta)
-      } finally {
-        activeRemoteTurn = null
-        stopDraft()
-        stopTyping()
-      }
-    }
-
-    async function handleImgGenPresetCallback(
-      adapter: ChannelAdapter,
-      presetName: string,
-      meta?: InboundMeta,
-    ): Promise<void> {
-      const pending = pendingImgGen.value
-      const cachedPrompt = pending?.phase === 'awaitingPresetTap' ? pending.cachedPrompt.trim() : ''
-
-      if (cachedPrompt) {
-        pendingImgGen.value = null
-        await runImgGenWithPreset(adapter, presetName, cachedPrompt, meta)
-        return
-      }
-
-      pendingImgGen.value = {
-        phase: 'awaitingPrompt',
-        presetName,
-        deadline: Date.now() + IMGGEN_PENDING_TIMEOUT_MS,
-      }
-      await reply(
-        adapter,
-        `✅ Selected <i>${escapeHtml(presetName)}</i>.\nNow send your prompt as the next message, or /cancel to abort.`,
-        meta,
-      )
-    }
-
-    /** Cancel button on the picker OR the /cancel slash command. */
-    async function handleImgGenCancel(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
-      const wasPending = pendingImgGen.value !== null
-      pendingImgGen.value = null
-      await reply(
-        adapter,
-        wasPending ? '✖ Image generation cancelled.' : 'Nothing to cancel.',
-        meta,
-      )
-    }
-
-    /**
-     * Channel-agnostic queue drain. Pulls items off the per-channel queue and
-     * dispatches them through `adapter`.
-     */
-    async function drainCommonQueue(kind: ChannelKind) {
-      if (drainBusyByKind[kind]) return
-      drainBusyByKind[kind] = true
-      const queue = messageQueues[kind]
-      const adapter = adapters[kind]
-      if (!adapter) {
-        drainBusyByKind[kind] = false
-        return
-      }
-      try {
-        while (queue.length > 0 && channels[kind].active) {
-          const item = queue.shift()!
-          const meta = item.meta
-          expireImgGenPendingIfStale()
-
-          // Inline-keyboard taps from the /imgGen preset picker arrive with a
-          // `callback` field instead of `text`.
-          if (item.callback) {
-            try {
-              if (item.callback === 'imgGen:cancel') {
-                await handleImgGenCancel(adapter, meta)
-              } else if (item.callback.startsWith('imgGen:preset:')) {
-                const name = item.callback.slice('imgGen:preset:'.length)
-                await handleImgGenPresetCallback(adapter, name, meta)
-              } else if (item.callback.startsWith('loadConv:')) {
-                // Tap on a chat from the /history or /load menu.
-                const key = item.callback.slice('loadConv:'.length)
-                if (switchRemoteConversation(key)) {
-                  focusRemoteChatDiscussion()
-                  const found = listRemoteConversations().find((i) => i.key === key)
-                  await replayHistoryToChannel(adapter, key)
-                  await reply(
-                    adapter,
-                    `📂 Loaded <i>${escapeHtml(found?.title ?? key)}</i>.\nReplies and new messages now use this thread.`,
-                    meta,
-                  )
-                } else {
-                  await reply(adapter, '⚠️ Could not load that chat thread.', meta)
-                }
-              }
-            } catch (e) {
-              console.error(`Error processing ${kind} callback:`, e)
-            }
-            continue
-          }
-
-          let text = item.text ?? ''
-          const images = item.images
-          // Whether the inbound turn came from a voice message — used to decide
-          // whether to also reply with a synthesized voice message.
-          const fromVoice = !!item.audio?.length
-          // Voice/audio messages: transcribe first, then treat the transcript
-          // as the message text so slash-commands spoken aloud and plain
-          // prompts both flow through the normal handling below.
-          if (item.audio?.length) {
-            // A remote turn, so a missing speech model is asked about in this channel.
-            const audio = item.audio
-            const transcript = await withRemoteTurn({ adapter, meta }, () =>
-              remoteSpeech.transcribe(adapter, audio, meta),
-            )
-            if (transcript === null) continue // STT unavailable / failed — already replied
-            text = [text, transcript].filter(Boolean).join(' ').trim()
-            if (!text) {
-              await reply(
-                adapter,
-                "🎙️ I couldn't make out any speech in that audio. Please try again.",
-                meta,
-              )
-              continue
-            }
-          }
-          // Document attachments: ingest into the RAG knowledge base. If the
-          // message carried only documents (no caption/text or images), there is
-          // nothing left to chat about, so stop after confirming the upload.
-          if (item.documents?.length) {
-            await ingestRemoteDocuments(adapter, item.documents, meta)
-            if (!text.trim() && !images?.length) continue
-          }
-          try {
-            if (HELP_REGEX.test(text)) {
-              focusRemoteChatDiscussion()
-              await reply(adapter, helpMessage(adapter.kind), meta)
-            } else if (RESET_REGEX.test(text)) {
-              resetHomeAgentConfig()
-              await reply(adapter, '♻️ Home Agent settings restored to defaults.', meta)
-            } else if (CANCEL_REGEX.test(text)) {
-              await handleImgGenCancel(adapter, meta)
-            } else if (NEW_REGEX.test(text)) {
-              const newKey = createNewRemoteConversation()
-              focusRemoteChatDiscussion()
-              // Repaint first: on a channel with no history of its own an empty
-              // transcript clears the log, so a new thread starts on a clean page
-              // instead of continuing under the previous thread's messages.
-              await replayHistoryToChannel(adapter, newKey)
-              await reply(
-                adapter,
-                `🆕 Started a new chat thread: <i>${homeAgentTitleFor(newKey).replace(/[<>&]/g, '')}</i>.\nNext message will land in this thread.`,
-                meta,
-              )
-            } else if (HISTORY_REGEX.test(text)) {
-              await handleHistoryCommand(adapter, meta)
-            } else if (LOAD_BARE_REGEX.test(text)) {
-              await handleLoadMenu(adapter, meta)
-            } else if (LOAD_REGEX.test(text)) {
-              const match = text.match(LOAD_REGEX)
-              const arg = match?.[1] ?? ''
-              const key = resolveLoadTarget(arg)
-              if (!key) {
-                await reply(
-                  adapter,
-                  `⚠️ Couldn't find a chat with id <code>${escapeHtml(arg)}</code>. Try <code>/history</code> first.`,
-                  meta,
-                )
-              } else if (switchRemoteConversation(key)) {
-                focusRemoteChatDiscussion()
-                const items = listRemoteConversations()
-                const found = items.find((i) => i.key === key)
-                // Repaint the browser log with this thread's transcript first, so
-                // the confirmation line below lands under the restored messages.
-                await replayHistoryToChannel(adapter, key)
-                await reply(
-                  adapter,
-                  `📂 Loaded <i>${escapeHtml(found?.title ?? key)}</i>.\nReplies and new messages now use this thread.`,
-                  meta,
-                )
-              } else {
-                await reply(adapter, '⚠️ Could not load that chat thread.', meta)
-              }
-            } else if (IMG_GEN_REGEX.test(text)) {
-              const prompt = text.replace(IMG_GEN_REGEX, '').trim()
-              if (images?.length) {
-                await reply(
-                  adapter,
-                  'ℹ️ <code>/imgGen</code> is text-only — the attached photo is ignored.',
-                  meta,
-                )
-              }
-              await showImgGenPresetPicker(adapter, prompt, meta)
-            } else if (CHAT_REGEX.test(text)) {
-              const msg = text.replace(CHAT_REGEX, '').trim()
-              if (msg || images?.length) {
-                await handleChatMessage(adapter, msg, images, meta, fromVoice)
-              } else {
-                focusRemoteChatDiscussion()
-                await reply(
-                  adapter,
-                  '⚠️ Please add a message after the command.\nExample: <code>/chat Hello, world!</code>',
-                  meta,
-                )
-              }
-            } else if (pendingImgGen.value?.phase === 'awaitingPrompt') {
-              const presetName = pendingImgGen.value.presetName
-              const promptText = images?.length && text === '[image]' ? '' : text.trim()
-              if (!promptText) {
-                await reply(
-                  adapter,
-                  '⚠️ Please send your prompt as text. Photos are ignored for /imgGen. /cancel to abort.',
-                  meta,
-                )
-              } else {
-                pendingImgGen.value = null
-                await runImgGenWithPreset(adapter, presetName, promptText, meta)
-              }
-            } else if (pendingImgGen.value?.phase === 'awaitingPresetTap' && text.trim()) {
-              await reply(adapter, '🖼️ Tap a preset above, or /cancel to dismiss the picker.', meta)
-            } else {
-              // Agentic mode — for photo-only messages the Python side queues
-              // "[image]" as a placeholder; clear it so the model isn't biased
-              // by a literal token.
-              const agenticText = images?.length && text === '[image]' ? '' : text
-              await handleAgenticMessage(adapter, agenticText, images, meta, fromVoice)
-            }
-          } catch (e) {
-            console.error(`Error processing ${kind} message:`, e)
-          }
-        }
-      } finally {
-        drainBusyByKind[kind] = false
-      }
-    }
-
     async function processChannelMessages(kind: ChannelKind) {
+      const adapter = adapters[kind]
+      if (!adapter || pollBusyByKind[kind]) return
+      pollBusyByKind[kind] = true
       try {
         const msgs = await window.electronAPI.homeAgent.channel.poll(kind)
-        const adapter = adapters[kind]
-        if (adapter) await answerRouter.channelReady(adapter)
-        if (!msgs || msgs.length === 0) return
-        const queue = messageQueues[kind]
-        for (const msg of msgs) {
+        await answerRouter.channelReady(adapter)
+        for (const msg of msgs ?? []) {
+          if (!channels[kind].active) break
           // Threaded so adapters can target reactions / threaded sends at the originating message.
           const meta =
             msg.channel || msg.ts || msg.chat_id
               ? { channel: msg.channel, ts: msg.ts, chatId: msg.chat_id }
               : undefined
-          // Answered here, not in the drain loop, which is blocked awaiting this very answer.
-          if (
-            adapter &&
-            (await answerRouter.route(
-              adapter,
-              { ...msg, replyTo: msg.reply_to, replyTarget: msg.reply_target },
-              meta,
-            ))
-          )
-            continue
-          if (msg.refused) {
-            if (adapter) await reply(adapter, escapeHtml(msg.refused), meta)
-            continue
-          }
-          if (queue.length >= MAX_QUEUE_SIZE) {
-            toast.warning(`Home Agent: ${kind} queue full, dropping oldest message.`)
-            queue.shift()
-          }
-          queue.push({
-            text: msg.text,
-            images: msg.images,
-            audio: msg.audio,
-            documents: msg.documents,
-            callback: msg.callback,
+          await answerRouter.route(
+            adapter,
+            { ...msg, replyTo: msg.reply_to, replyTarget: msg.reply_target },
             meta,
-          })
+          )
         }
-        drainCommonQueue(kind).catch((e: unknown) =>
-          console.error(`homeAgent: drainCommonQueue(${kind}) failed:`, e),
-        )
       } catch (e) {
-        console.error(`Error polling ${kind}:`, e)
+        reportSilently(`homeAgent: routing ${kind} messages failed:`, e)
+      } finally {
+        pollBusyByKind[kind] = false
       }
     }
 
@@ -2437,7 +987,6 @@ export const useHomeAgent = defineStore(
 
     function stopPolling(kind: ChannelKind) {
       disposePoll(kind)
-      messageQueues[kind].length = 0
     }
 
     // ── Config / activation API (channel-agnostic) ──────────────────────────
@@ -2522,15 +1071,11 @@ export const useHomeAgent = defineStore(
       }
       channelPrefs[kind].enabled = on
       persistChannelPrefs(kind)
-      if (on && masterEnabled.value && isAvailable.value) focusRemoteChatDiscussion()
     }
 
     /** Master Home Agent on/off — the single title-bar toggle. */
     function setMasterEnabled(on: boolean) {
       masterEnabled.value = on
-      if (on && isAvailable.value && KINDS.some((k) => channelPrefs[k].enabled)) {
-        focusRemoteChatDiscussion()
-      }
     }
 
     function toggleMaster() {
@@ -2660,8 +1205,8 @@ export const useHomeAgent = defineStore(
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disposeAllPollHandlers()
-    for (const k of Object.keys(drainBusyByKind)) {
-      drainBusyByKind[k as ChannelKind] = false
+    for (const k of Object.keys(pollBusyByKind)) {
+      pollBusyByKind[k as ChannelKind] = false
     }
   })
   import.meta.hot.accept(acceptHMRUpdate(useHomeAgent, import.meta.hot))

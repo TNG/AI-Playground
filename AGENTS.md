@@ -491,9 +491,11 @@ but missing from a transport is silently dropped (Telegram) or rejected by the p
 
 When adding/removing/renaming a command, update all of these:
 
-1. **Dispatcher + help** — `WebUI/src/assets/js/store/homeAgent.ts`: add the `*_REGEX`, a branch in
-   the message-processing loop, and an entry in `HELP_MESSAGE`. (Per-command behavior — inherently
-   manual.)
+1. **Dispatcher + help** — the router's command table (`ChannelCommand` in
+   `WebUI/src/assets/js/store/channels/channelCommands.ts`; the Channel Session commands live in
+   `channelSessions.ts`, `/help` in `answerRouter.ts`). An entry's `usage` and `describe` are its
+   `/help` line, so behavior and help cannot drift. A button it sends needs a callback prefix the
+   transports forward (`ChannelCallback`).
 2. **Channel transports** — `home-agent/channels/commands.py`: add a `HomeAgentCommand` to
    `HOME_AGENT_COMMANDS`. This single source of truth drives **both** the Telegram handlers +
    `set_my_commands` menu (`telegram.py`) and the Slack `@bolt_app.command` handlers (`slack.py`),

@@ -723,15 +723,11 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
 
     // ── Command menu (parity with Telegram's command list) ──────────────────
     // `send: true` fires the command immediately; `false` pre-fills the composer
-    // so the user can type an argument (e.g. the message after /chat).
+    // so the user can type an argument.
     const COMMANDS = [
-      { cmd: '/imgGen', desc: 'Generate an image — pick a preset, then send a prompt', send: true },
-      { cmd: '/chat', desc: 'Force a plain text reply (type your message after)', send: false },
-      { cmd: '/new', desc: 'Start a fresh chat thread', send: true },
-      { cmd: '/history', desc: 'List your saved chat threads', send: true },
-      { cmd: '/load', desc: 'Pick a recent chat to resume', send: true },
-      { cmd: '/reset', desc: 'Restore Home Agent settings to their defaults', send: true },
-      { cmd: '/cancel', desc: 'Cancel a pending /imgGen flow', send: true },
+      { cmd: '/sessions', desc: 'Pick one of your Reachable Sessions', send: true },
+      { cmd: '/load', desc: 'Continue a Session from the /sessions list', send: true },
+      { cmd: '/new', desc: 'Start a new Session', send: true },
       { cmd: '/help', desc: 'Show all commands', send: true },
     ]
 

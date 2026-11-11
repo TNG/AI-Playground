@@ -19,6 +19,24 @@ export class AppShellPage {
     return this.page.getByRole('region', { name: 'Sessions' })
   }
 
+  /** Opens a fresh, untitled Session on the desktop; it lists first among the untitled ones. */
+  async startNewSession(): Promise<void> {
+    await this.sessionsPanel.getByRole('button', { name: 'New Session', exact: true }).click()
+  }
+
+  /** Ticks "Reachable from Channels" in the menu of the newest Session named `title`. */
+  async makeSessionReachable(title: string): Promise<void> {
+    await this.sessionsPanel
+      .getByRole('button', { name: `${title} options`, exact: true })
+      .first()
+      .click()
+    const reachable = this.page.getByRole('menuitemcheckbox', { name: /^Reachable from Channels/ })
+    await expect(reachable).toBeVisible()
+    if (await reachable.isChecked()) await this.page.keyboard.press('Escape')
+    else await reachable.click()
+    await expect(reachable).toHaveCount(0)
+  }
+
   get openDeveloperConsoleButton(): Locator {
     return this.page
       .getByRole('region', { name: 'App Settings' })

@@ -9,7 +9,7 @@ import {
   answerAgentMessage,
   openLocalWebChat,
   sendAndAwaitMedia,
-  sendAndAwaitReply,
+  sendAndAwaitSessionReply,
   sendAndAwaitText,
   sendMessage,
   lanImages,
@@ -17,15 +17,14 @@ import {
   userMessages,
 } from './localWebBrowser'
 
-// End-to-end coverage for the Home Agent "LAN chat" channel — the browser-served,
+// End-to-end coverage for the "LAN chat" Channel — the browser-served,
 // loopback/LAN-reachable third option alongside Telegram and Slack, served by the
 // Python backend (no cloud relay, no extra Electron server). Every test installs
-// the backends, brings the Home Agent up on this channel, then drives the *real
-// served page* in an actual browser (raw HTTP + SSE against the served chat page).
-// Inference and media generation flow through the Home Agent's own bundled preset
-// + model; if a model isn't present yet the agent asks to download it in-channel,
-// and the served page's auto-confirm handler (see localWebBrowser.ts) taps
-// "Confirm" so a first run still completes — it just takes as long as the download.
+// the backends, brings the channel up, then drives the *real served page* in an
+// actual browser (raw HTTP + SSE against the served chat page). A plain message runs
+// as an Assistant turn in the channel's Channel Session; if a model isn't present yet
+// it is asked for in-channel, and the served page's auto-confirm handler (see
+// localWebBrowser.ts) taps "Confirm" so a first run still completes.
 
 // A local port unlikely to collide with a real user's default (8765), and a throwaway
 // password. Bound to 127.0.0.1 (allowLan off) — the test connects on loopback.
@@ -37,11 +36,10 @@ const BASE_URL = `http://127.0.0.1:${LOCAL_WEB_PORT}`
 // creative ask (no slash command) so it exercises a real inference turn.
 const HAIKU_PROMPT = 'Write a haiku about a friendly, goofy surfer-dude lizard.'
 
-// Per-thread markers for the repaint test. Neutral small-talk that just happens to
-// carry a unique token — phrased so the agent reads it as chit-chat, not as a
-// settings/action request (which would route through a tool + confirmation and
-// perturb the live page). The token lives in the *user* message, which is what
-// `/load` repaints verbatim from the transcript.
+// Per-Session markers for the repaint test. Neutral small-talk that just happens to
+// carry a unique token, so Assistant reads it as chit-chat rather than a task. The token
+// lives in the *user* message, which is what `/load` repaints verbatim from the
+// transcript.
 const MARKER_MARCO = 'Quick question for fun — what is a nice thing about the ocean? Tag: MARCO'
 const MARKER_POLO = 'Quick question for fun — what is a nice thing about the sun? Tag: POLO'
 
@@ -61,28 +59,17 @@ const NOTIFICATION_TEXT = 'Ready for your answer'
 const ANSWER_TEXT = 'Reply with the single word PINEAPPLE.'
 
 /**
- * Install backends, ensure the Home Agent backend is present (skipping when it isn't
- * offered in this product mode), optionally enable the Home Agent's media-generation
- * tools, then set up + start the LAN chat channel and turn the agent on. Each test
- * launches a fresh app (the electronApp fixture is per-test), so this runs once per
- * test — install is idempotent and the channel config persists across runs.
+ * Install backends, ensure the channels backend is present (skipping when it isn't
+ * offered in this product mode), then set up + start the LAN chat channel and turn the
+ * master switch on. Each test launches a fresh app (the electronApp fixture is
+ * per-test), so this runs once per test — install is idempotent and the channel config
+ * persists across runs.
  */
-async function bringUpLanChat(
-  app: AppDriver,
-  window: Page,
-  opts: { enableMedia?: boolean } = {},
-): Promise<void> {
+async function bringUpLanChat(app: AppDriver, window: Page): Promise<void> {
   await app.installAllBackends()
 
   const homeAgentAvailable = await app.ensureHomeAgentBackendInstalled()
   test.skip(!homeAgentAvailable, 'Home Agent backend is not available in this product mode')
-
-  if (opts.enableMedia) {
-    // Media turns fill the context with tool schemas, so also give the reasoning
-    // model room to actually reach the generation tool instead of a reasoning-only turn.
-    await app.enableHomeAgentMediaTools()
-    await app.relaxChatGenerationBudget()
-  }
 
   const homeAgent = new HomeAgentPage(window)
   await test.step('Set up the local web chat channel and turn the agent on', async () => {
@@ -93,24 +80,7 @@ async function bringUpLanChat(
   })
 }
 
-/**
- * Put a distinct, persisted marker into the current thread with an ordinary agentic
- * turn (`text` carries a unique token in the user message) and wait for the turn to
- * fully finish. Completion is read from the *desktop* busy control, not the served
- * page's reply bubbles: `/new` repaints (clears + rebuilds) the served log via a
- * separate async event, so a page bubble count isn't monotonic and can't reliably
- * mark a turn done. The desktop busy control shows for the whole channel turn and
- * clears only after the transcript is persisted, so waiting for it to appear (turn
- * started) then clear (turn done) is repaint-proof — and guarantees the marker is
- * saved before the caller switches away with `/new`.
- */
-async function markerTurn(app: AppDriver, page: Page, text: string): Promise<void> {
-  await sendMessage(page, text)
-  await expect(app.main.busyButton).toBeVisible({ timeout: 60_000 })
-  await expect(app.main.busyButton).toBeHidden({ timeout: MainPage.TEXT_TIMEOUT })
-}
-
-test.describe('Home Agent — local web chat', () => {
+test.describe('Channels — local web chat', () => {
   test('drives the served chat page end to end', async ({ app, window, electronApp }) => {
     // Install + Home-Agent bring-up + a real (possibly first-time) model turn all
     // exceed the default timeout — match the agentic smoke's budget.
@@ -119,56 +89,63 @@ test.describe('Home Agent — local web chat', () => {
 
     // The raw transport plus the served page's own JS (login form, EventSource
     // wiring, send handler, reply rendering) — the "I typed something and nothing
-    // happened" surface. Drive the real page in an actual browser and assert a real
-    // reply streams back.
+    // happened" surface. A plain message runs in the Channel Session, and its reply is
+    // threaded under it; the desktop stays on the Session it had open.
     const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
     try {
-      const reply = await sendAndAwaitReply(page, HAIKU_PROMPT, MainPage.IMAGE_TIMEOUT)
-      expect(reply.trim()).not.toEqual('')
+      const reply = await sendAndAwaitSessionReply(page, HAIKU_PROMPT, MainPage.IMAGE_TIMEOUT)
+      expect(reply).not.toEqual('')
+      await expect(window.getByText(HAIKU_PROMPT)).toHaveCount(0)
     } finally {
       await page.close()
     }
   })
 
-  test('/new and /load switch and repaint chat threads', async ({ app, window, electronApp }) => {
+  test('/new, /sessions and /load pick the Channel Session and repaint it', async ({
+    app,
+    window,
+    electronApp,
+  }) => {
     test.setTimeout(30 * 60_000)
     await bringUpLanChat(app, window)
 
-    // The LAN page keeps no history of its own, so both /new and /load have to
-    // repaint it: /new with a clean slate, /load with the chosen thread's
-    // transcript. Put a distinct token in each of two threads (via ordinary agentic
-    // turns), then switch between them and assert only the active thread's token is
-    // on screen.
+    // The LAN page keeps no history of its own, so /new and /load repaint it: /new
+    // with a clean slate, /load with the chosen Session's transcript. Each /new makes
+    // a Reachable Session, so the two marker Sessions are the newest two in /sessions.
     const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
     try {
-      // The desktop mirrors the active Home Agent thread; keep the App Settings
-      // sidebar closed so the idle (Send-button) check below isn't occluded.
-      await app.shell.ensureSettingsClosed()
+      await test.step('Two new Sessions, each with its own marker', async () => {
+        await sendAndAwaitText(page, '/new', 'Started a new Session', 60_000)
+        await expect(userMessages(page)).toHaveCount(0)
+        await sendAndAwaitSessionReply(page, MARKER_MARCO, MainPage.TEXT_TIMEOUT)
 
-      // Baseline /new burns any pre-existing empty thread so the /new below is
-      // guaranteed to create the newest thread (index 1 for /load).
-      await sendAndAwaitText(page, '/new', 'new chat thread', 60_000)
-      await markerTurn(app, page, MARKER_MARCO)
-
-      await sendAndAwaitText(page, '/new', 'new chat thread', 60_000)
-      await markerTurn(app, page, MARKER_POLO)
+        await sendAndAwaitText(page, '/new', 'Started a new Session', 60_000)
+        await expect(userMessages(page)).toHaveCount(0)
+        await sendAndAwaitSessionReply(page, MARKER_POLO, MainPage.TEXT_TIMEOUT)
+      })
 
       const marco = userMessages(page, 'MARCO')
       const polo = userMessages(page, 'POLO')
 
-      // Verify the repaint via /load, which rebuilds the page from the chosen thread's
-      // *persisted* transcript (user turns included) — the durable source of truth,
-      // independent of whatever the live view happens to show mid-session. Loading the
-      // older thread shows MARCO and hides POLO; loading the newer one swaps them,
-      // proving /load repaints to whichever thread is active rather than only ever
-      // appending. (`/load 2` is the older MARCO thread, `/load 1` the newer POLO one.)
-      await sendMessage(page, '/load 2')
-      await expect(marco).toHaveCount(1, { timeout: 60_000 })
-      await expect(polo).toHaveCount(0)
+      await test.step('/load 2 repaints the older Session', async () => {
+        await sendMessage(page, '/load 2')
+        await expect(marco).toHaveCount(1, { timeout: 60_000 })
+        await expect(polo).toHaveCount(0)
+      })
 
-      await sendMessage(page, '/load 1')
-      await expect(polo).toHaveCount(1, { timeout: 60_000 })
-      await expect(marco).toHaveCount(0)
+      await test.step('/sessions lists them newest first; a tap loads one', async () => {
+        // The auto-confirm handler taps the first button of the list, the newest Session.
+        await sendMessage(page, '/sessions')
+        await expect(polo).toHaveCount(1, { timeout: 60_000 })
+        await expect(marco).toHaveCount(0)
+      })
+
+      await test.step('The next plain message continues the loaded Session', async () => {
+        await sendAndAwaitSessionReply(page, 'And one word for it?', MainPage.TEXT_TIMEOUT)
+        await sendMessage(page, '/load 1')
+        await expect(polo).toHaveCount(1, { timeout: 60_000 })
+        await expect(userMessages(page, 'And one word for it?')).toHaveCount(1)
+      })
     } finally {
       await page.close()
     }
@@ -181,6 +158,12 @@ test.describe('Home Agent — local web chat', () => {
 
     const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
     try {
+      await test.step('Open a new Session and make it reachable from Channels', async () => {
+        await app.shell.ensureSettingsClosed()
+        await app.shell.startNewSession()
+        await app.shell.makeSessionReachable('Untitled Session')
+      })
+
       const ready = await app.prepareAgentPreset()
       test.skip(!ready, 'Preset "Agent" is not available in this product mode')
 
@@ -191,7 +174,7 @@ test.describe('Home Agent — local web chat', () => {
         })
       })
 
-      await test.step('A command typed while answering still goes to Home Agent', async () => {
+      await test.step('A command typed while answering still runs as a command', async () => {
         const target = page.getByRole('status', { name: 'Answer target' })
         const notification = agentMessages(page, NOTIFICATION_TEXT).first()
         await notification.getByRole('button', { name: 'Answer' }).click()
@@ -220,11 +203,11 @@ test.describe('Home Agent — local web chat', () => {
     // Install + 3 real generations (incl. a video, each possibly pulling a model
     // in-channel) far exceed the default timeout — match the desktop full-flow budget.
     test.setTimeout(45 * 60_000)
-    await bringUpLanChat(app, window, { enableMedia: true })
+    await bringUpLanChat(app, window)
 
-    // The LAN version of the assistant's image → edit → video flow: ask the Home
-    // Agent, over the served page, to create a lizard, edit it, then animate it, and
-    // assert each generation renders inline (bot photo/video events → <img>/<video>).
+    // The LAN version of the assistant's image → edit → video flow: ask the Channel
+    // Session, over the served page, to create a lizard, edit it, then animate it, and
+    // assert each generation renders inline (photo/video events → <img>/<video>).
     const page = await openLocalWebChat(electronApp, BASE_URL, LOCAL_WEB_PASSWORD)
     try {
       await test.step('Generate the lizard image → expect an inline image', async () => {

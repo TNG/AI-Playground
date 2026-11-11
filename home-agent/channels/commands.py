@@ -11,8 +11,8 @@ raw text it forwards. Two further, TypeScript-side touch-points are NOT covered
 here and must be kept in sync by hand — see AGENTS.md "Home Agent slash
 commands" for the full checklist:
 
-  * the dispatcher + `HELP_MESSAGE` in `WebUI/src/assets/js/store/homeAgent.ts`
-    (the actual per-command behavior), and
+  * the router's command table in `WebUI/src/assets/js/store/channels/`
+    (`answerRouter.ts`, `channelSessions.ts`: the behavior and the `/help` text), and
   * the Slack app manifest in `WebUI/src/components/SlackSetupSteps.vue`
     (`slash_commands`), which the user copies into Slack.
 """
@@ -62,19 +62,9 @@ class HomeAgentCommand:
 # Order is preserved for the Telegram command menu and the Slack manifest.
 HOME_AGENT_COMMANDS: tuple[HomeAgentCommand, ...] = (
     HomeAgentCommand("help", "Show available commands", telegram_aliases=("start",)),
+    HomeAgentCommand("sessions", "List your Reachable Sessions to pick one"),
     HomeAgentCommand(
-        "chat", "Force a text chat reply (no image generation)", takes_args=True
+        "load", "Continue a Session (no number = pick from a list)", takes_args=True
     ),
-    HomeAgentCommand(
-        "imggen",
-        "Pick a preset and generate an image",
-        takes_args=True,
-        queued="/imgGen",
-        telegram_aliases=("imgGen",),
-    ),
-    HomeAgentCommand("cancel", "Cancel a pending image-generation prompt"),
-    HomeAgentCommand("new", "Start a new Home Agent chat thread"),
-    HomeAgentCommand("history", "List your saved Home Agent chats"),
-    HomeAgentCommand("load", "Resume a chat (no id = pick from menu)", takes_args=True),
-    HomeAgentCommand("reset", "Restore Home Agent settings to defaults"),
+    HomeAgentCommand("new", "Start a new Session"),
 )

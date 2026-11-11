@@ -7,6 +7,7 @@ import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
 import { notificationSessionLabel } from '@/lib/notificationLabel'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { answerRouterCopyFrom, registerAnswerRouterCopy } from '@/lib/answerRouterWording'
 import { registerChannelSessionPort } from '@/lib/channelSessionPort'
@@ -91,7 +92,13 @@ export function startNotificationConfigPush(): void {
       agentTasks.tasks,
     )
   registerSessionLabeler(label)
-  registerChannelSessionPort(label)
+  registerChannelSessionPort({
+    harness: label,
+    session: (sessionRef) =>
+      fillTemplate(config.value.templates.sessionLabel, {
+        title: sessions.sessions[sessionRef]?.title || (i18n.state.SESSIONS_UNTITLED ?? ''),
+      }),
+  })
   registerAnswerRouterCopy(() => answerRouterCopyFrom(i18n.state))
   registerChannelQuestionTemplates(() => {
     const text = i18n.state

@@ -259,35 +259,17 @@ const MANIFEST_JSON = JSON.stringify(
       slash_commands: [
         { command: '/help', description: 'List available commands', should_escape: false },
         {
-          command: '/chat',
-          description: 'Force a text chat reply',
-          usage_hint: 'your message',
-          should_escape: false,
-        },
-        {
-          command: '/imggen',
-          description: 'Open the image-generation picker',
-          usage_hint: '[prompt]',
-          should_escape: false,
-        },
-        { command: '/new', description: 'Start a fresh chat thread', should_escape: false },
-        {
-          command: '/history',
-          description: 'List your saved Home Agent chats',
+          command: '/sessions',
+          description: 'List your Reachable Sessions to pick one',
           should_escape: false,
         },
         {
           command: '/load',
-          description: 'Resume a recent chat',
-          usage_hint: '[id]',
+          description: 'Continue a Session from the /sessions list',
+          usage_hint: '[n]',
           should_escape: false,
         },
-        { command: '/cancel', description: 'Cancel a pending /imggen flow', should_escape: false },
-        {
-          command: '/reset',
-          description: 'Restore Home Agent settings to defaults',
-          should_escape: false,
-        },
+        { command: '/new', description: 'Start a new Session', should_escape: false },
       ],
     },
     oauth_config: {

@@ -49,6 +49,30 @@ export type AnswerRouterCopy = {
   noticeReply: string
   noticeThread: string
   noticeButton: string
+  /** A plain message carrying a file or voice, which Sessions do not take yet */
+  sessionTextOnly: string
+  /** `/help`: its heading, one line per command, and where plain messages go */
+  helpTitle: string
+  helpSessions: string
+  helpLoad: string
+  helpNew: string
+  helpHelp: string
+  helpPlain: string
+  /** Above the `/sessions` buttons */
+  sessionsPick: string
+  sessionsNone: string
+  /** `{title}` (a quoted Session title) */
+  sessionLoaded: string
+  sessionStarted: string
+  /** `{n}`, what the user asked `/load` for */
+  sessionNotFound: string
+  /** The Channel Session was deleted or made unreachable since the last message */
+  sessionLost: string
+  /** `{reason}` */
+  sessionNotCreated: string
+  /** `{command}` */
+  unknownCommand: string
+  untitled: string
 }
 
 const KEYS: Record<keyof AnswerRouterCopy, string> = {
@@ -79,6 +103,22 @@ const KEYS: Record<keyof AnswerRouterCopy, string> = {
   noticeReply: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_REPLY',
   noticeThread: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_THREAD',
   noticeButton: 'HOME_AGENT_NOTIFICATION_ANSWERABLE_BUTTON',
+  sessionTextOnly: 'CHANNEL_SESSION_TEXT_ONLY',
+  helpTitle: 'CHANNEL_HELP_TITLE',
+  helpSessions: 'CHANNEL_HELP_SESSIONS',
+  helpLoad: 'CHANNEL_HELP_LOAD',
+  helpNew: 'CHANNEL_HELP_NEW',
+  helpHelp: 'CHANNEL_HELP_HELP',
+  helpPlain: 'CHANNEL_HELP_PLAIN',
+  sessionsPick: 'CHANNEL_SESSIONS_PICK',
+  sessionsNone: 'CHANNEL_SESSIONS_NONE',
+  sessionLoaded: 'CHANNEL_SESSION_LOADED',
+  sessionStarted: 'CHANNEL_SESSION_STARTED',
+  sessionNotFound: 'CHANNEL_SESSION_NOT_FOUND',
+  sessionLost: 'CHANNEL_SESSION_LOST',
+  sessionNotCreated: 'CHANNEL_SESSION_NOT_CREATED',
+  unknownCommand: 'CHANNEL_UNKNOWN_COMMAND',
+  untitled: 'SESSIONS_UNTITLED',
 }
 
 /** The router's copy in the language `text` holds (the window's i18n state). */

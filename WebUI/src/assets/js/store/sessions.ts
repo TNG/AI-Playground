@@ -178,6 +178,22 @@ export const useSessions = defineStore('sessions', () => {
     return result.session.id
   }
 
+  /** A new Reachable Session for a Channel, never opened here; throws with main's reason. */
+  async function createReachable(defaultCapabilities: string[]): Promise<string> {
+    const created = await window.electronAPI.sessions.create()
+    if (!created.success) throw new Error(created.error)
+    const id = created.session.id
+    const reachable = await window.electronAPI.sessions.setReachable(id, true, {
+      defaultCapabilities,
+    })
+    if (!reachable.success) {
+      await window.electronAPI.sessions.delete(id)
+      throw new Error(reachable.error)
+    }
+    remember(reachable.session)
+    return id
+  }
+
   /** Opens a Session; resolves with the preset and variant of its last turn. */
   async function open(
     id: string,
@@ -369,6 +385,7 @@ export const useSessions = defineStore('sessions', () => {
     openSession,
     init,
     create,
+    createReachable,
     open,
     rename,
     setPinned,

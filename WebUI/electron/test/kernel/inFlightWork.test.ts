@@ -152,14 +152,6 @@ describe('collectInFlightWork', () => {
     expect(items[1]).toEqual({ kind: 'agent-turn', name: 'Other', state: { status: 'paused' } })
   })
 
-  it('names a Home Agent reply without its thread title', () => {
-    expect(
-      collectInFlightWork(
-        sources({ chatTurns: [{ conversationKey: 'c-1', homeAgent: true, title: 'Telegram' }] }),
-      ),
-    ).toEqual([{ kind: 'home-agent-turn', state: { status: 'running' } }])
-  })
-
   it('counts queued media runs per mode and lists executing ones each', () => {
     const items = collectInFlightWork(
       sources({

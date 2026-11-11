@@ -1,5 +1,4 @@
 import type { UIMessage } from 'ai'
-import type { ThreadKind } from './conversations'
 import type { GenerationSettings, MediaItem } from './imageGenerationPresets'
 import { sessionListedUnderPreset } from './agentModeSessions'
 import { extractToolMedia, type ToolMediaItem } from '@/assets/js/tools/toolMedia'
@@ -22,10 +21,9 @@ export type EntryBase = {
   updatedAt: number
 }
 
-/** Assistant, Text to Speech, Speech to Text, Home Agent — anything with a transcript. */
+/** Assistant, Text to Speech, Speech to Text — anything with a transcript. */
 export type ConversationEntry = EntryBase & {
   kind: 'conversation'
-  threadKind: ThreadKind
   variant?: string | null
   ragDocHashes?: string[]
   messages: UIMessage[]
@@ -74,12 +72,6 @@ export type FilterContext = {
   currentMode: ModeType
   /** Agent preset the Agent list belongs to; Game Agent and Quick Coder share one. */
   agentPresetName?: string
-  /**
-   * Which transcripts the current-mode list is about. Home Agent behaves like a
-   * mode of its own: while the app is on a remote thread, local chats are as
-   * out of scope as an image would be.
-   */
-  threadScope?: ThreadKind
   /** Thread the app is sitting on, so its unsent draft can still be shown. */
   activeConversationId?: string | null
 }
@@ -271,9 +263,7 @@ export function matchesFilter(entry: RecordRow, context: FilterContext): boolean
   if (context.filter === 'all') return true
   switch (entry.kind) {
     case 'conversation':
-      return (
-        entry.mode === context.currentMode && entry.threadKind === (context.threadScope ?? 'main')
-      )
+      return entry.mode === context.currentMode
     case 'agent':
       return (
         context.currentMode === 'agent' &&

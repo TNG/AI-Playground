@@ -6,7 +6,7 @@
     </p>
 
     <p
-      v-if="!homeAgent.masterEnabled && anyEnabled"
+      v-if="!channelStore.masterEnabled && anyEnabled"
       class="text-center text-xs text-amber-500 pt-2"
     >
       The Home Agent master switch is off — enabled channels won't run until you turn it on from the
@@ -29,13 +29,13 @@
               <div
                 class="w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0"
                 :class="
-                  homeAgent.channelPrefs[descriptor.kind].verified
+                  channelStore.channelPrefs[descriptor.kind].verified
                     ? 'border-primary bg-primary'
                     : 'border-muted-foreground'
                 "
               >
                 <svg
-                  v-if="homeAgent.channelPrefs[descriptor.kind].verified"
+                  v-if="channelStore.channelPrefs[descriptor.kind].verified"
                   class="w-2.5 h-2.5 text-primary-foreground"
                   viewBox="0 0 24 24"
                   fill="none"
@@ -53,42 +53,44 @@
               <span
                 class="text-xs font-medium"
                 :class="
-                  homeAgent.channelPrefs[descriptor.kind].verified
+                  channelStore.channelPrefs[descriptor.kind].verified
                     ? 'text-emerald-500'
                     : 'text-muted-foreground'
                 "
               >
-                {{ homeAgent.channelPrefs[descriptor.kind].verified ? 'Verified' : 'Not set up' }}
+                {{
+                  channelStore.channelPrefs[descriptor.kind].verified ? 'Verified' : 'Not set up'
+                }}
               </span>
 
               <button
                 type="button"
                 role="switch"
-                :aria-checked="homeAgent.channelPrefs[descriptor.kind].enabled"
+                :aria-checked="channelStore.channelPrefs[descriptor.kind].enabled"
                 :aria-label="`Enable ${descriptor.displayName}`"
-                :disabled="!homeAgent.channelPrefs[descriptor.kind].verified"
+                :disabled="!channelStore.channelPrefs[descriptor.kind].verified"
                 :title="
-                  homeAgent.channelPrefs[descriptor.kind].verified
+                  channelStore.channelPrefs[descriptor.kind].verified
                     ? `Enable / disable ${descriptor.displayName}`
                     : `Verify ${descriptor.displayName} before enabling it`
                 "
                 class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 :class="
-                  homeAgent.channelPrefs[descriptor.kind].enabled
+                  channelStore.channelPrefs[descriptor.kind].enabled
                     ? 'bg-primary'
                     : 'bg-muted-foreground/40'
                 "
                 @click.stop="
-                  homeAgent.setChannelEnabled(
+                  channelStore.setChannelEnabled(
                     descriptor.kind,
-                    !homeAgent.channelPrefs[descriptor.kind].enabled,
+                    !channelStore.channelPrefs[descriptor.kind].enabled,
                   )
                 "
               >
                 <span
                   class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"
                   :class="
-                    homeAgent.channelPrefs[descriptor.kind].enabled
+                    channelStore.channelPrefs[descriptor.kind].enabled
                       ? 'translate-x-3.5'
                       : 'translate-x-0.5'
                   "
@@ -125,7 +127,7 @@
                   <span class="text-sm font-medium">Connected &amp; verified</span>
                 </div>
                 <div
-                  v-if="homeAgent.channelPrefs[descriptor.kind].identity"
+                  v-if="channelStore.channelPrefs[descriptor.kind].identity"
                   class="pl-6 flex flex-col gap-0.5 min-w-0"
                 >
                   <div class="flex items-center gap-1.5 text-xs min-w-0">
@@ -133,7 +135,7 @@
                       >{{ descriptor.identityLabel }}:</span
                     >
                     <code class="bg-muted px-1 rounded select-all truncate">{{
-                      homeAgent.channelPrefs[descriptor.kind].identity
+                      channelStore.channelPrefs[descriptor.kind].identity
                     }}</code>
                   </div>
                   <p class="text-xs text-muted-foreground/70">{{ descriptor.identityHelp }}</p>
@@ -151,7 +153,7 @@
             <!-- Full setup steps (verifying collapses back to the summary) -->
             <div v-else class="flex flex-col gap-3">
               <div
-                v-if="homeAgent.channelPrefs[descriptor.kind].verified"
+                v-if="channelStore.channelPrefs[descriptor.kind].verified"
                 class="flex items-center justify-between"
               >
                 <span class="text-sm font-medium">Reconfigure {{ descriptor.displayName }}</span>
@@ -193,7 +195,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useChannels } from '@/assets/js/store/channels'
 import { useI18N } from '@/assets/js/store/i18n'
 import { CHANNELS, getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
@@ -207,12 +209,12 @@ const emit = defineEmits<{
 }>()
 
 const wizard = useSetupWizard()
-const homeAgent = useHomeAgent()
+const channelStore = useChannels()
 const i18n = useI18N().state
 const isEditMode = computed(() => wizard.homeAgentSetupOrigin === 'edit')
 
 const answerableNotices = computed(() =>
-  homeAgent.notificationChannels.flatMap((kind) => {
+  channelStore.notificationChannels.flatMap((kind) => {
     const text = answerableNotice(kind)
     return text ? [{ kind, text }] : []
   }),
@@ -222,7 +224,7 @@ function channelName(kind: ChannelKind): string {
   return getDescriptor(kind)?.displayName ?? kind
 }
 
-const anyEnabled = computed(() => CHANNELS.some((c) => homeAgent.channelPrefs[c.kind].enabled))
+const anyEnabled = computed(() => CHANNELS.some((c) => channelStore.channelPrefs[c.kind].enabled))
 
 /**
  * Pick the first unverified channel as the default tab — that's the one the
@@ -230,7 +232,7 @@ const anyEnabled = computed(() => CHANNELS.some((c) => homeAgent.channelPrefs[c.
  * verified, fall back to the registry's first entry.
  */
 function pickDefaultTab(): ChannelKind {
-  const first = CHANNELS.find((c) => !homeAgent.channelPrefs[c.kind].verified)
+  const first = CHANNELS.find((c) => !channelStore.channelPrefs[c.kind].verified)
   return (first ?? CHANNELS[0]).kind
 }
 const activeTab = ref<ChannelKind>(pickDefaultTab())
@@ -240,6 +242,6 @@ const activeTab = ref<ChannelKind>(pickDefaultTab())
 const expanded = reactive<Partial<Record<ChannelKind, boolean>>>({})
 
 function isCollapsed(kind: ChannelKind): boolean {
-  return homeAgent.channelPrefs[kind].verified && !expanded[kind]
+  return channelStore.channelPrefs[kind].verified && !expanded[kind]
 }
 </script>

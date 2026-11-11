@@ -312,11 +312,11 @@ class TestInbound(LocalWebChannelTestCase):
             cookie=cookie,
         )
         self.request(
-            "POST", "/api/chat", {"callback": "imgGen:preset:Draft"}, cookie=cookie
+            "POST", "/api/chat", {"callback": "runAgent:agent-1"}, cookie=cookie
         )
         queued = self.channel.poll()
         self.assertEqual(len(queued[0]["images"]), 1)
-        self.assertEqual(queued[1]["callback"], "imgGen:preset:Draft")
+        self.assertEqual(queued[1]["callback"], "runAgent:agent-1")
 
 
 class TestAnswers(LocalWebChannelTestCase):

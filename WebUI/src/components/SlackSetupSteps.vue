@@ -142,10 +142,10 @@
           Paste both tokens above first.
         </p>
         <p
-          v-if="isAlreadyConfigured && homeAgent.slackUserId && !detectedUserId"
+          v-if="isAlreadyConfigured && channelStore.slackUserId && !detectedUserId"
           class="text-xs text-muted-foreground pt-1"
         >
-          Previously detected: {{ homeAgent.slackUserId }}
+          Previously detected: {{ channelStore.slackUserId }}
         </p>
       </div>
     </div>
@@ -154,7 +154,9 @@
     <div class="flex gap-3">
       <StepBadge
         :step="4"
-        :done="verifyStatus === 'success' || (homeAgent.slackVerified && verifyStatus === 'idle')"
+        :done="
+          verifyStatus === 'success' || (channelStore.slackVerified && verifyStatus === 'idle')
+        "
       />
       <div class="flex-1">
         <p class="text-sm font-medium">Verify Connection</p>
@@ -178,7 +180,7 @@
             ❌ {{ verifyError }}
           </span>
           <span
-            v-else-if="homeAgent.slackVerified && verifyStatus === 'idle'"
+            v-else-if="channelStore.slackVerified && verifyStatus === 'idle'"
             class="text-xs text-green-500"
           >
             ✅ Previously verified
@@ -207,7 +209,7 @@ const emit = defineEmits<{
 
 const setup = useSlackSetup()
 const {
-  homeAgent,
+  channelStore,
   botTokenInput,
   appTokenInput,
   showTokens,

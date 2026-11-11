@@ -25,7 +25,6 @@ vi.mock('@/assets/js/toast', () => ({
   warning: vi.fn(),
   error: vi.fn(),
 }))
-vi.mock('@/assets/js/store/conversations', () => ({ HOME_AGENT_CHAT_PRESET_NAME: 'Home Agent' }))
 
 const fakes = await vi.hoisted(async () => {
   const { reactive } = await import('vue')
@@ -33,7 +32,6 @@ const fakes = await vi.hoisted(async () => {
   const catalog: Preset[] = [
     { type: 'comfy', name: 'Fast Image', variants: [{ name: 'Fast' }, { name: 'Quality' }] },
     { type: 'chat', name: 'Chat' },
-    { type: 'chat', name: 'Home Agent' },
   ]
   const presets = reactive({
     presets: catalog,
@@ -344,16 +342,6 @@ describe('Session Settings for every preset', () => {
     expect(fakes.chat.live.selectedModels).toEqual({ llamaCPP: 'Qwen3-9B' })
     expect(store.problems).toEqual([{ field: 'model', value: 'Qwen3-9B' }])
     fakes.chat.settingsAvailability.models.push({ name: 'Qwen3-9B', type: 'llamaCPP' })
-  })
-
-  it('keeps the Home Agent preset on its global settings', async () => {
-    const { sessions } = await setUp()
-    await fakes.switching.switchPreset('Home Agent')
-    fakes.chat.set('temperature', 0.1)
-    await flushPromises()
-
-    expect(fakes.chat.settingsPerPreset['Home Agent']).toEqual({ temperature: 0.1 })
-    expect(await onDisk(sessions.openSessionId!)).not.toHaveProperty('Home Agent')
   })
 
   it("keeps the Agent preset's Session Settings in session.json like every other preset's", async () => {

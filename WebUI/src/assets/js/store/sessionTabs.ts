@@ -2,7 +2,6 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
-import { useConversations } from '@/assets/js/store/conversations'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessions } from '@/assets/js/store/sessions'
 import {
@@ -12,13 +11,11 @@ import {
   type SessionTabId,
   type SessionTabLanding,
   type SessionTabsInput,
-  type SessionTabsOwner,
 } from '@/lib/sessionTabs'
 
 /** Which tab of the open Session's view is shown; UI state only, never persisted. */
 export const useSessionTabs = defineStore('sessionTabs', () => {
   const sessions = useSessions()
-  const conversations = useConversations()
   const promptStore = usePromptStore()
   const agentMode = useAgentMode()
   const agentTasks = useAgentTasks()
@@ -26,15 +23,7 @@ export const useSessionTabs = defineStore('sessionTabs', () => {
   const current = ref<SessionTabId>('viewport')
   const artifactsScope = ref<ArtifactsScope>('this-session')
 
-  const owner = computed<SessionTabsOwner>(() =>
-    promptStore.getCurrentMode() === 'chat' &&
-    conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
-      ? 'home-agent-thread'
-      : 'session',
-  )
-
   const context = computed<Omit<SessionTabsInput, 'landing' | 'current'>>(() => ({
-    owner: owner.value,
     presetKind: sessionTabsPresetKind(promptStore.getCurrentMode(), agentMode.activeAgentPreset),
     agentPicked: agentTasks.pickedAgent !== undefined,
   }))
@@ -66,10 +55,8 @@ export const useSessionTabs = defineStore('sessionTabs', () => {
     { flush: 'sync' },
   )
 
-  /** The open Session has a turn in flight; a Home Agent thread is no Session's. */
-  const sessionTurnInFlight = computed(
-    () => owner.value === 'session' && sessions.openTurn !== null,
-  )
+  /** The open Session has a turn in flight. */
+  const sessionTurnInFlight = computed(() => sessions.openTurn !== null)
 
   return {
     tabs: computed(() => view.value.tabs),

@@ -12,8 +12,6 @@ function itemLabel(item: InFlightWorkItem, t: Strings): string {
       return named(item.name, 'CLOSE_ITEM_AGENT', 'CLOSE_ITEM_AGENT_UNNAMED')
     case 'chat-turn':
       return named(item.name, 'CLOSE_ITEM_CHAT', 'CLOSE_ITEM_CHAT_UNNAMED')
-    case 'home-agent-turn':
-      return t.CLOSE_ITEM_HOME_AGENT
     case 'media-run':
       return item.mode === 'video'
         ? t.CLOSE_ITEM_VIDEO

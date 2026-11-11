@@ -52,7 +52,7 @@ describe('channel question wording', () => {
       appClosed: 'CHANNEL_QUESTION_APP_CLOSED',
       forChat: 'MODEL_DOWNLOAD_FOR_CHAT',
       forOther: 'MODEL_DOWNLOAD_FOR_OTHER',
-      forHomeAgent: 'MODEL_DOWNLOAD_FOR_HOME_AGENT',
+      forChannel: 'MODEL_DOWNLOAD_FOR_CHANNEL',
     }
     for (const [field, key] of Object.entries(keys)) {
       expect(english[field as keyof ChannelQuestionTemplates]).toBe(enUS[key])

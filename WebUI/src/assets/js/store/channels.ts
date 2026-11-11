@@ -2,16 +2,12 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, reactive, computed, watch } from 'vue'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
-import { useOpenAiCompatibleChat, type AipgUiMessage } from './openAiCompatibleChat'
 import { useConfirmations } from './confirmations'
 import { useGlobalSetup } from './globalSetup'
 import { useModels } from './models'
 import { fetchModelMeta } from '@/lib/modelDownloader'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { IpcMutationResult } from '@/types/ipcChannels'
-// Lazy-instantiated inside helpers to avoid a setup-time cycle with textInference,
-// which already instantiates useHomeAgent() at the top of its own setup.
-import { useTextInference } from './textInference'
 import {
   NO_TRANSCRIPTION_ENDPOINT,
   installSynthesisModel,
@@ -23,12 +19,7 @@ import {
   transcriptionAvailable,
 } from '../speech/speechIO'
 import { base64ToBlob } from '@/lib/transcribe'
-import {
-  useConversations,
-  HOME_AGENT_CONVERSATION_KEY,
-  HOME_AGENT_CONVERSATION_TITLE,
-  HOME_AGENT_CHAT_PRESET_NAME,
-} from './conversations'
+import { useConversations } from './conversations'
 import * as toast from '../toast'
 import {
   CHANNEL_FIELD_SPEC,
@@ -80,10 +71,8 @@ import { requestDownloadConsent } from '@/assets/js/permissions/permissions'
 const KINDS = ['telegram', 'slack', 'local-web'] as readonly ChannelKind[]
 
 const POLL_INTERVAL_MS = 2000
-/** How long to wait for an in-channel yes/no before auto-cancelling a settings change. */
+/** How long to wait for an in-channel yes/no before auto-cancelling a download. */
 const CONFIRM_TIMEOUT_MS = 2 * 60_000
-/** Title shown on the inline desktop confirmation card for settings changes. */
-const SETTINGS_CONFIRM_TITLE = 'Apply Home Agent settings?'
 /** Title shown on the inline desktop confirmation card for remote downloads. */
 const DOWNLOAD_CONFIRM_TITLE = 'Download model?'
 
@@ -117,12 +106,24 @@ function emptyPrefs(): ChannelPrefs {
   return { verified: false, identity: null, enabled: false }
 }
 
-export const useHomeAgent = defineStore(
-  'homeAgent',
+// Read only: the Home Agent thread migration still reads its routing pointer from it.
+const LEGACY_STORAGE_KEY = 'homeAgent'
+
+/** The legacy store's title-bar switch, carried over once; the Channels store keeps its own. */
+function legacyMasterEnabled(): boolean {
+  try {
+    const raw = demoAwareStorage.getItem(LEGACY_STORAGE_KEY)
+    const stored = raw ? (JSON.parse(raw) as { masterEnabled?: unknown }).masterEnabled : undefined
+    return typeof stored === 'boolean' ? stored : true
+  } catch {
+    return true
+  }
+}
+
+export const useChannels = defineStore(
+  'channels',
   () => {
     const backendServices = useBackendServices()
-    const chatStore = useOpenAiCompatibleChat()
-    const textInference = useTextInference()
     const conversations = useConversations()
     const confirmations = useConfirmations()
     const errors = useErrors()
@@ -130,11 +131,11 @@ export const useHomeAgent = defineStore(
     const channelQueue = useChannelQueue()
 
     /**
-     * Master Home Agent on/off — the single title-bar toggle. Persisted so the
-     * agent resumes (or stays off) across restarts. A channel only runs when
-     * the master is on AND the channel itself is enabled + verified.
+     * Master Channels on/off — the single title-bar toggle. Persisted so Channels
+     * resume (or stay off) across restarts. A channel only runs when the master
+     * is on AND the channel itself is enabled + verified.
      */
-    const masterEnabled = ref(true)
+    const masterEnabled = ref(legacyMasterEnabled())
 
     /**
      * Persisted, non-secret per-channel preferences (verified / identity /
@@ -170,35 +171,10 @@ export const useHomeAgent = defineStore(
     }
 
     /**
-     * Conversation key remote traffic currently routes into. `null` means
-     * "create one on first use" — covers fresh installs and post-`/new`
-     * sessions before the user sends anything. Single global because the UI
-     * only ever shows one Home Agent thread at a time regardless of which
-     * channel posted into it.
+     * The Channel message being handled while its voice clip needs a speech model,
+     * so the download is asked on that Channel instead of in a desktop modal nobody sees.
      */
-    const activeRemoteConversationKey = ref<string | null>(null)
-
-    /** All conversation keys whose meta marks them as Home Agent threads. */
-    const remoteConversationKeys = computed(() =>
-      Object.entries(conversations.conversationThreadMeta)
-        .filter(([_, meta]) => meta?.kind === 'homeAgent')
-        .map(([key]) => key),
-    )
-
-    /**
-     * The channel turn currently being handled (set while a remote agentic /
-     * chat message is generating). Lets tools running inside `generate()` —
-     * notably `configureHomeAgent` — route a confirmation prompt back to the
-     * originating channel instead of popping a desktop modal nobody sees.
-     */
-    let activeRemoteTurn: {
-      adapter: ChannelAdapter
-      meta?: InboundMeta
-      // Set by the agentic streaming watcher: freezes the in-progress draft so
-      // a confirmation prompt (and everything after it) lands below a settled
-      // message instead of editing the message above.
-      checkpoint?: () => Promise<void>
-    } | null = null
+    let activeRemoteTurn: { adapter: ChannelAdapter; meta?: InboundMeta } | null = null
 
     const channelQuestions = createChannelQuestionRegistry({
       staleReply: () => channelQuestionTemplates().stale,
@@ -237,34 +213,9 @@ export const useHomeAgent = defineStore(
       log: (message, error) => reportSilently(message, error),
     })
 
-    /** Visibility flag for the dedicated Home Agent inference settings panel. */
-    const showSettings = ref(false)
-
-    function openSettings(): void {
-      showSettings.value = true
-    }
-
-    function closeSettings(): void {
-      showSettings.value = false
-    }
-
-    /**
-     * Per-thread summary cache for the bare `/load` menu. Keyed by conversation
-     * key; entries are invalidated whenever the conversation grows (we compare
-     * `messageCount` so any new turn forces a re-summarize on the next /load).
-     * Persisted so summaries survive app restarts.
-     */
-    const summaryCache = ref<Record<string, { messageCount: number; summary: string }>>({})
-
-    // Umbrella "currently fielding remote traffic" flag — true if any channel
-    // is on. Many existing call sites (textInference, …) treat this as "are we
-    // serving a remote chat right now?" — keep that semantic.
-    const isHomeAgentActive = computed(() => KINDS.some((k) => channels[k].active))
-
     // True once at least one channel has actually been set up (verified). The
     // master toggle is meaningless until then — there is nothing for it to turn
-    // on — so the title-bar toggle stays disabled and reads "Off", mirroring the
-    // Home Agent preset, which is disabled until a channel is live.
+    // on — so the title-bar toggle stays disabled and reads "Off".
     const hasConfiguredChannel = computed(() => KINDS.some((k) => channelPrefs[k].verified))
 
     const isAvailable = computed(
@@ -329,7 +280,7 @@ export const useHomeAgent = defineStore(
           }
           window.electronAPI.homeAgent.channel
             .inject(kind, payload)
-            .catch((e: unknown) => console.error(`homeAgent: inject(${kind}) failed:`, e))
+            .catch((e: unknown) => console.error(`channels: inject(${kind}) failed:`, e))
         },
         { flush: 'post', immediate: true, deep: true },
       )
@@ -347,143 +298,6 @@ export const useHomeAgent = defineStore(
       )
     }
 
-    // When the user selects a Home Agent thread from the desktop UI (e.g. the
-    // HistoryChat list), mirror that into `activeRemoteConversationKey` so the
-    // channel bridge keeps routing into the same conversation.
-    watch(
-      () => conversations.activeKey,
-      (k) => {
-        if (k && conversations.getThreadKind(k) === 'homeAgent') {
-          activeRemoteConversationKey.value = k
-        }
-      },
-    )
-
-    function homeAgentTitleFor(key: string): string {
-      // Legacy singleton keeps its historical title for continuity.
-      if (key === HOME_AGENT_CONVERSATION_KEY) return HOME_AGENT_CONVERSATION_TITLE
-      const stamp = new Date(Number(key)).toLocaleString(undefined, {
-        year: '2-digit',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })
-      return `Home Agent - ${stamp}`
-    }
-
-    /**
-     * Allocate a brand-new Home Agent conversation, mark it as the routing
-     * target for new remote messages, and return its key. If the most-recent
-     * Home Agent conversation is still empty, reuse it instead of stacking
-     * empty buckets.
-     */
-    function createNewRemoteConversation(): string {
-      // Reuse a thread only if it has genuinely never held a message. Check the
-      // *live* chat-store messages, not just the persisted `conversationList`: a
-      // turn is written to `conversationList` only after its reply finishes
-      // streaming (openAiCompatibleChat persists post-stream), so a thread whose turn
-      // has already replied on the channel but not yet persisted still looks empty
-      // there. Reusing it would drop `/new` right back into the thread the user just
-      // chatted in — and then replay that thread's transcript instead of a clean page.
-      const existingEmpty = remoteConversationKeys.value.find(
-        (k) => (chatStore.getMessagesForKey(k) ?? []).length === 0,
-      )
-      if (existingEmpty) {
-        activeRemoteConversationKey.value = existingEmpty
-        return existingEmpty
-      }
-      const newKey = conversations.createConversation({
-        kind: 'homeAgent',
-        presetName: HOME_AGENT_CHAT_PRESET_NAME,
-      })
-      activeRemoteConversationKey.value = newKey
-      return newKey
-    }
-
-    /** Switch which Home Agent thread remote messages route into. */
-    function switchRemoteConversation(key: string): boolean {
-      const meta = conversations.getThreadMeta(key)
-      if (meta?.kind !== 'homeAgent') return false
-      activeRemoteConversationKey.value = key
-      return true
-    }
-
-    function ensureActiveRemoteConversation(): string {
-      const current = activeRemoteConversationKey.value
-      if (current && conversations.conversationList[current]) return current
-      // Adopt the legacy singleton if it exists with content; otherwise allocate fresh.
-      if (
-        conversations.conversationList[HOME_AGENT_CONVERSATION_KEY] &&
-        (conversations.conversationList[HOME_AGENT_CONVERSATION_KEY]?.length ?? 0) > 0
-      ) {
-        activeRemoteConversationKey.value = HOME_AGENT_CONVERSATION_KEY
-        return HOME_AGENT_CONVERSATION_KEY
-      }
-      return createNewRemoteConversation()
-    }
-
-    function listRemoteConversations(): Array<{
-      key: string
-      title: string
-      messageCount: number
-      isActive: boolean
-    }> {
-      const entries = remoteConversationKeys.value.map((key) => {
-        const msgs = conversations.conversationList[key] ?? []
-        const titleFromMeta = msgs[0]?.metadata?.conversationTitle as string | undefined
-        return {
-          key,
-          title: titleFromMeta || homeAgentTitleFor(key),
-          messageCount: msgs.length,
-          isActive: key === activeRemoteConversationKey.value,
-        }
-      })
-      // Most recent first. Numeric timestamp keys sort by their integer value
-      // so newer chats land on top; the legacy singleton string key parses to
-      // NaN → 0 so it falls to the bottom.
-      return entries.sort((a, b) => (parseInt(b.key) || 0) - (parseInt(a.key) || 0))
-    }
-
-    /** Flatten the last 5 messages of a conversation into a "User: …" /
-     *  "Assistant: …" transcript suitable for one-shot summarization. */
-    function flattenForSummary(messages: AipgUiMessage[]): string {
-      const last5 = messages.slice(-5)
-      return last5
-        .map((m) => {
-          const role = m.role === 'user' ? 'User' : 'Assistant'
-          const body = (m.parts as { type: string; text?: string }[])
-            .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-            .map((p) => p.text)
-            .join(' ')
-            .trim()
-          return body ? `${role}: ${body}` : ''
-        })
-        .filter(Boolean)
-        .join('\n')
-    }
-
-    async function summarizeConversation(key: string): Promise<string> {
-      const msgs = chatStore.getMessagesForKey(key) ?? conversations.conversationList[key] ?? []
-      if (msgs.length === 0) return 'Empty chat'
-
-      const cached = summaryCache.value[key]
-      if (cached && cached.messageCount === msgs.length) return cached.summary
-
-      const transcript = flattenForSummary(msgs)
-      if (!transcript) return 'Untitled chat'
-
-      const summary = await chatStore.summarizeMessages(transcript)
-      const clean = summary || 'Untitled chat'
-      summaryCache.value[key] = { messageCount: msgs.length, summary: clean }
-      return clean
-    }
-
-    // ── Channel-dispatch helpers ─────────────────────────────────────────────
-    // All handler bodies funnel outbound traffic through these small wrappers
-    // so the same logic services every channel without duplicating the slash-
-    // command + image-gen pipelines.
-
     async function reply(adapter: ChannelAdapter, htmlSnippet: string, meta?: InboundMeta) {
       return adapter.reply(adapter.formatRichSnippet(htmlSnippet), meta)
     }
@@ -500,10 +314,6 @@ export const useHomeAgent = defineStore(
         summaryMarkdown,
         typedReply: true,
         timeoutMs: CONFIRM_TIMEOUT_MS,
-        beforeSend: async () => {
-          // Freeze the streamed reply so the prompt lands below a settled message.
-          await activeRemoteTurn?.checkpoint?.()
-        },
       })
     }
 
@@ -513,48 +323,6 @@ export const useHomeAgent = defineStore(
         answer,
         answer ? '✅ Confirmed from the desktop app.' : '❌ Cancelled from the desktop app.',
       )
-    }
-
-    /**
-     * Human-in-the-loop confirmation for the Home Agent self-configuration
-     * tool. Always renders an inline confirmation card in the desktop chat
-     * (via the confirmations sink). When a remote turn is in flight it ALSO
-     * posts an in-channel yes/no and mirrors it into the desktop window:
-     * whichever side answers first wins, and the loser is settled. Returns
-     * whether the user approved the change.
-     */
-    async function requestSettingsConfirmation(args: {
-      conversationKey: string
-      toolCallId?: string
-      summaryMarkdown: string
-    }): Promise<boolean> {
-      const { conversationKey, toolCallId, summaryMarkdown } = args
-      const turn = activeRemoteTurn
-      if (turn && isHomeAgentActive.value) {
-        const kind = turn.adapter.kind
-        const mirror = confirmations.request({
-          conversationKey,
-          toolCallId,
-          title: SETTINGS_CONFIRM_TITLE,
-          summaryMarkdown,
-          origin: 'remote',
-          channelLabel: kind,
-        })
-        const channel = requestRemoteConfirmation(turn.adapter, summaryMarkdown, turn.meta)
-        const answer = await Promise.race([mirror, channel.answer])
-        // A no-op when the channel answered or timed out first.
-        settleFromDesktop(channel.id, answer)
-        // Remove the mirror card if it is still showing (channel/timeout win).
-        confirmations.cancelForConversation(conversationKey, answer)
-        return answer
-      }
-      return confirmations.request({
-        conversationKey,
-        toolCallId,
-        title: SETTINGS_CONFIRM_TITLE,
-        summaryMarkdown,
-        origin: 'desktop',
-      })
     }
 
     /** True while a remote (Telegram/Slack) turn is being processed. Lets
@@ -654,7 +422,7 @@ export const useHomeAgent = defineStore(
             meta,
             list: joined ? [] : toAsk,
             waiter,
-            label: channelQuestionTemplates().forHomeAgent,
+            label: channelQuestionTemplates().forChannel,
           },
           { queue: modelDownloads(), log: reportSilently },
         )
@@ -935,16 +703,6 @@ export const useHomeAgent = defineStore(
       }
     }
 
-    /**
-     * Restore the Home Agent preset to its bundled defaults — the deterministic
-     * recovery path when a tool-driven settings change breaks inference. Does
-     * not depend on the LLM (so it works even if the model/backend is broken).
-     */
-    function resetHomeAgentConfig(): void {
-      textInference.applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, null)
-      textInference.resetActivePresetSettings()
-    }
-
     async function processChannelMessages(kind: ChannelKind) {
       const adapter = adapters[kind]
       if (!adapter || pollBusyByKind[kind]) return
@@ -965,7 +723,7 @@ export const useHomeAgent = defineStore(
           )
         }
       } catch (e) {
-        reportSilently(`homeAgent: routing ${kind} messages failed:`, e)
+        reportSilently(`channels: routing ${kind} messages failed:`, e)
       } finally {
         pollBusyByKind[kind] = false
       }
@@ -975,7 +733,7 @@ export const useHomeAgent = defineStore(
       disposePoll(kind)
       pollIntervalIds[kind] = setInterval(() => {
         processChannelMessages(kind).catch((e: unknown) =>
-          console.error(`homeAgent: processChannelMessages(${kind}) failed:`, e),
+          console.error(`channels: processChannelMessages(${kind}) failed:`, e),
         )
       }, POLL_INTERVAL_MS)
     }
@@ -1017,7 +775,7 @@ export const useHomeAgent = defineStore(
         }
         return result
       } catch (e) {
-        console.error(`homeAgent.saveChannelConfig(${kind}) failed:`, e)
+        console.error(`channels.saveChannelConfig(${kind}) failed:`, e)
         return { success: false as const, error: String(e) }
       }
     }
@@ -1026,7 +784,7 @@ export const useHomeAgent = defineStore(
       try {
         await window.electronAPI.homeAgent.channel.clearConfig(kind)
       } catch (e) {
-        console.error(`homeAgent.clearChannelConfig(${kind}) failed:`, e)
+        console.error(`channels.clearChannelConfig(${kind}) failed:`, e)
       }
       channels[kind] = emptyRuntimeState(kind)
       channelPrefs[kind] = emptyPrefs()
@@ -1045,7 +803,7 @@ export const useHomeAgent = defineStore(
           verified: channelPrefs[kind].verified,
           enabled: channelPrefs[kind].enabled,
         })
-        .catch((e: unknown) => console.error(`homeAgent.persistChannelPrefs(${kind}) failed:`, e))
+        .catch((e: unknown) => console.error(`channels.persistChannelPrefs(${kind}) failed:`, e))
     }
 
     /** Mark a channel verified after a successful test. A freshly verified
@@ -1068,7 +826,7 @@ export const useHomeAgent = defineStore(
       persistChannelPrefs(kind)
     }
 
-    /** Master Home Agent on/off — the single title-bar toggle. */
+    /** Master Channels on/off — the single title-bar toggle. */
     function setMasterEnabled(on: boolean) {
       masterEnabled.value = on
     }
@@ -1114,11 +872,11 @@ export const useHomeAgent = defineStore(
               channelPrefs[kind].enabled = prefs.enabled
             }
           } catch (e) {
-            console.error(`homeAgent.initConfig: loadPrefs(${kind}) failed:`, e)
+            console.error(`channels.initConfig: loadPrefs(${kind}) failed:`, e)
           }
         }
       } catch (e) {
-        console.error('homeAgent.initConfig failed:', e)
+        console.error('channels.initConfig failed:', e)
       }
     }
 
@@ -1151,7 +909,6 @@ export const useHomeAgent = defineStore(
     const slackUserId = computed(() => channelPrefs.slack.identity ?? '')
 
     return {
-      isHomeAgentActive,
       // Master title-bar switch + persisted per-channel prefs.
       masterEnabled,
       channelPrefs,
@@ -1166,20 +923,6 @@ export const useHomeAgent = defineStore(
       slackUserId,
       isAvailable,
       hasConfiguredChannel,
-      // Remote conversation registry
-      activeRemoteConversationKey,
-      remoteConversationKeys,
-      createNewRemoteConversation,
-      switchRemoteConversation,
-      ensureActiveRemoteConversation,
-      listRemoteConversations,
-      // Settings panel visibility
-      showSettings,
-      openSettings,
-      closeSettings,
-      // Bare-/load summary cache (persisted)
-      summaryCache,
-      summarizeConversation,
       // Channel-agnostic control surface
       setChannelEnabled,
       setMasterEnabled,
@@ -1187,11 +930,6 @@ export const useHomeAgent = defineStore(
       saveChannelConfig,
       clearChannelConfig,
       setVerified,
-      // Settings self-configuration (used by the configureHomeAgent tool)
-      requestSettingsConfirmation,
-      isRemoteTurnActive,
-      handleRemoteModelDownload,
-      resetHomeAgentConfig,
       channelVoiceClip,
     }
   },
@@ -1202,9 +940,7 @@ export const useHomeAgent = defineStore(
       // enabled per kind) and `masterEnabled` drive activation on the next
       // launch; the secret `config` in `channels` is rehydrated from
       // safeStorage by initConfig() and never serialized here.
-      // activeRemoteConversationKey persisted so /load <id> survives restart.
-      // summaryCache persisted so /load menu summaries survive restarts.
-      pick: ['masterEnabled', 'channelPrefs', 'activeRemoteConversationKey', 'summaryCache'],
+      pick: ['masterEnabled', 'channelPrefs'],
     },
   },
 )
@@ -1216,5 +952,5 @@ if (import.meta.hot) {
       pollBusyByKind[k as ChannelKind] = false
     }
   })
-  import.meta.hot.accept(acceptHMRUpdate(useHomeAgent, import.meta.hot))
+  import.meta.hot.accept(acceptHMRUpdate(useChannels, import.meta.hot))
 }

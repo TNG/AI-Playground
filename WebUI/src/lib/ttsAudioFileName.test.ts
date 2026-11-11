@@ -34,7 +34,6 @@ describe('buildTtsAudioFileName', () => {
           metadata: { conversationTitle: 'My Chat' },
         },
       ],
-      threadMeta: undefined,
     })
     expect(label).toBe('My Chat')
   })

@@ -12,12 +12,7 @@ import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessi
 import type { AgentDraft, AgentTask, TrialRunRecord } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
-import type {
-  ChatModelConfig,
-  ChatSummarizeRequest,
-  ChatTurnRequest,
-  ChatTurnResumeResult,
-} from './chatIpc'
+import type { ChatModelConfig, ChatTurnRequest, ChatTurnResumeResult } from './chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from './chatRequests'
 import type { ComfyUICustomNodeRepoId } from './comfyuiIpc'
 import type { ComputeSnapshot, ProbeReport } from './computeMetrics'
@@ -730,13 +725,6 @@ export const CHANNELS = {
     owner: 'main',
     args: [] as unknown as readonly [string, string],
     result: null as unknown as { success: true },
-  },
-  /** One-shot conversation-title summarization; occupies as `text`, `remember: false`. */
-  'chat:summarize': {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as unknown as readonly [ChatSummarizeRequest],
-    result: null as unknown as IpcDataResult<string>,
   },
   /** The renderer's answer to a `chat:ask` question, keyed by requestId. */
   'chat:answer': {
@@ -2062,20 +2050,11 @@ export const CHANNELS = {
     raw: true as const,
   },
 
-  // ── Home Agent documents, LAN chat and channel dispatch (batch 9c) ──
-  // `saveHomeAgentDocument` has no namespace and the `channel:*` channels
-  // pre-date the `ns:` convention, so their dotted `member` overrides place
-  // them inside the homeAgent bridge group. The channel handlers are
-  // registered by the Home Agent backend service (service-gated).
+  // ── LAN chat and Channel dispatch (batch 9c) ──
+  // The `channel:*` channels pre-date the `ns:` convention, so their dotted
+  // `member` overrides place them inside the homeAgent bridge group. The
+  // channel handlers are registered by the Channels backend service (service-gated).
 
-  /** Persist an inbound Home Agent document (base64) for RAG; answers its path. */
-  saveHomeAgentDocument: {
-    kind: 'invoke',
-    owner: 'main',
-    args: [] as unknown as readonly [string, string],
-    result: null as unknown as IpcOkWith<{ filepath: string }>,
-    member: 'homeAgent.saveDocument' as const,
-  },
   /** Addresses the LAN chat page is reachable at (loopback only unless LAN is on). */
   'homeAgent:localWeb:getUrls': {
     kind: 'invoke',

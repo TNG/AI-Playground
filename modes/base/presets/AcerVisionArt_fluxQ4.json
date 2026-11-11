@@ -5,7 +5,6 @@
   "tags": ["Q4", "Fast"],
   "backend": "comfyui",
   "category": "create-images",
-  "excludeFromHomeAgentPicker": true,
   "resolutionConfig": {
     "megapixels": [
       { "label": "0.25", "totalPixels": 262144 },

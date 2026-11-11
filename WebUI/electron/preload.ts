@@ -24,7 +24,7 @@ import type {
 import type { AgentDraft, AgentTask, TrialRunRecord } from '@/types/agentTaskIpc'
 import type { PresetSessionSettings } from '@/types/sessionSettings'
 import type { ArtifactRunRequest } from '@/types/artifactIpc'
-import type { ChatSummarizeRequest, ChatTurnRequest } from '@/types/chatIpc'
+import type { ChatTurnRequest } from '@/types/chatIpc'
 import type { ChatAnswerPayload, ChatAskPayload } from '@/types/chatRequests'
 import type { ComfyUICustomNodeRepoId } from '@/types/comfyuiIpc'
 import type { ComputeSnapshot } from '@/types/computeMetrics'
@@ -287,7 +287,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     resumeTurn: (conversationKey: string) => invoke('chat:resumeTurn', conversationKey),
     cancelTurn: (conversationKey: string, turnId: string) =>
       invoke('chat:cancelTurn', conversationKey, turnId),
-    summarize: (request: ChatSummarizeRequest) => invoke('chat:summarize', request),
     answer: (payload: ChatAnswerPayload) => invoke('chat:answer', cloneForIpc(payload)),
     onAsk: (callback: (payload: ChatAskPayload) => void) => onPush('chat:ask', callback),
   },
@@ -505,9 +504,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openPermissionSettings: () => send('screenshot:openPermissionSettings'),
   },
   homeAgent: {
-    // Persist an inbound document (base64) to disk for RAG ingestion.
-    saveDocument: (filename: string, base64: string) =>
-      invoke('saveHomeAgentDocument', filename, base64),
     // Local web chat — URL discovery (the chat server lives in the Python
     // backend; this only enumerates reachable addresses for the setup screen).
     // `allowLan` mirrors the bind: loopback only unless LAN access is on.

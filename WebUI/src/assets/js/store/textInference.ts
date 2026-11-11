@@ -36,7 +36,7 @@ import {
 import { usePresets, type ChatPreset } from './presets'
 import { useDeveloperSettings } from './developerSettings'
 import { useCloudMode, CLOUD_DEFAULT_MODEL, ASSUME_ALL_CAPABILITIES } from './cloudMode'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
+import { useConversations } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
@@ -564,10 +564,8 @@ export const useTextInference = defineStore(
     const aipgToolsEnabled = ref(true)
     // "Speak replies": read a reply aloud when the user's input was speech. Edited on
     // the Text To Speech tool row (SettingsBuiltinTools) and stored per chat preset
-    // like the other tool settings, so it applies to whichever preset is active —
-    // the assistant auto-plays in the app, the Home Agent answers a voice message
-    // with a voice message. Initialized per preset on load; see
-    // `defaultSpeakReplies` / `speakRepliesAllowed`.
+    // like the other tool settings, so it applies to whichever preset is active.
+    // Off until the user turns it on; see `speakRepliesAllowed`.
     const speakReplies = ref(false)
     const mcpToolsEnabled = ref(true)
     // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
@@ -620,33 +618,14 @@ export const useTextInference = defineStore(
     }
 
     /**
-     * Default for "Speak replies": on for the Home Agent, where a voice message
-     * asks for a voice answer, and off elsewhere so the desktop app never starts
-     * talking without the user having asked for it.
-     */
-    function defaultSpeakReplies(presetName?: string): boolean {
-      return presetName === HOME_AGENT_CHAT_PRESET_NAME
-    }
-
-    /**
-     * Whether replies may be spoken for a preset: its "Speak replies" toggle and
-     * tools must be on, and the Text To Speech tool (which supplies the voice) must
+     * Whether replies may be spoken for the active preset: its "Speak replies" toggle
+     * and tools must be on, and the Text To Speech tool (which supplies the voice) must
      * be enabled — that is what the toggle rides on in the UI.
-     *
-     * Pass `presetName` to read the *stored* value for a preset instead of the live
-     * refs. The Home Agent needs that: it answers on its own preset, while the live
-     * refs may already hold the desktop user's preset again. A preset with nothing
-     * saved yet falls back to that preset's default.
      */
-    function speakRepliesAllowed(presetName?: string): boolean {
+    function speakRepliesAllowed(): boolean {
       // Not the NPU default: speaking replies costs the prompt nothing.
       if (!isToolEnabled(builtinToolEnablement.value, 'synthesizeTextToSpeech')) return false
-      if (!presetName) return aipgToolsEnabled.value && speakReplies.value
-      const saved = findSettingsForPreset(presetName)
-      const toolsOn = (saved?.aipgToolsEnabled as boolean | undefined) ?? aipgToolsEnabled.value
-      const speakOn =
-        (saved?.speakReplies as boolean | undefined) ?? defaultSpeakReplies(presetName)
-      return toolsOn && speakOn
+      return aipgToolsEnabled.value && speakReplies.value
     }
 
     /** Stored settings for a preset, by exact key or the first of its variants. */
@@ -1058,7 +1037,7 @@ export const useTextInference = defineStore(
       const checkList = [{ repo_id: model, type: modelType, backend: backendName }]
       // A text turn runs without the projector (llama.cpp only passes --mmproj when
       // the file is beside the model), so asking for it would be a gigabyte the
-      // turn does not use — and on a remote Home Agent turn, a download question
+      // turn does not use — and on a Channel, a download question
       // nobody expected.
       const mmproj = llmModels.value.find(
         (m) => m.type === localBackend && m.name === model,
@@ -1146,7 +1125,7 @@ export const useTextInference = defineStore(
       const existing = ragList.value.find((item) => item.hash === langchainDocument.hash)
       if (existing) {
         // Same content (by hash) is already indexed. Don't duplicate, but honor
-        // an explicit request to enable it (e.g. a Home Agent document upload
+        // an explicit request to enable it (e.g. an attached document
         // stub arrives with isChecked: true) so re-sending a file the user
         // already has makes it usable instead of silently no-op'ing.
         if (langchainDocument.isChecked) {
@@ -1382,7 +1361,7 @@ export const useTextInference = defineStore(
 
       if (uniqueDownloads.length === 0) return
       // The permissions layer owns the prompt: the download modal, or the
-      // channel when a remote Home Agent turn is active.
+      // Channel when a remote turn is active.
       await requestDownload(uniqueDownloads, { conversationKey: options.conversationKey })
     }
 
@@ -1649,8 +1628,7 @@ export const useTextInference = defineStore(
         legacyToolEnablement.value,
       )
 
-      speakReplies.value =
-        (savedSettings.speakReplies as boolean | undefined) ?? defaultSpeakReplies(preset.name)
+      speakReplies.value = (savedSettings.speakReplies as boolean | undefined) ?? false
 
       // Per-workflow enablement for preset-backed tools (defaults to all-enabled
       // when unsaved, matching isWorkflowPresetEnabled's default).
@@ -1780,20 +1758,11 @@ export const useTextInference = defineStore(
 
     /**
      * Resolve the chat preset (+ variant) that should drive inference for a
-     * given conversation. Home Agent threads are always pinned to the bundled
-     * Home Agent preset; main threads mirror the live settings selection.
+     * given conversation: the live settings selection.
      */
     function resolvePresetForConversation(
-      conversationKey: string,
+      _conversationKey: string,
     ): { presetName: string; variant: string | null } | null {
-      const kind = conversations.getThreadKind(conversationKey)
-      if (kind === 'homeAgent') {
-        const meta = conversations.getThreadMeta(conversationKey)
-        return {
-          presetName: HOME_AGENT_CHAT_PRESET_NAME,
-          variant: meta?.variant ?? null,
-        }
-      }
       const presetName = presetsStore.activePresetName
       if (!presetName) return null
       return {
@@ -1836,23 +1805,18 @@ export const useTextInference = defineStore(
      * Stamp `conversationThreadMeta[conversationKey]` so the thread keeps a
      * record of which preset (+ variant) drove its most recent inference.
      * Called from generate/regenerate before running inference.
-     *
-     * For Home Agent threads this also enforces routing to the bundled preset
-     * regardless of what the desktop settings happened to show.
      */
     function stampMetaForConversation(conversationKey: string): void {
       const resolved = resolvePresetForConversation(conversationKey)
       if (!resolved) return
-      const existingKind = conversations.getThreadMeta(conversationKey)?.kind
       conversations.setThreadMeta(conversationKey, {
         presetName: resolved.presetName,
         variant: resolved.variant,
-        kind: existingKind ?? 'main',
       })
     }
 
     /**
-     * Ensure the live `textInference` refs match the meta (or kind)
+     * Ensure the live `textInference` refs match the meta
      * of the target conversation, then return what was applied. Used by
      * `generate`/`regenerate` so the in-flight stream uses the thread's
      * preset, not whatever was last selected for an unrelated chat.
@@ -2096,12 +2060,6 @@ export const useTextInference = defineStore(
         // A Session's chat follows the live preset; opening a Session restores its preset itself.
         if (!newKey || sessionIdOfChatKey(newKey)) return
         const meta = conversations.getThreadMeta(newKey)
-        // Home Agent threads are always pinned to the bundled Home Agent preset,
-        // even before they've been stamped, so opening one switches the picker.
-        if (conversations.getThreadKind(newKey) === 'homeAgent') {
-          applyPresetToGlobals(HOME_AGENT_CHAT_PRESET_NAME, meta?.variant ?? null)
-          return
-        }
         if (!meta?.presetName) return
         const exists = presetsStore.presets.some((p) => p.name === meta.presetName)
         if (!exists) {
@@ -2121,9 +2079,7 @@ export const useTextInference = defineStore(
     // Mirror the active conversation's RAG selection into the shared library's
     // live `isChecked` flags whenever the active conversation changes. A new /
     // empty conversation has no stored selection, so it starts with no enabled
-    // RAG documents; switching back to a thread restores its selection. Home
-    // Agent turns set `activeKey` to the remote thread before generating, so
-    // this works uniformly for remote threads too. `immediate: true` restores
+    // RAG documents; switching back to a thread restores its selection. `immediate: true` restores
     // the resumed thread's selection on startup.
     watch(() => conversations.activeKey, syncRagSelectionForActiveKey, {
       flush: 'post',
@@ -2143,7 +2099,7 @@ export const useTextInference = defineStore(
     //   1. First launch: activePresetName is null.
     //   2. Subsequent launches: the persisted activePresetName can point at a
     //      non-chat preset (e.g. an image preset left active after the last
-    //      image-gen session, or a picker-excluded one like Home Agent).
+    //      image-gen session).
     // In both cases, reconcile it to the last-used chat preset (falling back to
     // the highest-priority one). Without this, Chat Settings' PresetSelector —
     // which filters to chat presets — can't find the active preset and renders

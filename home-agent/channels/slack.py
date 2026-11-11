@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import COMMAND_CALLBACKS, HOME_AGENT_COMMANDS, command_for_callback
+from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, command_for_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -615,7 +615,7 @@ class SlackChannel(ChannelBase):
                     command.get("channel_id") or "",
                 )
 
-            # Slash commands are derived from the shared HOME_AGENT_COMMANDS
+            # Slash commands are derived from the shared CHANNEL_COMMANDS
             # source of truth (see channels/commands.py) so they stay in lockstep
             # with the Telegram transport. The matching Slack app manifest
             # (WebUI/src/components/SlackSetupSteps.vue) must declare the same set.
@@ -629,25 +629,8 @@ class SlackChannel(ChannelBase):
 
                 return handler
 
-            for cmd in HOME_AGENT_COMMANDS:
+            for cmd in CHANNEL_COMMANDS:
                 bolt_app.command(cmd.slash)(_make_slash_handler(cmd))
-
-            @bolt_app.action(re.compile(r"^imgGen:"))
-            async def on_imggen_action(ack, body, action):  # type: ignore[no-untyped-def]
-                await ack()
-                user = (body.get("user") or {}).get("id") or ""
-                channel = (body.get("channel") or {}).get("id") or ""
-                await _maybe_remember_user(user, channel)
-                if self._allowed_user_id and user != self._allowed_user_id:
-                    logger.warning(
-                        "Ignoring imgGen action from unauthorized user_id: %s", user
-                    )
-                    return
-                value = action.get("value") or action.get("action_id") or ""
-                logger.info("Slack imgGen action: user=%s value=%s", user, value)
-                self.queue_append(
-                    {"chat_id": user, "channel": channel, "callback": value}
-                )
 
             @bolt_app.action(re.compile(r"^confirm:"))
             async def on_confirm_action(ack, body, action):  # type: ignore[no-untyped-def]

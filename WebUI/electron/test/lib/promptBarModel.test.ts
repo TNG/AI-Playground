@@ -223,17 +223,17 @@ describe('promptBarModel modes', () => {
     expect(names(presetsInMode(catalog, 'chat'))).toEqual(['aiDAPTIV', 'Assistant'])
   })
 
-  it('keeps aiDAPTIV, Home Agent chat and user chat presets under Chat', () => {
+  it('keeps aiDAPTIV and user chat presets under Chat', () => {
     const catalog = [
       chat('Assistant'),
       chat('aiDAPTIV', { requiresPhison: true }),
-      chat('Home Agent'),
+      chat('Writer'),
       chat('My Helper', { category: undefined }),
     ]
     expect(names(presetsInMode(catalog, 'chat'))).toEqual([
       'Assistant',
       'aiDAPTIV',
-      'Home Agent',
+      'Writer',
       'My Helper',
     ])
   })
@@ -316,15 +316,15 @@ describe('promptBarModel modes', () => {
       const gated = new Set(['Plain Chat', 'Reasoning', 'Assistant'])
       const modePicks = promptBarModel(
         input({
-          catalog: [chat('Home Agent'), ...catalog],
+          catalog: [chat('Writer'), ...catalog],
           lastUsed: { chat: ['Reasoning'] },
           presetGate: (preset) =>
             gated.has(preset.name)
-              ? { enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' }
+              ? { enabled: false, reason: 'PRESET_GATE_PHISON' }
               : { enabled: true },
         }),
       ).modePicks
-      expect(modePicks).toMatchObject({ chat: 'Home Agent', agent: 'Game Agent' })
+      expect(modePicks).toMatchObject({ chat: 'Writer', agent: 'Game Agent' })
     })
 
     it('offers no pick for a mode whose presets are all gated', () => {
@@ -362,7 +362,7 @@ describe('promptBarModel preset picker', () => {
   const catalog: Preset[] = [
     chat('Plain Chat'),
     chat('aiDAPTIV', { requiresPhison: true }),
-    chat('Home Agent'),
+    chat('Writer'),
     agent('Assistant'),
     gameAgent,
     agent('Quick Coder'),
@@ -388,15 +388,15 @@ describe('promptBarModel preset picker', () => {
       input({
         catalog,
         presetGate: (preset) =>
-          preset.name === 'Home Agent'
-            ? { enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' }
+          preset.name === 'Writer'
+            ? { enabled: false, reason: 'PRESET_GATE_PHISON' }
             : { enabled: true },
       }),
     )
     expect(presets.map(({ name, enabled, reason }) => ({ name, enabled, reason }))).toEqual([
       { name: 'Plain Chat', enabled: true, reason: undefined },
       { name: 'aiDAPTIV', enabled: true, reason: undefined },
-      { name: 'Home Agent', enabled: false, reason: 'PRESET_GATE_HOME_AGENT_DISABLED' },
+      { name: 'Writer', enabled: false, reason: 'PRESET_GATE_PHISON' },
       { name: 'Assistant', enabled: true, reason: undefined },
     ])
   })

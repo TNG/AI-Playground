@@ -13,7 +13,7 @@ import { usePresetSwitching } from './presetSwitching'
 import { useSpeechToText } from './speechToText'
 import { useTextToSpeech } from './textToSpeech'
 import { useDemoMode, type DemoModeSetup } from './demoMode'
-import { useHomeAgent } from './homeAgent'
+import { useChannels } from './channels'
 import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
@@ -125,7 +125,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const demoMode = useDemoMode()
   const speechToText = useSpeechToText()
   const textToSpeech = useTextToSpeech()
-  const homeAgent = useHomeAgent()
+  const channelStore = useChannels()
   const cloudMode = useCloudMode()
   const errors = useErrors()
 
@@ -953,7 +953,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
       if (anyFailed) return
     }
 
-    const noChannelVerified = CHANNELS.every((c) => !homeAgent.channelPrefs[c.kind].verified)
+    const noChannelVerified = CHANNELS.every((c) => !channelStore.channelPrefs[c.kind].verified)
     if (noChannelVerified) {
       const homeAgentJustInstalled = toInstall.some((r) => r.serviceName === 'home-agent-backend')
       if (homeAgentJustInstalled || isHomeAgentInstalledAndActive()) {
@@ -1026,7 +1026,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     // injected into the running service must not survive a reinstall.
     if (name === 'home-agent-backend') {
       for (const c of CHANNELS) {
-        await homeAgent.clearChannelConfig(c.kind)
+        await channelStore.clearChannelConfig(c.kind)
       }
     }
     await installBackend(name)

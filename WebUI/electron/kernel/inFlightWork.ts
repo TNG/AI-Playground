@@ -62,11 +62,7 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
   }
   for (const turn of sources.chatTurns) {
     const state = { status: stateOf(turn.conversationKey, 'running') }
-    items.push(
-      turn.homeAgent
-        ? { kind: 'home-agent-turn', state }
-        : { kind: 'chat-turn', ...(turn.title ? { name: turn.title } : {}), state },
-    )
+    items.push({ kind: 'chat-turn', ...(turn.title ? { name: turn.title } : {}), state })
   }
   const queued = new Map<ArtifactRunMode, number>()
   for (const run of sources.artifactRuns) {

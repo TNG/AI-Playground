@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useChannels } from '@/assets/js/store/channels'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
@@ -11,10 +11,10 @@ export function useSessionReachability() {
   const sessions = useSessions()
   const agentMode = useAgentMode()
   const sessionSettings = useSessionSettings()
-  const homeAgent = useHomeAgent()
+  const channelStore = useChannels()
   const setupWizard = useSetupWizard()
 
-  const channelsSetUp = computed(() => homeAgent.hasConfiguredChannel)
+  const channelsSetUp = computed(() => channelStore.hasConfiguredChannel)
 
   function usesRealShell(sessionRef: string): boolean {
     return Object.values(agentMode.sessions).some(

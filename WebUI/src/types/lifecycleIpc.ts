@@ -16,7 +16,6 @@ export type StepState = { status: 'step'; index: number; count: number }
 export type InFlightWorkItem =
   | { kind: 'agent-turn'; name?: string; state: InFlightWorkState }
   | { kind: 'chat-turn'; name?: string; state: InFlightWorkState }
-  | { kind: 'home-agent-turn'; state: InFlightWorkState }
   | { kind: 'media-run'; mode: ArtifactRunMode; state: InFlightWorkState }
   | { kind: 'channel-queue'; channel: ChannelKind; state: { status: 'queued'; count: number } }
   | { kind: 'task-run'; taskId: string; sessionId?: string; name?: string; state: TaskRunWorkState }
@@ -34,7 +33,7 @@ export type TaskRunWorkState = StepState | { status: 'starting' }
 export type InFlightWorkKind = InFlightWorkItem['kind']
 
 /** A chat turn the turn engine holds open. */
-export type OpenChatTurn = { conversationKey: string; homeAgent: boolean; title?: string }
+export type OpenChatTurn = { conversationKey: string; title?: string }
 
 /** An artifact run the orchestrator has not settled: executing once admitted, else waiting. */
 export type OpenArtifactRun = { mode: ArtifactRunMode; executing: boolean }

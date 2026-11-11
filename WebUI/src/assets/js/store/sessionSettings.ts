@@ -10,7 +10,6 @@ import {
   presetSettingsKey,
   useImageGenerationPresets,
 } from '@/assets/js/store/imageGenerationPresets'
-import { HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { usesSessionSettings, type SettingsBag } from '@/lib/agentSessionSettings'
 import {
   asSent,
@@ -41,8 +40,8 @@ type ComfyValues = { settings: Record<string, unknown>; inputs: Record<string, u
  * Session Settings for every preset (ADR-0004): binds the chat and ComfyUI settings
  * stores to the open Session, so a preset's first use in a Session copies its Default
  * Settings and coming back to it restores what the Session last used. The Agent
- * preset's settings are bound by the agent store but kept here too; the Home Agent
- * preset, machine-level settings and the TTS voice stay global.
+ * preset's settings are bound by the agent store but kept here too; machine-level
+ * settings and the TTS voice stay global.
  */
 export const useSessionSettings = defineStore('sessionSettings', () => {
   const errors = useErrors()
@@ -69,7 +68,7 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
 
   /** Presets whose settings this store keeps per Session. */
   function heldHere(preset: Preset | undefined): preset is Preset {
-    if (!preset || preset.name === HOME_AGENT_CHAT_PRESET_NAME) return false
+    if (!preset) return false
     return !(preset.type === 'chat' && usesSessionSettings(preset as ChatPreset))
   }
 
@@ -333,7 +332,7 @@ export const useSessionSettings = defineStore('sessionSettings', () => {
     return { preset, key, bag: bagOf(preset.name, key) }
   }
 
-  /** Whether the active preset's settings belong to the open Session (not Agent, not Home Agent). */
+  /** Whether the active preset's settings belong to the open Session (not Agent). */
   const holdsActivePreset = computed(() => activeBag() !== null)
 
   /** What blocks sending: unusable settings the Session already sent with (ADR-0001's rule). */

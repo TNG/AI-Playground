@@ -2,7 +2,7 @@ import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useChannelQueue } from '@/assets/js/store/channelQueue'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useChannels } from '@/assets/js/store/channels'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -15,7 +15,7 @@ import { registerChannelSessionPort } from '@/lib/channelSessionPort'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 
 // Main delivers Notifications while the window is hidden, so it keeps its own copy.
-// Composed here rather than in the homeAgent store, which agentMode's imports reach.
+// Composed here rather than in the Channels store, which agentMode's imports reach.
 
 let stop: WatchStopHandle | null = null
 
@@ -33,7 +33,7 @@ async function pushRealShellFolders(
 
 export function startNotificationConfigPush(): void {
   if (stop) return
-  const homeAgent = useHomeAgent()
+  const channelStore = useChannels()
   const agentMode = useAgentMode()
   const sessions = useSessions()
   const i18n = useI18N()
@@ -41,7 +41,7 @@ export function startNotificationConfigPush(): void {
   const config = computed<NotificationConfig>(() => {
     const text = i18n.state
     return {
-      channels: [...homeAgent.notificationChannels],
+      channels: [...channelStore.notificationChannels],
       sessionOnScreen: sessions.openSessionId,
       realShellSessions: Object.values(agentMode.sessions)
         .filter((session) => agentMode.isUnsandboxed(session.workspaceDir))
@@ -133,7 +133,7 @@ export function startNotificationConfigPush(): void {
       appClosed: text.CHANNEL_QUESTION_APP_CLOSED ?? '',
       forChat: text.MODEL_DOWNLOAD_FOR_CHAT ?? '',
       forOther: text.MODEL_DOWNLOAD_FOR_OTHER ?? '',
-      forHomeAgent: text.MODEL_DOWNLOAD_FOR_HOME_AGENT ?? '',
+      forChannel: text.MODEL_DOWNLOAD_FOR_CHANNEL ?? '',
     }
   })
 }

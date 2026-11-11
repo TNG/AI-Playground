@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { toggleCapabilityIds } from '@/assets/js/store/agentModeSessions'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useChannels } from '@/assets/js/store/channels'
 import { useI18N } from '@/assets/js/store/i18n'
 import { MCP_CAPABILITY_PREFIX, NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 
@@ -46,11 +46,11 @@ const props = defineProps<{
 
 const capabilities = defineModel<string[]>({ required: true })
 
-const homeAgent = useHomeAgent()
+const channelStore = useChannels()
 const i18n = useI18N().state
 
 function showNotifyHint(id: string): boolean {
-  return id === NOTIFY_CAPABILITY_ID && !homeAgent.notificationsReady
+  return id === NOTIFY_CAPABILITY_ID && !channelStore.notificationsReady
 }
 
 const builtInCapabilities = computed(() =>

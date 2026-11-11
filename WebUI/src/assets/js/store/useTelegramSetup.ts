@@ -1,11 +1,11 @@
 import { ref, computed } from 'vue'
-import { useHomeAgent } from './homeAgent'
+import { useChannels } from './channels'
 
 const DETECT_POLL_INTERVAL_MS = 2000
 const DETECT_TIMEOUT_MS = 5000
 
 export function useTelegramSetup() {
-  const homeAgent = useHomeAgent()
+  const channelStore = useChannels()
 
   const tokenInput = ref('')
   const showToken = ref(false)
@@ -16,7 +16,7 @@ export function useTelegramSetup() {
   const verifyError = ref('')
 
   const isAlreadyConfigured = computed(
-    () => !!(homeAgent.channels.telegram.config as { token?: string }).token,
+    () => !!(channelStore.channels.telegram.config as { token?: string }).token,
   )
 
   // A valid token is <digits>:<35 alphanumeric chars>, total ≥ 40 chars with a colon.
@@ -31,7 +31,7 @@ export function useTelegramSetup() {
   const canVerify = computed(() => hasAnyToken.value && hasAnyChatId.value)
 
   function currentSavedToken(): string {
-    return (homeAgent.channels.telegram.config as { token?: string }).token?.trim() ?? ''
+    return (channelStore.channels.telegram.config as { token?: string }).token?.trim() ?? ''
   }
 
   async function pollForChatId(token: string): Promise<{ chatId: string } | { error: string }> {
@@ -115,12 +115,12 @@ export function useTelegramSetup() {
 
   async function verify() {
     const token = tokenInput.value.trim()
-    const chatId = detectedChatId.value || homeAgent.telegramChatId
+    const chatId = detectedChatId.value || channelStore.telegramChatId
     verifyStatus.value = 'loading'
     verifyError.value = ''
     try {
       if (token && chatId) {
-        const saveResult = await homeAgent.saveChannelConfig('telegram', {
+        const saveResult = await channelStore.saveChannelConfig('telegram', {
           kind: 'telegram',
           token,
           chatId,
@@ -138,7 +138,7 @@ export function useTelegramSetup() {
       }
       const result = await window.electronAPI.homeAgent.channel.test('telegram')
       if (result.success) {
-        homeAgent.setVerified('telegram')
+        channelStore.setVerified('telegram')
         verifyStatus.value = 'success'
         const tokForInject = token || currentSavedToken()
         if (tokForInject && chatId) {
@@ -163,14 +163,14 @@ export function useTelegramSetup() {
   }
 
   function syncSetupFieldsFromStore() {
-    if (homeAgent.telegramChatId) {
-      detectedChatId.value = homeAgent.telegramChatId
+    if (channelStore.telegramChatId) {
+      detectedChatId.value = channelStore.telegramChatId
     }
   }
 
   async function clearConfig() {
     try {
-      await homeAgent.clearChannelConfig('telegram')
+      await channelStore.clearChannelConfig('telegram')
     } catch (e) {
       console.error('clearConfig: failed to clear Home Agent config:', e)
     } finally {
@@ -184,7 +184,7 @@ export function useTelegramSetup() {
   }
 
   return {
-    homeAgent,
+    channelStore,
     tokenInput,
     showToken,
     detectedChatId,

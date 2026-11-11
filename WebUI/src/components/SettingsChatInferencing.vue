@@ -1,5 +1,5 @@
 <template>
-  <SettingsTabLayout :machine-only="isHomeAgentPresetActive" :machine-note="machineNote">
+  <SettingsTabLayout>
     <template #picker>
       <PresetSelector
         type="chat"
@@ -179,9 +179,6 @@ import {
 import { useBackendServices } from '@/assets/js/store/backendServices.ts'
 import { usePresets } from '@/assets/js/store/presets.ts'
 import { useProductMode } from '@/assets/js/store/productMode'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
-import { useSessionChat } from '@/assets/js/store/sessionChat'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useCloudMode } from '@/assets/js/store/cloudMode'
 import { useUIStore } from '@/assets/js/store/ui'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -209,13 +206,10 @@ const contextSizeField = useContextSizeField(toRef(textInference, 'contextSize')
 const presetsStore = usePresets()
 const backendServices = useBackendServices()
 const productModeStore = useProductMode()
-const conversations = useConversations()
-const sessionChat = useSessionChat()
-const homeAgent = useHomeAgent()
 const cloudMode = useCloudMode()
 const uiStore = useUIStore()
 
-const { activeChatPreset, isHomeAgentPresetActive, machineNote } = useActiveChatPreset()
+const { activeChatPreset } = useActiveChatPreset()
 const { changePreset } = usePresetPicker({})
 
 // Non-null service name for the local-backend DeviceSelector (only rendered for
@@ -270,21 +264,9 @@ function handleBackendChange(newBackend: string) {
   }
 }
 
+// The mode follows the preset: an agent preset in this list switches the app to Agent Mode.
 async function handlePresetChange(presetName: string) {
-  // Picking Home Agent jumps to the most recently routed Home Agent thread, so the
-  // remote bridge and this view share one conversation; picking another preset off a
-  // Home Agent thread returns to the Session instead of writing into Home Agent state.
-  const switchingToHomeAgent = presetName === HOME_AGENT_CHAT_PRESET_NAME
-  const onHomeAgentThread = conversations.getThreadKind(conversations.activeKey) === 'homeAgent'
-
-  // The mode follows the preset: an agent preset in this list switches the app to Agent Mode.
-  // Only reroute once the switch succeeded, or the view would leave the picker's preset behind.
-  if (!(await changePreset(presetName))) return
-  if (switchingToHomeAgent) {
-    conversations.activeKey = homeAgent.ensureActiveRemoteConversation()
-  } else if (onHomeAgentThread) {
-    sessionChat.returnToSessionChat()
-  }
+  await changePreset(presetName)
 }
 
 function isBackendRunning(backend: LlmBackend): boolean {

@@ -1,18 +1,18 @@
-"""Single source of truth for Home Agent slash commands.
+"""Single source of truth for Channel slash commands.
 
 Both channel transports (`telegram.py`, `slack.py`) build their command
-handlers and platform command menus from `HOME_AGENT_COMMANDS`, so a command
+handlers and platform command menus from `CHANNEL_COMMANDS`, so a command
 can never be wired into one transport but silently forgotten in another (the
-class of bug where `/reset` worked in the dispatcher but was never registered
+class of bug where a command worked in the router but was never registered
 with Telegram or Slack).
 
 This list only governs how a *transport* recognizes a slash command and what
 raw text it forwards. Two further, TypeScript-side touch-points are NOT covered
-here and must be kept in sync by hand — see AGENTS.md "Home Agent slash
+here and must be kept in sync by hand — see AGENTS.md "Channel slash
 commands" for the full checklist:
 
   * the router's command table in `WebUI/src/assets/js/store/channels/`
-    (`answerRouter.ts`, `channelSessions.ts`, `channelAgents.ts`: the behavior
+    (`channelCommands.ts`, `channelSessions.ts`, `channelAgents.ts`: the behavior
     and the `/help` text), and
   * the Slack app manifest in `WebUI/src/components/SlackSetupSteps.vue`
     (`slash_commands`), which the user copies into Slack.
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class HomeAgentCommand:
+class ChannelCommand:
     """One slash command, described once for every channel transport.
 
     name:             canonical lowercase trigger. Slack slash commands must be
@@ -33,10 +33,9 @@ class HomeAgentCommand:
     takes_args:       whether free text after the command is forwarded along.
     queued:           the exact text handed to the renderer-side dispatcher.
                       Defaults to ``/<name>``; override when the dispatcher
-                      expects a different spelling (e.g. ``/imgGen``).
+                      expects a different spelling.
     telegram_aliases: extra Telegram-only trigger spellings that resolve to the
-                      same command (e.g. ``imgGen`` for camelCase parity, or
-                      ``start`` -> help). These never appear in the menu.
+                      same command (e.g. ``start`` -> help). These never appear in the menu.
     """
 
     name: str
@@ -61,19 +60,19 @@ class HomeAgentCommand:
 
 
 # Order is preserved for the Telegram command menu and the Slack manifest.
-HOME_AGENT_COMMANDS: tuple[HomeAgentCommand, ...] = (
-    HomeAgentCommand("help", "Show available commands", telegram_aliases=("start",)),
-    HomeAgentCommand("sessions", "List your Reachable Sessions to pick one"),
-    HomeAgentCommand(
+CHANNEL_COMMANDS: tuple[ChannelCommand, ...] = (
+    ChannelCommand("help", "Show available commands", telegram_aliases=("start",)),
+    ChannelCommand("sessions", "List your Reachable Sessions to pick one"),
+    ChannelCommand(
         "load", "Continue a Session (no number = pick from a list)", takes_args=True
     ),
-    HomeAgentCommand("new", "Start a new Session"),
-    HomeAgentCommand(
+    ChannelCommand("new", "Start a new Session"),
+    ChannelCommand(
         "agents",
         "List the agents you can start, or start one by name",
         takes_args=True,
     ),
-    HomeAgentCommand(
+    ChannelCommand(
         "stop", "Stop the running turn or Agent Run and drop queued messages"
     ),
 )

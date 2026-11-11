@@ -11,13 +11,6 @@ import {
 // trivially green. They pin the three `member`-override placement rules.
 
 describe('channel manifest bridge-path derivation', () => {
-  it('places a dotted-member channel at its cross-group path', () => {
-    expectTypeOf<ElectronApi['homeAgent']['saveDocument']>().toEqualTypeOf<
-      BridgeMemberFor<'saveHomeAgentDocument'>
-    >()
-    expectTypeOf<ElectronApi>().not.toHaveProperty('saveHomeAgentDocument')
-  })
-
   it('places a dotted member inside a nested sub-group', () => {
     expectTypeOf<ElectronApi['homeAgent']['channel']['saveConfig']>().toEqualTypeOf<
       BridgeMemberFor<'channel:saveConfig'>
@@ -136,7 +129,6 @@ describe('channel manifest bridge-path uniqueness', () => {
 
   it('mirrors the type-level placement the pinned rows above assert', () => {
     const pathOf = (name: keyof typeof CHANNELS) => bridgePathOf(name, CHANNELS[name] as RowLike)
-    expect(pathOf('saveHomeAgentDocument')).toEqual(['homeAgent', 'saveDocument'])
     expect(pathOf('channel:saveConfig')).toEqual(['homeAgent', 'channel', 'saveConfig'])
     expect(pathOf('homeAgent:localWeb:getUrls')).toEqual(['homeAgent', 'localWeb', 'getUrls'])
     expect(pathOf('lifecycle:reportWork')).toEqual(['reportInFlightWork'])

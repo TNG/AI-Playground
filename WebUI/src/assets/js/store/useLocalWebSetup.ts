@@ -1,5 +1,5 @@
 import { ref, computed, watch } from 'vue'
-import { useHomeAgent } from './homeAgent'
+import { useChannels } from './channels'
 import { useErrors } from './errors'
 import { useDialogStore } from './dialogs'
 import { useI18N } from './i18n'
@@ -20,7 +20,7 @@ const MIN_PASSWORD_LEN = 4
  * served chat page is reachable at.
  */
 export function useLocalWebSetup() {
-  const homeAgent = useHomeAgent()
+  const channelStore = useChannels()
   const errors = useErrors()
   const dialogs = useDialogStore()
   const i18n = useI18N()
@@ -39,7 +39,8 @@ export function useLocalWebSetup() {
 
   /** The password held in the (asynchronously loaded) runtime config. */
   const savedPassword = computed(
-    () => (homeAgent.channels['local-web'].config as { password?: string }).password?.trim() ?? '',
+    () =>
+      (channelStore.channels['local-web'].config as { password?: string }).password?.trim() ?? '',
   )
   // Only a password we can actually see lets the user leave the field blank.
   // `channelPrefs.verified` restores synchronously from persisted state while the
@@ -50,7 +51,7 @@ export function useLocalWebSetup() {
   // Display-only: "this channel has been set up before", which is true as soon as
   // the persisted flag says so. Never use it to authorize a blank password.
   const isAlreadyConfigured = computed(
-    () => hasSavedPassword.value || homeAgent.channelPrefs['local-web'].verified,
+    () => hasSavedPassword.value || channelStore.channelPrefs['local-web'].verified,
   )
 
   /** The typed port, or null when it is out of range / not a number. Tracked
@@ -144,7 +145,7 @@ export function useLocalWebSetup() {
         return
       }
       verifyStatus.value = 'loading'
-      const saveResult = await homeAgent.saveChannelConfig('local-web', {
+      const saveResult = await channelStore.saveChannelConfig('local-web', {
         kind: 'local-web',
         port: String(portNumber.value),
         allowLan: allowLan.value ? 'true' : 'false',
@@ -162,8 +163,8 @@ export function useLocalWebSetup() {
         verifyError.value = test.error ?? 'Could not start LAN chat server.'
         return
       }
-      homeAgent.channelPrefs['local-web'].identity = 'local'
-      homeAgent.setVerified('local-web')
+      channelStore.channelPrefs['local-web'].identity = 'local'
+      channelStore.setVerified('local-web')
       verifyStatus.value = 'success'
       passwordInput.value = ''
       await refreshUrls()
@@ -181,7 +182,7 @@ export function useLocalWebSetup() {
   }
 
   async function loadSavedIntoForm() {
-    const cfg = homeAgent.channels['local-web'].config as {
+    const cfg = channelStore.channels['local-web'].config as {
       port?: string
       allowLan?: string
     }

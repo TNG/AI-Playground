@@ -20,7 +20,7 @@
           ? 'bg-primary/15 border-primary text-foreground'
           : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted'
       "
-      @click="homeAgent.toggleMaster()"
+      @click="channelStore.toggleMaster()"
     >
       <span
         class="w-1.5 h-1.5 rounded-full"
@@ -48,29 +48,31 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Cog6ToothIcon } from '@heroicons/vue/24/solid'
-import { useHomeAgent } from '@/assets/js/store/homeAgent'
+import { useChannels } from '@/assets/js/store/channels'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { CHANNELS } from '@/assets/js/store/channels/channelRegistry'
 import { useErrors } from '@/assets/js/store/errors'
 
-const homeAgent = useHomeAgent()
+const channelStore = useChannels()
 const setupWizard = useSetupWizard()
 const backendServices = useBackendServices()
 const errors = useErrors()
 
-const isAvailable = computed(() => homeAgent.isAvailable)
+const isAvailable = computed(() => channelStore.isAvailable)
 const isInstalled = computed(
   () => backendServices.info.find((s) => s.serviceName === 'home-agent-backend')?.isSetUp === true,
 )
 
-const hasConfiguredChannel = computed(() => homeAgent.hasConfiguredChannel)
+const hasConfiguredChannel = computed(() => channelStore.hasConfiguredChannel)
 
 const isOn = computed(
-  () => isAvailable.value && hasConfiguredChannel.value && homeAgent.masterEnabled,
+  () => isAvailable.value && hasConfiguredChannel.value && channelStore.masterEnabled,
 )
 
-const activeCount = computed(() => CHANNELS.filter((c) => homeAgent.channels[c.kind].active).length)
+const activeCount = computed(
+  () => CHANNELS.filter((c) => channelStore.channels[c.kind].active).length,
+)
 
 const masterTitle = computed(() => {
   if (!isInstalled.value)
@@ -78,7 +80,7 @@ const masterTitle = computed(() => {
   if (!isAvailable.value) return 'Home Agent backend is starting…'
   if (!hasConfiguredChannel.value)
     return 'No channels set up yet — open Setup to connect Telegram or Slack first.'
-  return homeAgent.masterEnabled
+  return channelStore.masterEnabled
     ? 'Home Agent is on — click to turn off. Enable individual channels in Setup.'
     : 'Home Agent is off — click to turn on. Enable individual channels in Setup.'
 })

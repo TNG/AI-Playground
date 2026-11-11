@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .base import ChannelBase
-from .commands import COMMAND_CALLBACKS, HOME_AGENT_COMMANDS, command_for_callback
+from .commands import CHANNEL_COMMANDS, COMMAND_CALLBACKS, command_for_callback
 from .types import QueueItem, SendResult
 
 logger = logging.getLogger(__name__)
@@ -530,34 +530,6 @@ class TelegramChannel(ChannelBase):
 
             return handler
 
-        async def handle_imggen_callback(
-            update: Update, context: ContextTypes.DEFAULT_TYPE
-        ) -> None:
-            cq = update.callback_query
-            if cq is None or cq.message is None:
-                return
-            chat_id = str(cq.message.chat_id)
-            allow = self._allowed_chat_id
-            self._record_authorized_chat_id(chat_id)
-            if allow and chat_id != allow:
-                logger.warning(
-                    "Ignoring imgGen callback from unauthorized chat_id: %s", chat_id
-                )
-                try:
-                    await cq.answer()
-                except Exception as exc:
-                    logger.debug("imgGen unauthorized ack failed: %s", exc)
-                return
-            data = cq.data or ""
-            try:
-                await cq.answer()
-            except Exception as exc:
-                logger.warning("Failed to ack imgGen callback_query: %s", exc)
-            if not data.startswith("imgGen:"):
-                return
-            logger.info("Telegram imgGen callback: chat_id=%s data=%r", chat_id, data)
-            self.queue_append({"chat_id": chat_id, "callback": data})
-
         async def handle_confirm_callback(
             update: Update, context: ContextTypes.DEFAULT_TYPE
         ) -> None:
@@ -807,12 +779,12 @@ class TelegramChannel(ChannelBase):
             application.add_handler(
                 MessageHandler(filters.Document.ALL, handle_document)
             )
-            # All slash commands are derived from the shared HOME_AGENT_COMMANDS
+            # All slash commands are derived from the shared CHANNEL_COMMANDS
             # source of truth (see channels/commands.py) so a command can never be
             # registered on one transport but forgotten on another. CommandHandler
-            # matches case-sensitively, so camelCase aliases (e.g. /imgGen) are
-            # registered alongside the lowercase menu entry.
-            for cmd in HOME_AGENT_COMMANDS:
+            # matches case-sensitively, so aliases (e.g. /start) are registered
+            # alongside the lowercase menu entry.
+            for cmd in CHANNEL_COMMANDS:
                 application.add_handler(
                     CommandHandler(
                         [cmd.name, *cmd.telegram_aliases],
@@ -828,9 +800,6 @@ class TelegramChannel(ChannelBase):
                     )
                 )
             application.add_handler(
-                CallbackQueryHandler(handle_imggen_callback, pattern=r"^imgGen:")
-            )
-            application.add_handler(
                 CallbackQueryHandler(handle_confirm_callback, pattern=r"^confirm:")
             )
             application.add_handler(
@@ -842,10 +811,7 @@ class TelegramChannel(ChannelBase):
 
             try:
                 await application.bot.set_my_commands(
-                    [
-                        BotCommand(cmd.name, cmd.description)
-                        for cmd in HOME_AGENT_COMMANDS
-                    ]
+                    [BotCommand(cmd.name, cmd.description) for cmd in CHANNEL_COMMANDS]
                 )
                 logger.info("Registered Telegram bot command menu")
             except Exception as exc:

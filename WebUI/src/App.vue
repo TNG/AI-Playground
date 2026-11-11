@@ -339,7 +339,6 @@ import { usesSessionSettings } from '@/lib/agentSessionSettings'
 import { useModePromptHandlers } from '@/lib/useModePromptHandlers'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
-import { useConversations } from '@/assets/js/store/conversations'
 
 const theme = useTheme()
 
@@ -367,7 +366,6 @@ const presetSwitching = usePresetSwitching()
 const oemBranding = useOemBranding()
 const agentMode = useAgentMode()
 const sessions = useSessions()
-const conversations = useConversations()
 const sessionTabs = useSessionTabs()
 
 // Assistant sessions can notify over Home Agent; the games presets cannot.
@@ -382,12 +380,9 @@ const showSettingBtn = ref<HTMLButtonElement>()
 const threadView = ref<InstanceType<typeof Chat> | null>(null)
 const timelineView = ref<InstanceType<typeof SessionTimeline> | null>(null)
 
-// A Home Agent thread is no Session's, so it keeps a view of its own.
+// A chat with no Session open is no Session's, so it keeps a view of its own.
 const showsThreadView = computed(
-  () =>
-    promptStore.getCurrentMode() === 'chat' &&
-    (!sessions.openSessionId ||
-      conversations.getThreadKind(conversations.activeKey) === 'homeAgent'),
+  () => promptStore.getCurrentMode() === 'chat' && !sessions.openSessionId,
 )
 
 useModePromptHandlers({

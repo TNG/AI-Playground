@@ -62,7 +62,7 @@ const activeVariantName = ref<Record<string, string>>({})
 
 vi.mock('@/assets/js/artifact/runArtifact', () => ({ runArtifact: runArtifactMock }))
 vi.mock('@/assets/js/store/comfyUiPresets', () => ({ useComfyUiPresets: () => anyMemberStore() }))
-vi.mock('@/assets/js/store/homeAgent', () => ({ useHomeAgent: () => anyMemberStore() }))
+vi.mock('@/assets/js/store/channels', () => ({ useChannels: () => anyMemberStore() }))
 vi.mock('@/assets/js/store/dialogs', () => ({
   useDialogStore: () => anyMemberStore(),
   // The runner (mocked above) is the only real consumer; the SUT imports the

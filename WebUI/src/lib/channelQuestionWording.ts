@@ -38,7 +38,7 @@ export type ChannelQuestionTemplates = {
   /** Who started a Model Download, for `{label}` above. */
   forChat: string
   forOther: string
-  forHomeAgent: string
+  forChannel: string
 }
 
 // Only reached before the window has pushed its locale (tests, a reload mid-boot).
@@ -69,7 +69,7 @@ const ENGLISH: ChannelQuestionTemplates = {
   appClosed: '⏹ Stopped — AI Playground closed.',
   forChat: 'a Chat conversation',
   forOther: 'another task in AI Playground',
-  forHomeAgent: 'the Home Agent',
+  forChannel: 'this Channel',
 }
 
 let provider: (() => ChannelQuestionTemplates) | null = null

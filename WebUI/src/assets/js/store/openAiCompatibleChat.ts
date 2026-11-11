@@ -14,11 +14,10 @@ import { buildChatModelConfig } from '@/lib/chatModel'
 import { buildChatRagRequest } from '@/lib/chatRagRequest'
 import { createKernelChatTransport } from '@/lib/kernelChatTransport'
 import { serializeToolSet } from '@/lib/chatToolRegistry'
-import { buildHomeAgentInferenceSnapshot } from '@/lib/homeAgentInferenceSnapshot'
 import type { ChatTurnRequest } from '@/types/chatIpc'
 import { withResponseLanguageAtStart } from '@/lib/responseLanguage'
 import { useTextInference } from './textInference'
-import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
+import { useConversations } from './conversations'
 import { usePresets } from './presets'
 import { sessionIdOfChatKey } from '@/lib/sessionChat'
 import { messageHasVisibleContent } from '@/lib/chatMessageText'
@@ -32,8 +31,7 @@ import { useDeveloperSettings } from './developerSettings'
 import { useComputeMetrics } from './computeMetrics'
 import type { ChatTurnEnergy } from '@/lib/chatEnergy'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
-import type { AppError } from '../errors/types'
-import { aipgTools, homeAgentTools, sessionTools } from '../tools/tools'
+import { aipgTools, sessionTools } from '../tools/tools'
 import { getAvailableWorkflows, createToolRepairData } from '../tools/comfyUi'
 import { getAvailableEditWorkflows, createEditToolRepairData } from '../tools/comfyUiImageEdit'
 import z from 'zod'
@@ -131,13 +129,6 @@ export const useOpenAiCompatibleChat = defineStore(
     // "Reasoned for X.Xs" timer; once the block finishes the view falls back to
     // the part metadata. Updated to the block start whenever a new block begins.
     const reasoningStartedAt = ref(0)
-
-    // Last failure per conversation, captured in the chat `onError` hook. Lets
-    // callers (e.g. the Home Agent channel handlers) surface a turn's error even
-    // though stream failures are swallowed by `onError` and `generate()` returns
-    // normally. Cleared at the start of each turn and consumed via
-    // `consumeTurnError`.
-    const turnErrors = new Map<string, AppError>()
 
     // Per-conversation AI SDK chat instances. Declared up here (before the
     // `processing` computed and its safety-net watch below) because Vue evaluates
@@ -298,11 +289,6 @@ export const useOpenAiCompatibleChat = defineStore(
         // installed, even though speech-to-text was usable.
         if (name === 'transcribeAudio' && !transcriptionAvailable()) continue
         tools[name] = builtinTool
-      }
-      // The Home Agent self-inspection/configuration tools are only meaningful
-      // for the Home Agent preset; never expose them to ordinary chat presets.
-      if (textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME) {
-        Object.assign(tools, homeAgentTools)
       }
       if (sessionIdOfChatKey(conversationKey)) Object.assign(tools, sessionTools)
       return tools
@@ -503,17 +489,9 @@ export const useOpenAiCompatibleChat = defineStore(
               conversationLabel: conversationLabelForTtsFile({
                 conversationKey: targetKey,
                 messages: conversations.conversationList[targetKey],
-                threadMeta: conversations.getThreadMeta(targetKey),
               }),
             }
           : {}),
-        // The Home Agent's settings tools run in main and read this instead of
-        // the stores; without it they refuse, which is the guard that kept a
-        // stray call from mutating another preset's settings.
-        ...(textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME
-          ? { homeAgentInference: buildHomeAgentInferenceSnapshot() }
-          : {}),
-        homeAgentDiagnostics: textInference.activePreset?.name === HOME_AGENT_CHAT_PRESET_NAME,
         ...sessionTurnFields(targetKey),
       }
     }
@@ -567,9 +545,7 @@ export const useOpenAiCompatibleChat = defineStore(
         messages: conversations.conversationList[conversationKey],
         // Single sink for streaming/transport/tool failures. Surface a toast only
         // for the conversation the user is actively looking at; background threads
-        // (e.g. Home Agent side-channels) are recorded silently here and reported
-        // to their own channel in the deferred channel phase. A manual stop is not
-        // an error.
+        // are recorded silently. A manual stop is not an error.
         onError: (error) => {
           if (manuallyStopped.value) return
           const isActiveDesktop = conversationKey === conversations.activeKey
@@ -580,18 +556,15 @@ export const useOpenAiCompatibleChat = defineStore(
             (newest?.role !== 'assistant' || !messageHasVisibleContent(newest))
           const detail = extractMessage(error)
           const hint = inferenceFailureHint(detail)
-          turnErrors.set(
-            conversationKey,
-            errors.report(error, {
-              category: 'inference',
-              code: 'inference/stream-failed',
-              userMessage: hint
-                ? `Generation failed: ${detail}. ${hint}`
-                : `Generation failed: ${detail}`,
-              surface: isActiveDesktop && !shownInTurn ? 'toast' : 'silent',
-              context: { conversationKey },
-            }),
-          )
+          errors.report(error, {
+            category: 'inference',
+            code: 'inference/stream-failed',
+            userMessage: hint
+              ? `Generation failed: ${detail}. ${hint}`
+              : `Generation failed: ${detail}`,
+            surface: isActiveDesktop && !shownInTurn ? 'toast' : 'silent',
+            context: { conversationKey },
+          })
         },
       })
       chats[conversationKey] = chat
@@ -611,7 +584,7 @@ export const useOpenAiCompatibleChat = defineStore(
      * The resume stream carries the running turn and nothing else, so a Chat
      * that opened on a thread it could not read yet would show — and then
      * persist — a conversation starting mid-way. This store is instantiated
-     * before the thread files hydrate (promptArea → setupWizard → homeAgent),
+     * before the thread files hydrate (promptArea → setupWizard → channels),
      * hence the seed rather than trusting the constructor's `messages`.
      */
     function seedFromPersistedThread(chat: Chat<AipgUiMessage>, conversationKey: string): void {
@@ -627,9 +600,8 @@ export const useOpenAiCompatibleChat = defineStore(
 
     // A reloaded renderer re-adopts chat turns that kept streaming in main
     // (step 6): one snapshot read at boot. Turns started later are always this
-    // renderer's own (channel traffic drains through the Home Agent store
-    // here) and stream through their transport from the start, so a second
-    // subscription would only duplicate the transport's.
+    // renderer's own and stream through their transport from the start, so a
+    // second subscription would only duplicate the transport's.
     void window.electronAPI
       ?.getKernelSnapshot?.()
       .then(async (snapshot) => {
@@ -668,28 +640,11 @@ export const useOpenAiCompatibleChat = defineStore(
     function getMessagesForKey(conversationKey: string): AipgUiMessage[] | undefined {
       // Prefer live chat instance state when present; otherwise fall back to the
       // persisted bucket so threads that exist in `conversationList` but haven't
-      // been opened yet (e.g. Home Agent threads listed via `/history`) still
+      // been opened yet still
       // return their messages.
       const fromChat = chats[conversationKey]?.messages
       if (fromChat) return fromChat
       return conversations.conversationList[conversationKey]
-    }
-
-    /**
-     * One-shot non-tool generation that turns a snippet of conversation text
-     * into a 5-word-or-less summary. The model call runs in main (step 6) off
-     * the same model config a turn ships, so cloud/Home-Agent proxy routing is
-     * preserved. Main occupies and loads when `model.readiness` is present.
-     */
-    async function summarizeMessages(messagesText: string): Promise<string> {
-      const result = await window.electronAPI.chat.summarize({
-        messagesText,
-        model: buildChatModelConfig(),
-      })
-      if (!result.success) {
-        throw new Error(result.error || 'summarize failed')
-      }
-      return result.data
     }
 
     /**
@@ -718,8 +673,7 @@ export const useOpenAiCompatibleChat = defineStore(
       try {
         // 1a. Reactivate the target thread's preset (if any) so the stream uses
         //     the right model/tools/system-prompt for THIS conversation, not
-        //     whatever was last selected for an unrelated chat. For Home Agent
-        //     threads this pins the bundled Home Agent preset.
+        //     whatever was last selected for an unrelated chat.
         textInference.ensureGlobalsMatchConversation(targetKey)
 
         // 1b. Stamp meta so the thread keeps a record of its current profile.
@@ -727,8 +681,6 @@ export const useOpenAiCompatibleChat = defineStore(
 
         // Reset manual stop flag
         manuallyStopped.value = false
-        // Clear any prior failure so consumeTurnError only ever reflects this turn.
-        turnErrors.delete(targetKey)
 
         // 2. Block if images attached to non-vision model (UI path only). Validate
         //    before touching the backend so we don't load a model just to reject.
@@ -946,15 +898,6 @@ export const useOpenAiCompatibleChat = defineStore(
       return chats[key]?.error?.message
     }
 
-    // Read-and-clear the last failure for a conversation. Used by background
-    // callers (Home Agent channels) to relay a turn's error to the remote user,
-    // since stream failures are reported silently and never thrown.
-    function consumeTurnError(conversationKey: string): AppError | undefined {
-      const e = turnErrors.get(conversationKey)
-      turnErrors.delete(conversationKey)
-      return e
-    }
-
     return {
       chat: chats[conversations.activeKey],
       messages,
@@ -966,7 +909,6 @@ export const useOpenAiCompatibleChat = defineStore(
       generate,
       loadTranscript,
       getMessagesForKey,
-      summarizeMessages,
       stop,
       processing,
       answeringIn,
@@ -976,7 +918,6 @@ export const useOpenAiCompatibleChat = defineStore(
       regenerate,
       error,
       turnErrorIn,
-      consumeTurnError,
     }
   },
   {

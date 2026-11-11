@@ -95,10 +95,10 @@
           Paste your bot token above first.
         </p>
         <p
-          v-if="isAlreadyConfigured && homeAgent.telegramChatId && !detectedChatId"
+          v-if="isAlreadyConfigured && channelStore.telegramChatId && !detectedChatId"
           class="text-xs text-muted-foreground pt-1"
         >
-          Previously detected: {{ homeAgent.telegramChatId }}
+          Previously detected: {{ channelStore.telegramChatId }}
         </p>
       </div>
     </div>
@@ -108,7 +108,7 @@
       <StepBadge
         :step="3"
         :done="
-          verifyStatus === 'success' || (homeAgent.telegramVerified && verifyStatus === 'idle')
+          verifyStatus === 'success' || (channelStore.telegramVerified && verifyStatus === 'idle')
         "
       />
       <div class="flex-1">
@@ -133,7 +133,7 @@
             ❌ {{ verifyError }}
           </span>
           <span
-            v-else-if="homeAgent.telegramVerified && verifyStatus === 'idle'"
+            v-else-if="channelStore.telegramVerified && verifyStatus === 'idle'"
             class="text-xs text-green-500"
           >
             ✅ Previously verified
@@ -162,7 +162,7 @@ const emit = defineEmits<{
 
 const setup = useTelegramSetup()
 const {
-  homeAgent,
+  channelStore,
   tokenInput,
   showToken,
   detectedChatId,

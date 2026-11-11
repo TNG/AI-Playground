@@ -3,14 +3,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import * as vue from 'vue'
 import { reactive } from 'vue'
 
-// A chat turn is sent straight to the chat backend whatever the Channels are doing.
+// A chat turn is sent straight to the chat backend, never through the Channels service.
 
 Object.assign(globalThis, vue)
 
 const LLAMACPP_URL = 'http://127.0.0.1:39100'
 const CHANNELS_SERVICE_URL = 'http://127.0.0.1:58000'
-
-const channels = vi.hoisted(() => ({ on: false }))
 
 vi.mock('@/assets/js/store/backendServices', () => ({
   useBackendServices: () =>
@@ -20,13 +18,6 @@ vi.mock('@/assets/js/store/backendServices', () => ({
         { serviceName: 'home-agent-backend', baseUrl: CHANNELS_SERVICE_URL, status: 'running' },
       ],
     }),
-}))
-vi.mock('@/assets/js/store/homeAgent', () => ({
-  useHomeAgent: () => ({
-    get isHomeAgentActive() {
-      return channels.on
-    },
-  }),
 }))
 vi.mock('@/assets/js/store/models', () => ({ useModels: () => reactive({ models: [] }) }))
 vi.mock('@/assets/js/store/presets', () => ({
@@ -49,7 +40,6 @@ vi.mock('@/assets/js/store/cloudMode', () => ({
 vi.mock('@/assets/js/store/conversations', () => ({
   useConversations: () =>
     reactive({ activeKey: '', conversationList: {}, getThreadRagHashes: () => [] }),
-  HOME_AGENT_CHAT_PRESET_NAME: 'Home Agent',
 }))
 vi.mock('@/assets/js/store/modelPreferences', () => ({
   useModelPreferences: () => reactive({ favorites: [] }),
@@ -68,15 +58,9 @@ const { useTextInference } = await import('@/assets/js/store/textInference')
 describe('chat backend URL', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    channels.on = false
   })
 
-  it('is the chat backend while no Channel is on', () => {
-    expect(useTextInference().currentBackendUrl).toBe(LLAMACPP_URL)
-  })
-
-  it('is still the chat backend while a Channel is on', () => {
-    channels.on = true
+  it('is the chat backend', () => {
     expect(useTextInference().currentBackendUrl).toBe(LLAMACPP_URL)
   })
 })

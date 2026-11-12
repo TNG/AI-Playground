@@ -29,6 +29,7 @@ import { checkGroupName, groupNameRefusal } from '@/lib/sessionGroupName'
 import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 import {
   SessionTitleSchema,
+  type AssistantCapabilityDefaults,
   type SessionDocument,
   type SessionFile,
   type SessionGroup,
@@ -99,11 +100,6 @@ export async function readSession(id: string): Promise<SessionFile> {
   )
 }
 
-export type ReachableOptions = {
-  /** Assistant's default capabilities, for a Session whose Assistant settings name none yet. */
-  defaultCapabilities?: string[]
-}
-
 /** Adds `notify` to the Session's Assistant capabilities, its own or else the defaults. */
 export function withNotify(
   file: SessionFile,
@@ -126,7 +122,7 @@ export function withNotify(
 /** A new Session starts reachable, as if reachability had been turned on by hand. */
 export async function createSession(
   groupId?: string,
-  options: ReachableOptions = {},
+  options: AssistantCapabilityDefaults = {},
 ): Promise<SessionSummary> {
   if (groupId === undefined) return createSessionFile(undefined, options)
   return serializeSessionGroups(async () => {
@@ -137,7 +133,7 @@ export async function createSession(
 
 async function createSessionFile(
   groupId: string | undefined,
-  options: ReachableOptions,
+  options: AssistantCapabilityDefaults,
 ): Promise<SessionSummary> {
   const now = Date.now()
   const created: SessionFile = {

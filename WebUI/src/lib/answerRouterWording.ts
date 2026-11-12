@@ -39,7 +39,7 @@ export type AnswerRouterCopy = {
   queueDroppedStopped: string
   queueDroppedUnreachable: string
   queueDroppedDeleted: string
-  /** `{count}`; a thrown-away Trial Run has no label left to name */
+  /** `{count}` */
   queueDroppedThrownAway: string
   /** `/stop`: what it stopped (`{title}`; an Agent Run's `{name}`, `{step}`, `{steps}`) */
   stopTurn: string

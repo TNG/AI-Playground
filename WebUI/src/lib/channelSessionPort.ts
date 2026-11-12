@@ -2,7 +2,6 @@ import { computed, watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
-import { useI18N } from '@/assets/js/store/i18n'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useSessions } from '@/assets/js/store/sessions'
 import type {
@@ -18,7 +17,6 @@ import type { AttachResult, ChannelFile } from '@/assets/js/store/channels/chann
 import { registerSessionPort } from '@/assets/js/store/channels/sessionPort'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { extractMessage } from '@/assets/js/errors/appError'
-import { fillTemplate } from '@/lib/fillTemplate'
 import { base64ToBytes } from '@/lib/synthesizeSpeech'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
@@ -29,6 +27,8 @@ export type ChannelSessionLabels = {
   harness: (harnessSessionId: string) => string
   /** A Session's quoted title. */
   session: (sessionRef: string) => string
+  /** A Trial Run's Notification label. */
+  trialRun: (harnessSessionId: string) => string
 }
 
 /** Lets the channels reach Sessions, over Agent Mode's send-to-session path. */
@@ -36,7 +36,6 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
   const agentMode = useAgentMode()
   const agentTasks = useAgentTasks()
   const agentTrialRuns = useAgentTrialRuns()
-  const i18n = useI18N()
   const lifecycle = useSessionLifecycle()
   const sessions = useSessions()
 
@@ -145,12 +144,6 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       return { ok: false, reason: result.reason, message: result.message }
     }
     return { ok: true, queuePosition: await admitted(harnessSessionId) }
-  }
-
-  function trialRunLabel(harnessSessionId: string): string {
-    const run = agentTrialRuns.trialRunOfSession(harnessSessionId)
-    const agent = run?.name || (i18n.state.SESSIONS_UNTITLED ?? '')
-    return fillTemplate(i18n.state.AGENT_NOTIFY_TRIAL_RUN_LABEL ?? '', { agent })
   }
 
   function trialRunActivity(harnessSessionId: string): SessionActivity {
@@ -276,7 +269,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       window.electronAPI.notifications.recordStartPromptRequest(kind, ref),
     label: (target) =>
       'trialRunSessionId' in target
-        ? trialRunLabel(target.trialRunSessionId)
+        ? labels.trialRun(target.trialRunSessionId)
         : 'harnessSessionId' in target
           ? labels.harness(target.harnessSessionId)
           : labels.session(target.sessionRef),

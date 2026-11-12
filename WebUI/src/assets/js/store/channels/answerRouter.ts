@@ -4,6 +4,7 @@ import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import {
   isStartPromptRequest,
   isTrialRunMessage,
+  isTrialRunOwner,
   type AnswerTarget,
   type ChannelMessageOwner,
   type SessionMessageOwner,
@@ -252,6 +253,8 @@ type Lane = {
   id: string
   target: { sessionRef: string } | TrialRunTarget
   queue: ChannelQueue<QueuedMessage>
+  activity: () => SessionActivity
+  publishSending: (sending: boolean) => void
 }
 
 type DropReason = 'stopped' | 'unreachable' | 'deleted' | 'thrown-away'
@@ -285,7 +288,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     unsubscribe?.()
     subscribedTo = sessions
     const stopChanges = sessions.onSessionChange((sessionRef, change) => {
-      const lane = laneOf({ sessionRef })
+      const lane = laneOf(sessions, { sessionRef })
       if (change === 'settled') void drain(sessions, lane)
       else void dropQueue(sessions, lane, change)
     })
@@ -293,7 +296,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       void tellRunRefused(sessions, sessionRef, refusal)
     })
     const stopTrialChanges = sessions.onTrialRunChange((harnessSessionId, change) => {
-      const lane = laneOf({ trialRunSessionId: harnessSessionId })
+      const lane = laneOf(sessions, { trialRunSessionId: harnessSessionId })
       if (change === 'settled') void drain(sessions, lane)
       else void dropQueue(sessions, lane, change)
     })
@@ -304,23 +307,27 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
-  function laneOf(target: ChannelTarget): Lane {
+  function laneOf(sessions: SessionPort, target: ChannelTarget): Lane {
     if ('trialRunSessionId' in target) {
       const id = target.trialRunSessionId
-      return { key: `trial-run:${id}`, id, target: { trialRunSessionId: id }, queue: trialRunQueue }
+      return {
+        key: `trial-run:${id}`,
+        id,
+        target: { trialRunSessionId: id },
+        queue: trialRunQueue,
+        activity: () => sessions.trialRunActivity(id),
+        publishSending: () => {},
+      }
     }
     const id = target.sessionRef
-    return { key: id, id, target: { sessionRef: id }, queue }
-  }
-
-  function activityOf(sessions: SessionPort, lane: Lane): SessionActivity {
-    return 'trialRunSessionId' in lane.target
-      ? sessions.trialRunActivity(lane.id)
-      : sessions.activity(lane.id)
-  }
-
-  function publishSending(lane: Lane, sending: boolean): void {
-    if ('sessionRef' in lane.target) deps.publishSending?.(lane.id, sending)
+    return {
+      key: id,
+      id,
+      target: { sessionRef: id },
+      queue,
+      activity: () => sessions.activity(id),
+      publishSending: (sending) => deps.publishSending?.(id, sending),
+    }
   }
 
   async function tellRunRefused(
@@ -436,12 +443,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   /** Sends a Channel's message into its Session or Trial Run, or queues it while that is busy. */
   async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<SubmitOutcome> {
     listen(sessions)
-    const lane = laneOf(entry.target)
-    if (
-      lane.queue.size(lane.id) > 0 ||
-      draining.has(lane.key) ||
-      activityOf(sessions, lane).kind !== 'idle'
-    ) {
+    const lane = laneOf(sessions, entry.target)
+    if (lane.queue.size(lane.id) > 0 || draining.has(lane.key) || lane.activity().kind !== 'idle') {
       return enqueue(sessions, lane, entry)
     }
     const outcome = await run(sessions, entry)
@@ -474,7 +477,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
     }
-    const activity = activityOf(sessions, lane)
+    const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'
         ? fillTemplate(wording.queueAfterAgentRun, {
@@ -505,17 +508,17 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   /** Runs the oldest Channel's queued messages as one turn once the Session is idle. */
   async function drain(sessions: SessionPort, lane: Lane): Promise<void> {
-    while (!draining.has(lane.key) && activityOf(sessions, lane).kind === 'idle') {
+    while (!draining.has(lane.key) && lane.activity().kind === 'idle') {
       const batch = lane.queue.takeBatch(lane.id)
       if (batch.length === 0) return
       draining.add(lane.key)
-      publishSending(lane, true)
+      lane.publishSending(true)
       try {
         const busy = await sendBatch(sessions, lane, batch)
         if (busy) return
       } finally {
         draining.delete(lane.key)
-        publishSending(lane, false)
+        lane.publishSending(false)
       }
     }
   }
@@ -553,8 +556,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       deleted: wording.queueDroppedDeleted,
       'thrown-away': wording.queueDroppedThrownAway,
     }[why]
-    // A thrown-away Trial Run has no label left; its template names none.
-    const title = why === 'thrown-away' ? '' : sessions.label(lane.target)
+    const title = sessions.label(lane.target)
     const byChannel = new Map<ChannelKind, QueuedEntry<QueuedMessage>[]>()
     for (const entry of dropped) {
       byChannel.set(entry.channel, [...(byChannel.get(entry.channel) ?? []), entry])
@@ -612,8 +614,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   }
 
   function liveTrialRun(sessions: SessionPort, owner: TrialRunMessageOwner): TrialRunOwner | null {
-    if ('thrownAwayTrialRun' in owner) return null
-    return sessions.trialRunLive(owner.harnessSessionId) ? owner : null
+    return isTrialRunOwner(owner) && sessions.trialRunLive(owner.harnessSessionId) ? owner : null
   }
 
   /** An Answer to a Trial Run runs as its Follow-up; one thrown away since takes nothing. */
@@ -716,7 +717,12 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
           return tell(adapter, fillTemplate(wording.stopNothing, { title }), meta)
         }
         // Dropped first, so the stopped turn's settle has nothing left to run.
-        const count = await dropQueue(sessions, laneOf({ sessionRef }), 'stopped', adapter.kind)
+        const count = await dropQueue(
+          sessions,
+          laneOf(sessions, { sessionRef }),
+          'stopped',
+          adapter.kind,
+        )
         const stopped = running.kind === 'idle' ? running : await sessions.stop(sessionRef)
         const what =
           stopped.kind === 'agent-run'

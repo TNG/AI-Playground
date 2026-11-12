@@ -1,20 +1,32 @@
+import { z } from 'zod'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { PauseReason } from './kernelEvents'
 
 /** The Harness Session an Answer runs in, and the Session it belongs to. */
-export type AnswerTarget = { sessionRef: string; harnessSessionId: string }
+export const AnswerTargetSchema = z.object({ sessionRef: z.string(), harnessSessionId: z.string() })
+export type AnswerTarget = z.infer<typeof AnswerTargetSchema>
 
 /** Who sent a channel message: a live Harness Session, or one that has since been deleted. */
 export type SessionMessageOwner = AnswerTarget | { deletedSession: true }
 
 /** A posted Start Prompt Request, which the message map records with no Session. */
-export type StartPromptRequestOwner = { startPromptRequest: true }
+export const StartPromptRequestOwnerSchema = z.object({ startPromptRequest: z.literal(true) })
+export type StartPromptRequestOwner = z.infer<typeof StartPromptRequestOwnerSchema>
 
 /** A live Trial Run that sent a channel message: its Harness Session and its Agent (ADR 0011). */
-export type TrialRunOwner = { trialRun: true; harnessSessionId: string; agentId: string }
+export const TrialRunOwnerSchema = z.object({
+  trialRun: z.literal(true),
+  harnessSessionId: z.string(),
+  agentId: z.string(),
+})
+export type TrialRunOwner = z.infer<typeof TrialRunOwnerSchema>
 
 /** A Trial Run thrown away since it sent the message: by the next one, a discard, or a restart. */
-export type ThrownAwayTrialRun = { thrownAwayTrialRun: true; agentId: string }
+export const ThrownAwayTrialRunSchema = z.object({
+  thrownAwayTrialRun: z.literal(true),
+  agentId: z.string(),
+})
+export type ThrownAwayTrialRun = z.infer<typeof ThrownAwayTrialRunSchema>
 
 export type TrialRunMessageOwner = TrialRunOwner | ThrownAwayTrialRun
 
@@ -26,8 +38,16 @@ export function isStartPromptRequest(owner: ChannelMessageOwner): owner is Start
   return 'startPromptRequest' in owner
 }
 
+export function isAnswerTarget(owner: ChannelMessageOwner): owner is AnswerTarget {
+  return 'sessionRef' in owner
+}
+
+export function isTrialRunOwner(owner: ChannelMessageOwner): owner is TrialRunOwner {
+  return 'trialRun' in owner
+}
+
 export function isTrialRunMessage(owner: ChannelMessageOwner): owner is TrialRunMessageOwner {
-  return 'trialRun' in owner || 'thrownAwayTrialRun' in owner
+  return isTrialRunOwner(owner) || 'thrownAwayTrialRun' in owner
 }
 
 /** Automatic Notification texts in the app language. */

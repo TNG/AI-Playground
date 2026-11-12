@@ -16,6 +16,7 @@ import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMedia
 import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
 import type {
   ArtifactMediaType,
+  AssistantCapabilityDefaults,
   AudioTurnRequest,
   HarnessGameWorkspace,
   SessionTurn,
@@ -294,18 +295,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sessions: {
     list: () => invoke('sessions:list'),
-    create: (groupId?: string, options?: { defaultCapabilities?: string[] }) =>
+    create: (groupId?: string, options?: AssistantCapabilityDefaults) =>
       invoke('sessions:create', groupId, options && cloneForIpc(options)),
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
-    setReachable: (id: string, reachable: boolean, options?: { defaultCapabilities?: string[] }) =>
+    setReachable: (id: string, reachable: boolean, options?: AssistantCapabilityDefaults) =>
       invoke('sessions:setReachable', id, reachable, options && cloneForIpc(options)),
     setRealShellFolders: (folders: string[]) =>
       invoke('sessions:setRealShellFolders', cloneForIpc(folders)),
-    migrateHomeAgentThreads: (input: {
-      routingKey: string | null
-      defaultCapabilities?: string[]
-    }) => invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
+    migrateHomeAgentThreads: (input: { routingKey: string | null } & AssistantCapabilityDefaults) =>
+      invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
     pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
     createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),

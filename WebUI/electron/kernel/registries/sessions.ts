@@ -12,6 +12,7 @@ import {
   AudioTurnRequestSchema,
   HarnessGameWorkspaceSchema,
   SessionTurnSchema,
+  type AssistantCapabilityDefaults,
 } from '@/types/sessionIpc'
 import type {
   createSession,
@@ -100,7 +101,7 @@ function requireString(value: unknown, what: string): string {
   return value
 }
 
-function defaultCapabilitiesOption(defaults: unknown): { defaultCapabilities?: string[] } {
+function defaultCapabilitiesOption(defaults: unknown): AssistantCapabilityDefaults {
   if (defaults === undefined) return {}
   if (!isStringArray(defaults)) throw new Error('default capabilities must be strings')
   return { defaultCapabilities: defaults }

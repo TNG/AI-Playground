@@ -378,10 +378,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     }
   }
 
-  /**
-   * Continue the Agent's Trial Run's Harness Session, on the Draft snapshot it started with; an
-   * Answer from a Channel has its reply sent back under `answer`.
-   */
+  /** Continue the Agent's Trial Run's Harness Session, on the Draft snapshot it started with. */
   async function followUpTrialRun(
     agentId: string,
     prompt: string,

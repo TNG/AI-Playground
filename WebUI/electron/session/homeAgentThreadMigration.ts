@@ -16,7 +16,11 @@ import { createSession, mutateSession, sessionPaths } from './sessions'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { titleFromMessages } from '@/lib/conversationTitle'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
-import { HistoryEntrySchema, type HistoryEntry } from '@/types/sessionIpc'
+import {
+  HistoryEntrySchema,
+  type AssistantCapabilityDefaults,
+  type HistoryEntry,
+} from '@/types/sessionIpc'
 
 // Home Agent threads become Reachable Sessions (Channels spec, "Migration"). The inputs are read
 // raw, so this keeps working after the Home Agent thread kind is gone from the schemas.
@@ -50,9 +54,7 @@ export type HomeAgentThreadMigrationDeps = { isDemoMode: () => boolean }
 export type HomeAgentThreadMigrationInput = {
   /** The Home Agent's routing pointer, which the window kept. */
   routingKey: string | null
-  /** Assistant's default capabilities, so the Sessions notify as a hand-made Reachable one would. */
-  defaultCapabilities?: string[]
-}
+} & AssistantCapabilityDefaults
 
 /** The Channel Session it set; null when there was none, or the migration ran before. */
 export type HomeAgentThreadMigrationResult = { channelSession: string | null }

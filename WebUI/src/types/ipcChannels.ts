@@ -35,6 +35,7 @@ import type { RagDocumentSection } from './ragDocumentIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type {
   ArtifactMediaType,
+  AssistantCapabilityDefaults,
   AudioTurnRequest,
   HarnessGameWorkspace,
   HarnessSessionRef,
@@ -234,10 +235,7 @@ export const CHANNELS = {
   'sessions:create': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [
-      groupId?: string,
-      options?: { defaultCapabilities?: string[] },
-    ],
+    args: [] as unknown as readonly [groupId?: string, options?: AssistantCapabilityDefaults],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /** One Session's row plus its display timeline, and the artifact URLs whose file is gone. */
@@ -266,7 +264,7 @@ export const CHANNELS = {
   'sessions:setReachable': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, boolean, { defaultCapabilities?: string[] }?],
+    args: [] as unknown as readonly [string, boolean, AssistantCapabilityDefaults?],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
@@ -277,7 +275,7 @@ export const CHANNELS = {
   'sessions:migrateHomeAgentThreads': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [{ routingKey: string | null; defaultCapabilities?: string[] }],
+    args: [] as unknown as readonly [{ routingKey: string | null } & AssistantCapabilityDefaults],
     result: null as unknown as IpcOkWith<{ channelSession: string | null }>,
   },
   /** The workspace folders the real system shell is on; a Reachable Session in one stops being reachable. */

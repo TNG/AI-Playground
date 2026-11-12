@@ -5,7 +5,7 @@ import type { AnswerTarget, NotificationConfig, TrialRunOwner } from '@/types/no
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
-import { notificationSessionLabel } from '@/lib/notificationLabel'
+import { notificationSessionLabel, trialRunLabel } from '@/lib/notificationLabel'
 import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
@@ -36,9 +36,8 @@ import { createChannelTyping } from './channelTyping.ts'
 import { plainTextOf, type ChannelText } from './channelText.ts'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
-// The one sender of Notifications (docs/adr/0010, 0011): only Reachable Sessions and Trial Runs
-// that may notify send, to every enabled Channel, except that what a Channel caused goes back to
-// that Channel alone.
+// The one sender of Notifications (docs/adr/0010, 0011): only Reachable Sessions and notifying
+// Trial Runs send, to every enabled Channel; what a Channel caused goes back to it alone.
 
 const LOG_SOURCE = 'notifier'
 
@@ -236,7 +235,6 @@ export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: 
 
 type Owner = AnswerTarget | TrialRunOwner
 type Heading = { header: string; owner: Owner }
-/** Who a message goes out as, and the label its header names. */
 type Sender = { owner: Owner; title: string }
 
 /** Harness Sessions whose latest turn started with the `notify` capability. */
@@ -245,7 +243,11 @@ const notifyingHarnessSessions = new Set<string>()
 /** At turn start: a Trial Run notifies only when the capabilities it runs with include `notify`. */
 export function noteTurnCapabilities(sessionId: string, capabilities: readonly string[] = []) {
   if (capabilities.includes('notify')) notifyingHarnessSessions.add(sessionId)
-  else notifyingHarnessSessions.delete(sessionId)
+  else forgetHarnessSession(sessionId)
+}
+
+export function forgetHarnessSession(sessionId: string): void {
+  notifyingHarnessSessions.delete(sessionId)
 }
 
 /** The Session holding `sessionId`, looked up once per reported turn: it never changes. */
@@ -271,11 +273,10 @@ async function senderOf(sessionId: string): Promise<Sender | null> {
   if (!notifyingHarnessSessions.has(sessionId)) return null
   const trial = await liveTrialRunOf(sessionId)
   if (!trial) return null
-  const { templates } = config
-  const agent = trial.name || (await readAgentSessionTitle(sessionId)) || templates.untitled
+  const agent = trial.name || (await readAgentSessionTitle(sessionId))
   return {
     owner: { trialRun: true, harnessSessionId: sessionId, agentId: trial.agentId },
-    title: fillTemplate(templates.trialRunLabel, { agent }),
+    title: trialRunLabel(config.templates, agent),
   }
 }
 

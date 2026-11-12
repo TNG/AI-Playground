@@ -51,7 +51,13 @@ import {
   SESSION_BUSY_MESSAGE,
 } from '../session/sessionTurns.ts'
 import { skipSessionUpdate, takeSessionUpdate } from '../session/sessionUpdate.ts'
-import { answerSpeaks, noteAnswerTurn, noteResultTurn, noteTurnCapabilities } from './notifier.ts'
+import {
+  answerSpeaks,
+  forgetHarnessSession,
+  noteAnswerTurn,
+  noteResultTurn,
+  noteTurnCapabilities,
+} from './notifier.ts'
 import { downloadedMissingReadinessModels } from './agentModelConsent.ts'
 import { setAgentRunIdentity } from '../observability/laminarAttributes.ts'
 import {
@@ -710,6 +716,7 @@ export async function deleteAgentSession(
       clearPointer(sessionId)
     }
     closeBrowserSession(sessionId)
+    forgetHarnessSession(sessionId)
     logger.info(`deleted agent session ${sessionId}`, LOG_SOURCE)
     return { success: true }
   } catch (error) {

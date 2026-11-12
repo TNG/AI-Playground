@@ -8,9 +8,8 @@ import {
   sessionDocumentOf,
   sessionPaths,
   withNotify,
-  type ReachableOptions,
 } from './sessions'
-import type { SessionFile, SessionSummary } from '@/types/sessionIpc'
+import type { AssistantCapabilityDefaults, SessionFile, SessionSummary } from '@/types/sessionIpc'
 
 // What Channels may do with a Session (Reachable Session, docs/adr/0010).
 
@@ -36,7 +35,7 @@ function changed(file: SessionFile): SessionSummary {
 export async function setSessionReachable(
   id: string,
   reachable: boolean,
-  options: ReachableOptions = {},
+  options: AssistantCapabilityDefaults = {},
 ): Promise<SessionSummary> {
   const file = await mutateSession(id, (current) => {
     if (!reachable) return { ...current, reachable }

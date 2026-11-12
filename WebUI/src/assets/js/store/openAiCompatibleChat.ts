@@ -937,6 +937,21 @@ export const useOpenAiCompatibleChat = defineStore(
       )
     }
 
+    /** KM questions wait for the document warmup: answering mid-prefill would read the documents twice. */
+    function rejectDuringKmWarmup(conversationKey: string, sideChannel: boolean): void {
+      if (!textInference.kmWarmupBlocking || !textInference.isPhisonKmRag) return
+      throw errors.report(
+        createAppError({
+          category: 'validation',
+          code: 'inference/km-warmup-in-progress',
+          severity: 'warning',
+          userMessage: i18nState.KM_WARMUP_BLOCKED,
+          surface: sideChannel ? 'silent' : 'toast',
+          context: { conversationKey },
+        }),
+      )
+    }
+
     async function generate(question: string, options?: GenerateOptions) {
       const sideChannel = options?.conversationKey !== undefined
       const targetKey = sideChannel ? options.conversationKey! : conversations.activeKey
@@ -956,6 +971,7 @@ export const useOpenAiCompatibleChat = defineStore(
 
         // 1b. Stamp meta so the thread keeps a record of its current profile.
         textInference.stampMetaForConversation(targetKey)
+        rejectDuringKmWarmup(targetKey, sideChannel)
 
         // Reset manual stop flag
         manuallyStopped.value = false
@@ -1096,6 +1112,7 @@ export const useOpenAiCompatibleChat = defineStore(
       // so the new turn matches the thread's current profile (matches `generate`).
       textInference.ensureGlobalsMatchConversation(targetKey)
       textInference.stampMetaForConversation(targetKey)
+      rejectDuringKmWarmup(targetKey, false)
 
       // TTS preset: re-synthesize the prompt instead of running the LLM. Without
       // this the regenerate button falls through to `checkModelAvailability()`

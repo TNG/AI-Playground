@@ -15,8 +15,13 @@ import { Document } from '@langchain/classic/document'
 import { createHash } from 'crypto'
 
 import type { IndexedDocument } from '@/types/rag'
-import type { MergedGroup, MergedGroupsMeta, WarmupRequest } from '@/types/phisonKmRag'
-import { deriveGroupContent, GROUP_SEPARATOR } from '@/types/phisonKmRag'
+import type {
+  MergedGroup,
+  MergedGroupsMeta,
+  WarmupWorkerRequest,
+  WarmupWorkerResult,
+} from '@/types/phisonKmRag'
+import { deriveGroupContent, GROUP_SEPARATOR, phisonKmContextPrefix } from '@/types/phisonKmRag'
 
 /**
  * Maximum tokens per merged group — mirrors Phison KM service MAX_TOKENS_PER_GROUP.
@@ -30,19 +35,11 @@ const MAX_TOKENS_PER_GROUP = 13000
  * normal embedding path. Without these, a hung backend stalls document ingestion
  * (/tokenize, called once per chunk) or the warmup IPC round-trip (/v1/chat/completions,
  * called once per merged group) indefinitely. Overridable via env for environments
- * where the backend is known to be slower than these defaults assume.
+ * where the backend is known to be slower than these defaults assume. A ~13 000-token
+ * group takes minutes to prefill on a large MoE, so the warmup budget is per group.
  */
 const TOKENIZE_TIMEOUT_MS = Number(process.env.AIPG_PHISON_TOKENIZE_TIMEOUT_MS) || 5_000
-const WARMUP_TIMEOUT_MS = Number(process.env.AIPG_PHISON_WARMUP_TIMEOUT_MS) || 60_000
-
-/**
- * Abort the rest of a warmup batch once this many groups in a row have failed
- * (timed out, network error, or non-OK response) — a backend that's down or wedged
- * will fail every remaining group the same way, so continuing to wait out the full
- * per-group timeout for each one only delays finishing the (best-effort) batch
- * without producing any more useful warmup work.
- */
-export const WARMUP_MAX_CONSECUTIVE_FAILURES = 3
+const WARMUP_TIMEOUT_MS = Number(process.env.AIPG_PHISON_WARMUP_TIMEOUT_MS) || 5 * 60_000
 
 /** The splitter config used to produce the chunks a set of groups was built from. */
 export type SplitterParams = {
@@ -305,69 +302,69 @@ function stableChunkKey(doc: Document): string {
 // KV cache pre-warming (Approach A)
 // ---------------------------------------------------------------------------
 
+// Closing the warmup's connection is what makes llama-server drop the prefill.
+let warmupAbort: AbortController | null = null
+
+export function abortKVCacheWarmup(): void {
+  warmupAbort?.abort()
+}
+
 /**
- * Pre-warm the LLM's KV cache for each merged group.
+ * Pre-warm the LLM's KV cache with one document's merged groups.
  *
- * Approach A: the warmup system message is built as:
- *   {request.ragSystemPrefix}\n\nDocument context:\n\n{group.content}
+ * The system message is `phisonKmContextPrefix(group)`, the same head a KM question's
+ * system prompt starts with (src/lib/ragSources.ts), and the request carries the
+ * turn's `chat_template_kwargs`, because a template can render them ahead of the
+ * system text (gemma-4 puts its thinking token there). The preset's own system
+ * prompt follows the document in a real query, outside the cached prefix.
  *
- * This is the SAME prefix that `augmentSystemPrompt` (src/lib/ragSources.ts) uses
- * for the actual query (PHISON_KM_RAG_PREFIX + "Document context:" + ragContext). Because
- * the prefix is identical, the LLM's KV states for these tokens can be reused on
- * the real request, dramatically reducing TTFT.
- *
- * The preset's systemPrompt is appended AFTER in the real query (not in warmup),
- * so it falls outside the cached prefix — but it is short and cheap to prefill.
- *
- * Failures are logged but never propagated — warmup is best-effort.
+ * Stops at the first failed group: a backend that fails one fails the rest the same way.
  */
-export async function warmupKVCache(request: WarmupRequest): Promise<void> {
-  console.log(
-    `Phison KM: warming KV cache for ${request.mergedGroups.length} group(s) ` +
-      `via ${request.llmBackendUrl}`,
-  )
-  let consecutiveFailures = 0
-  for (const group of request.mergedGroups) {
+export async function warmupKVCache(request: WarmupWorkerRequest): Promise<WarmupWorkerResult> {
+  const abort = new AbortController()
+  warmupAbort = abort
+  try {
+    return await warmupGroups(request, abort.signal)
+  } finally {
+    if (warmupAbort === abort) warmupAbort = null
+  }
+}
+
+async function warmupGroups(
+  request: WarmupWorkerRequest,
+  cancelled: AbortSignal,
+): Promise<WarmupWorkerResult> {
+  for (const group of request.groups) {
+    if (cancelled.aborted) return { success: false, error: 'Warmup cancelled' }
+    const started = Date.now()
     try {
-      const systemContent = `${request.ragSystemPrefix}\n\nDocument context:\n\n${group.content}`
       const resp = await fetch(`${request.llmBackendUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: request.modelName || 'local-model',
+          model: request.modelId,
           messages: [
-            { role: 'system', content: systemContent },
+            { role: 'system', content: phisonKmContextPrefix(group.content) },
             { role: 'user', content: '.' },
           ],
           max_tokens: 1,
           stream: false,
+          ...(request.chatTemplateKwargs && Object.keys(request.chatTemplateKwargs).length > 0
+            ? { chat_template_kwargs: request.chatTemplateKwargs }
+            : {}),
         }),
-        // Prefilling a ~13k-token group is legitimately slow, hence the long timeout —
-        // but a hung LLM backend must not stall this best-effort, fire-and-forget IPC
-        // call forever.
-        signal: AbortSignal.timeout(WARMUP_TIMEOUT_MS),
+        signal: AbortSignal.any([cancelled, AbortSignal.timeout(WARMUP_TIMEOUT_MS)]),
       })
       if (!resp.ok) {
-        console.warn(`Phison KM: warmup HTTP ${resp.status} for group ${group.groupId}`)
-        consecutiveFailures++
-      } else {
-        console.log(`Phison KM: warmed group ${group.groupId}`)
-        consecutiveFailures = 0
+        return { success: false, error: `HTTP ${resp.status} warming group ${group.groupId}` }
       }
     } catch (err) {
-      console.warn(`Phison KM: warmup failed for group ${group.groupId}:`, err)
-      consecutiveFailures++
+      if (cancelled.aborted) return { success: false, error: 'Warmup cancelled' }
+      return { success: false, error: `warming group ${group.groupId} failed: ${String(err)}` }
     }
-
-    // A backend that's down or wedged will keep failing the same way for every
-    // remaining group — stop paying the full timeout per group once that's clear,
-    // rather than blocking ingestion's completion on N more doomed round-trips.
-    if (consecutiveFailures >= WARMUP_MAX_CONSECUTIVE_FAILURES) {
-      console.warn(
-        `Phison KM: aborting warmup batch after ${consecutiveFailures} consecutive ` +
-          `failures (${request.mergedGroups.length - request.mergedGroups.indexOf(group) - 1} group(s) skipped)`,
-      )
-      break
-    }
+    console.log(
+      `Phison KM: warmed group ${group.groupId} (${group.content.length} chars) in ${Date.now() - started} ms`,
+    )
   }
+  return { success: true }
 }

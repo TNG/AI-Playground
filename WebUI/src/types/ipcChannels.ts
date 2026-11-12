@@ -921,6 +921,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [WarmupRequest],
     result: null as unknown as IpcOk,
   },
+  /** Stop the KM warmup in flight; the document being prefilled is dropped mid-prefill. */
+  cancelKmWarmup: {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOk,
+  },
   /** The embedding sub-server URL for a backend, or the service's base URL. */
   getEmbeddingServerUrl: {
     kind: 'invoke',

@@ -57,6 +57,7 @@ import {
   latestComputeSnapshot,
 } from '../../adapters/hardware/computeMetrics'
 import { readLlamaCppVramInputs } from '../../adapters/vram/llamaCppVramInputs'
+import { cancelKmDocumentWarmup, warmupKmDocument } from '../../chat/phisonKmWarmup'
 import { readRemoteLlamaCppVramInputs } from '../../adapters/vram/remoteGgufMeta'
 import type { setVerboseLogging } from '../../agent/piAgentLog.ts'
 import type {
@@ -80,7 +81,12 @@ import type {
 import type { ModelPaths } from '@/assets/js/store/models'
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
-import type { PhisonKmIngestConfig, WarmupRequest } from '@/types/phisonKmRag'
+import type {
+  PhisonKmIngestConfig,
+  WarmupRequest,
+  WarmupWorkerRequest,
+  WarmupWorkerResult,
+} from '@/types/phisonKmRag'
 import {
   embeddingServerUrl,
   hostsEmbeddingServer,
@@ -88,7 +94,7 @@ import {
   startEmbeddingServer,
 } from '../../rag/embeddingServer'
 import { ingestDocument, retrieveChunks } from '../../rag/langchainCalls'
-import type { IpcMutationResult, IpcOk, IpcOkWith } from '@/types/ipcChannels'
+import type { IpcMutationResult, IpcOkWith } from '@/types/ipcChannels'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
 
 const execAsync = promisify(exec)
@@ -719,13 +725,19 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     embedInputUsingRag: (_event, embedInquiry: EmbedInquiry) =>
       retrieveChunks(deps.handleUtilityFunction, deps.getLangchainChild(), embedInquiry),
 
-    warmupKVCacheForDocument: (_event, request: WarmupRequest) => {
-      return deps.handleUtilityFunction<WarmupRequest, IpcOk>(
-        'warmupKVCacheForDocument',
-        deps.getLangchainChild(),
-        request,
-      )
-    },
+    warmupKVCacheForDocument: (_event, request: WarmupRequest) =>
+      warmupKmDocument(request, (workerRequest) =>
+        deps.handleUtilityFunction<WarmupWorkerRequest, WarmupWorkerResult>(
+          'warmupKVCacheForDocument',
+          deps.getLangchainChild(),
+          workerRequest,
+        ),
+      ),
+
+    cancelKmWarmup: () =>
+      cancelKmDocumentWarmup(async () =>
+        deps.handleUtilityFunction('abortKVCacheWarmup', deps.getLangchainChild(), undefined),
+      ),
 
     getServices: () => {
       const registry = deps.getServiceRegistry() ?? deps.peekApiServiceRegistry()

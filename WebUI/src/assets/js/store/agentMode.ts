@@ -1225,7 +1225,7 @@ export const useAgentMode = defineStore(
     }
     function inView(sessionId: string): boolean {
       return (
-        (viewShown.value && openSessionId.value === sessionId) ||
+        (viewShown.value && !agentLibraryShowing.value.open && openSessionId.value === sessionId) ||
         agentLibraryShowing.value.trialRunSessionId === sessionId
       )
     }

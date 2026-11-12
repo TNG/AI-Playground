@@ -603,6 +603,51 @@ describe('Paused Sessions', () => {
     expect(shown).toBe(true)
   })
 
+  it('holds a prompt for the open session while the Agent Library covers Agent Mode', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+
+    let shown = false
+    void whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+  })
+
+  it('toasts a pause of the open session while the Agent Library covers Agent Mode', async () => {
+    const store = await storeWithBackgroundTurn()
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+
+    pause()
+    expect(toastShow).toHaveBeenCalledTimes(1)
+    expect(toastShow.mock.calls[0][0]).toBe("Session 'task B' needs your input")
+  })
+
+  it('shows the held prompt once the Agent Library closes over the open session', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+
+    store.setAgentLibraryShowing({ open: false, trialRunSessionId: null })
+    await prompt
+    expect(shown).toBe(true)
+  })
+
   it('says a session has a held question until that question is shown', async () => {
     const store = await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')

@@ -23,7 +23,8 @@ _Avoid_: Agent Maker
 
 **Session**:
 The unit of work the user sees in the sessions panel: one continuous history in which any mix of
-presets can take turns. A new Session starts only when the user asks for one.
+presets can take turns. A new Session starts only when the user asks for one, and starts on the
+Assistant preset.
 _Avoid_: user session, agent session, conversation, thread
 
 **Title**:

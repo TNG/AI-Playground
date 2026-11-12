@@ -9,6 +9,8 @@ import {
 import { useI18N } from '@/assets/js/store/i18n'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
+import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
+import ModelDownloadCard from '@/components/ModelDownloadCard.vue'
 import PromptSendButtons from '@/components/PromptSendButtons.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { Button } from '@/components/ui/button'
@@ -39,6 +41,11 @@ const placeholder = computed(() =>
     ? i18n.AGENT_LIBRARY_TRIAL_RUN_FOLLOW_UP_INPUT
     : i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT,
 )
+
+const downloadGroup = computed(() => {
+  const sessionId = agentTrialRuns.trialRunSessionOf(props.agent.id)
+  return sessionId && modelDownloads().snapshot(sessionId) ? sessionId : ''
+})
 
 const folders = computed(() =>
   resolveMountedFolders(props.agent.settingsTemplate.mountedFolders ?? []),
@@ -140,6 +147,8 @@ async function stop(): Promise<void> {
     </div>
 
     <footer class="flex flex-none flex-col gap-2 border-t border-border px-4 py-3">
+      <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
+
       <div
         v-if="confirmingFolders"
         role="group"

@@ -292,7 +292,9 @@ describe('Home Agent threads on upgrade', () => {
     await migrateHomeAgentThreads({ routingKey: 'ha-1' })
 
     expect(await sessions.listSessionGroups()).toEqual([group])
-    expect((await migratedSessions())[0].groupId).toBeUndefined()
+    const migrated = (await migratedSessions()).filter((session) => session.id !== own.id)
+    expect(migrated).toHaveLength(1)
+    expect(migrated[0].groupId).toBeUndefined()
   })
 
   it('resumes from a marker the grouped migration left, filing nothing', async () => {

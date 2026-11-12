@@ -100,6 +100,12 @@ function requireString(value: unknown, what: string): string {
   return value
 }
 
+function defaultCapabilitiesOption(defaults: unknown): { defaultCapabilities?: string[] } {
+  if (defaults === undefined) return {}
+  if (!isStringArray(defaults)) throw new Error('default capabilities must be strings')
+  return { defaultCapabilities: defaults }
+}
+
 function groupNameFail(e: unknown) {
   const nameProblem = groupNameProblemOf(e)
   return nameProblem ? { ...ipcFail(e), nameProblem } : ipcFail(e)
@@ -119,10 +125,11 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
-    'sessions:create': async (_event, groupId) => {
+    'sessions:create': async (_event, groupId, options) => {
       try {
         const session = await deps.createSession(
           groupId === undefined ? undefined : requireString(groupId, 'group id'),
+          defaultCapabilitiesOption(options?.defaultCapabilities),
         )
         return { success: true as const, session }
       } catch (e) {
@@ -156,13 +163,11 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
     'sessions:setReachable': async (_event, id, reachable, options) => {
       try {
         if (typeof reachable !== 'boolean') throw new Error('reachable must be a boolean')
-        const defaults = options?.defaultCapabilities
-        if (defaults !== undefined && !isStringArray(defaults)) {
-          throw new Error('default capabilities must be strings')
-        }
-        const session = await deps.setSessionReachable(requireString(id, 'session id'), reachable, {
-          ...(defaults ? { defaultCapabilities: defaults } : {}),
-        })
+        const session = await deps.setSessionReachable(
+          requireString(id, 'session id'),
+          reachable,
+          defaultCapabilitiesOption(options?.defaultCapabilities),
+        )
         return { success: true as const, session }
       } catch (e) {
         return ipcFail(e)
@@ -172,13 +177,9 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         const routingKey = input?.routingKey ?? null
         if (routingKey !== null) requireString(routingKey, 'routing key')
-        const defaults = input?.defaultCapabilities
-        if (defaults !== undefined && !isStringArray(defaults)) {
-          throw new Error('default capabilities must be strings')
-        }
         const { channelSession } = await deps.migrateHomeAgentThreads({
           routingKey,
-          ...(defaults ? { defaultCapabilities: defaults } : {}),
+          ...defaultCapabilitiesOption(input?.defaultCapabilities),
         })
         return { success: true as const, channelSession }
       } catch (e) {

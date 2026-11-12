@@ -227,11 +227,17 @@ export const CHANNELS = {
       showMore: ShowMore
     }>,
   },
-  /** Create a Session and lay out its Session Folder, optionally already in a Session Group. */
+  /**
+   * Create a Session and lay out its Session Folder, optionally already in a Session Group. It
+   * starts reachable, with `notify` in its Assistant settings (from `defaultCapabilities`).
+   */
   'sessions:create': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [groupId?: string],
+    args: [] as unknown as readonly [
+      groupId?: string,
+      options?: { defaultCapabilities?: string[] },
+    ],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /** One Session's row plus its display timeline, and the artifact URLs whose file is gone. */

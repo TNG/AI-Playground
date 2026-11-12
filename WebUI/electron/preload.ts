@@ -294,7 +294,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sessions: {
     list: () => invoke('sessions:list'),
-    create: (groupId?: string) => invoke('sessions:create', groupId),
+    create: (groupId?: string, options?: { defaultCapabilities?: string[] }) =>
+      invoke('sessions:create', groupId, options && cloneForIpc(options)),
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
     setReachable: (id: string, reachable: boolean, options?: { defaultCapabilities?: string[] }) =>

@@ -24,7 +24,9 @@ import {
 } from '../persist/sessionGroupsFile'
 import { readHistoryEntries } from './sessionHistory'
 import { autoTitle } from './sessionTitle'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { checkGroupName, groupNameRefusal } from '@/lib/sessionGroupName'
+import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 import {
   SessionTitleSchema,
   type SessionDocument,
@@ -35,6 +37,7 @@ import {
   type ShowMore,
   type ShowMoreSection,
 } from '@/types/sessionIpc'
+import { parseSessionSettings } from '@/types/sessionSettings'
 
 // The Session module (ADR-0003), sole owner of every Session Folder.
 
@@ -96,17 +99,48 @@ export async function readSession(id: string): Promise<SessionFile> {
   )
 }
 
-export async function createSession(groupId?: string): Promise<SessionSummary> {
-  if (groupId === undefined) return createSessionFile(undefined)
+export type ReachableOptions = {
+  /** Assistant's default capabilities, for a Session whose Assistant settings name none yet. */
+  defaultCapabilities?: string[]
+}
+
+/** Adds `notify` to the Session's Assistant capabilities, its own or else the defaults. */
+export function withNotify(
+  file: SessionFile,
+  defaultCapabilities: string[] | undefined,
+): SessionFile {
+  const entry = parseSessionSettings(file.settings)[HARNESS_CHAT_PRESET] ?? { bags: {} }
+  const bag = entry.bags[HARNESS_CHAT_PRESET] ?? { values: {}, fromDefaults: true }
+  const stored = bag.values.capabilities
+  const own = Array.isArray(stored) ? (stored as string[]) : undefined
+  const capabilities = own ?? defaultCapabilities
+  if (!capabilities || own?.includes(NOTIFY_CAPABILITY_ID)) return file
+  const withId = capabilities.includes(NOTIFY_CAPABILITY_ID)
+    ? capabilities
+    : [...capabilities, NOTIFY_CAPABILITY_ID]
+  const next = { ...bag, values: { ...bag.values, capabilities: withId } }
+  const nextEntry = { ...entry, bags: { ...entry.bags, [HARNESS_CHAT_PRESET]: next } }
+  return { ...file, settings: { ...file.settings, [HARNESS_CHAT_PRESET]: nextEntry } }
+}
+
+/** A new Session starts reachable, as if reachability had been turned on by hand. */
+export async function createSession(
+  groupId?: string,
+  options: ReachableOptions = {},
+): Promise<SessionSummary> {
+  if (groupId === undefined) return createSessionFile(undefined, options)
   return serializeSessionGroups(async () => {
     requireGroup((await readGroupsForWrite()).groups, groupId)
-    return createSessionFile(groupId)
+    return createSessionFile(groupId, options)
   })
 }
 
-async function createSessionFile(groupId: string | undefined): Promise<SessionSummary> {
+async function createSessionFile(
+  groupId: string | undefined,
+  options: ReachableOptions,
+): Promise<SessionSummary> {
   const now = Date.now()
-  const file: SessionFile = {
+  const created: SessionFile = {
     schemaVersion: 1,
     id: `session-${randomUUID()}`,
     title: '',
@@ -123,10 +157,11 @@ async function createSessionFile(groupId: string | undefined): Promise<SessionSu
     retiredHarnessSessions: [],
     taskRunHarnessSessions: [],
     updateCursors: {},
-    reachable: false,
+    reachable: true,
   }
-  await serializeSession(file.id, () => createSessionFolder(file))
-  return summaryOf(file)
+  const reachable = withNotify(created, options.defaultCapabilities)
+  await serializeSession(reachable.id, () => createSessionFolder(reachable))
+  return summaryOf(reachable)
 }
 
 /** Newest first. A Session whose `session.json` is unreadable stays listed so it can be deleted. */

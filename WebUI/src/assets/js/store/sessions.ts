@@ -150,13 +150,20 @@ export const useSessions = defineStore('sessions', () => {
     pendingTurns.value = rest
   }
 
-  /** Hydrates the list and opens the newest Session, creating one when there is none. */
-  async function init(): Promise<void> {
+  /** Hydrates the list and opens the newest Session, creating none; false when listing failed. */
+  async function hydrate(): Promise<boolean> {
     const result = await call('sessions/list-failed', () => window.electronAPI.sessions.list())
-    if (!result) return
+    if (!result) return false
     sessions.value = Object.fromEntries(result.sessions.map((session) => [session.id, session]))
     applyGroups(result)
-    await openNewestOrCreate()
+    const newest = orderedSessions.value[0]
+    if (newest) await open(newest.id, { reveal: false })
+    return true
+  }
+
+  /** Hydrates the list and opens the newest Session, creating one when there is none. */
+  async function init(): Promise<void> {
+    if (await hydrate()) await ensureOpenSession()
   }
 
   async function openNewestOrCreate(): Promise<void> {
@@ -165,9 +172,18 @@ export const useSessions = defineStore('sessions', () => {
     else await create()
   }
 
+  // Assistant's default capabilities live in the agent store, which already depends on this one.
+  let readDefaultCapabilities: () => string[] | undefined = () => undefined
+
+  function provideDefaultCapabilities(read: () => string[]): void {
+    readDefaultCapabilities = read
+  }
+
   async function create(groupId?: string): Promise<string | null> {
     const result = await call('sessions/create-failed', () =>
-      window.electronAPI.sessions.create(groupId),
+      window.electronAPI.sessions.create(groupId, {
+        defaultCapabilities: readDefaultCapabilities(),
+      }),
     )
     if (!result) return null
     remember(result.session)
@@ -180,18 +196,10 @@ export const useSessions = defineStore('sessions', () => {
 
   /** A new Reachable Session for a Channel, never opened here; throws with main's reason. */
   async function createReachable(defaultCapabilities: string[]): Promise<string> {
-    const created = await window.electronAPI.sessions.create()
+    const created = await window.electronAPI.sessions.create(undefined, { defaultCapabilities })
     if (!created.success) throw new Error(created.error)
-    const id = created.session.id
-    const reachable = await window.electronAPI.sessions.setReachable(id, true, {
-      defaultCapabilities,
-    })
-    if (!reachable.success) {
-      await window.electronAPI.sessions.delete(id)
-      throw new Error(reachable.error)
-    }
-    remember(reachable.session)
-    return id
+    remember(created.session)
+    return created.session.id
   }
 
   /** Opens a Session; resolves with the preset and variant of its last turn. */
@@ -384,8 +392,10 @@ export const useSessions = defineStore('sessions', () => {
     orderedSessions,
     openSession,
     init,
+    hydrate,
     create,
     createReachable,
+    provideDefaultCapabilities,
     open,
     rename,
     setPinned,

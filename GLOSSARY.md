@@ -67,7 +67,8 @@ _Avoid_: blocked session, stuck session
 
 **In View**:
 A Session or Trial Run is In View when the user can see it: a Session when it is the one showing
-and no Library is over it, a Trial Run when the Agent Library shows that Agent's Trial Run. What a Paused Session asks waits until it is In View, and the user is alerted meanwhile.
+and no Library is over it, a Trial Run when the Agent Library shows that Agent's Trial Run. What
+a Paused Session asks waits until it is In View, and the user is alerted meanwhile.
 _Avoid_: visible, active, focused, on screen
 
 **Session Update**:

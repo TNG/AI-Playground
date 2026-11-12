@@ -50,18 +50,22 @@
       >
         <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
       </button>
-      <button
-        v-if="globalSetup.loadingState === 'running'"
-        :title="languages.MODEL_MANAGER_TITLE"
-        :aria-label="languages.MODEL_MANAGER_OPEN"
-        :aria-pressed="uiStore.showModelManager"
-        class="-m-1 rounded-md p-1 transition-colors"
-        :class="{ 'bg-primary/20': uiStore.showModelManager }"
-        @click="uiStore.toggleModelManager()"
-      >
-        <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
-      </button>
       <TooltipProvider :delay-duration="200">
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
+              :aria-label="languages.MODEL_MANAGER_OPEN"
+              :aria-pressed="uiStore.showModelManager"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.showModelManager }"
+              @click="uiStore.toggleModelManager()"
+            >
+              <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.MODEL_MANAGER_TITLE }}</TooltipContent>
+        </Tooltip>
         <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
             <button
@@ -69,7 +73,7 @@
               :aria-label="languages.AGENT_LIBRARY_OPEN"
               :aria-pressed="uiStore.agentLibrary !== null"
               class="-m-1 rounded-md p-1 transition-colors"
-              :class="{ 'bg-primary/20': uiStore.agentLibrary }"
+              :class="{ 'bg-primary/20': uiStore.agentLibrary !== null }"
               @click="uiStore.toggleAgentLibrary()"
             >
               <Bot class="size-6 text-foreground" />

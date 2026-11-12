@@ -1225,13 +1225,13 @@ export const useAgentMode = defineStore(
     function setLibraryShowing(showing: LibraryShowing): void {
       libraryShowing.value = showing
     }
-    /** A replaced Library reports closing after its successor opened. */
+    /** The Model Library reports closing after the Agent Library replacing it has opened. */
     function setLibraryHidden(library: LibraryShowing['library']): void {
       if (libraryShowing.value?.library === library) libraryShowing.value = null
     }
     function inView(sessionId: string): boolean {
-      const library = libraryShowing.value
-      if (library) return library.library === 'agent' && library.trialRunSessionId === sessionId
+      const showing = libraryShowing.value
+      if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
       return viewShown.value && openSessionId.value === sessionId
     }
 

@@ -14,7 +14,7 @@
     @pointerleave="schedulePickerClose"
   >
     <Popover
-      v-for="mode in modes"
+      v-for="mode in bar.modes"
       :key="mode"
       :open="openPickerMode === mode"
       @update:open="(val: boolean) => onPickerOpenChange(mode, val)"
@@ -101,7 +101,7 @@
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider
-            v-if="mode === buttonModeFor('agent') && agents.length > 0"
+            v-if="mode === bar.agentsMode && bar.savedAgents.length > 0"
             :delay-duration="200"
           >
             <div
@@ -167,7 +167,7 @@
               </div>
             </div>
           </TooltipProvider>
-          <div v-if="mode === buttonModeFor('agent')" class="flex flex-none flex-col gap-1">
+          <div v-if="mode === bar.agentsMode" class="flex flex-none flex-col gap-1">
             <Button
               variant="secondary"
               size="sm"
@@ -217,6 +217,7 @@ import { computed, ref, nextTick, watch } from 'vue'
 import { Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets, type Preset } from '@/assets/js/store/presets'
+import { useTextInference } from '@/assets/js/store/textInference'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useDemoMode, type DemoButtonId } from '@/assets/js/store/demoMode'
@@ -234,11 +235,10 @@ import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/pr
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
-import { agentList, pickableAgents } from '@/lib/promptBarModel'
+import { agentList, promptBarModel } from '@/lib/promptBarModel'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 
 defineProps<{
-  modes: ModeType[]
   showAttach: boolean
   acceptedFileTypes: string
   isOverDropZone: boolean
@@ -266,6 +266,7 @@ const emit = defineEmits<{
 
 const promptStore = usePromptStore()
 const presetsStore = usePresets()
+const textInference = useTextInference()
 const oemBranding = useOemBranding()
 const i18nState = useI18N().state
 const { gateOf } = usePromptBarPresetSwitch()
@@ -374,10 +375,21 @@ async function selectAgentFromPicker(agentId: string) {
   await agentPick.pickAgent(agentId)
 }
 
-const agents = computed(() => pickableAgents(agentPick.agents.value))
+const bar = computed(() =>
+  promptBarModel({
+    activePreset: presetsStore.activePreset,
+    presetLabel: (name) => oemBranding.presetLabel(name),
+    machine: { chatBackend: textInference.backend },
+    catalog: presetsStore.getPresetsByCategories([]),
+    presetGate: gateOf,
+    style: 'classic',
+    agents: agentPick.agents.value,
+    pickedAgentId: pickedAgentId.value,
+  }),
+)
 const agentQuery = ref('')
 const agentFilterFocused = ref(false)
-const agentView = computed(() => agentList(agents.value, agentQuery.value))
+const agentView = computed(() => agentList(bar.value.savedAgents, agentQuery.value))
 
 async function pickFirstMatch() {
   const first = agentView.value.agents[0]

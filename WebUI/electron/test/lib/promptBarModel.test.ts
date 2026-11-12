@@ -267,6 +267,20 @@ describe('promptBarModel modes', () => {
     ])
   })
 
+  it('folds Agent into Chat in Classic, which has no Agent button', () => {
+    const all = [
+      image('Video', 'create-videos'),
+      image('Fast'),
+      audio('Text to Speech'),
+      agent('Game Agent'),
+      chat('Assistant'),
+    ]
+    const classic = (catalog: Preset[]) =>
+      promptBarModel(input({ catalog, style: 'classic' })).modes
+    expect(classic(all)).toEqual(['chat', 'audio', 'imageGen', 'video'])
+    expect(classic([agent('Game Agent'), image('Fast')])).toEqual(['chat', 'imageGen'])
+  })
+
   it('selects the mode the active preset is listed under', () => {
     const modeOf = (activePreset: Preset | null) =>
       promptBarModel(input({ activePreset })).activeMode
@@ -433,6 +447,30 @@ describe('promptBarModel preset picker', () => {
       const model = promptBarModel(input({ catalog, activePreset: assistant, agents: [digest] }))
       expect(model.activeMode).toBe('chat')
       expect(model.agents).toEqual([])
+    })
+
+    it('sit under Agent in Modern and under Chat in Classic, whichever mode is active', () => {
+      const fast = catalog[6]
+      for (const [style, mode] of [
+        ['modern', 'agent'],
+        ['classic', 'chat'],
+      ] as const) {
+        const model = promptBarModel(
+          input({ catalog, activePreset: fast, style, agents: [digest, draftOnly] }),
+        )
+        expect(model.agentsMode).toBe(mode)
+        expect(model.savedAgents.map((agent) => agent.id)).toEqual(['a-digest'])
+      }
+    })
+
+    it('come with Manage Agents only in the mode that lists them', () => {
+      const manages = (activePreset: Preset, style: PromptBarInput['style']) =>
+        promptBarModel(input({ catalog, activePreset, style })).manageAgents
+      expect(manages(gameAgent, 'modern')).toBe(true)
+      expect(manages(assistant, 'modern')).toBe(false)
+      expect(manages(gameAgent, 'classic')).toBe(true)
+      expect(manages(assistant, 'classic')).toBe(true)
+      expect(manages(catalog[6], 'classic')).toBe(false)
     })
 
     it('keep the Agent mode while a picked Agent runs on Assistant', () => {

@@ -177,12 +177,7 @@
             v-bind="bottomBarProps"
             v-on="bottomBarEvents"
           />
-          <ClassicBottomBar
-            v-else
-            :modes="modesWithPresets"
-            v-bind="bottomBarProps"
-            v-on="bottomBarEvents"
-          />
+          <ClassicBottomBar v-else v-bind="bottomBarProps" v-on="bottomBarEvents" />
         </div>
       </div>
     </div>
@@ -241,6 +236,7 @@ import {
   type SessionSettingsProblem,
 } from '@/lib/sessionSettingsProblems'
 import { buttonModeFor } from '@/lib/presetModes'
+import { promptBarModes } from '@/lib/promptBarModel'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
@@ -465,15 +461,9 @@ const shouldShowImageUploadButton = computed(() => {
   return canAttachImages.value || canAttachDocuments.value || canAttachAudio.value
 })
 
-const modesWithPresets = computed(() => {
-  const modes: ModeType[] = []
-  if (presetsStore.chatPresets.length > 0) modes.push('chat')
-  if (presetsStore.audioPresets.length > 0) modes.push('audio')
-  if (presetsStore.imageGenPresets.length > 0) modes.push('imageGen')
-  if (presetsStore.imageEditPresets.length > 0) modes.push('imageEdit')
-  if (presetsStore.videoPresets.length > 0) modes.push('video')
-  return modes
-})
+const modesWithPresets = computed(() =>
+  promptBarModes(presetsStore.getPresetsByCategories([]), 'classic'),
+)
 
 watch([modesWithPresets, () => promptStore.getCurrentMode()], ([modes, currentMode]) => {
   if (modes.length > 0 && currentMode && !modes.includes(buttonModeFor(currentMode))) {

@@ -199,7 +199,7 @@
                 </TooltipProvider>
               </DropdownMenuRadioGroup>
             </template>
-            <AgentLibraryMenuItems v-if="bar.activeMode === AGENTS_MODE" />
+            <AgentLibraryMenuItems v-if="bar.manageAgents" />
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip v-else>
@@ -362,7 +362,6 @@ import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import {
-  AGENTS_MODE,
   agentList,
   promptBarModel,
   type HeaderChip,

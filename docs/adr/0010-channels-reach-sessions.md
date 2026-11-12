@@ -2,6 +2,7 @@
 status: accepted
 supersedes: the Home Agent, its Notification Channel choice and its held-Answer journal
 amends: ADR 0009's reason for keeping the chat turn engine
+amended-by: ADR 0011 (Trial Runs reach Channels)
 ---
 
 # Channels reach Sessions
@@ -46,5 +47,5 @@ reachable, and on quit.
 Entries in the channel message map written before this change named only a Harness Session; they
 are migrated by finding the Session that holds it, and become tombstones when none does. A Harness
 Session that belongs to no Session (a Trial Run) is not reachable, so it sends no Notifications. ADR 0009 kept the chat turn engine for Home Agent threads and for aiDAPTIV; with the Home
-Agent gone it stays for aiDAPTIV alone. Home Agent threads become Reachable Sessions in a "Home
-Agent" Session Group.
+Agent gone it stays for aiDAPTIV alone. Home Agent threads become ordinary, ungrouped Reachable
+Sessions.

@@ -12,25 +12,20 @@ import { getConversationsDemoDir, getConversationsDir } from '../persist/userDat
 import { setSessionReachable } from './sessionChannels'
 import { textOfMessage, type ChatTranscriptMessage } from './sessionChatTurn'
 import { autoTitle } from './sessionTitle'
-import {
-  createSession,
-  createSessionGroup,
-  listSessionGroups,
-  moveSessionToGroup,
-  mutateSession,
-  sessionPaths,
-} from './sessions'
+import { createSession, mutateSession, sessionPaths } from './sessions'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { titleFromMessages } from '@/lib/conversationTitle'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
-import { HistoryEntrySchema, type HistoryEntry } from '@/types/sessionIpc'
+import {
+  HistoryEntrySchema,
+  type AssistantCapabilityDefaults,
+  type HistoryEntry,
+} from '@/types/sessionIpc'
 
 // Home Agent threads become Reachable Sessions (Channels spec, "Migration"). The inputs are read
 // raw, so this keeps working after the Home Agent thread kind is gone from the schemas.
 
 const LOG_SCOPE = 'home-agent-thread-migration'
-
-export const HOME_AGENT_GROUP_NAME = 'Home Agent'
 
 const LEGACY_SINGLETON_KEY = '__aipg_home_agent__'
 const MARKER_SECTION = 'homeAgentThreadMigration'
@@ -48,7 +43,6 @@ const RagDocumentSchema = z.object({ hash: z.string(), filepath: z.string() }).p
 const MarkerSchema = z.object({
   done: z.boolean().catch(false),
   sessions: z.record(z.string(), z.string()).catch({}),
-  groupId: z.string().optional().catch(undefined),
 })
 
 type Marker = z.infer<typeof MarkerSchema>
@@ -60,9 +54,7 @@ export type HomeAgentThreadMigrationDeps = { isDemoMode: () => boolean }
 export type HomeAgentThreadMigrationInput = {
   /** The Home Agent's routing pointer, which the window kept. */
   routingKey: string | null
-  /** Assistant's default capabilities, so the Sessions notify as a hand-made Reachable one would. */
-  defaultCapabilities?: string[]
-}
+} & AssistantCapabilityDefaults
 
 /** The Channel Session it set; null when there was none, or the migration ran before. */
 export type HomeAgentThreadMigrationResult = { channelSession: string | null }
@@ -191,17 +183,6 @@ async function sessionFromThread(
   return id
 }
 
-async function fileInGroup(sessionId: string, groupId: string | undefined): Promise<string> {
-  const groups = await listSessionGroups()
-  const wanted = HOME_AGENT_GROUP_NAME.toLocaleLowerCase()
-  const existing =
-    groups.find((group) => group.id === groupId) ??
-    groups.find((group) => group.name.toLocaleLowerCase() === wanted)
-  if (!existing) return (await createSessionGroup(sessionId, HOME_AGENT_GROUP_NAME)).group.id
-  await moveSessionToGroup(sessionId, existing.id)
-  return existing.id
-}
-
 function routingTarget(
   marker: Marker,
   threads: Thread[],
@@ -241,8 +222,7 @@ async function migrate(
   for (const thread of threads) {
     if (marker.sessions[thread.id]) continue
     const sessionId = await sessionFromThread(thread, input)
-    const groupId = await fileInGroup(sessionId, marker.groupId)
-    marker = { ...marker, groupId, sessions: { ...marker.sessions, [thread.id]: sessionId } }
+    marker = { ...marker, sessions: { ...marker.sessions, [thread.id]: sessionId } }
     await writePreferenceSection(MARKER_SECTION, marker)
   }
   const channelSession = routingTarget(marker, threads, input.routingKey)

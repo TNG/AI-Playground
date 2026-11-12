@@ -1,11 +1,11 @@
 import path from 'node:path'
 import type { ChannelKind, KeyboardButton } from '@/assets/js/store/channels/types'
 import type { PauseReason } from '@/types/kernelEvents'
-import type { NotificationConfig } from '@/types/notificationsIpc'
+import type { AnswerTarget, NotificationConfig, TrialRunOwner } from '@/types/notificationsIpc'
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
-import { notificationSessionLabel } from '@/lib/notificationLabel'
+import { notificationSessionLabel, trialRunLabel } from '@/lib/notificationLabel'
 import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
@@ -22,6 +22,7 @@ import { readAgentTasks } from '../persist/agentTaskFiles.ts'
 import { recordChannelMessage } from '../persist/channelMessageMap.ts'
 import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
 import { readReachableSession } from '../session/sessionChannels.ts'
+import { liveTrialRunOf } from './trialRuns.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { tellDroppedQueues } from './queueQuitNotice.ts'
@@ -35,8 +36,8 @@ import { createChannelTyping } from './channelTyping.ts'
 import { plainTextOf, type ChannelText } from './channelText.ts'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 
-// The one sender of Notifications (docs/adr/0010): only Reachable Sessions send, to every
-// enabled Channel, except that what a Channel caused goes back to that Channel alone.
+// The one sender of Notifications (docs/adr/0010, 0011): only Reachable Sessions and notifying
+// Trial Runs send, to every enabled Channel; what a Channel caused goes back to it alone.
 
 const LOG_SOURCE = 'notifier'
 
@@ -90,6 +91,7 @@ export type NotificationOptions = {
 const OFF_CONFIG: NotificationConfig = {
   channels: [],
   sessionOnScreen: null,
+  trialRunInView: null,
   realShellSessions: [],
   templates: {
     header: '',
@@ -106,6 +108,7 @@ const OFF_CONFIG: NotificationConfig = {
     answerByReply: '',
     queueDroppedOnQuit: '',
     agentStarted: '',
+    trialRunLabel: '',
   },
 }
 
@@ -230,8 +233,22 @@ export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: 
   replaceReportedTurn(sessionId, newReportedTurn(turnId, workspaceDir, []))
 }
 
-type Owner = { sessionRef: string; harnessSessionId: string }
+type Owner = AnswerTarget | TrialRunOwner
 type Heading = { header: string; owner: Owner }
+type Sender = { owner: Owner; title: string }
+
+/** Harness Sessions whose latest turn started with the `notify` capability. */
+const notifyingHarnessSessions = new Set<string>()
+
+/** At turn start: a Trial Run notifies only when the capabilities it runs with include `notify`. */
+export function noteTurnCapabilities(sessionId: string, capabilities: readonly string[] = []) {
+  if (capabilities.includes('notify')) notifyingHarnessSessions.add(sessionId)
+  else forgetHarnessSession(sessionId)
+}
+
+export function forgetHarnessSession(sessionId: string): void {
+  notifyingHarnessSessions.delete(sessionId)
+}
 
 /** The Session holding `sessionId`, looked up once per reported turn: it never changes. */
 function sessionRefOf(sessionId: string): Promise<string | null> {
@@ -244,14 +261,31 @@ function sessionRefOf(sessionId: string): Promise<string | null> {
   return turn.sessionRef
 }
 
-async function headingOf(sessionId: string): Promise<Heading | null> {
+/** Its Reachable Session, or else a live Trial Run holding it that may notify (ADR 0011). */
+async function senderOf(sessionId: string): Promise<Sender | null> {
   const sessionRef = await sessionRefOf(sessionId)
-  const session = sessionRef ? await readReachableSession(sessionRef) : null
-  if (!sessionRef || !session) return null
-  const title = await sessionLabel(sessionId, session.title)
+  if (sessionRef) {
+    const session = await readReachableSession(sessionRef)
+    if (!session) return null
+    const title = await sessionLabel(sessionId, session.title)
+    return { owner: { sessionRef, harnessSessionId: sessionId }, title }
+  }
+  if (!notifyingHarnessSessions.has(sessionId)) return null
+  const trial = await liveTrialRunOf(sessionId)
+  if (!trial) return null
+  const agent = trial.name || (await readAgentSessionTitle(sessionId))
   return {
-    header: fillTemplate(config.templates.header, { title }),
-    owner: { sessionRef, harnessSessionId: sessionId },
+    owner: { trialRun: true, harnessSessionId: sessionId, agentId: trial.agentId },
+    title: trialRunLabel(config.templates, agent),
+  }
+}
+
+async function headingOf(sessionId: string): Promise<Heading | null> {
+  const sender = await senderOf(sessionId)
+  if (!sender) return null
+  return {
+    header: fillTemplate(config.templates.header, { title: sender.title }),
+    owner: sender.owner,
   }
 }
 
@@ -437,16 +471,11 @@ async function deliver(body: Body, sessionId: string): Promise<NotificationDeliv
   const kinds = channelsFor(sessionId)
   if (!channel || kinds.length === 0) return { delivered: false, reason: 'no Channel is on' }
   try {
-    const sessionRef = await sessionRefOf(sessionId)
-    const session = sessionRef ? await readReachableSession(sessionRef) : null
-    if (!sessionRef || !session) {
-      return { delivered: false, reason: 'the Session is not reachable from Channels' }
-    }
-    const title = await sessionLabel(sessionId, session.title)
-    const owner = { sessionRef, harnessSessionId: sessionId }
+    const sender = await senderOf(sessionId)
+    if (!sender) return { delivered: false, reason: 'the Session is not reachable from Channels' }
     const outcomes: NotificationDelivery[] = []
     for (const kind of kinds) {
-      outcomes.push(await deliverOn(kind, channel, body, owner, title))
+      outcomes.push(await deliverOn(kind, channel, body, sender.owner, sender.title))
     }
     const delivered = outcomes.flatMap((outcome) => (outcome.delivered ? [outcome] : []))
     if (delivered.length === 0) {
@@ -600,10 +629,12 @@ export function answerable(
   return withButton === message ? message : { ...withButton, answerTitle: title }
 }
 
-/** The window is hidden or shows another Session. */
+/** The window is hidden, or shows another Session or, for one no Session holds, another Trial Run. */
 async function offScreen(sessionId: string): Promise<boolean> {
-  if (!windowShown() || config.sessionOnScreen === null) return true
-  return (await sessionRefOf(sessionId)) !== config.sessionOnScreen
+  if (!windowShown()) return true
+  const sessionRef = await sessionRefOf(sessionId)
+  if (!sessionRef) return config.trialRunInView !== sessionId
+  return config.sessionOnScreen === null || sessionRef !== config.sessionOnScreen
 }
 
 function pauseReasonText(reason: PauseReason | undefined): string {

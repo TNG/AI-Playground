@@ -2,9 +2,15 @@ import fs from 'node:fs/promises'
 import { z } from 'zod'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import {
-  isStartPromptRequest,
+  AnswerTargetSchema,
+  isAnswerTarget,
+  isTrialRunOwner,
+  StartPromptRequestOwnerSchema,
+  ThrownAwayTrialRunSchema,
+  TrialRunOwnerSchema,
   type AnswerTarget,
   type ChannelMessageOwner,
+  type TrialRunOwner,
 } from '@/types/notificationsIpc'
 import { appLoggerInstance } from '../observability/logger'
 import { atomicWriteJson, makeWriteChains, readJson } from './fsJsonStore'
@@ -17,17 +23,23 @@ import { getChannelMessageMapDemoFile, getChannelMessageMapFile } from './userDa
  * be answered. Deleting ends that routing but keeps each entry as a tombstone (no owner):
  * dropping it would route a later Answer as a plain message, where the user
  * must instead be told the session no longer exists. A Start Prompt Request is recorded too, with
- * no Session, so a reply to one from before a restart can be told it has expired.
+ * no Session, so a reply to one from before a restart can be told it has expired. A thrown-away
+ * Trial Run's tombstone keeps its Agent (ADR 0011).
  */
 
 const LOG_SCOPE = 'channel-messages'
 
-const OwnerSchema = z.object({ sessionRef: z.string(), harnessSessionId: z.string() })
-const StartPromptRequestSchema = z.object({ startPromptRequest: z.literal(true) })
 const EntrySchema = z.object({
   kind: z.string(),
   ref: z.string(),
-  owner: z.union([OwnerSchema, StartPromptRequestSchema]).nullable(),
+  owner: z
+    .union([
+      AnswerTargetSchema,
+      TrialRunOwnerSchema,
+      ThrownAwayTrialRunSchema,
+      StartPromptRequestOwnerSchema,
+    ])
+    .nullable(),
 })
 const FileSchema = z.object({ schemaVersion: z.literal(2), entries: z.array(EntrySchema) })
 
@@ -108,9 +120,10 @@ async function record(kind: ChannelKind, ref: string, owner: Owner): Promise<voi
 export async function recordChannelMessage(
   kind: ChannelKind,
   ref: string,
-  owner: AnswerTarget,
+  owner: AnswerTarget | TrialRunOwner,
 ): Promise<void> {
-  if (!ref || !owner.sessionRef || !owner.harnessSessionId) return
+  if (!ref || !owner.harnessSessionId) return
+  if (isTrialRunOwner(owner) ? !owner.agentId : !owner.sessionRef) return
   return record(kind, ref, owner)
 }
 
@@ -120,7 +133,7 @@ export async function recordStartPromptRequest(kind: ChannelKind, ref: string): 
   return record(kind, ref, { startPromptRequest: true })
 }
 
-/** Who sent this message: a Harness Session, a deleted one, a Start Prompt Request, or null. */
+/** Who sent this message (a deleted Session's tombstone reads `deletedSession`), or null. */
 export async function channelMessageOwner(
   kind: ChannelKind,
   ref: string,
@@ -132,21 +145,48 @@ export async function channelMessageOwner(
   })
 }
 
-async function tombstone(owned: (owner: AnswerTarget) => boolean): Promise<void> {
-  const hit = (owner: Owner | null) => !!owner && !isStartPromptRequest(owner) && owned(owner)
+/** Replaces each owner `tombstoneOf` returns a tombstone for; `undefined` keeps it. */
+async function tombstone(tombstoneOf: (owner: Owner) => Owner | null | undefined): Promise<void> {
   return serialize(FILE_CHAIN, async () => {
     const entries = await readEntries()
-    if (!entries.some((e) => hit(e.owner))) return
-    await writeEntries(entries.map((e) => (hit(e.owner) ? { ...e, owner: null } : e)))
+    let changed = false
+    const next = entries.map((entry) => {
+      const replaced = entry.owner ? tombstoneOf(entry.owner) : undefined
+      if (replaced === undefined) return entry
+      changed = true
+      return { ...entry, owner: replaced }
+    })
+    if (changed) await writeEntries(next)
   })
 }
 
+function sessionTombstone(owned: (owner: AnswerTarget) => boolean) {
+  return tombstone((owner) => (isAnswerTarget(owner) && owned(owner) ? null : undefined))
+}
+
+function trialRunTombstone(owned: (owner: TrialRunOwner) => boolean) {
+  return tombstone((owner) =>
+    isTrialRunOwner(owner) && owned(owner)
+      ? { thrownAwayTrialRun: true, agentId: owner.agentId }
+      : undefined,
+  )
+}
+
 export async function forgetHarnessSessionMessages(harnessSessionId: string): Promise<void> {
-  return tombstone((owner) => owner.harnessSessionId === harnessSessionId)
+  return sessionTombstone((owner) => owner.harnessSessionId === harnessSessionId)
 }
 
 export async function forgetSessionMessages(sessionRef: string): Promise<void> {
-  return tombstone((owner) => owner.sessionRef === sessionRef)
+  return sessionTombstone((owner) => owner.sessionRef === sessionRef)
+}
+
+export async function forgetTrialRunMessages(harnessSessionId: string): Promise<void> {
+  return trialRunTombstone((owner) => owner.harnessSessionId === harnessSessionId)
+}
+
+/** No Trial Run outlives the app, so at start and quit every one of them is thrown away. */
+export async function forgetAllTrialRunMessages(): Promise<void> {
+  return trialRunTombstone(() => true)
 }
 
 export async function wipeDemoChannelMessageMap(): Promise<void> {

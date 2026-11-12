@@ -111,7 +111,8 @@ startPermissionsAdapter()
 await useConversations().init()
 
 // The Sessions panel lists what is on disk from first paint, with a Session open.
-await useSessions().init()
+const sessions = useSessions()
+const sessionsListed = await sessions.hydrate()
 // Non-agent chat presets write into the open Session's chat transcript.
 useSessionChat()
 
@@ -120,7 +121,8 @@ const agentTrialRuns = useAgentTrialRuns()
 // Same for agent-session records (step 8): the Sessions panel and a resumed
 // agent turn read a fully hydrated map. Instantiating the store here is safe —
 // its setup only wires IPC and chat transport, no backend work.
-await useAgentMode().init()
+const agentMode = useAgentMode()
+await agentMode.init()
 await useAgentTasks().init()
 await agentTrialRuns.init()
 
@@ -154,13 +156,17 @@ await Promise.all([
 ])
 
 // Needs both the agent store's persisted defaults and the hydrated Default Settings.
-useAgentMode().adoptDefaultCapabilities()
+agentMode.adoptDefaultCapabilities()
+const assistantDefaultCapabilities = () => agentMode.agentDefaults().capabilities
+// Only now, so a first-boot Session takes the user's Assistant defaults, not the built-in ones.
+sessions.provideDefaultCapabilities(assistantDefaultCapabilities)
+if (sessionsListed) await sessions.ensureOpenSession()
 
 // Once Default Settings and the Channel pointers have hydrated: a migrated Session takes the
 // defaults, and the pointers' live copy takes the Channel Session main set.
 await migrateHomeAgentThreads({
   storedHomeAgentState: () => demoAwareStorage.getItem(LEGACY_HOME_AGENT_STORAGE_KEY),
-  defaultCapabilities: () => useAgentMode().agentDefaults().capabilities,
+  defaultCapabilities: assistantDefaultCapabilities,
   migrate: (input) => window.electronAPI.sessions.migrateHomeAgentThreads(input),
   setChannelSession: (kind, sessionRef) => useChannelSessionPointers().set(kind, sessionRef),
   report: (error) => errors.report(error),

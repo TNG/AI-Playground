@@ -13,6 +13,8 @@ export type AnswerRouterCopy = {
   noSession: string
   /** `{title}`; the Session is no longer reachable from Channels */
   unreachable: string
+  /** A reply to a Trial Run that was thrown away since: by the next one, a discard, or a restart */
+  trialRunThrownAway: string
   /** `{title}` */
   realShell: string
   /** Follows `notSent` when the reason can only be fixed on the computer. */
@@ -37,6 +39,8 @@ export type AnswerRouterCopy = {
   queueDroppedStopped: string
   queueDroppedUnreachable: string
   queueDroppedDeleted: string
+  /** `{count}` */
+  queueDroppedThrownAway: string
   /** `/stop`: what it stopped (`{title}`; an Agent Run's `{name}`, `{step}`, `{steps}`) */
   stopTurn: string
   stopAgentRun: string
@@ -45,6 +49,8 @@ export type AnswerRouterCopy = {
   /** `{title}` */
   stopNothing: string
   stopNoSession: string
+  /** `/stop` replying to a Trial Run's message, which only the Agent Library stops */
+  stopTrialRun: string
   /** The `/help` line on answering agents, per channel gesture. */
   helpReply: string
   helpThread: string
@@ -127,6 +133,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   notSent: 'AGENT_ANSWER_NOT_SENT',
   noSession: 'AGENT_ANSWER_NO_SESSION',
   unreachable: 'AGENT_ANSWER_UNREACHABLE',
+  trialRunThrownAway: 'AGENT_ANSWER_TRIAL_RUN_THROWN_AWAY',
   realShell: 'AGENT_ANSWER_REAL_SHELL',
   fixOnDesktop: 'AGENT_ANSWER_FIX_ON_DESKTOP',
   noSpeech: 'AGENT_ANSWER_NO_SPEECH',
@@ -143,11 +150,13 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   queueDroppedStopped: 'CHANNEL_QUEUE_DROPPED_STOPPED',
   queueDroppedUnreachable: 'CHANNEL_QUEUE_DROPPED_UNREACHABLE',
   queueDroppedDeleted: 'CHANNEL_QUEUE_DROPPED_DELETED',
+  queueDroppedThrownAway: 'CHANNEL_QUEUE_DROPPED_THROWN_AWAY',
   stopTurn: 'CHANNEL_STOP_TURN',
   stopAgentRun: 'CHANNEL_STOP_AGENT_RUN',
   stopDropped: 'CHANNEL_STOP_DROPPED',
   stopNothing: 'CHANNEL_STOP_NOTHING',
   stopNoSession: 'CHANNEL_STOP_NO_SESSION',
+  stopTrialRun: 'CHANNEL_STOP_TRIAL_RUN',
   helpReply: 'AGENT_ANSWER_HELP_REPLY',
   helpThread: 'AGENT_ANSWER_HELP_THREAD',
   helpButton: 'AGENT_ANSWER_HELP_BUTTON',

@@ -41,6 +41,9 @@ export const SessionFileSchema = z.object({
 
 export type SessionFile = z.infer<typeof SessionFileSchema>
 
+/** Assistant's default capabilities, for a Reachable Session whose Assistant settings name none. */
+export type AssistantCapabilityDefaults = { defaultCapabilities?: string[] }
+
 /** One row of the Sessions panel. */
 export type SessionSummary = Pick<
   SessionFile,

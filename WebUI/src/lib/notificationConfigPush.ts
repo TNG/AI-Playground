@@ -1,13 +1,14 @@
 import { computed, watch, type WatchStopHandle } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
 import { useQueuedChannelMessages } from '@/assets/js/store/queuedChannelMessages'
 import { useChannels } from '@/assets/js/store/channels'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { registerSessionLabeler } from '@/assets/js/permissions/sessionPromptPort'
-import { notificationSessionLabel } from '@/lib/notificationLabel'
+import { notificationSessionLabel, trialRunLabel } from '@/lib/notificationLabel'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { registerChannelQuestionTemplates } from '@/lib/channelQuestionWording'
 import { answerRouterCopyFrom, registerAnswerRouterCopy } from '@/lib/answerRouterWording'
@@ -35,6 +36,7 @@ export function startNotificationConfigPush(): void {
   if (stop) return
   const channelStore = useChannels()
   const agentMode = useAgentMode()
+  const agentTrialRuns = useAgentTrialRuns()
   const sessions = useSessions()
   const i18n = useI18N()
   const errors = useErrors()
@@ -43,6 +45,7 @@ export function startNotificationConfigPush(): void {
     return {
       channels: [...channelStore.notificationChannels],
       sessionOnScreen: sessions.openSessionId,
+      trialRunInView: agentMode.trialRunInView,
       realShellSessions: Object.values(agentMode.sessions)
         .filter((session) => agentMode.isUnsandboxed(session.workspaceDir))
         .map((session) => session.id),
@@ -66,6 +69,7 @@ export function startNotificationConfigPush(): void {
         answerByReply: text.AGENT_NOTIFY_ANSWER_BY_REPLY ?? '',
         queueDroppedOnQuit: text.CHANNEL_QUEUE_DROPPED_QUIT ?? '',
         agentStarted: text.CHANNEL_AGENT_STARTED ?? '',
+        trialRunLabel: text.AGENT_NOTIFY_TRIAL_RUN_LABEL ?? '',
       },
     }
   })
@@ -103,6 +107,11 @@ export function startNotificationConfigPush(): void {
       fillTemplate(config.value.templates.sessionLabel, {
         title: sessions.sessions[sessionRef]?.title || (i18n.state.SESSIONS_UNTITLED ?? ''),
       }),
+    trialRun: (sessionId) =>
+      trialRunLabel(
+        config.value.templates,
+        agentTrialRuns.trialRunOfSession(sessionId)?.name || agentMode.sessions[sessionId]?.title,
+      ),
   })
   registerAnswerRouterCopy(() => answerRouterCopyFrom(i18n.state))
   registerChannelQuestionTemplates(() => {

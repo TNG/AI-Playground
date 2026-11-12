@@ -8,6 +8,7 @@ import {
   trialFolderAgentIds,
   writeTrialFolderRecord,
 } from '../persist/trialRunFiles'
+import { forgetAllTrialRunMessages, forgetTrialRunMessages } from '../persist/channelMessageMap'
 import { mintHarnessSessionId } from '../session/sessionHarness'
 import { TrialRunRecordSchema, type TrialRunRecord } from '@/types/agentTaskIpc'
 import type { HarnessSessionRef } from '@/types/sessionIpc'
@@ -32,9 +33,18 @@ export function setTrialRunDeps(next: TrialRunDeps): void {
   deps = next
 }
 
+async function forgetMessages(forget: () => Promise<void>): Promise<void> {
+  try {
+    await forget()
+  } catch (error) {
+    appLoggerInstance.warn(`Trial Run channel messages not forgotten: ${String(error)}`, LOG_SCOPE)
+  }
+}
+
 async function removeTrial(agentId: string): Promise<void> {
   const harnessSessionId = (await readTrialFolderRecord(agentId))?.harnessSessionId
   if (harnessSessionId) {
+    await forgetMessages(() => forgetTrialRunMessages(harnessSessionId))
     try {
       await deps?.deleteHarnessSession(harnessSessionId)
     } catch (error) {
@@ -82,4 +92,17 @@ export async function discardTrialRun(agentId: string): Promise<void> {
 export async function wipeTrialRuns(): Promise<void> {
   await Promise.all((await trialFolderAgentIds()).map(removeTrial))
   await removeTrialFoldersRoot()
+  await forgetMessages(forgetAllTrialRunMessages)
+}
+
+/** The Agent whose Trial Run still holds `harnessSessionId`, and the name the run started with. */
+export async function liveTrialRunOf(
+  harnessSessionId: string,
+): Promise<{ agentId: string; name?: string } | null> {
+  for (const agentId of await trialFolderAgentIds()) {
+    const record = await readTrialFolderRecord(agentId)
+    if (record?.harnessSessionId !== harnessSessionId) continue
+    return { agentId, ...(record.run?.name ? { name: record.run.name } : {}) }
+  }
+  return null
 }

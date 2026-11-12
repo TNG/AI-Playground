@@ -28,6 +28,7 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
+const { readSessionSettings } = await import('../../session/sessionSettings')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const ledger = await import('../../session/sessionTurns')
 const { buildSessionsRegistry } = await import('../../kernel/registries/sessions')
@@ -57,7 +58,8 @@ beforeEach(async () => {
           groups: await sessionModule.listSessionGroups(),
           showMore: await sessionModule.readShowMore(),
         })),
-        create: ok(async () => ({ session: await sessionModule.createSession() })),
+        create: (groupId?: string, options?: { defaultCapabilities?: string[] }) =>
+          ok(async () => ({ session: await sessionModule.createSession(groupId, options) }))(),
         open: (id: string) =>
           ok(async () => ({ session: await sessionModule.openSession(id), missingFiles: [] }))(),
         rename: (id: string, title: string) =>
@@ -115,6 +117,56 @@ describe('Sessions store', () => {
 
     expect(store.openSessionId).not.toBe(first)
     expect(await sessionModule.listSessions()).toHaveLength(2)
+  })
+
+  it("creates a Reachable Session whose Assistant can notify, from Assistant's defaults", async () => {
+    const store = useSessions()
+    store.provideDefaultCapabilities(() => ['web'])
+    await store.init()
+
+    const id = (await store.create())!
+
+    expect(store.sessions[id].reachable).toBe(true)
+    const settings = await readSessionSettings(id)
+    expect(settings.Assistant.bags.Assistant.values.capabilities).toEqual(['web', 'notify'])
+  })
+
+  it("leaves first boot's Session to be created once Assistant's defaults are known", async () => {
+    const store = useSessions()
+
+    await store.hydrate()
+    expect(await sessionModule.listSessions()).toEqual([])
+    expect(store.openSessionId).toBeNull()
+
+    store.provideDefaultCapabilities(() => ['rag'])
+    const id = await store.ensureOpenSession()
+
+    expect(store.openSessionId).toBe(id)
+    const settings = await readSessionSettings(id!)
+    expect(settings.Assistant.bags.Assistant.values.capabilities).toEqual(['rag', 'notify'])
+  })
+
+  it('hydrating reopens the most recent Session, creating none', async () => {
+    const existing = await sessionModule.createSession()
+    const store = useSessions()
+
+    await store.hydrate()
+
+    expect(store.openSessionId).toBe(existing.id)
+    expect(await sessionModule.listSessions()).toHaveLength(1)
+  })
+
+  it('creates a Channel Session reachable in one call, without opening it', async () => {
+    const store = useSessions()
+    await store.init()
+    const open = store.openSessionId
+
+    const id = await store.createReachable(['rag'])
+
+    expect(store.sessions[id].reachable).toBe(true)
+    expect(store.openSessionId).toBe(open)
+    const settings = await readSessionSettings(id)
+    expect(settings.Assistant.bags.Assistant.values.capabilities).toEqual(['rag', 'notify'])
   })
 
   it('shows a renamed title', async () => {

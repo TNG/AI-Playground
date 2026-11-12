@@ -68,9 +68,28 @@ async function assistantCapabilities(id: string): Promise<unknown> {
 }
 
 describe('Reachable Session', () => {
-  it('starts unreachable, and is remembered reachable across a re-list', async () => {
+  it('starts reachable, with notify added to the default capabilities', async () => {
+    const session = await createSession(undefined, { defaultCapabilities: ['web', 'rag'] })
+
+    expect(session.reachable).toBe(true)
+    expect((await listSessions())[0].reachable).toBe(true)
+    expect(await isSessionReachable(session.id)).toBe(true)
+    expect(await assistantCapabilities(session.id)).toEqual(['web', 'rag', 'notify'])
+  })
+
+  it('reads a session.json written before reachability as not reachable', async () => {
     const session = await createSession()
-    expect(session.reachable).toBe(false)
+    const file = path.join(dirs.real, session.id, 'session.json')
+    const { reachable: _reachable, ...older } = JSON.parse(await fs.readFile(file, 'utf8'))
+    await fs.writeFile(file, JSON.stringify(older))
+
+    expect(await isSessionReachable(session.id)).toBe(false)
+    expect((await listSessions())[0].reachable).toBe(false)
+  })
+
+  it('is remembered reachable across a re-list once turned back on', async () => {
+    const session = await createSession()
+    await setSessionReachable(session.id, false)
 
     const changed = await setSessionReachable(session.id, true)
 
@@ -166,11 +185,9 @@ describe('the real system shell', () => {
     expect(await isSessionReachable(other.id)).toBe(true)
   })
 
-  it('turned on in a Reachable Session turns reachable off, and tells the window', async () => {
-    const session = await createSession()
+  it('turned on in a new Session turns reachable off, and tells the window', async () => {
+    const session = await createSession(undefined, { defaultCapabilities: ['web'] })
     const bystander = await createSession()
-    await setSessionReachable(session.id, true)
-    await setSessionReachable(bystander.id, true)
     vi.mocked(emitSessionChanged).mockClear()
 
     await setRealShellFolders([filesDir(session.id)])

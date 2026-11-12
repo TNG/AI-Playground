@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AnswerTarget } from '@/types/notificationsIpc'
-import type { SessionTarget } from '../../../src/assets/js/store/channels/answerRouter'
+import type { ChannelTarget } from '../../../src/assets/js/store/channels/answerRouter'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
 const dirs = vi.hoisted(() => ({ root: '' }))
@@ -103,6 +103,26 @@ describe('the channel message map', () => {
     expect(await messageMap.channelMessageOwner('slack', '3')).toEqual({ deletedSession: true })
   })
 
+  it('reads a map written before Trial Runs were recorded as it was', async () => {
+    await fs.writeFile(
+      mapFile(),
+      JSON.stringify({
+        schemaVersion: 2,
+        entries: [
+          { kind: 'telegram', ref: '1', owner: { sessionRef: 's-1', harnessSessionId: 'h-1' } },
+          { kind: 'telegram', ref: '2', owner: null },
+          { kind: 'slack', ref: '3', owner: { startPromptRequest: true } },
+        ],
+      }),
+    )
+    expect(await messageMap.channelMessageOwner('telegram', '1')).toEqual({
+      sessionRef: 's-1',
+      harnessSessionId: 'h-1',
+    })
+    expect(await messageMap.channelMessageOwner('telegram', '2')).toEqual({ deletedSession: true })
+    expect(await messageMap.channelMessageOwner('slack', '3')).toEqual({ startPromptRequest: true })
+  })
+
   it('starts over when the file is unreadable', async () => {
     await fs.writeFile(mapFile(), '{not json')
     expect(await messageMap.channelMessageOwner('telegram', '1')).toBeNull()
@@ -114,7 +134,7 @@ describe('the channel message map', () => {
   it('routes an Answer to a migrated entry into the Harness Session that sent it', async () => {
     const owner = await sessionWithHarness()
     await writeLegacyMap([{ kind: 'telegram', ref: '1234', sessionId: owner.harnessSessionId }])
-    const sent: { target: SessionTarget; message: string; origin: AgentAnswerOrigin }[] = []
+    const sent: { target: ChannelTarget; message: string; origin: AgentAnswerOrigin }[] = []
     const router = createAnswerRouter({
       sessions: () => ({
         exists: async () => true,
@@ -138,7 +158,10 @@ describe('the channel message map', () => {
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},
         onAgentRunRefused: () => () => {},
-        turnTarget: ({ sessionRef }) => sessionRef,
+        turnTarget: (target) => ('sessionRef' in target ? target.sessionRef : ''),
+        trialRunLive: () => false,
+        trialRunActivity: () => ({ kind: 'idle' }),
+        onTrialRunChange: () => () => {},
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
       pointers: { get: () => null, set: () => {} },

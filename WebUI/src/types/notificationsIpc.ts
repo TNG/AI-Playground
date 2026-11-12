@@ -1,20 +1,53 @@
+import { z } from 'zod'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import type { PauseReason } from './kernelEvents'
 
 /** The Harness Session an Answer runs in, and the Session it belongs to. */
-export type AnswerTarget = { sessionRef: string; harnessSessionId: string }
+export const AnswerTargetSchema = z.object({ sessionRef: z.string(), harnessSessionId: z.string() })
+export type AnswerTarget = z.infer<typeof AnswerTargetSchema>
 
 /** Who sent a channel message: a live Harness Session, or one that has since been deleted. */
 export type SessionMessageOwner = AnswerTarget | { deletedSession: true }
 
 /** A posted Start Prompt Request, which the message map records with no Session. */
-export type StartPromptRequestOwner = { startPromptRequest: true }
+export const StartPromptRequestOwnerSchema = z.object({ startPromptRequest: z.literal(true) })
+export type StartPromptRequestOwner = z.infer<typeof StartPromptRequestOwnerSchema>
 
-/** A channel message in the message map: a Session's, or a posted Start Prompt Request. */
-export type ChannelMessageOwner = SessionMessageOwner | StartPromptRequestOwner
+/** A live Trial Run that sent a channel message: its Harness Session and its Agent (ADR 0011). */
+export const TrialRunOwnerSchema = z.object({
+  trialRun: z.literal(true),
+  harnessSessionId: z.string(),
+  agentId: z.string(),
+})
+export type TrialRunOwner = z.infer<typeof TrialRunOwnerSchema>
+
+/** A Trial Run thrown away since it sent the message: by the next one, a discard, or a restart. */
+export const ThrownAwayTrialRunSchema = z.object({
+  thrownAwayTrialRun: z.literal(true),
+  agentId: z.string(),
+})
+export type ThrownAwayTrialRun = z.infer<typeof ThrownAwayTrialRunSchema>
+
+export type TrialRunMessageOwner = TrialRunOwner | ThrownAwayTrialRun
+
+/** A channel message in the message map: a Session's, a Trial Run's, or a Start Prompt Request. */
+export type ChannelMessageOwner =
+  SessionMessageOwner | TrialRunMessageOwner | StartPromptRequestOwner
 
 export function isStartPromptRequest(owner: ChannelMessageOwner): owner is StartPromptRequestOwner {
   return 'startPromptRequest' in owner
+}
+
+export function isAnswerTarget(owner: ChannelMessageOwner): owner is AnswerTarget {
+  return 'sessionRef' in owner
+}
+
+export function isTrialRunOwner(owner: ChannelMessageOwner): owner is TrialRunOwner {
+  return 'trialRun' in owner
+}
+
+export function isTrialRunMessage(owner: ChannelMessageOwner): owner is TrialRunMessageOwner {
+  return isTrialRunOwner(owner) || 'thrownAwayTrialRun' in owner
 }
 
 /** Automatic Notification texts in the app language. */
@@ -46,6 +79,8 @@ export type NotificationTemplates = {
   queueDroppedOnQuit: string
   /** An Agent Run a Channel started: `{name}` (the Agent), `{title}` (the Session's label) */
   agentStarted: string
+  /** The label of a Trial Run's Notification: `{agent}` (the Agent's name) */
+  trialRunLabel: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0010). */
@@ -54,6 +89,8 @@ export type NotificationConfig = {
   channels: ChannelKind[]
   /** The Session open in the window, shown or not; null when none is. */
   sessionOnScreen: string | null
+  /** The Harness Session of the Trial Run the Agent Library shows, shown or not; null when none. */
+  trialRunInView: string | null
   /** Harness Sessions whose folder uses the real system shell; Answers to them are refused. */
   realShellSessions: string[]
   templates: NotificationTemplates

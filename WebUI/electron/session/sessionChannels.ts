@@ -2,21 +2,19 @@ import path from 'node:path'
 import { emitSessionChanged } from '../kernel/kernelBus'
 import { forgetSessionMessages } from '../persist/channelMessageMap'
 import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
-import { mutateSession, onSessionDeleted, sessionDocumentOf, sessionPaths } from './sessions'
-import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
-import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
-import type { SessionFile, SessionSummary } from '@/types/sessionIpc'
-import { parseSessionSettings } from '@/types/sessionSettings'
+import {
+  mutateSession,
+  onSessionDeleted,
+  sessionDocumentOf,
+  sessionPaths,
+  withNotify,
+} from './sessions'
+import type { AssistantCapabilityDefaults, SessionFile, SessionSummary } from '@/types/sessionIpc'
 
 // What Channels may do with a Session (Reachable Session, docs/adr/0010).
 
 export const REAL_SHELL_REACHABLE_REFUSAL =
   'A Session that uses the real system shell cannot be reachable from Channels'
-
-export type ReachableOptions = {
-  /** Assistant's default capabilities, for a Session whose Assistant settings name none yet. */
-  defaultCapabilities?: string[]
-}
 
 // The real shell is a per-folder opt-in the window keeps, so the window pushes it here.
 let realShellFolders = new Set<string>()
@@ -24,21 +22,6 @@ let realShellFolders = new Set<string>()
 function usesRealShell(file: SessionFile): boolean {
   const folders = [sessionPaths(file.id).filesDir, ...Object.values(file.harnessWorkspaces)]
   return folders.some((folder) => realShellFolders.has(path.resolve(folder)))
-}
-
-function withNotify(file: SessionFile, defaultCapabilities: string[] | undefined): SessionFile {
-  const entry = parseSessionSettings(file.settings)[HARNESS_CHAT_PRESET] ?? { bags: {} }
-  const bag = entry.bags[HARNESS_CHAT_PRESET] ?? { values: {}, fromDefaults: true }
-  const stored = bag.values.capabilities
-  const own = Array.isArray(stored) ? (stored as string[]) : undefined
-  const capabilities = own ?? defaultCapabilities
-  if (!capabilities || own?.includes(NOTIFY_CAPABILITY_ID)) return file
-  const withId = capabilities.includes(NOTIFY_CAPABILITY_ID)
-    ? capabilities
-    : [...capabilities, NOTIFY_CAPABILITY_ID]
-  const next = { ...bag, values: { ...bag.values, capabilities: withId } }
-  const nextEntry = { ...entry, bags: { ...entry.bags, [HARNESS_CHAT_PRESET]: next } }
-  return { ...file, settings: { ...file.settings, [HARNESS_CHAT_PRESET]: nextEntry } }
 }
 
 function changed(file: SessionFile): SessionSummary {
@@ -52,7 +35,7 @@ function changed(file: SessionFile): SessionSummary {
 export async function setSessionReachable(
   id: string,
   reachable: boolean,
-  options: ReachableOptions = {},
+  options: AssistantCapabilityDefaults = {},
 ): Promise<SessionSummary> {
   const file = await mutateSession(id, (current) => {
     if (!reachable) return { ...current, reachable }

@@ -382,6 +382,8 @@ const { useAgentTrialRuns } = await import('@/assets/js/store/agentTrialRuns')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const { useUIStore } = await import('@/assets/js/store/ui')
 const { trialRunItems } = await import('@/lib/trialRunTimeline')
+const { isAgentSessionTurn, sessionAnswerOrigin, sessionTurnReachesChannels } =
+  await import('@/assets/js/permissions/sessionPromptPort')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -750,6 +752,52 @@ describe('a Follow-up to a Trial Run', () => {
     })
     expect(sentConfig(1).sessionRef).toBeUndefined()
     expect(sentConfig(1).taskRun).toBeUndefined()
+  })
+
+  it('replies to a Channel’s Answer on that Channel', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    const trial = await trialToEnd(trials, 't1', 0)
+    const answer = { channel: 'local-web' as const, replyTo: '42' }
+
+    expect(await trials.followUpTrialRun('t1', 'only unread', { answer })).toEqual({ ok: true })
+
+    await turnIdOf(1)
+    expect(sentConfig(1)).toMatchObject({ sessionId: trial, answer })
+  })
+
+  it('asks its download in the Channel it answers, as an answered Session turn does', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    const trial = await trialToEnd(trials, 't1', 0)
+    const answer = { channel: 'telegram' as const, replyTo: '7' }
+
+    await trials.followUpTrialRun('t1', 'only unread', { answer })
+    await turnIdOf(1)
+
+    expect(isAgentSessionTurn(trial)).toBe(true)
+    expect(sessionTurnReachesChannels(trial)).toBe(true)
+    expect(sessionAnswerOrigin(trial)).toEqual(answer)
+  })
+
+  it('asks on the desktop alone when no Channel answered it, as its Steps do', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
+    await turnIdOf(0)
+    const trial = trials.trialRuns.t1.harnessSessionId
+
+    expect(sessionTurnReachesChannels(trial)).toBe(false)
+    await finishTurn(0)
+    await finishTurn(1)
+    await vi.waitFor(() => expect(trials.trialRuns.t1.state).toBe('completed'))
+
+    await trials.followUpTrialRun('t1', 'why?')
+    await turnIdOf(2)
+
+    expect(isAgentSessionTurn(trial)).toBe(true)
+    expect(sessionTurnReachesChannels(trial)).toBe(false)
+    expect(sessionAnswerOrigin(trial)).toBeUndefined()
   })
 
   it('continues after a Follow-up in the same Harness Session', async () => {

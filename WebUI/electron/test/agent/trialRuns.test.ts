@@ -11,6 +11,7 @@ const paths = vi.hoisted(() => ({ trials: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getAgentTrialsDir: () => paths.trials,
+  getChannelMessageMapFile: () => path.join(paths.trials, '..', 'channel-messages.json'),
 }))
 
 vi.mock('../../observability/logger', () => ({

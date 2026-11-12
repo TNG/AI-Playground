@@ -3,9 +3,13 @@ import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import {
   isStartPromptRequest,
+  isTrialRunMessage,
+  isTrialRunOwner,
   type AnswerTarget,
   type ChannelMessageOwner,
   type SessionMessageOwner,
+  type TrialRunMessageOwner,
+  type TrialRunOwner,
 } from '@/types/notificationsIpc'
 import {
   ANSWER_CALLBACK,
@@ -29,6 +33,7 @@ import {
   CHANNEL_QUEUE_LIMIT,
   combineMessages,
   createChannelQueue,
+  type ChannelQueue,
   type ChannelTurnMessage,
   type QueuedChannelMessage,
   type QueuedEntry,
@@ -72,6 +77,15 @@ export type SessionChange = 'settled' | 'unreachable' | 'deleted'
 /** A plain message goes to the Session's Assistant; an Answer to the Harness Session that asked. */
 export type SessionTarget = { sessionRef: string } | AnswerTarget
 
+/** An Answer to a Trial Run, by its Harness Session: it belongs to no Session (ADR 0011). */
+export type TrialRunTarget = { trialRunSessionId: string }
+
+/** Where a Channel's message runs: a Session, or a Trial Run it answers. */
+export type ChannelTarget = SessionTarget | TrialRunTarget
+
+/** The Trial Run's turn and Steps are over, or it was thrown away with its Harness Session. */
+export type TrialRunChange = 'settled' | 'thrown-away'
+
 /** One message of a Session's transcript, for repainting a Channel that keeps no history. */
 export type ChannelTranscriptMessage = { role: 'user' | 'assistant'; parts: RawPart[] }
 
@@ -97,25 +111,26 @@ export type SessionPort = {
   /** Puts a posted Start Prompt Request in the message map, to be recognized after a restart. */
   recordStartPromptRequest: (kind: ChannelKind, ref: string) => Promise<void>
   /** The label, quoted (`"Asteroids clone"`, or a Task and its step for an Answer). */
-  label: (target: SessionTarget) => string
+  label: (target: ChannelTarget) => string
   /** The folder runs the real system shell, which is never driven from a channel. */
   usesRealShell: (target: AnswerTarget) => boolean
   /**
    * The Harness Session the target's turn runs in, without minting one: the Session ref stands
    * for its Assistant Harness Session. Queued messages with the same turn target combine.
    */
-  turnTarget: (target: SessionTarget) => string
+  turnTarget: (target: ChannelTarget) => string
   /**
    * Stores an image in the attachments of the target's workspace, or a document there as an
    * Attached Document; an image is refused when the target's model cannot see images.
    */
-  attach: (target: SessionTarget, file: ChannelFile) => Promise<AttachResult>
+  attach: (target: ChannelTarget, file: ChannelFile) => Promise<AttachResult>
   /**
    * `origin` is where the message came from; the turn's result is replied under it. A plain
-   * message runs in the Session's Assistant Harness Session, minted on first use.
+   * message runs in the Session's Assistant Harness Session, minted on first use; an Answer to a
+   * Trial Run runs as its Follow-up, refused as `thrown-away` once it is gone.
    */
   send: (
-    target: SessionTarget,
+    target: ChannelTarget,
     message: string,
     origin: AgentAnswerOrigin,
   ) => Promise<SessionSendResult>
@@ -142,6 +157,14 @@ export type SessionPort = {
   /** Hear a Channel-started run's later Step refused by the window; returns the unsubscribe. */
   onAgentRunRefused: (
     listener: (sessionRef: string, refusal: AgentRunRefusal) => void,
+  ) => () => void
+  /** The window still holds this Trial Run: it is neither superseded nor discarded. */
+  trialRunLive: (harnessSessionId: string) => boolean
+  /** The Trial Run's Step or Follow-up in flight, also between its Steps. */
+  trialRunActivity: (harnessSessionId: string) => SessionActivity
+  /** Hear each Trial Run settle or be thrown away; returns the unsubscribe. */
+  onTrialRunChange: (
+    listener: (harnessSessionId: string, change: TrialRunChange) => void,
   ) => () => void
 }
 
@@ -209,16 +232,32 @@ const FIXED_ON_DESKTOP = new Set(['missing-folder', 'settings-problems'])
 /** How a submitted message or Agent start went: sent, waiting in the Session's queue, or refused. */
 type SubmitOutcome = 'started' | 'queued' | 'refused'
 
-/** A message, or an Agent start, waiting for its Session's turn or Agent Run to end. */
+/** A message, or an Agent start, waiting for its Session's or Trial Run's turn to end. */
 type QueuedMessage = {
   adapter: ChannelAdapter
-  target: SessionTarget
   origin: AgentAnswerOrigin
   meta?: InboundMeta
 } & (
-  | { message: ChannelTurnMessage }
-  | { agent: StartableAgent; prompt?: string; settled?: (started: boolean) => void }
+  | { target: ChannelTarget; message: ChannelTurnMessage }
+  | {
+      target: { sessionRef: string }
+      agent: StartableAgent
+      prompt?: string
+      settled?: (started: boolean) => void
+    }
 )
+
+/** One Session's or Trial Run's queue; `key` is unique across both. */
+type Lane = {
+  key: string
+  id: string
+  target: { sessionRef: string } | TrialRunTarget
+  queue: ChannelQueue<QueuedMessage>
+  activity: () => SessionActivity
+  publishSending: (sending: boolean) => void
+}
+
+type DropReason = 'stopped' | 'unreachable' | 'deleted' | 'thrown-away'
 
 export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const copy = deps.copy ?? answerRouterCopy
@@ -232,8 +271,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     })
 
   const queue = createChannelQueue<QueuedMessage>({ onChange: deps.publishQueue })
+  // The desktop shows a Session's queue only; a Trial Run's is the router's alone.
+  const trialRunQueue = createChannelQueue<QueuedMessage>()
   let agentStarts = 0
-  // Sessions whose next queued batch is being sent.
+  // Lanes whose next queued batch is being sent.
   const draining = new Set<string>()
   // Per Channel: its messages behind a voice message whose speech model downloads, in order.
   const waitingForSpeech = new Map<ChannelKind, Promise<void>>()
@@ -247,15 +288,45 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     unsubscribe?.()
     subscribedTo = sessions
     const stopChanges = sessions.onSessionChange((sessionRef, change) => {
-      if (change === 'settled') void drain(sessions, sessionRef)
-      else void dropQueue(sessions, sessionRef, change)
+      const lane = laneOf(sessions, { sessionRef })
+      if (change === 'settled') void drain(sessions, lane)
+      else void dropQueue(sessions, lane, change)
     })
     const stopRefusals = sessions.onAgentRunRefused((sessionRef, refusal) => {
       void tellRunRefused(sessions, sessionRef, refusal)
     })
+    const stopTrialChanges = sessions.onTrialRunChange((harnessSessionId, change) => {
+      const lane = laneOf(sessions, { trialRunSessionId: harnessSessionId })
+      if (change === 'settled') void drain(sessions, lane)
+      else void dropQueue(sessions, lane, change)
+    })
     unsubscribe = () => {
       stopChanges()
       stopRefusals()
+      stopTrialChanges()
+    }
+  }
+
+  function laneOf(sessions: SessionPort, target: ChannelTarget): Lane {
+    if ('trialRunSessionId' in target) {
+      const id = target.trialRunSessionId
+      return {
+        key: `trial-run:${id}`,
+        id,
+        target: { trialRunSessionId: id },
+        queue: trialRunQueue,
+        activity: () => sessions.trialRunActivity(id),
+        publishSending: () => {},
+      }
+    }
+    const id = target.sessionRef
+    return {
+      key: id,
+      id,
+      target: { sessionRef: id },
+      queue,
+      activity: () => sessions.activity(id),
+      publishSending: (sending) => deps.publishSending?.(id, sending),
     }
   }
 
@@ -278,7 +349,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   async function send(
     sessions: SessionPort,
-    target: SessionTarget,
+    target: ChannelTarget,
     text: string,
     origin: AgentAnswerOrigin,
   ): Promise<SessionSendResult> {
@@ -298,6 +369,8 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const wording = copy()
     if (!result.ok && result.reason === 'no-session') {
       await tell(adapter, wording.noSession, meta)
+    } else if (!result.ok && result.reason === 'thrown-away') {
+      await tell(adapter, wording.trialRunThrownAway, meta)
     } else if (!result.ok) {
       const notSent = fillTemplate(wording.notSent, { title, reason: result.message })
       const fixable = FIXED_ON_DESKTOP.has(result.reason)
@@ -367,19 +440,15 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return result.ok ? 'started' : 'refused'
   }
 
-  /** Sends a Channel's message into its Session, or queues it while the Session is busy. */
+  /** Sends a Channel's message into its Session or Trial Run, or queues it while that is busy. */
   async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<SubmitOutcome> {
     listen(sessions)
-    const { sessionRef } = entry.target
-    if (
-      queue.size(sessionRef) > 0 ||
-      draining.has(sessionRef) ||
-      sessions.activity(sessionRef).kind !== 'idle'
-    ) {
-      return enqueue(sessions, entry)
+    const lane = laneOf(sessions, entry.target)
+    if (lane.queue.size(lane.id) > 0 || draining.has(lane.key) || lane.activity().kind !== 'idle') {
+      return enqueue(sessions, lane, entry)
     }
     const outcome = await run(sessions, entry)
-    return outcome === 'busy' ? enqueue(sessions, entry) : outcome
+    return outcome === 'busy' ? enqueue(sessions, lane, entry) : outcome
   }
 
   function previewOf(entry: QueuedMessage): string {
@@ -390,12 +459,12 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
 
   async function enqueue(
     sessions: SessionPort,
+    lane: Lane,
     entry: QueuedMessage,
   ): Promise<Exclude<SubmitOutcome, 'started'>> {
-    const { sessionRef } = entry.target
     const wording = copy()
     const title = sessions.label(entry.target)
-    const position = queue.add(sessionRef, {
+    const position = lane.queue.add(lane.id, {
       channel: entry.adapter.kind,
       batchKey:
         'agent' in entry ? `agent-start-${++agentStarts}` : sessions.turnTarget(entry.target),
@@ -408,7 +477,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
     }
-    const activity = sessions.activity(sessionRef)
+    const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'
         ? fillTemplate(wording.queueAfterAgentRun, {
@@ -426,7 +495,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const pauseLine = pause ? pauseNote(pause, entry.adapter.kind, wording) : null
     await tell(entry.adapter, pauseLine ? `${ack}\n${pauseLine}` : ack, entry.meta)
     // The Session may have settled while the message was refused or acknowledged.
-    await drain(sessions, sessionRef)
+    await drain(sessions, lane)
     return 'queued'
   }
 
@@ -438,18 +507,18 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   }
 
   /** Runs the oldest Channel's queued messages as one turn once the Session is idle. */
-  async function drain(sessions: SessionPort, sessionRef: string): Promise<void> {
-    while (!draining.has(sessionRef) && sessions.activity(sessionRef).kind === 'idle') {
-      const batch = queue.takeBatch(sessionRef)
+  async function drain(sessions: SessionPort, lane: Lane): Promise<void> {
+    while (!draining.has(lane.key) && lane.activity().kind === 'idle') {
+      const batch = lane.queue.takeBatch(lane.id)
       if (batch.length === 0) return
-      draining.add(sessionRef)
-      deps.publishSending?.(sessionRef, true)
+      draining.add(lane.key)
+      lane.publishSending(true)
       try {
-        const busy = await sendBatch(sessions, sessionRef, batch)
+        const busy = await sendBatch(sessions, lane, batch)
         if (busy) return
       } finally {
-        draining.delete(sessionRef)
-        deps.publishSending?.(sessionRef, false)
+        draining.delete(lane.key)
+        lane.publishSending(false)
       }
     }
   }
@@ -457,7 +526,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   /** True when the Session turned out busy and the batch went back to wait for it. */
   async function sendBatch(
     sessions: SessionPort,
-    sessionRef: string,
+    lane: Lane,
     batch: QueuedEntry<QueuedMessage>[],
   ): Promise<boolean> {
     const last = batch[batch.length - 1].item
@@ -467,27 +536,27 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const origin = { ...last.origin, ...(replyTo ? { replyTo } : {}), ...(voice ? { voice } : {}) }
     const outcome = await run(sessions, { ...last, origin }, combineMessages(messages).text)
     const busy = outcome === 'busy'
-    if (busy) queue.putBack(sessionRef, batch)
+    if (busy) lane.queue.putBack(lane.id, batch)
     return busy
   }
 
-  /** Drops the Session's queue, telling each Channel but `except` how many of its messages went. */
+  /** Drops the lane's queue, telling each Channel but `except` how many of its messages went. */
   async function dropQueue(
     sessions: SessionPort,
-    sessionRef: string,
-    why: 'stopped' | 'unreachable' | 'deleted',
+    lane: Lane,
+    why: DropReason,
     except?: ChannelKind,
   ): Promise<number> {
-    const dropped = queue.drop(sessionRef)
+    const dropped = lane.queue.drop(lane.id)
     for (const { item } of dropped) if ('agent' in item) item.settled?.(false)
     const wording = copy()
-    const template =
-      why === 'stopped'
-        ? wording.queueDroppedStopped
-        : why === 'unreachable'
-          ? wording.queueDroppedUnreachable
-          : wording.queueDroppedDeleted
-    const title = sessions.label({ sessionRef })
+    const template = {
+      stopped: wording.queueDroppedStopped,
+      unreachable: wording.queueDroppedUnreachable,
+      deleted: wording.queueDroppedDeleted,
+      'thrown-away': wording.queueDroppedThrownAway,
+    }[why]
+    const title = sessions.label(lane.target)
     const byChannel = new Map<ChannelKind, QueuedEntry<QueuedMessage>[]>()
     for (const entry of dropped) {
       byChannel.set(entry.channel, [...(byChannel.get(entry.channel) ?? []), entry])
@@ -500,14 +569,15 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return dropped.length
   }
 
-  async function answeredSession(
+  /** The Session or Trial Run whose message `ref` is; a Start Prompt Request is neither. */
+  async function answered(
     sessions: SessionPort,
     kind: ChannelKind,
     ref: string,
-  ): Promise<SessionMessageOwner | null> {
+  ): Promise<SessionMessageOwner | TrialRunMessageOwner | null> {
     try {
       const owner = await sessions.lookup(kind, ref)
-      return owner && isStartPromptRequest(owner) ? null : owner
+      return owner && !isStartPromptRequest(owner) ? owner : null
     } catch (e) {
       log('answerRouter: message lookup failed:', e)
       return null
@@ -537,6 +607,27 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const title = sessions.label(target)
       return tell(adapter, fillTemplate(copy().realShell, { title }), meta)
     }
+    const prompt = await attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta)
+    if (prompt === null) return
+    const origin = inboundOrigin(adapter.kind, msg)
+    await submit(sessions, { adapter, target, message: { text: prompt }, origin, meta })
+  }
+
+  function liveTrialRun(sessions: SessionPort, owner: TrialRunMessageOwner): TrialRunOwner | null {
+    return isTrialRunOwner(owner) && sessions.trialRunLive(owner.harnessSessionId) ? owner : null
+  }
+
+  /** An Answer to a Trial Run runs as its Follow-up; one thrown away since takes nothing. */
+  async function deliverToTrialRun(
+    adapter: ChannelAdapter,
+    sessions: SessionPort,
+    owner: TrialRunMessageOwner,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<void> {
+    const live = liveTrialRun(sessions, owner)
+    if (!live) return tell(adapter, copy().trialRunThrownAway, meta)
+    const target: TrialRunTarget = { trialRunSessionId: live.harnessSessionId }
     const prompt = await attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta)
     if (prompt === null) return
     const origin = inboundOrigin(adapter.kind, msg)
@@ -594,7 +685,13 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ): Promise<string | null> {
-    const owner = msg.replyTo ? await answeredSession(sessions, adapter.kind, msg.replyTo) : null
+    const owner = msg.replyTo ? await answered(sessions, adapter.kind, msg.replyTo) : null
+    if (owner && isTrialRunMessage(owner)) {
+      const wording = copy()
+      const live = liveTrialRun(sessions, owner)
+      await tell(adapter, live ? wording.stopTrialRun : wording.trialRunThrownAway, meta)
+      return null
+    }
     if (owner) {
       const target = 'deletedSession' in owner ? null : { sessionRef: owner.sessionRef }
       const reachable = await replyReachable({ copy, tell }, sessions, adapter, target, meta)
@@ -620,7 +717,12 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
           return tell(adapter, fillTemplate(wording.stopNothing, { title }), meta)
         }
         // Dropped first, so the stopped turn's settle has nothing left to run.
-        const count = await dropQueue(sessions, sessionRef, 'stopped', adapter.kind)
+        const count = await dropQueue(
+          sessions,
+          laneOf(sessions, { sessionRef }),
+          'stopped',
+          adapter.kind,
+        )
         const stopped = running.kind === 'idle' ? running : await sessions.stop(sessionRef)
         const what =
           stopped.kind === 'agent-run'
@@ -777,7 +879,11 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     if (await runCommand(adapter, sessions, msg, meta)) return
     if (await startPrompts(sessions).reply(adapter, msg, meta)) return
     if (msg.replyTo) {
-      const owner = await answeredSession(sessions, adapter.kind, msg.replyTo)
+      const owner = await answered(sessions, adapter.kind, msg.replyTo)
+      if (owner && isTrialRunMessage(owner)) {
+        await deliverToTrialRun(adapter, sessions, owner, msg, answerMeta(msg, meta))
+        return
+      }
       if (owner) {
         await deliver(adapter, sessions, owner, msg, answerMeta(msg, meta))
         return

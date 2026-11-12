@@ -31,6 +31,14 @@ export function notificationSessionLabel(
   return fillTemplate(templates.sessionLabel, { title: title || templates.untitled })
 }
 
+/** `agent` is the Agent's name the run started with, else its Harness Session's title. */
+export function trialRunLabel(
+  templates: Pick<NotificationTemplates, 'trialRunLabel' | 'untitled'>,
+  agent: string | undefined,
+): string {
+  return fillTemplate(templates.trialRunLabel, { agent: agent || templates.untitled })
+}
+
 function runOf(task: LabelTask, sessionId: string) {
   return task.activeRuns?.find((run) => run.sessionId === sessionId)
 }

@@ -604,6 +604,7 @@ async function dispatchChatTool(
   ctx: {
     conversationKey: string
     defaultWorkflow?: string
+    allowedWorkflows?: string[]
     options?: BuildToolSetOptions
   },
 ): Promise<unknown> {
@@ -628,6 +629,7 @@ async function dispatchChatToolBody(
   ctx: {
     conversationKey: string
     defaultWorkflow?: string
+    allowedWorkflows?: string[]
     options?: BuildToolSetOptions
   },
 ): Promise<unknown> {
@@ -666,6 +668,7 @@ async function dispatchChatToolBody(
       conversationKey: ctx.conversationKey,
       keepModelsLoaded: options.keepModelsLoaded ?? false,
       defaultWorkflow: ctx.defaultWorkflow,
+      allowedWorkflows: ctx.allowedWorkflows,
       readMediaAsDataUri: options.readMediaAsDataUri,
     })
   }
@@ -756,6 +759,7 @@ export function buildToolSet(
           dispatchChatTool(spec, input, execOptions, {
             conversationKey,
             defaultWorkflow: data?.defaultWorkflow,
+            allowedWorkflows: data?.names,
             options,
           }),
         )

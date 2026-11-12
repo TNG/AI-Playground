@@ -190,6 +190,7 @@ describe('runMediaAgentInMain', () => {
     expect(
       progress.some((e) => e.type === 'narration-delta' && e.text === 'Made the castle.'),
     ).toBe(true)
+    expect(progress.at(-1)).toEqual({ type: 'run-end', state: 'done' })
   })
 
   it('tags renderer-origin runs with the parent conversation key', async () => {
@@ -230,6 +231,51 @@ describe('runMediaAgentInMain', () => {
     })
   })
 
+  it("ships the turn's enabled workflows with each inner call, so main can refuse others", async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    await runMediaAgentInMain(runRequest())
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      allowedWorkflows: ['W1'],
+    })
+  })
+
+  it('tells the specialist a download was declined, and remembers it across the session', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('The user declined the download.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+    runInProcessComfyToolMock.mockResolvedValue({
+      success: false,
+      declined: true,
+      message: 'The user declined the download. Do not call comfyUI with this workflow again.',
+      images: [],
+    })
+    const declinedWorkflows = new Set<string>()
+
+    const result = await runMediaAgentInMain({ ...runRequest(), declinedWorkflows })
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      toolName: 'comfyUI',
+      declinedWorkflows,
+    })
+    expect(result.steps[0].output).toMatchObject({ success: false, declined: true })
+  })
+
   it('cancel aborts a pending in-process run and the specialist settles as a failure', async () => {
     let call = 0
     const model = new MockLanguageModelV3({
@@ -266,6 +312,9 @@ describe('runMediaAgentInMain', () => {
     cancelMediaAgentRun('media-run:test')
 
     await expect(run).rejects.toThrow()
+    const progress = mediaEvents()
+    expect(progress.at(-1)).toEqual({ type: 'run-end', state: 'failed' })
+    expect(progress.filter((e) => e.type === 'run-end')).toHaveLength(1)
     expect(() => cancelMediaAgentRun('media-run:unknown')).not.toThrow()
   })
 })

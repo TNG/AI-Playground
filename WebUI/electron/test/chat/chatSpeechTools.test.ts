@@ -13,7 +13,10 @@ vi.mock('../../persist/audioFiles', () => ({
   saveGeneratedAudioFile: saveGeneratedAudioFileMock,
 }))
 const requestSpeechMock = vi.fn()
-vi.mock('../../chat/chatAsk', () => ({ askRenderer: requestSpeechMock }))
+vi.mock('../../chat/chatAsk', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  askRenderer: requestSpeechMock,
+}))
 
 const { executeChatSpeechTool } = await import('../../chat/chatSpeechTools')
 const { filePartToBase64 } = await import('../../chat/chatFileParts')
@@ -124,6 +127,26 @@ describe('executeChatSpeechTool', () => {
 
     expect(result).toEqual({ ok: false, message: 'Voice model download declined' })
     expect(saveGeneratedAudioFileMock).not.toHaveBeenCalled()
+  })
+
+  it('tells the model not to call it again when the user declined the model download', async () => {
+    requestSpeechMock.mockRejectedValue(
+      Object.assign(new Error('Kokoro speech model download was cancelled'), {
+        declinedDownload: true,
+      }),
+    )
+
+    const result = await executeChatSpeechTool({
+      toolName: 'synthesizeTextToSpeech',
+      input: { text: 'hello' },
+      conversationKey: 'conv-1',
+      readMediaAsDataUri,
+    })
+
+    expect(result).toMatchObject({ ok: false, declined: true })
+    expect((result as { message: string }).message).toContain(
+      'Do not call synthesizeTextToSpeech again',
+    )
   })
 
   it('transcribes the latest audio attachment on the turn', async () => {

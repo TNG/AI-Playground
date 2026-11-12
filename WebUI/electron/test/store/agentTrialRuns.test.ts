@@ -149,10 +149,18 @@ vi.mock('@/assets/js/store/demoMode', () => ({ useDemoMode: () => ({ enabled: fa
 vi.mock('@/assets/js/store/errors', () => ({ useErrors: () => ({ report: errorsReport }) }))
 
 vi.mock('@/assets/js/store/i18n', () => ({
-  useI18N: () => ({ langName: 'en-US', state: {} }),
+  useI18N: () => ({
+    langName: 'en-US',
+    state: {
+      AGENT_SESSION_NEEDS_INPUT: "Session '{title}' needs your input",
+      AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT: "Trial Run of '{name}' needs your input",
+      AGENT_SESSION_OPEN: 'Open',
+    },
+  }),
 }))
 
-vi.mock('@/assets/js/toast', () => ({ show: vi.fn() }))
+const toastShow = vi.hoisted(() => vi.fn())
+vi.mock('@/assets/js/toast', () => ({ show: (...args: unknown[]) => toastShow(...args) }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({ getAgentToolSpecs: () => [] }))
 
@@ -372,6 +380,7 @@ const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useAgentTrialRuns } = await import('@/assets/js/store/agentTrialRuns')
 const { useSessions } = await import('@/assets/js/store/sessions')
+const { useUIStore } = await import('@/assets/js/store/ui')
 const { trialRunItems } = await import('@/lib/trialRunTimeline')
 
 async function readyStores(...saved: AgentTask[]) {
@@ -1002,6 +1011,62 @@ describe('a Trial Run outliving the Agent Library', () => {
 
     await finishTurn(0)
     await vi.waitFor(() => expect(trials.trialRunsInFlight).toHaveLength(1))
+  })
+
+  it('finds a Trial Run by its Agent and by its Harness Session', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    expect(trials.trialRunSessionOf('t1')).toBeUndefined()
+
+    await trials.startTrialRun('t1')
+    const sessionId = sentConfig(0).sessionId
+    expect(trials.trialRunSessionOf('t1')).toBe(sessionId)
+    expect(trials.trialRunOfSession(sessionId)?.agentId).toBe('t1')
+    expect(trials.trialRunOfSession('session-elsewhere')).toBeUndefined()
+  })
+
+  it('toasts its pause by the Agent’s name, and Open shows it in the Agent Library', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    await trials.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+
+    pushEvent({
+      type: 'agent-turn-state',
+      sessionId: sentConfig(0).sessionId,
+      turnId,
+      state: 'paused',
+    })
+
+    expect(toastShow).toHaveBeenCalledTimes(1)
+    const [text, options] = toastShow.mock.calls[0] as [
+      string,
+      { action: { label: string; run: () => void } },
+    ]
+    expect(text).toBe("Trial Run of 'Draft t1' needs your input")
+    expect(options.action.label).toBe('Open')
+    options.action.run()
+    expect(useUIStore(pinia).agentLibrary).toEqual({ agentId: 't1', showTrialRun: true })
+  })
+
+  it('names a paused Follow-up after the Agent as it is now', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { tasks, trials } = await readyStores()
+    await trials.startTrialRun('t1')
+    await finishTurn(0)
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    await tasks.editDraft('t1', { name: '  Renamed  ' })
+
+    await trials.followUpTrialRun('t1', 'and then?')
+    const turnId = await turnIdOf(1)
+    pushEvent({
+      type: 'agent-turn-state',
+      sessionId: sentConfig(1).sessionId,
+      turnId,
+      state: 'paused',
+    })
+
+    expect(toastShow.mock.calls[0][0]).toBe("Trial Run of 'Renamed' needs your input")
   })
 
   it('is picked up by a reloaded window, and runs its next Step when the live one ends', async () => {

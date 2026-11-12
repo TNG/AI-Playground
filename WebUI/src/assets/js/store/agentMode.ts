@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, ref, shallowReactive, shallowRef, watch } from 'vue'
 import type { UIMessage } from 'ai'
 import { backendToAipgBackendName, useTextInference } from './textInference'
 import { useModels } from './models'
@@ -111,6 +111,11 @@ export type SessionTurnInfo = {
   /** What the user is asked, only while paused. */
   pauseReason?: PauseReason
 }
+
+/** `null` while the Agent Library is closed. */
+export type AgentLibraryShowing = { trialRunSessionId: string | null } | null
+
+export type PauseNotice = { message: string; open: () => void }
 
 /** How a turn that ended out of sight went. */
 export type UnseenTurn = 'done' | 'failed'
@@ -1216,13 +1221,22 @@ export const useAgentMode = defineStore(
     function setViewShown(shown: boolean): void {
       viewShown.value = shown
     }
+    const agentLibraryShowing = ref<AgentLibraryShowing>(null)
+    function setAgentLibraryShowing(showing: AgentLibraryShowing): void {
+      agentLibraryShowing.value = showing
+    }
     function inView(sessionId: string): boolean {
+      const library = agentLibraryShowing.value
+      if (library) return library.trialRunSessionId === sessionId
       return viewShown.value && openSessionId.value === sessionId
     }
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
-    // session is in view, so a Paused Session never pops up over other work.
-    const heldPrompts: Record<string, Array<{ show: () => void; drop: () => void }>> = {}
+    // session is in view, so it never pops up over other work.
+    const heldPrompts = shallowReactive<
+      Record<string, Array<{ show: () => void; drop: () => void }>>
+    >({})
+    const hasHeldPrompt = (sessionId: string): boolean => !!heldPrompts[sessionId]
     const turnEndWaiters: Record<string, Array<() => void>> = {}
 
     registerSessionPromptPort({
@@ -1256,20 +1270,31 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId], () => {
-      if (viewShown.value) settleHeldPrompts(openSessionId.value, 'show')
+    watch([viewShown, openSessionId, agentLibraryShowing], () => {
+      for (const sessionId of Object.keys(heldPrompts)) {
+        if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
+      }
     })
+
+    let pauseNoticeOf: (sessionId: string) => PauseNotice | undefined = () => undefined
+    /** Lets a store that owns some Harness Sessions word their pause toast and its Open. */
+    function registerPauseNotice(resolve: (sessionId: string) => PauseNotice | undefined): void {
+      pauseNoticeOf = resolve
+    }
 
     /** One toast per pause of a session the user is not looking at. */
     function onTurnPaused(sessionId: string): void {
       if (inView(sessionId)) return
-      const title = sessions.value[sessionId]?.title ?? ''
-      toast.show((i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace('{title}', title), {
+      const notice = pauseNoticeOf(sessionId) ?? {
+        message: (i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace(
+          '{title}',
+          sessions.value[sessionId]?.title ?? '',
+        ),
+        open: () => void openSession(sessionId),
+      }
+      toast.show(notice.message, {
         settings: { duration: 8000 },
-        action: {
-          label: i18n.state.AGENT_SESSION_OPEN ?? '',
-          run: () => void openSession(sessionId),
-        },
+        action: { label: i18n.state.AGENT_SESSION_OPEN ?? '', run: notice.open },
       })
     }
 
@@ -2350,6 +2375,9 @@ export const useAgentMode = defineStore(
       switchSession,
       openSession,
       setViewShown,
+      hasHeldPrompt,
+      setAgentLibraryShowing,
+      registerPauseNotice,
       liveTurnsIn,
       streamingMessagesOf,
       deleteSession,

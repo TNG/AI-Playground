@@ -1,9 +1,18 @@
+import type { TrialRun } from '@/assets/js/store/agentTrialRuns'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 type Languages = Record<string, string | undefined>
 
 export function agentDisplayName(name: string, languages: Languages): string {
   return name.trim() || (languages.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
+}
+
+export function trialRunDisplayName(
+  run: TrialRun | undefined,
+  agentName: string | undefined,
+  languages: Languages,
+): string {
+  return agentDisplayName((run?.state === 'running' ? run.name : agentName) ?? '', languages)
 }
 
 export type NeverRunRefusal = { ok: false; reason: 'never-run'; message: string }

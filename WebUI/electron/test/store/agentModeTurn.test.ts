@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { registerAgentModeIpc } from '@/assets/js/store/agentModeIpc'
 import { buildTurnConfig, createAgentTurnRuntimes } from '@/assets/js/store/agentModeTurn'
+import type { ToolsForTurn } from '@/lib/storedSessionInference'
+import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import type { AgentTurnSnapshot } from '@/types/kernelEvents'
 
 const chatResume = vi.hoisted(() => {
@@ -24,8 +26,14 @@ const chatResume = vi.hoisted(() => {
   }
 })
 
+const toolSpecsMock = vi.hoisted(() => vi.fn((_tools?: unknown): unknown[] => []))
 vi.mock('@/assets/js/tools/agentBridge', () => ({
-  getAgentToolSpecs: () => [],
+  getAgentToolSpecs: (tools?: unknown) => toolSpecsMock(tools),
+}))
+
+const serializeInnerMock = vi.hoisted(() => vi.fn((_settings?: unknown) => undefined))
+vi.mock('@/assets/js/agents/mediaAgent', () => ({
+  serializeMediaAgentInner: (settings?: unknown) => serializeInnerMock(settings),
 }))
 
 vi.mock('@/assets/js/store/developerSettings', () => ({
@@ -73,6 +81,48 @@ function localInference(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
+
+describe('buildTurnConfig media specialist', () => {
+  const turn = (tools?: ToolsForTurn) =>
+    buildTurnConfig({
+      sessionId: 'aipg-agent-1',
+      workspaceDir: '/tmp/ws',
+      presetName: 'Agent',
+      instructions: 'Be helpful.',
+      capabilities: [],
+      unsandboxed: false,
+      planningThinkingOnly: false,
+      textInference: localInference() as never,
+      cloudMode: {
+        selectedProviderId: 'openai',
+        activeProviderAuthStyle: 'bearer',
+        capabilitiesFor: () => ({ reasoningAdvertised: false }),
+      },
+      tools,
+    })
+
+  it("builds a stored turn's specialist from that turn's own workflow settings", async () => {
+    toolSpecsMock.mockReturnValueOnce([{ name: 'media' }])
+    await turn({
+      toolDelegationEnabled: true,
+      builtinToolEnablement: { comfyUiImageEdit: false },
+      builtinToolPresetEnablement: { 'Draft Image': false },
+      builtinToolDefaultPresets: { 'comfyUI:image': 'HD Image' },
+    })
+
+    const settings = serializeInnerMock.mock.calls.at(-1)?.[0] as MediaToolSettings
+    expect(settings.isWorkflowEnabled('Draft Image')).toBe(false)
+    expect(settings.isWorkflowEnabled('HD Image')).toBe(true)
+    expect(settings.isToolEnabled('comfyUiImageEdit')).toBe(false)
+    expect(settings.defaultWorkflow('comfyUI:image', ['Pro Image', 'HD Image'])).toBe('HD Image')
+  })
+
+  it("builds a live turn's specialist from the window's settings", async () => {
+    toolSpecsMock.mockReturnValueOnce([{ name: 'media' }])
+    await turn()
+    expect(serializeInnerMock).toHaveBeenLastCalledWith(undefined)
+  })
+})
 
 describe('buildTurnConfig readiness (step 15)', () => {
   it('ships local backend load facts so main can occupy and load', async () => {

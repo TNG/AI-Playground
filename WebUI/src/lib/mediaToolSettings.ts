@@ -1,5 +1,6 @@
 import { isToolEnabled } from '@/lib/builtinToolEnablement'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
+import type { ToolsForTurn } from '@/lib/storedSessionInference'
 
 /**
  * The media tools' settings — delegation, built-in tool enablement, per-workflow
@@ -106,5 +107,25 @@ export function templateMediaToolSettings(
       }),
     speakReplies: () => read().speakReplies ?? false,
     setSpeakReplies: (enabled) => edit({ speakReplies: enabled }),
+  }
+}
+
+/** A stored turn's own settings, read-only: the turn never writes to the Session it runs in. */
+export function turnMediaToolSettings(tools: ToolsForTurn): MediaToolSettings {
+  const settings = templateMediaToolSettings(
+    () => ({
+      toolDelegationEnabled: tools.toolDelegationEnabled,
+      builtinToolEnablement: tools.builtinToolEnablement,
+      builtinToolPresetEnablement: tools.builtinToolPresetEnablement,
+      builtinToolDefaultPresets: tools.builtinToolDefaultPresets,
+    }),
+    () => {
+      throw new Error("A stored turn's media tool settings are read-only")
+    },
+  )
+  return {
+    ...settings,
+    isToolEnabled: (toolName) =>
+      isToolEnabled(tools.builtinToolEnablement, toolName, { onNpu: tools.onNpu === true }),
   }
 }

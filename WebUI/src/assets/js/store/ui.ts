@@ -3,7 +3,11 @@ import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
 /** `sessionRef` narrows the Library to the Agents scheduled in that Session. */
-export type AgentLibraryView = { agentId?: string; sessionRef?: string }
+export type AgentLibraryView = { agentId?: string; sessionRef?: string; showTrialRun?: boolean }
+
+function withoutTrialRunRequest(view: AgentLibraryView): AgentLibraryView {
+  return { agentId: view.agentId, sessionRef: view.sessionRef }
+}
 
 export const useUIStore = defineStore('ui', () => {
   // Model management overlay. Deliberately not tied to `promptArea.currentMode`:
@@ -29,7 +33,12 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function selectLibraryAgent(agentId: string | undefined) {
-    if (agentLibrary.value) agentLibrary.value = { ...agentLibrary.value, agentId }
+    if (!agentLibrary.value) return
+    agentLibrary.value = { ...withoutTrialRunRequest(agentLibrary.value), agentId }
+  }
+
+  function trialRunShown() {
+    if (agentLibrary.value) agentLibrary.value = withoutTrialRunRequest(agentLibrary.value)
   }
 
   function clearLibrarySessionFilter() {
@@ -48,6 +57,7 @@ export const useUIStore = defineStore('ui', () => {
     agentLibrary,
     openAgentLibrary,
     selectLibraryAgent,
+    trialRunShown,
     clearLibrarySessionFilter,
     closeAgentLibrary,
   }

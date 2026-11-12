@@ -3,7 +3,7 @@ import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
 import { saveGeneratedAudioFile } from '../persist/audioFiles'
 import { filePartToBase64, findLatestAttachment } from './chatFileParts'
 import { trackChatToolActivity, updateChatToolActivity } from './chatToolActivity'
-import { askRenderer } from './chatAsk'
+import { askRenderer, isDeclinedDownload } from './chatAsk'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
 
 /**
@@ -21,6 +21,7 @@ export const CHAT_SPEECH_TOOLS = new Set(['synthesizeTextToSpeech', 'transcribeA
 export type SynthesizeSpeechOutput = {
   ok: boolean
   message: string
+  declined?: true
   savedFilePath?: string
   speaker?: string
   language?: string
@@ -30,7 +31,31 @@ export type SynthesizeSpeechOutput = {
 export type TranscribeAudioOutput = {
   ok: boolean
   message: string
+  declined?: true
   transcript?: string
+}
+
+const DECLINED_CAPABILITY: Record<string, string> = {
+  synthesizeTextToSpeech: 'Text To Speech',
+  transcribeAudio: 'Speech To Text',
+}
+
+/** A speech tool's failure; a declined model download tells the model not to ask again. */
+export function speechFailure(
+  error: unknown,
+  toolName: string,
+): { ok: false; message: string; declined?: true } {
+  if (!isDeclinedDownload(error)) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  const capability = DECLINED_CAPABILITY[toolName] ?? toolName
+  return {
+    ok: false,
+    declined: true,
+    message:
+      `The user declined the download of the ${capability} model, so ${capability} is ` +
+      `unavailable. Do not call ${toolName} again; continue without it or tell the user.`,
+  }
 }
 
 type SynthesizeInput = SpeechVoiceSelection & {
@@ -108,7 +133,7 @@ async function synthesize(options: {
       },
     )
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return speechFailure(error, 'synthesizeTextToSpeech')
   }
 }
 
@@ -143,7 +168,7 @@ async function transcribeLatestAttachment(options: {
       },
     )
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return speechFailure(error, 'transcribeAudio')
   }
 }
 

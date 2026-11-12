@@ -621,6 +621,27 @@ describe('turn engine', () => {
     })
   })
 
+  it("hands parent comfyUI the turn's enabled workflows, so main can refuse others", async () => {
+    queueFetchMock(
+      sse(toolCallChunks('comfyUI', '{"prompt":"a castle","workflow":"Draft Image"}')),
+      sse(textChunks('done')),
+    )
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        tools: [{ name: 'comfyUI', description: 'Generate', inputSchema: { type: 'object' } }],
+        repairData: {
+          comfyUI: { names: ['Draft Image', 'HD Image'], defaultWorkflow: 'Draft Image' },
+        },
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    expect(executeChatComfyToolMock.mock.calls[0][0]).toMatchObject({
+      allowedWorkflows: ['Draft Image', 'HD Image'],
+      defaultWorkflow: 'Draft Image',
+    })
+  })
+
   it('shows a vision model the generated image instead of the placeholder size', async () => {
     executeChatComfyToolMock.mockResolvedValueOnce({
       images: [

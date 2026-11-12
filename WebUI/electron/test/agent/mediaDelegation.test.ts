@@ -219,6 +219,46 @@ describe('mediaDelegation (in-process media tool)', () => {
     })
   })
 
+  it('says the download was declined, and keeps the decline for the next media call', async () => {
+    const declinedMessage =
+      'The user declined the download of the models for the "W1" workflow, so it is unavailable.'
+    runMediaAgentInMainMock.mockResolvedValue({
+      text: 'Tried again with another workflow, which also failed.',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'W1' },
+          output: { success: false, declined: true, message: declinedMessage },
+        },
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'W2' },
+          output: { success: false, message: 'oom' },
+        },
+      ],
+    })
+    const tool = (await buildDelegatedMediaTool(hostWith(), MEDIA_SPEC)) as unknown as {
+      execute: (id: string, params: unknown, signal: AbortSignal) => Promise<unknown>
+    }
+    const signal = new AbortController().signal
+
+    const result = (await tool.execute('call-1', { request: 'x' }, signal)) as {
+      content: Array<{ text: string }>
+    }
+    await tool.execute('call-2', { request: 'y' }, signal)
+
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      success: false,
+      declined: true,
+      message: declinedMessage,
+    })
+    const [first, second] = runMediaAgentInMainMock.mock.calls.map(
+      ([request]) => (request as { declinedWorkflows?: Set<string> }).declinedWorkflows,
+    )
+    expect(first).toBeInstanceOf(Set)
+    expect(second).toBe(first)
+  })
+
   it('resolves a workspace source path to a data URI before the specialist run', async () => {
     fs.writeFileSync(path.join(workspaceDir, 'shot.png'), Buffer.from('89504e470d0a1a0a', 'hex'))
     runMediaAgentInMainMock.mockResolvedValueOnce(specialistResult())

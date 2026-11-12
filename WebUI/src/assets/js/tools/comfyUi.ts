@@ -7,6 +7,9 @@ import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import { DEFAULT_RESOLUTION_CONFIG, getResolutionsFromConfig } from '../store/imageGenerationUtils'
 import { tool } from 'ai'
 
+/** The workflow toggles and defaults a tool definition is built from; the live store when absent. */
+export type WorkflowSettings = Pick<MediaToolSettings, 'isWorkflowEnabled' | 'defaultWorkflow'>
+
 /** `isEnabled` defaults to the chat store's per-workflow toggles. */
 export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolean): Array<{
   name: string
@@ -57,8 +60,11 @@ export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolea
 }
 
 // Helper function to get resolution examples for tool description
-function getResolutionExamplesForWorkflow(workflowName: string): string {
-  const workflows = getAvailableWorkflows()
+function getResolutionExamplesForWorkflow(
+  workflowName: string,
+  settings?: WorkflowSettings,
+): string {
+  const workflows = getAvailableWorkflows(settings?.isWorkflowEnabled)
   const workflow = workflows.find((w) => w.name === workflowName)
   if (!workflow?.resolutions || workflow.resolutions.length === 0) {
     return '512x512, 1024x1024'
@@ -168,18 +174,24 @@ export function repairCreateToolInput(rawInput: string): string | null {
  * executing in-process. Null when no workflow is available (no repair
  * possible — the call fails visibly).
  */
-export function createToolRepairData(): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
-  const workflows = getAvailableWorkflows()
+export function createToolRepairData(
+  settings?: WorkflowSettings,
+): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
+  const workflows = getAvailableWorkflows(settings?.isWorkflowEnabled)
   if (workflows.length === 0) return null
   const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
   return {
     names: workflows.map((w) => w.name),
-    defaultWorkflow: resolveDefaultImageWorkflow(imageNames),
+    defaultWorkflow: resolveDefaultImageWorkflow(imageNames, settings),
   }
 }
 
-function resolveDefaultVideoWorkflow(videoNames: string[]): string | null {
-  return useTextInference().getDefaultWorkflow('comfyUI:video', videoNames)
+function resolveDefaultVideoWorkflow(
+  videoNames: string[],
+  settings?: WorkflowSettings,
+): string | null {
+  const defaultWorkflow = settings?.defaultWorkflow ?? useTextInference().getDefaultWorkflow
+  return defaultWorkflow('comfyUI:video', videoNames)
 }
 
 // Human-readable "<preset> - <Fast variant>" hint for the default image workflow,
@@ -190,17 +202,17 @@ function resolveWorkflowVariantHint(workflowName: string): string {
   return fast ? `${workflowName} - ${fast}` : workflowName
 }
 
-function getToolDefinition() {
-  const availableWorkflows = getAvailableWorkflows()
+function getToolDefinition(settings?: WorkflowSettings) {
+  const availableWorkflows = getAvailableWorkflows(settings?.isWorkflowEnabled)
 
   const imageNames = availableWorkflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
   const videoNames = availableWorkflows.filter((w) => w.mediaType === 'video').map((w) => w.name)
-  const defaultWorkflow = resolveDefaultImageWorkflow(imageNames)
-  const defaultVideoWorkflow = resolveDefaultVideoWorkflow(videoNames)
+  const defaultWorkflow = resolveDefaultImageWorkflow(imageNames, settings)
+  const defaultVideoWorkflow = resolveDefaultVideoWorkflow(videoNames, settings)
   const defaultWorkflowWithVariant = resolveWorkflowVariantHint(defaultWorkflow)
 
   // Get resolution examples for the default workflow
-  const defaultResolutionExamples = getResolutionExamplesForWorkflow(defaultWorkflow)
+  const defaultResolutionExamples = getResolutionExamplesForWorkflow(defaultWorkflow, settings)
 
   // Fallback if no workflows are available yet (presets not loaded)
   if (availableWorkflows.length === 0) {
@@ -341,7 +353,7 @@ function getToolDefinition() {
   // Build resolution description with examples from available workflows
   const resolutionExamples =
     imageWorkflows.length > 0
-      ? getResolutionExamplesForWorkflow(imageWorkflows[0].name)
+      ? getResolutionExamplesForWorkflow(imageWorkflows[0].name, settings)
       : defaultResolutionExamples
 
   const resolutionDescription = `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${resolutionExamples}. The closest valid resolution will be selected.`
@@ -388,14 +400,17 @@ function getToolDefinition() {
   }
 }
 
-// Tool definition for AI SDK
 // Use getters so the tool definition is computed when accessed (after presets are loaded)
-export const comfyUI = tool({
-  get description() {
-    return getToolDefinition().description
-  },
-  get inputSchema() {
-    return getToolDefinition().inputSchema
-  },
-  outputSchema: ComfyUiToolOutputSchema,
-})
+export function comfyUIFor(settings?: WorkflowSettings) {
+  return tool({
+    get description() {
+      return getToolDefinition(settings).description
+    },
+    get inputSchema() {
+      return getToolDefinition(settings).inputSchema
+    },
+    outputSchema: ComfyUiToolOutputSchema,
+  })
+}
+
+export const comfyUI = comfyUIFor()

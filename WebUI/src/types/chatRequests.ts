@@ -60,4 +60,5 @@ export type ChatAskPhase = 'loading-model' | 'generating'
 export type ChatAnswerPayload =
   | { requestId: string; progress: true; phase?: ChatAskPhase }
   | { requestId: string; result: unknown }
-  | { requestId: string; error: string }
+  /** `declined`: the user declined the model download the answer needed. */
+  | { requestId: string; error: string; declined?: true }

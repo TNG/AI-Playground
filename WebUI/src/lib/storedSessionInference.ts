@@ -65,6 +65,10 @@ export type CloudForTurn = {
 export type ToolsForTurn = {
   toolDelegationEnabled: boolean
   builtinToolEnablement: Record<string, boolean>
+  /** Per-workflow toggles; a workflow left out is enabled. */
+  builtinToolPresetEnablement: Record<string, boolean>
+  /** The chosen default workflow per "<toolName>:<mediaType>" slot. */
+  builtinToolDefaultPresets: Record<string, string>
   /** Speech tools are opt-in on NPU. */
   onNpu?: boolean
 }
@@ -277,6 +281,8 @@ export function storedSessionInference(
       toolDelegationEnabled:
         typeof bag.toolDelegationEnabled === 'boolean' ? bag.toolDelegationEnabled : true,
       builtinToolEnablement: asRecord<boolean>(bag.builtinToolEnablement),
+      builtinToolPresetEnablement: asRecord<boolean>(bag.builtinToolPresetEnablement),
+      builtinToolDefaultPresets: asRecord<string>(bag.builtinToolDefaultPresets),
       onNpu,
     },
   }

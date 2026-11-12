@@ -1,18 +1,15 @@
 import { type ToolSet } from 'ai'
 import { z } from 'zod'
-import { comfyUI, getAvailableWorkflows, createToolRepairData } from '../tools/comfyUi'
+import { comfyUI, comfyUIFor, getAvailableWorkflows, createToolRepairData } from '../tools/comfyUi'
 import {
   comfyUiImageEdit,
+  comfyUiImageEditFor,
   getAvailableEditWorkflows,
   createEditToolRepairData,
 } from '../tools/comfyUiImageEdit'
 import { useTextInference } from '../store/textInference'
-import { useMediaAgentRuns } from '../store/mediaAgentRuns'
-import type { MediaItem } from '../store/imageGenerationPresets'
-import { mediaEntriesOf } from '@/lib/mediaAgentResult'
 import { serializeToolSet } from '@/lib/chatToolRegistry'
 import type { ChatToolSpec, WorkflowRepairData } from '@/types/chatIpc'
-import type { KernelMediaAgentEvent } from '@/types/kernelEvents'
 import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 
 // ── Media agent ───────────────────────────────────────────────────────────────
@@ -64,6 +61,8 @@ const MEDIA_AGENT_SYSTEM = [
   '  style, lighting, mood, quality tags).',
   '- If a tool call fails with an actionable error, correct the parameters and retry once;',
   '  otherwise stop and report the failure.',
+  '- If the user declined a model download, never call that workflow again: use another',
+  '  workflow if one fits, otherwise stop and report that the download was declined.',
   '- When done, reply with a short plain-text report of what you created and which workflows',
   '  you used. Do not include URLs, file paths or markdown images — they are delivered',
   '  separately.',
@@ -76,88 +75,19 @@ const MEDIA_AGENT_SYSTEM = [
  * Respects the same user gating as chat (per-tool toggles + per-workflow
  * sub-checkboxes). Schema only; main runs the tools in-process.
  */
-function buildMediaAgentTools(): ToolSet {
-  const textInference = useTextInference()
+function buildMediaAgentTools(settings?: MediaToolSettings): ToolSet {
+  const isToolEnabled = settings?.isToolEnabled ?? useTextInference().isBuiltinToolEnabled
   const tools: ToolSet = {}
-  if (textInference.isBuiltinToolEnabled('comfyUI') && getAvailableWorkflows().length > 0) {
-    tools.comfyUI = comfyUI
+  if (isToolEnabled('comfyUI') && getAvailableWorkflows(settings?.isWorkflowEnabled).length > 0) {
+    tools.comfyUI = settings ? comfyUIFor(settings) : comfyUI
   }
   if (
-    textInference.isBuiltinToolEnabled('comfyUiImageEdit') &&
-    getAvailableEditWorkflows().length > 0
+    isToolEnabled('comfyUiImageEdit') &&
+    getAvailableEditWorkflows(settings?.isWorkflowEnabled).length > 0
   ) {
-    tools.comfyUiImageEdit = comfyUiImageEdit
+    tools.comfyUiImageEdit = settings ? comfyUiImageEditFor(settings) : comfyUiImageEdit
   }
   return tools
-}
-
-/** Comfy-shaped entries carry everything a MediaItem needs except its state. */
-function toMediaItems(output: unknown): MediaItem[] {
-  return mediaEntriesOf(output).map((item) => ({ ...item, state: 'done' }) as MediaItem)
-}
-
-/** Row title inputs for the timeline: which workflow, and with what prompt. */
-function stepDescriptor(input: unknown): { workflow?: string; prompt?: string } {
-  const record = (input ?? {}) as Record<string, unknown>
-  return {
-    workflow: typeof record.workflow === 'string' ? record.workflow : undefined,
-    prompt: typeof record.prompt === 'string' ? record.prompt : undefined,
-  }
-}
-
-/** Translates a run's kernel progress events into mediaAgentRuns store updates. */
-function translateProgressEvent(runKey: string, event: KernelMediaAgentEvent['event']): void {
-  const mediaRuns = useMediaAgentRuns()
-  // The specialist runs in main, so the first kernel event has to open the
-  // timeline row (request text is empty; the UI does not show it).
-  if (!mediaRuns.run(runKey)) mediaRuns.beginRun(runKey, '')
-  switch (event.type) {
-    case 'phase':
-      mediaRuns.setPhase(runKey, event.phase)
-      break
-    case 'narration-delta':
-      mediaRuns.appendNarration(runKey, event.text)
-      break
-    case 'tool-start':
-      mediaRuns.beginStep(runKey, {
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        ...stepDescriptor(event.input),
-        label: 'Starting…',
-      })
-      break
-    case 'tool-finish': {
-      const output = (event.output ?? {}) as { success?: boolean; message?: string }
-      mediaRuns.endStep(runKey, {
-        toolCallId: event.toolCallId,
-        media: toMediaItems(event.output),
-        error: event.error ?? (output.success === false ? output.message : undefined),
-      })
-      break
-    }
-  }
-}
-
-// The nested loop runs in main; its live progress reaches the timeline as
-// `media-agent-event` kernel events. One listener serves every run, keyed by
-// runKey — registered on first use so module import alone (and unit tests)
-// never subscribes.
-let mediaKernelUnsubscribe: (() => void) | null = null
-export function ensureMediaAgentEventWiring(): void {
-  if (mediaKernelUnsubscribe) return
-  const subscribe = window.electronAPI?.onKernelEvent
-  if (!subscribe) return
-  mediaKernelUnsubscribe = subscribe((event) => {
-    if (event.type !== 'media-agent-event') return
-    translateProgressEvent(event.runKey, event.event)
-  })
-}
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    mediaKernelUnsubscribe?.()
-    mediaKernelUnsubscribe = null
-  })
 }
 
 export type MediaAgentInnerTools = {
@@ -169,17 +99,22 @@ export type MediaAgentInnerTools = {
   }
 }
 
-/** Inner catalog the specialist needs, frozen at the moment the parent asks. */
-export function serializeMediaAgentInner(): MediaAgentInnerTools | undefined {
-  const tools = buildMediaAgentTools()
+/**
+ * Inner catalog the specialist needs, frozen at the moment the parent asks.
+ * `settings` defaults to the chat store's live media tool settings.
+ */
+export function serializeMediaAgentInner(
+  settings?: MediaToolSettings,
+): MediaAgentInnerTools | undefined {
+  const tools = buildMediaAgentTools(settings)
   if (Object.keys(tools).length === 0) return undefined
   return {
     system: MEDIA_AGENT_SYSTEM,
     toolSpecs: serializeToolSet(tools),
     repairData: {
-      ...(tools.comfyUI ? { comfyUI: createToolRepairData() ?? undefined } : {}),
+      ...(tools.comfyUI ? { comfyUI: createToolRepairData(settings) ?? undefined } : {}),
       ...(tools.comfyUiImageEdit
-        ? { comfyUiImageEdit: createEditToolRepairData() ?? undefined }
+        ? { comfyUiImageEdit: createEditToolRepairData(settings) ?? undefined }
         : {}),
     },
   }

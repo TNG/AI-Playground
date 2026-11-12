@@ -31,7 +31,14 @@ vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
 }))
 
 const askRendererMock = vi.fn()
-vi.mock('../../chat/chatAsk.ts', () => ({ askRenderer: askRendererMock }))
+vi.mock('../../chat/chatAsk.ts', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  askRenderer: askRendererMock,
+}))
+
+function declinedDownload(message: string): Error {
+  return Object.assign(new Error(message), { declinedDownload: true })
+}
 
 const { buildSpeechTools } = await import('../../agent/capabilities/mediaSpeech.ts')
 
@@ -267,5 +274,48 @@ describe('mediaSpeech (agent speech tools)', () => {
       message: expect.stringContaining('Unsupported audio file type'),
     })
     expect(askRendererMock).not.toHaveBeenCalled()
+  })
+
+  it('tells the agent not to call it again once the user declined the model download', async () => {
+    askRendererMock.mockRejectedValueOnce(
+      declinedDownload('Kokoro speech model download was cancelled'),
+    )
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    const first = await run(tool, { text: 'hello' })
+    const second = await run(tool, { text: 'again' })
+
+    expect(first).toMatchObject({ ok: false, declined: true })
+    expect(first.message).toContain('declined the download')
+    expect(first.message).toContain('Do not call synthesizeTextToSpeech again')
+    expect(second).toEqual(first)
+    expect(askRendererMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('remembers a declined transcription model the same way', async () => {
+    fs.writeFileSync(path.join(workspaceDir, 'note.wav'), 'A')
+    askRendererMock.mockRejectedValueOnce(declinedDownload('Whisper model download was cancelled'))
+    const tool = await buildTool(TRANSCRIBE_SPEC)
+
+    const first = await run(tool, { sourceAudioPath: 'note.wav' })
+    await run(tool, { sourceAudioPath: 'note.wav' })
+
+    expect(first).toMatchObject({ ok: false, declined: true })
+    expect(first.message).toContain('Do not call transcribeAudio again')
+    expect(askRendererMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets the agent retry after a failure that was not a decline', async () => {
+    askRendererMock.mockRejectedValueOnce(new Error('download failed'))
+    askRendererMock.mockResolvedValueOnce({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const tool = await buildTool(SYNTHESIZE_SPEC)
+
+    expect(await run(tool, { text: 'hello' })).toMatchObject({ ok: false })
+    expect(await run(tool, { text: 'hello' })).toMatchObject({ ok: true })
   })
 })

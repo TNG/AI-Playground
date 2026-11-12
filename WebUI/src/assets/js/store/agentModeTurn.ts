@@ -23,6 +23,7 @@ import { registerAgentModeIpc } from './agentModeIpc'
 import { CLOUD_DEFAULT_MODEL } from './cloudMode'
 import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { CloudForTurn, InferenceForTurn, ToolsForTurn } from '@/lib/storedSessionInference'
+import { turnMediaToolSettings } from '@/lib/mediaToolSettings'
 import type { AgentTurnSnapshot, AgentTurnState, PauseReason } from '@/types/kernelEvents'
 
 type ActiveTurn = {
@@ -102,7 +103,7 @@ export async function buildTurnConfig(options: {
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
-  /** Tool toggles stored on the session; the live ones when absent. */
+  /** Tool settings stored on the session; the live ones when absent. */
   tools?: ToolsForTurn
   answer?: AgentAnswerOrigin
   /** The preset shows max tokens and temperature, so they bound every request. */
@@ -110,7 +111,9 @@ export async function buildTurnConfig(options: {
 }): Promise<AgentModeTurnConfig> {
   const toolSpecs = getAgentToolSpecs(options.tools)
   const mediaAgent = toolSpecs.some((spec) => spec.name === 'media')
-    ? (await import('../agents/mediaAgent')).serializeMediaAgentInner()
+    ? (await import('../agents/mediaAgent')).serializeMediaAgentInner(
+        options.tools && turnMediaToolSettings(options.tools),
+      )
     : undefined
   const { textInference, cloudMode } = options
   const userMaxTokens = Math.floor(textInference.effectiveMaxTokens ?? 0)

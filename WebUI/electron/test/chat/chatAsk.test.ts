@@ -13,8 +13,14 @@ vi.mock('../../kernel/kernelBus', () => ({
   getKernelEventWindow: () => currentWindow,
 }))
 
-const { askRenderer, handleChatAnswer, rejectAllChatAsks, resetChatAskForTest, chatAsksPending } =
-  await import('../../chat/chatAsk')
+const {
+  askRenderer,
+  handleChatAnswer,
+  rejectAllChatAsks,
+  resetChatAskForTest,
+  chatAsksPending,
+  isDeclinedDownload,
+} = await import('../../chat/chatAsk')
 
 function lastRequestId(): string {
   return sent[sent.length - 1].payload.requestId
@@ -41,6 +47,20 @@ describe('chatAsk', () => {
     await expect(answer).resolves.toEqual({ text: 'hello' })
     expect(phases).toEqual(['generating'])
     expect(chatAsksPending()).toBe(0)
+  })
+
+  it('keeps a declined model download apart from a failure', async () => {
+    const declined = askRenderer({ kind: 'speech-transcribe', audioBase64: 'QQ==' })
+    handleChatAnswer({ requestId: lastRequestId(), error: 'download cancelled', declined: true })
+    const failed = askRenderer({ kind: 'speech-transcribe', audioBase64: 'QQ==' })
+    handleChatAnswer({ requestId: lastRequestId(), error: 'disk full' })
+
+    const declinedError = await declined.catch((error: unknown) => error)
+    const failedError = await failed.catch((error: unknown) => error)
+
+    expect(isDeclinedDownload(declinedError)).toBe(true)
+    expect(isDeclinedDownload(failedError)).toBe(false)
+    expect((failedError as Error).message).toBe('disk full')
   })
 
   it('settles a question when the turn it belongs to is cancelled', async () => {

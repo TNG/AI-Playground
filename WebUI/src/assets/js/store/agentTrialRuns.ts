@@ -8,12 +8,19 @@ import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { useAgentTasks, type LibraryAgent, type ModelDownloadRefusal } from './agentTasks'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
+import { useUIStore } from './ui'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { agentComposerState, type AgentComposerState } from '@/lib/agentComposer'
 import { sameAgentSetup } from '@/lib/agentSetup'
 import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { agentDisplayName, neverRunRefusal, type NeverRunRefusal } from '@/lib/agentNames'
+import {
+  agentDisplayName,
+  neverRunRefusal,
+  trialRunDisplayName,
+  type NeverRunRefusal,
+} from '@/lib/agentNames'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import {
   describeSettingsProblems,
@@ -44,6 +51,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   const agentTasks = useAgentTasks()
   const errors = useErrors()
   const i18n = useI18N()
+  const ui = useUIStore()
 
   /** Each Agent's Trial Run, by Agent id; the last one stays until the next one starts. */
   const trialRuns = ref<Record<string, TrialRun>>({})
@@ -57,6 +65,14 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   const sendingFollowUps = reactive(new Set<string>())
   /** Turns that ended before `init` restored the runs, which may have been theirs. */
   let earlySettles: [string, TurnOutcome][] | null = []
+
+  function trialRunSessionOf(agentId: string): string | undefined {
+    return trialRuns.value[agentId]?.harnessSessionId
+  }
+
+  function trialRunOfSession(sessionId: string): TrialRun | undefined {
+    return Object.values(trialRuns.value).find((run) => run.harnessSessionId === sessionId)
+  }
 
   function trialRunInFlight(agentId: string): boolean {
     const run = trialRuns.value[agentId]
@@ -105,13 +121,23 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
 
   agentTasks.onAgentDeleted((agentId) => discardTrialRun(agentId))
 
+  agentMode.registerPauseNotice((sessionId) => {
+    const run = trialRunOfSession(sessionId)
+    if (!run) return undefined
+    const name = trialRunDisplayName(run, libraryAgent(run.agentId)?.name, i18n.state)
+    return {
+      message: fillTemplate(i18n.state.AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT ?? '', { name }),
+      open: () => ui.openAgentLibrary({ agentId: run.agentId, showTrialRun: true }),
+    }
+  })
+
   agentMode.onTurnSettled((sessionId, outcome) => {
     if (earlySettles) earlySettles.push([sessionId, outcome])
     else onTurnSettled(sessionId, outcome)
   })
 
   function onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
-    const run = Object.values(trialRuns.value).find((entry) => entry.harnessSessionId === sessionId)
+    const run = trialRunOfSession(sessionId)
     if (run?.state !== 'running') return
     const next = afterStepTurn(outcome, run.stepIndex, run.stepCount)
     if (next.kind === 'step') void sendTrialStep(run.agentId, next.stepIndex)
@@ -427,6 +453,8 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
 
   return {
     trialRuns,
+    trialRunSessionOf,
+    trialRunOfSession,
     trialRunInFlight,
     trialRunsInFlight,
     trialRunView,

@@ -154,7 +154,7 @@ export type ArtifactRunnerDeps = {
   /**
    * Ask the user for download consent through the renderer's permissions layer
    * (dialog / Channel in-channel / pre-grants). `true` implies the download
-   * completed; `false` means declined or cancelled. `onProgress` fires while
+   * completed; `false` means declined; a failed download rejects. `onProgress` fires while
    * the download runs, re-arming the idle watchdog. `conversationKey` names the
    * turn the run belongs to, which pauses while the user is asked (`null`: none).
    */
@@ -244,8 +244,12 @@ export async function prepareRunModels(
   }
   if (missing.length === 0) return { state: 'ready' }
   onAsk()
-  const approved = await runnerDeps.requestModelConsent(missing, undefined, conversationKey)
-  return approved ? { state: 'ready' } : { state: 'declined' }
+  try {
+    const approved = await runnerDeps.requestModelConsent(missing, undefined, conversationKey)
+    return approved ? { state: 'ready' } : { state: 'declined' }
+  } catch (error) {
+    return { state: 'failed', error: `Model download failed: ${extractMessage(error)}` }
+  }
 }
 
 /** Cancels the active run — the Stop button. Queued runs are untouched. */

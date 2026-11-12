@@ -648,6 +648,24 @@ describe('artifact runner', () => {
     const result = await submitArtifactRun(payload({ modelsConsented: undefined }))
     expect(consentRequests).toBe(1)
     expect(result.state).toBe('cancelled')
+    expect(result.declined).toBe(true)
+    expect(submittedPrompts).toHaveLength(0)
+  })
+
+  it('fails, rather than calls declined, a run whose model download broke', async () => {
+    missingModels = [
+      { repo_id: 'some/model.gguf', type: 'unet', backend: 'comfyui', model_path: '/models' },
+    ]
+    setArtifactRunnerDeps(
+      deps({
+        requestModelConsent: vi.fn(async () => {
+          throw new Error('disk full')
+        }),
+      }),
+    )
+    const result = await submitArtifactRun(payload({ modelsConsented: undefined }))
+    expect(result).toMatchObject({ state: 'failed', error: expect.stringContaining('disk full') })
+    expect(result.declined).toBeUndefined()
     expect(submittedPrompts).toHaveLength(0)
   })
 
@@ -865,7 +883,7 @@ describe('media from a turn asks for its models before the GPU is taken', () => 
     await vi.waitFor(() => expect(answers).toHaveLength(1))
 
     answers[0].answer(false)
-    expect(await run).toMatchObject({ state: 'cancelled', error: 'Generation cancelled.' })
+    expect(await run).toMatchObject({ state: 'cancelled', declined: true })
     expect(orchestrator.stopChatForMedia).not.toHaveBeenCalled()
     expect(orchestrator.restartChatBackend).not.toHaveBeenCalled()
     expect(submittedPrompts).toHaveLength(0)

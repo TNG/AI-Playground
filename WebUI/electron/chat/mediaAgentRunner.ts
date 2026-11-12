@@ -31,6 +31,8 @@ const INNER_COMFY_TOOLS = new Set(['comfyUI', 'comfyUiImageEdit'])
 
 type MediaAgentRunArgs = MediaAgentRunRequest & {
   readMediaAsDataUri?: (url: string) => Promise<string>
+  /** Workflows whose download the user declined; the caller keeps them for its session. */
+  declinedWorkflows?: Set<string>
 }
 
 type InnerExecOptions = {
@@ -48,6 +50,7 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
   return {
     ...(typeof output.success === 'boolean' ? { success: output.success } : {}),
     ...(typeof output.message === 'string' ? { message: output.message } : {}),
+    ...(output.declined === true ? { declined: true } : {}),
     images: images.map((item) => {
       if (typeof item !== 'object' || item === null) return item
       const media = item as Record<string, unknown>
@@ -60,8 +63,16 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
   }
 }
 
+function allowedWorkflowsOf(
+  repairData: MediaAgentRunRequest['repairData'],
+  toolName: string,
+): { allowedWorkflows?: string[] } {
+  const data = toolName === 'comfyUiImageEdit' ? repairData?.comfyUiImageEdit : repairData?.comfyUI
+  return data ? { allowedWorkflows: data.names } : {}
+}
+
 async function executeInnerComfy(
-  request: MediaAgentRunRequest,
+  request: MediaAgentRunArgs,
   toolName: string,
   input: unknown,
   execOptions: InnerExecOptions,
@@ -80,6 +91,8 @@ async function executeInnerComfy(
     },
     conversationKey: request.conversationKey,
     keepModelsLoaded: request.keepModelsLoaded ?? false,
+    declinedWorkflows: request.declinedWorkflows,
+    ...allowedWorkflowsOf(request.repairData, toolName),
   })
   const output = slimInnerComfyOutput(raw)
   console.info(
@@ -153,18 +166,23 @@ export async function runMediaAgentInMain(
   }
   abortSignal?.addEventListener('abort', onAbort, { once: true })
   activeRuns.set(request.runKey, controller)
+  let settled: 'done' | 'failed' = 'failed'
   try {
     // One media-request bracket at a time, and never while a generation holds
     // the GPU for media: the bracket's own LLM steps need the chat backend
     // (the orchestrator's request lane — the old renderer pipeline's
     // queueMediaRequest, moved to where the specialist runs).
-    return await runMediaRequest(() => runMediaAgentBracket(request, controller), {
+    const result = await runMediaRequest(() => runMediaAgentBracket(request, controller), {
       runKey: request.runKey,
       conversationKey: request.conversationKey,
       abortSignal: controller.signal,
     })
+    settled = 'done'
+    return result
   } finally {
     abortSignal?.removeEventListener('abort', onAbort)
+    // A stopped turn may never settle its tool part, so the timeline ends on this.
+    emitMediaAgentEvent(request.runKey, { type: 'run-end', state: settled })
     endMediaAgentRun(request.runKey)
     activeRuns.delete(request.runKey)
   }
@@ -174,6 +192,7 @@ async function runMediaAgentBracket(
   request: MediaAgentRunArgs,
   controller: AbortController,
 ): Promise<MediaAgentRunResult> {
+  const inner = { ...request, declinedWorkflows: request.declinedWorkflows ?? new Set<string>() }
   const priorMessages: ModelMessage[] = request.sourceImage
     ? [sourceImageMessage(request.sourceImage)]
     : []
@@ -185,7 +204,7 @@ async function runMediaAgentBracket(
       if (!INNER_COMFY_TOOLS.has(spec.name)) {
         throw new Error(`${spec.name} is not a media specialist tool`)
       }
-      const output = await executeInnerComfy(request, spec.name, input, exec, controller)
+      const output = await executeInnerComfy(inner, spec.name, input, exec, controller)
       captured.push({ toolName: spec.name, input, output })
       return output
     },

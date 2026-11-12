@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { acceptHMRUpdate } from 'pinia'
+import { rethrowCancellationAs } from '../errors/appError'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
@@ -237,9 +238,9 @@ export const useSpeechToText = defineStore(
           const missing = await models.getMissingTranscriptionModel(selectedStandaloneModel.value)
           if (missing.length > 0) {
             downloadPrompted = true
-            await requestDownload(missing).catch(() => {
-              throw new Error('Whisper model download was cancelled')
-            })
+            await requestDownload(missing).catch(
+              rethrowCancellationAs('Whisper model download was cancelled'),
+            )
           }
         }
         // Re-read the service: the download popup above can take minutes, during
@@ -339,9 +340,9 @@ export const useSpeechToText = defineStore(
           const missing = await models.getMissingTranscriptionModel(model)
           if (missing.length > 0) {
             downloadPrompted = true
-            await requestDownload(missing).catch(() => {
-              throw new Error('Whisper model download was cancelled')
-            })
+            await requestDownload(missing).catch(
+              rethrowCancellationAs('Whisper model download was cancelled'),
+            )
           }
         }
 

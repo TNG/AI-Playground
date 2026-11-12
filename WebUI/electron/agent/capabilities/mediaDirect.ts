@@ -30,11 +30,15 @@ async function runDirectTool(
   spec: AgentToolSpec,
   rawArgs: DirectArgs,
   toolCallId: string,
+  declinedWorkflows: Set<string>,
   signal?: AbortSignal,
 ): Promise<unknown> {
   const isEdit = spec.name === 'editImage'
   return await runInProcessComfyTool({
     kind: isEdit ? 'edit' : 'create',
+    toolName: spec.name,
+    declinedWorkflows,
+    ...(spec.allowedWorkflows ? { allowedWorkflows: spec.allowedWorkflows } : {}),
     args: { ...rawArgs, defaultWorkflow: spec.defaultWorkflow },
     source: isEdit ? (rawArgs.sourceImagePath as string | undefined) : undefined,
     origin: 'agent',
@@ -54,6 +58,7 @@ export async function buildDirectMediaTools(
 ): Promise<ToolDefinition[]> {
   const pi = await loadPi()
   const { workspaceDir } = host
+  const declinedWorkflows = new Set<string>()
   return Promise.all(
     specs.map(
       (spec) =>
@@ -73,7 +78,14 @@ export async function buildDirectMediaTools(
                 )
               }
             }
-            const result = await runDirectTool(host, spec, args, toolCallId, signal ?? undefined)
+            const result = await runDirectTool(
+              host,
+              spec,
+              args,
+              toolCallId,
+              declinedWorkflows,
+              signal ?? undefined,
+            )
             return mediaToolResult(
               await saveGeneratedMediaToWorkspace(result, workspaceDir, host.sessionMedia),
             )

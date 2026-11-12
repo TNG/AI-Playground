@@ -1325,6 +1325,30 @@ describe('panel runs waiting on model download consent', () => {
     expect(startArtifactRunMock).not.toHaveBeenCalled()
   })
 
+  it('says a run was declined, not just cancelled, so a tool can stop asking', async () => {
+    setOrchestratorDeps(deps())
+    prepareRunModelsMock.mockResolvedValueOnce({ state: 'declined' })
+    prepareRunModelsMock.mockResolvedValueOnce({ state: 'declined' })
+
+    const nested = await submitArtifactRun(payload({ runId: 'tool-1' }), { queue: 'queue' })
+    const panel = await submitArtifactRun(payload({ runId: 'panel-1' }))
+
+    expect(nested).toMatchObject({ state: 'cancelled', declined: true })
+    expect(panel).toMatchObject({ state: 'cancelled', declined: true })
+    expect(startArtifactRunMock).not.toHaveBeenCalled()
+  })
+
+  it('does not call a nested run stopped while the user decides declined', async () => {
+    setOrchestratorDeps(deps())
+    askNextRun()
+    const nested = submitArtifactRun(payload({ runId: 'tool-1' }), { queue: 'queue' })
+    await settle()
+    cancelArtifactRun('tool-1')
+    const result = await nested
+    expect(result.state).toBe('cancelled')
+    expect(result.declined).toBeUndefined()
+  })
+
   it('a stop while the user decides ends the run, and the answer is ignored', async () => {
     setOrchestratorDeps(deps())
     const { answer } = askNextRun()

@@ -60,6 +60,17 @@ A document the user attached in a Session for its turns to search. It belongs to
 alone and is kept in its Session Folder.
 _Avoid_: RAG document, knowledge base
 
+**Paused Session**:
+A Session, or a Trial Run, whose turn is waiting on the user, for example to approve a model
+download or a VRAM warning.
+_Avoid_: blocked session, stuck session
+
+**In View**:
+A Session or Trial Run is In View when the user can see it: a Session when it is the one showing
+and the Agent Library is not over it, a Trial Run when the Agent Library shows that Agent's Trial
+Run. What a Paused Session asks waits until it is In View, and the user is alerted meanwhile.
+_Avoid_: visible, active, focused, on screen
+
 **Session Update**:
 A short templated digest of the History Entries a chat preset missed since its own last turn in
 the Session, handed to it with the next prompt. Never a model-written summary.

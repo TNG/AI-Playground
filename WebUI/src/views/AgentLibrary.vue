@@ -1,9 +1,19 @@
 <script setup lang="ts">
 // Full-window overlay over whatever Session is showing; it belongs to no Session.
-import { computed, onMounted, ref, type ComponentPublicInstance } from 'vue'
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  watchEffect,
+  type ComponentPublicInstance,
+} from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { XMarkIcon } from '@heroicons/vue/24/solid'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useUIStore } from '@/assets/js/store/ui'
@@ -14,18 +24,19 @@ import AgentLibrarySchedules from '@/components/agentLibrary/AgentLibrarySchedul
 import AgentLibrarySettings from '@/components/agentLibrary/AgentLibrarySettings.vue'
 import AgentLibrarySteps from '@/components/agentLibrary/AgentLibrarySteps.vue'
 import AgentLibraryTrialRun from '@/components/agentLibrary/AgentLibraryTrialRun.vue'
+import { trialRunOnScreen, type AgentLibraryTab } from '@/lib/agentLibraryPane'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
+const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
+const agentTrialRuns = useAgentTrialRuns()
 const i18n = useI18N().state
 const ui = useUIStore()
 const sessions = useSessions()
 
 const root = ref<HTMLElement | null>(null)
-
-type EditorTab = 'steps' | 'inferencing' | 'attributes' | 'schedules' | 'trial'
 
 const TAB_LABELS = {
   steps: 'AGENT_LIBRARY_STEPS',
@@ -33,12 +44,12 @@ const TAB_LABELS = {
   attributes: 'SESSION_TAB_ATTRIBUTES',
   schedules: 'AGENT_LIBRARY_SCHEDULES',
   trial: 'AGENT_LIBRARY_TRIAL_RUN',
-} as const satisfies Record<EditorTab, string>
+} as const satisfies Record<AgentLibraryTab, string>
 
 // Below this width the Trial Run pane does not fit beside the tabs, so it becomes one of them.
 const wide = useMediaQuery('(min-width: 1024px)')
 
-const tabs = computed((): EditorTab[] => [
+const tabs = computed((): AgentLibraryTab[] => [
   'steps',
   'inferencing',
   'attributes',
@@ -46,12 +57,21 @@ const tabs = computed((): EditorTab[] => [
   ...(wide.value ? [] : (['trial'] as const)),
 ])
 
-const pickedTab = ref<EditorTab>('steps')
+const pickedTab = ref<AgentLibraryTab>('steps')
+watch(
+  () => ui.agentLibrary,
+  (view) => {
+    if (!view?.showTrialRun) return
+    if (!wide.value) pickedTab.value = 'trial'
+    ui.trialRunShown()
+  },
+  { immediate: true },
+)
 const shownTab = computed(() => (tabs.value.includes(pickedTab.value) ? pickedTab.value : 'steps'))
 
-const tabRefs = new Map<EditorTab, HTMLElement>()
+const tabRefs = new Map<AgentLibraryTab, HTMLElement>()
 
-function setTabRef(tab: EditorTab, el: Element | ComponentPublicInstance | null) {
+function setTabRef(tab: AgentLibraryTab, el: Element | ComponentPublicInstance | null) {
   if (el instanceof HTMLElement) tabRefs.set(tab, el)
   else tabRefs.delete(tab)
 }
@@ -96,6 +116,19 @@ const selected = computed(() => {
   const wanted = ui.agentLibrary?.agentId
   return agents.find((agent) => agent.id === wanted) ?? agents[0]
 })
+
+watchEffect(() => {
+  agentMode.setAgentLibraryShowing({
+    trialRunSessionId: trialRunOnScreen({
+      selectedAgentId: selected.value?.id,
+      trialRunSessionOf: agentTrialRuns.trialRunSessionOf,
+      wide: wide.value,
+      shownTab: shownTab.value,
+    }),
+  })
+})
+
+onUnmounted(() => agentMode.setAgentLibraryShowing(null))
 
 onMounted(() => {
   // Escape is handled on the overlay, which receives no key events until something in it has focus.

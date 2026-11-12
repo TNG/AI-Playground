@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentDraft, AgentTask } from '@/types/agentTaskIpc'
-import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
+import type { AgentTurnSnapshot, KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 
 // The Agents store's Drafts, as the Agent Library edits them: creating an Agent as a
 // Draft, saving and discarding Drafts, and deleting. Driven through its public interface
@@ -202,6 +202,19 @@ const deleteDraft = vi.fn(async (agentId: string) => {
 const SESSION = 'session-1'
 let runHarnesses = 0
 
+const kernelSnapshot = (agentTurns: AgentTurnSnapshot[] = []): KernelSnapshot => ({
+  scope: { kind: 'global' },
+  sequence: 5,
+  state: {
+    services: [],
+    agentTurns,
+    activeArtifactRun: null,
+    chatTurns: [],
+    activities: [],
+    inferenceProfile: null,
+  },
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
@@ -238,18 +251,7 @@ beforeEach(() => {
   globalThis.window = {
     electronAPI: {
       onKernelEvent: vi.fn((_listener: (event: KernelEvent) => void) => () => {}),
-      getKernelSnapshot: vi.fn(async (): Promise<KernelSnapshot> => ({
-        scope: { kind: 'global' },
-        sequence: 5,
-        state: {
-          services: [],
-          agentTurns: [],
-          activeArtifactRun: null,
-          chatTurns: [],
-          activities: [],
-          inferenceProfile: null,
-        },
-      })),
+      getKernelSnapshot: vi.fn(async () => kernelSnapshot()),
       existsPath: vi.fn(async () => true),
       isFolderPath: vi.fn(async () => true),
       sessions: {
@@ -654,6 +656,256 @@ describe('deleting an Agent', () => {
 
     expect(storedDrafts).toEqual([])
     expect(tasks.libraryAgents).toEqual([])
+  })
+})
+
+describe('duplicating an Agent', () => {
+  const MOUNTED: AgentSessionSettings = {
+    ...SETTINGS,
+    mountedFolders: [{ hostPath: '/data/notes', access: 'read-write' }, { hostPath: '/data/in' }],
+  }
+
+  it('copies the definition into a new saved Agent, without its runs, Schedules or history', async () => {
+    storedTasks = [
+      savedAgent('a', {
+        name: 'Digest',
+        description: 'Reads the news',
+        image: 'data:image/png;base64,NEWS',
+        settingsTemplate: MOUNTED,
+        steps: stepsOf('search the news', 'summarise it'),
+        startableFromChannel: true,
+        sessionRef: SESSION,
+        workspaceDir: '/work/legacy',
+        lastOutcome: { kind: 'completed', at: 4, stepCount: 2 },
+        schedules: [{ every: 1, unit: 'days', startAt: 5, enabled: true, sessionRef: SESSION }],
+      }),
+    ]
+    const { tasks } = await readyStores()
+
+    const result = await tasks.duplicateAgent('a')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const { id, steps, createdAt, updatedAt, ...copied } = result.task
+    expect(copied).toEqual({
+      name: 'Digest (copy)',
+      description: 'Reads the news',
+      image: 'data:image/png;base64,NEWS',
+      settingsTemplate: MOUNTED,
+      startableFromChannel: true,
+    })
+    expect(id).not.toBe('a')
+    expect(steps.map((step) => step.prompt)).toEqual(['search the news', 'summarise it'])
+    const stepIds = new Set(steps.map((step) => step.id))
+    expect(stepIds.size).toBe(2)
+    expect(stepIds.has('step-0') || stepIds.has('step-1')).toBe(false)
+    expect(createdAt).toBe(updatedAt)
+    expect(createdAt).toBeGreaterThan(1)
+    expect(storedTasks.map((task) => task.id)).toEqual(['a', id])
+    expect(storedTasks[1]).toEqual(result.task)
+    expect(tasks.libraryAgents.map((agent) => [agent.id, agent.name, agent.saved])).toEqual([
+      ['a', 'Digest', true],
+      [id, 'Digest (copy)', true],
+    ])
+    expect(storedDrafts).toEqual([])
+  })
+
+  it('counts the copy name up to the first one no Agent has', async () => {
+    storedTasks = [
+      savedAgent('a', { name: 'Digest' }),
+      savedAgent('b', { name: 'Digest (copy)' }),
+      savedAgent('c', { name: 'Digest (copy 3)' }),
+    ]
+    const { tasks } = await readyStores()
+
+    const names: string[] = []
+    for (let i = 0; i < 2; i++) {
+      const result = await tasks.duplicateAgent('a')
+      if (result.ok) names.push(result.task.name)
+    }
+
+    expect(names).toEqual(['Digest (copy 2)', 'Digest (copy 4)'])
+  })
+
+  it('is refused for an Agent that only exists as a Draft', async () => {
+    const { tasks } = await readyStores()
+    const { agentId } = await tasks.createAgentDraft()
+    await tasks.editDraft(agentId, { name: 'Digest', steps: stepsOf('go') })
+
+    expect(await tasks.duplicateAgent(agentId)).toEqual({ ok: false, reason: 'no-task' })
+
+    expect(saveTask).not.toHaveBeenCalled()
+    expect(tasks.libraryAgents.map((agent) => agent.id)).toEqual([agentId])
+  })
+
+  it('works while the original has a run in flight, and the copy has none', async () => {
+    const activeRun = { sessionId: 'run-live', sessionRef: SESSION, stepIndex: 1, stepCount: 1 }
+    storedTasks = [savedAgent('a', { activeRuns: [activeRun] })]
+    vi.mocked(window.electronAPI.getKernelSnapshot).mockResolvedValue(
+      kernelSnapshot([
+        {
+          sessionId: 'run-live',
+          turnId: 'turn-live',
+          state: 'running',
+          chunks: [],
+          toolProgress: {},
+          toolImages: {},
+        },
+      ]),
+    )
+    const { tasks } = await readyStores()
+    expect(tasks.runningSessionCount('a')).toBe(1)
+
+    const result = await tasks.duplicateAgent('a')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.task.activeRuns).toBeUndefined()
+    expect(tasks.runningSessionCount(result.task.id)).toBe(0)
+    expect(tasks.runningSessionCount('a')).toBe(1)
+    expect(tasks.tasks[0].activeRuns).toEqual([activeRun])
+  })
+
+  it('makes an independent Agent: saving an edit to the copy leaves the original as it is', async () => {
+    storedTasks = [savedAgent('a', { settingsTemplate: MOUNTED })]
+    const { tasks } = await readyStores()
+    const result = await tasks.duplicateAgent('a')
+    if (!result.ok) throw new Error('not duplicated')
+
+    await tasks.editDraft(result.task.id, { name: 'Other', steps: stepsOf('other step') })
+    await tasks.editDraftSettings(result.task.id, { mountedFolders: [{ hostPath: '/elsewhere' }] })
+    expect((await tasks.saveAgentDraft(result.task.id)).ok).toBe(true)
+
+    expect(tasks.tasks[0]).toEqual(savedAgent('a', { settingsTemplate: MOUNTED }))
+    expect(storedTasks[0]).toEqual(savedAgent('a', { settingsTemplate: MOUNTED }))
+  })
+
+  it('carries the original’s Draft into the copy, its Steps on the copy’s ids', async () => {
+    storedTasks = [savedAgent('a', { name: 'Digest', steps: stepsOf('search', 'summarise') })]
+    const { tasks } = await readyStores()
+    const draftEdit = {
+      name: 'Digest, weekly',
+      description: 'Every week',
+      image: 'data:image/png;base64,WEEK',
+      steps: [
+        { id: 'step-1', prompt: 'summarise the week' },
+        { id: 'step-new', prompt: 'mail it' },
+      ],
+      settingsTemplate: MOUNTED,
+    }
+    await tasks.editDraft('a', draftEdit)
+    const originalDraft = storedDrafts[0]
+
+    const result = await tasks.duplicateAgent('a')
+    if (!result.ok) throw new Error('not duplicated')
+
+    const copyId = result.task.id
+    const { updatedAt: _updatedAt, steps, ...carried } = tasks.drafts[copyId]
+    expect(carried).toEqual({
+      agentId: copyId,
+      name: 'Digest, weekly',
+      description: 'Every week',
+      image: 'data:image/png;base64,WEEK',
+      settingsTemplate: MOUNTED,
+    })
+    expect(steps.map((step) => step.prompt)).toEqual(['summarise the week', 'mail it'])
+    expect(steps[0].id).toBe(result.task.steps[1].id)
+    expect(steps[1].id).not.toBe('step-new')
+    expect(result.task.steps.some((step) => step.id === steps[1].id)).toBe(false)
+    expect(storedDrafts).toEqual([originalDraft, tasks.drafts[copyId]])
+    expect(tasks.drafts.a).toEqual(originalDraft)
+    expect(tasks.tasks[0]).toEqual(
+      savedAgent('a', { name: 'Digest', steps: stepsOf('search', 'summarise') }),
+    )
+    expect(result.task.name).toBe('Digest (copy)')
+    expect(tasks.libraryAgents.find((agent) => agent.id === copyId)).toEqual(
+      expect.objectContaining({ name: 'Digest, weekly', hasDraft: true, saved: true }),
+    )
+  })
+
+  it('names the carried Draft after the copy when the Draft kept the saved name', async () => {
+    storedTasks = [savedAgent('a', { name: 'Digest' })]
+    const { tasks } = await readyStores()
+    await tasks.editDraft('a', { description: 'Every week' })
+
+    const result = await tasks.duplicateAgent('a')
+    if (!result.ok) throw new Error('not duplicated')
+
+    expect(tasks.drafts[result.task.id].name).toBe('Digest (copy)')
+    expect(tasks.drafts.a.name).toBe('Digest')
+  })
+
+  it('names the carried Draft after the copy when its name differs only by spaces', async () => {
+    storedTasks = [savedAgent('a', { name: 'Digest' })]
+    const { tasks } = await readyStores()
+    await tasks.editDraft('a', { name: 'Digest ' })
+
+    const result = await tasks.duplicateAgent('a')
+    if (!result.ok) throw new Error('not duplicated')
+
+    expect(tasks.drafts[result.task.id].name).toBe('Digest (copy)')
+  })
+
+  it('keeps the saved copy without a Draft when its carried Draft cannot be written', async () => {
+    storedTasks = [savedAgent('a', { name: 'Digest' })]
+    const { tasks } = await readyStores()
+    await tasks.editDraft('a', { description: 'Every week' })
+    const originalDraft = storedDrafts[0]
+    saveDraft.mockImplementationOnce(async () => ({ success: false, error: 'disk full' }))
+
+    const result = await tasks.duplicateAgent('a')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(storedTasks.map((task) => task.id)).toEqual(['a', result.task.id])
+    expect(tasks.drafts[result.task.id]).toBeUndefined()
+    expect(storedDrafts).toEqual([originalDraft])
+    expect(tasks.libraryAgents.find((agent) => agent.id === result.task.id)).toEqual(
+      expect.objectContaining({ name: 'Digest (copy)', hasDraft: false, saved: true }),
+    )
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'agent-library/draft-save-failed', surface: 'toast' }),
+    )
+  })
+
+  it('carries a Draft that cannot be saved yet, and keeps it when the Library moves on', async () => {
+    storedTasks = [savedAgent('a'), savedAgent('b')]
+    availability.models = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const { tasks } = await readyStores()
+    const ui = useUIStore()
+    ui.openAgentLibrary({ agentId: 'a' })
+    await tasks.editDraft('a', { steps: stepsOf('go', ' ') })
+    await tasks.editDraftSettings('a', { model: 'Gone-9B' })
+    expect(tasks.draftBlocker('a')).toBe('empty-step')
+
+    const result = await tasks.duplicateAgent('a')
+    if (!result.ok) throw new Error('not duplicated')
+    await settleMicrotasks()
+    ui.selectLibraryAgent('b')
+    ui.closeAgentLibrary()
+    await settleMicrotasks()
+
+    const copyId = result.task.id
+    expect(tasks.drafts[copyId].steps.map((step) => step.prompt)).toEqual(['go', ' '])
+    expect(tasks.draftBlocker(copyId)).toBe('empty-step')
+    expect(tasks.draftSettingsProblems(copyId)).toEqual([{ field: 'model', value: 'Gone-9B' }])
+    expect(storedDrafts.map((draft) => draft.agentId)).toEqual(['a', copyId])
+    expect(tasks.libraryAgents.find((agent) => agent.id === copyId)?.hasDraft).toBe(true)
+  })
+
+  it('leaves no copy and reports when the Agents file cannot be written', async () => {
+    storedTasks = [savedAgent('a')]
+    const { tasks } = await readyStores()
+    saveTask.mockImplementationOnce(async () => ({ success: false, error: 'disk full' }))
+
+    expect(await tasks.duplicateAgent('a')).toEqual({ ok: false, reason: 'persist-failed' })
+
+    expect(tasks.libraryAgents.map((agent) => agent.id)).toEqual(['a'])
+    expect(storedTasks).toEqual([savedAgent('a')])
+    expect(storedDrafts).toEqual([])
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'agent-tasks/duplicate-failed', surface: 'toast' }),
+    )
   })
 })
 

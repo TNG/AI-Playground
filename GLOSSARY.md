@@ -67,8 +67,7 @@ _Avoid_: blocked session, stuck session
 
 **In View**:
 A Session or Trial Run is In View when the user can see it: a Session when it is the one showing
-and the Agent Library is not over it, a Trial Run when the Agent Library shows that Agent's Trial
-Run. What a Paused Session asks waits until it is In View, and the user is alerted meanwhile.
+and no Library is over it, a Trial Run when the Agent Library shows that Agent's Trial Run. What a Paused Session asks waits until it is In View, and the user is alerted meanwhile.
 _Avoid_: visible, active, focused, on screen
 
 **Session Update**:
@@ -88,6 +87,16 @@ _Avoid_: Task, job, automation
 The one place, opened over whatever Session is showing, where Agents are created, edited,
 scheduled and tried out. It belongs to no Session, and leaving it loses nothing.
 _Avoid_: Agent Maker, Agents view, agent manager
+
+**Model Library**:
+The one place, opened over whatever Session is showing, where models are browsed, downloaded and
+deleted. It belongs to no Session.
+_Avoid_: Model Manager, Models view
+
+**Library**:
+The Agent Library or the Model Library. At most one Library is open: opening one closes the other,
+and closing it returns to the Session.
+_Avoid_: overlay, modal, panel
 
 **Step**:
 One prompt of an Agent, sent as its own turn.

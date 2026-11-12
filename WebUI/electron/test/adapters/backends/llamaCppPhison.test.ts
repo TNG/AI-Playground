@@ -22,6 +22,8 @@ import {
   migrateLegacySsdOffloadConfigFile,
   phisonCleanupDirs,
   reconcileSsdOffloadConfig,
+  ssdOffloadBuildFromProductVersion,
+  ssdOffloadBuildFromUrl,
   withConfigFileArg,
 } from '../../../adapters/backends/llamaCppPhison'
 
@@ -393,5 +395,25 @@ describe('llamaCppPhison helpers', () => {
         '--jinja',
       ])
     })
+  })
+})
+
+describe('aiDAPTIV build identity', () => {
+  it('reads the build the download URL ships', () => {
+    expect(
+      ssdOffloadBuildFromUrl(
+        'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_NXWXB308.0_x64.zip',
+      ),
+    ).toBe('NXWXB308.0')
+    expect(ssdOffloadBuildFromUrl()).toMatch(/^NX[A-Z0-9]+\.\d+$/)
+  })
+
+  it('reads the build stamped on llama-server.exe', () => {
+    expect(ssdOffloadBuildFromProductVersion('NXWVB306.1 / b9568\r\n')).toBe('NXWVB306.1')
+  })
+
+  it('reports no build for an exe without an aiDAPTIV ProductVersion', () => {
+    expect(ssdOffloadBuildFromProductVersion('')).toBeUndefined()
+    expect(ssdOffloadBuildFromProductVersion('b9568')).toBeUndefined()
   })
 })

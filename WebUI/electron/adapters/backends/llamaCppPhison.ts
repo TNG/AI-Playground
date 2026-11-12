@@ -10,7 +10,19 @@ type PhisonLogger = {
 }
 
 export const LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE =
-  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_NXWVB306.1_x64.zip'
+  'https://phisonbucket.s3.ap-northeast-1.amazonaws.com/aiDAPTIV_NXWXB308.0_x64.zip'
+/** The aiDAPTIV build a download URL ships, from its file name: `NXWXB308.0`. */
+export function ssdOffloadBuildFromUrl(
+  url: string = LLAMACPP_SSD_OFFLOAD_DOWNLOAD_URL_TEMPLATE,
+): string | undefined {
+  return url.match(/aiDAPTIV_([A-Z0-9]+\.\d+)_/)?.[1]
+}
+
+/** The aiDAPTIV build stamped on llama-server.exe, whose ProductVersion reads `NXWVB306.1 / b9568`. */
+export function ssdOffloadBuildFromProductVersion(productVersion: string): string | undefined {
+  return productVersion.match(/^\s*([A-Z0-9]+\.\d+)\s*\//)?.[1]
+}
+
 export const LLAMACPP_SSD_OFFLOAD_CONFIG_NAME = 'aidaptiv_config.json'
 export const LLAMACPP_SSD_OFFLOAD_LEGACY_CONFIG_NAME = 'aidaptiv(303G0B).json'
 export const LLAMACPP_SSD_OFFLOAD_EMBEDDING_CONFIG_NAME = 'aidaptiv_embedding_config.json'

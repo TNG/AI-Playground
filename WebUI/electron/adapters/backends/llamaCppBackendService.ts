@@ -311,6 +311,8 @@ export class LlamaCppBackendService implements ApiService {
   desiredStatus: BackendStatus = 'uninitializedStatus'
   /** True while an install runs for this service — see `ApiService.setUpInProgress`. */
   setUpInProgress: boolean = false
+  /** Settles once an outdated aiDAPTIV build has been replaced; checked once per launch. */
+  private ssdOffloadOverwrite: Promise<void> | undefined
 
   // Model server processes
   private llamaLlmProcess: LlamaServerProcess | null = null
@@ -445,6 +447,8 @@ export class LlamaCppBackendService implements ApiService {
       `Ensuring LlamaCPP backend readiness for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context: ${contextSize ?? 'default'}, Model args: ${modelArgs ?? 'none'}`,
       this.name,
     )
+    // Launching mid-overwrite would run a build whose directory is being replaced.
+    await this.ssdOffloadOverwrite
 
     try {
       // Handle LLM model
@@ -510,6 +514,7 @@ export class LlamaCppBackendService implements ApiService {
    * local server. Mirrors the embedding branch of ensureBackendReadiness.
    */
   async ensureEmbeddingServerReady(embeddingModelName: string): Promise<void> {
+    await this.ssdOffloadOverwrite
     const needsEmbeddingRestart = this.embeddingServerNeedsRestart(embeddingModelName)
 
     if (needsEmbeddingRestart) {
@@ -773,6 +778,10 @@ export class LlamaCppBackendService implements ApiService {
       }
     }
     this.syncSetupFlagsFromDisk()
+    // Main boots as 'standard'; this push is the first point the Phison variant is known.
+    if (this.llamaCppBuildVariant === 'ssd-offload') {
+      this.ssdOffloadOverwrite ??= this.overwriteOutdatedSsdOffloadBuild()
+    }
   }
 
   async getInstalledVersion(): Promise<{ version?: string; releaseTag?: string } | undefined> {
@@ -1388,6 +1397,57 @@ export class LlamaCppBackendService implements ApiService {
     this.clearLastStartupError()
     this.updateStatus()
     return 'running'
+  }
+
+  /**
+   * Replaces an installed aiDAPTIV build that differs from the one this release downloads,
+   * by running the ordinary install over it. A failed download leaves the old build in place.
+   */
+  private async overwriteOutdatedSsdOffloadBuild(): Promise<void> {
+    if (
+      process.platform !== 'win32' ||
+      this.llamaCppBuildVariant !== 'ssd-offload' ||
+      !this.isSetUp
+    ) {
+      return
+    }
+    const target = llamaCppPhison.ssdOffloadBuildFromUrl()
+    const installed = await this.readInstalledSsdOffloadBuild()
+    if (!target || !installed || installed === target) return
+
+    this.appLogger.info(`Replacing aiDAPTIV build ${installed} with ${target}`, this.name)
+    this.setUpInProgress = true
+    try {
+      for await (const progress of this.set_up()) {
+        this.appLogger.info(`aiDAPTIV update: ${progress.debugMessage}`, this.name)
+        if (progress.status === 'failed' || progress.status === 'success') break
+      }
+    } finally {
+      this.setUpInProgress = false
+    }
+    // set_up leaves the service at notYetStarted; restore the running state it had.
+    if (this.isSetUp && this.desiredStatus === 'running') await this.start()
+  }
+
+  private async readInstalledSsdOffloadBuild(): Promise<string | undefined> {
+    const exe = path.join(this.llamaCppDirForVariant('ssd-offload'), binary('llama-server'))
+    if (!filesystem.existsSync(exe)) return undefined
+    try {
+      const { stdout } = await execFileAsync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-Item -LiteralPath '${exe.replace(/'/g, "''")}').VersionInfo.ProductVersion`,
+        ],
+        { timeout: 30000 },
+      )
+      return llamaCppPhison.ssdOffloadBuildFromProductVersion(stdout)
+    } catch (error) {
+      this.appLogger.warn(`Could not read the aiDAPTIV build of ${exe}: ${error}`, this.name)
+      return undefined
+    }
   }
 
   async stop(): Promise<BackendStatus> {

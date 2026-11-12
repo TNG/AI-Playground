@@ -76,10 +76,7 @@
 import { computed } from 'vue'
 import { ChevronDownIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
-import { usePresets } from '@/assets/js/store/presets'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
-import { useTextInference } from '@/assets/js/store/textInference'
-import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import Button from '@/components/ui/button/Button.vue'
 import {
@@ -96,8 +93,8 @@ import PromptCaptureButtons from '@/components/PromptCaptureButtons.vue'
 import PromptSendButtons from '@/components/PromptSendButtons.vue'
 import type { AgentComposerState } from '@/lib/agentComposer'
 import { mapModeToLabel } from '@/lib/utils.ts'
-import { promptBarModel } from '@/lib/promptBarModel'
-import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { buttonModeFor } from '@/lib/presetModes'
+import { usePromptBarModel } from '@/lib/usePromptBarModel'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 
 defineProps<{
@@ -127,28 +124,15 @@ const emit = defineEmits<{
 }>()
 
 const promptStore = usePromptStore()
-const presetsStore = usePresets()
 const sessionTabs = useSessionTabs()
-const textInference = useTextInference()
-const oemBranding = useOemBranding()
 const i18nState = useI18N().state
-const { gateOf } = usePromptBarPresetSwitch()
 const agentPick = usePromptBarAgentPick()
 
-const model = computed(() =>
-  promptBarModel({
-    activePreset: presetsStore.activePreset,
-    presetLabel: (name) => oemBranding.presetLabel(name),
-    machine: { chatBackend: textInference.backend },
-    catalog: presetsStore.getPresetsByCategories([]),
-    lastUsed: presetsStore.lastUsedPresetsByMode,
-    presetGate: gateOf,
-    agents: agentPick.agents.value,
-    pickedAgentId: agentPick.pickedAgentId.value,
-  }),
-)
+const model = usePromptBarModel()
 
-const shownMode = computed(() => model.value.activeMode ?? promptStore.getCurrentMode())
+const shownMode = computed(
+  () => model.value.activeMode ?? buttonModeFor(promptStore.getCurrentMode()),
+)
 
 async function pickMode(mode: ModeType) {
   const presetName = model.value.modePicks[mode]

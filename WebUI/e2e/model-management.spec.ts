@@ -60,7 +60,7 @@ test('the model library lists, filters and round-trips a model through download,
   // it is settled first. As in the preset specs: llama.cpp on NVIDIA (where the
   // app filters OpenVINO out and the picker may not even be shown), and a random one
   // of the two on Intel/OpenVINO modes.
-  const presetActive = await app.main.selectPreset('Chat', 'Assistant')
+  const presetActive = await app.main.selectPreset('Assistant', 'Assistant')
   test.skip(!presetActive, 'The "Assistant" preset is not available in this product mode')
 
   let offered: string[] = []

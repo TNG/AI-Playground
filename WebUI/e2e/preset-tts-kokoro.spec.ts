@@ -22,7 +22,7 @@ test.describe('Text to Speech (Kokoro)', () => {
     // Kokoro needs OpenVINO. Probe it via the agentic preset's backend picker: it
     // lists OpenVINO only in Intel/OpenVINO product modes (filtered out in NVIDIA
     // mode), so an absent OpenVINO backend is our skip signal.
-    await app.main.selectPreset('Chat', 'Assistant')
+    await app.main.selectPreset('Assistant', 'Assistant')
     await app.settings.open()
     const backends = await app.settings.availableBackends()
     await app.settings.close()

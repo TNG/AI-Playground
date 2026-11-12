@@ -14,7 +14,7 @@ test.describe('NPU', () => {
     await app.installAllBackends()
 
     await test.step(`Select the "${HARNESS_CHAT_PRESET}" preset`, async () => {
-      await app.main.selectPreset('Chat', HARNESS_CHAT_PRESET)
+      await app.main.selectPreset('Assistant', HARNESS_CHAT_PRESET)
     })
 
     // Start from the preset's shipped defaults, not from what a previous run saved

@@ -194,10 +194,13 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   backends via `wizard.isAvailable(name)`.
 - **Version updates** live in the per-backend gear menu as "Update to <version>", shown only
   when installed ≠ pinned target.
-- **"Agentic mode" isn't a UI mode** — it's Chat mode with a tool-enabled chat preset (e.g.
-  "Agentic Chat"), which lets the assistant generate/edit images and video from a prompt.
-  Select it with `MainPage.selectPreset` — the prompt-bar mode button's hover picker (preset
-  cards are `role="button"`, name = preset name).
+- **"Agentic mode" isn't a UI mode** — it's the Assistant Mode with a tool-enabled preset (the
+  Assistant preset), which lets the assistant generate/edit images and video from a prompt.
+  Select it with `MainPage.selectPreset('Assistant', preset)` — the prompt-bar mode button's
+  hover picker (preset cards are `role="button"`, name = preset name). The Mode buttons sit in a
+  `role="group"` named "Mode", since the Assistant preset's card is also a button named
+  "Assistant"; Game Agent and Quick Coder sit under the picker's "Agent" group, so pass `'Agent'`
+  as the third argument for them.
 - **Turn completion:** the Send button (`aria-label="Send"`) is removed while a turn runs and
   returns when done — `MainPage.waitUntilIdle(timeout)` waits on that (image/video runs take
   minutes; use `IMAGE_TIMEOUT`/`VIDEO_TIMEOUT`). Result assertions use ARIA added to outputs:
@@ -540,7 +543,7 @@ Rules for the locale files:
 - Every locale must have the **exact same key set** as `en-US.json` — no missing, no extra keys.
 - Preserve `{placeholder}` tokens verbatim (e.g. `{tool}`, `{error}`) — same set per key as English.
 - Do **not** translate product/technical names: `AI Playground`, `ComfyUI`, `HuggingFace`, `MCP`,
-  `GPU`, `vRAM`, `OpenVINO`, `INT4`, `KV Cache`, model ids; keep mode names `Chat`/`Image Gen`/`Image Edit`.
+  `GPU`, `vRAM`, `OpenVINO`, `INT4`, `KV Cache`, model ids; keep mode names `Image Gen`/`Image Edit`.
 - Match file format: UTF-8 (raw non-ASCII, not `\u` escaped), 2-space indent, trailing newline.
 
 To keep this mechanical, a parity check is a plain script: load `en-US.json` and each locale, diff
@@ -567,10 +570,17 @@ There is **no Vue Router**. Navigation is state-driven:
 - Once running, the main area is **one view in every mode**: `SessionTimeline.vue`, the open Session's timeline, which is never remounted or restyled by a mode or preset switch. `sessionTimelineItems()` (`src/lib/sessionTimeline.ts`) lays every live turn over the saved timeline — the streaming chat turn, the open and running Harness Sessions (`agentMode.liveTurnsIn`, Task Runs included), the in-flight media run and the running audio turn — so each one shows whichever mode is active. Chat and agent messages, live or settled, render through one `SessionMessage.vue` (shared `SessionUserBubble` / `SessionAssistantBubble`, which `MediaTurnBlock` / `AudioTurnBlock` use too; the answer body is `ChatMessageParts` or `AgentMessageParts` by the engine that produced it). Mode only decides the edges: the prompt bar's submit/cancel per mode (`src/lib/useModePromptHandlers.ts`, registered once from `App.vue`), the Game Agent bar, the agent empty state and status line. `Chat.vue` remains only for a chat while no Session is open. Turns settle ( a panel run settles into its Session Folder and Session History from `electron/session/sessionMediaTurn.ts`, a TTS/STT turn — driven by `store/sessionAudio.ts` — from `electron/session/sessionAudioTurn.ts` over `sessions:recordAudioTurn`)
 - Each mode maps to a preset category (`chat`, `audio`, `create-images`, `edit-images`, `create-videos`). `chat`, `agent` and `audio` all run on `chat`-type presets; `audio` holds the speech presets (Text to Speech / Speech to Text) and gets its own settings tabs (`SettingsAudioInferencing.vue` / `SettingsAudioAttributes.vue`)
 - `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) — the same tabs under every preset. Agents are made, edited and scheduled in the Agent Library overlay (`views/AgentLibrary.vue`, ADR 0007), never in a Session; an Agent Run's Turn offers Stop while it runs and Edit Agent. Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; the only sidebar left is App Settings (`SideModalAppSettings.vue`)
-- **The preset picks the mode**, via `presetToMode()` in `src/lib/presetModes.ts`. A chat preset
-  with `agentPreset: true` (Assistant, Game Agent, Quick Coder) renders Agent Mode, so there is
-  no Agent mode button — it is entered by picking one of those presets from the chat list.
-  Assistant, the general chat preset, runs on the agent harness too, with the chat UI on top
+- **The prompt bar lists one Assistant Mode** (internal key `chat`) for every conversational
+  preset: the Assistant preset, aiDAPTIV™ and other non-agent presets, then an Agent group
+  holding Game Agent and Quick Coder, then the saved Agents behind a separator, then "Manage
+  Agents…". A New Session switches to the Assistant preset (`newSession()` in
+  `store/sessionLifecycle.ts`) unless it is gated. Where a preset is
+  _listed_ is `listModeFor()`; both bars read the groups from `promptBarModel()`'s `listings`
+  (`src/lib/promptBarModel.ts`).
+- **The preset picks the render mode**, via `presetToMode()` in `src/lib/presetModes.ts`: a chat
+  preset with `agentPreset: true` (Assistant, Game Agent, Quick Coder) renders the agent view
+  (Agent Mode, on Pi), any other one the chat view on the chat turn engine. Assistant, the
+  general chat preset, runs on the agent harness too, with the chat UI on top
   (`hasChatAffordances`, `src/lib/chatAffordances.ts`; ADR 0009).
 
 ### Backend Services (4 services, dynamic ports)

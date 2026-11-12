@@ -9,7 +9,9 @@ import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
 import { downloadPercent } from '@/lib/downloadPercent'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { sessionReopenPreset } from '@/lib/sessionReopenPreset'
+import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { sessionRowStatus, type SessionRowStatus } from '@/lib/sessionRowStatus'
 import type { SessionTabLanding } from '@/lib/sessionTabs'
 import type { SessionDownload } from '@/assets/js/store/recordRows'
@@ -28,6 +30,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   const artifactRuns = useArtifactRuns()
   const sessionTabs = useSessionTabs()
   const sessionAudio = useSessionAudio()
+  const presetSwitch = usePromptBarPresetSwitch()
 
   async function openSession(
     id: string,
@@ -52,9 +55,13 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     })
   }
 
-  /** A new Session keeps whatever preset is active. */
+  /** A new Session starts on the Assistant preset, or keeps the active one where it is gated. */
   async function newSession(groupId?: string): Promise<void> {
-    await sessions.create(groupId)
+    if (!(await sessions.create(groupId))) return
+    const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
+    if (!assistant || !presetSwitch.gateOf(assistant).enabled) return
+    await sessionSettings.whenLoaded()
+    await presetSwitch.switchTo(HARNESS_CHAT_PRESET, { announce: false })
   }
 
   function downloadOf(group: string | undefined): SessionDownload | null {

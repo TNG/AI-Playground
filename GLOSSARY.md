@@ -3,11 +3,28 @@
 A desktop app that runs chat, agent and media-generation models locally on Intel GPUs, organised
 around the presets a user picks.
 
+## Modes
+
+**Mode**:
+A group of presets the user picks between in the prompt bar: Assistant, Audio, Image Gen, Image
+Edit or Video. Picking a Mode selects the preset last used in it.
+_Avoid_: tab, view
+
+**Assistant**:
+The Mode holding the conversational presets and the saved Agents: the Agent presets are listed
+under an Agent heading, and the saved Agents after them, set apart.
+_Avoid_: Chat mode, Agent mode
+
+**Assistant preset**:
+The general preset of the Assistant Mode, and the one Agents run on.
+_Avoid_: Agent Maker
+
 ## Sessions
 
 **Session**:
 The unit of work the user sees in the sessions panel: one continuous history in which any mix of
-presets can take turns. A new Session starts only when the user asks for one.
+presets can take turns. A new Session starts only when the user asks for one, and starts on the
+Assistant preset.
 _Avoid_: user session, agent session, conversation, thread
 
 **Title**:
@@ -139,9 +156,9 @@ starts or the app quits.
 _Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:
-A folder on the user's machine that Assistant's turns or an Agent's runs can reach besides the
-Session Folder, added by the user to the Session Settings or to the Agent's Settings Template, and
-either read-only or read-write.
+A folder on the user's machine that the Assistant preset's turns or an Agent's runs can reach
+besides the Session Folder, added by the user to the Session Settings or to the Agent's Settings
+Template, and either read-only or read-write.
 _Avoid_: extra folder, attached folder, workspace
 
 ## Channels

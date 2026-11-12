@@ -381,7 +381,9 @@ const { activeName: activeEmbeddingModelName, items: embeddingModelItems } =
 
 // UI visibility flags from preset
 const enableRAG = computed(() => activeChatPreset.value?.enableRAG ?? false)
-const showTools = computed(() => activeChatPreset.value?.showTools ?? false)
+const showTools = computed(
+  () => productModeStore.toolCallingAllowed && (activeChatPreset.value?.showTools ?? false),
+)
 const showRetrievalModeToggle = computed(
   () =>
     enableRAG.value &&

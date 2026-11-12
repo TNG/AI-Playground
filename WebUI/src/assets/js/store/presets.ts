@@ -118,6 +118,11 @@ export const usePresets = defineStore(
       )
     }
 
+    function needsToolCallingButDisallowed(preset: ChatPreset): boolean {
+      if (!preset.agentPreset && !preset.requiresToolCalling) return false
+      return !useProductMode().toolCallingAllowed
+    }
+
     // ========================================================================
     // Variant Application (validatePreset / applyVariant / getFirstVariantName
     // come from @/lib/presetSchemas)
@@ -453,6 +458,10 @@ export const usePresets = defineStore(
             return false
           }
 
+          if (preset.type === 'chat' && needsToolCallingButDisallowed(preset as ChatPreset)) {
+            return false
+          }
+
           // Hide Phison presets entirely on systems that do not offer the Phison build.
           // On capable systems they remain listed (greyed-out until installed + active).
           if (
@@ -594,6 +603,7 @@ export const usePresets = defineStore(
         const chatPreset = p as ChatPreset
         if (chatPreset.excludeFromChatPresetPicker) return false
         if (sttPresetHidden(chatPreset)) return false
+        if (needsToolCallingButDisallowed(chatPreset)) return false
         if (chatPreset.requiresNpuSupport && !hasNpuDevice) {
           return false
         }

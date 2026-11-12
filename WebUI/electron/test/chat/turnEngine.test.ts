@@ -1284,6 +1284,36 @@ describe('turn engine', () => {
     expect(content).not.toContain('Off')
   })
 
+  it('sends no tools and runs none when tool calling is not allowed', async () => {
+    setChatEngineDeps({ readMediaAsDataUri, toolCallingAllowed: () => false })
+    vi.mocked(listMcpServers).mockReturnValue([
+      { id: 's1', name: 'Serv', instructions: 'Do things' },
+    ] as never)
+    vi.mocked(getMcpServerStatus).mockReturnValue({ state: 'running' } as never)
+    queueFetchMock(sse(textChunks('just text')))
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        tools: [
+          { name: 'comfyUI', description: 'Generate', inputSchema: { type: 'object' } },
+          { name: 'media', description: 'Create media', inputSchema: { type: 'object' } },
+        ],
+        mediaAgent: {
+          system: 'You are the media specialist.',
+          toolSpecs: [{ name: 'comfyUI', description: 'Create images', inputSchema: {} }],
+        },
+        includeMcpInstructions: true,
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].body.tools).toBeUndefined()
+    const system = String(bodyMessages().find((m) => m.role === 'system')!.content)
+    expect(system).not.toContain('# MCP server instructions')
+    expect(executeChatComfyToolMock).not.toHaveBeenCalled()
+    expect(runMediaAgentInMainMock).not.toHaveBeenCalled()
+  })
+
   it('surfaces a backend error as an error chunk, not a crash', async () => {
     vi.stubGlobal(
       'fetch',

@@ -1,5 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
+import { isDemoModeActive } from '../demoAwareStorage'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
+import { allowsToolCalling } from '@/lib/toolCallingPolicy'
 
 export const useProductMode = defineStore('productMode', () => {
   const productMode = ref<ProductMode | null>(null)
@@ -8,6 +10,9 @@ export const useProductMode = defineStore('productMode', () => {
     () => (hardwareRecommendation.value?.hasNvidiaGpu ?? false) === true,
   )
   const isNvidiaModeSelected = computed(() => productMode.value === 'nvidia')
+  const toolCallingAllowed = computed(() =>
+    allowsToolCalling({ isDemoModeEnabled: isDemoModeActive(), productMode: productMode.value }),
+  )
 
   async function hydrateFromMain() {
     try {
@@ -62,6 +67,7 @@ export const useProductMode = defineStore('productMode', () => {
     hardwareRecommendation,
     isNvidiaModeAvailable,
     isNvidiaModeSelected,
+    toolCallingAllowed,
     hydrateFromMain,
     syncToMain,
     detectRecommendation,

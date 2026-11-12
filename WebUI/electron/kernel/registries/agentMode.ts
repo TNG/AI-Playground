@@ -52,6 +52,8 @@ export type AgentModeDeps = {
   deleteAgentTask: typeof deleteAgentTask
   forgetSessionMessages: typeof forgetSessionMessages
   appLogger: typeof appLoggerInstance
+  /** An agent turn is tool calling throughout, so Essentials and Demo Mode refuse it. */
+  toolCallingAllowed: () => boolean
 }
 
 export function buildAgentModeRegistry(deps: AgentModeDeps) {
@@ -98,6 +100,9 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       }
     },
     'agentMode:startTurn': async (_event, turnId, prompt, config) => {
+      if (!deps.toolCallingAllowed()) {
+        return { success: false, error: 'Agent presets are not available in this mode' }
+      }
       const parsed = AgentModeTurnConfigSchema.safeParse(config)
       if (!parsed.success) {
         return { success: false, error: parsed.error.message }

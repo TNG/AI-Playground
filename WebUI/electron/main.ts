@@ -140,6 +140,7 @@ import { ingestDocument, retrieveChunks } from './rag/langchainCalls.ts'
 import { handleChatAnswer, rejectAllChatAsks } from './chat/chatAsk.ts'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import type { IpcOkWith } from '@/types/ipcChannels'
+import { allowsToolCalling } from '@/lib/toolCallingPolicy'
 import {
   cancelActiveArtifactRun,
   setArtifactRunnerDeps,
@@ -1399,6 +1400,7 @@ function wireChatEngine(): void {
     // Tracing hooks: no-ops in laminar.ts unless a Laminar config is present.
     noteTimings: (timings) => noteLlamaCppChatTimings(timings),
     noteTraceContext: (context) => noteMainChatTurnContext(context),
+    toolCallingAllowed: () => allowsToolCalling(settings),
   })
   setRagRetrievalDeps({
     ensureEmbeddingServerReady: async (serviceName, embeddingModel) => {
@@ -1827,6 +1829,7 @@ function initEventHandle() {
       deleteAgentTask,
       forgetSessionMessages,
       appLogger: appLoggerInstance,
+      toolCallingAllowed: () => allowsToolCalling(settings),
     }),
   )
 

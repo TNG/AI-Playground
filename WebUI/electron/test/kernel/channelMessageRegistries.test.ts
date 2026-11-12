@@ -61,6 +61,22 @@ describe('deleting an agent session', () => {
   })
 })
 
+describe('starting an agent turn', () => {
+  it('refuses before it reaches Pi when tool calling is not allowed', async () => {
+    const startAgentTurn = vi.fn(async () => ({ success: true }))
+    const registry = buildAgentModeRegistry({
+      startAgentTurn,
+      toolCallingAllowed: () => false,
+    } as unknown as AgentModeDeps)
+    const startTurn = registry['agentMode:startTurn'] as (
+      e: Electron.IpcMainInvokeEvent,
+      ...args: unknown[]
+    ) => Promise<{ success: boolean }>
+    expect((await startTurn(event, 't1', 'make a game', {})).success).toBe(false)
+    expect(startAgentTurn).not.toHaveBeenCalled()
+  })
+})
+
 describe('looking up a channel message', () => {
   it('logs a failed lookup and answers that no agent sent it', async () => {
     const appLogger = logger()

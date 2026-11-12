@@ -107,6 +107,8 @@ export type ChatEngineDeps = {
   noteTraceContext?: (context: Record<string, unknown> | null) => void
   /** Tests inject retrieval; production uses `retrieveRagForTurn`. */
   prepareRag?: typeof retrieveRagForTurn
+  /** False drops every tool a turn ships (Essentials, Demo Mode); absent allows them. */
+  toolCallingAllowed?: () => boolean
 }
 
 let engineDeps: ChatEngineDeps | null = null
@@ -749,8 +751,19 @@ export function anyChatTurnActive(): boolean {
   return activeTurns.size > 0
 }
 
+function withoutTools(request: ChatTurnRequest): ChatTurnRequest {
+  return {
+    ...request,
+    tools: [],
+    repairData: undefined,
+    mediaAgent: undefined,
+    includeMcpInstructions: false,
+  }
+}
+
 export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
-  const req = ChatTurnRequestSchema.parse(request) as ChatTurnRequest
+  const parsed = ChatTurnRequestSchema.parse(request) as ChatTurnRequest
+  const req = engineDeps?.toolCallingAllowed?.() === false ? withoutTools(parsed) : parsed
   if (activeTurns.has(req.conversationKey)) {
     throw new Error('A chat turn is already running for this conversation')
   }

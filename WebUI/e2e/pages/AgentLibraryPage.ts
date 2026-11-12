@@ -1,7 +1,7 @@
 import { type Page, type Locator, test, expect } from '@playwright/test'
 
 /**
- * Page object for the Agent Library overlay (`views/AgentLibrary.vue`), opened from the Chat
+ * Page object for the Agent Library overlay (`views/AgentLibrary.vue`), opened from the Assistant
  * mode button's hover picker ("Manage Agents…").
  */
 export class AgentLibraryPage {
@@ -14,7 +14,10 @@ export class AgentLibraryPage {
   async open(): Promise<void> {
     await test.step('Open the Agent Library', async () => {
       if (await this.library.isVisible().catch(() => false)) return
-      await this.window.getByRole('button', { name: 'Chat', exact: true }).hover()
+      await this.window
+        .getByRole('group', { name: 'Mode', exact: true })
+        .getByRole('button', { name: 'Assistant', exact: true })
+        .hover()
       const manage = this.window.getByRole('button', { name: 'Manage Agents…' })
       await manage.hover()
       await manage.click()

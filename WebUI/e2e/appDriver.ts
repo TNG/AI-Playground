@@ -2,7 +2,7 @@ import { type Page, test, expect } from '@playwright/test'
 import path from 'path'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
-import { MainPage, type ChatMode } from './pages/MainPage'
+import { MainPage, type PromptBarMode } from './pages/MainPage'
 import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
@@ -168,7 +168,7 @@ export class AppDriver {
    * Inferencing tab is left shown so callers can set preset-specific inputs (e.g.
    * reference images) before returning to the Viewport.
    */
-  private async selectModeAndPreset(mode: ChatMode, preset: string): Promise<boolean> {
+  private async selectModeAndPreset(mode: PromptBarMode, preset: string): Promise<boolean> {
     if (
       !(await this.main
         .modeButton(mode)
@@ -199,8 +199,8 @@ export class AppDriver {
     /** Which RAG document format to attach when `attach === 'document'`. Defaults to txt. */
     doc?: 'txt' | 'pdf'
   }): Promise<void> {
-    const available = await test.step(`Select Chat preset "${opts.preset}"`, () =>
-      this.selectModeAndPreset('Chat', opts.preset))
+    const available = await test.step(`Select Assistant preset "${opts.preset}"`, () =>
+      this.selectModeAndPreset('Assistant', opts.preset))
     test.skip(!available, `Preset "${opts.preset}" is not available in this product mode`)
 
     await this.pickRandomBackend()
@@ -355,7 +355,7 @@ export class AppDriver {
    */
   private async prepareAgentGamePreset(preset: string): Promise<boolean> {
     const selected = await test.step(`Select agent preset "${preset}"`, () =>
-      this.main.selectPreset('Chat', preset))
+      this.main.selectPreset('Assistant', preset, 'Agent'))
     if (!selected) return false
 
     // Reset before the pins below, never after: a reset would undo them.
@@ -451,7 +451,7 @@ export class AppDriver {
    */
   async prepareAgentPreset(backend?: string): Promise<boolean> {
     const selected = await test.step(`Select agent preset "${HARNESS_CHAT_PRESET}"`, () =>
-      this.main.selectPreset('Chat', HARNESS_CHAT_PRESET))
+      this.main.selectPreset('Assistant', HARNESS_CHAT_PRESET))
     if (!selected) return false
 
     // Reset before the context size below, never after — a reset would undo it.
@@ -962,7 +962,7 @@ export class AppDriver {
    * workflow ran to completion without error) rather than a strict new-output count.
    */
   async runComfyPreset(opts: {
-    mode: ChatMode
+    mode: PromptBarMode
     preset: string
     output: ComfyOutput
     prompt?: string

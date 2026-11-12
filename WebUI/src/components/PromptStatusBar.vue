@@ -83,10 +83,7 @@
           <!-- Whether the model plus its context fits the card (llama.cpp only) -->
           <ModelVramFit v-if="modelChip.source === 'chat'" :delay-duration="0" />
         </template>
-        <DropdownMenu
-          v-if="bar.presetChip === 'dropdown'"
-          @update:open="(open: boolean) => !open && (agentQuery = '')"
-        >
+        <DropdownMenu v-if="bar.presetChip === 'dropdown'">
           <DropdownMenuTrigger as-child>
             <button
               id="preset-dropdown"
@@ -109,73 +106,65 @@
             align="start"
             class="z-[40010] min-w-48 flex flex-col max-h-[var(--reka-dropdown-menu-content-available-height)]"
           >
-            <DropdownMenuRadioGroup
-              :model-value="pickedPresetName ?? ''"
-              @update:model-value="(name) => pickPreset(name as string)"
+            <DropdownMenuGroup
+              v-for="group in listing?.groups ?? []"
+              :key="group.kind"
+              :aria-label="group.kind === 'agent' ? languages.MODE_AGENT : undefined"
+              class="flex min-h-0 flex-col"
             >
-              <TooltipProvider :delay-duration="200">
-                <Tooltip v-for="preset in bar.presets" :key="preset.name">
-                  <TooltipTrigger as-child>
-                    <!-- Gated items stay focusable rather than `disabled`, which would also
-                       swallow the hover that shows their reason. -->
-                    <DropdownMenuRadioItem
-                      :value="preset.name"
-                      :aria-disabled="!preset.enabled"
-                      :data-aipg-preset-name="preset.name"
-                      class="gap-2"
-                      :class="{ 'opacity-50': !preset.enabled }"
-                      @select="(event: Event) => !preset.enabled && event.preventDefault()"
-                    >
-                      <img
-                        v-if="preset.image"
-                        :src="preset.image"
-                        alt=""
-                        class="size-6 rounded object-cover flex-none"
-                        :class="{ grayscale: !preset.enabled }"
-                      />
-                      <span class="truncate">{{ preset.label }}</span>
-                    </DropdownMenuRadioItem>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" class="z-[40011] max-w-[260px]">
-                    <p class="font-semibold">{{ preset.label }}</p>
-                    <p v-if="descriptionOf(preset.name)" class="mt-1 text-primary-foreground/80">
-                      {{ descriptionOf(preset.name) }}
-                    </p>
-                    <p v-if="preset.reason" class="mt-1 text-amber-400 text-xs">
-                      {{ languages[preset.reason] }}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </DropdownMenuRadioGroup>
-            <template v-if="bar.agents.length > 0">
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel class="text-xs">{{
-                languages.AGENT_LIBRARY_LIST
+              <DropdownMenuSeparator v-if="group.kind !== 'main'" />
+              <DropdownMenuLabel v-if="group.kind === 'agent'" class="text-xs">{{
+                languages.MODE_AGENT
               }}</DropdownMenuLabel>
-              <DropdownMenuFilter
-                v-if="agentView.filterable"
-                v-model="agentQuery"
-                auto-focus
-                :placeholder="languages.AGENT_LIBRARY_FILTER"
-                :aria-label="languages.AGENT_LIBRARY_FILTER"
-                class="mx-1 mb-1 h-7 flex-none rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-              />
               <DropdownMenuRadioGroup
+                v-if="group.presets.length > 0"
+                :model-value="pickedPresetName ?? ''"
+                @update:model-value="(name) => pickPreset(name as string)"
+              >
+                <TooltipProvider :delay-duration="200">
+                  <Tooltip v-for="preset in group.presets" :key="preset.name">
+                    <TooltipTrigger as-child>
+                      <!-- Gated items stay focusable rather than `disabled`, which would also
+                       swallow the hover that shows their reason. -->
+                      <DropdownMenuRadioItem
+                        :value="preset.name"
+                        :aria-disabled="!preset.enabled"
+                        :data-aipg-preset-name="preset.name"
+                        class="gap-2"
+                        :class="{ 'opacity-50': !preset.enabled }"
+                        @select="(event: Event) => !preset.enabled && event.preventDefault()"
+                      >
+                        <img
+                          v-if="preset.image"
+                          :src="preset.image"
+                          alt=""
+                          class="size-6 rounded object-cover flex-none"
+                          :class="{ grayscale: !preset.enabled }"
+                        />
+                        <span class="truncate">{{ preset.label }}</span>
+                      </DropdownMenuRadioItem>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" class="z-[40011] max-w-[260px]">
+                      <p class="font-semibold">{{ preset.label }}</p>
+                      <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
+                        {{ preset.description }}
+                      </p>
+                      <p v-if="preset.reason" class="mt-1 text-amber-400 text-xs">
+                        {{ languages[preset.reason] }}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuRadioGroup
+                v-if="group.agents.length > 0"
                 :model-value="pickedAgentId ?? ''"
                 :aria-label="languages.AGENT_LIBRARY_LIST"
                 class="min-h-0 overflow-y-auto"
                 @update:model-value="(id) => pickAgent(id as string)"
               >
-                <p
-                  v-if="agentView.agents.length === 0"
-                  role="status"
-                  class="px-2 py-1.5 text-xs text-muted-foreground"
-                >
-                  {{ languages.AGENT_LIBRARY_FILTER_EMPTY }}
-                </p>
                 <TooltipProvider :delay-duration="200">
-                  <Tooltip v-for="agent in agentView.agents" :key="agent.id">
+                  <Tooltip v-for="agent in group.agents" :key="agent.id">
                     <TooltipTrigger as-child>
                       <DropdownMenuRadioItem :value="agent.id" class="gap-2">
                         <img
@@ -198,8 +187,8 @@
                   </Tooltip>
                 </TooltipProvider>
               </DropdownMenuRadioGroup>
-            </template>
-            <AgentLibraryMenuItems v-if="bar.manageAgents" />
+            </DropdownMenuGroup>
+            <AgentLibraryMenuItems v-if="listing?.manageAgents" />
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip v-else>
@@ -335,15 +324,13 @@ import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets.ts'
 import { AUDIO_CATEGORY, usePresets, type ChatPreset } from '@/assets/js/store/presets'
 import { useTextToSpeech } from '@/assets/js/store/textToSpeech'
-import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useComputeMetrics } from '@/assets/js/store/computeMetrics'
-import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import { Context } from '@/components/ui/context'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuFilter,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -361,13 +348,8 @@ import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
-import {
-  agentList,
-  promptBarModel,
-  type HeaderChip,
-  type SpeechBackend,
-} from '@/lib/promptBarModel'
-import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
+import { type HeaderChip, type SpeechBackend } from '@/lib/promptBarModel'
+import { usePromptBarModel } from '@/lib/usePromptBarModel'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 
 const promptStore = usePromptStore()
@@ -378,13 +360,10 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const textToSpeech = useTextToSpeech()
-const oemBranding = useOemBranding()
 const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
 const agentMode = useAgentMode()
 const errors = useErrors()
-const promptBarStyle = usePromptBarStyle()
-const { gateOf } = usePromptBarPresetSwitch()
 const agentPick = usePromptBarAgentPick()
 const { pickedAgentId, pickedPresetName } = agentPick
 
@@ -479,28 +458,21 @@ const speechBackend = computed<SpeechBackend | undefined>(() => {
   return service ? SPEECH_BACKEND_OF[service] : 'external'
 })
 
-const bar = computed(() =>
-  promptBarModel({
-    activePreset: activePreset.value,
-    presetLabel: (name) => oemBranding.presetLabel(name),
-    machine: {
-      chatBackend: textInference.backend,
-      chatModel: textInference.activeModel,
-      speechBackend: speechBackend.value,
-      device: activeService.value ? selectedDevice(activeService.value) : undefined,
-    },
-    catalog: presetsStore.getPresetsByCategories([]),
-    presetGate: gateOf,
-    style: promptBarStyle.active,
-    agents: agentPick.agents.value,
-    pickedAgentId: pickedAgentId.value,
+const bar = usePromptBarModel({
+  activePreset: () => activePreset.value,
+  machine: () => ({
+    chatBackend: textInference.backend,
+    chatModel: textInference.activeModel,
+    speechBackend: speechBackend.value,
+    device: activeService.value ? selectedDevice(activeService.value) : undefined,
   }),
-)
+})
 
 const headerChips = computed(() => bar.value.headerChips)
 
-const agentQuery = ref('')
-const agentView = computed(() => agentList(bar.value.agents, agentQuery.value))
+const listing = computed(() =>
+  bar.value.activeMode ? bar.value.listings[bar.value.activeMode] : undefined,
+)
 
 async function pickPreset(name: string) {
   if (name) await agentPick.pickPreset(name)

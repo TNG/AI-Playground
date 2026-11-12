@@ -461,9 +461,7 @@ const shouldShowImageUploadButton = computed(() => {
   return canAttachImages.value || canAttachDocuments.value || canAttachAudio.value
 })
 
-const modesWithPresets = computed(() =>
-  promptBarModes(presetsStore.getPresetsByCategories([]), 'classic'),
-)
+const modesWithPresets = computed(() => promptBarModes(presetsStore.getPresetsByCategories([])))
 
 watch([modesWithPresets, () => promptStore.getCurrentMode()], ([modes, currentMode]) => {
   if (modes.length > 0 && currentMode && !modes.includes(buttonModeFor(currentMode))) {

@@ -1,5 +1,5 @@
 import type { Preset } from '@/lib/presetSchemas'
-import { MODE_TO_CATEGORIES, buttonModeFor, listModeFor } from '@/lib/presetModes'
+import { MODE_TO_CATEGORIES, listModeFor, presetToMode } from '@/lib/presetModes'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import type { PresetGate, PresetGateReason } from '@/lib/presetGate'
@@ -64,16 +64,8 @@ export type PromptBarModel = {
   modes: ModeType[]
   activeMode: ModeType | null
   modePicks: Partial<Record<ModeType, string>>
-  /** In the agent mode, the Agent Presets. */
-  presets: PresetEntry[]
-  /** When the active Mode is `agentsMode`, the saved Agents listed after its presets. */
-  agents: AgentEntry[]
-  /** The Mode whose list ends with the saved Agents and "Manage Agents…". */
-  agentsMode: ModeType
-  /** The saved Agents listed under `agentsMode`, whichever Mode is active. */
-  savedAgents: AgentEntry[]
-  /** Whether the active Mode's list offers "Manage Agents…". */
-  manageAgents: boolean
+  /** What each offered Mode lists, whichever Mode is active. */
+  listings: Partial<Record<ModeType, ModeListing>>
   /** The Agent run on Assistant in place of Assistant itself. */
   pickedAgent?: AgentEntry
   presetChip: 'label' | 'dropdown'
@@ -81,10 +73,27 @@ export type PromptBarModel = {
   capture: boolean
 }
 
+export type ModeListing = {
+  /** In order, empty groups left out. */
+  groups: PresetGroup[]
+  /** Whether the list ends with "Manage Agents…". */
+  manageAgents: boolean
+}
+
+export type PresetGroupKind = 'main' | 'agent' | 'saved'
+
+/**
+ * `main`: in the Assistant Mode, the Assistant preset first.
+ * `agent`: the agent presets, under the Agent heading.
+ * `saved`: the saved Agents, set apart by a separator.
+ */
+export type PresetGroup = { kind: PresetGroupKind; presets: PresetEntry[]; agents: AgentEntry[] }
+
 export type PresetEntry = {
   name: string
   label: string
   image?: string
+  description?: string
   enabled: boolean
   reason?: PresetGateReason
 }
@@ -92,7 +101,7 @@ export type PresetEntry = {
 export function promptBarModel(input: PromptBarInput): PromptBarModel {
   const catalog = input.catalog ?? []
   const gateOf = (preset: Preset) => input.presetGate?.(preset) ?? { enabled: true }
-  const modes = promptBarModes(catalog, input.style)
+  const modes = promptBarModes(catalog)
   const modePicks: Partial<Record<ModeType, string>> = {}
   for (const mode of modes) {
     const enabled = presetsInMode(catalog, mode).filter((preset) => gateOf(preset).enabled)
@@ -103,41 +112,70 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
   const pickedAgent = isHarnessChatPreset(input.activePreset?.name)
     ? pickable.find((agent) => agent.id === input.pickedAgentId)
     : undefined
-  // A picked Agent runs on Assistant but was picked under Agent, so that is where it stays.
-  const activeMode = pickedAgent
-    ? 'agent'
-    : input.activePreset
-      ? listModeFor(input.activePreset)
-      : null
-  const presets = activeMode
-    ? presetsInMode(catalog, activeMode).map((preset) => {
-        const gate = gateOf(preset)
-        return {
-          name: preset.name,
-          label: input.presetLabel(preset.name),
-          image: preset.image,
-          enabled: gate.enabled,
-          reason: gate.reason,
-        }
-      })
-    : []
-  const presetChip = input.style !== 'classic' && presets.length > 1 ? 'dropdown' : 'label'
-  const agentsMode = barMode(AGENTS_MODE, input.style)
-  const manageAgents = !!activeMode && barMode(activeMode, input.style) === agentsMode
+  const activeMode = input.activePreset ? listModeFor(input.activePreset) : null
+  const entry = (preset: Preset): PresetEntry => {
+    const gate = gateOf(preset)
+    return {
+      name: preset.name,
+      label: input.presetLabel(preset.name),
+      image: preset.image,
+      ...(preset.description === undefined ? {} : { description: preset.description }),
+      enabled: gate.enabled,
+      ...(gate.reason === undefined ? {} : { reason: gate.reason }),
+    }
+  }
+  const listings = Object.fromEntries(
+    modes.map((mode) => [mode, modeListing(presetsInMode(catalog, mode), mode, pickable, entry)]),
+  )
+  const active = activeMode ? listings[activeMode] : undefined
+  const entries = (active?.groups ?? []).reduce(
+    (count, group) => count + group.presets.length + group.agents.length,
+    0,
+  )
+  const dropdown = entries > 1 || !!active?.manageAgents
   return {
     headerChips: headerChips(input, pickedAgent),
     modes,
     activeMode,
     modePicks,
-    presets,
-    agents: manageAgents ? pickable : [],
-    agentsMode,
-    savedAgents: pickable,
-    manageAgents,
+    listings,
     ...(pickedAgent ? { pickedAgent } : {}),
-    presetChip,
+    presetChip: input.style !== 'classic' && dropdown ? 'dropdown' : 'label',
     capture: hasChatAffordances(input.activePreset),
   }
+}
+
+function modeListing(
+  listed: Preset[],
+  mode: ModeType,
+  agents: AgentEntry[],
+  entry: (preset: Preset) => PresetEntry,
+): ModeListing {
+  if (mode !== ASSISTANT_MODE) {
+    return {
+      groups: nonEmpty([{ kind: 'main', presets: listed.map(entry), agents: [] }]),
+      manageAgents: false,
+    }
+  }
+  const isAgentPreset = (preset: Preset) => presetToMode(preset) === 'agent'
+  const main = listed.filter((preset) => !isAgentPreset(preset) || isHarnessChatPreset(preset.name))
+  const agentPresets = listed.filter((preset) => !main.includes(preset))
+  const ordered = [
+    ...main.filter((preset) => isHarnessChatPreset(preset.name)),
+    ...main.filter((preset) => !isHarnessChatPreset(preset.name)),
+  ]
+  return {
+    groups: nonEmpty([
+      { kind: 'main', presets: ordered.map(entry), agents: [] },
+      { kind: 'agent', presets: agentPresets.map(entry), agents: [] },
+      { kind: 'saved', presets: [], agents },
+    ]),
+    manageAgents: true,
+  }
+}
+
+function nonEmpty(groups: PresetGroup[]): PresetGroup[] {
+  return groups.filter((group) => group.presets.length + group.agents.length > 0)
 }
 
 /** The Agents a prompt bar offers: saved ones only, a Draft-only Agent cannot run yet. */
@@ -152,36 +190,13 @@ export function pickableAgents(agents: readonly PromptBarAgent[]): AgentEntry[] 
     }))
 }
 
-const AGENT_FILTER_THRESHOLD = 8
+const ASSISTANT_MODE: ModeType = 'chat'
 
-export type AgentList = {
-  /** Whether the list is long enough to carry a filter field. */
-  filterable: boolean
-  agents: AgentEntry[]
-}
+const MODES: ModeType[] = [ASSISTANT_MODE, 'audio', 'imageGen', 'imageEdit', 'video']
 
-/** The Agents a prompt bar lists, narrowed by the filter field once there are enough of them. */
-export function agentList(agents: readonly AgentEntry[], query: string): AgentList {
-  const filterable = agents.length > AGENT_FILTER_THRESHOLD
-  const needle = query.trim().toLocaleLowerCase()
-  if (!filterable || !needle) return { filterable, agents: [...agents] }
-  const matches = (text?: string) => !!text?.toLocaleLowerCase().includes(needle)
-  return {
-    filterable,
-    agents: agents.filter((agent) => matches(agent.name) || matches(agent.description)),
-  }
-}
-
-const MODES: ModeType[] = ['chat', 'agent', 'audio', 'imageGen', 'imageEdit', 'video']
-
-/** The Modes a prompt bar offers, in order; Classic has no Agent button and lists Agent under Chat. */
-export function promptBarModes(catalog: Preset[], style?: PromptBarStyle): ModeType[] {
-  const offered = MODES.filter((mode) => presetsInMode(catalog, mode).length > 0)
-  return [...new Set(offered.map((mode) => barMode(mode, style)))]
-}
-
-function barMode(mode: ModeType, style?: PromptBarStyle): ModeType {
-  return style === 'classic' ? buttonModeFor(mode) : mode
+/** The Modes a prompt bar offers, in order. */
+export function promptBarModes(catalog: Preset[]): ModeType[] {
+  return MODES.filter((mode) => presetsInMode(catalog, mode).length > 0)
 }
 
 export function presetsInMode(catalog: Preset[], mode: ModeType): Preset[] {
@@ -195,7 +210,8 @@ export function lastUsedByMode(
   return Object.fromEntries(
     (Object.keys(MODE_TO_CATEGORIES) as ModeType[]).map((mode) => [
       mode,
-      [perMode[mode], ...MODE_TO_CATEGORIES[mode].map((category) => perCategory[category])],
+      // The category is written by every preset listed under the Mode, so it is the most recent.
+      [...MODE_TO_CATEGORIES[mode].map((category) => perCategory[category]), perMode[mode]],
     ]),
   )
 }
@@ -211,9 +227,9 @@ function presetForModePick(
   return remembered ?? fallback?.name
 }
 
-const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = { chat: HARNESS_CHAT_PRESET }
-
-const AGENTS_MODE: ModeType = 'agent'
+const MODE_DEFAULT_PRESET: Partial<Record<ModeType, string>> = {
+  [ASSISTANT_MODE]: HARNESS_CHAT_PRESET,
+}
 
 function headerChips(
   { activePreset: preset, presetLabel, machine }: PromptBarInput,

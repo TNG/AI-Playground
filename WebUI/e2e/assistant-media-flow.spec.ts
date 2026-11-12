@@ -29,7 +29,7 @@ test.describe('Assistant — agentic media flow', () => {
     await app.installAllBackends()
 
     await test.step(`Select the "${HARNESS_CHAT_PRESET}" preset`, async () => {
-      await app.main.selectPreset('Chat', HARNESS_CHAT_PRESET)
+      await app.main.selectPreset('Assistant', HARNESS_CHAT_PRESET)
     })
 
     // Back to the preset's shipped defaults (model included) before this flow sets

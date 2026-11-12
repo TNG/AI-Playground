@@ -2,7 +2,10 @@ import { type Locator, type Page, expect } from '@playwright/test'
 import { reportingAppErrors } from '../appErrors'
 
 /** Prompt-area mode labels (accessible names of the mode buttons). */
-export type ChatMode = 'Chat' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
+export type PromptBarMode = 'Assistant' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
+
+/** Headed groups of the Assistant picker (accessible group names). */
+export type PresetGroup = 'Agent'
 
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt
@@ -226,8 +229,11 @@ export class MainPage {
     ).not.toMatch(/using the preset\s+unknown/i)
   }
 
-  modeButton(label: ChatMode): Locator {
-    return this.page.getByRole('button', { name: label, exact: true })
+  /** Scoped to the Mode buttons: the Assistant preset's own tile is a button named "Assistant" too. */
+  modeButton(label: PromptBarMode): Locator {
+    return this.page
+      .getByRole('group', { name: 'Mode', exact: true })
+      .getByRole('button', { name: label, exact: true })
   }
 
   /**
@@ -240,8 +246,9 @@ export class MainPage {
    * preset ships on. `data-aipg-preset-name` is the unbranded name. Only the open
    * picker is mounted, so this stays unambiguous across modes.
    */
-  private presetCard(name: string): Locator {
-    return this.page.locator(`[data-aipg-preset-name="${name}"]`)
+  private presetCard(name: string, group?: PresetGroup): Locator {
+    const scope = group ? this.page.getByRole('group', { name: group, exact: true }) : this.page
+    return scope.locator(`[data-aipg-preset-name="${name}"]`)
   }
 
   /** The active-preset indicator at the top-left of the input. Its accessible
@@ -257,12 +264,13 @@ export class MainPage {
    * performs the mode + preset switch (see PromptArea.vue). Returns false —
    * leaving nothing open — when the preset isn't offered for this mode, so
    * callers can skip. On success the picker has closed and the switch completed.
+   * With `group` the preset must sit under that heading of the picker.
    */
-  async selectPreset(mode: ChatMode, preset: string): Promise<boolean> {
+  async selectPreset(mode: PromptBarMode, preset: string, group?: PresetGroup): Promise<boolean> {
     // Hovering the button opens the picker; it stays open while the pointer
     // rests there, and moving onto a preset card keeps it open too.
     await this.modeButton(mode).hover()
-    const card = this.presetCard(preset)
+    const card = this.presetCard(preset, group)
     const present = await card
       .waitFor({ state: 'visible', timeout: 15_000 })
       .then(() => true)

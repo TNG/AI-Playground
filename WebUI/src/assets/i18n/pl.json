@@ -1132,6 +1132,7 @@
   "AGENT_LIBRARY_EMPTY": "Nie ma jeszcze agentów. Utwórz go przyciskiem „Nowy agent”.",
   "AGENT_LIBRARY_UNNAMED": "Agent bez nazwy",
   "AGENT_LIBRARY_DRAFT": "Szkic",
+  "AGENT_LIBRARY_AGENT_OPTIONS": "Opcje: {name}",
   "AGENT_LIBRARY_DETAILS": "Szczegóły",
   "AGENT_LIBRARY_NAME": "Nazwa",
   "AGENT_LIBRARY_DESCRIPTION": "Opis",

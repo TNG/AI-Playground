@@ -1132,6 +1132,7 @@
   "AGENT_LIBRARY_EMPTY": "Nessun agente. Creane uno con «Nuovo agente».",
   "AGENT_LIBRARY_UNNAMED": "Agente senza nome",
   "AGENT_LIBRARY_DRAFT": "Bozza",
+  "AGENT_LIBRARY_AGENT_OPTIONS": "Opzioni di {name}",
   "AGENT_LIBRARY_DETAILS": "Dettagli",
   "AGENT_LIBRARY_NAME": "Nome",
   "AGENT_LIBRARY_DESCRIPTION": "Descrizione",

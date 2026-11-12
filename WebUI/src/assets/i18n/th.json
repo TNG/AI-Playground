@@ -1132,6 +1132,7 @@
   "AGENT_LIBRARY_EMPTY": "ยังไม่มีเอเจนต์ สร้างได้ด้วย เอเจนต์ใหม่",
   "AGENT_LIBRARY_UNNAMED": "เอเจนต์ไม่มีชื่อ",
   "AGENT_LIBRARY_DRAFT": "ฉบับร่าง",
+  "AGENT_LIBRARY_AGENT_OPTIONS": "ตัวเลือกของ {name}",
   "AGENT_LIBRARY_DETAILS": "รายละเอียด",
   "AGENT_LIBRARY_NAME": "ชื่อ",
   "AGENT_LIBRARY_DESCRIPTION": "คำอธิบาย",

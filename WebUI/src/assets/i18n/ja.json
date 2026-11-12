@@ -1132,6 +1132,7 @@
   "AGENT_LIBRARY_EMPTY": "エージェントはまだありません。「新しいエージェント」で作成してください。",
   "AGENT_LIBRARY_UNNAMED": "無題のエージェント",
   "AGENT_LIBRARY_DRAFT": "下書き",
+  "AGENT_LIBRARY_AGENT_OPTIONS": "{name} のオプション",
   "AGENT_LIBRARY_DETAILS": "詳細",
   "AGENT_LIBRARY_NAME": "名前",
   "AGENT_LIBRARY_DESCRIPTION": "説明",

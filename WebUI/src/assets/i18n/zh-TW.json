@@ -1132,6 +1132,7 @@
   "AGENT_LIBRARY_EMPTY": "尚無代理程式。使用「新增代理程式」建立一個。",
   "AGENT_LIBRARY_UNNAMED": "未命名代理程式",
   "AGENT_LIBRARY_DRAFT": "草稿",
+  "AGENT_LIBRARY_AGENT_OPTIONS": "{name} 選項",
   "AGENT_LIBRARY_DETAILS": "詳細資料",
   "AGENT_LIBRARY_NAME": "名稱",
   "AGENT_LIBRARY_DESCRIPTION": "說明",

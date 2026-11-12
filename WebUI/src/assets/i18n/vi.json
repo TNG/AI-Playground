@@ -1132,6 +1132,7 @@
   "AGENT_LIBRARY_EMPTY": "Chưa có tác tử nào. Tạo một tác tử bằng Tác tử mới.",
   "AGENT_LIBRARY_UNNAMED": "Tác tử chưa đặt tên",
   "AGENT_LIBRARY_DRAFT": "Bản nháp",
+  "AGENT_LIBRARY_AGENT_OPTIONS": "Tùy chọn của {name}",
   "AGENT_LIBRARY_DETAILS": "Chi tiết",
   "AGENT_LIBRARY_NAME": "Tên",
   "AGENT_LIBRARY_DESCRIPTION": "Mô tả",

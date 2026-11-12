@@ -1013,6 +1013,18 @@ describe('a Trial Run outliving the Agent Library', () => {
     await vi.waitFor(() => expect(trials.trialRunsInFlight).toHaveLength(1))
   })
 
+  it('finds a Trial Run by its Agent and by its Harness Session', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+    expect(trials.trialRunSessionOf('t1')).toBeUndefined()
+
+    await trials.startTrialRun('t1')
+    const sessionId = sentConfig(0).sessionId
+    expect(trials.trialRunSessionOf('t1')).toBe(sessionId)
+    expect(trials.trialRunOfSession(sessionId)?.agentId).toBe('t1')
+    expect(trials.trialRunOfSession('session-elsewhere')).toBeUndefined()
+  })
+
   it('toasts its pause by the Agent’s name, and Open shows it in the Agent Library', async () => {
     storedDrafts = [draftOf('t1', ['one'])]
     const { trials } = await readyStores()

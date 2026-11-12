@@ -1192,7 +1192,7 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "{count} lượt chạy thử",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "Đang chạy thử '{name}'. Mở trong Thư viện tác tử",
   "AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT": "Bản chạy thử '{name}' cần bạn phản hồi",
-  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "{waiting}. Mở trong Thư viện tác tử",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "Bản chạy thử '{name}' cần bạn phản hồi. Mở trong Thư viện tác tử",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "Một bản chạy thử cần bạn phản hồi",
   "CLOSE_ITEM_TRIAL_RUN": "Chạy thử '{name}'",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "Chạy thử",

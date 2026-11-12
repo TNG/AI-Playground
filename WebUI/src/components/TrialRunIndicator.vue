@@ -25,7 +25,9 @@
             <button
               type="button"
               :class="pillClass"
-              :aria-label="anyWaiting ? manyLabel : undefined"
+              :aria-label="
+                anyWaiting ? i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING : undefined
+              "
             >
               <span :class="dotClass(anyWaiting)" />
               <span>
@@ -48,7 +50,9 @@
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <TooltipContent side="bottom">{{ manyLabel }}</TooltipContent>
+      <TooltipContent side="bottom">{{
+        i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING
+      }}</TooltipContent>
     </Tooltip>
   </TooltipProvider>
 </template>
@@ -82,9 +86,7 @@ const pillClass =
   'inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border border-primary bg-primary/15 text-foreground hover:bg-primary/25 transition-colors'
 
 function dotClass(waiting: boolean): string {
-  return waiting
-    ? 'size-1.5 shrink-0 rounded-full bg-amber-500'
-    : 'size-1.5 shrink-0 rounded-full bg-primary animate-pulse'
+  return `size-1.5 shrink-0 rounded-full ${waiting ? 'bg-amber-500' : 'bg-primary animate-pulse'}`
 }
 
 const runs = computed<IndicatedRun[]>(() =>
@@ -98,13 +100,12 @@ const runs = computed<IndicatedRun[]>(() =>
 )
 
 const anyWaiting = computed(() => runs.value.some((run) => run.waiting))
-const manyLabel = computed(() => i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING)
 
 function openLabel(run: IndicatedRun): string {
-  if (!run.waiting)
-    return fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN, { name: run.name })
-  const waiting = fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT, { name: run.name })
-  return fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING, { waiting })
+  const template = run.waiting
+    ? i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING
+    : i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN
+  return fillTemplate(template, { name: run.name })
 }
 
 function open(agentId: string): void {

@@ -1192,7 +1192,7 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "{count} Testläufe",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "Testlauf von '{name}' läuft. In der Agent-Bibliothek öffnen",
   "AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT": "Testlauf von '{name}' benötigt Ihre Eingabe",
-  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "{waiting}. In der Agent-Bibliothek öffnen",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "Testlauf von '{name}' benötigt Ihre Eingabe. In der Agent-Bibliothek öffnen",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "Ein Testlauf benötigt Ihre Eingabe",
   "CLOSE_ITEM_TRIAL_RUN": "Testlauf von '{name}'",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "Testlauf",

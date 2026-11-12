@@ -1,3 +1,4 @@
+import type { TrialRun } from '@/assets/js/store/agentTrialRuns'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 type Languages = Record<string, string | undefined>
@@ -6,9 +7,8 @@ export function agentDisplayName(name: string, languages: Languages): string {
   return name.trim() || (languages.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
 }
 
-/** A Trial Run's name: the running run's own, otherwise the Agent's as it is now. */
 export function trialRunDisplayName(
-  run: { state: string; name: string } | undefined,
+  run: TrialRun | undefined,
   agentName: string | undefined,
   languages: Languages,
 ): string {

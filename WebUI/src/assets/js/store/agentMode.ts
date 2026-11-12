@@ -112,10 +112,9 @@ export type SessionTurnInfo = {
   pauseReason?: PauseReason
 }
 
-/** What the Agent Library shows: open or not, and whose Trial Run pane is on screen. */
-export type AgentLibraryShowing = { open: boolean; trialRunSessionId: string | null }
+/** `null` while the Agent Library is closed. */
+export type AgentLibraryShowing = { trialRunSessionId: string | null } | null
 
-/** How a pause toast reads, and what its Open button does. */
 export type PauseNotice = { message: string; open: () => void }
 
 /** How a turn that ended out of sight went. */
@@ -1222,19 +1221,18 @@ export const useAgentMode = defineStore(
     function setViewShown(shown: boolean): void {
       viewShown.value = shown
     }
-    const agentLibraryShowing = ref<AgentLibraryShowing>({ open: false, trialRunSessionId: null })
+    const agentLibraryShowing = ref<AgentLibraryShowing>(null)
     function setAgentLibraryShowing(showing: AgentLibraryShowing): void {
       agentLibraryShowing.value = showing
     }
     function inView(sessionId: string): boolean {
-      return (
-        (viewShown.value && !agentLibraryShowing.value.open && openSessionId.value === sessionId) ||
-        agentLibraryShowing.value.trialRunSessionId === sessionId
-      )
+      const library = agentLibraryShowing.value
+      if (library) return library.trialRunSessionId === sessionId
+      return viewShown.value && openSessionId.value === sessionId
     }
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
-    // session is in view, so a Paused Session never pops up over other work.
+    // session is in view, so it never pops up over other work.
     const heldPrompts = shallowReactive<
       Record<string, Array<{ show: () => void; drop: () => void }>>
     >({})

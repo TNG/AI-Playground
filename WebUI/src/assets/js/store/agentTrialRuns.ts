@@ -66,6 +66,14 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   /** Turns that ended before `init` restored the runs, which may have been theirs. */
   let earlySettles: [string, TurnOutcome][] | null = []
 
+  function trialRunSessionOf(agentId: string): string | undefined {
+    return trialRuns.value[agentId]?.harnessSessionId
+  }
+
+  function trialRunOfSession(sessionId: string): TrialRun | undefined {
+    return Object.values(trialRuns.value).find((run) => run.harnessSessionId === sessionId)
+  }
+
   function trialRunInFlight(agentId: string): boolean {
     const run = trialRuns.value[agentId]
     return startingTrials.has(agentId) || run?.state === 'running' || followUpInFlight(agentId)
@@ -114,7 +122,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   agentTasks.onAgentDeleted((agentId) => discardTrialRun(agentId))
 
   agentMode.registerPauseNotice((sessionId) => {
-    const run = Object.values(trialRuns.value).find((entry) => entry.harnessSessionId === sessionId)
+    const run = trialRunOfSession(sessionId)
     if (!run) return undefined
     const name = trialRunDisplayName(run, libraryAgent(run.agentId)?.name, i18n.state)
     return {
@@ -129,7 +137,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   })
 
   function onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
-    const run = Object.values(trialRuns.value).find((entry) => entry.harnessSessionId === sessionId)
+    const run = trialRunOfSession(sessionId)
     if (run?.state !== 'running') return
     const next = afterStepTurn(outcome, run.stepIndex, run.stepCount)
     if (next.kind === 'step') void sendTrialStep(run.agentId, next.stepIndex)
@@ -445,6 +453,8 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
 
   return {
     trialRuns,
+    trialRunSessionOf,
+    trialRunOfSession,
     trialRunInFlight,
     trialRunsInFlight,
     trialRunView,

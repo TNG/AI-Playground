@@ -608,7 +608,7 @@ describe('Paused Sessions', () => {
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
     store.setViewShown(true)
     await store.switchSession('session-b')
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+    store.setAgentLibraryShowing({ trialRunSessionId: null })
 
     let shown = false
     void whenSessionInView('session-b').then(() => {
@@ -622,7 +622,7 @@ describe('Paused Sessions', () => {
     const store = await storeWithBackgroundTurn()
     store.setViewShown(true)
     await store.switchSession('session-b')
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+    store.setAgentLibraryShowing({ trialRunSessionId: null })
 
     pause()
     expect(toastShow).toHaveBeenCalledTimes(1)
@@ -634,7 +634,7 @@ describe('Paused Sessions', () => {
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
     store.setViewShown(true)
     await store.switchSession('session-b')
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+    store.setAgentLibraryShowing({ trialRunSessionId: null })
 
     let shown = false
     const prompt = whenSessionInView('session-b').then(() => {
@@ -643,7 +643,7 @@ describe('Paused Sessions', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(shown).toBe(false)
 
-    store.setAgentLibraryShowing({ open: false, trialRunSessionId: null })
+    store.setAgentLibraryShowing(null)
     await prompt
     expect(shown).toBe(true)
   })
@@ -683,12 +683,12 @@ describe('Paused Sessions', () => {
     const prompt = whenSessionInView('session-b').then(() => {
       shown = true
     })
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-other-trial' })
+    store.setAgentLibraryShowing({ trialRunSessionId: null })
+    store.setAgentLibraryShowing({ trialRunSessionId: 'session-other-trial' })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(shown).toBe(false)
 
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-b' })
+    store.setAgentLibraryShowing({ trialRunSessionId: 'session-b' })
     await prompt
     expect(shown).toBe(true)
   })
@@ -696,7 +696,7 @@ describe('Paused Sessions', () => {
   it('shows a prompt at once, with no toast, for a Trial Run already on screen', async () => {
     const store = await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-b' })
+    store.setAgentLibraryShowing({ trialRunSessionId: 'session-b' })
 
     pause()
     await whenSessionInView('session-b')
@@ -706,8 +706,8 @@ describe('Paused Sessions', () => {
   it('holds a Trial Run prompt again once the Agent Library closes', async () => {
     const store = await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
-    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-b' })
-    store.setAgentLibraryShowing({ open: false, trialRunSessionId: null })
+    store.setAgentLibraryShowing({ trialRunSessionId: 'session-b' })
+    store.setAgentLibraryShowing(null)
 
     let shown = false
     void whenSessionInView('session-b').then(() => {

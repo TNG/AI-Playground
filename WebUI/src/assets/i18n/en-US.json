@@ -1192,7 +1192,7 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "{count} Trial Runs",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "Trial Run of '{name}' in progress. Open it in the Agent Library",
   "AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT": "Trial Run of '{name}' needs your input",
-  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "{waiting}. Open it in the Agent Library",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "Trial Run of '{name}' needs your input. Open it in the Agent Library",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "A Trial Run needs your input",
   "CLOSE_ITEM_TRIAL_RUN": "Trial Run of '{name}'",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "Trial Run",

@@ -1192,7 +1192,7 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "{count} 件の試行実行",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "'{name}' の試行実行が進行中です。エージェントライブラリで開く",
   "AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT": "'{name}' の試行実行で入力が必要です",
-  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "{waiting}。エージェントライブラリで開く",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "'{name}' の試行実行で入力が必要です。エージェントライブラリで開いてください",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "試行実行で入力が必要です",
   "CLOSE_ITEM_TRIAL_RUN": "'{name}' の試行実行",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "試行実行",

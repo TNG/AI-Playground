@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "Odpowiedz w wątku, aby udzielić odpowiedzi.",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ Odpowiedz na tę wiadomość, aby udzielić odpowiedzi.",
   "AGENT_NOTIFY_HEADER": "🤖 Agent · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "Przebieg próbny · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ Wysłano do {title} — uruchamianie…",
   "AGENT_ANSWER_QUEUED": "➡️ Wysłano do {title} — w kolejce (pozycja {position})",
   "AGENT_ANSWER_NOT_SENT": "⚠️ Nie wysłano do {title}: {reason}",

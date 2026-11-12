@@ -103,6 +103,26 @@ describe('the channel message map', () => {
     expect(await messageMap.channelMessageOwner('slack', '3')).toEqual({ deletedSession: true })
   })
 
+  it('reads a map written before Trial Runs were recorded as it was', async () => {
+    await fs.writeFile(
+      mapFile(),
+      JSON.stringify({
+        schemaVersion: 2,
+        entries: [
+          { kind: 'telegram', ref: '1', owner: { sessionRef: 's-1', harnessSessionId: 'h-1' } },
+          { kind: 'telegram', ref: '2', owner: null },
+          { kind: 'slack', ref: '3', owner: { startPromptRequest: true } },
+        ],
+      }),
+    )
+    expect(await messageMap.channelMessageOwner('telegram', '1')).toEqual({
+      sessionRef: 's-1',
+      harnessSessionId: 'h-1',
+    })
+    expect(await messageMap.channelMessageOwner('telegram', '2')).toEqual({ deletedSession: true })
+    expect(await messageMap.channelMessageOwner('slack', '3')).toEqual({ startPromptRequest: true })
+  })
+
   it('starts over when the file is unreadable', async () => {
     await fs.writeFile(mapFile(), '{not json')
     expect(await messageMap.channelMessageOwner('telegram', '1')).toBeNull()

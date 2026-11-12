@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "在消息列中回复即可作答。",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ 回复此消息即可作答。",
   "AGENT_NOTIFY_HEADER": "🤖 智能体 · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "试运行 · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ 已发送至 {title} — 正在开始…",
   "AGENT_ANSWER_QUEUED": "➡️ 已发送至 {title} — 排队中（第 {position} 位）",
   "AGENT_ANSWER_NOT_SENT": "⚠️ 未发送至 {title}：{reason}",

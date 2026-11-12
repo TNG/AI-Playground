@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "在討論串中回覆即可作答。",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ 回覆此訊息即可作答。",
   "AGENT_NOTIFY_HEADER": "🤖 代理程式 · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "試執行 · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ 已傳送至 {title} — 正在開始…",
   "AGENT_ANSWER_QUEUED": "➡️ 已傳送至 {title} — 排隊中（第 {position} 位）",
   "AGENT_ANSWER_NOT_SENT": "⚠️ 未傳送至 {title}：{reason}",

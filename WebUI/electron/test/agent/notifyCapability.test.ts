@@ -27,6 +27,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
   getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
   getChannelMessageMapFile: () => path.join(tempRoot, 'channel-messages.json'),
+  getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
 }))
 
@@ -140,6 +141,7 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
       answerByReply: '↩️ Reply to this message to answer.',
       queueDroppedOnQuit: 'Dropped {count}.',
       agentStarted: 'Started {name} in {title}.',
+      trialRunLabel: 'Trial Run · {agent}',
     },
   })
 }
@@ -147,11 +149,13 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
 let manager: typeof import('../../agent/piAgentManager')
 let notifier: typeof import('../../agent/notifier')
 let messageMap: typeof import('../../persist/channelMessageMap')
+let trialRuns: typeof import('../../agent/trialRuns')
 
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
   notifier = await import('../../agent/notifier')
   messageMap = await import('../../persist/channelMessageMap')
+  trialRuns = await import('../../agent/trialRuns')
   const bus = await import('../../kernel/kernelBus')
   const readiness = await import('../../chat/chatReadiness')
   readiness.setChatReadinessDeps({
@@ -319,8 +323,8 @@ describe('notify_user', () => {
     expect(toolResultText()).toContain('not delivered: the Session is not reachable from Channels')
   }, 30000)
 
-  it('sends nothing for a Harness Session no Session holds, such as a Trial Run’s', async () => {
-    await runTurn('aipg-agent-notify-trial-run', ['notify'], { held: false })
+  it('sends nothing for a Harness Session neither a Session nor a Trial Run holds', async () => {
+    await runTurn('aipg-agent-notify-orphan', ['notify'], { held: false })
     expect(sent).toEqual([])
     expect(toolResultText()).toContain('not delivered: the Session is not reachable from Channels')
   }, 30000)
@@ -352,6 +356,80 @@ describe('notify_user', () => {
     expect(requests.length).toBeGreaterThan(0)
     expect(requests.every((body) => !toolNames(body).includes('notify_user'))).toBe(true)
     expect(sent).toEqual([])
+  }, 30000)
+})
+
+describe('notify_user in a Trial Run', () => {
+  /** Starts a Trial Run of `agentId`, as the Agent Library does; returns its Harness Session. */
+  async function trialRun(agentId: string, name: string): Promise<string> {
+    const { harnessSessionId } = await trialRuns.trialRunHarnessFor(agentId)
+    await trialRuns.saveTrialRun({
+      agentId,
+      harnessSessionId,
+      name,
+      stepIndex: 1,
+      stepCount: 1,
+      startedAt: 1,
+      state: 'running',
+    })
+    return harnessSessionId
+  }
+
+  it('delivers to every Channel under the Trial Run header, and sends no result when it ends', async () => {
+    route(['telegram', 'local-web'])
+    const harnessSessionId = await trialRun('agent-news', 'News digest')
+    await runTurn(harnessSessionId, ['notify'], { held: false })
+    expect(sent).toEqual([
+      {
+        kind: 'telegram',
+        text: `🤖 Agent · Trial Run · News digest\n${SUMMARY}\n↩️ Reply to this message to answer.`,
+      },
+      {
+        kind: 'local-web',
+        text: `🤖 Agent · Trial Run · News digest\n${SUMMARY}`,
+        buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
+        answerTitle: 'Trial Run · News digest',
+      },
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
+
+  it('sends nothing for a Trial Run of an Agent without notify', async () => {
+    const harnessSessionId = await trialRun('agent-quiet', 'Quiet helper')
+    await runTurn(harnessSessionId, [], { held: false })
+    expect(requests.length).toBeGreaterThan(0)
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('records what it sent as the Trial Run’s, until the next Trial Run throws it away', async () => {
+    const harnessSessionId = await trialRun('agent-recorded', 'Recorder')
+    await runTurn(harnessSessionId, ['notify'], { held: false })
+    expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
+      trialRun: true,
+      harnessSessionId,
+      agentId: 'agent-recorded',
+    })
+    await trialRun('agent-recorded', 'Recorder')
+    expect(await messageMap.channelMessageOwner('telegram', '42')).toEqual({
+      thrownAwayTrialRun: true,
+      agentId: 'agent-recorded',
+    })
+  }, 30000)
+
+  it('reads as a thrown-away Trial Run once discarded or wiped, never as a deleted Session', async () => {
+    refs = ['discarded', 'wiped']
+    await runTurn(await trialRun('agent-discarded', 'Discarded'), ['notify'], { held: false })
+    await runTurn(await trialRun('agent-wiped', 'Wiped'), ['notify'], { held: false })
+    await trialRuns.discardTrialRun('agent-discarded')
+    expect(await messageMap.channelMessageOwner('telegram', 'discarded')).toEqual({
+      thrownAwayTrialRun: true,
+      agentId: 'agent-discarded',
+    })
+    await trialRuns.wipeTrialRuns()
+    expect(await messageMap.channelMessageOwner('telegram', 'wiped')).toEqual({
+      thrownAwayTrialRun: true,
+      agentId: 'agent-wiped',
+    })
   }, 30000)
 })
 

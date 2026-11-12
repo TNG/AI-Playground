@@ -10,11 +10,24 @@ export type SessionMessageOwner = AnswerTarget | { deletedSession: true }
 /** A posted Start Prompt Request, which the message map records with no Session. */
 export type StartPromptRequestOwner = { startPromptRequest: true }
 
-/** A channel message in the message map: a Session's, or a posted Start Prompt Request. */
-export type ChannelMessageOwner = SessionMessageOwner | StartPromptRequestOwner
+/** A live Trial Run that sent a channel message: its Harness Session and its Agent (ADR 0011). */
+export type TrialRunOwner = { trialRun: true; harnessSessionId: string; agentId: string }
+
+/** A Trial Run thrown away since it sent the message: by the next one, a discard, or a restart. */
+export type ThrownAwayTrialRun = { thrownAwayTrialRun: true; agentId: string }
+
+export type TrialRunMessageOwner = TrialRunOwner | ThrownAwayTrialRun
+
+/** A channel message in the message map: a Session's, a Trial Run's, or a Start Prompt Request. */
+export type ChannelMessageOwner =
+  SessionMessageOwner | TrialRunMessageOwner | StartPromptRequestOwner
 
 export function isStartPromptRequest(owner: ChannelMessageOwner): owner is StartPromptRequestOwner {
   return 'startPromptRequest' in owner
+}
+
+export function isTrialRunMessage(owner: ChannelMessageOwner): owner is TrialRunMessageOwner {
+  return 'trialRun' in owner || 'thrownAwayTrialRun' in owner
 }
 
 /** Automatic Notification texts in the app language. */
@@ -46,6 +59,8 @@ export type NotificationTemplates = {
   queueDroppedOnQuit: string
   /** An Agent Run a Channel started: `{name}` (the Agent), `{title}` (the Session's label) */
   agentStarted: string
+  /** The label of a Trial Run's Notification: `{agent}` (the Agent's name) */
+  trialRunLabel: string
 }
 
 /** What main needs from the window to deliver a Notification (docs/adr/0010). */

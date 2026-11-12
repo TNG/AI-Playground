@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "Antworte im Thread, um zu antworten.",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ Antworte auf diese Nachricht, um zu antworten.",
   "AGENT_NOTIFY_HEADER": "🤖 Agent · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "Testlauf · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ An {title} gesendet – startet…",
   "AGENT_ANSWER_QUEUED": "➡️ An {title} gesendet – in der Warteschlange (Position {position})",
   "AGENT_ANSWER_NOT_SENT": "⚠️ Nicht an {title} gesendet: {reason}",

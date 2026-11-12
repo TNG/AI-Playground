@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "返信するにはスレッドで返信してください。",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ 返信するにはこのメッセージに返信してください。",
   "AGENT_NOTIFY_HEADER": "🤖 エージェント · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "試行実行 · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ {title} に送信しました — 開始しています…",
   "AGENT_ANSWER_QUEUED": "➡️ {title} に送信しました — 待機中（{position} 番目）",
   "AGENT_ANSWER_NOT_SENT": "⚠️ {title} に送信できませんでした: {reason}",

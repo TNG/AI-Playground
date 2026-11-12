@@ -66,6 +66,7 @@ export function startNotificationConfigPush(): void {
         answerByReply: text.AGENT_NOTIFY_ANSWER_BY_REPLY ?? '',
         queueDroppedOnQuit: text.CHANNEL_QUEUE_DROPPED_QUIT ?? '',
         agentStarted: text.CHANNEL_AGENT_STARTED ?? '',
+        trialRunLabel: text.AGENT_NOTIFY_TRIAL_RUN_LABEL ?? '',
       },
     }
   })

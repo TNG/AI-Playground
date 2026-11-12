@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "Trả lời trong chuỗi để phản hồi.",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ Trả lời tin nhắn này để phản hồi.",
   "AGENT_NOTIFY_HEADER": "🤖 Tác tử · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "Chạy thử · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ Đã gửi tới {title} — đang bắt đầu…",
   "AGENT_ANSWER_QUEUED": "➡️ Đã gửi tới {title} — đang chờ (vị trí {position})",
   "AGENT_ANSWER_NOT_SENT": "⚠️ Chưa gửi tới {title}: {reason}",

@@ -34,6 +34,7 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getAgentSessionsDir: () => sessionsDir,
   getAgentTasksFile: () => tasksFile,
   getChannelMessageMapFile: () => messageMapFile,
+  getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
   getAudioDir: () => path.join(tempRoot, 'audio'),
 }))
@@ -151,6 +152,7 @@ const CONFIG: NotificationConfig = {
     answerByReply: '↩️ Reply to this message to answer.',
     queueDroppedOnQuit: 'Dropped {count}.',
     agentStarted: '▶️ Started “{name}” in {title}.',
+    trialRunLabel: 'Trial Run · {agent}',
   },
 }
 
@@ -456,12 +458,25 @@ describe('a Background Session pausing for the user', () => {
     ])
   }, 30000)
 
-  it('sends nothing for a Trial Run, whose Harness Session no Session holds', async () => {
-    await withWaitingTurn('aipg-agent-trial', async () => {
-      pauseFor('aipg-agent-trial', 'question', 'Which colour?')
-      await settle()
-      userWait.setAwaitingUser('aipg-agent-trial', false)
+  it('sends nothing for a Trial Run of an Agent without notify, paused or ended', async () => {
+    const trialRuns = await import('../../agent/trialRuns')
+    const { harnessSessionId } = await trialRuns.trialRunHarnessFor('agent-quiet')
+    await trialRuns.saveTrialRun({
+      agentId: 'agent-quiet',
+      harnessSessionId,
+      name: 'Quiet helper',
+      stepIndex: 1,
+      stepCount: 1,
+      startedAt: 1,
+      state: 'running',
     })
+    windowShown = false
+    await withWaitingTurn(harnessSessionId, async () => {
+      pauseFor(harnessSessionId, 'question', 'Which colour?')
+      await settle()
+      userWait.setAwaitingUser(harnessSessionId, false)
+    })
+    await settle()
     expect(sent).toEqual([])
   }, 30000)
 

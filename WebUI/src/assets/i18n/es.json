@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "Responde en el hilo para contestar.",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ Responde a este mensaje para contestar.",
   "AGENT_NOTIFY_HEADER": "🤖 Agente · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "Ejecución de prueba · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ Enviado a {title}: iniciando…",
   "AGENT_ANSWER_QUEUED": "➡️ Enviado a {title}: en cola (posición {position})",
   "AGENT_ANSWER_NOT_SENT": "⚠️ No se envió a {title}: {reason}",

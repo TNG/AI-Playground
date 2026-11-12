@@ -897,6 +897,7 @@
   "AGENT_NOTIFY_ANSWER_IN_THREAD": "답하려면 스레드에서 답장하세요.",
   "AGENT_NOTIFY_ANSWER_BY_REPLY": "↩️ 답하려면 이 메시지에 답장하세요.",
   "AGENT_NOTIFY_HEADER": "🤖 에이전트 · {title}",
+  "AGENT_NOTIFY_TRIAL_RUN_LABEL": "시험 실행 · {agent}",
   "AGENT_ANSWER_STARTING": "➡️ {title}에 보냄 — 시작하는 중…",
   "AGENT_ANSWER_QUEUED": "➡️ {title}에 보냄 — 대기 중({position}번째)",
   "AGENT_ANSWER_NOT_SENT": "⚠️ {title}에 보내지 못함: {reason}",

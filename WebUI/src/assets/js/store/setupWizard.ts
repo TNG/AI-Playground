@@ -1028,6 +1028,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
         isDemoModeEnabled: draft.enabled,
         demoModePasscode: draft.passcodeHash,
         demoModeResetInSeconds: draft.resetInSeconds,
+        demoModePromptDisabled: draft.promptDisabled,
       })
       if (!saved) return
       demoModeDraft.value = null
@@ -1160,12 +1161,17 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     wizardPage.value = 'demoModeSetup'
   }
 
-  function applyDemoModeSetup(values: { passcodeHash?: string; resetInSeconds: number | null }) {
+  function applyDemoModeSetup(values: {
+    passcodeHash?: string
+    resetInSeconds: number | null
+    promptDisabled: boolean
+  }) {
     const current = demoModeView.value
     demoModeDraft.value = {
       enabled: current.enabled || demoModeSetupEnabling.value,
       passcodeHash: values.passcodeHash ?? current.passcodeHash,
       resetInSeconds: values.resetInSeconds,
+      promptDisabled: values.promptDisabled,
     }
     demoModeSetupEnabling.value = false
     wizardPage.value = 'main'

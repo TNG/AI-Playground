@@ -261,7 +261,7 @@
 
         <!-- System Prompt - only shown in advanced mode. Top-aligned: the textarea
              is several rows tall and its label belongs beside its first line. -->
-        <SettingsRow v-if="advancedMode" align="start">
+        <SettingsRow v-if="advancedMode && !demoMode.promptLocked" align="start">
           <template #label>
             <Label for="chat-system-prompt" class="whitespace-nowrap pt-2">System Prompt</Label>
           </template>
@@ -327,6 +327,7 @@ import { useEmbeddingModelPicker } from '@/assets/js/embeddingModelPicker'
 import { useUIStore } from '@/assets/js/store/ui'
 import { OVMS_MTP_ASSISTANT_TOKENS_MAX, OVMS_MTP_ASSISTANT_TOKENS_MIN } from '@/lib/ovmsMtp'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 
 const showUploader = ref(false)
 const processing = ref(false)
@@ -339,6 +340,7 @@ const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
 const backendServices = useBackendServices()
 const productModeStore = useProductMode()
+const demoMode = useDemoMode()
 const conversations = useConversations()
 const homeAgent = useHomeAgent()
 const cloudMode = useCloudMode()

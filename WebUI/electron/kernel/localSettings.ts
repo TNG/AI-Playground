@@ -26,6 +26,8 @@ export const LocalSettingsSchema = z.object({
   isDemoModeEnabled: z.boolean().default(false),
   demoModeResetInSeconds: z.number().min(1).nullable().default(null),
   demoModePasscode: z.string().optional(),
+  // Demo Mode only: the prompt box takes the profile's sample prompts and nothing typed.
+  demoModePromptDisabled: z.boolean().default(false),
   // Shows the machine-level debug controls (OEM override, Phison pretend, remote
   // repository, OpenVINO image-gen devices, verbose agent logging, dummy media
   // workflows, the title-bar wizard shortcut) in Settings → Developer, and

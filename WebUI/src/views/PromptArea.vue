@@ -80,8 +80,9 @@
             </button>
           </div>
         </div>
+        <DemoSamplePrompts v-if="demoMode.promptLocked" inline class="mb-2" />
         <div class="relative w-full">
-          <template v-if="demoMode.enabled && isFirstPrompt">
+          <template v-if="demoMode.enabled && isFirstPrompt && !demoMode.promptLocked">
             <Popover :open="isTextareaFocused">
               <PopoverAnchor as-child>
                 <div
@@ -119,6 +120,7 @@
             @blur="isTextareaFocused = false"
             v-model="prompt"
             :disabled="isTextAreaDisabled"
+            :readonly="demoMode.promptLocked"
             @keydown="fastGenerate"
           ></textarea>
 
@@ -365,7 +367,7 @@
               id="camera-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat'"
+              v-if="promptStore.getCurrentMode() === 'chat' && !demoMode.promptLocked"
               :disabled="!!downloadGroup"
               @click="handleCameraClick"
               title="Capture image from camera"
@@ -376,7 +378,7 @@
               id="microphone-button"
               class="bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5"
               variant="secondary"
-              v-if="promptStore.getCurrentMode() === 'chat'"
+              v-if="promptStore.getCurrentMode() === 'chat' && !demoMode.promptLocked"
               @click="handleRecordingClick"
               :disabled="
                 (!sttAvailable && !audioRecorder.isRecording) ||
@@ -537,6 +539,7 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
+import { isSamplePrompt } from '@/lib/demoSamplePrompts'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -810,7 +813,7 @@ audioRecorder.registerRecordingCompleteHandler(async (wavBlob) => {
 })
 
 audioRecorder.registerTranscriptionCallback((text) => {
-  if (isSttPreset.value) return
+  if (isSttPreset.value || demoMode.promptLocked) return
   prompt.value = text
   // Mark this as a voice-originated turn so the reply can be auto-spoken.
   pendingVoiceTurn.value = true
@@ -851,7 +854,7 @@ const downloadGroup = computed(() => {
 })
 
 const shouldShowImageUploadButton = computed(() => {
-  if (downloadGroup.value) return false
+  if (downloadGroup.value || demoMode.promptLocked) return false
   const mode = promptStore.getCurrentMode()
   const comfyUiModes: ModeType[] = ['imageGen', 'imageEdit', 'video']
 
@@ -1079,6 +1082,7 @@ watch(
 )
 
 function getTextAreaPlaceholder() {
+  if (demoMode.promptLocked) return languages?.DEMO_MODE_PROMPT_LOCKED || ''
   // The TTS preset runs in 'chat' mode but takes literal text to speak, not a
   // chat prompt — so it needs its own placeholder.
   const active = presetsStore.activePreset
@@ -1122,12 +1126,21 @@ function describeSettingsProblem(problem: SessionSettingsProblem): string {
 function handleSubmitPromptClick() {
   if (agentSettingsProblems.value.length > 0 || downloadGroup.value) return
   const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
+  if (demoMode.promptLocked && !submittableWhilePromptLocked(needsPrompt)) {
+    toast.show(languages?.DEMO_MODE_PROMPT_LOCKED || '')
+    return
+  }
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
     return
   }
   emits('autoHideFooter')
   promptStore.submitPrompt(prompt.value)
+}
+
+function submittableWhilePromptLocked(needsPrompt: boolean): boolean {
+  if (!prompt.value.trim()) return !needsPrompt
+  return isSamplePrompt(demoMode.samplePrompts, promptStore.getCurrentMode(), prompt.value)
 }
 
 /** Agent Maker sessions with Steps can carry them out; Send then talks to the agent alone. */
@@ -1523,7 +1536,7 @@ async function addDocumentsToRagList(files: File[]) {
 
 // Handle drag and drop
 async function onDrop(files: File[] | null) {
-  if (!files || files.length === 0 || downloadGroup.value) return
+  if (!files || files.length === 0 || downloadGroup.value || demoMode.promptLocked) return
 
   if (promptStore.getCurrentMode() === 'agent') {
     await agentMode.attachFiles(files)
@@ -1618,7 +1631,7 @@ const { isOverDropZone } = useDropZone(textareaRef, {
 // Handle clipboard paste for images
 function handlePaste(event: ClipboardEvent) {
   // Block image paste when vision is not supported
-  if (!canAttachImages.value) return
+  if (!canAttachImages.value || demoMode.promptLocked) return
 
   const items = event.clipboardData?.items
   if (!items) return

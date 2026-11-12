@@ -96,7 +96,7 @@
         v-if="input.type === 'string'"
         type="text"
         v-model="input.current.value as string"
-        :disabled="!isModifiable(input)"
+        :disabled="!isModifiable(input) || demoMode.promptLocked"
       ></Input>
 
       <drop-down-new
@@ -136,6 +136,7 @@ import { referencePixelBudget } from '@/lib/referenceImageFit'
 import DropDownNew from './DropDownNew.vue'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 import { useDialogStore } from '@/assets/js/store/dialogs'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { usePresets } from '@/assets/js/store/presets'
 import { useI18N } from '@/assets/js/store/i18n'
 import Slider from './ui/slider/Slider.vue'
@@ -147,6 +148,7 @@ import type { ImageMediaItem } from '@/assets/js/store/imageGenerationPresets'
 
 const imageGeneration = useImageGenerationPresets()
 const dialogStore = useDialogStore()
+const demoMode = useDemoMode()
 const presetsStore = usePresets()
 const i18nState = useI18N().state
 const languages = i18nState

@@ -5,6 +5,7 @@ import {
   onMounted,
   onUnmounted,
   ref,
+  watch,
   watchEffect,
   type ComponentPublicInstance,
 } from 'vue'
@@ -58,6 +59,13 @@ const tabs = computed((): EditorTab[] => [
 ])
 
 const pickedTab = ref<EditorTab>('steps')
+watch(
+  () => ui.agentLibrary,
+  (view) => {
+    if (view?.showTrialRun && !wide.value) pickedTab.value = 'trial'
+  },
+  { immediate: true },
+)
 const shownTab = computed(() => (tabs.value.includes(pickedTab.value) ? pickedTab.value : 'steps'))
 
 const tabRefs = new Map<EditorTab, HTMLElement>()

@@ -6,6 +6,15 @@ export function agentDisplayName(name: string, languages: Languages): string {
   return name.trim() || (languages.AGENT_LIBRARY_UNNAMED ?? 'Untitled agent')
 }
 
+/** A Trial Run's name: the running run's own, otherwise the Agent's as it is now. */
+export function trialRunDisplayName(
+  run: { state: string; name: string } | undefined,
+  agentName: string | undefined,
+  languages: Languages,
+): string {
+  return agentDisplayName((run?.state === 'running' ? run.name : agentName) ?? '', languages)
+}
+
 export type NeverRunRefusal = { ok: false; reason: 'never-run'; message: string }
 
 /** A Follow-up refused because the Agent has no run to continue. */

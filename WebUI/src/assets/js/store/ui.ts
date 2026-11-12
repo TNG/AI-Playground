@@ -2,8 +2,11 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
-/** `sessionRef` narrows the Library to the Agents scheduled in that Session. */
-export type AgentLibraryView = { agentId?: string; sessionRef?: string }
+/**
+ * `sessionRef` narrows the Library to the Agents scheduled in that Session; `showTrialRun` asks
+ * for the selected Agent's Trial Run pane to be on screen.
+ */
+export type AgentLibraryView = { agentId?: string; sessionRef?: string; showTrialRun?: boolean }
 
 export const useUIStore = defineStore('ui', () => {
   // Model management overlay. Deliberately not tied to `promptArea.currentMode`:
@@ -29,7 +32,9 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function selectLibraryAgent(agentId: string | undefined) {
-    if (agentLibrary.value) agentLibrary.value = { ...agentLibrary.value, agentId }
+    if (!agentLibrary.value) return
+    const { showTrialRun: _shown, ...view } = agentLibrary.value
+    agentLibrary.value = { ...view, agentId }
   }
 
   function clearLibrarySessionFilter() {

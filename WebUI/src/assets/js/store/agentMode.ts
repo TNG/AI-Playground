@@ -115,6 +115,9 @@ export type SessionTurnInfo = {
 /** What the Agent Library shows: open or not, and whose Trial Run pane is on screen. */
 export type AgentLibraryShowing = { open: boolean; trialRunSessionId: string | null }
 
+/** How a pause toast reads, and what its Open button does. */
+export type PauseNotice = { message: string; open: () => void }
+
 /** How a turn that ended out of sight went. */
 export type UnseenTurn = 'done' | 'failed'
 
@@ -1275,16 +1278,25 @@ export const useAgentMode = defineStore(
       }
     })
 
+    let pauseNoticeOf: (sessionId: string) => PauseNotice | undefined = () => undefined
+    /** Lets a store that owns some Harness Sessions word their pause toast and its Open. */
+    function registerPauseNotice(resolve: (sessionId: string) => PauseNotice | undefined): void {
+      pauseNoticeOf = resolve
+    }
+
     /** One toast per pause of a session the user is not looking at. */
     function onTurnPaused(sessionId: string): void {
       if (inView(sessionId)) return
-      const title = sessions.value[sessionId]?.title ?? ''
-      toast.show((i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace('{title}', title), {
+      const notice = pauseNoticeOf(sessionId) ?? {
+        message: (i18n.state.AGENT_SESSION_NEEDS_INPUT ?? '').replace(
+          '{title}',
+          sessions.value[sessionId]?.title ?? '',
+        ),
+        open: () => void openSession(sessionId),
+      }
+      toast.show(notice.message, {
         settings: { duration: 8000 },
-        action: {
-          label: i18n.state.AGENT_SESSION_OPEN ?? '',
-          run: () => void openSession(sessionId),
-        },
+        action: { label: i18n.state.AGENT_SESSION_OPEN ?? '', run: notice.open },
       })
     }
 
@@ -2367,6 +2379,7 @@ export const useAgentMode = defineStore(
       setViewShown,
       hasHeldPrompt,
       setAgentLibraryShowing,
+      registerPauseNotice,
       liveTurnsIn,
       streamingMessagesOf,
       deleteSession,

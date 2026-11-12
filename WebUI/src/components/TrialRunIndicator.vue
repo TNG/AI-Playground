@@ -67,6 +67,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { trialRunDisplayName } from '@/lib/agentNames'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 type IndicatedRun = { agentId: string; name: string; waiting: boolean }
@@ -90,10 +91,7 @@ const runs = computed<IndicatedRun[]>(() =>
   agentTrialRuns.trialRunsInFlight.map((agentId) => {
     const run = agentTrialRuns.trialRuns[agentId]
     const agent = agentTasks.libraryAgents.find((entry) => entry.id === agentId)
-    const name =
-      (run?.state === 'running' ? run.name : agent?.name.trim()) ||
-      i18n.AGENT_LIBRARY_UNNAMED ||
-      'Untitled agent'
+    const name = trialRunDisplayName(run, agent?.name, i18n)
     const waiting = !!run && agentMode.hasHeldPrompt(run.harnessSessionId)
     return { agentId, name, waiting }
   }),
@@ -103,10 +101,10 @@ const anyWaiting = computed(() => runs.value.some((run) => run.waiting))
 const manyLabel = computed(() => i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING)
 
 function openLabel(run: IndicatedRun): string {
-  const template = run.waiting
-    ? i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING
-    : i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN
-  return fillTemplate(template, { name: run.name })
+  if (!run.waiting)
+    return fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN, { name: run.name })
+  const waiting = fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_NEEDS_INPUT, { name: run.name })
+  return fillTemplate(i18n.AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING, { waiting })
 }
 
 function open(agentId: string): void {

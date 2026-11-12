@@ -603,6 +603,50 @@ describe('Paused Sessions', () => {
     expect(shown).toBe(true)
   })
 
+  it("shows a Trial Run's held prompt once the Agent Library puts its pane on screen", async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+
+    let shown = false
+    const prompt = whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: null })
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-other-trial' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-b' })
+    await prompt
+    expect(shown).toBe(true)
+  })
+
+  it('shows a prompt at once, with no toast, for a Trial Run already on screen', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-b' })
+
+    pause()
+    await whenSessionInView('session-b')
+    expect(toastShow).not.toHaveBeenCalled()
+  })
+
+  it('holds a Trial Run prompt again once the Agent Library closes', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    store.setAgentLibraryShowing({ open: true, trialRunSessionId: 'session-b' })
+    store.setAgentLibraryShowing({ open: false, trialRunSessionId: null })
+
+    let shown = false
+    void whenSessionInView('session-b').then(() => {
+      shown = true
+    })
+    pause()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(shown).toBe(false)
+    expect(toastShow).toHaveBeenCalledTimes(1)
+  })
+
   it('drops a held prompt once its turn ends', async () => {
     await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')

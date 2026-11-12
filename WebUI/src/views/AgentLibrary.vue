@@ -1,9 +1,18 @@
 <script setup lang="ts">
 // Full-window overlay over whatever Session is showing; it belongs to no Session.
-import { computed, onMounted, ref, type ComponentPublicInstance } from 'vue'
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  ref,
+  watchEffect,
+  type ComponentPublicInstance,
+} from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { XMarkIcon } from '@heroicons/vue/24/solid'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useUIStore } from '@/assets/js/store/ui'
@@ -18,7 +27,9 @@ import { fillTemplate } from '@/lib/fillTemplate'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
+const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
+const agentTrialRuns = useAgentTrialRuns()
 const i18n = useI18N().state
 const ui = useUIStore()
 const sessions = useSessions()
@@ -96,6 +107,17 @@ const selected = computed(() => {
   const wanted = ui.agentLibrary?.agentId
   return agents.find((agent) => agent.id === wanted) ?? agents[0]
 })
+
+watchEffect(() => {
+  const paneOnScreen = wide.value || shownTab.value === 'trial'
+  const run = selected.value && agentTrialRuns.trialRuns[selected.value.id]
+  agentMode.setAgentLibraryShowing({
+    open: true,
+    trialRunSessionId: paneOnScreen && run ? run.harnessSessionId : null,
+  })
+})
+
+onUnmounted(() => agentMode.setAgentLibraryShowing({ open: false, trialRunSessionId: null }))
 
 onMounted(() => {
   // Escape is handled on the overlay, which receives no key events until something in it has focus.

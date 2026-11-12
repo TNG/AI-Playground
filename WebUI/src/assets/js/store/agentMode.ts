@@ -112,6 +112,9 @@ export type SessionTurnInfo = {
   pauseReason?: PauseReason
 }
 
+/** What the Agent Library shows: open or not, and whose Trial Run pane is on screen. */
+export type AgentLibraryShowing = { open: boolean; trialRunSessionId: string | null }
+
 /** How a turn that ended out of sight went. */
 export type UnseenTurn = 'done' | 'failed'
 
@@ -1216,8 +1219,15 @@ export const useAgentMode = defineStore(
     function setViewShown(shown: boolean): void {
       viewShown.value = shown
     }
+    const agentLibraryShowing = ref<AgentLibraryShowing>({ open: false, trialRunSessionId: null })
+    function setAgentLibraryShowing(showing: AgentLibraryShowing): void {
+      agentLibraryShowing.value = showing
+    }
     function inView(sessionId: string): boolean {
-      return viewShown.value && openSessionId.value === sessionId
+      return (
+        (viewShown.value && openSessionId.value === sessionId) ||
+        agentLibraryShowing.value.trialRunSessionId === sessionId
+      )
     }
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
@@ -1256,8 +1266,10 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId], () => {
-      if (viewShown.value) settleHeldPrompts(openSessionId.value, 'show')
+    watch([viewShown, openSessionId, agentLibraryShowing], () => {
+      for (const sessionId of Object.keys(heldPrompts)) {
+        if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
+      }
     })
 
     /** One toast per pause of a session the user is not looking at. */
@@ -2350,6 +2362,7 @@ export const useAgentMode = defineStore(
       switchSession,
       openSession,
       setViewShown,
+      setAgentLibraryShowing,
       liveTurnsIn,
       streamingMessagesOf,
       deleteSession,

@@ -264,9 +264,9 @@ export const CHANNELS = {
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /**
-   * One-shot upgrade: Home Agent threads become Reachable Sessions in a "Home Agent" Group, and
-   * the thread `routingKey` names becomes every Channel's Channel Session (`channelSession`, null
-   * when none was set or the migration already ran).
+   * One-shot upgrade: Home Agent threads become ungrouped Reachable Sessions, and the thread
+   * `routingKey` names becomes every Channel's Channel Session (`channelSession`, null when none
+   * was set or the migration already ran).
    */
   'sessions:migrateHomeAgentThreads': {
     kind: 'invoke',

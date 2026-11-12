@@ -117,7 +117,7 @@ afterEach(async () => {
 })
 
 describe('Home Agent threads on upgrade', () => {
-  it('each becomes a Reachable Session in the "Home Agent" Group', async () => {
+  it('each becomes a Reachable Session in no Session Group', async () => {
     await writeThread('ha-1', 'homeAgent', [
       message('u1', 'user', 'What is on my calendar?', 100),
       message('a1', 'assistant', 'A dentist appointment at 3.', 110),
@@ -136,9 +136,8 @@ describe('Home Agent threads on upgrade', () => {
       'Write a haiku',
     ])
     expect(await sessions.listSessions()).toHaveLength(2)
-    const groups = await sessions.listSessionGroups()
-    expect(groups.map((group) => group.name)).toEqual(['Home Agent'])
-    expect(migrated.every((session) => session.groupId === groups[0].id)).toBe(true)
+    expect(await sessions.listSessionGroups()).toEqual([])
+    expect(migrated.every((session) => session.groupId === undefined)).toBe(true)
   })
 
   it('shows the transcript and replays it into the Assistant Harness Session', async () => {
@@ -282,9 +281,9 @@ describe('Home Agent threads on upgrade', () => {
     expect(await preferences.readPreferenceSection('channelSessions')).toBeUndefined()
   })
 
-  it('files into a "Home Agent" Group the user already has', async () => {
+  it('leaves a "Home Agent" Group the user already has as it is', async () => {
     const own = await sessions.createSession()
-    const { group } = await sessions.createSessionGroup(own.id, 'home agent')
+    const { group } = await sessions.createSessionGroup(own.id, 'Home Agent')
     await writeThread('ha-1', 'homeAgent', [
       message('u1', 'user', 'hi'),
       message('a1', 'assistant', 'yo'),
@@ -293,7 +292,50 @@ describe('Home Agent threads on upgrade', () => {
     await migrateHomeAgentThreads({ routingKey: 'ha-1' })
 
     expect(await sessions.listSessionGroups()).toEqual([group])
-    expect((await migratedSessions())[0].groupId).toBe(group.id)
+    expect((await migratedSessions())[0].groupId).toBeUndefined()
+  })
+
+  it('resumes from a marker the grouped migration left, filing nothing', async () => {
+    const earlier = await sessions.createSession()
+    const { group } = await sessions.createSessionGroup(earlier.id, 'Home Agent')
+    await preferences.writePreferenceSection('homeAgentThreadMigration', {
+      done: false,
+      sessions: { 'ha-1': earlier.id },
+      groupId: group.id,
+    })
+    await writeThread('ha-1', 'homeAgent', [
+      message('u1', 'user', 'first'),
+      message('a1', 'assistant', 'one'),
+    ])
+    await writeThread('ha-2', 'homeAgent', [
+      message('u2', 'user', 'second'),
+      message('a2', 'assistant', 'two'),
+    ])
+
+    const result = await migrateHomeAgentThreads({ routingKey: 'ha-1' })
+
+    expect(result.channelSession).toBe(earlier.id)
+    expect(await sessions.listSessions()).toHaveLength(2)
+    expect((await sessionTitled('second')).groupId).toBeUndefined()
+    expect(await sessions.listSessionGroups()).toEqual([group])
+  })
+
+  it('does not run again after a grouped migration finished', async () => {
+    await preferences.writePreferenceSection('homeAgentThreadMigration', {
+      done: true,
+      sessions: { 'ha-1': 'session-old' },
+      groupId: 'group-old',
+    })
+    await writeThread('ha-1', 'homeAgent', [
+      message('u1', 'user', 'first'),
+      message('a1', 'assistant', 'one'),
+    ])
+
+    const result = await migrateHomeAgentThreads({ routingKey: 'ha-1' })
+
+    expect(result.channelSession).toBeNull()
+    expect(await sessions.listSessions()).toEqual([])
+    expect(await preferences.readPreferenceSection('channelSessions')).toBeUndefined()
   })
 
   it('migrates a thread once when a reloaded window asks again mid-run', async () => {
@@ -328,7 +370,6 @@ describe('Home Agent threads on upgrade', () => {
 
     expect(again.channelSession).toBeNull()
     expect(await sessions.listSessions()).toEqual(before)
-    expect(await sessions.listSessionGroups()).toHaveLength(1)
     expect(await preferences.readPreferenceSection('channelSessions')).toEqual(moved)
   })
 })

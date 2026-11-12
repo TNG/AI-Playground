@@ -23,6 +23,7 @@ export async function executeChatComfyTool(options: {
   keepModelsLoaded: boolean
   defaultWorkflow?: string
   readMediaAsDataUri?: (url: string) => Promise<string>
+  declinedWorkflows?: Set<string>
 }): Promise<Record<string, unknown>> {
   const isEdit = options.toolName === 'comfyUiImageEdit'
   let source = isEdit ? (findSourceImage(options.messages ?? []) ?? undefined) : undefined
@@ -34,6 +35,8 @@ export async function executeChatComfyTool(options: {
   }
   return await runInProcessComfyTool({
     kind: isEdit ? 'edit' : 'create',
+    toolName: options.toolName,
+    declinedWorkflows: options.declinedWorkflows,
     args: {
       ...((options.input ?? {}) as InProcessComfyArgs),
       ...(options.defaultWorkflow ? { defaultWorkflow: options.defaultWorkflow } : {}),

@@ -59,6 +59,7 @@ export async function buildDelegatedMediaTool(
 ): Promise<ToolDefinition> {
   const pi = await loadPi()
   const { workspaceDir } = host
+  const declinedWorkflows = new Set<string>()
   return pi.defineTool({
     name: spec.name,
     label: spec.name,
@@ -92,6 +93,7 @@ export async function buildDelegatedMediaTool(
           toolSpecs: specialist.mediaAgent.toolSpecs,
           repairData: specialist.mediaAgent.repairData,
           keepModelsLoaded: specialist.keepModelsLoaded,
+          declinedWorkflows,
         },
         signal ?? undefined,
       )

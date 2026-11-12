@@ -60,6 +60,8 @@ const MEDIA_AGENT_SYSTEM = [
   '  style, lighting, mood, quality tags).',
   '- If a tool call fails with an actionable error, correct the parameters and retry once;',
   '  otherwise stop and report the failure.',
+  '- If the user declined a model download, never call that workflow again: use another',
+  '  workflow if one fits, otherwise stop and report that the download was declined.',
   '- When done, reply with a short plain-text report of what you created and which workflows',
   '  you used. Do not include URLs, file paths or markdown images — they are delivered',
   '  separately.',

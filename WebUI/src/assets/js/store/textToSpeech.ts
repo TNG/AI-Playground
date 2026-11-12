@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { acceptHMRUpdate } from 'pinia'
+import { rethrowCancellationAs } from '../errors/appError'
 import { makeFileBackedPreference } from '@/lib/fileBackedPreferences'
 import { useBackendServices } from './backendServices'
 import { useModels } from './models'
@@ -226,9 +227,9 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
     if (!modelExists) {
       const missing = await models.getMissingSpeechModel(SPEECHT5_MODEL_NAME)
       if (missing.length > 0) {
-        await requestDownload(missing).catch(() => {
-          throw new Error('Kokoro speech model download was cancelled')
-        })
+        await requestDownload(missing).catch(
+          rethrowCancellationAs('Kokoro speech model download was cancelled'),
+        )
       }
     }
 

@@ -56,4 +56,6 @@ export type ArtifactRunResult = {
   /** Failed or stopped slots of a run that had started generating; absent when it had not. */
   unfinished?: MediaItem[]
   error?: string
+  /** Cancelled because the user declined its model download. */
+  declined?: true
 }

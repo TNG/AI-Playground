@@ -596,4 +596,49 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output).toMatchObject({ success: false, message: 'Generation cancelled.' })
     expect(submitArtifactRunMock).not.toHaveBeenCalled()
   })
+
+  it('tells the model not to call it again once the user declined the download', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({ state: 'cancelled', items: [], declined: true })
+    const tool = await buildTool(GENERATE_SPEC)
+    const signal = new AbortController().signal
+
+    const first = parseOutput(await tool.execute('call-1', { prompt: 'x' }, signal))
+    const second = parseOutput(await tool.execute('call-2', { prompt: 'y' }, signal))
+
+    expect(first).toMatchObject({ success: false, declined: true })
+    expect(first.message).toContain('declined the download')
+    expect(first.message).toContain('Draft Image')
+    expect(first.message).toContain('Do not call generateImage')
+    expect(second).toEqual(first)
+    expect(submitArtifactRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('still offers a workflow whose models the user did not decline', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({ state: 'cancelled', items: [], declined: true })
+    const tool = await buildTool(GENERATE_SPEC)
+    const signal = new AbortController().signal
+
+    await tool.execute('call-1', { prompt: 'x' }, signal)
+    const other = parseOutput(
+      await tool.execute('call-2', { workflow: 'Edit By Prompt', prompt: 'y' }, signal),
+    )
+
+    expect(other.declined).toBeUndefined()
+    expect(submitArtifactRunMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets the model retry a download that failed rather than was declined', async () => {
+    submitArtifactRunMock.mockResolvedValueOnce({
+      state: 'failed',
+      items: [],
+      error: 'Model download failed: disk full',
+    })
+    const tool = await buildTool(GENERATE_SPEC)
+    const signal = new AbortController().signal
+
+    await tool.execute('call-1', { prompt: 'x' }, signal)
+    await tool.execute('call-2', { prompt: 'x' }, signal)
+
+    expect(submitArtifactRunMock).toHaveBeenCalledTimes(2)
+  })
 })

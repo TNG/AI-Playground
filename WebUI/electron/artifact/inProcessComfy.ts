@@ -178,6 +178,10 @@ export type InProcessComfyArgs = {
 
 export type InProcessComfyRequest = {
   kind: 'create' | 'edit'
+  /** The tool the model called, named in the declined-download answer. */
+  toolName?: string
+  /** Workflows whose model download the user declined; one tool build keeps them for its session. */
+  declinedWorkflows?: Set<string>
   args: InProcessComfyArgs
   source?: string
   origin: 'renderer' | 'agent'
@@ -204,6 +208,9 @@ export async function runInProcessComfyTool(
       images: [],
     }
   }
+
+  const declined = declinedOutput(workflowName, request.toolName)
+  if (request.declinedWorkflows?.has(workflowName)) return declined
 
   const catalog = await catalogProvider()
   const base = catalog.comfy.get(workflowName)
@@ -264,5 +271,22 @@ export async function runInProcessComfyTool(
   } finally {
     request.signal?.removeEventListener('abort', onAbort)
   }
+  if (result.declined) {
+    request.declinedWorkflows?.add(workflowName)
+    return declined
+  }
   return toolOutput(result)
+}
+
+function declinedOutput(workflowName: string, toolName = 'this tool'): Record<string, unknown> {
+  return {
+    success: false,
+    state: 'cancelled',
+    declined: true,
+    message:
+      `The user declined the download of the models for the "${workflowName}" workflow, so it is ` +
+      `unavailable. Do not call ${toolName} with this workflow again; continue without it or ` +
+      'tell the user.',
+    images: [],
+  }
 }

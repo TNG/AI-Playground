@@ -317,7 +317,8 @@ async function runInTurn(submitted: ArtifactRunPayload): Promise<ArtifactRunResu
     } finally {
       preflightCancels.delete(payload.runId)
     }
-    if (outcome.state !== 'ready' || cancel.signal.aborted) {
+    if (cancel.signal.aborted) return settleUnstartedRun(payload)
+    if (outcome.state !== 'ready') {
       return settleUnstartedRun(payload, outcome)
     }
     payload = { ...payload, modelsConsented: true }
@@ -407,7 +408,9 @@ function settleUnstartedRun(
   const result: ArtifactRunResult =
     models?.state === 'failed'
       ? { state: 'failed', items: [], error: models.error }
-      : cancelledRun()
+      : models?.state === 'declined'
+        ? { ...cancelledRun('The user declined the model download.'), declined: true }
+        : cancelledRun()
   emitArtifactPhase(artifactRunTag(payload), result.state, undefined, result.error)
   emitArtifactFinished(payload)
   return result

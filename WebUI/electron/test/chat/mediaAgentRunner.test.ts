@@ -231,6 +231,33 @@ describe('runMediaAgentInMain', () => {
     })
   })
 
+  it('tells the specialist a download was declined, and remembers it across the session', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('The user declined the download.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+    runInProcessComfyToolMock.mockResolvedValue({
+      success: false,
+      declined: true,
+      message: 'The user declined the download. Do not call comfyUI with this workflow again.',
+      images: [],
+    })
+    const declinedWorkflows = new Set<string>()
+
+    const result = await runMediaAgentInMain({ ...runRequest(), declinedWorkflows })
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      toolName: 'comfyUI',
+      declinedWorkflows,
+    })
+    expect(result.steps[0].output).toMatchObject({ success: false, declined: true })
+  })
+
   it('cancel aborts a pending in-process run and the specialist settles as a failure', async () => {
     let call = 0
     const model = new MockLanguageModelV3({

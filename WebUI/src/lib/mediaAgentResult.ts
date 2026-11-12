@@ -17,6 +17,8 @@ export type CondensedMediaAgentResult = {
   summary: string
   success?: boolean
   message?: string
+  /** A step's model download was declined by the user; the message says not to retry. */
+  declined?: true
 }
 
 const MEDIA_TYPES = new Set(['image', 'video', 'model3d'])
@@ -69,20 +71,27 @@ export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMed
     )
   })
   const failures = result.steps
-    .map((step) => (step.output as { success?: boolean; message?: string } | null) ?? {})
+    .map(
+      (step) =>
+        (step.output as { success?: boolean; message?: string; declined?: boolean } | null) ?? {},
+    )
     .filter((output) => output.success === false)
+  const declined = failures.find((output) => output.declined === true)
   const summary =
     result.text.trim() || (images.length > 0 ? 'Media generated.' : 'No media generated.')
+  const steps = result.steps.map(describeMediaAgentStep)
+  const declinedFields = declined ? { declined: true as const, message: declined.message } : {}
   if (images.length === 0) {
     return {
       images: [],
-      steps: result.steps.map(describeMediaAgentStep),
+      steps,
       summary,
       success: false,
       message: failures.at(-1)?.message ?? summary,
+      ...declinedFields,
     }
   }
-  return { images, steps: result.steps.map(describeMediaAgentStep), summary }
+  return { images, steps, summary, ...declinedFields }
 }
 
 /** Drop bulky per-item settings before the result enters the parent model context. */
@@ -103,5 +112,6 @@ export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<st
   }
   if (result.success !== undefined) slim.success = result.success
   if (result.message !== undefined) slim.message = result.message
+  if (result.declined) slim.declined = true
   return slim
 }

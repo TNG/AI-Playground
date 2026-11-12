@@ -9,6 +9,7 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
+import { speechFailure } from '../../chat/chatSpeechTools.ts'
 import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
 import { freeName } from '../../persist/sessionMediaFiles.ts'
 import { noteGeneratedMedia } from '../generatedMedia.ts'
@@ -111,10 +112,6 @@ function describeClip(clip: SpeechClipPayload): string {
   return `Synthesized speech with ${engine} (${clip.voice}).`
 }
 
-function failure(error: unknown): { ok: false; message: string } {
-  return { ok: false, message: error instanceof Error ? error.message : String(error) }
-}
-
 type SpeechResult = { output: unknown; details?: AgentMediaDetails }
 
 async function synthesize(
@@ -183,7 +180,7 @@ async function synthesize(
       },
     }
   } catch (error) {
-    return { output: failure(error) }
+    return { output: speechFailure(error, 'synthesizeTextToSpeech') }
   }
 }
 
@@ -223,7 +220,7 @@ async function transcribeWorkspaceAudio(
     )
     return { output: { ok: true, message: `Transcribed ${relativePath}.`, transcript: text } }
   } catch (error) {
-    return { output: failure(error) }
+    return { output: speechFailure(error, 'transcribeAudio') }
   }
 }
 
@@ -234,6 +231,7 @@ export async function buildSpeechTools(
 ): Promise<ToolDefinition[]> {
   if (specs.length === 0) return []
   const pi = await loadPi()
+  const declined = new Map<string, unknown>()
   return specs.map(
     (spec) =>
       pi.defineTool({
@@ -242,8 +240,10 @@ export async function buildSpeechTools(
         description: spec.description,
         parameters: jsonSchemaParameters(spec.inputSchema),
         execute: async (_toolCallId, params, signal) => {
+          if (declined.has(spec.name)) return jsonResult(declined.get(spec.name))
           const run = spec.name === 'synthesizeTextToSpeech' ? synthesize : transcribeWorkspaceAudio
           const { output, details } = await run(host, params, signal ?? undefined)
+          if ((output as { declined?: boolean }).declined) declined.set(spec.name, output)
           return { ...jsonResult(output), details }
         },
       }) as ToolDefinition,

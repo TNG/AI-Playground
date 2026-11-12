@@ -193,6 +193,7 @@ import {
 import {
   handlePermissionsPromptResponse,
   rejectAllPermissionPrompts,
+  type CancellableError,
 } from './permissions/promptAdapter'
 import { clearRendererWaits, setAwaitingUser } from './kernel/userWait'
 import {
@@ -1517,7 +1518,8 @@ function wireArtifactRunner(settings: LocalSettings): void {
         return true
       } catch (error) {
         appLogger.warn(`Model consent request failed: ${String(error)}`, 'electron-backend')
-        return false
+        if ((error as CancellableError).cancelled) return false
+        throw error
       }
     },
     ensureOvmsImageReady: (modelId, keepModelsLoaded, resolution) =>

@@ -31,6 +31,8 @@ const INNER_COMFY_TOOLS = new Set(['comfyUI', 'comfyUiImageEdit'])
 
 type MediaAgentRunArgs = MediaAgentRunRequest & {
   readMediaAsDataUri?: (url: string) => Promise<string>
+  /** Workflows whose download the user declined; the caller keeps them for its session. */
+  declinedWorkflows?: Set<string>
 }
 
 type InnerExecOptions = {
@@ -48,6 +50,7 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
   return {
     ...(typeof output.success === 'boolean' ? { success: output.success } : {}),
     ...(typeof output.message === 'string' ? { message: output.message } : {}),
+    ...(output.declined === true ? { declined: true } : {}),
     images: images.map((item) => {
       if (typeof item !== 'object' || item === null) return item
       const media = item as Record<string, unknown>
@@ -61,7 +64,7 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
 }
 
 async function executeInnerComfy(
-  request: MediaAgentRunRequest,
+  request: MediaAgentRunArgs,
   toolName: string,
   input: unknown,
   execOptions: InnerExecOptions,
@@ -80,6 +83,7 @@ async function executeInnerComfy(
     },
     conversationKey: request.conversationKey,
     keepModelsLoaded: request.keepModelsLoaded ?? false,
+    declinedWorkflows: request.declinedWorkflows,
   })
   const output = slimInnerComfyOutput(raw)
   console.info(
@@ -179,6 +183,7 @@ async function runMediaAgentBracket(
   request: MediaAgentRunArgs,
   controller: AbortController,
 ): Promise<MediaAgentRunResult> {
+  const inner = { ...request, declinedWorkflows: request.declinedWorkflows ?? new Set<string>() }
   const priorMessages: ModelMessage[] = request.sourceImage
     ? [sourceImageMessage(request.sourceImage)]
     : []
@@ -190,7 +195,7 @@ async function runMediaAgentBracket(
       if (!INNER_COMFY_TOOLS.has(spec.name)) {
         throw new Error(`${spec.name} is not a media specialist tool`)
       }
-      const output = await executeInnerComfy(request, spec.name, input, exec, controller)
+      const output = await executeInnerComfy(inner, spec.name, input, exec, controller)
       captured.push({ toolName: spec.name, input, output })
       return output
     },

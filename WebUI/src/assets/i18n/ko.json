@@ -1191,6 +1191,8 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR": "시험 실행: {name}",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "시험 실행 {count}개",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "'{name}' 시험 실행 진행 중. 에이전트 라이브러리에서 열기",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "'{name}' 시험 실행에서 입력이 필요합니다. 에이전트 라이브러리에서 열기",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "시험 실행에서 입력이 필요합니다",
   "CLOSE_ITEM_TRIAL_RUN": "'{name}' 시험 실행",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "시험 실행",
   "PRESET_SWITCHED": "{preset}(으)로 전환했습니다",

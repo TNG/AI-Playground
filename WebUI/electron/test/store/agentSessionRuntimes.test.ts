@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { ChatPreset } from '@/assets/js/store/presets'
 import type { AgentTurnSnapshot, KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
 
@@ -601,6 +601,33 @@ describe('Paused Sessions', () => {
     store.setViewShown(true)
     await prompt
     expect(shown).toBe(true)
+  })
+
+  it('says a session has a held question until that question is shown', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    const waiting = computed(() => store.hasHeldPrompt('session-b'))
+    expect(waiting.value).toBe(false)
+
+    const prompt = whenSessionInView('session-b')
+    expect(waiting.value).toBe(true)
+    expect(store.hasHeldPrompt('session-a')).toBe(false)
+
+    store.setViewShown(true)
+    await store.switchSession('session-b')
+    await prompt
+    expect(waiting.value).toBe(false)
+  })
+
+  it('stops saying a session has a held question once its turn ends', async () => {
+    const store = await storeWithBackgroundTurn()
+    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+    const prompt = whenSessionInView('session-b').catch(() => undefined)
+    expect(store.hasHeldPrompt('session-b')).toBe(true)
+
+    pushEvent({ type: 'agent-turn-done', sessionId: 'session-b', turnId: 'turn-b' })
+    await prompt
+    expect(store.hasHeldPrompt('session-b')).toBe(false)
   })
 
   it("shows a Trial Run's held prompt once the Agent Library puts its pane on screen", async () => {

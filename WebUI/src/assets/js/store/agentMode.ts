@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, ref, shallowReactive, shallowRef, watch } from 'vue'
 import type { UIMessage } from 'ai'
 import { backendToAipgBackendName, useTextInference } from './textInference'
 import { useModels } from './models'
@@ -1232,7 +1232,10 @@ export const useAgentMode = defineStore(
 
     // A download or VRAM prompt a turn raised out of sight waits here until its
     // session is in view, so a Paused Session never pops up over other work.
-    const heldPrompts: Record<string, Array<{ show: () => void; drop: () => void }>> = {}
+    const heldPrompts = shallowReactive<
+      Record<string, Array<{ show: () => void; drop: () => void }>>
+    >({})
+    const hasHeldPrompt = (sessionId: string): boolean => !!heldPrompts[sessionId]
     const turnEndWaiters: Record<string, Array<() => void>> = {}
 
     registerSessionPromptPort({
@@ -2362,6 +2365,7 @@ export const useAgentMode = defineStore(
       switchSession,
       openSession,
       setViewShown,
+      hasHeldPrompt,
       setAgentLibraryShowing,
       liveTurnsIn,
       streamingMessagesOf,

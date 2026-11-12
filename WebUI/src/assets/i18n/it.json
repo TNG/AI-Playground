@@ -1191,6 +1191,8 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR": "Esecuzione di prova: {name}",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "{count} esecuzioni di prova",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "Esecuzione di prova di '{name}' in corso. Aprila nella Libreria agenti",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "L'esecuzione di prova di '{name}' richiede il tuo intervento. Aprila nella Libreria agenti",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "Un'esecuzione di prova richiede il tuo intervento",
   "CLOSE_ITEM_TRIAL_RUN": "Esecuzione di prova di '{name}'",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "Esecuzione di prova",
   "PRESET_SWITCHED": "Passato a {preset}",

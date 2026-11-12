@@ -1191,6 +1191,8 @@
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR": "การทดลองรัน: {name}",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY": "การทดลองรัน {count} รายการ",
   "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_OPEN": "กำลังทดลองรัน '{name}' เปิดในคลังเอเจนต์",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_WAITING": "การทดลองรัน '{name}' ต้องการข้อมูลจากคุณ เปิดในคลังเอเจนต์",
+  "AGENT_LIBRARY_TRIAL_RUN_INDICATOR_MANY_WAITING": "การทดลองรันต้องการข้อมูลจากคุณ",
   "CLOSE_ITEM_TRIAL_RUN": "การทดลองรัน '{name}'",
   "CLOSE_ITEM_TRIAL_RUN_UNNAMED": "การทดลองรัน",
   "PRESET_SWITCHED": "สลับไปที่ {preset} แล้ว",

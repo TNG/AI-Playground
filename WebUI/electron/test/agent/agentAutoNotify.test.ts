@@ -131,6 +131,7 @@ let newsSessionRef = ''
 const CONFIG: NotificationConfig = {
   channels: ['telegram'],
   sessionOnScreen: null,
+  trialRunInView: null,
   realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
@@ -456,28 +457,6 @@ describe('a Background Session pausing for the user', () => {
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
-  }, 30000)
-
-  it('sends nothing for a Trial Run of an Agent without notify, paused or ended', async () => {
-    const trialRuns = await import('../../agent/trialRuns')
-    const { harnessSessionId } = await trialRuns.trialRunHarnessFor('agent-quiet')
-    await trialRuns.saveTrialRun({
-      agentId: 'agent-quiet',
-      harnessSessionId,
-      name: 'Quiet helper',
-      stepIndex: 1,
-      stepCount: 1,
-      startedAt: 1,
-      state: 'running',
-    })
-    windowShown = false
-    await withWaitingTurn(harnessSessionId, async () => {
-      pauseFor(harnessSessionId, 'question', 'Which colour?')
-      await settle()
-      userWait.setAwaitingUser(harnessSessionId, false)
-    })
-    await settle()
-    expect(sent).toEqual([])
   }, 30000)
 
   it('notifies every enabled, verified Channel, recording each message', async () => {
@@ -851,6 +830,107 @@ describe('a Background Session whose turn fails', () => {
     await run
     await settle()
     expect(sent).toEqual([])
+  }, 30000)
+})
+
+describe('a Trial Run', () => {
+  const PAUSED =
+    '🤖 Agent · Trial Run · Helper\n⏸ Waiting for you: a question (Which colour?). ' +
+    'Open AI Playground to continue.' +
+    REPLY_HINT
+  const FAILED =
+    '🤖 Agent · Trial Run · Helper\n❌ Failed: 400: model test-model was retired. ' +
+    'Open AI Playground for details.' +
+    REPLY_HINT
+
+  /** Starts a Trial Run of `agentId`, as the Agent Library does; returns its Harness Session. */
+  async function trialRun(agentId: string): Promise<string> {
+    const trialRuns = await import('../../agent/trialRuns')
+    const { harnessSessionId } = await trialRuns.trialRunHarnessFor(agentId)
+    await trialRuns.saveTrialRun({
+      agentId,
+      harnessSessionId,
+      name: 'Helper',
+      stepIndex: 1,
+      stepCount: 1,
+      startedAt: 1,
+      state: 'running',
+    })
+    return harnessSessionId
+  }
+
+  const turnOf = (sessionId: string, notify: boolean): AgentModeTurnConfig => ({
+    ...configFor(sessionId),
+    capabilities: notify ? ['media', 'notify'] : ['media'],
+  })
+
+  async function pausedTrial(sessionId: string, notify = true): Promise<void> {
+    await withWaitingTurn(
+      sessionId,
+      async () => {
+        pauseFor(sessionId, 'question', 'Which colour?')
+        await settle()
+        userWait.setAwaitingUser(sessionId, false)
+      },
+      turnOf(sessionId, notify),
+    )
+    await settle()
+  }
+
+  async function failedTrial(sessionId: string, notify = true): Promise<void> {
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', turnOf(sessionId, notify))
+    await settle()
+  }
+
+  it('that may notify sends its pause while the Agent Library is closed', async () => {
+    const harnessSessionId = await trialRun('agent-pause')
+    await pausedTrial(harnessSessionId)
+    expect(sent).toEqual([{ kind: 'telegram', text: PAUSED, plain: true }])
+    expect(await messageMap.channelMessageOwner('telegram', 'msg-1')).toEqual({
+      trialRun: true,
+      harnessSessionId,
+      agentId: 'agent-pause',
+    })
+  }, 30000)
+
+  it('that may notify sends its failure while the Agent Library shows another one', async () => {
+    const harnessSessionId = await trialRun('agent-fail')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: 'aipg-agent-other-trial' })
+    await failedTrial(harnessSessionId)
+    expect(sent.map((s) => s.text)).toEqual([FAILED])
+  }, 30000)
+
+  it('sends neither while the Agent Library shows it', async () => {
+    const harnessSessionId = await trialRun('agent-in-view')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: harnessSessionId })
+    await pausedTrial(harnessSessionId)
+    await failedTrial(harnessSessionId)
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('sends both while the Agent Library shows it in a hidden window', async () => {
+    const harnessSessionId = await trialRun('agent-hidden')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: harnessSessionId })
+    windowShown = false
+    await pausedTrial(harnessSessionId)
+    await failedTrial(harnessSessionId)
+    expect(sent.map((s) => s.text)).toEqual([PAUSED, FAILED])
+  }, 30000)
+
+  it('of an Agent without notify sends neither', async () => {
+    const harnessSessionId = await trialRun('agent-quiet')
+    windowShown = false
+    await pausedTrial(harnessSessionId, false)
+    await failedTrial(harnessSessionId, false)
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('in view leaves a Session off screen notifying as before', async () => {
+    const harnessSessionId = await trialRun('agent-beside')
+    notifier.setNotificationConfig({ ...CONFIG, trialRunInView: harnessSessionId })
+    await withWaitingTurn(SESSION, pauseForQuestion)
+    expect(sent).toEqual([{ kind: 'telegram', text: QUESTION_TEXT + REPLY_HINT, plain: true }])
   }, 30000)
 })
 

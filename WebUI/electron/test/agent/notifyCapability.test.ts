@@ -125,6 +125,7 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
   notifier.setNotificationConfig({
     channels,
     sessionOnScreen: null,
+    trialRunInView: null,
     realShellSessions,
     templates: {
       header: '🤖 Agent · {title}',

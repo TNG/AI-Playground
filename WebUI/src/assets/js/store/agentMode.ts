@@ -1229,6 +1229,10 @@ export const useAgentMode = defineStore(
     function setLibraryHidden(library: LibraryShowing['library']): void {
       if (libraryShowing.value?.library === library) libraryShowing.value = null
     }
+    /** The Harness Session of the Trial Run the Agent Library shows; null when it shows none. */
+    const trialRunInView = computed(() =>
+      libraryShowing.value?.library === 'agent' ? libraryShowing.value.trialRunSessionId : null,
+    )
     function inView(sessionId: string): boolean {
       const showing = libraryShowing.value
       if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
@@ -2382,6 +2386,7 @@ export const useAgentMode = defineStore(
       hasHeldPrompt,
       setLibraryShowing,
       setLibraryHidden,
+      trialRunInView,
       registerPauseNotice,
       liveTurnsIn,
       streamingMessagesOf,

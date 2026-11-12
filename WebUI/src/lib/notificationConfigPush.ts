@@ -43,6 +43,7 @@ export function startNotificationConfigPush(): void {
     return {
       channels: [...channelStore.notificationChannels],
       sessionOnScreen: sessions.openSessionId,
+      trialRunInView: agentMode.trialRunInView,
       realShellSessions: Object.values(agentMode.sessions)
         .filter((session) => agentMode.isUnsandboxed(session.workspaceDir))
         .map((session) => session.id),

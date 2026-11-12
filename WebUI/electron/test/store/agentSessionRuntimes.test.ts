@@ -648,6 +648,18 @@ describe('Paused Sessions', () => {
     expect(shown).toBe(true)
   })
 
+  it('names the Trial Run In View for main only while the Agent Library shows its pane', async () => {
+    const store = await storeWithBackgroundTurn()
+    expect(store.trialRunInView).toBeNull()
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'trial-b' })
+    expect(store.trialRunInView).toBe('trial-b')
+    store.setLibraryShowing({ library: 'model' })
+    expect(store.trialRunInView).toBeNull()
+    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'trial-b' })
+    store.setLibraryHidden('agent')
+    expect(store.trialRunInView).toBeNull()
+  })
+
   it('holds a prompt for the open session while the Model Library shows, until it closes', async () => {
     const store = await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')

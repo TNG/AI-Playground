@@ -69,6 +69,8 @@ export type NotificationConfig = {
   channels: ChannelKind[]
   /** The Session open in the window, shown or not; null when none is. */
   sessionOnScreen: string | null
+  /** The Harness Session of the Trial Run the Agent Library shows, shown or not; null when none. */
+  trialRunInView: string | null
   /** Harness Sessions whose folder uses the real system shell; Answers to them are refused. */
   realShellSessions: string[]
   templates: NotificationTemplates

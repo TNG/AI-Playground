@@ -92,6 +92,7 @@ export type NotificationOptions = {
 const OFF_CONFIG: NotificationConfig = {
   channels: [],
   sessionOnScreen: null,
+  trialRunInView: null,
   realShellSessions: [],
   templates: {
     header: '',
@@ -627,10 +628,12 @@ export function answerable(
   return withButton === message ? message : { ...withButton, answerTitle: title }
 }
 
-/** The window is hidden or shows another Session. */
+/** The window is hidden, or shows another Session or, for one no Session holds, another Trial Run. */
 async function offScreen(sessionId: string): Promise<boolean> {
-  if (!windowShown() || config.sessionOnScreen === null) return true
-  return (await sessionRefOf(sessionId)) !== config.sessionOnScreen
+  if (!windowShown()) return true
+  const sessionRef = await sessionRefOf(sessionId)
+  if (!sessionRef) return config.trialRunInView !== sessionId
+  return config.sessionOnScreen === null || sessionRef !== config.sessionOnScreen
 }
 
 function pauseReasonText(reason: PauseReason | undefined): string {
@@ -652,8 +655,6 @@ async function sessionLabel(sessionId: string, sessionTitle: string): Promise<st
 /** Paused and failed: always for the turn an Answer started, else only off screen. */
 async function notifiesAutomatically(sessionId: string, turnId: string): Promise<boolean> {
   if (reportedTurnOf(sessionId, turnId)?.answer) return true
-  // Only a Session has an on-screen rule so far; a Trial Run, held by none, sends neither.
-  if (!(await sessionRefOf(sessionId))) return false
   return offScreen(sessionId)
 }
 

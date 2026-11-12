@@ -1,6 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
+import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { TrialRunRecord } from '@/types/agentTaskIpc'
 import type { TrialRunView } from '@/lib/trialRunTimeline'
 import { useAgentMode, type SendToSessionResult, type TurnOutcome } from './agentMode'
@@ -377,8 +378,15 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     }
   }
 
-  /** Continue the Agent's Trial Run's Harness Session, on the Draft snapshot it started with. */
-  async function followUpTrialRun(agentId: string, prompt: string): Promise<TrialFollowUpResult> {
+  /**
+   * Continue the Agent's Trial Run's Harness Session, on the Draft snapshot it started with; an
+   * Answer from a Channel has its reply sent back under `answer`.
+   */
+  async function followUpTrialRun(
+    agentId: string,
+    prompt: string,
+    { answer }: { answer?: AgentAnswerOrigin } = {},
+  ): Promise<TrialFollowUpResult> {
     const run = trialRuns.value[agentId]
     if (!run) return neverRun(agentId)
     if (trialRunInFlight(agentId)) return { ok: false, reason: 'running' }
@@ -390,6 +398,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
       return await agentMode.sendToSession(run.harnessSessionId, prompt, {
         settings: cloneForIpc(settings),
         followUp: { agentId, agentName },
+        ...(answer ? { answer } : {}),
       })
     } finally {
       sendingFollowUps.delete(agentId)

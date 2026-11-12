@@ -1,20 +1,24 @@
 import { computed, watch } from 'vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useAgentTrialRuns } from '@/assets/js/store/agentTrialRuns'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useSessions } from '@/assets/js/store/sessions'
 import type {
+  ChannelTarget,
   ChannelTranscriptMessage,
   SessionActivity,
   SessionChange,
   SessionSendResult,
-  SessionTarget,
+  TrialRunChange,
 } from '@/assets/js/store/channels/answerRouter'
 import type { RawPart } from '@/assets/js/store/channels/adapter'
 import type { AttachResult, ChannelFile } from '@/assets/js/store/channels/channelInbound'
 import { registerSessionPort } from '@/assets/js/store/channels/sessionPort'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { extractMessage } from '@/assets/js/errors/appError'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { base64ToBytes } from '@/lib/synthesizeSpeech'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
@@ -31,6 +35,8 @@ export type ChannelSessionLabels = {
 export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
   const agentMode = useAgentMode()
   const agentTasks = useAgentTasks()
+  const agentTrialRuns = useAgentTrialRuns()
+  const i18n = useI18N()
   const lifecycle = useSessionLifecycle()
   const sessions = useSessions()
 
@@ -73,14 +79,15 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     return harnessSessionId
   }
 
-  function harnessOf(target: SessionTarget): Promise<string> {
+  function harnessOf(target: ChannelTarget): Promise<string> {
+    if ('trialRunSessionId' in target) return Promise.resolve(target.trialRunSessionId)
     return 'harnessSessionId' in target
       ? Promise.resolve(target.harnessSessionId)
       : assistantOf(target.sessionRef)
   }
 
   /** Into the workspace the target's turn runs in, which its prompt's `@attachments/` resolve against. */
-  async function attach(target: SessionTarget, file: ChannelFile): Promise<AttachResult> {
+  async function attach(target: ChannelTarget, file: ChannelFile): Promise<AttachResult> {
     try {
       const harnessSessionId = await harnessOf(target)
       const record = agentMode.sessions[harnessSessionId]
@@ -101,10 +108,12 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
   }
 
   async function send(
-    target: SessionTarget,
+    target: ChannelTarget,
     message: string,
     answer: AgentAnswerOrigin,
   ): Promise<SessionSendResult> {
+    if ('trialRunSessionId' in target)
+      return sendToTrialRun(target.trialRunSessionId, message, answer)
     let harnessSessionId: string
     try {
       harnessSessionId = await harnessOf(target)
@@ -120,6 +129,36 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     })
     if (!result.ok) return { ok: false, reason: result.reason, message: result.message }
     return { ok: true, queuePosition: await admitted(harnessSessionId) }
+  }
+
+  /** A Follow-up to the Trial Run holding this Harness Session, never to its Agent's newer one. */
+  async function sendToTrialRun(
+    harnessSessionId: string,
+    message: string,
+    answer: AgentAnswerOrigin,
+  ): Promise<SessionSendResult> {
+    const run = agentTrialRuns.trialRunOfSession(harnessSessionId)
+    if (!run) return { ok: false, reason: 'thrown-away', message: '' }
+    const result = await agentTrialRuns.followUpTrialRun(run.agentId, message, { answer })
+    if (!result.ok) {
+      if (result.reason === 'running') return { ok: false, reason: 'busy', message: '' }
+      return { ok: false, reason: result.reason, message: result.message }
+    }
+    return { ok: true, queuePosition: await admitted(harnessSessionId) }
+  }
+
+  function trialRunLabel(harnessSessionId: string): string {
+    const run = agentTrialRuns.trialRunOfSession(harnessSessionId)
+    const agent = run?.name || (i18n.state.SESSIONS_UNTITLED ?? '')
+    return fillTemplate(i18n.state.AGENT_NOTIFY_TRIAL_RUN_LABEL ?? '', { agent })
+  }
+
+  function trialRunActivity(harnessSessionId: string): SessionActivity {
+    const run = agentTrialRuns.trialRunOfSession(harnessSessionId)
+    if (!run || !agentTrialRuns.trialRunInFlight(run.agentId)) return { kind: 'idle' }
+    const paused = agentMode.sessionTurns[harnessSessionId]?.pauseReason?.kind
+    if (!paused) return { kind: 'turn' }
+    return { kind: 'turn', paused: paused === 'download' ? 'download' : 'desktop' }
   }
 
   /** The Session's Harness Sessions with a turn in this window, queued ones included. */
@@ -190,6 +229,27 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     }
   })
 
+  const trialRunListeners = new Set<(harnessSessionId: string, change: TrialRunChange) => void>()
+  const liveTrialRuns = computed(
+    () => new Set(Object.values(agentTrialRuns.trialRuns).map((run) => run.harnessSessionId)),
+  )
+  const busyTrialRuns = computed(
+    () =>
+      new Set(
+        Object.values(agentTrialRuns.trialRuns)
+          .filter((run) => agentTrialRuns.trialRunInFlight(run.agentId))
+          .map((run) => run.harnessSessionId),
+      ),
+  )
+  // Thrown away goes first, so a queue dropped for it is not run by the same settle.
+  watch([liveTrialRuns, busyTrialRuns], ([live, busy], [wasLive, wasBusy]) => {
+    const tell = (harnessSessionId: string, change: TrialRunChange) => {
+      for (const listener of [...trialRunListeners]) listener(harnessSessionId, change)
+    }
+    for (const id of wasLive) if (!live.has(id)) tell(id, 'thrown-away')
+    for (const id of wasBusy) if (!busy.has(id) && live.has(id)) tell(id, 'settled')
+  })
+
   async function transcript(sessionRef: string): Promise<ChannelTranscriptMessage[]> {
     const result = await window.electronAPI.sessions.open(sessionRef)
     if (!result.success) throw new Error(result.error)
@@ -215,15 +275,18 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     recordStartPromptRequest: (kind, ref) =>
       window.electronAPI.notifications.recordStartPromptRequest(kind, ref),
     label: (target) =>
-      'harnessSessionId' in target
-        ? labels.harness(target.harnessSessionId)
-        : labels.session(target.sessionRef),
+      'trialRunSessionId' in target
+        ? trialRunLabel(target.trialRunSessionId)
+        : 'harnessSessionId' in target
+          ? labels.harness(target.harnessSessionId)
+          : labels.session(target.sessionRef),
     attach,
     usesRealShell: ({ harnessSessionId }) => {
       const record = agentMode.sessions[harnessSessionId]
       return !!record && agentMode.isUnsandboxed(record.workspaceDir)
     },
     turnTarget: (target) => {
+      if ('trialRunSessionId' in target) return target.trialRunSessionId
       if (!('harnessSessionId' in target)) return target.sessionRef
       const record = agentMode.sessions[target.harnessSessionId]
       const assistant =
@@ -244,5 +307,11 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       return () => changeListeners.delete(listener)
     },
     onAgentRunRefused: (listener) => agentTasks.onChannelRunRefused(listener),
+    trialRunLive: (harnessSessionId) => !!agentTrialRuns.trialRunOfSession(harnessSessionId),
+    trialRunActivity,
+    onTrialRunChange: (listener) => {
+      trialRunListeners.add(listener)
+      return () => trialRunListeners.delete(listener)
+    },
   })
 }

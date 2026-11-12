@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AnswerTarget } from '@/types/notificationsIpc'
-import type { SessionTarget } from '../../../src/assets/js/store/channels/answerRouter'
+import type { ChannelTarget } from '../../../src/assets/js/store/channels/answerRouter'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 
 const dirs = vi.hoisted(() => ({ root: '' }))
@@ -134,7 +134,7 @@ describe('the channel message map', () => {
   it('routes an Answer to a migrated entry into the Harness Session that sent it', async () => {
     const owner = await sessionWithHarness()
     await writeLegacyMap([{ kind: 'telegram', ref: '1234', sessionId: owner.harnessSessionId }])
-    const sent: { target: SessionTarget; message: string; origin: AgentAnswerOrigin }[] = []
+    const sent: { target: ChannelTarget; message: string; origin: AgentAnswerOrigin }[] = []
     const router = createAnswerRouter({
       sessions: () => ({
         exists: async () => true,
@@ -158,7 +158,10 @@ describe('the channel message map', () => {
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},
         onAgentRunRefused: () => () => {},
-        turnTarget: ({ sessionRef }) => sessionRef,
+        turnTarget: (target) => ('sessionRef' in target ? target.sessionRef : ''),
+        trialRunLive: () => false,
+        trialRunActivity: () => ({ kind: 'idle' }),
+        onTrialRunChange: () => () => {},
       }),
       questions: createChannelQuestionRegistry({ newId: () => 'q1', log: () => {} }),
       pointers: { get: () => null, set: () => {} },

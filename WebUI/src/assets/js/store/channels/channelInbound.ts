@@ -4,7 +4,12 @@ import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import { DOCUMENT_EXTENSIONS } from '@/types/rag'
 import type { ChannelAdapter } from './adapter'
-import type { InboundChannelMessage, SessionPort, SessionTarget } from './answerRouter'
+import type {
+  ChannelTarget,
+  InboundChannelMessage,
+  SessionPort,
+  SessionTarget,
+} from './answerRouter'
 import type { ChannelKind, InboundMeta } from './types'
 
 /** The largest file a Channel hands a Session. */
@@ -133,7 +138,7 @@ export async function attachedPrompt(
   deps: InboundDeps,
   port: SessionPort,
   adapter: ChannelAdapter,
-  target: SessionTarget,
+  target: ChannelTarget,
   msg: InboundChannelMessage,
   meta?: InboundMeta,
 ): Promise<string | null> {
@@ -172,7 +177,7 @@ export async function attachedPrompt(
 
 async function attach(
   port: SessionPort,
-  target: SessionTarget,
+  target: ChannelTarget,
   file: ChannelFile,
 ): Promise<AttachResult> {
   try {

@@ -5,6 +5,7 @@ import {
   type SessionPort,
   type SessionActivity,
   type SessionChange,
+  type TrialRunChange,
   type VoicePreparation,
   type AgentStartResult,
   type AgentRunRefusal,
@@ -100,8 +101,16 @@ const TASK_LOCKED: SessionSendResult = {
   message: 'Agent “Digest” is running.',
 }
 
-/** Harness Sessions as the router sees them: which message each sent, and what a send does. */
-type SentMessage = { kind: ChannelKind; ref: string; sessionId: string }
+/**
+ * Which message each Harness Session sent; a Trial Run's message names its Agent, and is a
+ * tombstone once the message map was told the run was thrown away.
+ */
+type SentMessage =
+  | { kind: ChannelKind; ref: string; sessionId: string }
+  | { kind: ChannelKind; ref: string; trialRun: string; agentId: string; thrownAway?: boolean }
+
+/** A live Trial Run as the window holds it, keyed by its Harness Session. */
+type FakeTrialRun = { label: string; result?: SessionSendResult; blind?: boolean }
 
 /** The Session each fake Harness Session belongs to. */
 const sessionRefOf = (harnessSessionId: string) => `session-of-${harnessSessionId}`
@@ -154,6 +163,13 @@ function fakeSessions(
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
   /** Start Prompt Requests recorded in the message map, which outlives a restart. */
   const recordedRequests: { kind: ChannelKind; ref: string }[] = []
+  /** The window's live Trial Runs, by Harness Session; a thrown-away one is gone. */
+  const trialRuns: Record<string, FakeTrialRun> = {}
+  const trialActivities: Record<string, SessionActivity> = {}
+  const trialListeners = new Set<(harnessSessionId: string, change: TrialRunChange) => void>()
+  const tellTrialListeners = (harnessSessionId: string, change: TrialRunChange) => {
+    for (const listener of [...trialListeners]) listener(harnessSessionId, change)
+  }
   const harnessOf = (sessionRef: string) =>
     Object.entries(sessions).find(([id]) => sessionRefOf(id) === sessionRef)?.[1]
   const reachable = (session: { gone?: boolean; reachable?: boolean } | undefined) =>
@@ -183,21 +199,40 @@ function fakeSessions(
       }
       const sent = sentMessages.find((m) => m.kind === kind && m.ref === ref)
       if (!sent) return null
+      if ('trialRun' in sent) {
+        return sent.thrownAway
+          ? { thrownAwayTrialRun: true, agentId: sent.agentId }
+          : { trialRun: true, harnessSessionId: sent.trialRun, agentId: sent.agentId }
+      }
       const harnessSessionId = sent.sessionId
       return sessions[harnessSessionId]
         ? { sessionRef: sessionRefOf(harnessSessionId), harnessSessionId }
         : { deletedSession: true }
     },
     label: (target) =>
-      'harnessSessionId' in target
-        ? `"${sessions[target.harnessSessionId]?.label ?? 'An agent run'}"`
-        : `"${channelSessions[target.sessionRef]?.title || 'Untitled Session'}"`,
+      'trialRunSessionId' in target
+        ? `Trial Run · ${trialRuns[target.trialRunSessionId]?.label ?? 'Untitled'}`
+        : 'harnessSessionId' in target
+          ? `"${sessions[target.harnessSessionId]?.label ?? 'An agent run'}"`
+          : `"${channelSessions[target.sessionRef]?.title || 'Untitled Session'}"`,
     usesRealShell: ({ harnessSessionId }) => !!sessions[harnessSessionId]?.realShell,
     turnTarget: (target) =>
-      'harnessSessionId' in target && !sessions[target.harnessSessionId]?.assistant
-        ? target.harnessSessionId
-        : target.sessionRef,
+      'trialRunSessionId' in target
+        ? target.trialRunSessionId
+        : 'harnessSessionId' in target && !sessions[target.harnessSessionId]?.assistant
+          ? target.harnessSessionId
+          : target.sessionRef,
     send: async (target, text, origin) => {
+      if ('trialRunSessionId' in target) {
+        const sessionId = target.trialRunSessionId
+        const trial = trialRuns[sessionId]
+        if (!trial) return { ok: false, reason: 'thrown-away', message: '' }
+        received.push({ sessionId, text })
+        origins.push({ sessionId, origin })
+        const result = trial.result ?? { ok: true, queuePosition: null }
+        if (result.ok && turns.start) trialActivities[sessionId] = { kind: 'turn' }
+        return result
+      }
       if (!('harnessSessionId' in target)) {
         plain.push({ sessionRef: target.sessionRef, text, origin })
         const result = channelSessions[target.sessionRef]?.result ?? {
@@ -226,9 +261,18 @@ function fakeSessions(
       return result
     },
     attach: async (target, file) => {
+      const trial = 'trialRunSessionId' in target
       const answer = 'harnessSessionId' in target
-      const to = answer ? target.harnessSessionId : target.sessionRef
-      const blind = answer ? sessions[to]?.blind : channelSessions[to]?.blind
+      const to = trial
+        ? target.trialRunSessionId
+        : answer
+          ? target.harnessSessionId
+          : target.sessionRef
+      const blind = trial
+        ? trialRuns[to]?.blind
+        : answer
+          ? sessions[to]?.blind
+          : channelSessions[to]?.blind
       if (file.kind === 'image' && blind) return { ok: false, reason: 'images-unseen', message: '' }
       if (attaching.fails) return { ok: false, reason: 'error', message: 'disk full' }
       attached.push({ to, kind: file.kind, filename: file.filename })
@@ -265,6 +309,29 @@ function fakeSessions(
       refusalListeners.add(listener)
       return () => refusalListeners.delete(listener)
     },
+    trialRunLive: (harnessSessionId) => !!trialRuns[harnessSessionId],
+    trialRunActivity: (harnessSessionId) => trialActivities[harnessSessionId] ?? { kind: 'idle' },
+    onTrialRunChange: (listener) => {
+      trialListeners.add(listener)
+      return () => trialListeners.delete(listener)
+    },
+  }
+  /** The Trial Run's Step or Follow-up runs; from then on each send that goes through does too. */
+  const busyTrial = (harnessSessionId: string, activity: SessionActivity = { kind: 'turn' }) => {
+    turns.start = true
+    trialActivities[harnessSessionId] = activity
+  }
+  const settleTrial = async (harnessSessionId: string) => {
+    delete trialActivities[harnessSessionId]
+    tellTrialListeners(harnessSessionId, 'settled')
+    await flush()
+  }
+  /** The next Trial Run of its Agent, a discard, or the wipe at start and quit. */
+  const throwAwayTrial = async (harnessSessionId: string) => {
+    delete trialRuns[harnessSessionId]
+    delete trialActivities[harnessSessionId]
+    tellTrialListeners(harnessSessionId, 'thrown-away')
+    await flush()
   }
   /** The window refused a later Step of the Session's Agent Run, ending it. */
   const refuseStep = async (sessionRef: string, refusal: AgentRunRefusal) => {
@@ -310,6 +377,10 @@ function fakeSessions(
     agentStarts,
     agentStart,
     refuseStep,
+    trialRuns,
+    busyTrial,
+    settleTrial,
+    throwAwayTrial,
   }
 }
 
@@ -2305,5 +2376,150 @@ describe('a file', () => {
     await router.route(ch.adapter, { text: 'what does day 2 say?', ...plan })
     expect(plain).toEqual([])
     expect(ch.replies).toEqual(['⚠️ Not sent: plan.pdf could not be attached: disk full'])
+  })
+})
+
+describe('an Answer to a Trial Run', () => {
+  const TRIAL = 'trial-digest-1'
+  const NEWER = 'trial-digest-2'
+  const TRIP = 'session-trip'
+
+  /** A Trial Run of "Inbox digest" sent 5678; "asteroids" sent 1234; the Channel Session is a trip. */
+  function trialSetup(sent: { thrownAway?: boolean } = {}) {
+    const fixture = setup(
+      { asteroids: { label: 'Asteroids clone' } },
+      [
+        { kind: 'telegram', ref: '1234', sessionId: 'asteroids' },
+        { kind: 'telegram', ref: '5678', trialRun: TRIAL, agentId: 'digest', ...sent },
+      ],
+      { [TRIP]: { title: 'Trip planning' } },
+      { telegram: TRIP },
+    )
+    if (!sent.thrownAway) fixture.trialRuns[TRIAL] = { label: 'Inbox digest' }
+    return fixture
+  }
+
+  it('runs as a Follow-up in its Harness Session, replied on the Channel it came from', async () => {
+    const { router, received, origins, plain } = trialSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678', replyTarget: '99' })
+    expect(received).toEqual([{ sessionId: TRIAL, text: 'only unread' }])
+    expect(origins).toEqual([{ sessionId: TRIAL, origin: { channel: 'telegram', replyTo: '99' } }])
+    expect(plain).toEqual([])
+  })
+
+  it('stores a file it carries in the Trial Run’s workspace', async () => {
+    const { router, received, attached } = trialSetup()
+    const ch = fakeChannel('telegram')
+    const photo = { images: [{ mime: 'image/png', data_base64: 'AAAA' }] }
+    await router.route(ch.adapter, { text: 'this one', ...photo, replyTo: '5678' })
+    expect(attached).toEqual([{ to: TRIAL, kind: 'image', filename: 'telegram-image.png' }])
+    expect(received).toEqual([
+      {
+        sessionId: TRIAL,
+        text: 'this one\n\nAttached files, saved in the workspace: @attachments/telegram-image.png',
+      },
+    ])
+  })
+
+  it('waits while the Trial Run is busy, and runs once it settles', async () => {
+    const { router, received, busyTrial, settleTrial } = trialSetup()
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⏳ Queued (1st) for Trial Run · Inbox digest, runs after the current turn.',
+    ])
+    await settleTrial(TRIAL)
+    expect(received).toEqual([{ sessionId: TRIAL, text: 'only unread' }])
+  })
+
+  it('is dropped with a reply when the Trial Run is thrown away while it waits', async () => {
+    const { router, received, busyTrial, throwAwayTrial } = trialSetup()
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    await throwAwayTrial(TRIAL)
+    expect(received).toEqual([])
+    expect(ch.replies.slice(1)).toEqual([
+      '⚠️ Your queued messages were dropped (1): that Trial Run was thrown away.',
+    ])
+  })
+
+  it('is told a thrown-away Trial Run was thrown away, never reaching the Agent’s newer one', async () => {
+    const { router, received, plain, trialRuns } = trialSetup({ thrownAway: true })
+    trialRuns[NEWER] = { label: 'Inbox digest' }
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    expect(received).toEqual([])
+    expect(plain).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('is told so when the window threw the Trial Run away before the message map heard', async () => {
+    const { router, received, trialRuns } = trialSetup()
+    delete trialRuns[TRIAL]
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'only unread', replyTo: '5678' })
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('refuses /stop replying to a Trial Run’s message, and stops nothing', async () => {
+    const { router, busy, busyTrial, stopped, received } = trialSetup()
+    busy(TRIP)
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '5678' })
+    expect(stopped).toEqual([])
+    expect(received).toEqual([])
+    expect(ch.replies).toEqual([
+      '⏹️ A Trial Run cannot be stopped from a Channel. Stop it in the Agent Library on your computer.',
+    ])
+  })
+
+  it('tells /stop replying to a thrown-away Trial Run’s message that it was thrown away', async () => {
+    const { router, stopped } = trialSetup({ thrownAway: true })
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '5678' })
+    expect(stopped).toEqual([])
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('tells /stop the Trial Run was thrown away when the window threw it away first', async () => {
+    const { router, trialRuns } = trialSetup()
+    delete trialRuns[TRIAL]
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/stop', replyTo: '5678' })
+    expect(ch.replies).toEqual([
+      '⚠️ That Trial Run was thrown away. Start a new one in the Agent Library on your computer.',
+    ])
+  })
+
+  it('lists no Trial Run in /sessions', async () => {
+    const { router } = trialSetup()
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: '/sessions' })
+    expect(ch.keyboards.map((k) => k.buttons)).toEqual([
+      [[{ text: '✅ 1. Trip planning', callbackData: `loadConv:${TRIP}` }]],
+    ])
+  })
+
+  it('leaves a plain message going to the Channel Session while a Trial Run runs', async () => {
+    const { router, plain, received, busyTrial } = trialSetup()
+    busyTrial(TRIAL)
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { text: 'add a day in Kyoto' })
+    expect(received).toEqual([])
+    expect(plain).toEqual([
+      { sessionRef: TRIP, text: 'add a day in Kyoto', origin: { channel: 'telegram' } },
+    ])
   })
 })

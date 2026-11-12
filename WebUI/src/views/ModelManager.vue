@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Full-screen model library. A side modal was not an option: the App Settings
 // sidebar is w-100 and this table has nine columns.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { XMarkIcon } from '@heroicons/vue/24/solid'
 import ModelLibraryToolbar from '@/components/models/ModelLibraryToolbar.vue'
 import ModelLibraryTable from '@/components/models/ModelLibraryTable.vue'
@@ -10,6 +10,7 @@ import DeleteModelDialog from '@/components/models/DeleteModelDialog.vue'
 import AddModelDialog from '@/components/models/AddModelDialog.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useCaseLabel as localizedUseCase, type ModelCategory } from '@/assets/js/models/library'
 import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types'
@@ -17,6 +18,7 @@ import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const library = useModelLibrary()
+const agentMode = useAgentMode()
 const i18n = useI18N()
 const i18nState = i18n.state
 
@@ -46,8 +48,11 @@ onMounted(() => {
   // events until something inside it has focus — so the overlay takes focus itself
   // the moment it opens, before anything slower gets underway.
   root.value?.focus()
+  agentMode.setLibraryShowing({ library: 'model' })
   library.refresh()
 })
+
+onUnmounted(() => agentMode.setLibraryHidden('model'))
 
 async function saveCapabilities(capabilities: Partial<ModelCapabilityValues>) {
   if (!editing.value) return

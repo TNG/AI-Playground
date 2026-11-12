@@ -118,7 +118,8 @@ const selected = computed(() => {
 })
 
 watchEffect(() => {
-  agentMode.setAgentLibraryShowing({
+  agentMode.setLibraryShowing({
+    library: 'agent',
     trialRunSessionId: trialRunOnScreen({
       selectedAgentId: selected.value?.id,
       trialRunSessionOf: agentTrialRuns.trialRunSessionOf,
@@ -128,7 +129,7 @@ watchEffect(() => {
   })
 })
 
-onUnmounted(() => agentMode.setAgentLibraryShowing(null))
+onUnmounted(() => agentMode.setLibraryHidden('agent'))
 
 onMounted(() => {
   // Escape is handled on the overlay, which receives no key events until something in it has focus.

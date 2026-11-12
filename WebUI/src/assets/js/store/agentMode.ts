@@ -112,8 +112,8 @@ export type SessionTurnInfo = {
   pauseReason?: PauseReason
 }
 
-/** `null` while the Agent Library is closed. */
-export type AgentLibraryShowing = { trialRunSessionId: string | null } | null
+export type LibraryShowing =
+  { library: 'agent'; trialRunSessionId: string | null } | { library: 'model' }
 
 export type PauseNotice = { message: string; open: () => void }
 
@@ -1221,13 +1221,17 @@ export const useAgentMode = defineStore(
     function setViewShown(shown: boolean): void {
       viewShown.value = shown
     }
-    const agentLibraryShowing = ref<AgentLibraryShowing>(null)
-    function setAgentLibraryShowing(showing: AgentLibraryShowing): void {
-      agentLibraryShowing.value = showing
+    const libraryShowing = ref<LibraryShowing | null>(null)
+    function setLibraryShowing(showing: LibraryShowing): void {
+      libraryShowing.value = showing
+    }
+    /** The Model Library reports closing after the Agent Library replacing it has opened. */
+    function setLibraryHidden(library: LibraryShowing['library']): void {
+      if (libraryShowing.value?.library === library) libraryShowing.value = null
     }
     function inView(sessionId: string): boolean {
-      const library = agentLibraryShowing.value
-      if (library) return library.trialRunSessionId === sessionId
+      const showing = libraryShowing.value
+      if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
       return viewShown.value && openSessionId.value === sessionId
     }
 
@@ -1270,7 +1274,7 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId, agentLibraryShowing], () => {
+    watch([viewShown, openSessionId, libraryShowing], () => {
       for (const sessionId of Object.keys(heldPrompts)) {
         if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
       }
@@ -2376,7 +2380,8 @@ export const useAgentMode = defineStore(
       openSession,
       setViewShown,
       hasHeldPrompt,
-      setAgentLibraryShowing,
+      setLibraryShowing,
+      setLibraryHidden,
       registerPauseNotice,
       liveTurnsIn,
       streamingMessagesOf,

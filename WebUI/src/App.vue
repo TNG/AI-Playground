@@ -50,21 +50,31 @@
       >
         <ServerStackIcon class="size-6 text-foreground"></ServerStackIcon>
       </button>
-      <button
-        v-if="globalSetup.loadingState === 'running'"
-        :title="languages.MODEL_MANAGER_TITLE"
-        :aria-label="languages.MODEL_MANAGER_OPEN"
-        @click="uiStore.openModelManager()"
-      >
-        <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
-      </button>
       <TooltipProvider :delay-duration="200">
         <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
             <button
               type="button"
+              :aria-label="languages.MODEL_MANAGER_OPEN"
+              :aria-pressed="uiStore.showModelManager"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.showModelManager }"
+              @click="uiStore.toggleModelManager()"
+            >
+              <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ languages.MODEL_MANAGER_TITLE }}</TooltipContent>
+        </Tooltip>
+        <Tooltip v-if="globalSetup.loadingState === 'running'">
+          <TooltipTrigger as-child>
+            <button
+              type="button"
               :aria-label="languages.AGENT_LIBRARY_OPEN"
-              @click="uiStore.openAgentLibrary()"
+              :aria-pressed="uiStore.agentLibrary !== null"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.agentLibrary !== null }"
+              @click="uiStore.toggleAgentLibrary()"
             >
               <Bot class="size-6 text-foreground" />
             </button>
@@ -229,7 +239,7 @@
          decides, and the download / delete dialogs this view opens must be able
          to appear on top of it. -->
     <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
-    <AgentLibrary v-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
+    <AgentLibrary v-else-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
     <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
     <preset-requirements-dialog
       v-show="dialogStore.presetRequirementsDialogVisible"

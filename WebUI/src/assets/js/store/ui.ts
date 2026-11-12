@@ -1,52 +1,74 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
 /** `sessionRef` narrows the Library to the Agents scheduled in that Session. */
 export type AgentLibraryView = { agentId?: string; sessionRef?: string; showTrialRun?: boolean }
+
+type OpenLibrary = { library: 'agent'; view: AgentLibraryView } | { library: 'model' }
 
 function withoutTrialRunRequest(view: AgentLibraryView): AgentLibraryView {
   return { agentId: view.agentId, sessionRef: view.sessionRef }
 }
 
 export const useUIStore = defineStore('ui', () => {
-  // Model management overlay. Deliberately not tied to `promptArea.currentMode`:
-  // closing it should return the user to exactly the view they were in.
-  const showModelManager = ref(false)
+  // At most one Library covers the Session; opening one replaces the other, closing returns to it.
+  const openLibrary = ref<OpenLibrary | null>(null)
 
-  // The Agent Library overlay, open over whatever Session is showing; `agentId` is the selected Agent.
-  const agentLibrary = ref<AgentLibraryView | null>(null)
+  const showModelManager = computed(() => openLibrary.value?.library === 'model')
+  const agentLibrary = computed(() =>
+    openLibrary.value?.library === 'agent' ? openLibrary.value.view : null,
+  )
 
   // Per-viewer convenience: a lost value just shows the panel expanded again.
   const sessionsPanelCollapsed = useLocalStorage('aipg.sessionsPanelCollapsed', false)
 
+  /** Returns whether that Library was open. */
+  function closeLibrary(library: OpenLibrary['library']): boolean {
+    if (openLibrary.value?.library !== library) return false
+    openLibrary.value = null
+    return true
+  }
+
   function openModelManager() {
-    showModelManager.value = true
+    openLibrary.value = { library: 'model' }
   }
 
   function closeModelManager() {
-    showModelManager.value = false
+    closeLibrary('model')
+  }
+
+  function toggleModelManager() {
+    if (!closeLibrary('model')) openModelManager()
+  }
+
+  function setAgentLibraryView(view: AgentLibraryView) {
+    openLibrary.value = { library: 'agent', view }
   }
 
   function openAgentLibrary(view: AgentLibraryView = {}) {
-    agentLibrary.value = { ...view }
+    setAgentLibraryView({ ...view })
   }
 
   function selectLibraryAgent(agentId: string | undefined) {
     if (!agentLibrary.value) return
-    agentLibrary.value = { ...withoutTrialRunRequest(agentLibrary.value), agentId }
+    setAgentLibraryView({ ...withoutTrialRunRequest(agentLibrary.value), agentId })
   }
 
   function trialRunShown() {
-    if (agentLibrary.value) agentLibrary.value = withoutTrialRunRequest(agentLibrary.value)
+    if (agentLibrary.value) setAgentLibraryView(withoutTrialRunRequest(agentLibrary.value))
   }
 
   function clearLibrarySessionFilter() {
-    if (agentLibrary.value) agentLibrary.value = { agentId: agentLibrary.value.agentId }
+    if (agentLibrary.value) setAgentLibraryView({ agentId: agentLibrary.value.agentId })
   }
 
   function closeAgentLibrary() {
-    agentLibrary.value = null
+    closeLibrary('agent')
+  }
+
+  function toggleAgentLibrary() {
+    if (!closeLibrary('agent')) openAgentLibrary()
   }
 
   return {
@@ -54,12 +76,14 @@ export const useUIStore = defineStore('ui', () => {
     showModelManager,
     openModelManager,
     closeModelManager,
+    toggleModelManager,
     agentLibrary,
     openAgentLibrary,
     selectLibraryAgent,
     trialRunShown,
     clearLibrarySessionFilter,
     closeAgentLibrary,
+    toggleAgentLibrary,
   }
 })
 

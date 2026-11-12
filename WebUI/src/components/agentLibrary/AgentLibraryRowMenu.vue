@@ -59,6 +59,16 @@ const deleteQuestion = computed(() => {
   return fillTemplate(question, name.value)
 })
 
+async function duplicate(): Promise<void> {
+  busy.value = true
+  try {
+    const result = await agentTasks.duplicateAgent(props.agent.id)
+    if (result.ok) ui.selectLibraryAgent(result.task.id)
+  } finally {
+    busy.value = false
+  }
+}
+
 async function remove(): Promise<void> {
   menuOpen.value = false
   busy.value = true
@@ -89,6 +99,9 @@ async function remove(): Promise<void> {
       class="min-w-28 max-w-64"
       :onCloseAutoFocus="(event) => event.preventDefault?.()"
     >
+      <DropdownMenuItem v-if="agent.saved" :disabled="busy" @select="duplicate">
+        {{ i18n.AGENT_LIBRARY_DUPLICATE }}
+      </DropdownMenuItem>
       <AlertDialog @update:open="(open) => !open && (menuOpen = false)">
         <AlertDialogTrigger as-child>
           <DropdownMenuItem

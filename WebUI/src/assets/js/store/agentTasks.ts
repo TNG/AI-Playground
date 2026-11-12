@@ -127,6 +127,9 @@ export type TaskState = { running: TaskRunState } | { idle: AgentTaskOutcome | u
 export type ModelDownloadRefusal =
   { reason: 'download-declined' } | { reason: 'download-failed'; error: string }
 
+export type DuplicateAgentResult =
+  { ok: true; task: AgentTask } | { ok: false; reason: 'no-task' | 'persist-failed' }
+
 export type SaveTaskResult =
   | { ok: true; task: AgentTask }
   | { ok: false; reason: SaveTaskBlocker | 'persist-failed' | 'no-task' }
@@ -493,7 +496,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   /** Upsert one Task into the tasks file; a failure is toasted. */
-  async function persistTask(task: AgentTask): Promise<boolean> {
+  async function persistTask(
+    task: AgentTask,
+    failure: { code: string; userMessage: string } = {
+      code: 'agent-tasks/save-failed',
+      userMessage: i18n.state.AGENT_TASK_SAVE_FAILED ?? 'Could not save the agent.',
+    },
+  ): Promise<boolean> {
     const result = await window.electronAPI.agentMode
       .saveTask(cloneForIpc(task))
       .catch((error: unknown) => ({ success: false as const, error: String(error) }))
@@ -501,8 +510,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     errors.report(
       createAppError({
         category: 'backend',
-        code: 'agent-tasks/save-failed',
-        userMessage: i18n.state.AGENT_TASK_SAVE_FAILED ?? 'Could not save the agent.',
+        ...failure,
         technicalMessage: result.error,
         surface: 'toast',
       }),
@@ -864,6 +872,67 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     if (!saved) tasks.value = [...tasks.value, task]
     await removeDraft(id)
+    return { ok: true, task }
+  }
+
+  function copyName(name: string): string {
+    const taken = new Set(tasks.value.map((task) => task.name))
+    const first = fillTemplate(i18n.state.AGENT_LIBRARY_COPY_NAME ?? '{name} (copy)', { name })
+    if (!taken.has(first)) return first
+    const numbered = i18n.state.AGENT_LIBRARY_COPY_NAME_N ?? '{name} (copy {n})'
+    for (let n = 2; ; n++) {
+      const candidate = fillTemplate(numbered, { name, n })
+      if (!taken.has(candidate)) return candidate
+    }
+  }
+
+  /** A new saved Agent from the saved definition only: no runs, Schedules, outcome or Session. */
+  async function duplicateAgent(id: string): Promise<DuplicateAgentResult> {
+    const original = tasks.value.find((task) => task.id === id)
+    if (!original) return { ok: false, reason: 'no-task' }
+    const {
+      id: _id,
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      lastOutcome: _lastOutcome,
+      activeRuns: _activeRuns,
+      schedules: _schedules,
+      sessionRef: _sessionRef,
+      workspaceDir: _workspaceDir,
+      ...definition
+    } = original
+    const now = Date.now()
+    const steps = original.steps.map((step) => ({ ...step, id: crypto.randomUUID() }))
+    const copyStepIdFor = new Map(original.steps.map((step, at) => [step.id, steps[at].id]))
+    const task: AgentTask = {
+      ...definition,
+      id: crypto.randomUUID(),
+      name: copyName(original.name),
+      settingsTemplate: cloneForIpc(original.settingsTemplate),
+      steps,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const persisted = await persistTask(task, {
+      code: 'agent-tasks/duplicate-failed',
+      userMessage: i18n.state.AGENT_LIBRARY_DUPLICATE_FAILED ?? 'Could not duplicate the agent.',
+    })
+    if (!persisted) return { ok: false, reason: 'persist-failed' }
+    tasks.value = [...tasks.value, task]
+    const draft = drafts.value[id]
+    if (draft) {
+      const carried = await writeDraft({
+        ...cloneForIpc(draft),
+        agentId: task.id,
+        name: draft.name.trim() === original.name.trim() ? task.name : draft.name,
+        steps: draft.steps.map((step) => ({
+          ...step,
+          id: copyStepIdFor.get(step.id) ?? crypto.randomUUID(),
+        })),
+        updatedAt: now,
+      })
+      if (!carried) forgetDraft(task.id)
+    }
     return { ok: true, task }
   }
 
@@ -1677,6 +1746,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     draftBlocker,
     draftSettingsProblems,
     saveAgentDraft,
+    duplicateAgent,
     discardAgentDraft,
     chatModelRefusal,
     contributeInFlightWork,

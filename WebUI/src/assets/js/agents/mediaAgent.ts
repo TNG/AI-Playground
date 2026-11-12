@@ -1,8 +1,9 @@
 import { type ToolSet } from 'ai'
 import { z } from 'zod'
-import { comfyUI, getAvailableWorkflows, createToolRepairData } from '../tools/comfyUi'
+import { comfyUI, comfyUIFor, getAvailableWorkflows, createToolRepairData } from '../tools/comfyUi'
 import {
   comfyUiImageEdit,
+  comfyUiImageEditFor,
   getAvailableEditWorkflows,
   createEditToolRepairData,
 } from '../tools/comfyUiImageEdit'
@@ -74,17 +75,17 @@ const MEDIA_AGENT_SYSTEM = [
  * Respects the same user gating as chat (per-tool toggles + per-workflow
  * sub-checkboxes). Schema only; main runs the tools in-process.
  */
-function buildMediaAgentTools(): ToolSet {
-  const textInference = useTextInference()
+function buildMediaAgentTools(settings?: MediaToolSettings): ToolSet {
+  const isToolEnabled = settings?.isToolEnabled ?? useTextInference().isBuiltinToolEnabled
   const tools: ToolSet = {}
-  if (textInference.isBuiltinToolEnabled('comfyUI') && getAvailableWorkflows().length > 0) {
-    tools.comfyUI = comfyUI
+  if (isToolEnabled('comfyUI') && getAvailableWorkflows(settings?.isWorkflowEnabled).length > 0) {
+    tools.comfyUI = settings ? comfyUIFor(settings) : comfyUI
   }
   if (
-    textInference.isBuiltinToolEnabled('comfyUiImageEdit') &&
-    getAvailableEditWorkflows().length > 0
+    isToolEnabled('comfyUiImageEdit') &&
+    getAvailableEditWorkflows(settings?.isWorkflowEnabled).length > 0
   ) {
-    tools.comfyUiImageEdit = comfyUiImageEdit
+    tools.comfyUiImageEdit = settings ? comfyUiImageEditFor(settings) : comfyUiImageEdit
   }
   return tools
 }
@@ -98,17 +99,22 @@ export type MediaAgentInnerTools = {
   }
 }
 
-/** Inner catalog the specialist needs, frozen at the moment the parent asks. */
-export function serializeMediaAgentInner(): MediaAgentInnerTools | undefined {
-  const tools = buildMediaAgentTools()
+/**
+ * Inner catalog the specialist needs, frozen at the moment the parent asks.
+ * `settings` defaults to the chat store's live media tool settings.
+ */
+export function serializeMediaAgentInner(
+  settings?: MediaToolSettings,
+): MediaAgentInnerTools | undefined {
+  const tools = buildMediaAgentTools(settings)
   if (Object.keys(tools).length === 0) return undefined
   return {
     system: MEDIA_AGENT_SYSTEM,
     toolSpecs: serializeToolSet(tools),
     repairData: {
-      ...(tools.comfyUI ? { comfyUI: createToolRepairData() ?? undefined } : {}),
+      ...(tools.comfyUI ? { comfyUI: createToolRepairData(settings) ?? undefined } : {}),
       ...(tools.comfyUiImageEdit
-        ? { comfyUiImageEdit: createEditToolRepairData() ?? undefined }
+        ? { comfyUiImageEdit: createEditToolRepairData(settings) ?? undefined }
         : {}),
     },
   }

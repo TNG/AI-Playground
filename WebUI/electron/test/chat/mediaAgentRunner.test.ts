@@ -231,6 +231,24 @@ describe('runMediaAgentInMain', () => {
     })
   })
 
+  it("ships the turn's enabled workflows with each inner call, so main can refuse others", async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    await runMediaAgentInMain(runRequest())
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      allowedWorkflows: ['W1'],
+    })
+  })
+
   it('tells the specialist a download was declined, and remembers it across the session', async () => {
     let call = 0
     const model = new MockLanguageModelV3({

@@ -4,6 +4,7 @@ import { tool } from 'ai'
 import { usePresets, type Preset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
+import type { WorkflowSettings } from './comfyUi'
 
 const ImageEditImageOutputSchema = z.object({
   id: z.string(),
@@ -80,10 +81,12 @@ export function getAvailableEditWorkflows(isEnabled?: (presetName: string) => bo
 // presets. Standalone, explicitly-typed helpers keep the heavy `useTextInference()`
 // store type out of `getToolDefinition` (whose inferred shape feeds the ai-SDK
 // `tool()` generics), avoiding a type-instantiation blow-up.
-function resolveDefaultEditWorkflow(imageNames: string[]): string {
-  return (
-    useTextInference().getDefaultWorkflow('comfyUiImageEdit:image', imageNames) ?? 'Edit By Prompt'
-  )
+function defaultWorkflowOf(settings?: WorkflowSettings): WorkflowSettings['defaultWorkflow'] {
+  return settings?.defaultWorkflow ?? useTextInference().getDefaultWorkflow
+}
+
+function resolveDefaultEditWorkflow(imageNames: string[], settings?: WorkflowSettings): string {
+  return defaultWorkflowOf(settings)('comfyUiImageEdit:image', imageNames) ?? 'Edit By Prompt'
 }
 
 /**
@@ -103,38 +106,45 @@ export function repairEditToolInput(rawInput: string): string | null {
  * Edit-tool twin of `createToolRepairData` (comfyUi.ts): shipped as the turn
  * request's `repairData.comfyUiImageEdit` for the main-side turn engine.
  */
-export function createEditToolRepairData():
-  import('@/lib/comfyToolRepair').WorkflowRepairData | null {
-  const workflows = getAvailableEditWorkflows()
+export function createEditToolRepairData(
+  settings?: WorkflowSettings,
+): import('@/lib/comfyToolRepair').WorkflowRepairData | null {
+  const workflows = getAvailableEditWorkflows(settings?.isWorkflowEnabled)
   if (workflows.length === 0) return null
   const imageNames = workflows
     .filter((w) => (w.mediaType ?? 'image') === 'image')
     .map((w) => w.name)
   return {
     names: workflows.map((w) => w.name),
-    defaultWorkflow: resolveDefaultEditWorkflow(imageNames),
+    defaultWorkflow: resolveDefaultEditWorkflow(imageNames, settings),
   }
 }
 
-function resolveDefaultAnimateWorkflow(videoNames: string[]): string | null {
-  return useTextInference().getDefaultWorkflow('comfyUiImageEdit:video', videoNames)
+function resolveDefaultAnimateWorkflow(
+  videoNames: string[],
+  settings?: WorkflowSettings,
+): string | null {
+  return defaultWorkflowOf(settings)('comfyUiImageEdit:video', videoNames)
 }
 
-function resolveDefaultTo3DWorkflow(modelNames: string[]): string | null {
-  return useTextInference().getDefaultWorkflow('comfyUiImageEdit:model3d', modelNames)
+function resolveDefaultTo3DWorkflow(
+  modelNames: string[],
+  settings?: WorkflowSettings,
+): string | null {
+  return defaultWorkflowOf(settings)('comfyUiImageEdit:model3d', modelNames)
 }
 
-function getToolDefinition() {
-  const workflows = getAvailableEditWorkflows()
+function getToolDefinition(settings?: WorkflowSettings) {
+  const workflows = getAvailableEditWorkflows(settings?.isWorkflowEnabled)
 
   const imageNames = workflows
     .filter((w) => (w.mediaType ?? 'image') === 'image')
     .map((w) => w.name)
   const videoNames = workflows.filter((w) => w.mediaType === 'video').map((w) => w.name)
   const modelNames = workflows.filter((w) => w.mediaType === 'model3d').map((w) => w.name)
-  const defaultEditWorkflow = resolveDefaultEditWorkflow(imageNames)
-  const defaultAnimateWorkflow = resolveDefaultAnimateWorkflow(videoNames)
-  const defaultTo3DWorkflow = resolveDefaultTo3DWorkflow(modelNames)
+  const defaultEditWorkflow = resolveDefaultEditWorkflow(imageNames, settings)
+  const defaultAnimateWorkflow = resolveDefaultAnimateWorkflow(videoNames, settings)
+  const defaultTo3DWorkflow = resolveDefaultTo3DWorkflow(modelNames, settings)
 
   const workflowOptions = workflows
     .map((w) => {
@@ -217,12 +227,16 @@ function getToolDefinition() {
   }
 }
 
-export const comfyUiImageEdit = tool({
-  get description() {
-    return getToolDefinition().description
-  },
-  get inputSchema() {
-    return getToolDefinition().inputSchema
-  },
-  outputSchema: ImageEditToolOutputSchema,
-})
+export function comfyUiImageEditFor(settings?: WorkflowSettings) {
+  return tool({
+    get description() {
+      return getToolDefinition(settings).description
+    },
+    get inputSchema() {
+      return getToolDefinition(settings).inputSchema
+    },
+    outputSchema: ImageEditToolOutputSchema,
+  })
+}
+
+export const comfyUiImageEdit = comfyUiImageEditFor()

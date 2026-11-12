@@ -86,6 +86,8 @@ export const AgentToolSpecSchema = z.object({
   workspacePathInputs: z.array(z.string()).optional(),
   /** Workflow to run when the model's call names none (generate tool). */
   defaultWorkflow: z.string().optional(),
+  /** The workflows this turn's settings enable; main refuses any other. */
+  allowedWorkflows: z.array(z.string()).optional(),
 })
 
 /** A Mounted Folder with its sandbox name settled (`resolveMountedFolders`). */

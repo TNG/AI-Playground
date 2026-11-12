@@ -548,6 +548,27 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(submitArtifactRunMock).not.toHaveBeenCalled()
   })
 
+  it("refuses a workflow the turn's settings did not enable, without running it", async () => {
+    const tool = await buildTool({ ...GENERATE_SPEC, allowedWorkflows: ['Draft Image'] })
+    const output = parseOutput(
+      await tool.execute(
+        'call-1',
+        { workflow: 'Edit By Prompt', prompt: 'x' },
+        new AbortController().signal,
+      ),
+    )
+
+    expect(output).toMatchObject({
+      success: false,
+      message: "Workflow 'Edit By Prompt' is not enabled for this agent. Enabled: Draft Image",
+      images: [],
+    })
+    expect(submitArtifactRunMock).not.toHaveBeenCalled()
+
+    await tool.execute('call-2', { prompt: 'x' }, new AbortController().signal)
+    expect((lastPayload.preset as ComfyUiPreset).name).toBe('Draft Image')
+  })
+
   it('shapes a failed run as a tool failure message', async () => {
     submitArtifactRunMock.mockResolvedValueOnce({
       state: 'failed',

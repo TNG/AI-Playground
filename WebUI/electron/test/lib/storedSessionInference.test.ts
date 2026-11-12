@@ -224,6 +224,8 @@ describe('storedSessionInference', () => {
     expect(defaults).toEqual({
       toolDelegationEnabled: true,
       builtinToolEnablement: {},
+      builtinToolPresetEnablement: {},
+      builtinToolDefaultPresets: {},
       onNpu: false,
     })
 
@@ -232,12 +234,16 @@ describe('storedSessionInference', () => {
         backend: 'llamaCPP',
         toolDelegationEnabled: false,
         builtinToolEnablement: { transcribeAudio: false },
+        builtinToolPresetEnablement: { 'Draft Image': false },
+        builtinToolDefaultPresets: { 'comfyUI:image': 'HD Image' },
       },
       catalog(),
     ).tools
     expect(stored).toEqual({
       toolDelegationEnabled: false,
       builtinToolEnablement: { transcribeAudio: false },
+      builtinToolPresetEnablement: { 'Draft Image': false },
+      builtinToolDefaultPresets: { 'comfyUI:image': 'HD Image' },
       onNpu: false,
     })
   })

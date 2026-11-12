@@ -63,6 +63,14 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
   }
 }
 
+function allowedWorkflowsOf(
+  repairData: MediaAgentRunRequest['repairData'],
+  toolName: string,
+): { allowedWorkflows?: string[] } {
+  const data = toolName === 'comfyUiImageEdit' ? repairData?.comfyUiImageEdit : repairData?.comfyUI
+  return data ? { allowedWorkflows: data.names } : {}
+}
+
 async function executeInnerComfy(
   request: MediaAgentRunArgs,
   toolName: string,
@@ -84,6 +92,7 @@ async function executeInnerComfy(
     conversationKey: request.conversationKey,
     keepModelsLoaded: request.keepModelsLoaded ?? false,
     declinedWorkflows: request.declinedWorkflows,
+    ...allowedWorkflowsOf(request.repairData, toolName),
   })
   const output = slimInnerComfyOutput(raw)
   console.info(

@@ -182,6 +182,8 @@ export type InProcessComfyRequest = {
   toolName?: string
   /** Workflows whose model download the user declined; one tool build keeps them for its session. */
   declinedWorkflows?: Set<string>
+  /** The workflows the turn's settings enable; absent means any in the catalog. */
+  allowedWorkflows?: readonly string[]
   args: InProcessComfyArgs
   source?: string
   origin: 'renderer' | 'agent'
@@ -205,6 +207,16 @@ export async function runInProcessComfyTool(
     return {
       success: false,
       message: 'No workflow requested and none configured as default.',
+      images: [],
+    }
+  }
+
+  if (request.allowedWorkflows && !request.allowedWorkflows.includes(workflowName)) {
+    return {
+      success: false,
+      message:
+        `Workflow '${workflowName}' is not enabled for this agent. ` +
+        `Enabled: ${request.allowedWorkflows.join(', ') || 'none'}`,
       images: [],
     }
   }

@@ -38,6 +38,7 @@ async function runDirectTool(
     kind: isEdit ? 'edit' : 'create',
     toolName: spec.name,
     declinedWorkflows,
+    ...(spec.allowedWorkflows ? { allowedWorkflows: spec.allowedWorkflows } : {}),
     args: { ...rawArgs, defaultWorkflow: spec.defaultWorkflow },
     source: isEdit ? (rawArgs.sourceImagePath as string | undefined) : undefined,
     origin: 'agent',

@@ -1,16 +1,19 @@
 import { asSchema } from 'ai'
 import { z } from 'zod'
-import { comfyUI, getAvailableWorkflows, resolveDefaultImageWorkflow } from './comfyUi'
-import { comfyUiImageEdit } from './comfyUiImageEdit'
+import { comfyUIFor, getAvailableWorkflows, resolveDefaultImageWorkflow } from './comfyUi'
+import { comfyUiImageEditFor, getAvailableEditWorkflows } from './comfyUiImageEdit'
 import { synthesizeTextToSpeech } from './synthesizeTextToSpeech'
 import { transcribeAudio } from './transcribeAudio'
 import { captureScreenshot } from './captureScreenshot'
 import { mediaAgentHasTools } from '../agents/mediaAgent'
 import { useTextInference } from '../store/textInference'
 import type { AgentToolSpec } from '@/types/agentIpc'
-import { isToolEnabled } from '@/lib/builtinToolEnablement'
 import type { ToolsForTurn } from '@/lib/storedSessionInference'
-import type { MediaToolSettings } from '@/lib/mediaToolSettings'
+import {
+  storeMediaToolSettings,
+  turnMediaToolSettings,
+  type MediaToolSettings,
+} from '@/lib/mediaToolSettings'
 
 // ── Agent Mode tool specs (renderer side) ────────────────────────────────────
 //
@@ -31,10 +34,10 @@ const SOURCE_IMAGE_NOTE =
   'edit via the required "sourceImagePath" parameter — a workspace-relative path an earlier ' +
   'call reported under "savedFiles", or a file the user attached under "attachments/".'
 
-function editImageInputSchema(): z.ZodTypeAny {
+function editImageInputSchema(editInputSchema: unknown): z.ZodTypeAny {
   // The edit tool's zod schema is preset-dependent (workflow enum), so extend
   // it lazily at spec-build time.
-  const base = comfyUiImageEdit.inputSchema as unknown as z.ZodObject
+  const base = editInputSchema as z.ZodObject
   return base.extend({
     sourceImagePath: z
       .string()
@@ -129,37 +132,29 @@ function screenshotToolSpecs(enabled: (name: string) => boolean): AgentToolSpec[
   ]
 }
 
-/** `tools` are the toggles stored on a session; the live ones are read when absent. */
+/** `tools` are the settings stored on a session; the live ones are read when absent. */
 export function getAgentToolSpecs(tools?: ToolsForTurn): AgentToolSpec[] {
-  const textInference = useTextInference()
-  const enabled = tools
-    ? (name: string) =>
-        isToolEnabled(tools.builtinToolEnablement, name, { onNpu: tools.onNpu === true })
-    : textInference.isBuiltinToolEnabled
-  return [
-    ...mediaToolSpecs(tools?.toolDelegationEnabled ?? textInference.toolDelegationEnabled),
-    ...speechToolSpecs(enabled),
-    ...screenshotToolSpecs(enabled),
-  ]
+  return agentToolSpecsFor(
+    tools ? turnMediaToolSettings(tools) : storeMediaToolSettings(useTextInference()),
+  )
 }
 
-/** The tool specs a set of media tool settings yields, e.g. a draft Settings Template's. */
+/** The tool specs a set of media tool settings yields: a turn's, or a draft Settings Template's. */
 export function agentToolSpecsFor(settings: MediaToolSettings): AgentToolSpec[] {
   return [
-    ...mediaToolSpecs(settings.delegationEnabled(), settings),
+    ...mediaToolSpecs(settings),
     ...speechToolSpecs(settings.isToolEnabled),
     ...screenshotToolSpecs(settings.isToolEnabled),
   ]
 }
 
-// `media` defaults to the chat store's live workflow toggles and default workflows.
-function mediaToolSpecs(delegationEnabled: boolean, media?: MediaToolSettings): AgentToolSpec[] {
+function mediaToolSpecs(settings: MediaToolSettings): AgentToolSpec[] {
   // With tool delegation on (the default), the agent sees a single thin
   // `media` tool backed by the nested media agent (agents/mediaAgent.ts).
   // NOTE: the tool set is part of the Pi session's configKey, so flipping the
   // toggle starts a new Pi session on the next turn.
-  if (delegationEnabled) {
-    if (!mediaAgentHasTools(media)) return []
+  if (settings.delegationEnabled()) {
+    if (!mediaAgentHasTools(settings)) return []
     return [
       {
         name: 'media',
@@ -169,23 +164,34 @@ function mediaToolSpecs(delegationEnabled: boolean, media?: MediaToolSettings): 
       },
     ]
   }
-  const imageWorkflowNames = getAvailableWorkflows(media?.isWorkflowEnabled)
-    .filter((w) => w.mediaType !== 'video')
-    .map((w) => w.name)
-  return [
-    {
+  const specs: AgentToolSpec[] = []
+  const workflows = getAvailableWorkflows(settings.isWorkflowEnabled)
+  if (settings.isToolEnabled('comfyUI') && workflows.length > 0) {
+    const imageNames = workflows.filter((w) => w.mediaType !== 'video').map((w) => w.name)
+    const generate = comfyUIFor(settings)
+    specs.push({
       name: 'generateImage',
-      description: comfyUI.description + GENERATED_FILES_NOTE,
-      inputSchema: asSchema(comfyUI.inputSchema).jsonSchema as Record<string, unknown>,
+      description: generate.description + GENERATED_FILES_NOTE,
+      inputSchema: asSchema(generate.inputSchema).jsonSchema as Record<string, unknown>,
       // Main executes this in-process and can't see the enabled-workflow list;
       // the default is what the description already tells the model to use.
-      defaultWorkflow: resolveDefaultImageWorkflow(imageWorkflowNames, media),
-    },
-    {
+      defaultWorkflow: resolveDefaultImageWorkflow(imageNames, settings),
+      allowedWorkflows: workflows.map((w) => w.name),
+    })
+  }
+  const editWorkflows = getAvailableEditWorkflows(settings.isWorkflowEnabled)
+  if (settings.isToolEnabled('comfyUiImageEdit') && editWorkflows.length > 0) {
+    const edit = comfyUiImageEditFor(settings)
+    specs.push({
       name: 'editImage',
-      description: (comfyUiImageEdit.description ?? '') + SOURCE_IMAGE_NOTE + GENERATED_FILES_NOTE,
-      inputSchema: asSchema(editImageInputSchema()).jsonSchema as Record<string, unknown>,
+      description: (edit.description ?? '') + SOURCE_IMAGE_NOTE + GENERATED_FILES_NOTE,
+      inputSchema: asSchema(editImageInputSchema(edit.inputSchema)).jsonSchema as Record<
+        string,
+        unknown
+      >,
       workspacePathInputs: ['sourceImagePath'],
-    },
-  ]
+      allowedWorkflows: editWorkflows.map((w) => w.name),
+    })
+  }
+  return specs
 }

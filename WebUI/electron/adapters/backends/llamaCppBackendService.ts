@@ -1,6 +1,5 @@
 import { exec, execFile, type ChildProcess } from 'node:child_process'
 import { createServer as createTcpServer } from 'node:net'
-import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -28,10 +27,12 @@ import { resolveDefaultDevice } from '../hardware/defaultDeviceSelection.ts'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract, restoreTreeWritePermissions } from '../install/tools.ts'
+import { runElevatedBatch } from '../install/elevatedBatch.ts'
 import * as llamaCppPhison from './llamaCppPhison.ts'
 import type { LlamaCppBuildVariant } from './llamaCppPhison.ts'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 // Flash attention defaults to `on`: with it off, attention materializes a full
 // seq×seq softmax buffer, and that single large Vulkan dispatch trips Intel Arc
@@ -271,7 +272,6 @@ interface LlamaServerProcess {
   isReady: boolean
 }
 
-const execFileAsync = promisify(execFile)
 
 /**
  * Whether a server can listen on `port` on loopback right now. Asked with a bind
@@ -1281,63 +1281,8 @@ export class LlamaCppBackendService implements ApiService {
     }
   }
 
-  /**
-   * Runs one or more shell commands inside a single elevated (UAC) session.
-   *
-   * All steps are written to a temporary `.cmd` script launched once via
-   * `Start-Process -Verb RunAs -Wait`, so a multi-step elevated operation triggers a single
-   * UAC prompt instead of one prompt per step. Individual command failures do not abort the
-   * batch — the script runs every line so best-effort teardown steps (e.g. `taskkill` when
-   * nothing is running) cannot block the remaining work.
-   */
   private async runElevatedBatch(commands: string[], workingDirectory: string): Promise<void> {
-    const steps = commands.filter((command) => command.trim().length > 0)
-    if (steps.length === 0) {
-      return
-    }
-
-    this.appLogger.info(
-      `Running ${steps.length} elevated command(s) in a single UAC prompt`,
-      this.name,
-    )
-
-    const scriptPath = path.join(os.tmpdir(), `aipg-phison-elevated-${Date.now()}.cmd`)
-    const scriptBody = ['@echo off', ...steps].join('\r\n')
-    await filesystem.writeFile(scriptPath, scriptBody, 'utf8')
-
-    const escapedScriptPath = scriptPath.replaceAll("'", "''")
-    const escapedWorkingDirectory = workingDirectory.replaceAll("'", "''")
-    const powershellArgs = [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `Start-Process -FilePath '${escapedScriptPath}' -WorkingDirectory '${escapedWorkingDirectory}' -Verb RunAs -Wait`,
-    ]
-
-    try {
-      const { stdout, stderr } = await execFileAsync('powershell.exe', powershellArgs, {
-        windowsHide: true,
-      })
-
-      if (stdout) {
-        this.appLogger.info(stdout, this.name)
-      }
-      if (stderr) {
-        this.appLogger.warn(stderr, this.name)
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to run elevated batch: ${message}`)
-    } finally {
-      try {
-        await filesystem.remove(scriptPath)
-      } catch (cleanupError) {
-        this.appLogger.warn(
-          `Failed to remove temporary elevated script ${scriptPath}: ${cleanupError}`,
-          this.name,
-        )
-      }
-    }
+    await runElevatedBatch(commands, workingDirectory, { name: this.name, logger: this.appLogger })
   }
 
   private async removeDirectoryWithRetries(targetDir: string): Promise<void> {

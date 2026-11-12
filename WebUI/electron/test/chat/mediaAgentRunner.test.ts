@@ -190,6 +190,7 @@ describe('runMediaAgentInMain', () => {
     expect(
       progress.some((e) => e.type === 'narration-delta' && e.text === 'Made the castle.'),
     ).toBe(true)
+    expect(progress.at(-1)).toEqual({ type: 'run-end', state: 'done' })
   })
 
   it('tags renderer-origin runs with the parent conversation key', async () => {
@@ -266,6 +267,9 @@ describe('runMediaAgentInMain', () => {
     cancelMediaAgentRun('media-run:test')
 
     await expect(run).rejects.toThrow()
+    const progress = mediaEvents()
+    expect(progress.at(-1)).toEqual({ type: 'run-end', state: 'failed' })
+    expect(progress.filter((e) => e.type === 'run-end')).toHaveLength(1)
     expect(() => cancelMediaAgentRun('media-run:unknown')).not.toThrow()
   })
 })

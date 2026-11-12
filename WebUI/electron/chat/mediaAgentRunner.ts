@@ -153,18 +153,23 @@ export async function runMediaAgentInMain(
   }
   abortSignal?.addEventListener('abort', onAbort, { once: true })
   activeRuns.set(request.runKey, controller)
+  let settled: 'done' | 'failed' = 'failed'
   try {
     // One media-request bracket at a time, and never while a generation holds
     // the GPU for media: the bracket's own LLM steps need the chat backend
     // (the orchestrator's request lane — the old renderer pipeline's
     // queueMediaRequest, moved to where the specialist runs).
-    return await runMediaRequest(() => runMediaAgentBracket(request, controller), {
+    const result = await runMediaRequest(() => runMediaAgentBracket(request, controller), {
       runKey: request.runKey,
       conversationKey: request.conversationKey,
       abortSignal: controller.signal,
     })
+    settled = 'done'
+    return result
   } finally {
     abortSignal?.removeEventListener('abort', onAbort)
+    // A stopped turn may never settle its tool part, so the timeline ends on this.
+    emitMediaAgentEvent(request.runKey, { type: 'run-end', state: settled })
     endMediaAgentRun(request.runKey)
     activeRuns.delete(request.runKey)
   }

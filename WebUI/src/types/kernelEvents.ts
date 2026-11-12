@@ -180,6 +180,7 @@ export type KernelMediaAgentEvent = {
     | { type: 'narration-delta'; kind: 'reasoning' | 'text'; text: string }
     | { type: 'tool-start'; toolCallId: string; toolName: string; input: unknown }
     | { type: 'tool-finish'; toolCallId: string; output: unknown; error?: string }
+    | { type: 'run-end'; state: 'done' | 'failed' }
 }
 
 /**

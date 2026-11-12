@@ -8,6 +8,7 @@ declare type BackendServiceName =
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
   | 'whisper-backend'
+  | 'sdcpp-backend'
 
 // Declare BackendStatus type
 declare type BackendStatus =

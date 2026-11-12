@@ -272,7 +272,6 @@ interface LlamaServerProcess {
   isReady: boolean
 }
 
-
 /**
  * Whether a server can listen on `port` on loopback right now. Asked with a bind
  * attempt because that is the only thing that answers it: `get-port` refuses a
@@ -1827,6 +1826,15 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaEmbeddingProcess = null
       this.currentEmbeddingModel = null
       this.currentEmbeddingDeviceId = null
+    }
+  }
+
+  hasModel(modelRepoId: string): boolean {
+    try {
+      this.resolveModelPath(modelRepoId)
+      return true
+    } catch {
+      return false
     }
   }
 

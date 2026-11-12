@@ -12,6 +12,7 @@ vi.mock('electron', () => ({
 
 vi.mock('../../adapters/backends/comfyuiTools.ts', () => ({
   isCustomNodeInstalled: vi.fn(() => true),
+  isBuiltinCustomNodeInstalled: vi.fn(() => true),
   isPackageInstalled: vi.fn(async () => true),
   installPypiPackage: vi.fn(async () => {}),
   downloadCustomNode: vi.fn(async () => true),
@@ -64,6 +65,7 @@ import {
   getKernelSnapshot,
 } from '../../kernel/kernelBus'
 import { submitPrompt, getComfySocket, interruptExecution } from '../../artifact/comfyClient'
+import { isBuiltinCustomNodeInstalled } from '../../adapters/backends/comfyuiTools'
 import type {
   ComfyClientDeps,
   ComfySocketHandle,
@@ -128,6 +130,10 @@ function deps(overrides: Partial<Parameters<typeof setArtifactRunnerDeps>[0]> = 
       return consentApproved
     }),
     ensureOvmsImageReady: vi.fn(async () => ({ success: true as const, url: 'http://ovms' })),
+    ensureSdCppImageReady: vi.fn(async () => ({
+      success: true as const,
+      url: 'http://127.0.0.1:46001',
+    })),
     readMediaAsDataUri: vi.fn(async () => null),
     getPlatform: () => 'darwin' as NodeJS.Platform,
     devPresetsEnabled: () => false,
@@ -295,6 +301,89 @@ describe('artifact runner', () => {
     const savedItems = saveMediaItems.mock.calls[0]?.[0] as unknown as MediaItem[]
     expect(savedItems).toHaveLength(2)
     expect(savedItems[0]).toMatchObject({ state: 'done' })
+  })
+
+  it('starts sd-server for a workflow with the Phison node and injects its URL', async () => {
+    const runnerDeps = deps()
+    setArtifactRunnerDeps(runnerDeps)
+    const request = payload({ params: { ...payload().params, batchSize: 1 } })
+    const requiredModels = [{ type: 'unet', model: 'a/b/dit.gguf' }]
+    request.preset = {
+      ...preset(),
+      requiredModels,
+      comfyUiApiWorkflow: {
+        '1': {
+          class_type: 'PhisonSdServerImageGeneration',
+          inputs: { base_url: 'http://127.0.0.1:46000', text: '', seed: 0, steps: 9 },
+          _meta: { title: 'prompt' },
+        },
+      },
+    } as unknown as ComfyUiPreset
+    void submitArtifactRun({ ...request, items: itemsFor(request) })
+
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    expect(runnerDeps.ensureSdCppImageReady).toHaveBeenCalledWith(
+      requiredModels,
+      expect.any(Function),
+    )
+    const workflow = submittedPrompts[0]!.workflow as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >
+    expect(workflow['1']!.inputs!.base_url).toBe('http://127.0.0.1:46001')
+    expect(runnerDeps.ensureOvmsImageReady).not.toHaveBeenCalled()
+  })
+
+  it('fails the run when sd-server does not come up', async () => {
+    setArtifactRunnerDeps(
+      deps({
+        ensureSdCppImageReady: vi.fn(async () => ({
+          success: false as const,
+          error: 'sd-server start-up problem example_failure: Something went wrong.',
+        })),
+      }),
+    )
+    const request = payload({ params: { ...payload().params, batchSize: 1 } })
+    request.preset = {
+      ...preset(),
+      comfyUiApiWorkflow: {
+        '1': {
+          class_type: 'PhisonSdServerImageGeneration',
+          inputs: { base_url: 'http://127.0.0.1:46000', text: '' },
+          _meta: { title: 'prompt' },
+        },
+      },
+    } as unknown as ComfyUiPreset
+
+    const result = await submitArtifactRun({ ...request, items: itemsFor(request) })
+    expect(result.state).toBe('failed')
+    expect(result.error).toContain('Failed to start sd-server:')
+    expect(result.error).toContain('example_failure')
+    expect(submittedPrompts).toHaveLength(0)
+  })
+
+  it('does not start sd-server for a ComfyUI installed before its node existed', async () => {
+    vi.mocked(isBuiltinCustomNodeInstalled).mockReturnValueOnce(false)
+    const runnerDeps = deps()
+    setArtifactRunnerDeps(runnerDeps)
+    const request = payload({ params: { ...payload().params, batchSize: 1 } })
+    request.preset = {
+      ...preset(),
+      comfyUiApiWorkflow: {
+        '1': {
+          class_type: 'PhisonSdServerImageGeneration',
+          inputs: { base_url: 'http://127.0.0.1:46000', text: '' },
+          _meta: { title: 'prompt' },
+        },
+      },
+    } as unknown as ComfyUiPreset
+
+    const result = await submitArtifactRun({ ...request, items: itemsFor(request) })
+    expect(result.state).toBe('failed')
+    expect(result.error).toContain('Reinstall ComfyUI')
+    expect(vi.mocked(isBuiltinCustomNodeInstalled)).toHaveBeenCalledWith('PhisonSdServer', '/comfy')
+    expect(runnerDeps.ensureSdCppImageReady).not.toHaveBeenCalled()
+    expect(submittedPrompts).toHaveLength(0)
   })
 
   it('applies the preset launch flags before starting the backend', async () => {

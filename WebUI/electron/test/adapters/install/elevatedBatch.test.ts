@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  elevatedPowershellArgs,
-  elevatedScriptBody,
-} from '../../../adapters/install/elevatedBatch'
+import { elevatedPowershellArgs, elevatedScriptBody } from '../../../adapters/install/elevatedBatch'
 
 describe('elevatedScriptBody', () => {
   it('runs every non-blank step after echo off, with CRLF line ends', () => {

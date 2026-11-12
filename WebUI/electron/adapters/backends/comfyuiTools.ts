@@ -278,6 +278,11 @@ export function isCustomNodeInstalled(
   return fs.existsSync(expectedCustomNodePath)
 }
 
+/** Builtin nodes are copied from comfyui-deps only when ComfyUI itself is installed. */
+export function isBuiltinCustomNodeInstalled(name: string, comfyUiRootPath: string): boolean {
+  return fs.existsSync(resolveCustomNodeDir(comfyUiRootPath, name))
+}
+
 /**
  * Patch custom node if required (specific workarounds)
  */

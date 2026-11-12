@@ -440,6 +440,7 @@ import {
   compareVersions,
 } from '@/lib/utils.ts'
 import { isOnDemandBackend } from '@/lib/onDemandBackends'
+import { isComponentListed } from '@/lib/wizardInstallDefaults'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import LanguageSelector from '@/components/LanguageSelector.vue'
 import BackendOptions from '@/components/BackendOptions.vue'
@@ -513,6 +514,8 @@ const components = computed(() => {
   const isNvidiaMode = productModeStore.productMode === 'nvidia'
   return backendServices.info
     .filter((item) => !(isNvidiaMode && item.serviceName === 'openvino-backend'))
+    .filter((item) => !(isNvidiaMode && item.serviceName === 'sdcpp-backend'))
+    .filter((item) => isComponentListed(item.serviceName, backendServices.phisonSsdDetected))
     .map((item) => ({
       enabled:
         alreadyInstalledOrRequiredComponents.value.has(item.serviceName) ||

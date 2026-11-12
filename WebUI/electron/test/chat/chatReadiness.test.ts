@@ -71,6 +71,51 @@ describe('chatReadiness', () => {
     expect(lastChatBackendLoadForTest()).toEqual(loadArgs)
   })
 
+  it('stops the Phison sd-server before a chat model loads', async () => {
+    const stopSdCppImageServer = vi.fn(async () => {})
+    wire({ stopSdCppImageServer })
+    await ensureChatBackendReady(loadArgs)
+
+    expect(stopSdCppImageServer).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the image servers running when the chat model is not on disk', async () => {
+    const stopSdCppImageServer = vi.fn(async () => {})
+    const ensureBackendReadiness = vi.fn(async () => {
+      throw new Error('Model file not found')
+    })
+    const d = wire({
+      stopSdCppImageServer,
+      getService: () => ({
+        ensureBackendReadiness,
+        hasModel: () => false,
+        baseUrl: 'http://127.0.0.1:39100',
+      }),
+    })
+    rememberChatBackendLoad(loadArgs)
+
+    await expect(reloadLastChatBackend()).rejects.toThrow('Model file not found')
+    expect(stopSdCppImageServer).not.toHaveBeenCalled()
+    expect(d.stopOvmsImageServer).not.toHaveBeenCalled()
+  })
+
+  it('still frees the image servers for a chat model that is on disk', async () => {
+    const stopSdCppImageServer = vi.fn(async () => {})
+    const ensureBackendReadiness = vi.fn(async () => {})
+    wire({
+      stopSdCppImageServer,
+      getService: () => ({
+        ensureBackendReadiness,
+        hasModel: () => true,
+        baseUrl: 'http://127.0.0.1:39100',
+      }),
+    })
+    await ensureChatBackendReady(loadArgs)
+
+    expect(stopSdCppImageServer).toHaveBeenCalledTimes(1)
+    expect(ensureBackendReadiness).toHaveBeenCalledTimes(1)
+  })
+
   it('does not remember a failed load', async () => {
     const ensureBackendReadiness = vi.fn(async () => {
       throw new Error('OOM')

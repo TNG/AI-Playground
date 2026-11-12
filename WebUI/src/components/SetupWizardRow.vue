@@ -32,6 +32,8 @@ export type SetupWizardRowView = {
   repairDisabled?: boolean
   /** Show the "View error log" button. */
   showError?: boolean
+  /** Phison aiDAPTIV components share the green frame and icon of the Llama.cpp aiDAPTIV row. */
+  accent?: 'phison'
 }
 
 const props = defineProps<{
@@ -68,7 +70,8 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
     :class="{
       'px-3 py-2.5 rounded-lg border bg-muted/30': !compact,
       'px-2 py-1.5 rounded-md': compact,
-      'border-border': !compact && available,
+      'border-border': !compact && available && row.accent !== 'phison',
+      'border-emerald-600/25': !compact && available && row.accent === 'phison',
       'border-border/50': !compact && !available,
       'opacity-50': !available,
     }"
@@ -95,6 +98,25 @@ const available = computed(() => props.row.availableInCurrentMode ?? true)
          toggle column — those stay lined up with every other row. -->
     <div class="flex-1 min-w-0">
       <div class="flex min-w-0 items-center gap-1.5">
+        <span
+          v-if="row.accent === 'phison'"
+          class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-emerald-600 dark:text-emerald-400"
+          aria-hidden="true"
+        >
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7z"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+            <path
+              d="M8 11h8M8 15h5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </span>
         <!-- Truncate: nested rows sit in CollapsibleContent (overflow:hidden). A
              name that won't shrink pushes the row past that clip, and an ON
              switch loses the thumb on its right edge. -->

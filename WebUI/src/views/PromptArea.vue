@@ -548,6 +548,8 @@ import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/pr
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { requiredServiceGate, type PresetGate } from '@/lib/presetServiceGate'
+import { mapServiceNameToDisplayName } from '@/lib/utils'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
 import { useTextInference } from '@/assets/js/store/textInference'
@@ -621,7 +623,14 @@ const phisonUsable = computed(
 )
 
 /** Whether a picker preset is currently selectable, plus why not when disabled. */
-function presetGate(preset: Preset): { enabled: boolean; reason?: string } {
+function presetGate(preset: Preset): PresetGate {
+  if (preset.requiresService) {
+    return requiredServiceGate(
+      preset.requiresService,
+      backendServices.info,
+      mapServiceNameToDisplayName,
+    )
+  }
   if (preset.type === 'chat' && (preset as ChatPreset).requiresPhison) {
     return phisonUsable.value
       ? { enabled: true }

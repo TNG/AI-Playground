@@ -21,6 +21,7 @@ export const BACKEND_DISPLAY_NAMES = {
   'llamacpp-backend': 'Llama.cpp - GGUF',
   'openvino-backend': 'OpenVINO',
   'comfyui-backend': 'ComfyUI',
+  'sdcpp-backend': 'sd.cpp with Phison Pascari aiDAPTIV',
 } as const satisfies Record<BackendServiceName, string>
 
 /** Union of the backend row labels, e.g. 'Core Services' | 'OpenVINO' | ... */

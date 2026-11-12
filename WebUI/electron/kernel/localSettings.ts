@@ -85,6 +85,12 @@ export const LocalSettingsSchema = z.object({
   // while saving a LAN chat password. Re-applied at startup so decrypt still
   // works; first-time opt-in is the renderer WarningDialog, not a native prompt.
   allowPlaintextSecretStorage: z.boolean().default(false),
+  // A folder that already holds the Phison sd-server shipment zips (offline installs).
+  // Unset, they are downloaded from the public S3 bucket.
+  sdcppPackageDir: z.string().nullable().default(null),
+  // Folder sd-server keeps its weight store in (`--offload-path`). Unset, it uses its
+  // default location.
+  sdcppOffloadPath: z.string().nullable().default(null),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>

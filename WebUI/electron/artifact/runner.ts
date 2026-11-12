@@ -35,14 +35,17 @@ import {
   findKeysByClassType,
   mediaUrl,
   modifySettingInWorkflow,
+  SDCPP_IMAGE_NODE_PACKAGE,
   workflowUsesOvmsImage,
+  workflowUsesSdCppImage,
 } from '@/lib/comfyWorkflow'
 import { parseCustomNodeSpec } from '@/lib/customNodeRepoId'
-import type { ComfyUIApiWorkflow, ComfyUiPreset } from '@/lib/presetSchemas'
+import type { ComfyUIApiWorkflow, ComfyUiPreset, RequiredModel } from '@/lib/presetSchemas'
 import type { ArtifactMissingModel } from '@/types/mediaRequests'
 import { ComfyMessageSchema, summarizeComfyExecutionError } from '@/assets/js/store/comfyUiMessages'
 import {
   downloadCustomNode,
+  isBuiltinCustomNodeInstalled,
   isCustomNodeInstalled,
   isPackageInstalled,
   installPypiPackage,
@@ -165,6 +168,11 @@ export type ArtifactRunnerDeps = {
     modelId: string,
     keepModelsLoaded: boolean,
     resolution: string,
+  ): Promise<IpcOkWith<{ url: string }>>
+  /** Starts the Phison sd-server for the preset's weights; `onProgress` fires while it loads. */
+  ensureSdCppImageReady(
+    requiredModels: RequiredModel[],
+    onProgress: () => void,
   ): Promise<IpcOkWith<{ url: string }>>
   readMediaAsDataUri(url: string): Promise<string | null>
   getPlatform(): NodeJS.Platform
@@ -824,6 +832,29 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
     ovmsImageUrl = result.url
   }
 
+  let sdcppImageUrl: string | null = null
+  if (workflowUsesSdCppImage(run.payload.preset.comfyUiApiWorkflow)) {
+    // Checked first: sd-server's first start is slow, so fail before paying for it.
+    if (!isBuiltinCustomNodeInstalled(SDCPP_IMAGE_NODE_PACKAGE, comfyService.serviceDir)) {
+      failRun(
+        run,
+        `ComfyUI does not have the ${SDCPP_IMAGE_NODE_PACKAGE} node yet. ` +
+          'Reinstall ComfyUI from the Setup page, then generate again.',
+        false,
+      )
+      return
+    }
+    const result = await deps.ensureSdCppImageReady(run.payload.preset.requiredModels ?? [], () =>
+      armIdleTimeout(run),
+    )
+    if (run.settled) return
+    if (!result.success) {
+      failRun(run, `Failed to start sd-server: ${result.error}`, false)
+      return
+    }
+    sdcppImageUrl = result.url
+  }
+
   const workflow = await rewriteWorkflowForRun(
     run.payload.preset,
     {
@@ -835,7 +866,7 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
     },
     run.payload.inputs,
     deps.getPlatform(),
-    ovmsImageUrl,
+    { ovms: ovmsImageUrl, sdcpp: sdcppImageUrl },
     {
       readMediaAsDataUri: deps.readMediaAsDataUri,
       uploadInputFile: (file) => uploadInputFile(baseUrl, clientDeps(), file),

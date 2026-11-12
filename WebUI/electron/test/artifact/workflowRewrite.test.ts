@@ -223,7 +223,7 @@ describe('rewriteWorkflowForRun', () => {
         }),
       ],
       'darwin',
-      null,
+      { ovms: null, sdcpp: null },
       deps,
     )
 
@@ -235,6 +235,46 @@ describe('rewriteWorkflowForRun', () => {
     // The preset's own workflow object is untouched.
     expect(preset.comfyUiApiWorkflow['1'].inputs!.width).toBe(512)
     expect(preset.comfyUiApiWorkflow['2'].inputs!.images).toEqual(['3', 0])
+  })
+
+  it('points the sd-server node at the running image server and leaves OVMS nodes alone', async () => {
+    const preset = testPreset()
+    preset.comfyUiApiWorkflow['1'] = {
+      class_type: 'PhisonSdServerImageGeneration',
+      inputs: {
+        base_url: 'http://127.0.0.1:46000',
+        text: '',
+        seed: 0,
+        steps: 9,
+        width: 1024,
+        height: 1024,
+      },
+      _meta: { title: 'prompt' },
+    }
+    preset.comfyUiApiWorkflow['5'] = {
+      class_type: 'OpenAICompatibleImageGeneration',
+      inputs: { base_url: 'http://ovms-default', model: 'a/b' },
+      _meta: { title: 'OVMS' },
+    }
+
+    const { deps } = trackingDeps()
+    const workflow = await rewriteWorkflowForRun(
+      preset,
+      { prompt: 'a lion', negativePrompt: '', inferenceSteps: 9, width: 1344, height: 768 },
+      [],
+      'win32',
+      { ovms: null, sdcpp: 'http://127.0.0.1:46001' },
+      deps,
+    )
+
+    expect(workflow['1']!.inputs).toMatchObject({
+      base_url: 'http://127.0.0.1:46001',
+      text: 'a lion',
+      steps: 9,
+      width: 1344,
+      height: 768,
+    })
+    expect(workflow['5']!.inputs).toEqual({ base_url: 'http://ovms-default', model: 'a/b' })
   })
 })
 

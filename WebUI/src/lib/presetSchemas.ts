@@ -158,6 +158,10 @@ const BasePresetFieldsSchema = z.object({
   // Set on presets that need extra UI configuration (e.g. manual sliders, reference
   // image uploads) and therefore can't be driven cleanly via a chat command.
   excludeFromHomeAgentPicker: z.boolean().optional(),
+  // Hidden unless a Phison SSD is detected. Chat presets also need the aiDAPTIV+ Llama.cpp build.
+  requiresPhison: z.boolean().optional(),
+  // Listed but greyed out until this backend service is installed.
+  requiresService: z.string().optional(),
 })
 
 // ComfyUI Preset Schema
@@ -201,9 +205,6 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   requiresToolCalling: z.boolean().optional(),
   requiresReasoning: z.boolean().optional(),
   requiresNpuSupport: z.boolean().optional(), // Filter models to only show NPU-compatible models
-  // Only available when the Phison aiDAPTIV+ (ssd-offload) Llama.cpp build is installed.
-  // Used for presets bundling large MoE models that rely on SSD offload.
-  requiresPhison: z.boolean().optional(),
   // Capability flag: this preset OFFERS the Phison KM RAG option (token-based
   // merged-group retrieval + KV cache pre-warming). Selectable at runtime only when
   // the Phison aiDAPTIV+ build is active and the llamaCPP backend is selected.

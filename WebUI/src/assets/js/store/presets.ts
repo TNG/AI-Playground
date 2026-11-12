@@ -455,11 +455,7 @@ export const usePresets = defineStore(
 
           // Hide Phison presets entirely on systems that do not offer the Phison build.
           // On capable systems they remain listed (greyed-out until installed + active).
-          if (
-            preset.type === 'chat' &&
-            (preset as ChatPreset).requiresPhison &&
-            !backendServices.phisonSsdDetected
-          ) {
+          if (preset.requiresPhison && !backendServices.phisonSsdDetected) {
             return false
           }
 

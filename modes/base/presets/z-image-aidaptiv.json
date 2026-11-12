@@ -1,0 +1,209 @@
+{
+  "type": "comfy",
+  "name": "Pro 2 Image (aiDAPTIV)",
+  "displayPriority": 310,
+  "tags": ["Z-Image-Turbo", "sd.cpp", "aiDAPTIV"],
+  "description": "Generate images with Z-Image-Turbo on sd.cpp with Phison Pascari aiDAPTIV",
+  "extendedDescription": "Runs text-to-image through ComfyUI by calling the Phison sd-server (stable-diffusion.cpp) with Phison Pascari aiDAPTIV. The server streams the model weights from the Phison AI SSD instead of holding the whole model in memory. Install sd.cpp with Phison Pascari aiDAPTIV on the setup page first.",
+  "backend": "comfyui",
+  "category": "create-images",
+  "mediaType": "image",
+  "requiresPhison": true,
+  "requiresService": "sdcpp-backend",
+  "excludeFromHomeAgentPicker": true,
+  "resolutionConfig": {
+    "megapixels": [
+      {
+        "label": "0.25",
+        "totalPixels": 262144
+      },
+      {
+        "label": "0.5",
+        "totalPixels": 495616
+      },
+      {
+        "label": "0.8",
+        "totalPixels": 802816
+      },
+      {
+        "label": "1.0",
+        "totalPixels": 1048576
+      },
+      {
+        "label": "1.2",
+        "totalPixels": 1254400
+      },
+      {
+        "label": "1.5",
+        "totalPixels": 1557504
+      }
+    ],
+    "aspectRatios": [
+      "21/9",
+      "16/9",
+      "3/2",
+      "4/3",
+      "1/1",
+      "3/4",
+      "2/3",
+      "9/16",
+      "9/21"
+    ]
+  },
+  "requiredCustomNodes": [
+    "evanspearman/ComfyMath@939bb813f1c0ace959b62f20bb2da47190c4e211"
+  ],
+  "requiredPythonPackages": [],
+  "requiredModels": [
+    {
+      "type": "unet",
+      "model": "jayn7/Z-Image-Turbo-GGUF/z_image_turbo-Q4_K_M.gguf"
+    },
+    {
+      "type": "clip",
+      "model": "Comfy-Org/z_image_turbo/split_files/text_encoders/qwen_3_4b.safetensors"
+    },
+    {
+      "type": "vae",
+      "model": "Comfy-Org/z_image_turbo/split_files/vae/ae.safetensors"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/config.json"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/model.safetensors"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/preprocessor_config.json"
+    }
+  ],
+  "settings": [
+    {
+      "type": "string",
+      "label": "Prompt",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "",
+      "settingName": "prompt"
+    },
+    {
+      "type": "number",
+      "label": "Seed",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": -1,
+      "settingName": "seed"
+    },
+    {
+      "type": "number",
+      "label": "Inference Steps",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": 9,
+      "settingName": "inferenceSteps"
+    },
+    {
+      "type": "number",
+      "label": "Width",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 1024,
+      "settingName": "width"
+    },
+    {
+      "type": "number",
+      "label": "Height",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 1024,
+      "settingName": "height"
+    },
+    {
+      "type": "string",
+      "label": "Resolution",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "1024x1024",
+      "settingName": "resolution"
+    },
+    {
+      "type": "number",
+      "label": "Batch Size",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": 1,
+      "settingName": "batchSize"
+    },
+    {
+      "type": "boolean",
+      "label": "Safety Check",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": true,
+      "settingName": "safetyCheck"
+    },
+    {
+      "type": "number",
+      "label": "Safety Check",
+      "nodeTitle": "SafetyCheckerStrength",
+      "nodeInput": "b",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "defaultValue": 0.5,
+      "displayed": true,
+      "modifiable": true
+    }
+  ],
+  "comfyUiApiWorkflow": {
+    "1": {
+      "inputs": {
+        "base_url": "http://127.0.0.1:46000",
+        "text": "",
+        "seed": 0,
+        "steps": 9,
+        "width": 1024,
+        "height": 1024
+      },
+      "class_type": "PhisonSdServerImageGeneration",
+      "_meta": {
+        "title": "prompt"
+      }
+    },
+    "9": {
+      "inputs": {
+        "filename_prefix": "AIPG_Image",
+        "images": ["98", 0]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    },
+    "98": {
+      "inputs": {
+        "threshold": ["99", 0],
+        "cuda": false,
+        "image": ["1", 0]
+      },
+      "class_type": "SafetyChecker",
+      "_meta": {
+        "title": "Intercept NSFW Outputs"
+      }
+    },
+    "99": {
+      "inputs": {
+        "op": "Sub",
+        "a": 1,
+        "b": 0.5
+      },
+      "class_type": "CM_FloatBinaryOperation",
+      "_meta": {
+        "title": "SafetyCheckerStrength"
+      }
+    }
+  }
+}

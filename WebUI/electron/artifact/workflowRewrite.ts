@@ -26,6 +26,7 @@ import {
   normalizeModelPathsInWorkflow,
   bypassOptionalModelNodes,
   injectOvmsImageUrl,
+  injectSdCppImageUrl,
 } from '@/lib/comfyWorkflow'
 import type { ComfyInput, ComfyUiPreset, ComfyUIApiWorkflow } from '@/lib/presetSchemas'
 
@@ -177,6 +178,9 @@ export async function modifyDynamicSettingsInWorkflow(
   }
 }
 
+/** URLs of the image servers a workflow's remote nodes call, when they are running. */
+export type ImageServerUrls = { ovms: string | null; sdcpp: string | null }
+
 export type WorkflowRunParams = {
   prompt: string
   negativePrompt: string
@@ -188,7 +192,7 @@ export type WorkflowRunParams = {
 /**
  * The full rewrite pass the runner applies before queueing: scalar settings,
  * dynamic inputs (with their uploads), optional-model bypass, model-path
- * normalization and the OVMS image-server URL when the workflow needs one.
+ * normalization and the image-server URLs (OVMS, sd-server) when the workflow needs them.
  * Mutates and returns the same workflow object.
  */
 export async function rewriteWorkflowForRun(
@@ -196,7 +200,7 @@ export async function rewriteWorkflowForRun(
   params: WorkflowRunParams,
   inputs: ArtifactRunInput[],
   platform: NodeJS.Platform,
-  ovmsImageUrl: string | null,
+  imageServers: ImageServerUrls,
   deps: WorkflowRewriteDeps,
 ): Promise<ComfyUIApiWorkflow> {
   const workflow = structuredClone(preset.comfyUiApiWorkflow)
@@ -208,7 +212,8 @@ export async function rewriteWorkflowForRun(
 
   await modifyDynamicSettingsInWorkflow(workflow, platform, inputs, deps)
 
-  if (ovmsImageUrl) injectOvmsImageUrl(workflow, ovmsImageUrl)
+  if (imageServers.ovms) injectOvmsImageUrl(workflow, imageServers.ovms)
+  if (imageServers.sdcpp) injectSdCppImageUrl(workflow, imageServers.sdcpp)
   bypassOptionalModelNodes(workflow, inputs)
   normalizeModelPathsInWorkflow(workflow, platform)
   return workflow

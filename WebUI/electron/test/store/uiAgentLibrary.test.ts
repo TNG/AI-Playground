@@ -94,3 +94,49 @@ describe('One Library at a time', () => {
     expect(ui.agentLibrary).toBeNull()
   })
 })
+
+describe('Title-bar Library buttons', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('closes the Model Library when its pressed button is clicked again', () => {
+    const ui = useUIStore()
+    ui.toggleModelManager()
+    expect(ui.showModelManager).toBe(true)
+
+    ui.toggleModelManager()
+
+    expect(ui.showModelManager).toBe(false)
+    expect(ui.agentLibrary).toBeNull()
+  })
+
+  it('closes the Agent Library when its pressed button is clicked again', () => {
+    const ui = useUIStore()
+    ui.toggleAgentLibrary()
+    expect(ui.agentLibrary).toEqual({})
+
+    ui.toggleAgentLibrary()
+
+    expect(ui.agentLibrary).toBeNull()
+    expect(ui.showModelManager).toBe(false)
+  })
+
+  it('switches to the Model Library when its button is clicked over the Agent Library', () => {
+    const ui = useUIStore()
+    ui.openAgentLibrary({ agentId: 't1' })
+
+    ui.toggleModelManager()
+
+    expect(ui.showModelManager).toBe(true)
+    expect(ui.agentLibrary).toBeNull()
+  })
+
+  it('switches to the Agent Library when its button is clicked over the Model Library', () => {
+    const ui = useUIStore()
+    ui.openModelManager()
+
+    ui.toggleAgentLibrary()
+
+    expect(ui.agentLibrary).toEqual({})
+    expect(ui.showModelManager).toBe(false)
+  })
+})

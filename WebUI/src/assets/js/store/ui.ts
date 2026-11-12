@@ -31,6 +31,11 @@ export const useUIStore = defineStore('ui', () => {
     if (showModelManager.value) openLibrary.value = null
   }
 
+  function toggleModelManager() {
+    if (showModelManager.value) closeModelManager()
+    else openModelManager()
+  }
+
   function setAgentLibraryView(view: AgentLibraryView) {
     openLibrary.value = { kind: 'agent', view }
   }
@@ -56,17 +61,24 @@ export const useUIStore = defineStore('ui', () => {
     if (agentLibrary.value) openLibrary.value = null
   }
 
+  function toggleAgentLibrary() {
+    if (agentLibrary.value) closeAgentLibrary()
+    else openAgentLibrary()
+  }
+
   return {
     sessionsPanelCollapsed,
     showModelManager,
     openModelManager,
     closeModelManager,
+    toggleModelManager,
     agentLibrary,
     openAgentLibrary,
     selectLibraryAgent,
     trialRunShown,
     clearLibrarySessionFilter,
     closeAgentLibrary,
+    toggleAgentLibrary,
   }
 })
 

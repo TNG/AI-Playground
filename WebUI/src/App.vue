@@ -54,7 +54,10 @@
         v-if="globalSetup.loadingState === 'running'"
         :title="languages.MODEL_MANAGER_TITLE"
         :aria-label="languages.MODEL_MANAGER_OPEN"
-        @click="uiStore.openModelManager()"
+        :aria-pressed="uiStore.showModelManager"
+        class="-m-1 rounded-md p-1 transition-colors"
+        :class="{ 'bg-primary/20': uiStore.showModelManager }"
+        @click="uiStore.toggleModelManager()"
       >
         <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
       </button>
@@ -64,7 +67,10 @@
             <button
               type="button"
               :aria-label="languages.AGENT_LIBRARY_OPEN"
-              @click="uiStore.openAgentLibrary()"
+              :aria-pressed="uiStore.agentLibrary !== null"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.agentLibrary }"
+              @click="uiStore.toggleAgentLibrary()"
             >
               <Bot class="size-6 text-foreground" />
             </button>

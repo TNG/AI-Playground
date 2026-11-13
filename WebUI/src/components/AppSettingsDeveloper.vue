@@ -165,7 +165,7 @@
       <button
         :disabled="demoMode.enabled"
         @click="openSetupWizard"
-        class="bg-primary hover:bg-primary/80 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed"
+        class="bg-primary text-primary-foreground hover:bg-primary/80 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed"
       >
         {{ languages.SETTINGS_SETUP_WIZARD }}
       </button>

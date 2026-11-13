@@ -38,6 +38,8 @@ export type ChatBackendHandle = {
     contextSize?: number,
     modelArgs?: string,
   ): Promise<void>
+  /** False when the chat model is not on disk, so loading it would fail before using the GPU. */
+  hasModel?(llmModelName: string): boolean
   readonly baseUrl?: string | null
 }
 
@@ -45,6 +47,8 @@ export type ChatReadinessDeps = {
   getService: (serviceName: string) => ChatBackendHandle | undefined
   awaitChatWindow: (signal?: AbortSignal) => Promise<void>
   stopOvmsImageServer: () => Promise<void>
+  /** Frees the Phison sd-server's memory for the chat model, like the OVMS image server. */
+  stopSdCppImageServer?: () => Promise<void>
   notifyHomeAgentUpstreamReady: (baseUrl: string) => void
   /** Stop+restart the previous local chat backend after a switch (was renderer lastUsed). */
   resetIdleChatBackend?: (serviceName: string) => Promise<void>
@@ -145,7 +149,12 @@ export async function ensureChatBackendReady(
     if (!options?.skipGpuAdmission && isChatInferenceService(args.serviceName)) {
       await d.awaitChatWindow(options?.abortSignal)
     }
-    if (isChatInferenceService(args.serviceName)) {
+    // A chat model that cannot load leaves the GPU to the image servers, so back-to-back
+    // images do not restart sd-server for a reload that is going to fail anyway.
+    if (
+      isChatInferenceService(args.serviceName) &&
+      service.hasModel?.(args.llmModelName) !== false
+    ) {
       try {
         await d.stopOvmsImageServer()
       } catch (error) {
@@ -153,6 +162,11 @@ export async function ensureChatBackendReady(
           `Stopping the OVMS image server failed: ${String(error)}`,
           'electron-backend',
         )
+      }
+      try {
+        await d.stopSdCppImageServer?.()
+      } catch (error) {
+        appLogger.warn(`Stopping sd-server failed: ${String(error)}`, 'electron-backend')
       }
     }
 

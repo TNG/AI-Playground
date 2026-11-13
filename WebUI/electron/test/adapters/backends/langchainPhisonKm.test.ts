@@ -8,12 +8,12 @@ import {
   selectGroupContext,
   stampGroupIds,
   warmupKVCache,
-  WARMUP_MAX_CONSECUTIVE_FAILURES,
+  abortKVCacheWarmup,
   type SplitterParams,
 } from '../../../adapters/backends/langchainPhisonKm'
-import { deriveGroupContent, GROUP_SEPARATOR } from '@/types/phisonKmRag'
+import { deriveGroupContent, GROUP_SEPARATOR, phisonKmContextPrefix } from '@/types/phisonKmRag'
 import type { IndexedDocument } from '@/types/rag'
-import type { WarmupRequest } from '@/types/phisonKmRag'
+import type { WarmupWorkerRequest } from '@/types/phisonKmRag'
 
 /**
  * The value MAX_TOKENS_PER_GROUP is expected to have. It isn't exported, so the group
@@ -263,38 +263,61 @@ describe('warmupKVCache', () => {
     vi.restoreAllMocks()
   })
 
-  function warmupRequest(groupCount: number): WarmupRequest {
+  function warmupRequest(groupCount: number): WarmupWorkerRequest {
     return {
       llmBackendUrl: 'http://llm.local',
-      modelName: 'test-model',
-      ragSystemPrefix: 'shared-prefix',
-      mergedGroups: Array.from({ length: groupCount }, (_, i) => ({
+      modelId: 'test-model',
+      chatTemplateKwargs: { enable_thinking: true },
+      groups: Array.from({ length: groupCount }, (_, i) => ({
         groupId: `g${i}`,
         content: `group-${i}-content`,
       })),
     }
   }
 
-  it('stops after WARMUP_MAX_CONSECUTIVE_FAILURES non-OK responses', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+  it('prefills each group with the KM prompt head and the turn template kwargs', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
     vi.stubGlobal('fetch', fetchMock)
 
-    await warmupKVCache(warmupRequest(WARMUP_MAX_CONSECUTIVE_FAILURES + 2))
+    await expect(warmupKVCache(warmupRequest(2))).resolves.toEqual({ success: true })
 
-    expect(fetchMock).toHaveBeenCalledTimes(WARMUP_MAX_CONSECUTIVE_FAILURES)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.messages[0]).toEqual({
+      role: 'system',
+      content: phisonKmContextPrefix('group-0-content'),
+    })
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true })
+    expect(body.max_tokens).toBe(1)
   })
 
-  it('resets the consecutive-failure count after a success', async () => {
+  it('stops at the first failed group and reports it', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({ ok: false, status: 503 })
       .mockResolvedValueOnce({ ok: true, status: 200 })
       .mockResolvedValue({ ok: false, status: 503 })
     vi.stubGlobal('fetch', fetchMock)
 
-    await warmupKVCache(warmupRequest(WARMUP_MAX_CONSECUTIVE_FAILURES + 2))
+    const result = await warmupKVCache(warmupRequest(4))
 
-    // 1 fail + 1 success + 3 consecutive fails = 5 calls (not aborted early at 3)
-    expect(fetchMock).toHaveBeenCalledTimes(WARMUP_MAX_CONSECUTIVE_FAILURES + 2)
+    expect(result).toEqual({ success: false, error: expect.stringContaining('503') })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes the prefill connection on abort and warms no further group', async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) =>
+          init.signal.addEventListener('abort', () => reject(new Error('aborted'))),
+        ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = warmupKVCache(warmupRequest(3))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    abortKVCacheWarmup()
+
+    await expect(result).resolves.toEqual({ success: false, error: 'Warmup cancelled' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

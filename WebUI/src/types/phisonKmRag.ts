@@ -1,4 +1,5 @@
 import { Document } from '@langchain/classic/document'
+import type { ChatModelConfig } from './chatIpc'
 
 /**
  * Phison KM (Knowledge Manager) RAG types.
@@ -33,6 +34,8 @@ export type MergedGroupsMeta = {
   chunkOverlap: number
   maxTokensPerGroup: number
   chunkCount: number
+  /** Models a completed KV warmup of these groups ran on; a re-upload on one is not warmed again. */
+  warmedModels?: string[]
 }
 
 // Warmup needs actual group text for the prefill request body. Unlike MergedGroup,
@@ -51,13 +54,24 @@ export type WarmupGroup = {
 export const PHISON_KM_RAG_PREFIX =
   '/no_think You are a helpful AI assistant. Use the provided document context to answer questions accurately. If the context does not contain relevant information, say so.'
 
-export type WarmupRequest = {
-  llmBackendUrl: string
-  mergedGroups: WarmupGroup[]
-  modelName: string
-  /** Must match `PHISON_KM_RAG_PREFIX` so warmup and inference share a KV prefix. */
-  ragSystemPrefix: string
+/** The KM system prompt's cacheable head; warmup prefills exactly this string. */
+export function phisonKmContextPrefix(ragContext: string): string {
+  return `${PHISON_KM_RAG_PREFIX}\n\nDocument context:\n\n${ragContext}`
 }
+
+/** One document's warmup, renderer → main: main admits it and loads the model first. */
+export type WarmupRequest = {
+  groups: WarmupGroup[]
+  /** The chat turn's own model fields, so the prefill renders the prompt a question will. */
+  modelId: string
+  chatTemplateKwargs?: ChatModelConfig['chatTemplateKwargs']
+  readiness?: ChatModelConfig['readiness']
+}
+
+/** Main → langchain worker, once the model is loaded and its server URL is known. */
+export type WarmupWorkerRequest = Omit<WarmupRequest, 'readiness'> & { llmBackendUrl: string }
+
+export type WarmupWorkerResult = { success: true } | { success: false; error: string }
 
 export type PhisonKmIngestConfig = {
   embeddingServerUrl: string

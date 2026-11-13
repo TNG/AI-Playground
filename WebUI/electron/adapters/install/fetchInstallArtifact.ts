@@ -12,8 +12,11 @@ import { net } from 'electron'
  * keeps seeing HTML. `no-store` neither reads nor writes the cache, which also
  * keeps the multi-hundred-MB archives out of it.
  */
-export function fetchInstallArtifact(url: string): ReturnType<typeof net.fetch> {
-  return net.fetch(url, { cache: 'no-store' })
+export function fetchInstallArtifact(
+  url: string,
+  headers?: Record<string, string>,
+): ReturnType<typeof net.fetch> {
+  return net.fetch(url, { cache: 'no-store', ...(headers && { headers }) })
 }
 
 export type InstallArtifactResponse = Awaited<ReturnType<typeof fetchInstallArtifact>>

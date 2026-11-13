@@ -21,10 +21,12 @@ export const CORE_DEPENDENT_BACKENDS = [
 /**
  * Opt-in components: never pre-selected on a machine that does not already have
  * them. They add a surface the user has to configure (Home Agent needs a chat
- * channel), so installing one nobody asked for is cost without a feature.
+ * channel), so installing one nobody asked for is cost without a feature. The Phison
+ * sd-server replaces a Windows service on the machine, so it also waits for the user.
  */
 export const OPT_IN_BACKENDS = [
   'home-agent-backend',
+  'sdcpp-backend',
 ] as const satisfies readonly BackendServiceName[]
 
 export function isCoreDependentBackend(name: string): boolean {
@@ -33,6 +35,11 @@ export function isCoreDependentBackend(name: string): boolean {
 
 export function isOptInBackend(name: string): boolean {
   return (OPT_IN_BACKENDS as readonly string[]).includes(name)
+}
+
+/** The Phison sd-server is bound to a Phison SSD, so its row only exists on such a machine. */
+export function isComponentListed(name: string, phisonSsdDetected: boolean): boolean {
+  return name !== 'sdcpp-backend' || phisonSsdDetected
 }
 
 export type SeedCandidate = {
@@ -64,5 +71,29 @@ export function selectDefaultInstalls(candidates: SeedCandidate[]): BackendServi
       if (isOptInBackend(c.serviceName)) return c.isSetUp
       return true
     })
+    .map((c) => c.serviceName)
+}
+
+export type ModeChangeCandidate = {
+  serviceName: BackendServiceName
+  isRequired: boolean
+  isSetUp: boolean
+  wasAvailable: boolean
+  nowAvailable: boolean
+}
+
+/** The components a product-mode change switches on: newly offered and not installed yet. */
+export function selectInstallsOnModeChange(
+  candidates: ModeChangeCandidate[],
+): BackendServiceName[] {
+  return candidates
+    .filter(
+      (c) =>
+        c.nowAvailable &&
+        !c.wasAvailable &&
+        !c.isSetUp &&
+        !c.isRequired &&
+        !isOptInBackend(c.serviceName),
+    )
     .map((c) => c.serviceName)
 }

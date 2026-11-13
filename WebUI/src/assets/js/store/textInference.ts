@@ -8,11 +8,7 @@ import {
 import { useBackendServices, type BackendServiceName } from './backendServices'
 import { useModels } from './models'
 import type { EmbedInquiry, IndexedDocument } from '@/types/rag'
-import {
-  deriveGroupContent,
-  type PhisonKmIngestConfig,
-  type WarmupRequest,
-} from '@/types/phisonKmRag'
+import type { PhisonKmIngestConfig } from '@/types/phisonKmRag'
 import {
   llmBackendTypes,
   npuPromptLen,
@@ -41,6 +37,9 @@ import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from './conversations'
 import * as toast from '@/assets/js/toast.ts'
 import { useActivities } from './activities'
 import { useI18N } from './i18n'
+import { useErrors } from './errors'
+import { createAppError } from '../errors/appError'
+import { buildChatModelConfig } from '@/lib/chatModel'
 import { useUIStore } from './ui'
 import { renamePresetKeys } from '@/lib/presetRenames'
 import { repairChatSettings } from '@/lib/chatSettingsRepair'
@@ -67,11 +66,7 @@ import {
   type ToolEnablement,
 } from '@/lib/builtinToolEnablement'
 import { isWorkflowEnabled, resolveDefaultWorkflow } from '@/lib/mediaToolSettings'
-import {
-  createPhisonKmRag,
-  PHISON_KM_CONTEXT_FLOOR,
-  PHISON_KM_RAG_PREFIX,
-} from '@/assets/js/phisonKmRag'
+import { createPhisonKmRag, PHISON_KM_CONTEXT_FLOOR } from '@/assets/js/phisonKmRag'
 import { useModelPreferences } from './modelPreferences'
 import { pathKeyForCatalogModel } from '../models/library'
 import { withPreferenceFlags } from '../models/favorites'
@@ -177,6 +172,7 @@ export const useTextInference = defineStore(
       return null
     })
     const i18nState = useI18N().state
+    const errors = useErrors()
     const uiStore = useUIStore()
     // Tracks the in-flight backend-preparation activity (begin/end are paired with
     // start/completeBackendPreparation).
@@ -927,6 +923,10 @@ export const useTextInference = defineStore(
       isPhisonKmRag,
       enforceKmContextFloor,
       contextSizeAdjust,
+      kmWarmupStatus,
+      kmWarmupBlocking,
+      indexWithKmWarmup,
+      cancelKmWarmup,
     } = createPhisonKmRag({
       contextSize,
       requestedContextSize,
@@ -935,6 +935,30 @@ export const useTextInference = defineStore(
       backend,
       backendServices,
       isLoadingSettings: () => isLoadingSettings,
+      warmup: {
+        ragList,
+        activeModel: () => activeModel.value,
+        warmupModel: () => {
+          const { modelId, chatTemplateKwargs, readiness } = buildChatModelConfig()
+          return { modelId, chatTemplateKwargs, readiness }
+        },
+        embeddingModel: () => activeEmbeddingModel.value,
+        embeddingService: () => backendToService[embeddingBackend.value],
+        ensureModels: () => ensureKmWarmupModels(),
+        onDone: () => toast.success(i18nState.KM_WARMUP_DONE),
+        onFailed: (cause) =>
+          errors.report(
+            createAppError({
+              category: 'inference',
+              code: 'inference/km-warmup-failed',
+              severity: 'warning',
+              surface: 'toast',
+              userMessage: i18nState.KM_WARMUP_FAILED,
+              technicalMessage: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
+          ),
+      },
     })
 
     // Per-preset settings persistence
@@ -1142,18 +1166,15 @@ export const useTextInference = defineStore(
       }
     }
 
-    async function addDocumentToRagList(document: IndexedDocument) {
-      // Phison KM: if active, pass the embedding server URL for token-accurate grouping.
-      let phisonKmConfig: PhisonKmIngestConfig | undefined
-      if (isPhisonKmRag.value) {
-        const embeddingUrlResult = await window.electronAPI.getEmbeddingServerUrl(
-          backendToService['llamaCPP'],
-        )
-        if (embeddingUrlResult.success && embeddingUrlResult.url) {
-          phisonKmConfig = { embeddingServerUrl: embeddingUrlResult.url }
-        }
-      }
+    /** Indexes one document and returns the list's entry for it, new or already there. */
+    function addDocumentToRagList(document: IndexedDocument): Promise<IndexedDocument> {
+      return indexWithKmWarmup((phisonKmConfig) => indexDocument(document, phisonKmConfig))
+    }
 
+    async function indexDocument(
+      document: IndexedDocument,
+      phisonKmConfig?: PhisonKmIngestConfig,
+    ): Promise<IndexedDocument> {
       const langchainDocument: IndexedDocument = await window.electronAPI.addDocumentToRAGList(
         document,
         phisonKmConfig,
@@ -1172,40 +1193,19 @@ export const useTextInference = defineStore(
           existing.isChecked = true
           persistActiveRagSelection()
         }
-        return
+        // Indexed before KM was on: adopt the groups this pass built, with the chunks they index.
+        if (!existing.mergedGroups?.length && langchainDocument.mergedGroups?.length) {
+          existing.splitDB = langchainDocument.splitDB
+          existing.mergedGroups = langchainDocument.mergedGroups
+          existing.mergedGroupsMeta = langchainDocument.mergedGroupsMeta
+        }
+        return existing
       }
       ragList.value.push(langchainDocument)
       if (langchainDocument.isChecked) {
         persistActiveRagSelection()
       }
-
-      // Phison KM: pre-warm the KV cache for each merged group (fire-and-forget).
-      // Pass ragSystemPrefix so warmup uses the identical prefix as the actual query.
-      // Content is derived here from splitDB + the boundary-only mergedGroups — this
-      // WarmupRequest payload is transient (never persisted), so carrying full text
-      // in it is fine.
-      // Prefer the direct llama.cpp upstream URL when Home Agent is active —
-      // currentBackendUrl points at the Home Agent proxy, which does not own the KV cache.
-      const warmupBackendUrl = homeAgentUpstreamUrl.value ?? currentBackendUrl.value
-      if (
-        isPhisonKmRag.value &&
-        langchainDocument.mergedGroups?.length &&
-        warmupBackendUrl &&
-        activeModel.value
-      ) {
-        const warmupReq: WarmupRequest = {
-          llmBackendUrl: warmupBackendUrl,
-          mergedGroups: langchainDocument.mergedGroups.map((group) => ({
-            groupId: group.groupId,
-            content: deriveGroupContent(langchainDocument.splitDB, group),
-          })),
-          modelName: activeModel.value,
-          ragSystemPrefix: PHISON_KM_RAG_PREFIX,
-        }
-        window.electronAPI.warmupKVCacheForDocument(warmupReq).catch((err) => {
-          console.warn('Phison KV cache warmup failed (non-critical):', err)
-        })
-      }
+      return langchainDocument
     }
 
     async function embedInputUsingRag(prompt: string, useGroupRetrieval: boolean = false) {
@@ -1415,6 +1415,15 @@ export const useTextInference = defineStore(
       // The permissions layer owns the prompt: the download modal, or the
       // channel when a remote Home Agent turn is active.
       await requestDownload(uniqueDownloads, { conversationKey: options.conversationKey })
+    }
+
+    /** What a KM warmup loads, asked for the way a turn asks; throws a cancellation on decline. */
+    async function ensureKmWarmupModels(): Promise<void> {
+      const downloads = [
+        ...(await getDownloadParamsForCurrentModelIfRequired('llm')),
+        ...(await getDownloadParamsForCurrentModelIfRequired('embedding')),
+      ].filter((d, index, all) => index === all.findIndex((other) => other.repo_id === d.repo_id))
+      if (downloads.length > 0) await requestDownload(downloads)
     }
 
     // Cloud Mode RAG: the chat LLM is remote and cannot embed, so bring up a
@@ -2265,6 +2274,9 @@ export const useTextInference = defineStore(
       kmContextFloorReachable,
       phisonKmAvailable,
       isPhisonKmRag,
+      kmWarmupStatus,
+      kmWarmupBlocking,
+      cancelKmWarmup,
       enforceKmContextFloor,
       contextSizeSettingSupported,
       contextSizeIsDynamic,

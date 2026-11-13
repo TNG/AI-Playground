@@ -142,6 +142,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     invoke('addDocumentToRAGList', doc, phisonKmConfig),
   embedInputUsingRag: (embedInquiry: EmbedInquiry) => invoke('embedInputUsingRag', embedInquiry),
   warmupKVCacheForDocument: (request: WarmupRequest) => invoke('warmupKVCacheForDocument', request),
+  cancelKmWarmup: () => invoke('cancelKmWarmup'),
   getEmbeddingServerUrl: (serviceName: string) => invoke('getEmbeddingServerUrl', serviceName),
   ensureEmbeddingServerReady: (serviceName: string, embeddingModelName: string) =>
     invoke('ensureEmbeddingServerReady', serviceName, embeddingModelName),

@@ -1,4 +1,4 @@
-import { PHISON_KM_RAG_PREFIX } from '@/types/phisonKmRag'
+import { phisonKmContextPrefix } from '@/types/phisonKmRag'
 
 export type RagSourceDocument = {
   pageContent?: string
@@ -22,7 +22,7 @@ export function augmentSystemPrompt(
   if (pageContents.length === 0) return basePrompt
   const ragContext = pageContents.join('\n\n')
   return useGroupRetrieval
-    ? `${PHISON_KM_RAG_PREFIX}\n\nDocument context:\n\n${ragContext}\n\n---\n\n${basePrompt}`
+    ? `${phisonKmContextPrefix(ragContext)}\n\n---\n\n${basePrompt}`
     : `${basePrompt}\n\nUse the following context from your knowledge base to answer the question:\n\n${ragContext}`
 }
 

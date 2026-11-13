@@ -109,6 +109,8 @@ export function mapServiceNameToDisplayName(serviceName: string) {
       return 'Text To Speech (Qwen3-TTS)'
     case 'whisper-backend':
       return 'Speech To Text (Standalone Whisper)'
+    case 'sdcpp-backend':
+      return 'sd.cpp with Phison Pascari aiDAPTIV'
     case 'cloud-mode':
       return HYBRID_CLOUD_NAME
     default:

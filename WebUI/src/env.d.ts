@@ -397,6 +397,7 @@ type BackendServiceName =
   | 'home-agent-backend'
   | 'qwen3-tts-backend'
   | 'whisper-backend'
+  | 'sdcpp-backend'
 
 type InferenceDevice = {
   id: string

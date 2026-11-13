@@ -1,6 +1,5 @@
 import { exec, execFile, type ChildProcess } from 'node:child_process'
 import { createServer as createTcpServer } from 'node:net'
-import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -28,10 +27,12 @@ import { resolveDefaultDevice } from '../hardware/defaultDeviceSelection.ts'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
 import getPort, { portNumbers } from 'get-port'
 import { binary, extract, restoreTreeWritePermissions } from '../install/tools.ts'
+import { runElevatedBatch } from '../install/elevatedBatch.ts'
 import * as llamaCppPhison from './llamaCppPhison.ts'
 import type { LlamaCppBuildVariant } from './llamaCppPhison.ts'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 // Flash attention defaults to `on`: with it off, attention materializes a full
 // seq×seq softmax buffer, and that single large Vulkan dispatch trips Intel Arc
@@ -271,8 +272,6 @@ interface LlamaServerProcess {
   isReady: boolean
 }
 
-const execFileAsync = promisify(execFile)
-
 /**
  * Whether a server can listen on `port` on loopback right now. Asked with a bind
  * attempt because that is the only thing that answers it: `get-port` refuses a
@@ -311,6 +310,8 @@ export class LlamaCppBackendService implements ApiService {
   desiredStatus: BackendStatus = 'uninitializedStatus'
   /** True while an install runs for this service — see `ApiService.setUpInProgress`. */
   setUpInProgress: boolean = false
+  /** Settles once an outdated aiDAPTIV build has been replaced; checked once per launch. */
+  private ssdOffloadOverwrite: Promise<void> | undefined
 
   // Model server processes
   private llamaLlmProcess: LlamaServerProcess | null = null
@@ -445,6 +446,8 @@ export class LlamaCppBackendService implements ApiService {
       `Ensuring LlamaCPP backend readiness for LLM: ${llmModelName}, Embedding: ${embeddingModelName ?? 'none'}, Context: ${contextSize ?? 'default'}, Model args: ${modelArgs ?? 'none'}`,
       this.name,
     )
+    // Launching mid-overwrite would run a build whose directory is being replaced.
+    await this.ssdOffloadOverwrite
 
     try {
       // Handle LLM model
@@ -510,6 +513,7 @@ export class LlamaCppBackendService implements ApiService {
    * local server. Mirrors the embedding branch of ensureBackendReadiness.
    */
   async ensureEmbeddingServerReady(embeddingModelName: string): Promise<void> {
+    await this.ssdOffloadOverwrite
     const needsEmbeddingRestart = this.embeddingServerNeedsRestart(embeddingModelName)
 
     if (needsEmbeddingRestart) {
@@ -773,6 +777,10 @@ export class LlamaCppBackendService implements ApiService {
       }
     }
     this.syncSetupFlagsFromDisk()
+    // Main boots as 'standard'; this push is the first point the Phison variant is known.
+    if (this.llamaCppBuildVariant === 'ssd-offload') {
+      this.ssdOffloadOverwrite ??= this.overwriteOutdatedSsdOffloadBuild()
+    }
   }
 
   async getInstalledVersion(): Promise<{ version?: string; releaseTag?: string } | undefined> {
@@ -1272,63 +1280,8 @@ export class LlamaCppBackendService implements ApiService {
     }
   }
 
-  /**
-   * Runs one or more shell commands inside a single elevated (UAC) session.
-   *
-   * All steps are written to a temporary `.cmd` script launched once via
-   * `Start-Process -Verb RunAs -Wait`, so a multi-step elevated operation triggers a single
-   * UAC prompt instead of one prompt per step. Individual command failures do not abort the
-   * batch — the script runs every line so best-effort teardown steps (e.g. `taskkill` when
-   * nothing is running) cannot block the remaining work.
-   */
   private async runElevatedBatch(commands: string[], workingDirectory: string): Promise<void> {
-    const steps = commands.filter((command) => command.trim().length > 0)
-    if (steps.length === 0) {
-      return
-    }
-
-    this.appLogger.info(
-      `Running ${steps.length} elevated command(s) in a single UAC prompt`,
-      this.name,
-    )
-
-    const scriptPath = path.join(os.tmpdir(), `aipg-phison-elevated-${Date.now()}.cmd`)
-    const scriptBody = ['@echo off', ...steps].join('\r\n')
-    await filesystem.writeFile(scriptPath, scriptBody, 'utf8')
-
-    const escapedScriptPath = scriptPath.replaceAll("'", "''")
-    const escapedWorkingDirectory = workingDirectory.replaceAll("'", "''")
-    const powershellArgs = [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `Start-Process -FilePath '${escapedScriptPath}' -WorkingDirectory '${escapedWorkingDirectory}' -Verb RunAs -Wait`,
-    ]
-
-    try {
-      const { stdout, stderr } = await execFileAsync('powershell.exe', powershellArgs, {
-        windowsHide: true,
-      })
-
-      if (stdout) {
-        this.appLogger.info(stdout, this.name)
-      }
-      if (stderr) {
-        this.appLogger.warn(stderr, this.name)
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to run elevated batch: ${message}`)
-    } finally {
-      try {
-        await filesystem.remove(scriptPath)
-      } catch (cleanupError) {
-        this.appLogger.warn(
-          `Failed to remove temporary elevated script ${scriptPath}: ${cleanupError}`,
-          this.name,
-        )
-      }
-    }
+    await runElevatedBatch(commands, workingDirectory, { name: this.name, logger: this.appLogger })
   }
 
   private async removeDirectoryWithRetries(targetDir: string): Promise<void> {
@@ -1388,6 +1341,57 @@ export class LlamaCppBackendService implements ApiService {
     this.clearLastStartupError()
     this.updateStatus()
     return 'running'
+  }
+
+  /**
+   * Replaces an installed aiDAPTIV build that differs from the one this release downloads,
+   * by running the ordinary install over it. A failed download leaves the old build in place.
+   */
+  private async overwriteOutdatedSsdOffloadBuild(): Promise<void> {
+    if (
+      process.platform !== 'win32' ||
+      this.llamaCppBuildVariant !== 'ssd-offload' ||
+      !this.isSetUp
+    ) {
+      return
+    }
+    const target = llamaCppPhison.ssdOffloadBuildFromUrl()
+    const installed = await this.readInstalledSsdOffloadBuild()
+    if (!target || !installed || installed === target) return
+
+    this.appLogger.info(`Replacing aiDAPTIV build ${installed} with ${target}`, this.name)
+    this.setUpInProgress = true
+    try {
+      for await (const progress of this.set_up()) {
+        this.appLogger.info(`aiDAPTIV update: ${progress.debugMessage}`, this.name)
+        if (progress.status === 'failed' || progress.status === 'success') break
+      }
+    } finally {
+      this.setUpInProgress = false
+    }
+    // set_up leaves the service at notYetStarted; restore the running state it had.
+    if (this.isSetUp && this.desiredStatus === 'running') await this.start()
+  }
+
+  private async readInstalledSsdOffloadBuild(): Promise<string | undefined> {
+    const exe = path.join(this.llamaCppDirForVariant('ssd-offload'), binary('llama-server'))
+    if (!filesystem.existsSync(exe)) return undefined
+    try {
+      const { stdout } = await execFileAsync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-Item -LiteralPath '${exe.replace(/'/g, "''")}').VersionInfo.ProductVersion`,
+        ],
+        { timeout: 30000 },
+      )
+      return llamaCppPhison.ssdOffloadBuildFromProductVersion(stdout)
+    } catch (error) {
+      this.appLogger.warn(`Could not read the aiDAPTIV build of ${exe}: ${error}`, this.name)
+      return undefined
+    }
   }
 
   async stop(): Promise<BackendStatus> {
@@ -1822,6 +1826,15 @@ export class LlamaCppBackendService implements ApiService {
       this.llamaEmbeddingProcess = null
       this.currentEmbeddingModel = null
       this.currentEmbeddingDeviceId = null
+    }
+  }
+
+  hasModel(modelRepoId: string): boolean {
+    try {
+      this.resolveModelPath(modelRepoId)
+      return true
+    } catch {
+      return false
     }
   }
 

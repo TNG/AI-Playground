@@ -404,6 +404,19 @@
                   </TooltipProvider>
                 </div>
               </div>
+
+              <SetupWizardRow
+                v-for="row in phisonRows"
+                :key="row.serviceName"
+                :row="{ ...backendRowView(row), accent: 'phison' }"
+                @toggle="(v) => wizard.toggleBackend(row.serviceName, v)"
+                @repair="wizard.repairBackend(row.serviceName)"
+                @show-error="wizard.showErrorModal(row.serviceName)"
+              >
+                <template #options>
+                  <BackendOptions :backend="row.serviceName" />
+                </template>
+              </SetupWizardRow>
             </div>
             <p class="text-xs text-muted-foreground pt-3">
               {{
@@ -559,10 +572,18 @@ const aiPlaygroundOptionalRows = computed(() =>
 const coreDependentRows = computed(() =>
   wizard.backendRows.filter((r) => CORE_DEPENDENTS.includes(r.serviceName)),
 )
+const PHISON_ROWS: BackendServiceName[] = ['sdcpp-backend']
 const ungroupedRows = computed(() =>
   wizard.backendRows.filter(
-    (r) => !AI_PLAYGROUND_GROUP.includes(r.serviceName) && !CORE_DEPENDENTS.includes(r.serviceName),
+    (r) =>
+      !AI_PLAYGROUND_GROUP.includes(r.serviceName) &&
+      !CORE_DEPENDENTS.includes(r.serviceName) &&
+      !PHISON_ROWS.includes(r.serviceName),
   ),
+)
+/** Phison aiDAPTIV components listed under the Llama.cpp aiDAPTIV row. */
+const phisonRows = computed(() =>
+  wizard.backendRows.filter((r) => PHISON_ROWS.includes(r.serviceName)),
 )
 
 const coreServicesNeedsAttention = computed(() =>

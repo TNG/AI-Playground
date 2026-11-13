@@ -48,6 +48,23 @@
           {{ languages?.AGENT_STEPS_STOP }}
         </Button>
       </div>
+      <div
+        v-if="kmWarmupNote"
+        role="status"
+        aria-label="Document pre-reading"
+        class="w-full max-w-3xl flex items-center gap-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <p class="flex-1 min-w-0">{{ kmWarmupNote }}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-7 px-2 text-xs"
+          @click="textInference.cancelKmWarmup()"
+        >
+          <StopIcon class="size-3.5" aria-hidden="true" />
+          {{ languages?.KM_WARMUP_CANCEL }}
+        </Button>
+      </div>
       <p class="text-2xl font-bold">Let's Generate</p>
       <ModelDownloadCard v-if="downloadGroup" :group="downloadGroup" />
       <div class="w-full max-w-3xl flex flex-col">
@@ -443,7 +460,7 @@
                       @click="handleSubmitPromptClick"
                       id="send-button"
                       aria-label="Send"
-                      :disabled="agentSettingsProblems.length > 0"
+                      :disabled="agentSettingsProblems.length > 0 || holdingForKmWarmup"
                       class="px-3 py-1.5 bg-primary hover:bg-primary/80 rounded-lg text-sm min-w-[44px]"
                     >
                       →
@@ -531,9 +548,12 @@ import { MODE_TO_CATEGORIES, MODE_TO_PRESET_TYPE, buttonModeFor } from '@/lib/pr
 import { useConversations, HOME_AGENT_CHAT_PRESET_NAME } from '@/assets/js/store/conversations'
 import { useHomeAgent } from '@/assets/js/store/homeAgent'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { requiredServiceGate, type PresetGate } from '@/lib/presetServiceGate'
+import { mapServiceNameToDisplayName } from '@/lib/utils'
 import { useActivities } from '@/assets/js/store/activities'
 import { useErrors } from '@/assets/js/store/errors'
 import { useTextInference } from '@/assets/js/store/textInference'
+import { kmWarmupLabel } from '@/assets/js/phisonKmRag'
 import type { IndexedDocument, ValidFileExtension } from '@/types/rag'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets, type ChatPreset, type Preset } from '@/assets/js/store/presets'
@@ -550,7 +570,7 @@ import {
 import { PlayIcon } from '@heroicons/vue/24/solid'
 import AcerCameraIcon from '@/components/AcerCameraIcon.vue'
 import { Label } from '@/components/ui/label'
-import { useDropZone, useEventListener } from '@vueuse/core'
+import { useDropZone, useEventListener, useNow } from '@vueuse/core'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
 import ModelDownloadCard from '@/components/ModelDownloadCard.vue'
 import * as toast from '@/assets/js/toast'
@@ -603,7 +623,14 @@ const phisonUsable = computed(
 )
 
 /** Whether a picker preset is currently selectable, plus why not when disabled. */
-function presetGate(preset: Preset): { enabled: boolean; reason?: string } {
+function presetGate(preset: Preset): PresetGate {
+  if (preset.requiresService) {
+    return requiredServiceGate(
+      preset.requiresService,
+      backendServices.info,
+      mapServiceNameToDisplayName,
+    )
+  }
   if (preset.type === 'chat' && (preset as ChatPreset).requiresPhison) {
     return phisonUsable.value
       ? { enabled: true }
@@ -949,6 +976,17 @@ const promptRun = computed(() =>
     : undefined,
 )
 
+// KM questions wait for the document warmup; the chat store enforces it, this shows it.
+const holdingForKmWarmup = computed(
+  () => isChatLikeMode.value && textInference.kmWarmupBlocking && textInference.isPhisonKmRag,
+)
+const warmupClock = useNow({ interval: 1000 })
+const kmWarmupNote = computed(() =>
+  holdingForKmWarmup.value && textInference.kmWarmupStatus
+    ? kmWarmupLabel(textInference.kmWarmupStatus, warmupClock.value.getTime(), languages ?? {})
+    : '',
+)
+
 const promptRunNote = computed(() =>
   (languages?.AGENT_STEPS_RUNNING ?? '')
     .replace('{step}', String(promptRun.value?.stepIndex ?? ''))
@@ -1121,6 +1159,10 @@ function describeSettingsProblem(problem: SessionSettingsProblem): string {
 
 function handleSubmitPromptClick() {
   if (agentSettingsProblems.value.length > 0 || downloadGroup.value) return
+  if (holdingForKmWarmup.value) {
+    toast.warning(languages?.KM_WARMUP_BLOCKED ?? '')
+    return
+  }
   const needsPrompt = isChatLikeMode.value || imageGeneration.requiresUserPrompt
   if (needsPrompt && !prompt.value.trim()) {
     toast.error(languages?.COM_ERROR_NO_MESSAGE || 'Please enter a message before sending.')
@@ -1496,7 +1538,18 @@ async function addDocumentsToRagList(files: File[]) {
         if (!existingDoc.isChecked) {
           textInference.updateFileCheckStatus(existingDoc.hash, true)
         }
-        // If already checked, do nothing
+        // Under KM a re-upload goes through indexing, which warms it unless already warmed.
+        // A fresh stub: the list entry is reactive, and IPC cannot clone it.
+        if (textInference.isPhisonKmRag) {
+          await textInference.addDocumentToRagList({
+            filename: existingDoc.filename,
+            filepath: existingDoc.filepath,
+            type: existingDoc.type,
+            splitDB: [],
+            hash: '',
+            isChecked: true,
+          })
+        }
         continue
       }
 

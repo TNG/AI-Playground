@@ -20,7 +20,7 @@ import type {
   MergedGroup,
   MergedGroupsMeta,
   PhisonKmIngestConfig,
-  WarmupRequest,
+  WarmupWorkerRequest,
 } from '@/types/phisonKmRag'
 import {
   buildMergedGroups,
@@ -28,6 +28,7 @@ import {
   ensureMergedGroups,
   selectGroupContext,
   warmupKVCache,
+  abortKVCacheWarmup,
   type SplitterParams,
 } from './langchainPhisonKm.ts'
 
@@ -84,8 +85,15 @@ process.parentPort.on('message', async (message) => {
       break
 
     case 'warmupKVCacheForDocument':
-      await warmupKVCache(message.data.args as WarmupRequest)
-      process.parentPort.postMessage({ type, returnValue: { success: true } })
+      process.parentPort.postMessage({
+        type,
+        returnValue: await warmupKVCache(message.data.args as WarmupWorkerRequest),
+      })
+      break
+
+    case 'abortKVCacheWarmup':
+      abortKVCacheWarmup()
+      process.parentPort.postMessage({ type, returnValue: undefined })
       break
   }
 })

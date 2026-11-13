@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   CORE_DEPENDENT_BACKENDS,
   OPT_IN_BACKENDS,
+  isComponentListed,
   isCoreDependentBackend,
   selectDefaultInstalls,
+  selectInstallsOnModeChange,
   type SeedCandidate,
 } from './wizardInstallDefaults'
 
@@ -17,6 +19,7 @@ function freshMachine(): SeedCandidate[] {
     { serviceName: 'llamacpp-backend', isRequired: false, isSetUp: false, ...offered() },
     { serviceName: 'openvino-backend', isRequired: false, isSetUp: false, ...offered() },
     { serviceName: 'comfyui-backend', isRequired: false, isSetUp: false, ...offered() },
+    { serviceName: 'sdcpp-backend', isRequired: false, isSetUp: false, ...offered() },
   ]
 }
 
@@ -49,6 +52,16 @@ describe('selectDefaultInstalls', () => {
 
   it('leaves Home Agent off on a machine that does not have it', () => {
     expect(selectDefaultInstalls(freshMachine())).not.toContain('home-agent-backend')
+  })
+
+  it('never pre-selects the Phison sd-server on a fresh machine', () => {
+    expect(selectDefaultInstalls(freshMachine())).not.toContain('sdcpp-backend')
+  })
+
+  it('keeps the Phison sd-server selected once it is installed', () => {
+    const candidates = withCandidate(freshMachine(), 'sdcpp-backend', { isSetUp: true })
+
+    expect(selectDefaultInstalls(candidates)).toContain('sdcpp-backend')
   })
 
   it('pre-selects Home Agent once it is installed, so reopening the wizard keeps it', () => {
@@ -113,7 +126,43 @@ describe('component classification', () => {
     expect(isCoreDependentBackend('comfyui-backend')).toBe(false)
   })
 
-  it('treats only Home Agent as opt-in', () => {
-    expect([...OPT_IN_BACKENDS]).toEqual(['home-agent-backend'])
+  it('treats only Home Agent and the Phison sd-server as opt-in', () => {
+    expect([...OPT_IN_BACKENDS]).toEqual(['home-agent-backend', 'sdcpp-backend'])
+  })
+
+  it('lists the Phison sd-server only on a machine with a Phison SSD', () => {
+    expect(isComponentListed('sdcpp-backend', false)).toBe(false)
+    expect(isComponentListed('sdcpp-backend', true)).toBe(true)
+    expect(isComponentListed('comfyui-backend', false)).toBe(true)
+  })
+})
+
+describe('selectInstallsOnModeChange', () => {
+  const leavingNvidia = (serviceName: BackendServiceName) => ({
+    serviceName,
+    isRequired: false,
+    isSetUp: false,
+    wasAvailable: false,
+    nowAvailable: true,
+  })
+
+  it('switches on what the new mode offers that is not installed yet', () => {
+    expect(selectInstallsOnModeChange([leavingNvidia('openvino-backend')])).toEqual([
+      'openvino-backend',
+    ])
+  })
+
+  it('leaves an opt-in component off, so leaving NVIDIA mode never replaces a Windows service', () => {
+    expect(selectInstallsOnModeChange([leavingNvidia('sdcpp-backend')])).toEqual([])
+  })
+
+  it('skips what is installed, required, or was already offered', () => {
+    expect(
+      selectInstallsOnModeChange([
+        { ...leavingNvidia('openvino-backend'), isSetUp: true },
+        { ...leavingNvidia('ai-backend'), isRequired: true },
+        { ...leavingNvidia('comfyui-backend'), wasAvailable: true },
+      ]),
+    ).toEqual([])
   })
 })

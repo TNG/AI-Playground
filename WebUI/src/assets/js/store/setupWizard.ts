@@ -18,7 +18,12 @@ import { useCloudMode } from './cloudMode'
 import { CHANNELS } from './channels/channelRegistry'
 import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import { isOnDemandBackend } from '@/lib/onDemandBackends'
-import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDefaults'
+import {
+  isComponentListed,
+  selectDefaultInstalls,
+  selectInstallsOnModeChange,
+  type SeedCandidate,
+} from '@/lib/wizardInstallDefaults'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
@@ -34,6 +39,8 @@ function isBackendAvailableInProductMode(
   serviceName: BackendServiceName,
 ): boolean {
   if (mode === 'nvidia' && serviceName === 'openvino-backend') return false
+  // The shipment's only GPU add-on so far is SYCL.
+  if (mode === 'nvidia' && serviceName === 'sdcpp-backend') return false
   return true
 }
 
@@ -98,6 +105,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   'home-agent-backend': ['start', 'install dependencies'],
   'qwen3-tts-backend': ['start', 'install dependencies'],
   'whisper-backend': ['start', 'install dependencies'],
+  'sdcpp-backend': ['start', 'download', 'extract', 'configure-ada-dit'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -105,6 +113,7 @@ const stepDisplayNames: Record<string, string> = {
   download: 'Downloading...',
   extract: 'Extracting...',
   'configure-service': 'Configuring SSD offload...',
+  'configure-ada-dit': 'Configuring aiDAPTIV service...',
   'install dependencies': 'Installing dependencies...',
   'install python': 'Installing Python environment...',
   'linux dependencies': 'Installing system packages...',
@@ -466,8 +475,12 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     }
   })
 
+  function isWizardRowListed(serviceName: BackendServiceName): boolean {
+    return isComponentListed(serviceName, backendServices.phisonSsdDetected)
+  }
+
   const backendRows = computed<BackendRowViewModel[]>(() => {
-    return ALL_BACKENDS.map((serviceName) => {
+    return ALL_BACKENDS.filter(isWizardRowListed).map((serviceName) => {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       const available = isBackendAvailableInProductMode(pendingProductMode.value, serviceName)
       const isRequired = info?.isRequired ?? serviceName === 'ai-backend'
@@ -711,7 +724,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function seedInstallSelection() {
     const candidates: SeedCandidate[] = []
-    for (const serviceName of ALL_BACKENDS) {
+    for (const serviceName of ALL_BACKENDS.filter(isWizardRowListed)) {
       const info = backendServices.info.find((s) => s.serviceName === serviceName)
       if (!info) continue
       candidates.push({
@@ -790,18 +803,22 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
   function setPendingMode(mode: ProductMode) {
     pendingProductMode.value = mode
-    for (const sn of ALL_BACKENDS) {
-      const wasAvailable = isBackendAvailableInProductMode(
-        productModeStore.productMode ?? pendingProductMode.value,
-        sn,
-      )
-      const nowAvailable = isBackendAvailableInProductMode(mode, sn)
-      if (nowAvailable && !wasAvailable) {
-        const info = backendServices.info.find((s) => s.serviceName === sn)
-        if (info && !info.isSetUp && !info.isRequired) {
-          installSelection.value.add(sn)
-        }
-      }
+    const fromMode = productModeStore.productMode ?? pendingProductMode.value
+    const candidates = ALL_BACKENDS.flatMap((sn) => {
+      const info = backendServices.info.find((s) => s.serviceName === sn)
+      if (!info) return []
+      return [
+        {
+          serviceName: sn,
+          isRequired: info.isRequired,
+          isSetUp: info.isSetUp,
+          wasAvailable: isBackendAvailableInProductMode(fromMode, sn),
+          nowAvailable: isBackendAvailableInProductMode(mode, sn),
+        },
+      ]
+    })
+    for (const sn of selectInstallsOnModeChange(candidates)) {
+      installSelection.value.add(sn)
     }
     installSelection.value = new Set(installSelection.value)
   }

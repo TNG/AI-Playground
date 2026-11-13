@@ -214,6 +214,25 @@ export function injectOvmsImageUrl(workflow: ComfyUIApiWorkflow, url: string): v
   }
 }
 
+const SDCPP_IMAGE_CLASS_TYPES = ['PhisonSdServerImageGeneration']
+/** The builtin custom node folder that defines those classes. */
+export const SDCPP_IMAGE_NODE_PACKAGE = 'PhisonSdServer'
+
+export function workflowUsesSdCppImage(workflow: ComfyUIApiWorkflow): boolean {
+  return SDCPP_IMAGE_CLASS_TYPES.some((ct) => findKeysByClassType(workflow, ct).length > 0)
+}
+
+export function injectSdCppImageUrl(workflow: ComfyUIApiWorkflow, url: string): void {
+  for (const classType of SDCPP_IMAGE_CLASS_TYPES) {
+    for (const key of findKeysByClassType(workflow, classType)) {
+      const inputs = workflow[key]?.inputs
+      if (inputs && typeof inputs === 'object' && 'base_url' in inputs) {
+        inputs['base_url'] = url
+      }
+    }
+  }
+}
+
 /** ComfyUI node input names that hold model/file paths; separator is OS-dependent (see main.ts preset handling). */
 const COMFY_MODEL_PATH_INPUTS = new Set([
   'ckpt_name',

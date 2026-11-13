@@ -228,6 +228,7 @@ import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import * as toast from '@/assets/js/toast'
+import { workflowUsesSdCppImage } from '@/lib/comfyWorkflow'
 import AspectRatioPicker from './AspectRatioPicker.vue'
 import PresetSelector from './PresetSelector.vue'
 
@@ -379,8 +380,18 @@ watch(
   { immediate: true },
 )
 
+// sd-server variants generate in the Phison sd-server, so its GPU list is the one to pick from.
+const presetRequiresSdCpp = computed(() => {
+  const preset = currentPreset.value
+  return preset?.type === 'comfy' && workflowUsesSdCppImage(preset.comfyUiApiWorkflow ?? {})
+})
+
 const deviceSelectorBackend = computed<BackendServiceName>(() =>
-  presetRequiresOvms.value ? 'openvino-backend' : backendToService[imageGeneration.backend],
+  presetRequiresSdCpp.value
+    ? 'sdcpp-backend'
+    : presetRequiresOvms.value
+      ? 'openvino-backend'
+      : backendToService[imageGeneration.backend],
 )
 
 // Only constrain the OVMS dropdown by the image-gen filter. ComfyUI's native

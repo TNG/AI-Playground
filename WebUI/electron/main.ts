@@ -35,7 +35,7 @@ import {
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs'
-import { PathsManager } from './kernel/pathsManager'
+import { getSharedModelDir, PathsManager } from './kernel/pathsManager'
 import {
   LocalSettingsSchema,
   resolveProductMode,
@@ -155,6 +155,7 @@ import {
   setArtifactRunnerDeps,
   type RunnerComfyService,
 } from './artifact/runner'
+import { ensureSdCppImageServerReady } from './artifact/sdcppImageServer'
 import {
   awaitChatWindow,
   cancelArtifactRun,
@@ -1351,6 +1352,12 @@ function wireChatEngine(): void {
         await ovms.stopImageServer()
       }
     },
+    stopSdCppImageServer: async () => {
+      const sdcpp = serviceRegistry?.getService('sdcpp-backend')
+      if (sdcpp && 'stopImageServer' in sdcpp && typeof sdcpp.stopImageServer === 'function') {
+        await sdcpp.stopImageServer()
+      }
+    },
     notifyHomeAgentUpstreamReady: (baseUrl) => {
       const homeAgentSvc = serviceRegistry?.getService('home-agent-backend')
       if (homeAgentSvc instanceof HomeAgentBackendService) {
@@ -1452,6 +1459,13 @@ function wireArtifactRunner(settings: LocalSettings): void {
     },
     ensureOvmsImageReady: (modelId, keepModelsLoaded, resolution) =>
       ensureOvmsImageServerReady('openvino-backend', modelId, keepModelsLoaded, resolution),
+    ensureSdCppImageReady: (requiredModels, onProgress) =>
+      ensureSdCppImageServerReady(
+        serviceRegistry?.getService('sdcpp-backend'),
+        requiredModels,
+        onProgress,
+        getSharedModelDir,
+      ),
     readMediaAsDataUri: readAipgMediaAsDataUri,
     getPlatform: () => process.platform,
     devPresetsEnabled: () => isDeveloperMode(),

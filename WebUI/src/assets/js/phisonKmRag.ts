@@ -1,5 +1,12 @@
 import { ref, computed, watch, type Ref, type ComputedRef } from 'vue'
-import type { useBackendServices } from './store/backendServices'
+import type { BackendServiceName, useBackendServices } from './store/backendServices'
+import { isCancellation } from './errors/appError'
+import {
+  deriveGroupContent,
+  type PhisonKmIngestConfig,
+  type WarmupRequest,
+} from '@/types/phisonKmRag'
+import type { IndexedDocument } from '@/types/rag'
 
 /**
  * Renderer-side Phison KM (Knowledge Manager) RAG state — retrieval-mode toggle,
@@ -65,6 +72,59 @@ export type PhisonKmRagDeps = {
   backendServices: ReturnType<typeof useBackendServices>
   /** Same reasoning as getActivePreset — isLoadingSettings is a `let` declared later. */
   isLoadingSettings: () => boolean
+  /** KV warmup of uploaded documents; absent where only the context-size rules are wanted. */
+  warmup?: PhisonKmWarmupDeps
+}
+
+export type PhisonKmWarmupDeps = {
+  ragList: Ref<IndexedDocument[]>
+  activeModel: () => string | undefined
+  /** The turn's own model fields, so the prefill renders the prompt a question will. */
+  warmupModel: () => Omit<WarmupRequest, 'groups'>
+  embeddingModel: () => string | undefined
+  embeddingService: () => BackendServiceName | null
+  /** Asks for any missing model the way a turn does; throws a cancellation on decline. */
+  ensureModels: () => Promise<void>
+  onDone: () => void
+  onFailed: (cause: unknown) => void
+}
+
+export type KmWarmupStatus = {
+  phase: 'analyzing' | 'warming'
+  current?: number
+  total?: number
+  /** Remaining time from the last measured prefill speed; absent until one is known. */
+  estimateMs?: number
+  /** When this phase (or this document) began, for an elapsed clock. */
+  since: number
+}
+
+export function formatClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000))
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
+}
+
+/** "Pre-reading document 1/2 · about 2:30 left", or the elapsed time until a speed is known. */
+export function kmWarmupLabel(
+  status: KmWarmupStatus,
+  now: number,
+  strings: Record<string, string | undefined>,
+): string {
+  const phase =
+    status.phase === 'analyzing'
+      ? (strings.KM_WARMUP_ANALYZING ?? '')
+      : (strings.KM_WARMUP_WARMING ?? '')
+          .replace('{current}', String(status.current ?? ''))
+          .replace('{total}', String(status.total ?? ''))
+  const elapsed = now - status.since
+  const time =
+    status.estimateMs !== undefined
+      ? (strings.KM_WARMUP_REMAINING ?? '').replace(
+          '{time}',
+          formatClock(status.estimateMs - elapsed),
+        )
+      : (strings.KM_WARMUP_ELAPSED ?? '').replace('{time}', formatClock(elapsed))
+  return `${phase} · ${time}`
 }
 
 export function createPhisonKmRag(deps: PhisonKmRagDeps) {
@@ -221,6 +281,143 @@ export function createPhisonKmRag(deps: PhisonKmRagDeps) {
     { flush: 'sync' },
   )
 
+  // ── KV warmup of uploaded documents ──────────────────────────────────────────
+  // One document per main-side call, in upload order. KM questions are held back
+  // (`kmWarmupBlocking`) from the start of indexing until the queue drains.
+
+  const warmupStatus = ref<KmWarmupStatus | null>(null)
+  const indexing = ref(0)
+  const indexingSince = ref(0)
+  const kmWarmupStatus = computed<KmWarmupStatus | null>(
+    () =>
+      warmupStatus.value ??
+      (indexing.value > 0 ? { phase: 'analyzing', since: indexingSince.value } : null),
+  )
+  const kmWarmupBlocking = computed(() => kmWarmupStatus.value !== null)
+
+  const pending: IndexedDocument[] = []
+  let draining = false
+  // Bumped by cancelKmWarmup(): a drain started before it reports nothing.
+  let generation = 0
+  let charsPerMs: number | null = null
+
+  async function prepareGrouping(w: PhisonKmWarmupDeps): Promise<PhisonKmIngestConfig | undefined> {
+    const model = w.embeddingModel()
+    const service = w.embeddingService()
+    if (!model || !service) return undefined
+    try {
+      await w.ensureModels()
+      await deps.backendServices.ensureEmbeddingServerReady(service, model)
+      const result = await window.electronAPI.getEmbeddingServerUrl(service)
+      return result.success && result.url ? { embeddingServerUrl: result.url } : undefined
+    } catch (error) {
+      if (!isCancellation(error)) w.onFailed(error)
+      return undefined
+    }
+  }
+
+  /**
+   * Wraps one document's indexing. Under KM the embedding server is started first so
+   * the document is grouped, and the indexed document is then queued for warmup.
+   */
+  async function indexWithKmWarmup(
+    index: (phisonKmConfig?: PhisonKmIngestConfig) => Promise<IndexedDocument>,
+  ): Promise<IndexedDocument> {
+    const w = deps.warmup
+    if (!w || !isPhisonKmRag.value) return index(undefined)
+    const started = generation
+    if (indexing.value === 0) indexingSince.value = Date.now()
+    indexing.value++
+    try {
+      const document = await index(await prepareGrouping(w))
+      if (started === generation) enqueueWarmup(w, document)
+      return document
+    } finally {
+      // A cancel already zeroed the count this indexing was part of.
+      if (started === generation) indexing.value--
+    }
+  }
+
+  function enqueueWarmup(w: PhisonKmWarmupDeps, document: IndexedDocument): void {
+    const model = w.activeModel()
+    if (!model || !document.mergedGroups?.length) return
+    if (document.mergedGroupsMeta?.warmedModels?.includes(model)) return
+    if (pending.some((other) => other.hash === document.hash)) return
+    pending.push(document)
+    void drain(w)
+  }
+
+  function markWarmed(w: PhisonKmWarmupDeps, hash: string, model: string): void {
+    const entry = w.ragList.value.find((item) => item.hash === hash)
+    const meta = entry?.mergedGroupsMeta
+    if (!entry || !meta || meta.warmedModels?.includes(model)) return
+    entry.mergedGroupsMeta = { ...meta, warmedModels: [...(meta.warmedModels ?? []), model] }
+  }
+
+  async function drain(w: PhisonKmWarmupDeps): Promise<void> {
+    if (draining) return
+    draining = true
+    const started = generation
+    let done = 0
+    let failed = false
+    try {
+      while (pending.length > 0 && started === generation) {
+        const document = pending.shift()!
+        const model = w.activeModel()
+        if (!model) break
+        const groups = (document.mergedGroups ?? []).map((group) => ({
+          groupId: group.groupId,
+          content: deriveGroupContent(document.splitDB, group),
+        }))
+        const chars = groups.reduce((sum, group) => sum + group.content.length, 0)
+        const queuedChars = pending.reduce(
+          (sum, doc) => sum + doc.splitDB.reduce((n, chunk) => n + chunk.pageContent.length, 0),
+          0,
+        )
+        done++
+        warmupStatus.value = {
+          phase: 'warming',
+          current: done,
+          total: done + pending.length,
+          ...(charsPerMs ? { estimateMs: Math.round((chars + queuedChars) / charsPerMs) } : {}),
+          since: Date.now(),
+        }
+        const startedAt = Date.now()
+        try {
+          await window.electronAPI.warmupKVCacheForDocument({ groups, ...w.warmupModel() })
+        } catch (error) {
+          failed = true
+          // After a cancel, what is pending was uploaded since and belongs to the next drain.
+          if (started === generation) {
+            pending.length = 0
+            w.onFailed(error)
+          }
+          break
+        }
+        charsPerMs = chars / Math.max(1, Date.now() - startedAt)
+        markWarmed(w, document.hash, model)
+      }
+      if (!failed && done > 0 && started === generation) w.onDone()
+    } finally {
+      draining = false
+      if (started === generation) warmupStatus.value = null
+      // Uploads queued while a cancelled drain was finishing its last document.
+      if (pending.length > 0) void drain(w)
+    }
+  }
+
+  /**
+   * Unlocks at once: documents still being analyzed are indexed but not warmed, and the
+   * one being prefilled is dropped, so a question need not queue behind it.
+   */
+  function cancelKmWarmup(): void {
+    if (draining) void window.electronAPI.cancelKmWarmup()
+    generation++
+    pending.length = 0
+    indexing.value = 0
+    warmupStatus.value = null
+  }
+
   return {
     ragMode,
     stashedStandardContextSize,
@@ -230,5 +427,9 @@ export function createPhisonKmRag(deps: PhisonKmRagDeps) {
     isPhisonKmRag,
     enforceKmContextFloor,
     contextSizeAdjust,
+    kmWarmupStatus,
+    kmWarmupBlocking,
+    indexWithKmWarmup,
+    cancelKmWarmup,
   }
 }

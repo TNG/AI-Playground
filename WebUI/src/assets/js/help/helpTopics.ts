@@ -19,7 +19,7 @@ export type HelpTopicId =
   | 'session-tab-attributes'
   | 'app-settings-button'
   | 'theme-button'
-  | 'app-settings-sidebar'
+  | 'app-settings-dialog'
   | 'sessions-panel'
   | 'preset-selector'
   | 'mode-dropdown'
@@ -97,9 +97,9 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
     title: 'Theme',
     body: 'Pick how AI Playground looks. The active theme is marked; your choice is remembered across restarts.',
   },
-  'app-settings-sidebar': {
-    title: 'App settings panel',
-    body: 'Configure backends, appearance, and global features from this sidebar.',
+  'app-settings-dialog': {
+    title: 'App Settings',
+    body: 'Configure language, appearance, downloads and global features from this dialog.',
   },
   'sessions-panel': {
     title: 'Sessions',

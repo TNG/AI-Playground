@@ -193,8 +193,7 @@ const ovmsModelItems = computed(() =>
 // the speechToText store (preferredSttEngine), so it applies to every consumer.
 
 // STT device selection (Whisper loads on a dedicated OVMS device list, distinct
-// from the LLM device list DeviceSelector uses). Mirrors the logic previously in
-// SettingsBasic.vue.
+// from the LLM device list DeviceSelector uses).
 const sttDevices = computed(
   () => backendServices.info.find((bs) => bs.serviceName === 'openvino-backend')?.sttDevices ?? [],
 )

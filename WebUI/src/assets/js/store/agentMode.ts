@@ -10,6 +10,7 @@ import { useConfirmations } from './confirmations'
 import { useOemBranding } from './oemBranding'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
+import { useChatAware } from './chatAware'
 import { useMcp } from './mcp'
 import { useSessions } from './sessions'
 import { unregisterAgentModeIpc } from './agentModeIpc'
@@ -184,6 +185,7 @@ export const useAgentMode = defineStore(
     const oemBranding = useOemBranding()
     const errors = useErrors()
     const i18n = useI18N()
+    const chatAware = useChatAware()
     const mcp = useMcp()
     const sessionsStore = useSessions()
     /** The Session each Harness Session of this app run belongs to. */
@@ -997,7 +999,7 @@ export const useAgentMode = defineStore(
         presetName: agentPresetName.value,
         instructions: withResponseLanguage(
           harnessInstructions(activeAgentPreset.value, textInference.systemPrompt),
-          sessionResponseLocale(sessionId),
+          chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
         ownsPrompt: activeAgentPreset.value?.agentOwnsPrompt === true,
         userSampling: hasChatAffordances(activeAgentPreset.value),
@@ -1028,7 +1030,7 @@ export const useAgentMode = defineStore(
         presetName: context.presetName,
         instructions: withResponseLanguage(
           harnessInstructions(chatPreset, stored.systemPrompt),
-          sessionResponseLocale(sessionId),
+          chatAware.responseLanguage(sessionResponseLocale(sessionId)),
         ),
         ownsPrompt: chatPreset?.agentOwnsPrompt === true,
         userSampling: hasChatAffordances(chatPreset),

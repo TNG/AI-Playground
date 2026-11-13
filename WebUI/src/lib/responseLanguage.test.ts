@@ -46,15 +46,22 @@ describe('responseLanguage', () => {
   })
 
   it('appends the instruction after the existing system prompt', () => {
-    const result = withResponseLanguage('You are a helpful assistant.', 'ja')
+    const result = withResponseLanguage('You are a helpful assistant.', {
+      locale: 'ja',
+      chatAware: true,
+    })
     expect(result.startsWith('You are a helpful assistant.')).toBe(true)
     expect(result).toContain(responseLanguageInstruction('ja'))
     expect(result).toBe(`You are a helpful assistant.\n\n${responseLanguageInstruction('ja')}`)
   })
 
   it('is the whole prompt when the base system prompt is empty', () => {
-    expect(withResponseLanguage('', 'ko')).toBe(responseLanguageInstruction('ko'))
-    expect(withResponseLanguage('   \n', 'ko')).toBe(responseLanguageInstruction('ko'))
+    expect(withResponseLanguage('', { locale: 'ko', chatAware: true })).toBe(
+      responseLanguageInstruction('ko'),
+    )
+    expect(withResponseLanguage('   \n', { locale: 'ko', chatAware: true })).toBe(
+      responseLanguageInstruction('ko'),
+    )
   })
 })
 
@@ -76,11 +83,11 @@ describe('withResponseLanguageAtStart', () => {
   const base = 'You are a helpful assistant.'
 
   it('stamps the clause on the opening turn only', () => {
-    expect(withResponseLanguageAtStart(base, 'ja', [{ role: 'user' }])).toBe(
-      withResponseLanguage(base, 'ja'),
-    )
     expect(
-      withResponseLanguageAtStart(base, 'ja', [
+      withResponseLanguageAtStart(base, { locale: 'ja', chatAware: true }, [{ role: 'user' }]),
+    ).toBe(withResponseLanguage(base, { locale: 'ja', chatAware: true }))
+    expect(
+      withResponseLanguageAtStart(base, { locale: 'ja', chatAware: true }, [
         { role: 'user' },
         { role: 'assistant' },
         { role: 'user' },

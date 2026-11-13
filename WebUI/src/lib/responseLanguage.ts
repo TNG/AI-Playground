@@ -40,8 +40,12 @@ export function responseLanguageInstruction(locale: string): string {
   )
 }
 
-export function withResponseLanguage(systemPrompt: string, locale: string): string {
-  const instruction = responseLanguageInstruction(locale)
+/** Chat Aware off leaves every prompt without the line. */
+export type ResponseLanguage = { locale: string; chatAware: boolean }
+
+export function withResponseLanguage(systemPrompt: string, language: ResponseLanguage): string {
+  if (!language.chatAware) return systemPrompt
+  const instruction = responseLanguageInstruction(language.locale)
   const base = systemPrompt.trimEnd()
   return base ? `${base}\n\n${instruction}` : instruction
 }
@@ -62,9 +66,9 @@ export function isConversationStart(messages: ReadonlyArray<{ role: string }>): 
 
 export function withResponseLanguageAtStart(
   systemPrompt: string,
-  locale: string,
+  language: ResponseLanguage,
   messages: ReadonlyArray<{ role: string }>,
 ): string {
   if (!isConversationStart(messages)) return systemPrompt
-  return withResponseLanguage(systemPrompt, locale)
+  return withResponseLanguage(systemPrompt, language)
 }

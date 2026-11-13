@@ -154,7 +154,7 @@ export class AppDriver {
 
         await this.wizard.continueOut()
         await this.shell.expectRunning()
-        // Leave a clean main view (the App Settings sidebar re-opens on return and
+        // Leave a clean main view (App Settings re-opens on return and
         // would otherwise occlude the prompt area for follow-up steps).
         await this.shell.ensureSettingsClosed()
       })

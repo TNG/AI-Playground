@@ -18,7 +18,7 @@
 
     <div v-if="!edited" class="flex flex-col items-start gap-2 text-xs text-muted-foreground">
       <p>{{ languages.SETTINGS_THEME_BUILT_IN_READ_ONLY }}</p>
-      <Button variant="outline" size="sm" @click="theme.customize()">
+      <Button variant="outline" size="sm" @click="customize">
         {{ languages.SETTINGS_THEME_CUSTOMIZE }}
       </Button>
     </div>
@@ -102,64 +102,97 @@
       </AlertDialog>
     </div>
 
-    <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_ROLES">
-      <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_ROLES }}</h3>
-      <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_ROLES_HINT }}</p>
-      <ul class="flex flex-col gap-1.5 pl-1">
-        <ThemeColorRow
-          v-for="role in theme.colorRoles"
-          :id="`theme-role-${role}`"
-          :key="role"
-          :label="languages[roleLabelKeys[role]]"
-          :value="theme.draftHexColors[theme.roleToken(role)]"
-          @pick="(hex) => theme.setRoleColor(role, hex)"
-        />
-      </ul>
-    </section>
-
-    <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_PREVIEW">
-      <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_PREVIEW }}</h3>
-      <div
-        class="flex flex-col gap-2 rounded-md border p-3 text-xs"
-        :style="{ backgroundColor: draft.background, borderColor: draft.border }"
-      >
-        <span :style="{ color: draft.foreground }">{{ languages.SETTINGS_THEME_ROLE_TEXT }}</span>
-        <div
-          class="flex items-center justify-between gap-2 rounded-md border p-2"
-          :style="{
-            backgroundColor: draft.card,
-            color: draft['card-foreground'],
-            borderColor: draft.border,
-          }"
-        >
-          {{ languages.SETTINGS_THEME_ROLE_PANELS }}
-          <span
-            class="rounded-md px-2 py-1"
-            :style="{ backgroundColor: draft.primary, color: draft['primary-foreground'] }"
-          >
-            {{ languages.SETTINGS_THEME_ROLE_ACCENT }}
-          </span>
-        </div>
-      </div>
-    </section>
-
-    <p
-      v-if="theme.draftWarning"
-      role="alert"
-      class="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
+    <Collapsible
+      :open="customizerOpen"
+      class="flex flex-col gap-4"
+      @update:open="setCustomizerOpen"
     >
-      <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
-      {{ theme.draftWarning }}
-    </p>
+      <CollapsibleTrigger as-child>
+        <Button variant="outline" size="sm" class="self-start">
+          <ChevronDownIcon
+            class="size-4 transition-transform"
+            :class="{ 'rotate-180': customizerOpen }"
+          />
+          {{ languages.SETTINGS_THEME_EDIT_COLORS }}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent class="flex flex-col gap-4">
+        <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_ROLES">
+          <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_ROLES }}</h3>
+          <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_ROLES_HINT }}</p>
+          <ul class="flex flex-col gap-1.5 pl-1">
+            <ThemeColorRow
+              v-for="role in theme.colorRoles"
+              :id="`theme-role-${role}`"
+              :key="role"
+              :label="languages[roleLabelKeys[role]]"
+              :value="theme.draftHexColors[theme.roleToken(role)]"
+              @pick="(hex) => theme.setRoleColor(role, hex)"
+            />
+          </ul>
+        </section>
 
-    <div v-if="theme.hasUnsavedChanges" class="flex gap-2">
-      <Button size="sm" :disabled="!theme.canSave" @click="theme.saveDraft()">
-        {{ languages.SETTINGS_THEME_SAVE }}
-      </Button>
-      <Button variant="outline" size="sm" @click="theme.discardDraft()">
-        {{ languages.SETTINGS_THEME_DISCARD }}
-      </Button>
-    </div>
+        <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_PREVIEW">
+          <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_PREVIEW }}</h3>
+          <div
+            class="flex flex-col gap-2 rounded-md border p-3 text-xs"
+            :style="{ backgroundColor: draft.background, borderColor: draft.border }"
+          >
+            <span :style="{ color: draft.foreground }">{{
+              languages.SETTINGS_THEME_ROLE_TEXT
+            }}</span>
+            <div
+              class="flex items-center justify-between gap-2 rounded-md border p-2"
+              :style="{
+                backgroundColor: draft.card,
+                color: draft['card-foreground'],
+                borderColor: draft.border,
+              }"
+            >
+              {{ languages.SETTINGS_THEME_ROLE_PANELS }}
+              <span
+                class="rounded-md px-2 py-1"
+                :style="{ backgroundColor: draft.primary, color: draft['primary-foreground'] }"
+              >
+                {{ languages.SETTINGS_THEME_ROLE_ACCENT }}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <p
+          v-if="theme.draftWarning"
+          role="alert"
+          class="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
+        >
+          <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
+          {{ theme.draftWarning }}
+        </p>
+
+        <Collapsible v-model:open="advancedOpen" class="flex flex-col gap-2">
+          <CollapsibleTrigger class="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
+            <ChevronDownIcon
+              class="size-4 transition-transform"
+              :class="{ 'rotate-180': advancedOpen }"
+            />
+            {{ languages.SETTINGS_THEME_ADVANCED }}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul class="flex flex-col gap-1.5 pl-1">
+              <ThemeColorRow
+                v-for="token in theme.colorTokens"
+                :id="`theme-token-${token}`"
+                :key="token"
+                :label="token"
+                mono-label
+                :value="theme.draftHexColors[token]"
+                @pick="(hex) => theme.setColor(token, hex)"
+              />
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
+      </CollapsibleContent>
+    </Collapsible>
 
     <AlertDialog
       :open="theme.discardPending"
@@ -180,29 +213,6 @@
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-
-    <Collapsible v-model:open="advancedOpen" class="flex flex-col gap-2">
-      <CollapsibleTrigger class="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
-        <ChevronDownIcon
-          class="size-4 transition-transform"
-          :class="{ 'rotate-180': advancedOpen }"
-        />
-        {{ languages.SETTINGS_THEME_ADVANCED }}
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <ul class="flex flex-col gap-1.5 pl-1">
-          <ThemeColorRow
-            v-for="token in theme.colorTokens"
-            :id="`theme-token-${token}`"
-            :key="token"
-            :label="token"
-            mono-label
-            :value="theme.draftHexColors[token]"
-            @pick="(hex) => theme.setColor(token, hex)"
-          />
-        </ul>
-      </CollapsibleContent>
-    </Collapsible>
   </div>
 </template>
 
@@ -242,8 +252,21 @@ import type { ColorRole } from '@/lib/themeRoles'
 const theme = useTheme()
 const languages = useI18N().state
 const advancedOpen = ref(false)
+const customizerOpen = ref(false)
 const edited = computed(() => theme.editedCustomTheme)
 const draft = computed(() => theme.draftHexColors)
+
+function setCustomizerOpen(open: boolean) {
+  if (open) customizerOpen.value = true
+  else theme.guardUnsaved(() => (customizerOpen.value = false))
+}
+
+function customize() {
+  theme.customize()
+  customizerOpen.value = true
+}
+
+defineExpose({ openCustomizer: () => setCustomizerOpen(true) })
 
 function copyEdited() {
   const id = edited.value?.id

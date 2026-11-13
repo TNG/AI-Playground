@@ -28,6 +28,7 @@ import { useActivities } from './activities'
 import { useConfirmations } from './confirmations'
 import { useI18N } from './i18n'
 import { useDeveloperSettings } from './developerSettings'
+import { useChatAware } from './chatAware'
 import { useComputeMetrics } from './computeMetrics'
 import type { ChatTurnEnergy } from '@/lib/chatEnergy'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
@@ -113,6 +114,7 @@ export const useOpenAiCompatibleChat = defineStore(
     const i18n = useI18N()
     const i18nState = i18n.state
     const developerSettings = useDeveloperSettings()
+    const chatAware = useChatAware()
     const computeMetrics = useComputeMetrics()
     const manuallyStopped = ref(false)
 
@@ -458,7 +460,7 @@ export const useOpenAiCompatibleChat = defineStore(
         model: buildChatModelConfig(),
         systemPrompt: withResponseLanguageAtStart(
           textInference.systemPrompt,
-          i18n.langName,
+          chatAware.responseLanguage(i18n.langName),
           languageMessages,
         ),
         tools: specs,

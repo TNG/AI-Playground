@@ -222,8 +222,9 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   in `pages/uiControls.ts`). There is no per-mode "<Mode> Settings" region or button any more:
   `SpecificSettingsPage.open(tab)` shows a tab, `close()` returns to the Viewport (where the
   prompt bar is), and its methods take no mode.
-- **App Settings sidebar re-opens** when returning from the wizard and can occlude controls;
-  `openAppSettings()` is idempotent. Playwright "visible" ignores occlusion.
+- **App Settings re-opens** when returning from the wizard and its dialog can occlude controls;
+  `openAppSettings()` is idempotent and `ensureSettingsClosed()` clears it. Playwright "visible"
+  ignores occlusion.
 - **Optional popups intercept clicks.** The high-memory / video-VRAM warning (`WarningDialog`,
   `role="dialog"` + `aria-label="Warning"`) fires whenever a gated preset becomes active —
   _including just switching to a mode whose last-used preset is gated_ — so it can appear
@@ -240,8 +241,8 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   _after_ any model download is handled separately.
 - **"Close" is ambiguous** — the header's window-close (X) control is `title="Close"`, so an
   unscoped `getByRole('button', { name: 'Close' })` can match it and **quit the app**. Scope
-  sidebar closes to their region (`getByRole('region', { name: '<title>' })`, via
-  `SideModalBase`'s `role="region"`), and prefer a uniquely-named button (e.g. the wizard's
+  closes to their container (the App Settings dialog, `getByRole('dialog', { name: 'App Settings' })`,
+  or an overlay's region), and prefer a uniquely-named button (e.g. the wizard's
   "Continue") over "Close".
 - **Teardown answers the close question.** The fixture's `closeApp` quits through `before-quit`,
   and a quit with In-flight Work (a turn, a queued or running media run, a Task Run) asks in the
@@ -569,7 +570,7 @@ There is **no Vue Router**. Navigation is state-driven:
 - `App.vue` checks `globalSetup.loadingState` (`verifyBackend` → `manageInstallations` → `loading` → `running`/`failed`)
 - Once running, the main area is **one view in every mode**: `SessionTimeline.vue`, the open Session's timeline, which is never remounted or restyled by a mode or preset switch. `sessionTimelineItems()` (`src/lib/sessionTimeline.ts`) lays every live turn over the saved timeline — the streaming chat turn, the open and running Harness Sessions (`agentMode.liveTurnsIn`, Task Runs included), the in-flight media run and the running audio turn — so each one shows whichever mode is active. Chat and agent messages, live or settled, render through one `SessionMessage.vue` (shared `SessionUserBubble` / `SessionAssistantBubble`, which `MediaTurnBlock` / `AudioTurnBlock` use too; the answer body is `ChatMessageParts` or `AgentMessageParts` by the engine that produced it). Mode only decides the edges: the prompt bar's submit/cancel per mode (`src/lib/useModePromptHandlers.ts`, registered once from `App.vue`), the Game Agent bar, the agent empty state and status line. `Chat.vue` remains only for a chat while no Session is open. Turns settle ( a panel run settles into its Session Folder and Session History from `electron/session/sessionMediaTurn.ts`, a TTS/STT turn — driven by `store/sessionAudio.ts` — from `electron/session/sessionAudioTurn.ts` over `sessions:recordAudioTurn`)
 - Each mode maps to a preset category (`chat`, `audio`, `create-images`, `edit-images`, `create-videos`). `chat`, `agent` and `audio` all run on `chat`-type presets; `audio` holds the speech presets (Text to Speech / Speech to Text) and gets its own settings tabs (`SettingsAudioInferencing.vue` / `SettingsAudioAttributes.vue`)
-- `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) — the same tabs under every preset. Agents are made, edited and scheduled in the Agent Library overlay (`views/AgentLibrary.vue`, ADR 0007), never in a Session; an Agent Run's Turn offers Stop while it runs and Edit Agent. Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; the only sidebar left is App Settings (`SideModalAppSettings.vue`)
+- `PromptArea.vue` is the shared prompt input bar across all modes. It sits in the Viewport tab of `SessionTabView.vue`, the open Session's tab view: Viewport (timeline + prompt bar), **Inferencing** and **Attributes** (the active preset's settings, `ModeSettingsTab.vue` dispatching per mode to `Settings<Mode>Inferencing` / `Settings<Mode>Attributes`, each built on `SettingsTabLayout.vue`; Machine Settings sit in its `MachineSettingsGroup`), **Artifacts** (`SessionArtifacts.vue`) — the same tabs under every preset. Agents are made, edited and scheduled in the Agent Library overlay (`views/AgentLibrary.vue`, ADR 0007), never in a Session; an Agent Run's Turn offers Stop while it runs and Edit Agent. Which tabs exist and which one shows is `sessionTabs()` in `src/lib/sessionTabs.ts`, held by `store/sessionTabs.ts`. There is no settings sidebar and no prompt-bar settings button; App Settings is a centred dialog opened from the header (`AppSettingsDialog.vue`)
 - **The prompt bar lists one Assistant Mode** (internal key `chat`) for every conversational
   preset: the Assistant preset, aiDAPTIV™ and other non-agent presets, then an Agent group
   holding Game Agent and Quick Coder, then the saved Agents behind a separator, then "Manage
@@ -1017,7 +1018,7 @@ env var, which stays only as a one-shot override for a launch with no UI yet.
 
 **Model Management**: stores: `models` → electron: `loadModels`, `getDownloaded*` IPC → backend: `ai-backend` Flask `/api/*` via HTTP
 
-**Settings**: App Settings in `components/SideModalAppSettings.vue`; a preset's settings in the Inferencing and Attributes tabs (`components/SessionTabView.vue` → `components/ModeSettingsTab.vue` → `Settings<Mode>Inferencing.vue` / `Settings<Mode>Attributes.vue` on `components/SettingsTabLayout.vue`), bound per Session by `store/sessionSettings.ts` → stores: `backendServices`, `textInference`, `imageGenerationPresets`, `agentMode`, `theme`, `i18n`
+**Settings**: App Settings in `components/AppSettingsDialog.vue` (vertical tabs; its App Settings tab composes the `AppSettings*.vue` sections); a preset's settings in the Inferencing and Attributes tabs (`components/SessionTabView.vue` → `components/ModeSettingsTab.vue` → `Settings<Mode>Inferencing.vue` / `Settings<Mode>Attributes.vue` on `components/SettingsTabLayout.vue`), bound per Session by `store/sessionSettings.ts` → stores: `backendServices`, `textInference`, `imageGenerationPresets`, `agentMode`, `theme`, `i18n`
 
 **Presets**: `components/PresetSelector.vue`, `components/VariantSelector.vue` → stores: `presets`, `presetSwitching`
 

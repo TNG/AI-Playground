@@ -18,6 +18,7 @@ import { useImageGenerationPresets } from './assets/js/store/imageGenerationPres
 import { useTheme } from './assets/js/store/theme'
 import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
 import { useChatAware } from './assets/js/store/chatAware'
+import { useMediaModes } from './assets/js/store/mediaModes'
 import { useChannelSessionPointers } from './assets/js/store/channelSessionPointers'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
@@ -146,6 +147,7 @@ await Promise.all([
   useTheme().init(),
   usePromptBarStyle().init(),
   useChatAware().init(),
+  useMediaModes().init(),
   useChannelSessionPointers().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),

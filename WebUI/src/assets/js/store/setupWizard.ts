@@ -37,6 +37,11 @@ function isBackendAvailableInProductMode(
   return true
 }
 
+export type WizardPage = 'main' | 'channelsSetup' | 'cloudModeSetup' | 'demoModeSetup'
+
+/** The pages `openWizard` starts on; Channels and Cloud Mode setup have their own openers. */
+export type WizardStartPage = Extract<WizardPage, 'main' | 'demoModeSetup'>
+
 export type BackendRowViewModel = {
   serviceName: BackendServiceName
   displayName: string
@@ -134,7 +139,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
   const installSelection = ref(new Set<BackendServiceName>())
   const disabledBackends = ref(new Set<BackendServiceName>())
   const wizardDirty = ref(false)
-  const wizardPage = ref<'main' | 'channelsSetup' | 'cloudModeSetup' | 'demoModeSetup'>('main')
+  const wizardPage = ref<WizardPage>('main')
   const channelsSetupOrigin = ref<'install' | 'edit'>('install')
 
   // Staged until Continue; null means "as currently saved".
@@ -759,7 +764,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     installSelection.value = new Set(installSelection.value)
   }
 
-  async function openWizard() {
+  async function openWizard(startPage: WizardStartPage = 'main') {
     if (demoMode.enabled) return
     await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
@@ -775,7 +780,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     seedInstallSelection()
     wizardDirty.value = false
     demoModeDraft.value = null
-    wizardPage.value = 'main'
+    demoModeSetupEnabling.value = false
+    wizardPage.value = startPage
     globalSetup.loadingState = 'setupWizard'
   }
 

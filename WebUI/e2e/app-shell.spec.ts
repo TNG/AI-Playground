@@ -71,7 +71,7 @@ test.describe('App shell', () => {
       await shell.ensureSettingsClosed()
     })
 
-    await test.step('App Settings holds its seven sections in order', async () => {
+    await test.step('App Settings holds its eight sections in order', async () => {
       const shell = app.shell
       await shell.openAppSettings()
       const panel = shell.settingsPanel('App Settings')
@@ -81,6 +81,7 @@ test.describe('App shell', () => {
         'Prompt bar style',
         'HuggingFace Settings',
         'Speech',
+        'Media Modes',
         'Permissions',
         'Advanced',
       ].map((name) => panel.getByRole('region', { name, exact: true }))
@@ -99,6 +100,62 @@ test.describe('App shell', () => {
       await expect(advanced.getByRole('button', { name: 'Setup Wizard' })).toBeVisible()
       await expect(advanced.getByRole('button', { name: 'Edit Settings JSON' })).toBeVisible()
       await expect(advanced.getByRole('button', { name: 'Restart', exact: true })).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('App Settings on/off settings are switches, not checkboxes', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const panel = shell.settingsPanel('App Settings')
+      const switches = {
+        Language: ['Chat Aware'],
+        Speech: [
+          'Enable Text-to-Speech endpoint in Chat',
+          'Enable Speech-to-Text endpoint in Chat',
+        ],
+        'Media Modes': ['Media Modes'],
+        Advanced: ['Open Developer Console on Startup', 'Keep Models Loaded'],
+      }
+      for (const [section, names] of Object.entries(switches)) {
+        const region = panel.getByRole('region', { name: section, exact: true })
+        for (const name of names) {
+          await expect(region.getByRole('switch', { name, exact: true })).toBeVisible()
+        }
+      }
+      await expect(panel.getByRole('checkbox')).toHaveCount(0)
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('Media Modes off leaves only the Assistant in the prompt bar', async () => {
+      const shell = app.shell
+      const mediaModes = ['Audio', 'Image Gen', 'Image Edit', 'Video'] as const
+      try {
+        await shell.setMediaModes(false)
+        for (const mode of [...mediaModes, 'Assistant'] as const) {
+          await expect(app.main.modeButton(mode)).toHaveCount(0)
+        }
+        await expect(window.getByRole('button', { name: /^Preset: / })).toBeVisible()
+
+        await shell.setMediaModes(true)
+        for (const mode of mediaModes) {
+          await expect(app.main.modeButton(mode)).toBeVisible()
+        }
+      } finally {
+        await shell.setMediaModes(true)
+      }
+    })
+
+    await test.step('Without a demo passcode the Demo Mode switch is disabled', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const advanced = shell
+        .settingsPanel('App Settings')
+        .getByRole('region', { name: 'Advanced', exact: true })
+      await expect(advanced.getByRole('switch', { name: 'Demo Mode', exact: true })).toBeDisabled()
+      await expect(
+        advanced.getByText('Set a demo passcode first to turn demo mode on.'),
+      ).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Set passcode…' })).toBeVisible()
       await shell.ensureSettingsClosed()
     })
 

@@ -1,11 +1,24 @@
 <template>
-  <div class="flex flex-col gap-3 pt-6 border-t border-border mt-4">
-    <div class="flex justify-between pr-4 items-center gap-4">
-      <Label class="whitespace-nowrap">Demo Mode</Label>
-      <Button id="demo-mode-toggle" variant="destructive" size="sm" @click="handleClick">
-        {{ demoMode.enabled ? 'Leave' : 'Enter' }}
-      </Button>
-    </div>
+  <div class="pt-4">
+    <AppSettingsRow label="Demo Mode" :disabled="disabled">
+      <template v-if="disabled" #description>
+        <div class="flex flex-col items-start gap-2">
+          <span>{{ languages.SETTINGS_DEMO_MODE_NEEDS_PASSCODE }}</span>
+          <Button variant="outline" size="sm" @click="setupWizard.openWizard('demoModeSetup')">
+            {{ languages.SETTINGS_DEMO_MODE_SET_PASSCODE }}
+          </Button>
+        </div>
+      </template>
+      <template #default="{ id, describedBy }">
+        <Switch
+          :id="id"
+          :model-value="demoMode.enabled"
+          :disabled="disabled"
+          :aria-describedby="describedBy"
+          @update:model-value="requestToggle"
+        />
+      </template>
+    </AppSettingsRow>
   </div>
   <DemoModePasscodeDialog
     v-model:open="passcodeDialogOpen"
@@ -20,21 +33,26 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import { useDemoMode } from '@/assets/js/store/demoMode'
+import { useI18N } from '@/assets/js/store/i18n'
+import { useSetupWizard } from '@/assets/js/store/setupWizard'
+import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import DemoModePasscodeDialog from '@/components/DemoModePasscodeDialog.vue'
 import DemoModeEnterConfirmDialog from '@/components/DemoModeEnterConfirmDialog.vue'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+
+defineProps<{ disabled?: boolean }>()
 
 const demoMode = useDemoMode()
+const setupWizard = useSetupWizard()
+const languages = useI18N().state
 const passcodeDialogOpen = ref(false)
 const confirmEnterOpen = ref(false)
 
-function handleClick() {
-  if (demoMode.enabled) {
-    passcodeDialogOpen.value = true
-  } else {
-    confirmEnterOpen.value = true
-  }
+// The switch only follows demoMode.enabled; it flips once a dialog confirms.
+function requestToggle(on: boolean) {
+  if (on) confirmEnterOpen.value = true
+  else passcodeDialogOpen.value = true
 }
 </script>

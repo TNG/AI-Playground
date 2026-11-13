@@ -3,6 +3,7 @@ import { usePresets } from '@/assets/js/store/presets'
 import { useTextInference } from '@/assets/js/store/textInference'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
+import { useMediaModes } from '@/assets/js/store/mediaModes'
 import type { Preset } from '@/lib/presetSchemas'
 import { promptBarModel, type PromptBarMachine } from '@/lib/promptBarModel'
 import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
@@ -21,6 +22,7 @@ export function usePromptBarModel(source: PromptBarModelSource = {}) {
   const textInference = useTextInference()
   const oemBranding = useOemBranding()
   const promptBarStyle = usePromptBarStyle()
+  const mediaModes = useMediaModes()
   const { gateOf } = usePromptBarPresetSwitch()
   const { agents, pickedAgentId } = usePromptBarAgentPick()
 
@@ -35,6 +37,7 @@ export function usePromptBarModel(source: PromptBarModelSource = {}) {
       style: promptBarStyle.active,
       agents: agents.value,
       pickedAgentId: pickedAgentId.value,
+      showMediaModes: mediaModes.enabled,
     }),
   )
 }

@@ -1,21 +1,14 @@
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-2">
     <SettingsHeading>{{ languages.SETTINGS_PERMISSIONS }}</SettingsHeading>
-    <div class="pl-2 pt-2 flex flex-col gap-4">
-      <div class="flex justify-between pr-4 items-start gap-4">
-        <div class="flex flex-col gap-1 min-w-0">
-          <Label
-            for="remote-download-pregrant"
-            :class="{ 'opacity-50': !channelStore.hasConfiguredChannel }"
-            >{{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS }}</Label
-          >
-          <p class="text-xs text-muted-foreground">
-            {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_INFO }}
-          </p>
-          <p
-            v-if="!channelStore.hasConfiguredChannel"
-            class="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2"
-          >
+    <div class="flex flex-col gap-2">
+      <AppSettingsRow
+        :label="languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS"
+        :disabled="!channelStore.hasConfiguredChannel"
+      >
+        <template #description>
+          <p>{{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_INFO }}</p>
+          <p v-if="!channelStore.hasConfiguredChannel" class="flex flex-wrap items-center gap-x-2">
             {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_NO_CHANNEL }}
             <button
               type="button"
@@ -25,17 +18,19 @@
               {{ languages.SETTINGS_PERMISSIONS_SETUP_CHANNELS }}
             </button>
           </p>
-        </div>
-        <Checkbox
-          id="remote-download-pregrant"
-          class="mt-0.5"
-          :disabled="!channelStore.hasConfiguredChannel && !remoteDownloadsGranted"
-          :model-value="remoteDownloadsGranted"
-          @update:model-value="(v) => setRemoteDownloads(v === true)"
-        />
-      </div>
+        </template>
+        <template #default="{ id, describedBy }">
+          <Switch
+            :id="id"
+            :aria-describedby="describedBy"
+            :disabled="!channelStore.hasConfiguredChannel && !remoteDownloadsGranted"
+            :model-value="remoteDownloadsGranted"
+            @update:model-value="(v) => setRemoteDownloads(v === true)"
+          />
+        </template>
+      </AppSettingsRow>
 
-      <div class="border-t border-border pt-3 flex flex-col gap-2 pr-4">
+      <div class="border-t border-border pt-3 flex flex-col gap-2">
         <p v-if="!rememberedGrants.length && !undo" class="text-xs text-muted-foreground">
           {{ languages.SETTINGS_PERMISSIONS_EMPTY }}
         </p>
@@ -131,8 +126,8 @@ import { useChannels } from '@/assets/js/store/channels'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useErrors } from '@/assets/js/store/errors'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
+import AppSettingsRow from '@/components/AppSettingsRow.vue'
+import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {

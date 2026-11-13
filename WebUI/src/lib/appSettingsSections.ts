@@ -1,5 +1,12 @@
 export type AppSettingsSectionId =
-  'language' | 'theme' | 'promptBarStyle' | 'huggingFace' | 'speech' | 'permissions' | 'advanced'
+  | 'language'
+  | 'theme'
+  | 'promptBarStyle'
+  | 'huggingFace'
+  | 'speech'
+  | 'mediaModes'
+  | 'permissions'
+  | 'advanced'
 
 export type AppSettingsPartId =
   | 'language'
@@ -7,6 +14,7 @@ export type AppSettingsPartId =
   | 'promptBarStyle'
   | 'huggingFace'
   | 'speech'
+  | 'mediaModes'
   | 'permissions'
   | 'backendStatus'
   | 'developer'
@@ -14,10 +22,10 @@ export type AppSettingsPartId =
 
 type DemoPolicy = 'block' | 'hide' | 'allow'
 
-type PartSpec = { id: AppSettingsPartId; demo: DemoPolicy; when?: 'demoToggle' }
+type PartSpec = { id: AppSettingsPartId; demo: DemoPolicy; needsPasscode?: true }
 type SectionSpec = { id: AppSettingsSectionId; heading: boolean; parts: PartSpec[] }
 
-export type AppSettingsPart = { id: AppSettingsPartId; blocked: boolean }
+export type AppSettingsPart = { id: AppSettingsPartId; blocked: boolean; disabled: boolean }
 export type AppSettingsSectionLayout = {
   id: AppSettingsSectionId
   /** The section's own heading; single-part sections head themselves. */
@@ -31,6 +39,7 @@ const SECTIONS: SectionSpec[] = [
   { id: 'promptBarStyle', heading: false, parts: [{ id: 'promptBarStyle', demo: 'allow' }] },
   { id: 'huggingFace', heading: false, parts: [{ id: 'huggingFace', demo: 'block' }] },
   { id: 'speech', heading: false, parts: [{ id: 'speech', demo: 'block' }] },
+  { id: 'mediaModes', heading: false, parts: [{ id: 'mediaModes', demo: 'block' }] },
   { id: 'permissions', heading: false, parts: [{ id: 'permissions', demo: 'block' }] },
   {
     id: 'advanced',
@@ -38,7 +47,7 @@ const SECTIONS: SectionSpec[] = [
     parts: [
       { id: 'backendStatus', demo: 'block' },
       { id: 'developer', demo: 'block' },
-      { id: 'demoMode', demo: 'allow', when: 'demoToggle' },
+      { id: 'demoMode', demo: 'allow', needsPasscode: true },
     ],
   },
 ]
@@ -46,14 +55,17 @@ const SECTIONS: SectionSpec[] = [
 /** The App tab's sections as they render; one whose parts are all hidden is left out whole. */
 export function appSettingsSections(state: {
   demoMode: boolean
-  showDemoToggle: boolean
+  hasDemoPasscode: boolean
 }): AppSettingsSectionLayout[] {
   return SECTIONS.map((section) => ({
     id: section.id,
     heading: section.heading,
     parts: section.parts
       .filter((part) => !(state.demoMode && part.demo === 'hide'))
-      .filter((part) => part.when !== 'demoToggle' || state.showDemoToggle)
-      .map((part) => ({ id: part.id, blocked: state.demoMode && part.demo === 'block' })),
+      .map((part) => ({
+        id: part.id,
+        blocked: state.demoMode && part.demo === 'block',
+        disabled: !!part.needsPasscode && !state.hasDemoPasscode,
+      })),
   })).filter((section) => section.parts.length > 0)
 }

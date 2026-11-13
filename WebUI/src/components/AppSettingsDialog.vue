@@ -69,6 +69,7 @@
                       :is="partComponents[part.id]"
                       v-else
                       :ref="(el: unknown) => part.id === 'theme' && bindThemeSettings(el)"
+                      v-bind="part.id === 'demoMode' ? { disabled: part.disabled } : {}"
                     />
                   </template>
                 </section>
@@ -133,6 +134,7 @@ import AppSettingsPromptBarStyle from '@/components/AppSettingsPromptBarStyle.vu
 import AppSettingsHuggingFace from '@/components/AppSettingsHuggingFace.vue'
 import AppSettingsBackendStatus from '@/components/AppSettingsBackendStatus.vue'
 import AppSettingsSpeech from '@/components/AppSettingsSpeech.vue'
+import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
@@ -155,6 +157,7 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   promptBarStyle: AppSettingsPromptBarStyle,
   huggingFace: AppSettingsHuggingFace,
   speech: AppSettingsSpeech,
+  mediaModes: AppSettingsMediaModes,
   permissions: AppSettingsPermissions,
   backendStatus: AppSettingsBackendStatus,
   developer: AppSettingsDeveloper,
@@ -189,7 +192,7 @@ function bindThemeSettings(el: unknown) {
 }
 
 const sections = computed(() =>
-  appSettingsSections({ demoMode: demoMode.enabled, showDemoToggle: demoMode.showDemoToggle }),
+  appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
 )
 const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   language: languages.SETTINGS_BASIC_LANGUAGE,
@@ -197,6 +200,7 @@ const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   promptBarStyle: languages.SETTINGS_PROMPT_BAR_STYLE,
   huggingFace: languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS,
   speech: languages.SETTINGS_SPEECH,
+  mediaModes: languages.SETTINGS_MEDIA_MODES,
   permissions: languages.SETTINGS_PERMISSIONS,
   advanced: languages.SETTINGS_ADVANCED,
 }))

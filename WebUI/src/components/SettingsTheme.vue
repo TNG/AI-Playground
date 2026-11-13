@@ -1,11 +1,13 @@
 <template>
   <div class="flex flex-col gap-4">
     <SettingsHeading>{{ languages.COM_THEME }}</SettingsHeading>
-    <DropDownNew
-      :items="themeItems"
-      :value="theme.selectedId"
-      @change="(value: string) => theme.guardUnsaved(() => theme.selectTheme(value))"
-    />
+    <AppSettingsRow :label="languages.COM_THEME">
+      <DropDownNew
+        :items="themeItems"
+        :value="theme.selectedId"
+        @change="(value: string) => theme.guardUnsaved(() => theme.selectTheme(value))"
+      />
+    </AppSettingsRow>
 
     <p
       v-if="theme.fallbackMessage"
@@ -221,6 +223,7 @@ import { computed, ref } from 'vue'
 import { ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { useTheme } from '@/assets/js/store/theme'
 import { useI18N } from '@/assets/js/store/i18n'
+import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import ThemeColorRow from '@/components/ThemeColorRow.vue'

@@ -262,6 +262,52 @@ describe('promptBarModel modes', () => {
     }
   })
 
+  describe('with Media Modes', () => {
+    const all = [
+      image('Video', 'create-videos'),
+      image('Edit', 'edit-images'),
+      image('Fast'),
+      audio('Text to Speech'),
+      agent('Game Agent'),
+      agent('Assistant'),
+      chat('Writer'),
+    ]
+    const tidy = { id: 'a-tidy', name: 'Tidy downloads', saved: true }
+
+    it('off, offers only the Assistant Mode in both bars', () => {
+      for (const style of ['modern', 'classic'] as const) {
+        const model = promptBarModel(input({ catalog: all, style, showMediaModes: false }))
+        expect(model.modes).toEqual(['chat'])
+        expect(model.modeSwitch).toBe(false)
+        expect(Object.keys(model.listings)).toEqual(['chat'])
+        expect(Object.keys(model.modePicks)).toEqual(['chat'])
+      }
+    })
+
+    it('off, leaves the Assistant listing as it is', () => {
+      const on = promptBarModel(input({ catalog: all, agents: [tidy], showMediaModes: true }))
+      const off = promptBarModel(input({ catalog: all, agents: [tidy], showMediaModes: false }))
+      expect(off.listings.chat).toEqual(on.listings.chat)
+      expect(off.listings.chat?.groups.map((group) => group.kind)).toEqual([
+        'main',
+        'agent',
+        'saved',
+      ])
+      expect(off.listings.chat?.manageAgents).toBe(true)
+    })
+
+    it('on, offers every mode as before', () => {
+      const model = promptBarModel(input({ catalog: all, showMediaModes: true }))
+      expect(model.modes).toEqual(['chat', 'audio', 'imageGen', 'imageEdit', 'video'])
+      expect(model.modeSwitch).toBe(true)
+    })
+
+    it('on, offers no mode switch when the catalog lists a single Mode', () => {
+      const model = promptBarModel(input({ catalog: [agent('Assistant'), chat('Writer')] }))
+      expect(model.modeSwitch).toBe(false)
+    })
+  })
+
   it('selects Assistant for every conversational preset', () => {
     const modeOf = (activePreset: Preset | null) =>
       promptBarModel(input({ activePreset })).activeMode
@@ -272,6 +318,14 @@ describe('promptBarModel modes', () => {
     expect(modeOf(audio('Text to Speech'))).toBe('audio')
     expect(modeOf(image('Edit', 'edit-images'))).toBe('imageEdit')
     expect(modeOf(null)).toBeNull()
+  })
+
+  it('labels the active preset by its branded name, and nothing without one', () => {
+    const presetLabel = (name: string) => `Acer ${name}`
+    expect(
+      promptBarModel(input({ activePreset: agent('Game Agent'), presetLabel })).activeLabel,
+    ).toBe('Acer Game Agent')
+    expect(promptBarModel(input({ activePreset: null })).activeLabel).toBe('')
   })
 
   describe('picking a mode', () => {
@@ -513,6 +567,7 @@ describe('promptBarModel preset picker', () => {
         image: 'digest.png',
         agentId: 'a-digest',
       })
+      expect(model.activeLabel).toBe('Morning digest')
     })
 
     it('is out of effect under another agent preset', () => {
@@ -521,6 +576,7 @@ describe('promptBarModel preset picker', () => {
       )
       expect(model.pickedAgent).toBeUndefined()
       expect(model.headerChips.at(-1)).toMatchObject({ kind: 'preset', label: 'Game Agent' })
+      expect(model.activeLabel).toBe('Game Agent')
     })
 
     it('falls back to the Assistant preset when it is gone or only a Draft', () => {
@@ -529,6 +585,7 @@ describe('promptBarModel preset picker', () => {
           input({ catalog, activePreset: harness, agents: [draftOnly], pickedAgentId }),
         )
         expect(model.pickedAgent).toBeUndefined()
+        expect(model.activeLabel).toBe('Assistant')
         expect(model.headerChips.at(-1)).toEqual({
           kind: 'preset',
           name: 'Assistant',

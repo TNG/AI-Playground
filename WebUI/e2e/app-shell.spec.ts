@@ -41,7 +41,96 @@ test.describe('App shell', () => {
       await shell.ensureSettingsClosed()
     })
 
-    await test.step('Theme switches from the header and is gone from App Settings', async () => {
+    await test.step('App Settings is a dialog with three vertical tabs', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const tablist = shell.settingsDialog.getByRole('tablist')
+      await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
+      await expect(tablist.getByRole('tab')).toHaveText([
+        'App Settings',
+        'Component Manager',
+        'Model Library',
+      ])
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+      await expect(shell.settingsPanel('App Settings')).toBeVisible()
+      await expect(
+        shell.settingsDialog.getByRole('heading', { name: 'App Settings', exact: true }),
+      ).toBeVisible()
+
+      for (const tab of ['Component Manager', 'Model Library'] as const) {
+        await shell.settingsTab(tab).click()
+        await expect(shell.settingsPanel(tab)).toHaveText('Work in progress')
+        await expect(
+          shell.settingsDialog.getByRole('heading', { name: tab, exact: true }),
+        ).toBeVisible()
+      }
+
+      await shell.ensureSettingsClosed()
+      await shell.openAppSettings()
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('App Settings holds its seven sections in order', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const panel = shell.settingsPanel('App Settings')
+      const sections = [
+        'Language',
+        'Theme',
+        'Prompt bar style',
+        'HuggingFace Settings',
+        'Speech',
+        'Permissions',
+        'Advanced',
+      ].map((name) => panel.getByRole('region', { name, exact: true }))
+      const tops: number[] = []
+      for (const section of sections) {
+        await expect(section).toHaveCount(1)
+        tops.push((await section.boundingBox())!.y)
+      }
+      expect(tops).toEqual([...tops].sort((a, b) => a - b))
+
+      const speech = panel.getByRole('region', { name: 'Speech', exact: true })
+      await expect(speech.getByText('Enable Text-to-Speech endpoint in Chat')).toBeVisible()
+      await expect(speech.getByText('Enable Speech-to-Text endpoint in Chat')).toBeVisible()
+
+      const advanced = panel.getByRole('region', { name: 'Advanced', exact: true })
+      await expect(advanced.getByRole('button', { name: 'Setup Wizard' })).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Edit Settings JSON' })).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Restart', exact: true })).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
+
+    await test.step('Only the dialog Close button dismisses App Settings', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      await window.keyboard.press('Escape')
+      await expect(shell.settingsDialog).toBeVisible()
+      await shell.settingsCloseButton.click()
+      await expect(shell.settingsDialog).toBeHidden()
+    })
+
+    await test.step('Unsaved theme colors are guarded on tab switch and close', async () => {
+      const shell = app.shell
+      await shell.customizeTheme()
+      const panel = shell.settingsPanel('App Settings')
+      await panel.getByLabel('App background', { exact: true }).fill('#123456')
+      const discard = window.getByRole('alertdialog', { name: 'Discard unsaved changes?' })
+
+      await shell.settingsTab('Component Manager').click()
+      await expect(discard).toBeVisible()
+      await discard.getByRole('button', { name: 'Cancel' }).click()
+      await expect(discard).toBeHidden()
+      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+
+      await shell.settingsCloseButton.click()
+      await expect(discard).toBeVisible()
+      await discard.getByRole('button', { name: 'Discard' }).click()
+      await expect(shell.settingsDialog).toBeHidden()
+    })
+
+    await test.step('Theme switches from the header and is a section of App Settings', async () => {
       const shell = app.shell
       await shell.themeButton.click()
       await expect(shell.themeOptions).toHaveText([
@@ -61,9 +150,16 @@ test.describe('App shell', () => {
       }
 
       await shell.openAppSettings()
-      const sidebar = window.getByRole('region', { name: 'App Settings' })
-      await expect(sidebar.getByText('Theme', { exact: true })).toHaveCount(0)
-      await expect(sidebar.getByText('Intel® Arc™')).toHaveCount(0)
+      const themeSection = shell
+        .settingsPanel('App Settings')
+        .getByRole('region', { name: 'Theme', exact: true })
+      await expect(themeSection).toBeVisible()
+      await expect(themeSection.getByRole('region', { name: 'Colors' })).toHaveCount(0)
+      await shell.ensureSettingsClosed()
+
+      await shell.customizeTheme()
+      await expect(themeSection).toBeInViewport()
+      await expect(themeSection.getByRole('region', { name: 'Colors' })).toBeVisible()
       await shell.ensureSettingsClosed()
     })
   })

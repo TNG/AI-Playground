@@ -209,10 +209,10 @@
   >
     <SessionsPanel />
 
-    <SideModalAppSettings
-      :isVisible="showAppSettings"
+    <AppSettingsDialog
+      :is-visible="showAppSettings"
       :section="appSettingsSection"
-      @close="theme.guardUnsaved(() => (showAppSettings = false))"
+      @close="showAppSettings = false"
     />
 
     <SessionTabView>
@@ -327,9 +327,7 @@ import SessionTabView from '@/components/SessionTabView.vue'
 import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
 import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
-import SideModalAppSettings, {
-  type AppSettingsSection,
-} from '@/components/SideModalAppSettings.vue'
+import AppSettingsDialog, { type AppSettingsSection } from '@/components/AppSettingsDialog.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'

@@ -1,125 +1,121 @@
 <template>
-  <DemoModeBlocker>
-    <div class="flex flex-col gap-3 pt-4">
-      <SettingsHeading>{{ languages.SETTINGS_PERMISSIONS }}</SettingsHeading>
-      <div class="pl-2 pt-2 flex flex-col gap-4">
-        <div class="flex justify-between pr-4 items-start gap-4">
-          <div class="flex flex-col gap-1 min-w-0">
-            <Label
-              for="remote-download-pregrant"
-              :class="{ 'opacity-50': !channelStore.hasConfiguredChannel }"
-              >{{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS }}</Label
-            >
-            <p class="text-xs text-muted-foreground">
-              {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_INFO }}
-            </p>
-            <p
-              v-if="!channelStore.hasConfiguredChannel"
-              class="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2"
-            >
-              {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_NO_CHANNEL }}
-              <button
-                type="button"
-                class="text-primary underline-offset-2 hover:underline"
-                @click="setupWizard.openChannelsSetup()"
-              >
-                {{ languages.SETTINGS_PERMISSIONS_SETUP_CHANNELS }}
-              </button>
-            </p>
-          </div>
-          <Checkbox
-            id="remote-download-pregrant"
-            class="mt-0.5"
-            :disabled="!channelStore.hasConfiguredChannel && !remoteDownloadsGranted"
-            :model-value="remoteDownloadsGranted"
-            @update:model-value="(v) => setRemoteDownloads(v === true)"
-          />
-        </div>
-
-        <div class="border-t border-border pt-3 flex flex-col gap-2 pr-4">
-          <p v-if="!rememberedGrants.length && !undo" class="text-xs text-muted-foreground">
-            {{ languages.SETTINGS_PERMISSIONS_EMPTY }}
+  <div class="flex flex-col gap-3">
+    <SettingsHeading>{{ languages.SETTINGS_PERMISSIONS }}</SettingsHeading>
+    <div class="pl-2 pt-2 flex flex-col gap-4">
+      <div class="flex justify-between pr-4 items-start gap-4">
+        <div class="flex flex-col gap-1 min-w-0">
+          <Label
+            for="remote-download-pregrant"
+            :class="{ 'opacity-50': !channelStore.hasConfiguredChannel }"
+            >{{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS }}</Label
+          >
+          <p class="text-xs text-muted-foreground">
+            {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_INFO }}
           </p>
-
-          <Collapsible v-else v-model:open="listOpen" class="flex flex-col gap-2">
-            <div class="flex items-center gap-2">
-              <CollapsibleTrigger
-                class="flex flex-1 min-w-0 items-center gap-2 text-left rounded-md -ml-1 px-1 py-0.5 hover:bg-muted/60"
-              >
-                <ChevronRightIcon
-                  class="size-4 flex-none text-muted-foreground transition-transform"
-                  :class="{ 'rotate-90': listOpen }"
-                />
-                <SettingsHeading sub>{{
-                  languages.SETTINGS_PERMISSIONS_REMEMBERED
-                }}</SettingsHeading>
-                <span class="text-xs text-muted-foreground">({{ rememberedGrants.length }})</span>
-              </CollapsibleTrigger>
-              <DropdownMenu v-if="rememberedGrants.length">
-                <DropdownMenuTrigger as-child>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    :aria-label="languages.SETTINGS_PERMISSIONS_MORE_ACTIONS"
-                  >
-                    <EllipsisVerticalIcon class="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" class="min-w-[180px] z-[100]">
-                  <DropdownMenuItem
-                    class="text-destructive focus:text-destructive"
-                    @select="revokeAll"
-                  >
-                    <TrashIcon />
-                    {{ languages.SETTINGS_PERMISSIONS_REVOKE_ALL }}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div
-              v-if="undo"
-              role="status"
-              class="flex items-center justify-between gap-4 rounded-md bg-muted/60 px-2 py-1.5 text-xs"
+          <p
+            v-if="!channelStore.hasConfiguredChannel"
+            class="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2"
+          >
+            {{ languages.SETTINGS_PERMISSIONS_REMOTE_DOWNLOADS_NO_CHANNEL }}
+            <button
+              type="button"
+              class="text-primary underline-offset-2 hover:underline"
+              @click="setupWizard.openChannelsSetup()"
             >
-              <span>{{
-                fillTemplate(languages.SETTINGS_PERMISSIONS_REVOKED, {
-                  count: String(undo.grants.length),
-                })
-              }}</span>
-              <Button variant="ghost" size="sm" class="h-6 px-2" @click="undoRevoke">
-                {{ languages.SETTINGS_PERMISSIONS_UNDO }}
-              </Button>
-            </div>
-
-            <CollapsibleContent class="flex flex-col gap-3">
-              <div v-for="group in groups" :key="group.id" class="flex flex-col gap-1.5">
-                <span class="text-xs font-medium text-muted-foreground">{{ group.title }}</span>
-                <div
-                  v-for="grant in group.grants"
-                  :key="grant.key"
-                  class="flex justify-between items-center gap-4"
-                >
-                  <div class="flex flex-col min-w-0">
-                    <span class="text-sm truncate">{{ grant.label }}</span>
-                    <span class="text-xs text-muted-foreground">{{
-                      fillTemplate(languages.SETTINGS_PERMISSIONS_REMEMBERED_ON, {
-                        date: formatDate(grant.createdAt),
-                      })
-                    }}</span>
-                  </div>
-                  <Button variant="outline" size="sm" @click="revoke(grant)">
-                    {{ languages.SETTINGS_PERMISSIONS_REVOKE }}
-                  </Button>
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+              {{ languages.SETTINGS_PERMISSIONS_SETUP_CHANNELS }}
+            </button>
+          </p>
         </div>
+        <Checkbox
+          id="remote-download-pregrant"
+          class="mt-0.5"
+          :disabled="!channelStore.hasConfiguredChannel && !remoteDownloadsGranted"
+          :model-value="remoteDownloadsGranted"
+          @update:model-value="(v) => setRemoteDownloads(v === true)"
+        />
+      </div>
+
+      <div class="border-t border-border pt-3 flex flex-col gap-2 pr-4">
+        <p v-if="!rememberedGrants.length && !undo" class="text-xs text-muted-foreground">
+          {{ languages.SETTINGS_PERMISSIONS_EMPTY }}
+        </p>
+
+        <Collapsible v-else v-model:open="listOpen" class="flex flex-col gap-2">
+          <div class="flex items-center gap-2">
+            <CollapsibleTrigger
+              class="flex flex-1 min-w-0 items-center gap-2 text-left rounded-md -ml-1 px-1 py-0.5 hover:bg-muted/60"
+            >
+              <ChevronRightIcon
+                class="size-4 flex-none text-muted-foreground transition-transform"
+                :class="{ 'rotate-90': listOpen }"
+              />
+              <SettingsHeading sub>{{ languages.SETTINGS_PERMISSIONS_REMEMBERED }}</SettingsHeading>
+              <span class="text-xs text-muted-foreground">({{ rememberedGrants.length }})</span>
+            </CollapsibleTrigger>
+            <DropdownMenu v-if="rememberedGrants.length">
+              <DropdownMenuTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  :aria-label="languages.SETTINGS_PERMISSIONS_MORE_ACTIONS"
+                >
+                  <EllipsisVerticalIcon class="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="min-w-[180px] z-[100]">
+                <DropdownMenuItem
+                  class="text-destructive focus:text-destructive"
+                  @select="revokeAll"
+                >
+                  <TrashIcon />
+                  {{ languages.SETTINGS_PERMISSIONS_REVOKE_ALL }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div
+            v-if="undo"
+            role="status"
+            class="flex items-center justify-between gap-4 rounded-md bg-muted/60 px-2 py-1.5 text-xs"
+          >
+            <span>{{
+              fillTemplate(languages.SETTINGS_PERMISSIONS_REVOKED, {
+                count: String(undo.grants.length),
+              })
+            }}</span>
+            <Button variant="ghost" size="sm" class="h-6 px-2" @click="undoRevoke">
+              {{ languages.SETTINGS_PERMISSIONS_UNDO }}
+            </Button>
+          </div>
+
+          <CollapsibleContent class="flex flex-col gap-3">
+            <div v-for="group in groups" :key="group.id" class="flex flex-col gap-1.5">
+              <span class="text-xs font-medium text-muted-foreground">{{ group.title }}</span>
+              <div
+                v-for="grant in group.grants"
+                :key="grant.key"
+                class="flex justify-between items-center gap-4"
+              >
+                <div class="flex flex-col min-w-0">
+                  <span class="text-sm truncate">{{ grant.label }}</span>
+                  <span class="text-xs text-muted-foreground">{{
+                    fillTemplate(languages.SETTINGS_PERMISSIONS_REMEMBERED_ON, {
+                      date: formatDate(grant.createdAt),
+                    })
+                  }}</span>
+                </div>
+                <Button variant="outline" size="sm" @click="revoke(grant)">
+                  {{ languages.SETTINGS_PERMISSIONS_REVOKE }}
+                </Button>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
     </div>
-  </DemoModeBlocker>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -146,7 +142,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import SettingsHeading from '@/components/SettingsHeading.vue'
-import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import { createAppError } from '@/assets/js/errors/appError'
 import { fillTemplate } from '@/lib/fillTemplate'
 

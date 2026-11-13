@@ -1,58 +1,56 @@
 <template>
-  <DemoModeBlocker>
-    <div class="flex flex-col gap-3">
-      <SettingsHeading>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</SettingsHeading>
-      <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN }}</SettingsHeading>
-      <div class="flex flex-col items-start gap-1">
-        <Input
-          type="password"
-          v-model="models.hfToken"
-          class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
-          :class="{ 'border-red-500': models.hfToken && !models.hfTokenIsValid }"
-        />
-        <div
-          class="text-xs text-red-500 select-none"
-          :class="{ 'opacity-0': !(models.hfToken && !models.hfTokenIsValid) }"
-        >
-          {{ languages.SETTINGS_MODEL_HUGGINGFACE_INVALID_TOKEN_TEXT }}
-        </div>
-      </div>
-      <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_MIRROR_URL }}</SettingsHeading>
-      <div class="flex flex-col items-start gap-2">
-        <Input
-          v-model="mirrorUrl"
-          placeholder="https://huggingface.co"
-          class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
-          :class="{ 'border-red-500': mirrorUrl && !isValidUrl(mirrorUrl) }"
-        />
-        <div class="flex gap-2 items-center">
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="!mirrorUrl || !isValidUrl(mirrorUrl)"
-            @click="verifyMirror"
-          >
-            {{ languages.SETTINGS_MODEL_HUGGINGFACE_VERIFY }}
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            :disabled="!mirrorUrl || !isValidUrl(mirrorUrl)"
-            @click="applyHfSettings"
-          >
-            {{ languages.SETTINGS_MODEL_HUGGINGFACE_APPLY }}
-          </Button>
-        </div>
-        <div
-          v-if="verificationMessage"
-          class="text-xs"
-          :class="verificationSuccess ? 'text-green-500' : 'text-yellow-600'"
-        >
-          {{ verificationMessage }}
-        </div>
+  <div class="flex flex-col gap-3">
+    <SettingsHeading>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</SettingsHeading>
+    <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN }}</SettingsHeading>
+    <div class="flex flex-col items-start gap-1">
+      <Input
+        type="password"
+        v-model="models.hfToken"
+        class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
+        :class="{ 'border-red-500': models.hfToken && !models.hfTokenIsValid }"
+      />
+      <div
+        class="text-xs text-red-500 select-none"
+        :class="{ 'opacity-0': !(models.hfToken && !models.hfTokenIsValid) }"
+      >
+        {{ languages.SETTINGS_MODEL_HUGGINGFACE_INVALID_TOKEN_TEXT }}
       </div>
     </div>
-  </DemoModeBlocker>
+    <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_MIRROR_URL }}</SettingsHeading>
+    <div class="flex flex-col items-start gap-2">
+      <Input
+        v-model="mirrorUrl"
+        placeholder="https://huggingface.co"
+        class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
+        :class="{ 'border-red-500': mirrorUrl && !isValidUrl(mirrorUrl) }"
+      />
+      <div class="flex gap-2 items-center">
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="!mirrorUrl || !isValidUrl(mirrorUrl)"
+          @click="verifyMirror"
+        >
+          {{ languages.SETTINGS_MODEL_HUGGINGFACE_VERIFY }}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          :disabled="!mirrorUrl || !isValidUrl(mirrorUrl)"
+          @click="applyHfSettings"
+        >
+          {{ languages.SETTINGS_MODEL_HUGGINGFACE_APPLY }}
+        </Button>
+      </div>
+      <div
+        v-if="verificationMessage"
+        class="text-xs"
+        :class="verificationSuccess ? 'text-green-500' : 'text-yellow-600'"
+      >
+        {{ verificationMessage }}
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -61,7 +59,6 @@ import { useModels } from '@/assets/js/store/models'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import { useI18N } from '@/assets/js/store/i18n'
-import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

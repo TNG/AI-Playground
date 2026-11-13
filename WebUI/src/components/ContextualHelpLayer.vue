@@ -316,7 +316,7 @@ body.aipg-help-mode #theme-button,
 body.aipg-help-mode #sessions-panel,
 body.aipg-help-mode #session-tab-inferencing,
 body.aipg-help-mode #session-tab-attributes,
-body.aipg-help-mode #app-settings-sidebar {
+body.aipg-help-mode #app-settings-dialog {
   cursor: help;
 }
 

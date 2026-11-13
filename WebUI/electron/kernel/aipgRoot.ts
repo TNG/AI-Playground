@@ -15,14 +15,16 @@ import { grantUsersModifySync } from './sharedAcl.ts'
  * `process.resourcesPath` (unchanged behaviour).
  *
  * When the install directory is **not** writable we relocate the root to a
- * per-user writable directory and seed it once (per app version) from the
- * read-only bundle. Two cases hit this path:
+ * per-user writable directory and seed it from the read-only bundle once per
+ * build: a stale marker means the app was updated, so the shipped trees are
+ * copied again and presets the new build no longer ships are pruned from the
+ * shipped preset tree. Two cases hit this path:
  *   - Linux: the app ships as a read-only bundle (AppImage squashfs mount, or a
  *     `/opt` install owned by root), so writes fail with EROFS/ENOENT.
  *   - Windows all-users install: the app lives under `Program Files` and a
  *     standard (unelevated) user cannot write there.
  * Runtime data created later (venvs, models, `python-interpreter/`, …) is never
- * part of the bundle, so it is preserved across reseeds.
+ * part of the bundle, so it is preserved across re-seeds.
  *
  * **Shared all-users install** (HKLM `modelFolderMode` = `shared`): the resources
  * root points at `<sharedResourcesDir>/resources`. The installer grants
@@ -114,6 +116,127 @@ const isInstallDirWritable = (): boolean => {
 // fetch-external-resources script for naming consistency).
 const EXECUTABLE_RESOURCE_FILES = ['uv.exe', 'uvw.exe', 'uvx.exe', '7zr.exe']
 
+const SEED_SCHEMA = 2
+
+/**
+ * The build's short commit, falling back to its release tag. Both are baked
+ * into every bundle by `vite.config.mts`; the same values name installers.
+ */
+function buildIdentity(): string {
+  return (
+    (import.meta.env.VITE_GIT_COMMIT ?? '').trim() || (import.meta.env.VITE_GIT_TAG ?? '').trim()
+  )
+}
+
+/** Freshness marker for the writable root; the `2|` prefix forces a re-seed on a format change. */
+export function seedId(
+  version: string = app.getVersion(),
+  build: string = buildIdentity(),
+): string {
+  return `${SEED_SCHEMA}|${version}|${build}`
+}
+
+let warnedEmptyBuild = false
+
+const isInsideTree = (treeReal: string, candidate: string): boolean => {
+  const rel = path.relative(treeReal, candidate)
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
+}
+
+/** Every relative path in the bundle's copy of the preset tree. */
+function bundleTreePaths(treeDir: string): Set<string> {
+  const paths = new Set<string>()
+  const visit = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, entry.name)
+      paths.add(path.relative(treeDir, abs))
+      if (entry.isDirectory()) visit(abs)
+    }
+  }
+  visit(treeDir)
+  return paths
+}
+
+/**
+ * Removes presets the new build dropped from the writable `modes` tree. Best
+ * effort: a failure warns and leaves the tree usable, and links are never followed.
+ */
+function pruneDroppedPresets(root: string, bundle: string): number {
+  const tree = path.join(root, 'modes')
+  const bundleTree = path.join(bundle, 'modes')
+  let removed = 0
+
+  try {
+    const treeStat = fs.lstatSync(tree, { throwIfNoEntry: false })
+    const bundleStat = fs.lstatSync(bundleTree, { throwIfNoEntry: false })
+    if (!treeStat?.isDirectory() || !bundleStat?.isDirectory()) return 0
+
+    const treeReal = fs.realpathSync(tree)
+    const bundleReal = fs.realpathSync(bundleTree)
+    if (treeReal === bundleReal) return 0
+
+    const bundlePaths = bundleTreePaths(bundleReal)
+
+    const removeIfInside = (target: string, remove: () => void): void => {
+      if (!isInsideTree(treeReal, target)) {
+        console.warn(`[aipgRoot] refusing to remove a path outside the preset tree: ${target}`)
+        return
+      }
+      try {
+        remove()
+        removed++
+      } catch (e) {
+        console.warn(`[aipgRoot] could not remove ${target}:`, e)
+      }
+    }
+
+    const visit = (dir: string): void => {
+      let entries: fs.Dirent[]
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      } catch (e) {
+        console.warn(`[aipgRoot] could not read ${dir} while pruning the preset tree:`, e)
+        return
+      }
+      for (const entry of entries) {
+        const abs = path.join(dir, entry.name)
+        const rel = path.relative(treeReal, abs)
+        try {
+          const stat = fs.lstatSync(abs, { throwIfNoEntry: false })
+          if (!stat) continue
+
+          if (stat.isSymbolicLink()) {
+            console.warn(`[aipgRoot] leaving a link in the preset tree in place: ${abs}`)
+          } else if (stat.isDirectory()) {
+            const real = fs.realpathSync(abs)
+            if (!isInsideTree(treeReal, real)) {
+              console.warn(
+                `[aipgRoot] leaving a directory outside the preset tree in place: ${abs}`,
+              )
+              continue
+            }
+            visit(abs)
+            if (!bundlePaths.has(rel) && fs.readdirSync(abs).length === 0) {
+              removeIfInside(abs, () => fs.rmdirSync(abs))
+            }
+          } else if (stat.isFile()) {
+            if (!bundlePaths.has(rel)) removeIfInside(abs, () => fs.unlinkSync(abs))
+          } else {
+            console.warn(`[aipgRoot] leaving a special file in the preset tree in place: ${abs}`)
+          }
+        } catch (e) {
+          console.warn(`[aipgRoot] skipping ${abs} while pruning the preset tree:`, e)
+        }
+      }
+    }
+
+    visit(treeReal)
+  } catch (e) {
+    console.warn('[aipgRoot] failed to prune the shipped preset tree:', e)
+  }
+  return removed
+}
+
 let seeded = false
 
 function copyBundledExecutables(root: string, bundle: string): void {
@@ -133,17 +256,22 @@ function copyBundledExecutables(root: string, bundle: string): void {
 function seedWritableRoot(root: string): void {
   const bundle = process.resourcesPath
   const markerPath = path.join(root, '.aipg-seed-version')
-  const currentVersion = app.getVersion()
+  const currentId = seedId()
 
-  let alreadySeeded = false
-  try {
-    alreadySeeded = fs.readFileSync(markerPath, 'utf-8').trim() === currentVersion
-  } catch {
-    alreadySeeded = false
+  if (!buildIdentity() && !warnedEmptyBuild) {
+    warnedEmptyBuild = true
+    console.warn(
+      '[aipgRoot] build has no commit or tag; a rebuild at the same version will not refresh shipped files',
+    )
   }
-  // The marker lives in the writable tree, so a matching version must not skip
+
+  let previousId = ''
+  try {
+    previousId = fs.readFileSync(markerPath, 'utf-8').trim()
+  } catch {}
+  // The marker lives in the writable tree, so a matching identity must not skip
   // the shipped binaries: those are the files the backends spawn.
-  if (alreadySeeded) {
+  if (previousId === currentId) {
     copyBundledExecutables(root, bundle)
     return
   }
@@ -177,7 +305,12 @@ function seedWritableRoot(root: string): void {
   // the tree must not win over the copy shipped in the install directory.
   copyBundledExecutables(root, bundle)
 
-  fs.writeFileSync(markerPath, currentVersion, 'utf-8')
+  const removed = pruneDroppedPresets(root, bundle)
+
+  fs.writeFileSync(markerPath, currentId, 'utf-8')
+  console.info(
+    `[aipgRoot] re-seeded shipped resources ${previousId || '(none)'} -> ${currentId}; removed ${removed} entries`,
+  )
 }
 
 /**

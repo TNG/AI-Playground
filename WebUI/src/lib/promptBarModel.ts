@@ -50,6 +50,8 @@ export type PromptBarInput = {
   agents?: readonly PromptBarAgent[]
   /** The open Session's picked Agent. */
   pickedAgentId?: string
+  /** False offers the Assistant Mode alone. Defaults to true. */
+  mediaModes?: boolean
 }
 
 export type PromptBarAgent = AgentEntry & {
@@ -101,7 +103,9 @@ export type PresetEntry = {
 export function promptBarModel(input: PromptBarInput): PromptBarModel {
   const catalog = input.catalog ?? []
   const gateOf = (preset: Preset) => input.presetGate?.(preset) ?? { enabled: true }
-  const modes = promptBarModes(catalog)
+  const modes = promptBarModes(catalog).filter(
+    (mode) => input.mediaModes !== false || mode === ASSISTANT_MODE,
+  )
   const modePicks: Partial<Record<ModeType, string>> = {}
   for (const mode of modes) {
     const enabled = presetsInMode(catalog, mode).filter((preset) => gateOf(preset).enabled)

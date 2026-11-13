@@ -49,6 +49,21 @@ export class AppShellPage {
     return this.settingsDialog.getByRole('tabpanel', { name, exact: true })
   }
 
+  get mediaModesSwitch(): Locator {
+    return this.settingsPanel('App Settings')
+      .getByRole('region', { name: 'Media Modes', exact: true })
+      .getByRole('switch', { name: 'Media Modes', exact: true })
+  }
+
+  /** Drives the Media Modes preference to `on` through App Settings, leaving the dialog closed. */
+  async setMediaModes(on: boolean): Promise<void> {
+    await this.openAppSettings()
+    const toggle = this.mediaModesSwitch
+    if ((await toggle.isChecked()) !== on) await toggle.click()
+    await expect(toggle).toBeChecked({ checked: on })
+    await this.ensureSettingsClosed()
+  }
+
   /** Scoped to the dialog: the header's window-close (X) is also named "Close" and quits the app. */
   get settingsCloseButton(): Locator {
     return this.settingsDialog.getByRole('button', { name: 'Close', exact: true })

@@ -71,7 +71,7 @@ test.describe('App shell', () => {
       await shell.ensureSettingsClosed()
     })
 
-    await test.step('App Settings holds its seven sections in order', async () => {
+    await test.step('App Settings holds its eight sections in order', async () => {
       const shell = app.shell
       await shell.openAppSettings()
       const panel = shell.settingsPanel('App Settings')
@@ -81,6 +81,7 @@ test.describe('App shell', () => {
         'Prompt bar style',
         'HuggingFace Settings',
         'Speech',
+        'Media Modes',
         'Permissions',
         'Advanced',
       ].map((name) => panel.getByRole('region', { name, exact: true }))
@@ -112,6 +113,7 @@ test.describe('App shell', () => {
           'Enable Text-to-Speech endpoint in Chat',
           'Enable Speech-to-Text endpoint in Chat',
         ],
+        'Media Modes': ['Media Modes'],
         Advanced: ['Open Developer Console on Startup', 'Keep Models Loaded'],
       }
       for (const [section, names] of Object.entries(switches)) {
@@ -122,6 +124,25 @@ test.describe('App shell', () => {
       }
       await expect(panel.getByRole('checkbox')).toHaveCount(0)
       await shell.ensureSettingsClosed()
+    })
+
+    await test.step('Media Modes off leaves only the Assistant in the prompt bar', async () => {
+      const shell = app.shell
+      const mediaModes = ['Audio', 'Image Gen', 'Image Edit', 'Video'] as const
+      try {
+        await shell.setMediaModes(false)
+        for (const mode of [...mediaModes, 'Assistant'] as const) {
+          await expect(app.main.modeButton(mode)).toHaveCount(0)
+        }
+        await expect(window.getByRole('button', { name: /^Preset: / })).toBeVisible()
+
+        await shell.setMediaModes(true)
+        for (const mode of mediaModes) {
+          await expect(app.main.modeButton(mode)).toBeVisible()
+        }
+      } finally {
+        await shell.setMediaModes(true)
+      }
     })
 
     await test.step('Without a demo passcode the Demo Mode switch is disabled', async () => {

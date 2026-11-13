@@ -1,5 +1,12 @@
 export type AppSettingsSectionId =
-  'language' | 'theme' | 'promptBarStyle' | 'huggingFace' | 'speech' | 'permissions' | 'advanced'
+  | 'language'
+  | 'theme'
+  | 'promptBarStyle'
+  | 'huggingFace'
+  | 'speech'
+  | 'mediaModes'
+  | 'permissions'
+  | 'advanced'
 
 export type AppSettingsPartId =
   | 'language'
@@ -7,6 +14,7 @@ export type AppSettingsPartId =
   | 'promptBarStyle'
   | 'huggingFace'
   | 'speech'
+  | 'mediaModes'
   | 'permissions'
   | 'backendStatus'
   | 'developer'
@@ -31,6 +39,7 @@ const SECTIONS: SectionSpec[] = [
   { id: 'promptBarStyle', heading: false, parts: [{ id: 'promptBarStyle', demo: 'allow' }] },
   { id: 'huggingFace', heading: false, parts: [{ id: 'huggingFace', demo: 'block' }] },
   { id: 'speech', heading: false, parts: [{ id: 'speech', demo: 'block' }] },
+  { id: 'mediaModes', heading: false, parts: [{ id: 'mediaModes', demo: 'block' }] },
   { id: 'permissions', heading: false, parts: [{ id: 'permissions', demo: 'block' }] },
   {
     id: 'advanced',

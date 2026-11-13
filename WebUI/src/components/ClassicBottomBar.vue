@@ -10,8 +10,8 @@
   </div>
   <div
     id="mode-buttons"
-    role="group"
-    :aria-label="i18nState.PROMPT_BAR_MODE"
+    :role="pickerOnly ? undefined : 'group'"
+    :aria-label="pickerOnly ? undefined : i18nState.PROMPT_BAR_MODE"
     class="absolute bottom-4 left-3 flex gap-2"
     @pointerleave="schedulePickerClose"
   >
@@ -34,9 +34,12 @@
           @pointerdown="onPickerPointerDown"
           @focus="(e: FocusEvent) => onPickerFocus(mode, e)"
           @blur="schedulePickerClose()"
+          :aria-label="
+            pickerOnly ? `${i18nState.PROMPT_BAR_PRESET}: ${activePresetLabel}` : undefined
+          "
           @click="handleModeClick(mode)"
         >
-          {{ mapModeToLabel(mode) }}
+          {{ pickerOnly ? activePresetLabel : mapModeToLabel(mode) }}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -175,7 +178,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { computed, ref, nextTick, watch } from 'vue'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets } from '@/assets/js/store/presets'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -318,6 +321,12 @@ async function selectAgentFromPicker(agentId: string) {
 }
 
 const bar = usePromptBarModel()
+// With a single Mode there is nothing to switch to, so the one button only opens the preset picker.
+const pickerOnly = computed(() => bar.value.modes.length <= 1)
+const activePresetLabel = computed(() => {
+  const chip = bar.value.headerChips.find((chip) => chip.kind === 'preset')
+  return chip?.kind === 'preset' ? chip.label : ''
+})
 
 watch(
   () => demoMode.tourOpen,

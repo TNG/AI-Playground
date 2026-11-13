@@ -262,6 +262,50 @@ describe('promptBarModel modes', () => {
     }
   })
 
+  describe('with Media Modes', () => {
+    const all = [
+      image('Video', 'create-videos'),
+      image('Edit', 'edit-images'),
+      image('Fast'),
+      audio('Text to Speech'),
+      agent('Game Agent'),
+      agent('Assistant'),
+      chat('Writer'),
+    ]
+    const tidy = { id: 'a-tidy', name: 'Tidy downloads', saved: true }
+
+    it('off, offers only the Assistant Mode in both bars', () => {
+      for (const style of ['modern', 'classic'] as const) {
+        const model = promptBarModel(input({ catalog: all, style, mediaModes: false }))
+        expect(model.modes).toEqual(['chat'])
+        expect(Object.keys(model.listings)).toEqual(['chat'])
+        expect(Object.keys(model.modePicks)).toEqual(['chat'])
+      }
+    })
+
+    it('off, leaves the Assistant listing as it is', () => {
+      const on = promptBarModel(input({ catalog: all, agents: [tidy], mediaModes: true }))
+      const off = promptBarModel(input({ catalog: all, agents: [tidy], mediaModes: false }))
+      expect(off.listings.chat).toEqual(on.listings.chat)
+      expect(off.listings.chat?.groups.map((group) => group.kind)).toEqual([
+        'main',
+        'agent',
+        'saved',
+      ])
+      expect(off.listings.chat?.manageAgents).toBe(true)
+    })
+
+    it('on, offers every mode as before', () => {
+      expect(promptBarModel(input({ catalog: all, mediaModes: true })).modes).toEqual([
+        'chat',
+        'audio',
+        'imageGen',
+        'imageEdit',
+        'video',
+      ])
+    })
+  })
+
   it('selects Assistant for every conversational preset', () => {
     const modeOf = (activePreset: Preset | null) =>
       promptBarModel(input({ activePreset })).activeMode

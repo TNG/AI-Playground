@@ -13,11 +13,9 @@
                 <TooltipTrigger as-child>
                   <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[320px]">
-                  An OpenAI-compatible <code>/v1/audio/speech</code> server (base URL like
-                  <code>http://127.0.0.1:8080/v1</code>). When enabled, it appears as the "External
-                  endpoint" engine in the Text to Speech preset.
-                </TooltipContent>
+                <TooltipContent side="bottom" class="max-w-[320px]">{{
+                  languages.SETTINGS_SPEECH_TTS_ENDPOINT_INFO
+                }}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
@@ -37,13 +35,9 @@
                 <TooltipTrigger as-child>
                   <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[320px]">
-                  An OpenAI-compatible transcription server — e.g. a local whisper.cpp
-                  <code>whisper-server</code> with
-                  <code>--inference-path "/v1/audio/transcriptions"</code> (base URL like
-                  <code>http://127.0.0.1:2022/v1</code>). Enabling it also makes the Speech to Text
-                  preset available in NVIDIA mode.
-                </TooltipContent>
+                <TooltipContent side="bottom" class="max-w-[320px]">{{
+                  languages.SETTINGS_SPEECH_STT_ENDPOINT_INFO
+                }}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>

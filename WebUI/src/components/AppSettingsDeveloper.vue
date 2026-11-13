@@ -16,7 +16,7 @@
       <div class="flex justify-between pr-4 items-center gap-4 mb-4">
         <div class="flex items-center gap-2">
           <Label class="whitespace-nowrap">{{
-            languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED || 'Keep Models Loaded'
+            languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED
           }}</Label>
           <TooltipProvider :delay-duration="200">
             <Tooltip>
@@ -24,10 +24,7 @@
                 <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
               </TooltipTrigger>
               <TooltipContent side="bottom" class="max-w-[300px]">
-                {{
-                  languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED_INFO ||
-                  'When enabled, chat and image generation models stay loaded in memory simultaneously. Requires more VRAM but avoids reloading models when switching between chat and image generation.'
-                }}
+                {{ languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED_INFO }}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -138,24 +135,31 @@
       </div>
     </div>
     <div class="flex justify-between items-center">
-      <SettingsHeading>
-        {{
-          i18nState.SETTINGS_PRESETS_MANAGEMENT ||
-          languages.SETTINGS_PRESETS_MANAGEMENT ||
-          'Presets Management'
-        }}
-      </SettingsHeading>
-      <div class="flex pr-4 gap-2 items-center">
-        <div :data-tooltip="i18nState.PRESET_RELOAD_INFO">
-          <button
-            class="svg-icon i-refresh w-5 h-5"
-            @click="presetsStore.loadPresetsFromFiles"
-          ></button>
+      <SettingsHeading>{{ languages.SETTINGS_PRESETS_MANAGEMENT }}</SettingsHeading>
+      <TooltipProvider :delay-duration="200">
+        <div class="flex pr-4 gap-2 items-center">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                class="svg-icon i-refresh w-5 h-5"
+                :aria-label="languages.SETTINGS_PRESETS_RELOAD"
+                @click="presetsStore.loadPresetsFromFiles"
+              ></button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{{ languages.SETTINGS_PRESETS_RELOAD }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button
+                class="svg-icon i-download-cloud w-5 h-5"
+                :aria-label="languages.SETTINGS_PRESETS_DOWNLOAD"
+                @click="loadPresetsFromIntel"
+              ></button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{{ languages.SETTINGS_PRESETS_DOWNLOAD }}</TooltipContent>
+          </Tooltip>
         </div>
-        <div :data-tooltip="i18nState.PRESET_DOWNLOAD_INFO">
-          <button class="svg-icon i-download-cloud w-5 h-5" @click="loadPresetsFromIntel"></button>
-        </div>
-      </div>
+      </TooltipProvider>
     </div>
     <div class="flex flex-col pt-5">
       <button
@@ -163,7 +167,7 @@
         @click="openSetupWizard"
         class="bg-primary hover:bg-primary/80 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed"
       >
-        {{ languages.SETTINGS_SETUP_WIZARD || 'Setup Wizard' }}
+        {{ languages.SETTINGS_SETUP_WIZARD }}
       </button>
     </div>
   </div>
@@ -200,8 +204,7 @@ const oemVendorItems = [
 const demoMode = useDemoMode()
 const setupWizardStore = useSetupWizard()
 const presetsStore = usePresets()
-const i18nState = useI18N().state
-const languages = i18nState
+const languages = useI18N().state
 const developerSettings = useDeveloperSettings()
 const errors = useErrors()
 
@@ -212,7 +215,14 @@ async function loadPresetsFromIntel() {
   } else if (syncStatus.result === 'noUpdate') {
     toast.warning('No updated presets available')
   } else {
-    toast.error('Synchronisation failed')
+    errors.report(
+      createAppError({
+        category: 'setup',
+        code: 'settings/presets-sync-failed',
+        surface: 'toast',
+        userMessage: 'Synchronisation failed',
+      }),
+    )
   }
 }
 
@@ -230,7 +240,7 @@ async function openSettingsFile() {
   if (result.success) return
   errors.report(
     createAppError({
-      category: 'unknown',
+      category: 'setup',
       code: 'settings/open-file-failed',
       surface: 'toast',
       userMessage: languages.SETTINGS_EDIT_SETTINGS_JSON_FAILED,
@@ -243,20 +253,3 @@ function restartApp() {
   void window.electronAPI.lifecycle.restart()
 }
 </script>
-
-<!-- scoped: `[data-tooltip]` is a bare attribute selector, so unscoped it would claim
-     every element in the app carrying that attribute, not just this panel's two. -->
-<style scoped>
-[data-tooltip]:hover::after {
-  display: block;
-  position: absolute;
-  right: 10px;
-  content: attr(data-tooltip);
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-  border-radius: 0.5rem;
-  padding: 0.7em;
-  z-index: 10;
-}
-</style>

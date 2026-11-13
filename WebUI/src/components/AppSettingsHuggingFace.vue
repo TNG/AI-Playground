@@ -63,10 +63,13 @@ import SettingsHeading from '@/components/SettingsHeading.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import * as toast from '@/assets/js/toast'
+import { createAppError } from '@/assets/js/errors/appError'
+import { useErrors } from '@/assets/js/store/errors'
 
 const models = useModels()
 const backendServices = useBackendServices()
 const dialogStore = useDialogStore()
+const errors = useErrors()
 const i18nState = useI18N().state
 const languages = i18nState
 
@@ -93,7 +96,6 @@ async function verifyMirror() {
 
   try {
     const isValid = await models.verifyHfEndpoint(mirrorUrl.value)
-    console.log('isValid', isValid)
     if (isValid.success) {
       verificationMessage.value = i18nState.SETTINGS_MODEL_HUGGINGFACE_VERIFICATION_SUCCESS
       verificationSuccess.value = true
@@ -158,7 +160,7 @@ async function executeRestartBackends() {
 
     const allStopped = stopResults.every((r) => r.status === 'stopped')
     if (!allStopped) {
-      toast.error('Failed to stop one or more backends')
+      reportRestartFailure('Failed to stop one or more backends')
       return
     }
 
@@ -174,12 +176,25 @@ async function executeRestartBackends() {
     if (allRunning) {
       toast.success(i18nState.SETTINGS_MODEL_HUGGINGFACE_APPLY_SUCCESS)
     } else {
-      toast.error('Failed to restart one or more backends')
+      reportRestartFailure('Failed to restart one or more backends')
     }
   } catch (error: unknown) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Failed to apply HuggingFace settings'
-    toast.error(errorMessage)
+    errors.report(error, {
+      category: 'backend',
+      code: 'settings/hf-endpoint-apply-failed',
+      surface: 'toast',
+    })
   }
+}
+
+function reportRestartFailure(message: string) {
+  errors.report(
+    createAppError({
+      category: 'backend',
+      code: 'settings/hf-endpoint-restart-failed',
+      surface: 'toast',
+      userMessage: message,
+    }),
+  )
 }
 </script>

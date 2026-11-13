@@ -1,6 +1,6 @@
 <template>
   <div
-    class="group relative flex max-w-full items-center justify-center rounded-lg bg-accent"
+    class="group/card relative flex max-w-full items-center justify-center rounded-lg bg-accent"
     :style="frameStyle"
   >
     <div
@@ -76,7 +76,7 @@
 
     <ArtifactToolbar
       :actions="artifact.actions"
-      class="absolute top-2 right-2 max-w-[calc(100%-1rem)] flex-wrap justify-end rounded-md bg-background/80 p-1 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      class="absolute top-2 right-2 max-w-[calc(100%-1rem)] flex-wrap justify-end rounded-md bg-background/80 p-1 shadow-sm backdrop-blur-sm can-hover:opacity-0 transition-opacity group-hover/card:opacity-100 group-has-focus-visible/card:opacity-100"
       @action="(action) => emit('action', action)"
     />
   </div>

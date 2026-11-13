@@ -29,7 +29,7 @@
           conversation?.[0]?.parts.find((part) => part.type === 'text')?.text.substring(0, 50) ??
           languages.ANSWER_NEW_CONVERSATION
         "
-        class="group relative cursor-pointer text-muted-foreground"
+        class="group/row relative cursor-pointer text-muted-foreground"
       >
         <div class="flex justify-between items-center w-full h-10 px-3">
           <div
@@ -67,7 +67,7 @@
                       'transition-opacity duration-100 ml-2 text-muted-foreground hover:text-foreground hover:bg-transparent dark:hover:bg-transparent focus:bg-transparent focus-visible:bg-transparent active:bg-transparent outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0',
                       menuOpenKey === conversationKey
                         ? 'opacity-70'
-                        : 'opacity-0 group-hover:opacity-70',
+                        : 'opacity-70 can-hover:opacity-0 group-hover/row:opacity-70 group-has-focus-visible/row:opacity-70',
                     ]"
                     @click.stop="() => {}"
                     @pointerdown.stop="() => {}"

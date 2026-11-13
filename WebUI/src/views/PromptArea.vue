@@ -41,13 +41,13 @@
           <div
             v-for="doc in checkedRagDocuments"
             :key="doc.hash"
-            class="flex items-center gap-1 px-1 py-0.5 bg-primary/20 border border-primary/30 rounded-md text-foreground hover:bg-primary/30 transition-colors group"
+            class="flex items-center gap-1 px-1 py-0.5 bg-primary/20 border border-primary/30 rounded-md text-foreground hover:bg-primary/30 transition-colors group/chip"
           >
             <span class="svg-icon flex-none w-4 h-4" :class="getRagIconClass(doc.type)"></span>
             <span class="truncate max-w-[200px]" :title="doc.filename">{{ doc.filename }}</span>
             <button
               @click="textInference.updateFileCheckStatus(doc.hash, false)"
-              class="ml-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+              class="ml-1 can-hover:opacity-0 group-hover/chip:opacity-100 group-has-focus-visible/chip:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
               title="Remove from context"
             >
               <XMarkIcon class="size-4" />

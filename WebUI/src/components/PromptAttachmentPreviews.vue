@@ -2,7 +2,7 @@
   <div
     v-for="preview in imagePreview"
     :key="preview.id"
-    class="relative max-h-12 max-w-12 mr-2 aspect-square group"
+    class="relative max-h-12 max-w-12 mr-2 aspect-square group/chip"
   >
     <img
       :src="preview.url"
@@ -11,7 +11,7 @@
     />
     <button
       @click="removeImage(preview.id)"
-      class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-full p-0.5 text-muted-foreground hover:text-destructive"
+      class="absolute -top-1 -right-1 can-hover:opacity-0 group-hover/chip:opacity-100 group-has-focus-visible/chip:opacity-100 transition-opacity bg-background rounded-full p-0.5 text-muted-foreground hover:text-destructive"
       title="Remove image"
     >
       <XMarkIcon class="size-4" />
@@ -20,13 +20,13 @@
   <div
     v-for="clip in audioPreview"
     :key="clip.id"
-    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
+    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group/chip"
   >
     <MusicalNoteIcon class="size-4 flex-none" />
     <span class="truncate max-w-40" :title="clip.part.filename">{{ clip.part.filename }}</span>
     <button
       @click="removeImage(clip.id)"
-      class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+      class="can-hover:opacity-0 group-hover/chip:opacity-100 group-has-focus-visible/chip:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
       title="Remove attachment"
     >
       <XMarkIcon class="size-4" />
@@ -35,7 +35,7 @@
   <div
     v-for="file in sessionDocuments"
     :key="file"
-    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
+    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group/chip"
     :aria-busy="agentMode.indexingDocuments.includes(file)"
   >
     <ArrowPathIcon
@@ -49,7 +49,7 @@
       type="button"
       :disabled="agentMode.indexingDocuments.includes(file)"
       :aria-label="fillTemplate(languages.AGENT_DOCUMENT_REMOVE, { file: documentName(file) })"
-      class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-destructive disabled:hidden"
+      class="can-hover:opacity-0 group-hover/chip:opacity-100 group-has-focus-visible/chip:opacity-100 transition-opacity text-muted-foreground hover:text-destructive disabled:hidden"
       @click="agentMode.removeSessionDocument(file)"
     >
       <XMarkIcon class="size-4" aria-hidden="true" />
@@ -58,13 +58,13 @@
   <div
     v-for="(file, index) in agentMode.attachments"
     :key="`${file.name}-${index}`"
-    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group"
+    class="self-center flex items-center gap-1 px-1 py-0.5 text-xs bg-primary/20 border border-primary/30 rounded-md group/chip"
   >
     <PaperClipIcon class="size-4 flex-none" />
     <span class="truncate max-w-40" :title="file.name">{{ file.name }}</span>
     <button
       @click="agentMode.removeAttachment(index)"
-      class="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+      class="can-hover:opacity-0 group-hover/chip:opacity-100 group-has-focus-visible/chip:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
       title="Remove attachment"
     >
       <XMarkIcon class="size-4" />

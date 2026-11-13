@@ -482,7 +482,7 @@ export class AppDriver {
     await this.agent.assertNoTurnError()
   }
 
-  /** The agentic smoke's haiku and image turns; false when Assistant isn't offered here. */
+  /** Agentic smoke: haiku, image, toolbar reveal; false when Assistant isn't offered here. */
   async runAgentPreset(opts: {
     prompt: string
     imagePrompt: string
@@ -516,6 +516,10 @@ export class AppDriver {
       await this.agent.assertNoTurnError()
       await this.main.assertNoGenerationError()
       expect(await this.main.generatedImages.count()).toBeGreaterThan(imagesBefore)
+    })
+
+    await test.step('Image toolbar: hidden until hover, shown where nothing can hover', async () => {
+      await this.main.expectResultToolbarRevealedOnHover()
     })
 
     return true

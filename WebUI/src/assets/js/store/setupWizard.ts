@@ -759,7 +759,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     installSelection.value = new Set(installSelection.value)
   }
 
-  async function openWizard() {
+  async function openWizard(startPage: 'main' | 'demoModeSetup' = 'main') {
     if (demoMode.enabled) return
     await restoreDisabledBackends()
     if (!productModeStore.hardwareRecommendation) {
@@ -775,7 +775,8 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     seedInstallSelection()
     wizardDirty.value = false
     demoModeDraft.value = null
-    wizardPage.value = 'main'
+    demoModeSetupEnabling.value = false
+    wizardPage.value = startPage
     globalSetup.loadingState = 'setupWizard'
   }
 

@@ -69,6 +69,7 @@
                       :is="partComponents[part.id]"
                       v-else
                       :ref="(el: unknown) => part.id === 'theme' && bindThemeSettings(el)"
+                      v-bind="part.disabled ? { disabled: true } : {}"
                     />
                   </template>
                 </section>
@@ -189,7 +190,7 @@ function bindThemeSettings(el: unknown) {
 }
 
 const sections = computed(() =>
-  appSettingsSections({ demoMode: demoMode.enabled, showDemoToggle: demoMode.showDemoToggle }),
+  appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
 )
 const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   language: languages.SETTINGS_BASIC_LANGUAGE,

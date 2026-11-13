@@ -124,6 +124,20 @@ test.describe('App shell', () => {
       await shell.ensureSettingsClosed()
     })
 
+    await test.step('Without a demo passcode the Demo Mode switch is disabled', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const advanced = shell
+        .settingsPanel('App Settings')
+        .getByRole('region', { name: 'Advanced', exact: true })
+      await expect(advanced.getByRole('switch', { name: 'Demo Mode', exact: true })).toBeDisabled()
+      await expect(
+        advanced.getByText('Set a demo passcode first to turn demo mode on.'),
+      ).toBeVisible()
+      await expect(advanced.getByRole('button', { name: 'Set passcode…' })).toBeVisible()
+      await shell.ensureSettingsClosed()
+    })
+
     await test.step('Only the dialog Close button dismisses App Settings', async () => {
       const shell = app.shell
       await shell.openAppSettings()

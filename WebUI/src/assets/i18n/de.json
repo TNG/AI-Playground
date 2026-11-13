@@ -320,6 +320,8 @@
   "SETTINGS_BASIC_LANGUAGE": "Sprache",
   "SETTINGS_CHAT_AWARE": "Sprachbewusster Chat",
   "SETTINGS_CHAT_AWARE_INFO": "In der Oberflächensprache antworten, außer Sie schreiben oder fragen in einer anderen Sprache.",
+  "SETTINGS_DEMO_MODE_NEEDS_PASSCODE": "Lege zuerst einen Demo-Passcode fest, um den Demo-Modus einzuschalten.",
+  "SETTINGS_DEMO_MODE_SET_PASSCODE": "Passcode festlegen…",
   "SETTINGS_BASIC_PATHS": "Pfade",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM-Modellpfad",
   "SETTINGS_BASIC_GENERAL": "Allgemeine Einstellungen",

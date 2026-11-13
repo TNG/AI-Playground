@@ -320,6 +320,8 @@
   "SETTINGS_BASIC_LANGUAGE": "언어",
   "SETTINGS_CHAT_AWARE": "언어 인식 채팅",
   "SETTINGS_CHAT_AWARE_INFO": "다른 언어로 쓰거나 요청하지 않는 한 인터페이스 언어로 답변합니다.",
+  "SETTINGS_DEMO_MODE_NEEDS_PASSCODE": "데모 모드를 켜려면 먼저 데모 암호를 설정하세요.",
+  "SETTINGS_DEMO_MODE_SET_PASSCODE": "암호 설정…",
   "SETTINGS_BASIC_PATHS": "경로",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM 모델 경로",
   "SETTINGS_BASIC_GENERAL": "일반 설정",

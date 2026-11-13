@@ -191,8 +191,6 @@ export const useDemoMode = defineStore('demoMode', () => {
     }
   })
 
-  const showDemoToggle = computed(() => hasPasscode.value)
-
   function stopActivityTracking() {
     if (trackUserInteractionInterval) {
       clearInterval(trackUserInteractionInterval)
@@ -310,7 +308,6 @@ export const useDemoMode = defineStore('demoMode', () => {
     enabled,
     profile,
     notificationDotButtonIds,
-    showDemoToggle,
     showResetDialog,
     tourOpen,
     isVisited,

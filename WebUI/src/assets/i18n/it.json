@@ -320,6 +320,8 @@
   "SETTINGS_BASIC_LANGUAGE": "Lingua",
   "SETTINGS_CHAT_AWARE": "Chat consapevole della lingua",
   "SETTINGS_CHAT_AWARE_INFO": "Rispondi nella lingua dell'interfaccia, a meno che tu non scriva o chieda in un'altra lingua.",
+  "SETTINGS_DEMO_MODE_NEEDS_PASSCODE": "Imposta prima un codice di accesso demo per attivare la modalità demo.",
+  "SETTINGS_DEMO_MODE_SET_PASSCODE": "Imposta codice…",
   "SETTINGS_BASIC_PATHS": "Percorsi",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "Percorso del modello LLM",
   "SETTINGS_BASIC_GENERAL": "Impostazioni generali",

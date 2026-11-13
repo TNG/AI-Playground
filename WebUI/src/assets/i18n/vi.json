@@ -320,6 +320,8 @@
   "SETTINGS_BASIC_LANGUAGE": "Ngôn ngữ",
   "SETTINGS_CHAT_AWARE": "Trò chuyện theo ngôn ngữ",
   "SETTINGS_CHAT_AWARE_INFO": "Trả lời bằng ngôn ngữ giao diện, trừ khi bạn viết hoặc yêu cầu bằng ngôn ngữ khác.",
+  "SETTINGS_DEMO_MODE_NEEDS_PASSCODE": "Hãy đặt mật mã demo trước để bật chế độ demo.",
+  "SETTINGS_DEMO_MODE_SET_PASSCODE": "Đặt mật mã…",
   "SETTINGS_BASIC_PATHS": "Đường dẫn",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "Đường dẫn mô hình LLM",
   "SETTINGS_BASIC_GENERAL": "Cài đặt chung",

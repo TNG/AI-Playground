@@ -320,6 +320,8 @@
   "SETTINGS_BASIC_LANGUAGE": "Language",
   "SETTINGS_CHAT_AWARE": "Chat Aware",
   "SETTINGS_CHAT_AWARE_INFO": "Reply in the interface language unless you write or ask in another one.",
+  "SETTINGS_DEMO_MODE_NEEDS_PASSCODE": "Set a demo passcode first to turn demo mode on.",
+  "SETTINGS_DEMO_MODE_SET_PASSCODE": "Set passcode…",
   "SETTINGS_BASIC_PATHS": "Paths",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM Model Path",
   "SETTINGS_BASIC_GENERAL": "General Settings",

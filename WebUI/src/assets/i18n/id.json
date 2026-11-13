@@ -320,6 +320,8 @@
   "SETTINGS_BASIC_LANGUAGE": "Bahasa",
   "SETTINGS_CHAT_AWARE": "Chat Sadar Bahasa",
   "SETTINGS_CHAT_AWARE_INFO": "Balas dalam bahasa antarmuka kecuali Anda menulis atau meminta bahasa lain.",
+  "SETTINGS_DEMO_MODE_NEEDS_PASSCODE": "Atur kode sandi demo terlebih dahulu untuk mengaktifkan mode demo.",
+  "SETTINGS_DEMO_MODE_SET_PASSCODE": "Atur kode sandi…",
   "SETTINGS_BASIC_PATHS": "Path",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "Path Model LLM",
   "SETTINGS_BASIC_GENERAL": "Pengaturan Umum",

@@ -52,6 +52,46 @@ export class MainPage {
     return this.page.getByRole('img', { name: 'Generated result' })
   }
 
+  /** The newest generated-media card's action toolbar (copy, zoom, save, …). */
+  get resultToolbar(): Locator {
+    return this.page.getByRole('toolbar', { name: 'File actions' }).last()
+  }
+
+  /**
+   * The newest image's toolbar is hidden until the image is hovered, and shown without
+   * hover once the device reports it cannot hover. Reads computed opacity, because
+   * `toBeVisible()` counts an element at opacity 0 as visible.
+   */
+  async expectResultToolbarRevealedOnHover(): Promise<void> {
+    const toolbar = this.resultToolbar
+    const opacity = () => toolbar.evaluate((el) => Number(getComputedStyle(el).opacity))
+    if (!(await this.page.evaluate(() => matchMedia('(any-hover: hover)').matches))) {
+      await expect.poll(opacity, { message: 'toolbar shown where nothing can hover' }).toBe(1)
+      return
+    }
+    await this.page.mouse.move(0, 0)
+    await this.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await expect.poll(opacity, { message: 'toolbar hidden before hover' }).toBe(0)
+    await this.generatedImages.last().hover()
+    await expect.poll(opacity, { message: 'toolbar shown on hover' }).toBe(1)
+    await this.page.mouse.move(0, 0)
+    await expect.poll(opacity, { message: 'toolbar hidden again after hover' }).toBe(0)
+
+    // Touch emulation switches off both `hover` and `any-hover` in Blink's settings.
+    const cdp = await this.page.context().newCDPSession(this.page)
+    try {
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+      expect(
+        await this.page.evaluate(() => matchMedia('(any-hover: hover)').matches),
+        'touch emulation should make Chromium report that no input can hover',
+      ).toBe(false)
+      await expect.poll(opacity, { message: 'toolbar shown where nothing can hover' }).toBe(1)
+    } finally {
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
+      await cdp.detach().catch(() => {})
+    }
+  }
+
   /** Generated video result(s), in either the chat panel or the direct Video panel. */
   get generatedVideos(): Locator {
     return this.page.locator('video')

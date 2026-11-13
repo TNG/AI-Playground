@@ -57,122 +57,89 @@
           @focusin="cancelPickerClose"
         >
           <TooltipProvider :delay-duration="200">
-            <div
-              v-for="group in bar.listings[mode]?.groups ?? []"
-              :key="group.kind"
-              :role="group.kind === 'main' ? undefined : 'group'"
-              :aria-label="groupLabel(group)"
-              class="flex min-w-0 flex-col gap-1"
-              :class="{
-                'flex-none': group.kind !== 'saved',
-                'flex-1': group.kind === 'saved',
-                'border-l border-border pl-2': group.kind !== 'main',
-              }"
-            >
-              <span
-                v-if="group.kind === 'agent'"
-                aria-hidden="true"
-                class="text-xs text-muted-foreground"
-              >
-                {{ i18nState.MODE_AGENT }}
-              </span>
-              <div class="flex min-w-0 gap-2 overflow-x-auto pb-1">
-                <Tooltip v-for="preset in group.presets" :key="preset.name">
-                  <TooltipTrigger as-child>
-                    <button
-                      type="button"
-                      :aria-label="preset.label"
-                      :aria-pressed="pickedPresetName === preset.name"
-                      :aria-disabled="!preset.enabled"
-                      :data-aipg-preset-name="preset.name"
-                      class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
-                      :class="[
-                        pickedPresetName === preset.name
-                          ? 'border-primary ring-2 ring-primary'
-                          : 'border-transparent',
-                        preset.enabled
-                          ? 'hover:border-primary'
-                          : 'opacity-40 grayscale cursor-not-allowed',
-                      ]"
-                      @click="selectPresetFromPicker(preset)"
-                    >
-                      <img
-                        v-if="preset.image"
-                        :src="preset.image"
-                        :alt="preset.label"
-                        class="absolute inset-0 w-full h-full object-cover"
-                      />
-                      <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
-                        <span
-                          class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
-                        >
-                          {{ preset.label }}
-                        </span>
-                      </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" class="z-[40011] max-w-[260px]">
-                    <p class="font-semibold">{{ preset.label }}</p>
-                    <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
-                      {{ preset.description }}
-                    </p>
-                    <p v-if="preset.reason" class="mt-1 text-amber-400 text-xs">
-                      {{ i18nState[preset.reason] }}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-                <template v-if="group.agents.length > 0">
-                  <Tooltip v-for="agent in group.agents" :key="agent.id">
-                    <TooltipTrigger as-child>
-                      <button
-                        type="button"
-                        :aria-label="agent.name"
-                        :aria-pressed="pickedAgentId === agent.id"
-                        class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
-                        :class="
-                          pickedAgentId === agent.id
-                            ? 'border-primary ring-2 ring-primary'
-                            : 'border-transparent'
-                        "
-                        @click="selectAgentFromPicker(agent.id)"
+            <template v-for="group in bar.listings[mode]?.groups ?? []" :key="group.kind">
+              <Tooltip v-for="preset in group.presets" :key="preset.name">
+                <TooltipTrigger as-child>
+                  <button
+                    type="button"
+                    :aria-label="preset.label"
+                    :aria-pressed="pickedPresetName === preset.name"
+                    :aria-disabled="!preset.enabled"
+                    :data-aipg-preset-name="preset.name"
+                    class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 transition-all duration-150"
+                    :class="[
+                      pickedPresetName === preset.name
+                        ? 'border-primary ring-2 ring-primary'
+                        : 'border-transparent',
+                      preset.enabled
+                        ? 'hover:border-primary'
+                        : 'opacity-40 grayscale cursor-not-allowed',
+                    ]"
+                    @click="selectPresetFromPicker(preset)"
+                  >
+                    <img
+                      v-if="preset.image"
+                      :src="preset.image"
+                      :alt="preset.label"
+                      class="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                      <span
+                        class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
                       >
-                        <img
-                          v-if="agent.image"
-                          :src="agent.image"
-                          :alt="agent.name"
-                          class="absolute inset-0 w-full h-full object-cover"
-                        />
-                        <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
-                          <span
-                            class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
-                          >
-                            {{ agent.name }}
-                          </span>
-                        </div>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" class="z-[40011] max-w-[260px]">
-                      <p class="font-semibold">{{ agent.name }}</p>
-                      <p v-if="agent.description" class="mt-1 text-primary-foreground/80">
-                        {{ agent.description }}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </template>
-              </div>
-            </div>
+                        {{ preset.label }}
+                      </span>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                  <p class="font-semibold">{{ preset.label }}</p>
+                  <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
+                    {{ preset.description }}
+                  </p>
+                  <p v-if="preset.reason" class="mt-1 text-amber-400 text-xs">
+                    {{ i18nState[preset.reason] }}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip v-for="agent in group.agents" :key="agent.id">
+                <TooltipTrigger as-child>
+                  <button
+                    type="button"
+                    :aria-label="agent.name"
+                    :aria-pressed="pickedAgentId === agent.id"
+                    class="relative flex-none w-16 h-16 rounded-md overflow-hidden border-2 bg-muted transition-all duration-150 hover:border-primary"
+                    :class="
+                      pickedAgentId === agent.id
+                        ? 'border-primary ring-2 ring-primary'
+                        : 'border-transparent'
+                    "
+                    @click="selectAgentFromPicker(agent.id)"
+                  >
+                    <img
+                      v-if="agent.image"
+                      :src="agent.image"
+                      :alt="agent.name"
+                      class="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div class="absolute bottom-0 w-full bg-background/70 px-0.5 py-0.5">
+                      <span
+                        class="block text-foreground text-[9px] leading-tight font-medium text-center truncate"
+                      >
+                        {{ agent.name }}
+                      </span>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" class="z-[40011] max-w-[260px]">
+                  <p class="font-semibold">{{ agent.name }}</p>
+                  <p v-if="agent.description" class="mt-1 text-primary-foreground/80">
+                    {{ agent.description }}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </template>
           </TooltipProvider>
-          <div v-if="bar.listings[mode]?.manageAgents" class="flex flex-none flex-col gap-1">
-            <Button
-              variant="secondary"
-              size="sm"
-              class="h-7"
-              @click="openLibrary(() => manageAgents())"
-            >
-              <Squares2X2Icon class="size-4" />
-              {{ i18nState.AGENT_LIBRARY_MANAGE }}
-            </Button>
-          </div>
           <p
             v-if="!bar.listings[mode]?.groups.length"
             class="text-xs text-muted-foreground px-2 py-4 whitespace-nowrap"
@@ -209,7 +176,6 @@
 
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
-import { Squares2X2Icon } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { usePresets } from '@/assets/js/store/presets'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -224,9 +190,8 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/compon
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { mapModeToLabel } from '@/lib/utils.ts'
 import { buttonModeFor } from '@/lib/presetModes'
-import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
-import { type PresetEntry, type PresetGroup } from '@/lib/promptBarModel'
+import { type PresetEntry } from '@/lib/promptBarModel'
 import { usePromptBarModel } from '@/lib/usePromptBarModel'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 
@@ -262,7 +227,6 @@ const i18nState = useI18N().state
 const agentPick = usePromptBarAgentPick()
 const { pickedAgentId, pickedPresetName } = agentPick
 const demoMode = useDemoMode()
-const { manageAgents } = useAgentLibraryEntry()
 
 // Quick preset picker: which mode's picker popover is currently open (null = none).
 const openPickerMode = ref<ModeType | null>(null)
@@ -343,11 +307,6 @@ function onPickerOpenChange(mode: ModeType, open: boolean) {
 }
 
 // Hovering only opened the picker, so selecting a preset performs the mode switch too.
-async function openLibrary(open: () => unknown) {
-  closePicker()
-  await open()
-}
-
 async function selectPresetFromPicker(preset: PresetEntry) {
   if (preset.enabled) closePicker()
   await agentPick.pickPreset(preset.name)
@@ -359,12 +318,6 @@ async function selectAgentFromPicker(agentId: string) {
 }
 
 const bar = usePromptBarModel()
-
-function groupLabel(group: PresetGroup): string | undefined {
-  if (group.kind === 'agent') return i18nState.MODE_AGENT
-  if (group.kind === 'saved') return i18nState.AGENT_LIBRARY_LIST
-  return undefined
-}
 
 watch(
   () => demoMode.tourOpen,

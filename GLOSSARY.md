@@ -11,8 +11,7 @@ Edit or Video. Picking a Mode selects the preset last used in it.
 _Avoid_: tab, view
 
 **Assistant**:
-The Mode holding the conversational presets and the saved Agents: the Agent presets are listed
-under an Agent heading, and the saved Agents after them, set apart.
+The Mode holding the conversational presets, the Agent presets and the saved Agents.
 _Avoid_: Chat mode, Agent mode
 
 **Assistant preset**:

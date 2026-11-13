@@ -1,9 +1,9 @@
 <template>
   <div class="flex flex-col gap-3">
     <SettingsHeading>{{ languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS }}</SettingsHeading>
-    <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN }}</SettingsHeading>
-    <div class="flex flex-col items-start gap-1">
+    <AppSettingsRow v-slot="{ id }" :label="languages.SETTINGS_MODEL_HUGGINGFACE_API_TOKEN" wide>
       <Input
+        :id="id"
         type="password"
         v-model="models.hfToken"
         class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
@@ -15,10 +15,10 @@
       >
         {{ languages.SETTINGS_MODEL_HUGGINGFACE_INVALID_TOKEN_TEXT }}
       </div>
-    </div>
-    <SettingsHeading sub>{{ languages.SETTINGS_MODEL_HUGGINGFACE_MIRROR_URL }}</SettingsHeading>
-    <div class="flex flex-col items-start gap-2">
+    </AppSettingsRow>
+    <AppSettingsRow v-slot="{ id }" :label="languages.SETTINGS_MODEL_HUGGINGFACE_MIRROR_URL" wide>
       <Input
+        :id="id"
         v-model="mirrorUrl"
         placeholder="https://huggingface.co"
         class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
@@ -49,7 +49,7 @@
       >
         {{ verificationMessage }}
       </div>
-    </div>
+    </AppSettingsRow>
   </div>
 </template>
 
@@ -59,6 +59,7 @@ import { useModels } from '@/assets/js/store/models'
 import { useBackendServices } from '@/assets/js/store/backendServices'
 import { useDialogStore } from '@/assets/js/store/dialogs'
 import { useI18N } from '@/assets/js/store/i18n'
+import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

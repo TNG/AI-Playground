@@ -1,98 +1,63 @@
 <template>
   <div class="flex flex-col gap-3 pt-4">
     <SettingsHeading>{{ languages.SETTINGS_DEVELOPER }}</SettingsHeading>
-    <div class="pl-2 pt-2">
-      <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-        <Label class="whitespace-nowrap">{{
-          languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE_ON_STARTUP
-        }}</Label>
-        <div class="flex items-center gap-3">
-          <Button variant="outline" size="sm" @click="openDevTools">
-            {{ languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE }}
-          </Button>
-          <Checkbox id="open-dev-console" v-model="developerSettings.openDevConsoleOnStartup" />
-        </div>
-      </div>
-      <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-        <div class="flex items-center gap-2">
-          <Label class="whitespace-nowrap">{{
-            languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED
-          }}</Label>
-          <TooltipProvider :delay-duration="200">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent side="bottom" class="max-w-[300px]">
-                {{ languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED_INFO }}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-        <Checkbox id="keep-models-loaded" v-model="developerSettings.keepModelsLoaded" />
-      </div>
+    <div class="flex flex-col">
+      <AppSettingsRow
+        v-slot="{ id }"
+        :label="languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE_ON_STARTUP"
+      >
+        <Button variant="outline" size="sm" @click="openDevTools">
+          {{ languages.SETTINGS_DEVELOPER_OPEN_DEV_CONSOLE }}
+        </Button>
+        <Switch :id="id" v-model="developerSettings.openDevConsoleOnStartup" />
+      </AppSettingsRow>
+      <AppSettingsRow
+        v-slot="{ id, describedBy }"
+        :label="languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED"
+        :description="languages.SETTINGS_DEVELOPER_KEEP_MODELS_LOADED_INFO"
+      >
+        <Switch
+          :id="id"
+          v-model="developerSettings.keepModelsLoaded"
+          :aria-describedby="describedBy"
+        />
+      </AppSettingsRow>
       <template v-if="showDebugSettings">
-        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-          <div class="flex items-center gap-2">
-            <Label class="whitespace-nowrap">Verbose agent logging</Label>
-            <TooltipProvider :delay-duration="200">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[300px]">
-                  Write the agent turn lifecycle and every tool call into the app log. Useful when
-                  an agent run misbehaves; noisy otherwise.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <Checkbox id="verbose-agent-logging" v-model="developerSettings.verboseAgentLogging" />
-        </div>
-        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-          <div class="flex items-center gap-2">
-            <Label class="whitespace-nowrap">Use dummy media workflows</Label>
-            <TooltipProvider :delay-duration="200">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[300px]">
-                  Offer the assistant nothing but the dummy workflows, which return placeholder
-                  images, videos and 3D models instantly. Use it to verify media generation,
-                  chaining and rendering without waiting for a real model.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <Checkbox
-            id="force-dummy-media-workflows"
-            v-model="developerSettings.forceDummyMediaWorkflows"
+        <AppSettingsRow
+          v-slot="{ id, describedBy }"
+          label="Verbose agent logging"
+          description="Write the agent turn lifecycle and every tool call into the app log. Useful when an agent run misbehaves; noisy otherwise."
+        >
+          <Switch
+            :id="id"
+            v-model="developerSettings.verboseAgentLogging"
+            :aria-describedby="describedBy"
           />
-        </div>
-        <div class="flex justify-between pr-4 items-center gap-4 mb-4">
-          <div class="flex items-center gap-2">
-            <Label class="whitespace-nowrap">Simulate aiDAPTIV Cache Memory</Label>
-            <TooltipProvider :delay-duration="200">
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <span class="svg-icon i-info w-4 h-4 opacity-50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[300px]">
-                  Skip the hardware probe and report aiDAPTIV Cache Memory as present, so the
-                  SSD-offload option can be exercised on any machine.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <Checkbox
-            id="pretend-phison-ssd"
+        </AppSettingsRow>
+        <AppSettingsRow
+          v-slot="{ id, describedBy }"
+          label="Use dummy media workflows"
+          description="Offer the assistant nothing but the dummy workflows, which return placeholder images, videos and 3D models instantly. Use it to verify media generation, chaining and rendering without waiting for a real model."
+        >
+          <Switch
+            :id="id"
+            v-model="developerSettings.forceDummyMediaWorkflows"
+            :aria-describedby="describedBy"
+          />
+        </AppSettingsRow>
+        <AppSettingsRow
+          v-slot="{ id, describedBy }"
+          label="Simulate aiDAPTIV Cache Memory"
+          description="Skip the hardware probe and report aiDAPTIV Cache Memory as present, so the SSD-offload option can be exercised on any machine."
+        >
+          <Switch
+            :id="id"
+            :aria-describedby="describedBy"
             :model-value="debugSettings.phisonSsdDetected"
             @update:model-value="(v) => debugSettings.setPhisonSsdDetected(v === true)"
           />
-        </div>
-        <div class="flex flex-col gap-2 pr-4 mb-4">
-          <Label>OEM vendor override</Label>
+        </AppSettingsRow>
+        <AppSettingsRow label="OEM vendor override">
           <drop-down-new
             :items="oemVendorItems"
             :value="debugSettings.oemVendorOverride ?? NO_OEM_OVERRIDE"
@@ -101,31 +66,31 @@
                 debugSettings.setOemVendorOverride(value === NO_OEM_OVERRIDE ? null : value)
             "
           />
-        </div>
-        <div class="flex flex-col gap-2 pr-4 mb-4">
-          <Label>Remote repository</Label>
+        </AppSettingsRow>
+        <AppSettingsRow v-slot="{ id }" label="Remote repository" wide>
           <Input
+            :id="id"
             v-model="debugSettings.remoteRepository"
             placeholder="intel/ai-playground"
             class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
             @change="debugSettings.saveRemoteRepository()"
           />
-        </div>
-        <div class="flex flex-col gap-2 pr-4 mb-4">
-          <Label>OpenVINO image-gen devices</Label>
+        </AppSettingsRow>
+        <AppSettingsRow v-slot="{ id }" label="OpenVINO image-gen devices" wide>
           <Input
+            :id="id"
             v-model="debugSettings.openvinoImageGenDevices"
             placeholder="CPU, GPU"
             class="h-[30px] leading-[30px] rounded-md bg-card border-border text-foreground px-[3px]"
             @change="debugSettings.saveOpenvinoImageGenDevices()"
           />
-        </div>
-        <p class="text-xs text-muted-foreground pr-4 mb-4">
+        </AppSettingsRow>
+        <p class="text-xs text-muted-foreground py-2">
           The OEM, Phison and OpenVINO-device settings are read at startup — restart the app to see
           them take effect.
         </p>
       </template>
-      <div v-if="!demoMode.enabled" class="flex pr-4 gap-2 mb-4">
+      <div v-if="!demoMode.enabled" class="flex gap-2 py-2">
         <Button variant="outline" size="sm" @click="openSettingsFile">
           {{ languages.SETTINGS_EDIT_SETTINGS_JSON }}
         </Button>
@@ -137,7 +102,7 @@
     <div class="flex justify-between items-center">
       <SettingsHeading>{{ languages.SETTINGS_PRESETS_MANAGEMENT }}</SettingsHeading>
       <TooltipProvider :delay-duration="200">
-        <div class="flex pr-4 gap-2 items-center">
+        <div class="flex gap-2 items-center">
           <Tooltip>
             <TooltipTrigger as-child>
               <button
@@ -181,12 +146,12 @@ import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useDebugSettings, debugSettingsVisible } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useErrors } from '@/assets/js/store/errors'
+import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import * as toast from '@/assets/js/toast'
 import { createAppError } from '@/assets/js/errors/appError'

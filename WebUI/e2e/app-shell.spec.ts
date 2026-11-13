@@ -102,6 +102,28 @@ test.describe('App shell', () => {
       await shell.ensureSettingsClosed()
     })
 
+    await test.step('App Settings on/off settings are switches, not checkboxes', async () => {
+      const shell = app.shell
+      await shell.openAppSettings()
+      const panel = shell.settingsPanel('App Settings')
+      const switches = {
+        Language: ['Chat Aware'],
+        Speech: [
+          'Enable Text-to-Speech endpoint in Chat',
+          'Enable Speech-to-Text endpoint in Chat',
+        ],
+        Advanced: ['Open Developer Console on Startup', 'Keep Models Loaded'],
+      }
+      for (const [section, names] of Object.entries(switches)) {
+        const region = panel.getByRole('region', { name: section, exact: true })
+        for (const name of names) {
+          await expect(region.getByRole('switch', { name, exact: true })).toBeVisible()
+        }
+      }
+      await expect(panel.getByRole('checkbox')).toHaveCount(0)
+      await shell.ensureSettingsClosed()
+    })
+
     await test.step('Only the dialog Close button dismisses App Settings', async () => {
       const shell = app.shell
       await shell.openAppSettings()

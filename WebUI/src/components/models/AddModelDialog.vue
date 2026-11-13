@@ -46,10 +46,10 @@ onMounted(() => {
   animate.value = true
   // An NVIDIA install runs no OVMS, and its models are filtered out of the table
   // — adding one would write a row nobody can see.
-  if (productMode.isNvidiaModeSelected) backend.value = 'llamaCPP'
+  if (productMode.excludesOpenVino) backend.value = 'llamaCPP'
 })
 
-const openVinoAvailable = computed(() => !productMode.isNvidiaModeSelected)
+const openVinoAvailable = computed(() => !productMode.excludesOpenVino)
 const serviceBackend = computed(() =>
   backend.value === 'openVINO' ? ('openvino' as const) : ('llama_cpp' as const),
 )

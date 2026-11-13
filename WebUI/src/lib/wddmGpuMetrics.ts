@@ -38,6 +38,7 @@ export function bytesToMiB(bytes: number): number {
 export function vendorFromPciId(vendorId: number): GpuVendor {
   if (vendorId === 0x8086) return 'intel'
   if (vendorId === 0x10de) return 'nvidia'
+  if (vendorId === 0x1002) return 'amd'
   return 'unknown'
 }
 

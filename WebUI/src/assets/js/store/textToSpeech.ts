@@ -123,7 +123,7 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
    * fallback is a separate engine now (see {@link isExternalAvailable}).
    */
   const isKokoroAvailable = computed(() => {
-    if (productMode.isNvidiaModeSelected) return false
+    if (productMode.excludesOpenVino) return false
     const ov = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
     return ov?.isSetUp === true
   })
@@ -285,7 +285,7 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
    * Does not start the speech server — that happens on first speak / synthesize.
    */
   async function initialize(): Promise<void> {
-    if (productMode.isNvidiaModeSelected) {
+    if (productMode.excludesOpenVino) {
       enabled.value = false
       return
     }
@@ -328,7 +328,7 @@ export const useTextToSpeech = defineStore('textToSpeech', () => {
    * Handles validation, installation checks, model downloads, and server management.
    */
   async function toggle(isEnabled: boolean): Promise<void> {
-    if (isEnabled && productMode.isNvidiaModeSelected) {
+    if (isEnabled && productMode.excludesOpenVino) {
       return
     }
 

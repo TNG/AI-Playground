@@ -105,7 +105,7 @@
             :aria-disabled="!!downloadGroup"
           >
             <p v-if="!sttAvailable" class="text-sm text-amber-500">
-              <template v-if="productModeStore.isNvidiaModeSelected">
+              <template v-if="productModeStore.excludesOpenVino">
                 Install the standalone Whisper backend from Settings → Installation Management, or
                 set an external transcription endpoint in this preset's settings, to transcribe
                 speech.
@@ -346,7 +346,7 @@ const isSttPreset = computed(() => activeChatPreset.value?.sttPreset === true)
 const sttAvailable = computed(() => transcriptionAvailable())
 
 const sttUnavailableHint = computed(() =>
-  productModeStore.isNvidiaModeSelected
+  productModeStore.excludesOpenVino
     ? 'Install the standalone Whisper backend (or set an external transcription endpoint) to use voice input'
     : 'Install the OpenVINO backend or standalone Whisper backend, or set an external transcription endpoint, to use voice input',
 )

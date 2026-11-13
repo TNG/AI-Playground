@@ -450,13 +450,15 @@ const ProductModeUiI18nSchema = z.object({
 })
 
 const ProductModeFileSchema = z.object({
-  mode: z.enum(['studio', 'essentials', 'nvidia']),
+  mode: z.enum(['studio', 'essentials', 'nvidia', 'amd']),
   priority: z.number(),
   recommendForIntelDeviceIds: z.array(z.string()).default([]),
   recommendForNvidia: z.boolean().default(false),
+  recommendForAmd: z.boolean().default(false),
   experimental: z.boolean().default(false),
   displayOrder: z.number(),
   requiresNvidiaGpu: z.boolean().default(false),
+  requiresAmdGpu: z.boolean().default(false),
   includePresets: z.array(z.string()).optional(),
   excludePresets: z.array(z.string()).optional(),
   excludeVariantBackends: z.array(z.string()).optional(),

@@ -9,7 +9,10 @@ vi.mock('electron', () => ({
 
 import {
   getXpuSmiExePath,
+  parseAmdLspciOutput,
+  parseAmdPowerShellGpuOutput,
   parsePowerShellGpuOutput,
+  parseRocmSmiOutput,
 } from '../../../adapters/hardware/hardwareDiscovery'
 
 // electron-builder installs the binary under `device-service/`, the fetch script
@@ -192,5 +195,63 @@ describe('parsePowerShellGpuOutput', () => {
     const result = parsePowerShellGpuOutput(output)
 
     expect(result[0].gpuDeviceId).toBe('0xFD80')
+  })
+})
+
+describe('parseRocmSmiOutput', () => {
+  it('reads card series and unique id per GPU index', () => {
+    const output = `
+GPU[0] : Card series: AMD Radeon RX 7900 XTX
+GPU[0] : Unique ID: 0x0123456789ABCDEF
+GPU[1] : Card series: AMD Radeon Graphics
+`
+    const result = parseRocmSmiOutput(output)
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({
+      device: 'AMD_GPU:0',
+      name: 'AMD Radeon RX 7900 XTX',
+      uuid: '0x0123456789abcdef',
+    })
+    expect(result[1]).toMatchObject({ device: 'AMD_GPU:1', name: 'AMD Radeon Graphics' })
+  })
+})
+
+describe('parseAmdLspciOutput', () => {
+  it('keeps AMD display controllers and drops other vendors', () => {
+    const output = `
+00:02.0 VGA compatible controller [0300]: Intel Corporation Device [8086:7d55]
+03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XTX] [1002:744c]
+`
+    const result = parseAmdLspciOutput(output)
+    expect(result).toEqual([
+      {
+        device: 'AMD_GPU_LSPCI:03:00.0',
+        name: 'Radeon RX 7900 XTX',
+        gpuDeviceId: '0x744C',
+      },
+    ])
+  })
+})
+
+describe('parseAmdPowerShellGpuOutput', () => {
+  it('keeps VEN_1002 controllers and drops Intel and NVIDIA', () => {
+    const output = JSON.stringify([
+      {
+        Name: 'AMD Radeon RX 7800 XT',
+        PNPDeviceID: 'PCI\\VEN_1002&DEV_747E&SUBSYS_00001234&REV_C8',
+      },
+      {
+        Name: 'Intel(R) Graphics',
+        PNPDeviceID: 'PCI\\VEN_8086&DEV_FD80&SUBSYS_22128086&REV_01',
+      },
+    ])
+    const result = parseAmdPowerShellGpuOutput(output)
+    expect(result).toEqual([
+      {
+        device: 'AMD_GPU_PNP:PCI\\VEN_1002&DEV_747E&SUBSYS_00001234&REV_C8',
+        name: 'AMD Radeon RX 7800 XT',
+        gpuDeviceId: '0x747E',
+      },
+    ])
   })
 })

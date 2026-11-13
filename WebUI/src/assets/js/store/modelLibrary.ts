@@ -126,7 +126,7 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     })),
   ])
 
-  const nvidiaMode = computed(() => productMode.isNvidiaModeSelected)
+  const nvidiaMode = computed(() => productMode.excludesOpenVino)
 
   // On an NVIDIA box this leaves Llama.cpp (and the CUDA sidecars), which is also
   // what locks the toolbar's backend filter — there is nothing else to pick.

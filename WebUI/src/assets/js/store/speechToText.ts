@@ -100,9 +100,9 @@ export const useSpeechToText = defineStore(
     }
 
     /** Whether the OpenVINO Whisper engine can be offered: OpenVINO must be
-     *  installable in this product mode (not NVIDIA) and set up. */
+     *  installable in this product mode (not NVIDIA or AMD) and set up. */
     const isWhisperAvailable = computed(() => {
-      if (productMode.isNvidiaModeSelected) return false
+      if (productMode.excludesOpenVino) return false
       const ov = backendServices.info.find((s) => s.serviceName === 'openvino-backend')
       return ov?.isSetUp === true
     })
@@ -159,7 +159,7 @@ export const useSpeechToText = defineStore(
      *  user types it in. */
     const offeredSttEngines = computed<SttEngine[]>(() => {
       const list: SttEngine[] = []
-      if (!productMode.isNvidiaModeSelected) list.push('whisper')
+      if (!productMode.excludesOpenVino) list.push('whisper')
       list.push('standalone')
       if (fallback.value.enabled) list.push('external')
       return list
@@ -450,7 +450,7 @@ export const useSpeechToText = defineStore(
      * Does not start the transcription server — that happens on first mic / transcribe.
      */
     async function initialize(): Promise<void> {
-      if (productMode.isNvidiaModeSelected) {
+      if (productMode.excludesOpenVino) {
         enabled.value = false
         return
       }
@@ -501,7 +501,7 @@ export const useSpeechToText = defineStore(
      * @returns Promise that resolves when the toggle operation is complete
      */
     async function toggle(isEnabled: boolean): Promise<void> {
-      if (isEnabled && productMode.isNvidiaModeSelected) {
+      if (isEnabled && productMode.excludesOpenVino) {
         return
       }
 

@@ -433,13 +433,14 @@ export function sortEntries(entries: ModelEntry[], sort: ModelSort): ModelEntry[
 }
 
 /**
- * Drop what an NVIDIA install cannot run. Those machines never get the OpenVINO
- * backend, so an OpenVINO model there is dead weight: it cannot be loaded, and
- * offering it only invites a multi-GB download that will never be used. Qwen3-TTS
- * keeps its own backend precisely so it survives this filter — it runs on CUDA.
+ * Drop what an NVIDIA or AMD install cannot run. Those machines never get the
+ * OpenVINO backend, so an OpenVINO model there is dead weight: it cannot be
+ * loaded, and offering it only invites a multi-GB download that will never be
+ * used. Qwen3-TTS keeps its own backend precisely so it survives this filter —
+ * it runs on CUDA or ROCm.
  */
-export function entriesForProductMode(entries: ModelEntry[], isNvidia: boolean): ModelEntry[] {
-  if (!isNvidia) return entries
+export function entriesForProductMode(entries: ModelEntry[], dropOpenVino: boolean): ModelEntry[] {
+  if (!dropOpenVino) return entries
   return entries.filter((entry) => entry.serviceBackend !== 'openvino')
 }
 

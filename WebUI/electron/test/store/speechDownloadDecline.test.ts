@@ -40,7 +40,7 @@ vi.mock('@/assets/js/store/setupWizard', () => ({
   useSetupWizard: () => ({ openWizard: vi.fn() }),
 }))
 vi.mock('@/assets/js/store/productMode', () => ({
-  useProductMode: () => ({ isNvidiaModeSelected: false }),
+  useProductMode: () => ({ isNvidiaModeSelected: false, excludesOpenVino: false }),
 }))
 vi.mock('@/assets/js/toast', () => ({
   success: vi.fn(),

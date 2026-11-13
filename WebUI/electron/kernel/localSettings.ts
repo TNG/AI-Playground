@@ -4,7 +4,7 @@ import z from 'zod'
 // They live here rather than in `main.ts` so a backend adapter can type its
 // configuration without importing the composition root.
 
-const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia'])
+const ProductModeSchema = z.enum(['studio', 'essentials', 'nvidia', 'amd'])
 
 // User's preferred GPU, captured in the setup wizard. Identified by name
 // (+ PCI id when known) so it can be matched to each backend's own device
@@ -90,9 +90,8 @@ export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>
 
 export function resolveProductMode(s: LocalSettings): string {
-  return s.productMode === 'essentials'
-    ? 'essentials'
-    : s.productMode === 'nvidia'
-      ? 'nvidia'
-      : 'studio'
+  if (s.productMode === 'essentials' || s.productMode === 'nvidia' || s.productMode === 'amd') {
+    return s.productMode
+  }
+  return 'studio'
 }

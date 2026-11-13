@@ -510,9 +510,9 @@ function syncInstallSelection(serviceName: BackendServiceName, selected: boolean
 }
 
 const components = computed(() => {
-  const isNvidiaMode = productModeStore.productMode === 'nvidia'
+  const hideOpenVino = productModeStore.excludesOpenVino
   return backendServices.info
-    .filter((item) => !(isNvidiaMode && item.serviceName === 'openvino-backend'))
+    .filter((item) => !(hideOpenVino && item.serviceName === 'openvino-backend'))
     .map((item) => ({
       enabled:
         alreadyInstalledOrRequiredComponents.value.has(item.serviceName) ||

@@ -241,13 +241,158 @@ export async function detectNvidiaGpusViaSmi(): Promise<GpuHardwareDevice[]> {
   }
 }
 
+const RocmSmiLineSchema = z.object({
+  index: z.number(),
+  name: z.string(),
+  uuid: z.string().optional(),
+})
+
+/** `rocm-smi` product-name / unique-id text. Missing fields are filled by the PCI fallback. */
+export function parseRocmSmiOutput(output: string): GpuHardwareDevice[] {
+  const byIndex = new Map<number, { name?: string; uuid?: string }>()
+  for (const rawLine of output.split('\n')) {
+    const line = rawLine.trim()
+    const indexMatch = line.match(/^GPU\[(\d+)\]\s*:/i)
+    if (!indexMatch) continue
+    const index = Number.parseInt(indexMatch[1] ?? '', 10)
+    if (!Number.isFinite(index)) continue
+    const entry = byIndex.get(index) ?? {}
+    const series = line.match(/Card series:\s*(.+)$/i)
+    const unique = line.match(/Unique ID:\s*(\S+)/i)
+    if (series?.[1]?.trim()) entry.name = series[1].trim()
+    if (unique?.[1]?.trim()) entry.uuid = unique[1].trim()
+    byIndex.set(index, entry)
+  }
+
+  const devices: GpuHardwareDevice[] = []
+  for (const [index, entry] of [...byIndex.entries()].sort((a, b) => a[0] - b[0])) {
+    const parsed = RocmSmiLineSchema.parse({
+      index,
+      name: entry.name && entry.name.length > 0 ? entry.name : 'AMD Radeon GPU',
+      uuid: entry.uuid,
+    })
+    devices.push({
+      device: `AMD_GPU:${parsed.index}`,
+      name: parsed.name,
+      gpuDeviceId: null,
+      uuid: normalizeDeviceUuid(parsed.uuid),
+    })
+  }
+  return devices
+}
+
+export async function detectAmdGpusViaRocmSmi(): Promise<GpuHardwareDevice[]> {
+  const exe = process.platform === 'win32' ? 'rocm-smi.exe' : 'rocm-smi'
+  try {
+    const out = await spawnProcessAsync(
+      exe,
+      ['--showproductname', '--showuniqueid'],
+      () => {},
+      undefined,
+      undefined,
+      2000,
+    )
+    return parseRocmSmiOutput(out)
+  } catch (e) {
+    appLogger.warn(
+      `Failed to detect AMD GPUs via rocm-smi ${JSON.stringify(e)}`,
+      'electron-backend',
+    )
+    return []
+  }
+}
+
+/** Linux `lspci -nn` lines for AMD/ATI display controllers (vendor 1002). */
+export function parseAmdLspciOutput(output: string): GpuHardwareDevice[] {
+  const devices: GpuHardwareDevice[] = []
+  for (const line of output.split('\n')) {
+    if (!line.includes('[1002:')) continue
+    if (!(line.includes('VGA') || line.includes('Display') || line.includes('3D'))) continue
+    const idMatch = line.match(/\[1002:([0-9a-fA-F]{4})\]/)
+    if (!idMatch) continue
+    const busId = line.trim().split(/\s+/)[0]
+    const named = line.match(/\[([^\]]+)\]\s*\[1002:/)
+    const name =
+      named && !/^[0-9a-fA-F]{4}$/.test(named[1] ?? '') ? named[1].trim() : 'AMD Radeon GPU'
+    devices.push({
+      device: busId ? `AMD_GPU_LSPCI:${busId}` : 'AMD_GPU_LSPCI',
+      name,
+      gpuDeviceId: `0x${idMatch[1].toUpperCase()}`,
+    })
+  }
+  return devices
+}
+
+async function detectAmdGpusViaLspci(): Promise<GpuHardwareDevice[]> {
+  if (process.platform !== 'linux') return []
+  try {
+    const out = await spawnProcessAsync('lspci', ['-nn'], () => {}, undefined, undefined, 5000)
+    return parseAmdLspciOutput(out)
+  } catch (e) {
+    appLogger.warn(`Failed to detect AMD GPUs via lspci: ${JSON.stringify(e)}`, 'electron-backend')
+    return []
+  }
+}
+
+/** Windows CIM video controllers whose PNP id is AMD/ATI (VEN_1002). */
+export function parseAmdPowerShellGpuOutput(output: string): GpuHardwareDevice[] {
+  const raw = JSON.parse(output)
+  const entries = PowerShellGpuSchema.parse(Array.isArray(raw) ? raw : [raw])
+  const devices: GpuHardwareDevice[] = []
+  for (const entry of entries) {
+    const pnp = entry.PNPDeviceID ?? ''
+    const m = pnp.match(/VEN_1002&DEV_([0-9A-Fa-f]{4})/)
+    if (!m) continue
+    devices.push({
+      device: `AMD_GPU_PNP:${pnp.toUpperCase()}`,
+      name: entry.Name,
+      gpuDeviceId: `0x${m[1].toUpperCase()}`,
+    })
+  }
+  return devices
+}
+
+async function detectAmdGpusViaPowerShell(): Promise<GpuHardwareDevice[]> {
+  if (process.platform !== 'win32') return []
+  try {
+    const out = await spawnProcessAsync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-CimInstance Win32_VideoController | Select-Object Name, PNPDeviceID | ConvertTo-Json',
+      ],
+      () => {},
+      undefined,
+      undefined,
+      5000,
+    )
+    return parseAmdPowerShellGpuOutput(out)
+  } catch (e) {
+    appLogger.warn(
+      `Failed to detect AMD GPUs via PowerShell: ${JSON.stringify(e)}`,
+      'electron-backend',
+    )
+    return []
+  }
+}
+
+async function detectAmdGpus(): Promise<GpuHardwareDevice[]> {
+  const viaSmi = await detectAmdGpusViaRocmSmi()
+  if (viaSmi.length > 0) return viaSmi
+  return process.platform === 'linux' ? detectAmdGpusViaLspci() : detectAmdGpusViaPowerShell()
+}
+
 export async function detectGpuHardwareDevices(): Promise<{
   detected: GpuHardwareDevice[]
   hasNvidia: boolean
+  hasAmd: boolean
 }> {
-  const [intel, nvidia] = await Promise.all([
+  const [intel, nvidia, amd] = await Promise.all([
     process.platform === 'linux' ? detectIntelGpusViaLspci() : detectIntelGpusViaXpuSmi(),
     detectNvidiaGpusViaSmi(),
+    detectAmdGpus(),
   ])
 
   const needsFallback = intel.length === 0 || intel.every((d) => d.gpuDeviceId === null)
@@ -262,16 +407,18 @@ export async function detectGpuHardwareDevices(): Promise<{
     }
   }
 
-  const detected = [...nvidia, ...finalIntel]
-  return { detected, hasNvidia: nvidia.length > 0 }
+  const detected = [...nvidia, ...amd, ...finalIntel]
+  return { detected, hasNvidia: nvidia.length > 0, hasAmd: amd.length > 0 }
 }
 
 function toReferenceAccelerator(device: GpuHardwareDevice): ReferenceAccelerator {
   const vendor: ReferenceAccelerator['vendor'] = device.device.startsWith('NVIDIA')
     ? 'nvidia'
-    : device.device.startsWith('INTEL')
-      ? 'intel'
-      : 'unknown'
+    : device.device.startsWith('AMD')
+      ? 'amd'
+      : device.device.startsWith('INTEL')
+        ? 'intel'
+        : 'unknown'
   return { vendor, name: device.name, gpuDeviceId: device.gpuDeviceId }
 }
 

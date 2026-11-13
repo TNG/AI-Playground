@@ -1,0 +1,21 @@
+{
+  "mode": "amd",
+  "priority": 10,
+  "recommendForIntelDeviceIds": [],
+  "recommendForNvidia": false,
+  "recommendForAmd": true,
+  "experimental": true,
+  "displayOrder": 40,
+  "requiresNvidiaGpu": false,
+  "requiresAmdGpu": false,
+  "excludePresets": [],
+  "ui": {
+    "i18n": {
+      "titleOne": "PRODUCT_MODE_AMD_TITLE_ONE",
+      "titleTwo": "PRODUCT_MODE_AMD_TITLE_TWO",
+      "subtitle": "PRODUCT_MODE_AMD_SUBTITLE",
+      "description": "PRODUCT_MODE_AMD_DESCRIPTION",
+      "supportedHardware": "PRODUCT_MODE_AMD_SUPPORTED_HARDWARE"
+    }
+  }
+}

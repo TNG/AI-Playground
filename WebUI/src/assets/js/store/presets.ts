@@ -111,7 +111,7 @@ export const usePresets = defineStore(
     }
 
     /** Whether a chat preset's STT entry must be hidden: STT needs OpenVINO, which
-     *  isn't installable in NVIDIA mode — so hide it there UNLESS an external
+     *  isn't installable in NVIDIA or AMD mode — so hide it there UNLESS an external
      *  transcription endpoint is usable or the standalone (torch) Whisper backend is
      *  offered (registered = feature on). Both need no OpenVINO; readiness/install is
      *  surfaced in the preset panel. */
@@ -120,7 +120,7 @@ export const usePresets = defineStore(
       const backendServices = useBackendServices()
       const productMode = useProductMode()
       return (
-        productMode.isNvidiaModeSelected &&
+        productMode.excludesOpenVino &&
         !sttExternalEnabled() &&
         !backendServices.info.some((s) => s.serviceName === 'whisper-backend')
       )

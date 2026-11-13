@@ -32,7 +32,7 @@ dependencies = [
 
 # torch ships from a different index per accelerator, so it lives in mutually
 # exclusive extras (mirrors qwen3-tts / comfyui-deps). The Electron service installs
-# exactly one: 'cuda' in NVIDIA product mode, 'xpu' on Windows, 'cpu' elsewhere.
+# exactly one: 'cuda' in NVIDIA mode, 'rocm' in AMD mode, 'xpu' on Windows, 'cpu' elsewhere.
 [project.optional-dependencies]
 xpu = [
   "torch>=2.13.0",
@@ -40,6 +40,10 @@ xpu = [
 ]
 cuda = [
   "torch>=2.13.0",
+]
+rocm = [
+  "torch==2.13.0",
+  "triton-rocm==3.7.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 cpu = [
   "torch>=2.13.0",
@@ -65,6 +69,7 @@ conflicts = [
     { extra = "xpu" },
     { extra = "cpu" },
     { extra = "cuda" },
+    { extra = "rocm" },
   ],
 ]
 
@@ -72,9 +77,14 @@ conflicts = [
 torch = [
   { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform != 'darwin'" },
   { index = "pytorch-cuda", extra = "cuda", marker = "sys_platform != 'darwin'" },
+  { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
   { index = "pytorch-cpu", extra = "xpu", marker = "sys_platform == 'darwin'" },
   { index = "pytorch-cpu", extra = "cuda", marker = "sys_platform == 'darwin'" },
+  { index = "pytorch-cpu", extra = "rocm", marker = "sys_platform != 'linux' or platform_machine != 'x86_64'" },
   { index = "pytorch-cpu", extra = "cpu" },
+]
+triton-rocm = [
+  { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 triton-xpu = [
   { index = "pytorch-xpu", extra = "xpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
@@ -93,4 +103,9 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cuda"
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true

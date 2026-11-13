@@ -13,7 +13,13 @@ import {
   installBackendWithExtra,
   type UvExtra,
 } from '../install/uvBasedBackends/uv.ts'
-import { levelZeroDeviceSelectorEnv, withSelectedDevice } from '../hardware/deviceDetection.ts'
+import {
+  levelZeroDeviceSelectorEnv,
+  rocmLibraryEnv,
+  torchBackendInstallEnv,
+  withSelectedDevice,
+} from '../hardware/deviceDetection.ts'
+import { pinnedTorchExtra } from '../../../src/lib/productModePolicy.ts'
 import { spawnBackend } from '../install/processLifecycle.ts'
 import { QWEN3_TTS_MODEL_REPOS } from '@/assets/js/qwen3TtsConstants'
 
@@ -49,14 +55,15 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
 
   /**
    * Torch accelerator variant to install. Mirrors comfyUIBackendService: CUDA in
-   * NVIDIA product mode, Intel XPU on Windows, CPU elsewhere (Linux/macOS). The
+   * NVIDIA product mode, ROCm in AMD mode, Intel XPU on Windows, CPU elsewhere. The
    * same extra must be passed to both the install and the setup check — without
    * it, `uv sync --check` resolves the base deps (no torch) and reports a
    * spurious mismatch, and a product-mode switch (e.g. to NVIDIA) correctly
    * surfaces as "not set up" so the CUDA build gets reinstalled.
    */
   private get torchExtra(): UvExtra {
-    if (this.settings.productMode === 'nvidia') return 'cuda'
+    const pinned = pinnedTorchExtra(this.settings.productMode)
+    if (pinned) return pinned
     if (process.platform === 'win32') return 'xpu'
     return 'cpu'
   }
@@ -191,7 +198,12 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
       await this.prepareCleanPythonEnv()
 
       this.appLogger.info(`installing qwen3-tts with torch extra '${this.torchExtra}'`, this.name)
-      await installBackendWithExtra(this.serviceFolder, this.torchExtra)
+      await installBackendWithExtra(
+        this.serviceFolder,
+        this.torchExtra,
+        undefined,
+        torchBackendInstallEnv(this.settings.productMode),
+      )
 
       // Fail loudly if torch still isn't importable after the install, rather
       // than reporting success and letting the backend die later at /api/load.
@@ -325,6 +337,7 @@ export class Qwen3TtsBackendService extends LongLivedPythonApiService {
       SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
       SYCL_CACHE_PERSISTENT: '1',
       ...levelZeroDeviceSelectorEnv('*'),
+      ...(this.settings.productMode === 'amd' ? rocmLibraryEnv() : {}),
       ...this.modelPathEnv,
       ...deviceEnv,
     }

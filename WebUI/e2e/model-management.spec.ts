@@ -81,8 +81,8 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   const target = TARGETS[backend]
-  // OpenVINO on offer means this is not an NVIDIA install, which decides how many
-  // backends a category can hold: NVIDIA builds drop every OpenVINO row, so
+  // OpenVINO on offer means this is not an NVIDIA or AMD install, which decides how many
+  // backends a category can hold: those builds drop every OpenVINO row, so
   // categories that span both backends collapse to one there and not here.
   const isNvidia = !offered.includes('OpenVINO')
 

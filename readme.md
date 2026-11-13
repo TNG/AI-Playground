@@ -7,7 +7,7 @@
 <img width="1498" height="699" alt="AI Playground 3.2 — Intel AI PC generative AI suite" src="docs/readme/hero-3.2.png" />
 
 
-Welcome to AI Playground open source project and AI PC generative AI application suite. This application provides a full suite of generative AI features for chat, image generation, video generation, code assistance, document search, image analysis, and more. Features can run offline on your PC’s Intel® Core™ Ultra with built-in Intel Arc GPU, Intel Arc™ dGPU Series A or B with 8GB+ of vRAM, or NVIDIA RTX GPUs—or you can optionally use Hybrid Cloud mode to run frontier models from providers such as ChatGPT, Claude, Gemini, and Grok while you manage models, cost, and control of your data.
+Welcome to AI Playground open source project and AI PC generative AI application suite. This application provides a full suite of generative AI features for chat, image generation, video generation, code assistance, document search, image analysis, and more. Features can run offline on your PC’s Intel® Core™ Ultra with built-in Intel Arc GPU, Intel Arc™ dGPU Series A or B with 8GB+ of vRAM, NVIDIA RTX GPUs, or AMD Radeon GPUs—or you can optionally use Hybrid Cloud mode to run frontier models from providers such as ChatGPT, Claude, Gemini, and Grok while you manage models, cost, and control of your data.
 
 AI Playground is intended to act as an offline alternative to cloud tools such as Gemini, ChatGPT, and Grok.  AI Playground leverages libraries from GitHub and Huggingface including:
 - Image Diffusion (PyTorch): Stable Diffusion 1.5, SDXL, Flux.1-Schnell, Flux.1 Kontext[dev], Flux.2 Klein, Z-Image, ERNIE-Image, Wan 2.1/2.2, LTX-Video, LTX-2.3
@@ -50,6 +50,7 @@ AI Playground alpha and beta installers are currently available downloadable exe
 *	AI Playground Essentials: Intel Core Series 3 with 12GB of system memory (basic chat, RAG chat, basic image gen and editing)
 *	AI Playground Studio: Intel Core Ultra (Series 3, Series 2 V/H, or Series 1 H) or Intel Arc discrete GPU (Series A or B) with at least 8GB of vRAM (full feature set in the [Users Guide](https://github.com/intel/AI-Playground/blob/main/AI%20Playground%20Users%20Guide.pdf))
 *	AI Playground Studio for NVIDIA CUDA: PC with NVIDIA GeForce RTX discrete GPU with 8GB+ of vRAM (experimental; OpenVINO is not supported in this mode)
+*	AI Playground Studio for AMD ROCm: PC with an AMD Radeon GPU with 8GB+ of vRAM (experimental; OpenVINO is not supported in this mode; Linux x64 uses the ROCm PyTorch wheel, and other platforms use CPU PyTorch for image and speech)
 *	82GB+ of disk space recommended (application ~6GB; models require additional space)
 *	Channels (remote access) require a minimum of 32GB of system memory on Intel Core Ultra laptops, or 16GB of vRAM on discrete GPU systems
 
@@ -63,7 +64,7 @@ Previous release: [AI Playground 3.1.2 beta-hf3](https://github.com/intel/AI-Pla
 
 ### Installation Process for v3.x
 1. The packaged installer targets all supported hardware above and prepares the AI Playground runtime for first launch.
-2. On first run, the AI Playground Set Up wizard appears. Choose a hardware mode (Essentials, Studio, or Studio for NVIDIA CUDA) and install backend components (Llama.cpp, OpenVINO, ComfyUI, and optional Channels, Hybrid Cloud, and Audio). It is recommended to keep default hardware settings and enable all components, then click Install and Continue. This step needs a clear, unfiltered internet connection (corporate VPNs often cause failures) and may **take several minutes**.
+2. On first run, the AI Playground Set Up wizard appears. Choose a hardware mode (Essentials, Studio, Studio for NVIDIA CUDA, or Studio for AMD ROCm) and install backend components (Llama.cpp, OpenVINO, ComfyUI, and optional Channels, Hybrid Cloud, and Audio). It is recommended to keep default hardware settings and enable all components, then click Install and Continue. This step needs a clear, unfiltered internet connection (corporate VPNs often cause failures) and may **take several minutes**.
 3. Download the Users Guide for full application information: [AI Playground Users Guide v3.2](https://github.com/intel/AI-Playground/blob/main/AI%20Playground%20Users%20Guide.pdf)
 
 ### Troubleshooting Installation

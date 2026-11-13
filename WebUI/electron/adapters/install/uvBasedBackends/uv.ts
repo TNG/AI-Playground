@@ -371,7 +371,7 @@ export const installBackend = async (
   }
 }
 
-export type UvExtra = 'xpu' | 'cuda' | 'cpu'
+export type UvExtra = 'xpu' | 'cuda' | 'rocm' | 'cpu'
 
 /**
  * Install a backend using uv sync with a specific extra (e.g. 'xpu', 'cuda', 'cpu').

@@ -36,6 +36,7 @@ import {
 } from '../install/linuxPackageInstaller.ts'
 import { resolveDefaultDevice } from '../hardware/defaultDeviceSelection.ts'
 import { npuPromptLen } from '../../../src/types/shared.ts'
+import { excludesOpenVino } from '../../../src/lib/productModePolicy.ts'
 import {
   OVMS_MTP_GRAPH_FILE,
   ovmsMtpLaunchArgs,
@@ -1737,8 +1738,8 @@ export class OpenVINOBackendService implements ApiService {
       )
       return this.currentStatus
     }
-    if (this.settings.productMode === 'nvidia') {
-      this.appLogger.info('Skipping OpenVINO start in NVIDIA mode', this.name)
+    if (excludesOpenVino(this.settings.productMode)) {
+      this.appLogger.info(`Skipping OpenVINO start in ${this.settings.productMode} mode`, this.name)
       return this.currentStatus
     }
 

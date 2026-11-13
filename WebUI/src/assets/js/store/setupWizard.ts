@@ -19,6 +19,7 @@ import { CHANNELS } from './channels/channelRegistry'
 import { mapServiceNameToDisplayName, mapStatusToColor, mapToDisplayStatus } from '@/lib/utils'
 import { isOnDemandBackend } from '@/lib/onDemandBackends'
 import { selectDefaultInstalls, type SeedCandidate } from '@/lib/wizardInstallDefaults'
+import { excludesOpenVino, torchStackForMode } from '@/lib/productModePolicy'
 import * as toast from '@/assets/js/toast'
 import { useErrors } from './errors'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
@@ -33,7 +34,7 @@ function isBackendAvailableInProductMode(
   mode: ProductMode | null,
   serviceName: BackendServiceName,
 ): boolean {
-  if (mode === 'nvidia' && serviceName === 'openvino-backend') return false
+  if (excludesOpenVino(mode) && serviceName === 'openvino-backend') return false
   return true
 }
 
@@ -305,8 +306,7 @@ export const useSetupWizard = defineStore('setupWizard', () => {
     const current = productModeStore.productMode
     const pending = pendingProductMode.value
     if (!current || !pending || current === pending) return false
-    const crossesNvidiaBoundary = current === 'nvidia' || pending === 'nvidia'
-    if (!crossesNvidiaBoundary) return false
+    if (torchStackForMode(current) === torchStackForMode(pending)) return false
     const comfyInfo = backendServices.info.find((s) => s.serviceName === 'comfyui-backend')
     return comfyInfo?.isSetUp === true
   })
@@ -556,7 +556,13 @@ export const useSetupWizard = defineStore('setupWizard', () => {
 
       let rowStatusText =
         serviceName === 'comfyui-backend' && comfyUiNeedsVariantSwitch.value
-          ? `Needs reinstall for ${pendingProductMode.value === 'nvidia' ? 'CUDA' : 'XPU'}`
+          ? `Needs reinstall for ${
+              torchStackForMode(pendingProductMode.value) === 'cuda'
+                ? 'CUDA'
+                : torchStackForMode(pendingProductMode.value) === 'rocm'
+                  ? 'ROCm'
+                  : 'XPU'
+            }`
           : (mapToDisplayStatus(status) ?? status)
       if (
         serviceName === 'llamacpp-backend' &&

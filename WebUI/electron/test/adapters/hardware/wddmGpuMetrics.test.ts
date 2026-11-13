@@ -7,6 +7,7 @@ import {
   omitSmiUtilization,
   overlaySmiOntoWddm,
   parsePdhGpuInstance,
+  vendorFromPciId,
 } from '@/lib/wddmGpuMetrics'
 import type { GpuSample } from '@/types/computeMetrics'
 
@@ -169,6 +170,15 @@ describe('omitSmiUtilization', () => {
       freqMHz: 2400,
       powerW: 12,
     })
+  })
+})
+
+describe('vendorFromPciId', () => {
+  it('maps the three GPU vendors the app names', () => {
+    expect(vendorFromPciId(0x8086)).toBe('intel')
+    expect(vendorFromPciId(0x10de)).toBe('nvidia')
+    expect(vendorFromPciId(0x1002)).toBe('amd')
+    expect(vendorFromPciId(0x1234)).toBe('unknown')
   })
 })
 

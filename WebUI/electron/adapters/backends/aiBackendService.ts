@@ -2,6 +2,7 @@ import { ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { GitService, LongLivedPythonApiService, createEnhancedErrorDetails } from './service.ts'
+import { torchBackendInstallEnv } from '../hardware/deviceDetection.ts'
 import { aipgBaseDir, checkBackend, installBackend } from '../install/uvBasedBackends/uv.ts'
 import { spawnBackend } from '../install/processLifecycle.ts'
 import { BrowserWindow } from 'electron'
@@ -83,8 +84,7 @@ export class AiBackendService extends LongLivedPythonApiService {
       // install, app reinstall) is otherwise a no-op that reports success.
       await this.prepareCleanPythonEnv()
 
-      const extraEnv =
-        this.settings.productMode === 'nvidia' ? { UV_TORCH_BACKEND: 'cu128' } : undefined
+      const extraEnv = torchBackendInstallEnv(this.settings.productMode)
       await installBackend(this.serviceFolder, undefined, extraEnv)
 
       yield {

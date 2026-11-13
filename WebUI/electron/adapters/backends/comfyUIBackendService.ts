@@ -41,6 +41,9 @@ import {
   linuxHasIntelGpuPciDevice,
   linuxHasLevelZeroRuntime,
   normalizeDeviceUuid,
+  rocmGpuTorchSupported,
+  rocmLibraryEnv,
+  rocmVisibleDevicesEnv,
   withSelectedDevice,
 } from '../hardware/deviceDetection.ts'
 import { resolveDefaultDevice } from '../hardware/defaultDeviceSelection.ts'
@@ -60,7 +63,7 @@ import { downloadCustomNode, configureComfyUiManagerSecurityLevel } from './comf
 import { getBundledComfyUiGitRefSync } from '../remoteUpdates.ts'
 type Device = Omit<InferenceDevice, 'selected'>
 
-export type ComfyUiVariant = 'xpu' | 'cuda' | 'cpu'
+export type ComfyUiVariant = 'xpu' | 'cuda' | 'rocm' | 'cpu'
 
 export const COMFYUI_DEFAULT_PARAMETERS = '--lowvram --reserve-vram 6.0'
 
@@ -277,7 +280,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       const raw = filesystem.readFileSync(this.variantMarkerPath, 'utf-8')
       const parsed = JSON.parse(raw) as { variant?: string }
       const v = parsed.variant
-      if (v === 'xpu' || v === 'cuda' || v === 'cpu') return v
+      if (v === 'xpu' || v === 'cuda' || v === 'rocm' || v === 'cpu') return v
       return null
     } catch {
       return null
@@ -290,6 +293,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
   private getDesiredVariant(): ComfyUiVariant {
     if (this.settings.productMode === 'nvidia') return 'cuda'
+    if (this.settings.productMode === 'amd') return 'rocm'
     if (process.platform === 'win32') return 'xpu'
     if (process.platform === 'linux' && linuxHasIntelGpuRuntime()) return 'xpu'
     return 'cpu'
@@ -1476,6 +1480,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
   private get torchBackendValue(): string {
     if (this.comfyUiVariant === 'cuda') return 'cu128'
+    if (this.comfyUiVariant === 'rocm') return rocmGpuTorchSupported() ? 'rocm7.2' : 'cpu'
     if (this.comfyUiVariant === 'cpu') return 'cpu'
     if (process.platform === 'win32') return 'xpu'
     if (process.platform === 'linux' && linuxHasIntelGpuRuntime()) return 'xpu'
@@ -1509,6 +1514,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       PIP_CONFIG_FILE: process.platform === 'win32' ? 'nul' : '/dev/null',
       UV_NO_CONFIG: '1',
       UV_TORCH_BACKEND: this.torchBackendValue,
+      ...(this.comfyUiVariant === 'rocm' ? rocmLibraryEnv() : {}),
       // Consumed by the bundled aipg-auth ComfyUI custom_node middleware.
       AIPG_LOOPBACK_TOKEN: this.loopbackAuthToken,
     }
@@ -1534,6 +1540,9 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
     const selectedId = this.devices.find((d) => d.selected)?.id
     if (this.comfyUiVariant === 'cuda') {
       return cudaVisibleDevicesEnv(selectedId)
+    }
+    if (this.comfyUiVariant === 'rocm') {
+      return rocmVisibleDevicesEnv(selectedId)
     }
     if (this.comfyUiVariant === 'xpu') {
       return levelZeroDeviceSelectorEnv(selectedId)
@@ -1563,7 +1572,14 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
       return
     }
 
-    if (this.comfyUiVariant === 'cuda') {
+    if (this.comfyUiVariant === 'cuda' || this.comfyUiVariant === 'rocm') {
+      // ROCm PyTorch enumerates through torch.cuda. Without a GPU wheel (Windows
+      // and macOS today) the probe finds nothing and startup falls back to CPU.
+      if (this.comfyUiVariant === 'rocm' && !rocmGpuTorchSupported()) {
+        this.devices = [{ id: '*', name: 'Auto select device', selected: true }]
+        this.updateStatus()
+        return
+      }
       await this.detectCudaDevicesWithTorch()
       return
     }
@@ -2038,11 +2054,13 @@ except Exception as e:
       mediaDir,
       ...comfyScratchFlags,
       ...userParameters,
-      // For the CPU variant (e.g. Linux studio/essentials without a usable Intel
-      // GPU runtime), force ComfyUI onto CPU. Without this, ComfyUI's device
-      // autodetect "assumes Nvidia" and calls torch.cuda, crashing with
-      // "Torch not compiled with CUDA enabled" on a CPU-only torch build.
-      ...(this.comfyUiVariant === 'cpu' ? ['--cpu'] : []),
+      // CPU torch (the cpu variant, or AMD mode where no ROCm wheel exists)
+      // must pass --cpu. ComfyUI's autodetect assumes Nvidia and calls
+      // torch.cuda, which crashes with "Torch not compiled with CUDA enabled".
+      ...(this.comfyUiVariant === 'cpu' ||
+      (this.comfyUiVariant === 'rocm' && !rocmGpuTorchSupported())
+        ? ['--cpu']
+        : []),
       // Force-append after user params so we always win, even if the user
       // tried to inject their own --enable-cors-header.
       '--enable-cors-header',

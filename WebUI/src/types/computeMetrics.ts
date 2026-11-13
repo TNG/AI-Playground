@@ -1,5 +1,5 @@
 /** One GPU as of a sample. Missing fields are unavailable from that probe. */
-export type GpuVendor = 'intel' | 'nvidia' | 'unknown'
+export type GpuVendor = 'intel' | 'nvidia' | 'amd' | 'unknown'
 
 export type GpuSample = {
   id: string

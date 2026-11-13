@@ -3,7 +3,7 @@
 Prints a JSON array of {"id", "name"} to stdout. Each `id` is a valid
 WHISPER_DEVICE string so the Electron side can pass the user's choice straight
 through to transcription_engine (see `_resolve_device`). Always includes CPU;
-adds every Intel GPU (XPU) and NVIDIA GPU (CUDA) that torch can see.
+adds every Intel GPU (XPU) and every CUDA-API GPU (NVIDIA, or AMD via ROCm) that torch can see.
 
 NOTE: Whisper here runs on PyTorch, whose device types are cpu / xpu / cuda
 only. The Intel NPU is *not* a torch device (it is reachable only via OpenVINO,

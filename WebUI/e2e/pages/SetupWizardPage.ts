@@ -71,7 +71,7 @@ export class SetupWizardPage {
 
   /**
    * Whether an optional backend can be installed in the current product mode. An
-   * unavailable backend (e.g. OpenVINO in NVIDIA mode) renders a disabled toggle
+   * unavailable backend (e.g. OpenVINO in NVIDIA or AMD mode) renders a disabled toggle
    * on a dimmed row. Not meaningful for required backends (their toggle is always
    * disabled), so only call this for optional ones.
    */

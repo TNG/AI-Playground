@@ -1,4 +1,5 @@
 import type { LlmBackend } from '@/assets/js/store/textInference'
+import { excludesOpenVino } from '@/lib/productModePolicy'
 
 export type AgentBackendChoiceContext = {
   presetBackends: readonly LlmBackend[] | undefined
@@ -13,7 +14,7 @@ export function agentBackendChoices({
   cloudEnabled,
 }: AgentBackendChoiceContext): LlmBackend[] {
   let choices = presetBackends?.filter((b) => b !== 'cloud') ?? ['llamaCPP', 'openVINO']
-  if (productMode === 'nvidia') choices = choices.filter((b) => b !== 'openVINO')
+  if (excludesOpenVino(productMode)) choices = choices.filter((b) => b !== 'openVINO')
   return cloudEnabled ? [...choices, 'cloud'] : choices
 }
 

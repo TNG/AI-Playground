@@ -28,6 +28,7 @@ import type {
 import type { PathsManager } from '../pathsManager'
 import type { DemoModeConfig } from '../demoModeConfig'
 import type { LocalSettings, ProductMode, resolveProductMode } from '../localSettings'
+import { pickRecommendedProductMode } from '../productModeRecommendation'
 import type { appLoggerInstance } from '../../observability/logger'
 import type {
   ApiServiceRegistryImpl,
@@ -124,6 +125,7 @@ export type CoreDeps = {
     priority: number
     recommendForIntelDeviceIds: string[]
     recommendForNvidia: boolean
+    recommendForAmd: boolean
     experimental: boolean
     displayOrder: number
     ui: {
@@ -300,14 +302,17 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
     detectHardwareForModeRecommendation: async () => {
       let detected: GpuHardwareDevice[] = []
       let hasNvidia = false
+      let hasAmd = false
       let detectSuccess = true
 
       try {
         const probe = await deps.detectGpuHardwareDevices()
         detected = probe.detected
         hasNvidia = probe.hasNvidia
+        hasAmd = probe.hasAmd
         deps.appLogger.info(`Detected GPU devices: ${JSON.stringify(detected)}`, 'electron-backend')
         deps.appLogger.info(`Has NVIDIA: ${hasNvidia}`, 'electron-backend')
+        deps.appLogger.info(`Has AMD: ${hasAmd}`, 'electron-backend')
       } catch (e) {
         detectSuccess = false
         deps.appLogger.warn(`GPU detection failed: ${e}`, 'electron-backend')
@@ -328,24 +333,14 @@ export function buildCoreInvokeRegistry(deps: CoreDeps) {
         .filter((id): id is string => id !== null)
         .map((id) => id.toLowerCase())
 
-      // Highest priority wins.
-      const eligible = configs
-        .filter((c) => c.mode !== 'nvidia' || hasNvidia)
-        .filter((c) => {
-          if (c.mode === 'nvidia') return c.recommendForNvidia === true
-          if (!c.recommendForIntelDeviceIds.length) return false
-          if (gpuIds.length === 0) return false
-          return gpuIds.some((id) => c.recommendForIntelDeviceIds.includes(id))
-        })
-        .sort((a, b) => b.priority - a.priority)
-
-      const recommendedMode: ProductMode = eligible[0]?.mode ?? 'studio'
+      const recommendedMode = pickRecommendedProductMode(configs, gpuIds, hasNvidia, hasAmd)
 
       return {
         success: detectSuccess,
         recommendedMode,
         detectedDevices: deps.classifyDetectedDevices(detected),
         hasNvidiaGpu: hasNvidia,
+        hasAmdGpu: hasAmd,
         modeCatalog,
       }
     },

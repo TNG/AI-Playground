@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { updateLocalSettingsReported } from '@/lib/localSettingsUpdate'
+import { excludesOpenVino as modeExcludesOpenVino } from '@/lib/productModePolicy'
 
 export const useProductMode = defineStore('productMode', () => {
   const productMode = ref<ProductMode | null>(null)
@@ -7,7 +8,12 @@ export const useProductMode = defineStore('productMode', () => {
   const isNvidiaModeAvailable = computed(
     () => (hardwareRecommendation.value?.hasNvidiaGpu ?? false) === true,
   )
+  const isAmdModeAvailable = computed(
+    () => (hardwareRecommendation.value?.hasAmdGpu ?? false) === true,
+  )
   const isNvidiaModeSelected = computed(() => productMode.value === 'nvidia')
+  const isAmdModeSelected = computed(() => productMode.value === 'amd')
+  const excludesOpenVino = computed(() => modeExcludesOpenVino(productMode.value))
 
   async function hydrateFromMain() {
     try {
@@ -35,6 +41,7 @@ export const useProductMode = defineStore('productMode', () => {
         recommendedMode: 'studio',
         detectedDevices: [],
         hasNvidiaGpu: false,
+        hasAmdGpu: false,
         modeCatalog: [],
       }
     }
@@ -61,7 +68,10 @@ export const useProductMode = defineStore('productMode', () => {
     productMode,
     hardwareRecommendation,
     isNvidiaModeAvailable,
+    isAmdModeAvailable,
     isNvidiaModeSelected,
+    isAmdModeSelected,
+    excludesOpenVino,
     hydrateFromMain,
     syncToMain,
     detectRecommendation,

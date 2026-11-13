@@ -59,7 +59,7 @@ export function useOfferedTtsEngines() {
 
   const offered = computed(() => {
     const engines: TtsEngine[] = ['qwen3']
-    if (!productMode.isNvidiaModeSelected) engines.push('kokoro')
+    if (!productMode.excludesOpenVino) engines.push('kokoro')
     if (textToSpeech.fallback.enabled) engines.push('external')
     return engines
   })

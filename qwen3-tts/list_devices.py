@@ -3,7 +3,7 @@
 Prints a JSON array of {"id", "name"} to stdout. Each `id` is a valid
 QWEN3_TTS_DEVICE string so the Electron side can pass the user's choice
 straight through to tts_engine (see `_resolve_device_map`). Always includes
-CPU; adds every Intel GPU (XPU) and NVIDIA GPU (CUDA) that torch can see.
+CPU; adds every Intel GPU (XPU) and every CUDA-API GPU (NVIDIA, or AMD via ROCm) that torch can see.
 
 NOTE: the Qwen3-TTS model runs on PyTorch, whose device types are cpu / xpu /
 cuda only. The Intel NPU is *not* a torch device (it is reachable only via
@@ -82,7 +82,7 @@ def enumerate_devices() -> list[dict[str, str]]:
         _log(f"xpu:{i} -> {name}")
         devices.append({"id": f"xpu:{i}", "name": name})
 
-    # NVIDIA GPUs (CUDA).
+    # CUDA-API GPUs: NVIDIA, and AMD when this env has the ROCm wheel.
     try:
         cuda_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
     except Exception as exc:

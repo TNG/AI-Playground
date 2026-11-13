@@ -194,7 +194,10 @@ export function parseQueryGpuCsv(
       usable = true
     })
     if (!usable && !sample.name) continue
-    if (!sample.name) sample.name = `${vendor === 'nvidia' ? 'NVIDIA' : 'Intel'} GPU ${sample.id}`
+    if (!sample.name) {
+      const label = vendor === 'nvidia' ? 'NVIDIA' : vendor === 'amd' ? 'AMD' : 'Intel'
+      sample.name = `${label} GPU ${sample.id}`
+    }
     gpus.push(sample)
   }
   return gpus

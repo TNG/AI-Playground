@@ -158,6 +158,12 @@ export type ReferenceAccelerator = {
   gpuDeviceId: string | null // Intel PCI id like '0x56A0'; null when unknown
 }
 
+function amdIsDiscrete(name: string): boolean {
+  const n = name.toUpperCase()
+  if (/\b(RX|PRO|INSTINCT|FIREPRO|WX)\b/.test(n)) return true
+  return n.includes('RADEON VII')
+}
+
 function normalizeName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
@@ -214,6 +220,8 @@ export function categorizeDevice(
   const ref = matchReference(device.name, reference)
   if (ref === undefined) return 'igpu'
   if (ref.vendor === 'nvidia') return 'dgpu'
+  // Discrete Radeon cards name a product line. "Radeon Graphics" alone is an APU.
+  if (ref.vendor === 'amd') return amdIsDiscrete(ref.name) ? 'dgpu' : 'igpu'
   if (ref.vendor === 'intel' && ref.gpuDeviceId !== null) {
     const arch = getDeviceArch(Number(ref.gpuDeviceId))
     return DISCRETE_INTEL_ARCHES.has(arch) ? 'dgpu' : 'igpu'

@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { CUDA_TORCH_BACKEND, ROCM_TORCH_BACKEND } from '../../../src/lib/productModePolicy.ts'
 import { appLoggerInstance as appLogger } from '../../observability/logger.ts'
 
 export function levelZeroDeviceSelectorEnv(id?: string): { ONEAPI_DEVICE_SELECTOR: string } {
@@ -24,6 +25,46 @@ export function cudaVisibleDevicesEnv(id?: string): Record<string, string> {
     return {}
   }
   return { CUDA_VISIBLE_DEVICES: id }
+}
+
+/**
+ * ROCm's HIP runtime equivalent of CUDA_VISIBLE_DEVICES. PyTorch ROCm still
+ * enumerates devices through torch.cuda; this is what selects one of them.
+ */
+export function rocmVisibleDevicesEnv(id?: string): Record<string, string> {
+  if (id === undefined || id === '*') {
+    return {}
+  }
+  return { HIP_VISIBLE_DEVICES: id }
+}
+
+/** Official torch 2.13 ROCm wheels are manylinux x64 only. */
+export function rocmGpuTorchSupported(): boolean {
+  return process.platform === 'linux' && process.arch === 'x64'
+}
+
+/** uv `UV_TORCH_BACKEND` for a vendor mode. AMD on Windows/macOS stays on CPU torch. */
+export function uvTorchBackendForMode(mode: string | null | undefined): string | undefined {
+  if (mode === 'nvidia') return CUDA_TORCH_BACKEND
+  if (mode === 'amd') return rocmGpuTorchSupported() ? ROCM_TORCH_BACKEND : 'cpu'
+  return undefined
+}
+
+export function torchBackendInstallEnv(
+  mode: string | null | undefined,
+): Record<string, string> | undefined {
+  const backend = uvTorchBackendForMode(mode)
+  return backend ? { UV_TORCH_BACKEND: backend } : undefined
+}
+
+/** Prepend the ROCm loader dir when the driver install put it off the default path. */
+export function rocmLibraryEnv(): Record<string, string> {
+  if (!rocmGpuTorchSupported()) return {}
+  const lib = '/opt/rocm/lib'
+  if (!existsSync(lib)) return {}
+  return {
+    LD_LIBRARY_PATH: [lib, process.env.LD_LIBRARY_PATH ?? ''].filter(Boolean).join(':'),
+  }
 }
 
 export function vulkanDeviceSelectorEnv(id?: string): { GGML_VK_VISIBLE_DEVICES: string } {

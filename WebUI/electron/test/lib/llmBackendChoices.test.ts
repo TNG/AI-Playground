@@ -32,6 +32,16 @@ describe('agentBackendChoices', () => {
     ).toEqual(['llamaCPP'])
   })
 
+  it('drops OpenVINO in amd product mode', () => {
+    expect(
+      agentBackendChoices({
+        presetBackends: undefined,
+        productMode: 'amd',
+        cloudEnabled: false,
+      }),
+    ).toEqual(['llamaCPP'])
+  })
+
   it('adds cloud last when Cloud Mode is enabled', () => {
     expect(
       agentBackendChoices({

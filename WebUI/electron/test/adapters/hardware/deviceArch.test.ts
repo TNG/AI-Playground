@@ -102,6 +102,15 @@ describe('deviceArch', () => {
       expect(categorizeDevice({ id: '0', name: 'NVIDIA GeForce RTX 4090' }, reference)).toBe('dgpu')
     })
 
+    it('classifies a discrete Radeon as dgpu and an APU as igpu', () => {
+      const amd: ReferenceAccelerator[] = [
+        { vendor: 'amd', name: 'AMD Radeon RX 7900 XTX', gpuDeviceId: '0x744C' },
+        { vendor: 'amd', name: 'AMD Radeon Graphics', gpuDeviceId: '0x164E' },
+      ]
+      expect(categorizeDevice({ id: '0', name: 'AMD Radeon RX 7900 XTX' }, amd)).toBe('dgpu')
+      expect(categorizeDevice({ id: '1', name: 'AMD Radeon Graphics' }, amd)).toBe('igpu')
+    })
+
     it('treats an unmatched GPU as integrated (never mislabeled discrete)', () => {
       expect(categorizeDevice({ id: '0', name: 'Some Unknown GPU' }, reference)).toBe('igpu')
       expect(categorizeDevice({ id: '0', name: 'Intel Arc A770' }, [])).toBe('igpu')

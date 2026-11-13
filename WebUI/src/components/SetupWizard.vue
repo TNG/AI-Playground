@@ -465,6 +465,7 @@ import { computed, ref, watch } from 'vue'
 import { useSetupWizard, type BackendRowViewModel } from '@/assets/js/store/setupWizard'
 import type { BackendServiceName } from '@/assets/js/store/backendServices'
 import { CORE_DEPENDENT_BACKENDS } from '@/lib/wizardInstallDefaults'
+import { excludesOpenVino } from '@/lib/productModePolicy'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { useProductMode } from '@/assets/js/store/productMode'
 import { useDemoMode } from '@/assets/js/store/demoMode'
@@ -638,18 +639,19 @@ async function setAiPlaygroundGroup(value: boolean) {
 
 // Per-row ⓘ text: which engine the row installs, and what the alternative is.
 // The speech rows also say whether OpenVINO can serve the same feature in the
-// mode being set up — on NVIDIA it cannot, so these are the only local engines.
+// mode being set up — on NVIDIA and AMD it cannot, so these are the only local engines.
 function infoTooltipFor(serviceName: BackendServiceName): string | undefined {
-  const openVinoAvailable = wizard.pendingProductMode !== 'nvidia'
+  const openVinoAvailable = !excludesOpenVino(wizard.pendingProductMode)
+  const vendorMode = wizard.pendingProductMode === 'amd' ? 'AMD' : 'NVIDIA'
   switch (serviceName) {
     case 'qwen3-tts-backend':
       return openVinoAvailable
         ? 'Speech runtime installed with the core app; its voice models download the first time you use it. Runs Qwen3-TTS on its own sidecar and is the only engine that supports created voices. OpenVINO offers Text To Speech too, using Kokoro — pick the engine in Settings → Text To Speech.'
-        : 'Speech runtime installed with the core app; its voice models download the first time you use it. Runs Qwen3-TTS on its own sidecar. OpenVINO also provides Text To Speech (Kokoro), but it is unavailable in NVIDIA mode — so this is the only local engine here.'
+        : `Speech runtime installed with the core app; its voice models download the first time you use it. Runs Qwen3-TTS on its own sidecar. OpenVINO also provides Text To Speech (Kokoro), but it is unavailable in ${vendorMode} mode — so this is the only local engine here.`
     case 'whisper-backend':
       return openVinoAvailable
         ? 'Speech runtime installed with the core app; its Whisper model downloads the first time you use it. Runs Whisper through torch on its own sidecar, with a choice of model sizes. OpenVINO offers Speech To Text too, serving Whisper through OVMS — pick the engine in Settings → Speech To Text.'
-        : 'Speech runtime installed with the core app; its Whisper model downloads the first time you use it. Runs Whisper through torch on its own sidecar, with a choice of model sizes. OpenVINO also provides Speech To Text, but it is unavailable in NVIDIA mode — so this is the only local engine here.'
+        : `Speech runtime installed with the core app; its Whisper model downloads the first time you use it. Runs Whisper through torch on its own sidecar, with a choice of model sizes. OpenVINO also provides Speech To Text, but it is unavailable in ${vendorMode} mode — so this is the only local engine here.`
     default:
       return undefined
   }

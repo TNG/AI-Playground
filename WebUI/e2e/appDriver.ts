@@ -128,7 +128,7 @@ export class AppDriver {
         for (const backend of BACKENDS.filter((b) => b.hasVersionAction)) {
           await test.step(`Check ${backend.displayName} version`, async () => {
             // Skip backends unavailable in the current product mode (e.g. OpenVINO
-            // is disabled in NVIDIA mode) — they are neither installed nor updated.
+            // is disabled in NVIDIA and AMD modes) — they are neither installed nor updated.
             if (!(await this.wizard.isAvailable(backend.displayName))) return
             if (await this.wizard.hasUpdateAvailable(backend.displayName)) {
               await this.wizard.updateToLatest(backend.displayName)
@@ -264,7 +264,7 @@ export class AppDriver {
   /**
    * Randomly run the active preset on llama.cpp or OpenVINO when it offers both,
    * so neither backend silently stops being exercised. OpenVINO is only offered in
-   * Intel/OpenVINO product modes — in NVIDIA mode the app filters it out
+   * Intel/OpenVINO product modes — in NVIDIA and AMD modes the app filters it out
    * (SettingsChatInferencing.vue / agentBackendItems.ts), so this is a clean no-op there and the
    * default backend (llama.cpp) is used. Must be called with the Inferencing tab
    * shown; leaves it shown. Returns the label it settled on, which is also

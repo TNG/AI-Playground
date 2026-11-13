@@ -12,7 +12,13 @@ import {
   installBackendWithExtra,
   type UvExtra,
 } from '../install/uvBasedBackends/uv.ts'
-import { levelZeroDeviceSelectorEnv, withSelectedDevice } from '../hardware/deviceDetection.ts'
+import {
+  levelZeroDeviceSelectorEnv,
+  rocmLibraryEnv,
+  torchBackendInstallEnv,
+  withSelectedDevice,
+} from '../hardware/deviceDetection.ts'
+import { pinnedTorchExtra } from '../../../src/lib/productModePolicy.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -46,9 +52,10 @@ export class WhisperBackendService extends LongLivedPythonApiService {
     void this.publishInitialSetupStatus()
   }
 
-  /** CUDA in NVIDIA product mode, Intel XPU on Windows, CPU elsewhere. */
+  /** CUDA in NVIDIA mode, ROCm in AMD mode, Intel XPU on Windows, CPU elsewhere. */
   private get torchExtra(): UvExtra {
-    if (this.settings.productMode === 'nvidia') return 'cuda'
+    const pinned = pinnedTorchExtra(this.settings.productMode)
+    if (pinned) return pinned
     if (process.platform === 'win32') return 'xpu'
     return 'cpu'
   }
@@ -177,7 +184,12 @@ export class WhisperBackendService extends LongLivedPythonApiService {
       await this.prepareCleanPythonEnv()
 
       this.appLogger.info(`installing whisper with torch extra '${this.torchExtra}'`, this.name)
-      await installBackendWithExtra(this.serviceFolder, this.torchExtra)
+      await installBackendWithExtra(
+        this.serviceFolder,
+        this.torchExtra,
+        undefined,
+        torchBackendInstallEnv(this.settings.productMode),
+      )
 
       // Fail loudly if torch still isn't importable after the install, rather than
       // reporting success and letting the backend die on the first transcription.
@@ -284,6 +296,7 @@ export class WhisperBackendService extends LongLivedPythonApiService {
       SYCL_ENABLE_DEFAULT_CONTEXTS: '1',
       SYCL_CACHE_PERSISTENT: '1',
       ...levelZeroDeviceSelectorEnv('*'),
+      ...(this.settings.productMode === 'amd' ? rocmLibraryEnv() : {}),
       ...this.modelPathEnv,
       ...deviceEnv,
     }

@@ -127,7 +127,7 @@
                     <code>whisper-server</code> with
                     <code>--inference-path "/v1/audio/transcriptions"</code> (base URL like
                     <code>http://127.0.0.1:2022/v1</code>). Enabling it also makes the Speech to
-                    Text preset available in NVIDIA mode.
+                    Text preset available in NVIDIA and AMD modes.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

@@ -228,7 +228,7 @@ const currentModel = computed(() =>
 
 const availableBackends = computed(() => {
   let base = activeChatPreset.value?.backends ?? (['llamaCPP', 'openVINO'] as LlmBackend[])
-  if (productModeStore.productMode === 'nvidia') {
+  if (productModeStore.excludesOpenVino) {
     base = base.filter((b) => b !== 'openVINO')
   }
   if (cloudMode.isFeatureEnabled && !base.includes('cloud')) {

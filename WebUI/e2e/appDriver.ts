@@ -349,13 +349,15 @@ export class AppDriver {
   }
 
   /**
-   * Shared first half of the game-preset flow: select the preset, pin the small
+   * Shared first half of the game-preset flow: check the Assistant picker is one
+   * flat row, select the preset, pin the small
    * model on a randomly chosen backend, and start a fresh game. False when the
    * preset isn't offered in this product mode.
    */
   private async prepareAgentGamePreset(preset: string): Promise<boolean> {
+    await test.step('Assistant picker is one flat row', () => this.main.expectFlatAssistantPicker())
     const selected = await test.step(`Select agent preset "${preset}"`, () =>
-      this.main.selectPreset('Assistant', preset, 'Agent'))
+      this.main.selectPreset('Assistant', preset))
     if (!selected) return false
 
     // Reset before the pins below, never after: a reset would undo them.

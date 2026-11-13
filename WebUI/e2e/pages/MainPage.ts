@@ -4,9 +4,6 @@ import { reportingAppErrors } from '../appErrors'
 /** Prompt-area mode labels (accessible names of the mode buttons). */
 export type PromptBarMode = 'Assistant' | 'Audio' | 'Image Gen' | 'Image Edit' | 'Video'
 
-/** Headed groups of the Assistant picker (accessible group names). */
-export type PresetGroup = 'Agent'
-
 /**
  * Page object for the running main view: the prompt area (mode switch, prompt
  * input, send) and the chat/agentic result panel (text replies, generated
@@ -246,9 +243,24 @@ export class MainPage {
    * preset ships on. `data-aipg-preset-name` is the unbranded name. Only the open
    * picker is mounted, so this stays unambiguous across modes.
    */
-  private presetCard(name: string, group?: PresetGroup): Locator {
-    const scope = group ? this.page.getByRole('group', { name: group, exact: true }) : this.page
-    return scope.locator(`[data-aipg-preset-name="${name}"]`)
+  private presetCard(name: string): Locator {
+    return this.page.locator(`[data-aipg-preset-name="${name}"]`)
+  }
+
+  /**
+   * Hover the Assistant Mode button and assert its picker is one flat row like every
+   * other Mode's: no "Agent" group and no Manage Agents button. Leaves it closed.
+   */
+  async expectFlatAssistantPicker(): Promise<void> {
+    await this.modeButton('Assistant').hover()
+    const card = this.presetCard('Assistant')
+    await card.waitFor({ state: 'visible', timeout: 15_000 })
+    const picker = this.page.getByRole('dialog').filter({ has: card })
+    await expect(picker.getByRole('group', { name: 'Agent', exact: true })).toHaveCount(0)
+    await expect(picker.getByRole('button', { name: 'Manage Agents…' })).toHaveCount(0)
+    await this.page.keyboard.press('Escape')
+    // The picker opens on pointerenter, so the next hover of this button must re-enter it.
+    await this.page.mouse.move(0, 0)
   }
 
   /** The active-preset indicator at the top-left of the input. Its accessible
@@ -264,13 +276,12 @@ export class MainPage {
    * performs the mode + preset switch (see PromptArea.vue). Returns false —
    * leaving nothing open — when the preset isn't offered for this mode, so
    * callers can skip. On success the picker has closed and the switch completed.
-   * With `group` the preset must sit under that heading of the picker.
    */
-  async selectPreset(mode: PromptBarMode, preset: string, group?: PresetGroup): Promise<boolean> {
+  async selectPreset(mode: PromptBarMode, preset: string): Promise<boolean> {
     // Hovering the button opens the picker; it stays open while the pointer
     // rests there, and moving onto a preset card keeps it open too.
     await this.modeButton(mode).hover()
-    const card = this.presetCard(preset, group)
+    const card = this.presetCard(preset)
     const present = await card
       .waitFor({ state: 'visible', timeout: 15_000 })
       .then(() => true)

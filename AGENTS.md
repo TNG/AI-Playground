@@ -199,8 +199,8 @@ page's own JS — login, EventSource, send, reply/media rendering — is caught)
   Select it with `MainPage.selectPreset('Assistant', preset)` — the prompt-bar mode button's
   hover picker (preset cards are `role="button"`, name = preset name). The Mode buttons sit in a
   `role="group"` named "Mode", since the Assistant preset's card is also a button named
-  "Assistant"; Game Agent and Quick Coder sit under the picker's "Agent" group, so pass `'Agent'`
-  as the third argument for them.
+  "Assistant". The Classic picker is one flat row, so Game Agent and Quick Coder are picked the
+  same way, with no group argument.
 - **Turn completion:** the Send button (`aria-label="Send"`) is removed while a turn runs and
   returns when done — `MainPage.waitUntilIdle(timeout)` waits on that (image/video runs take
   minutes; use `IMAGE_TIMEOUT`/`VIDEO_TIMEOUT`). Result assertions use ARIA added to outputs:
@@ -577,7 +577,9 @@ There is **no Vue Router**. Navigation is state-driven:
   Agents…". A New Session switches to the Assistant preset (`newSession()` in
   `store/sessionLifecycle.ts`) unless it is gated. Where a preset is
   _listed_ is `listModeFor()`; both bars read the groups from `promptBarModel()`'s `listings`
-  (`src/lib/promptBarModel.ts`).
+  (`src/lib/promptBarModel.ts`). Only the Modern bar draws those groups: the Classic bar
+  (`ClassicBottomBar.vue`) flattens the Assistant listing into one row of cards in model order
+  and offers no Manage Agents entry (the header's Agent Library button remains).
 - **The preset picks the render mode**, via `presetToMode()` in `src/lib/presetModes.ts`: a chat
   preset with `agentPreset: true` (Assistant, Game Agent, Quick Coder) renders the agent view
   (Agent Mode, on Pi), any other one the chat view on the chat turn engine. Assistant, the

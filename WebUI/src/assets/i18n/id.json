@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "Scheduler",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "Perubahan pada daftar model menyebabkan modifikasi pada beberapa pengaturan Anda. Silakan lihat pengaturan dasar untuk informasi lebih lanjut.",
   "SETTINGS_BASIC_LANGUAGE": "Bahasa",
+  "SETTINGS_CHAT_AWARE": "Chat Sadar Bahasa",
+  "SETTINGS_CHAT_AWARE_INFO": "Balas dalam bahasa antarmuka kecuali Anda menulis atau meminta bahasa lain.",
   "SETTINGS_BASIC_PATHS": "Path",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "Path Model LLM",
   "SETTINGS_BASIC_GENERAL": "Pengaturan Umum",

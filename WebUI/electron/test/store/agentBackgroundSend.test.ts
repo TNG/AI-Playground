@@ -218,6 +218,9 @@ afterEach(async () => {
 })
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
+const { useChatAware } = await import('@/assets/js/store/chatAware')
+
+const REPLY_LANGUAGE = 'Use English as the default response language.'
 
 async function readyStore() {
   const store = useAgentMode()
@@ -256,6 +259,11 @@ async function finishTurn(sessionId: string, call: number, reply = 'done'): Prom
     pushEvent({ type: 'agent-chunk', sessionId, turnId, chunk })
   }
   pushEvent({ type: 'agent-turn-done', sessionId, turnId })
+}
+
+async function sentInstructions(call: number): Promise<string> {
+  await turnIdOf(call)
+  return sentConfig(call).instructions ?? ''
 }
 
 function recordOutcomes(store: Awaited<ReturnType<typeof readyStore>>) {
@@ -543,6 +551,41 @@ describe('sending to the Open Session', () => {
 
     expect(sentConfig(0).modelConfig).toMatchObject({ model: 'Changed-4B' })
     expect(sentConfig(0).workspaceDir).toBe('/work/open')
+  })
+})
+
+describe('the reply-language line in the instructions', () => {
+  it('rides a turn on the live controls by default, and not with Chat Aware off', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+
+    await store.sendToSession('session-open', 'first')
+    expect(await sentInstructions(0)).toContain(REPLY_LANGUAGE)
+    await finishTurn('session-open', 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    useChatAware().enabled = false
+
+    await store.sendToSession('session-open', 'second')
+
+    expect(await sentInstructions(1)).toContain('You are the agent.')
+    expect(await sentInstructions(1)).not.toContain(REPLY_LANGUAGE)
+  })
+
+  it('rides a turn on stored settings by default, and not with Chat Aware off', async () => {
+    const store = await readyStore()
+    const outcomes = recordOutcomes(store)
+    const id = createTaskSession(store)
+
+    await store.sendToSession(id, 'first')
+    expect(await sentInstructions(0)).toContain(REPLY_LANGUAGE)
+    await finishTurn(id, 0)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    useChatAware().enabled = false
+
+    await store.sendToSession(id, 'second')
+
+    expect(await sentInstructions(1)).toContain('You are the agent.')
+    expect(await sentInstructions(1)).not.toContain(REPLY_LANGUAGE)
   })
 })
 

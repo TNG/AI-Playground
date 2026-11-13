@@ -17,6 +17,7 @@ import { useAgentTrialRuns } from './assets/js/store/agentTrialRuns'
 import { useImageGenerationPresets } from './assets/js/store/imageGenerationPresets'
 import { useTheme } from './assets/js/store/theme'
 import { usePromptBarStyle } from './assets/js/store/promptBarStyle'
+import { useChatAware } from './assets/js/store/chatAware'
 import { useChannelSessionPointers } from './assets/js/store/channelSessionPointers'
 import { useDeveloperSettings } from './assets/js/store/developerSettings'
 import { useModelPreferences } from './assets/js/store/modelPreferences'
@@ -144,6 +145,7 @@ await useImageGenerationPresets().init()
 await Promise.all([
   useTheme().init(),
   usePromptBarStyle().init(),
+  useChatAware().init(),
   useChannelSessionPointers().init(),
   useDeveloperSettings().init(),
   useModelPreferences().init(),

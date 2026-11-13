@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "ตัวจัดกำหนดการ",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "การเปลี่ยนแปลงในรายการโมเดลทำให้การตั้งค่าบางอย่างของคุณถูกแก้ไข โปรดดูการตั้งค่าพื้นฐานสำหรับข้อมูลเพิ่มเติม",
   "SETTINGS_BASIC_LANGUAGE": "ภาษา",
+  "SETTINGS_CHAT_AWARE": "แชทตามภาษา",
+  "SETTINGS_CHAT_AWARE_INFO": "ตอบกลับเป็นภาษาของอินเทอร์เฟซ เว้นแต่คุณจะเขียนหรือขอเป็นภาษาอื่น",
   "SETTINGS_BASIC_PATHS": "เส้นทาง",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "เส้นทางโมเดล LLM",
   "SETTINGS_BASIC_GENERAL": "การตั้งค่าทั่วไป",

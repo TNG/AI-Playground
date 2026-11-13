@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "스케줄러",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "모델 목록의 변경으로 인해 일부 설정이 수정되었습니다. 자세한 내용은 기본 설정을 참조하세요.",
   "SETTINGS_BASIC_LANGUAGE": "언어",
+  "SETTINGS_CHAT_AWARE": "언어 인식 채팅",
+  "SETTINGS_CHAT_AWARE_INFO": "다른 언어로 쓰거나 요청하지 않는 한 인터페이스 언어로 답변합니다.",
   "SETTINGS_BASIC_PATHS": "경로",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM 모델 경로",
   "SETTINGS_BASIC_GENERAL": "일반 설정",

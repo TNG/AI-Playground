@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "Bộ lập lịch",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "Các thay đổi trong danh sách mô hình đã dẫn đến điều chỉnh một số cài đặt của bạn. Vui lòng xem phần cài đặt cơ bản để biết thêm thông tin.",
   "SETTINGS_BASIC_LANGUAGE": "Ngôn ngữ",
+  "SETTINGS_CHAT_AWARE": "Trò chuyện theo ngôn ngữ",
+  "SETTINGS_CHAT_AWARE_INFO": "Trả lời bằng ngôn ngữ giao diện, trừ khi bạn viết hoặc yêu cầu bằng ngôn ngữ khác.",
   "SETTINGS_BASIC_PATHS": "Đường dẫn",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "Đường dẫn mô hình LLM",
   "SETTINGS_BASIC_GENERAL": "Cài đặt chung",

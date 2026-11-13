@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "Zamanlayıcı",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "Model listesindeki değişiklikler bazı ayarlarınızda değişikliklere yol açtı. Daha fazla bilgi için lütfen temel ayarlara bakın.",
   "SETTINGS_BASIC_LANGUAGE": "Dil",
+  "SETTINGS_CHAT_AWARE": "Dile Duyarlı Sohbet",
+  "SETTINGS_CHAT_AWARE_INFO": "Başka bir dilde yazmadıkça veya istemedikçe arayüz dilinde yanıt ver.",
   "SETTINGS_BASIC_PATHS": "Yollar",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM Model Yolu",
   "SETTINGS_BASIC_GENERAL": "Genel Ayarlar",

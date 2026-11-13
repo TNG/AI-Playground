@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "スケジューラー",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "モデルリストの変更により、一部の設定が変更されました。詳細は基本設定を参照してください。",
   "SETTINGS_BASIC_LANGUAGE": "言語",
+  "SETTINGS_CHAT_AWARE": "言語に合わせたチャット",
+  "SETTINGS_CHAT_AWARE_INFO": "別の言語で書いたり指定したりしない限り、インターフェースの言語で応答します。",
   "SETTINGS_BASIC_PATHS": "パス",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM モデルパス",
   "SETTINGS_BASIC_GENERAL": "全般設定",

@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "排程器",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "模型清單的變更已導致您的部分設定被修改。請參閱基本設定以取得更多資訊。",
   "SETTINGS_BASIC_LANGUAGE": "語言",
+  "SETTINGS_CHAT_AWARE": "語言感知聊天",
+  "SETTINGS_CHAT_AWARE_INFO": "除非你使用或要求其他語言，否則以介面語言回覆。",
   "SETTINGS_BASIC_PATHS": "路徑",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "LLM 模型路徑",
   "SETTINGS_BASIC_GENERAL": "一般設定",

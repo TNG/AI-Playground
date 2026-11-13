@@ -313,6 +313,8 @@
   "SETTINGS_MODEL_SCHEDULER": "Scheduler",
   "SETTINGS_MODEL_LIST_CHANGE_TIP": "Le modifiche all'elenco dei modelli hanno comportato cambiamenti in alcune delle tue impostazioni. Consulta le impostazioni di base per maggiori informazioni.",
   "SETTINGS_BASIC_LANGUAGE": "Lingua",
+  "SETTINGS_CHAT_AWARE": "Chat consapevole della lingua",
+  "SETTINGS_CHAT_AWARE_INFO": "Rispondi nella lingua dell'interfaccia, a meno che tu non scriva o chieda in un'altra lingua.",
   "SETTINGS_BASIC_PATHS": "Percorsi",
   "SETTINGS_BASIC_LLM_CHECKPOINTS": "Percorso del modello LLM",
   "SETTINGS_BASIC_GENERAL": "Impostazioni generali",

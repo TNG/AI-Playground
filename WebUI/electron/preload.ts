@@ -227,6 +227,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onPush('lifecycle:holdSchedules', callback),
     answerClose: (payload: CloseAnswerPayload) => send('lifecycle:answerClose', payload),
     bridgeReady: () => send('lifecycle:bridgeReady'),
+    restart: () => invoke('lifecycle:restart'),
+    openSettingsFile: () => invoke('lifecycle:openSettingsFile'),
   },
   onShowToast: (callback: (data: { type: string; message: string }) => void) =>
     onRaw('show-toast', callback),

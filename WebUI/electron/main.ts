@@ -312,7 +312,10 @@ import {
   type CoreDeps,
 } from './kernel/registries/core'
 import { buildKernelRegistry } from './kernel/registries/kernel'
-import { buildLifecycleSendRegistry } from './kernel/registries/lifecycle'
+import {
+  buildLifecycleInvokeRegistry,
+  buildLifecycleSendRegistry,
+} from './kernel/registries/lifecycle'
 import { buildMediaItemsRegistry } from './kernel/registries/mediaItems'
 import { buildPreferencesRegistry } from './kernel/registries/preferences'
 import { buildRagDocumentsRegistry } from './kernel/registries/ragDocuments'
@@ -579,6 +582,7 @@ const closeCoordinator = createCloseCoordinator({
     destroyWebBrowser()
     quitApp()
   },
+  relaunch: () => app.relaunch(),
   suspendSchedules: () => holdSchedules(win, true),
   resumeSchedules: () => holdSchedules(win, false),
   minimizeWindow: () => {
@@ -1687,6 +1691,13 @@ function initEventHandle() {
       requestClose: () => void closeCoordinator.requestClose(),
       answerClose: handleCloseAnswer,
       closeBridgeReady: handleCloseBridgeReady,
+    }),
+  )
+  registerInvokeHandlers(
+    buildLifecycleInvokeRegistry({
+      requestRestart: () => void closeCoordinator.requestRestart(),
+      settingsPath: getWritableSettingsPath,
+      openPath: (path) => shell.openPath(path),
     }),
   )
 

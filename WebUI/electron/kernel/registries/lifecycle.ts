@@ -1,6 +1,12 @@
 import type { WebContents } from 'electron'
 import type { CloseAnswerPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
-import type { LifecycleSendName, SendHandlerMap } from '../ipcRegistries'
+import type {
+  InvokeHandlerMap,
+  LifecycleInvokeName,
+  LifecycleSendName,
+  SendHandlerMap,
+} from '../ipcRegistries'
+import type { IpcMutationResult } from '@/types/ipcChannels'
 
 export type LifecycleDeps = {
   setRendererWork: (work: InFlightWorkItem[]) => void
@@ -24,4 +30,23 @@ export function buildLifecycleSendRegistry(deps: LifecycleDeps) {
       deps.closeBridgeReady(event.sender)
     },
   } satisfies SendHandlerMap<LifecycleSendName>
+}
+
+export type LifecycleInvokeDeps = {
+  requestRestart: () => void
+  settingsPath: () => string
+  /** Resolves to an error message, empty on success (Electron's `shell.openPath`). */
+  openPath: (path: string) => Promise<string>
+}
+
+export function buildLifecycleInvokeRegistry(deps: LifecycleInvokeDeps) {
+  return {
+    'lifecycle:restart': () => {
+      deps.requestRestart()
+    },
+    'lifecycle:openSettingsFile': async (): Promise<IpcMutationResult> => {
+      const error = await deps.openPath(deps.settingsPath())
+      return error ? { success: false, error } : { success: true }
+    },
+  } satisfies InvokeHandlerMap<LifecycleInvokeName>
 }

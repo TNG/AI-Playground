@@ -16,6 +16,7 @@ function harness(initialWork: InFlightWorkItem[], answer: () => Promise<CloseAns
   const schedules: ('suspended' | 'resumed')[] = []
   const quit = vi.fn()
   const minimizeWindow = vi.fn()
+  const relaunch = vi.fn()
   let refresh: (() => Promise<void>) | null = null
   const coordinator = createCloseCoordinator({
     listInFlightWork: async () => work,
@@ -31,6 +32,7 @@ function harness(initialWork: InFlightWorkItem[], answer: () => Promise<CloseAns
       }
     },
     quit,
+    relaunch,
     minimizeWindow,
     suspendSchedules: () => schedules.push('suspended'),
     resumeSchedules: () => schedules.push('resumed'),
@@ -40,7 +42,7 @@ function harness(initialWork: InFlightWorkItem[], answer: () => Promise<CloseAns
     work = next
     await refresh?.()
   }
-  return { coordinator, asked, shown, schedules, quit, minimizeWindow, workBecomes }
+  return { coordinator, asked, shown, schedules, quit, relaunch, minimizeWindow, workBecomes }
 }
 
 function heldQuestion() {
@@ -261,6 +263,70 @@ describe('close coordinator', () => {
       'Thread 5',
     ])
     expect(asked[0].more).toBe(2)
+  })
+})
+
+describe('restart through the close coordinator', () => {
+  it('relaunches without asking when nothing is in flight', async () => {
+    const { coordinator, asked, quit, relaunch } = harness([], async () => 'keep')
+
+    await expect(coordinator.requestRestart()).resolves.toBe('quit')
+    expect(asked).toEqual([])
+    expect(relaunch).toHaveBeenCalledOnce()
+    expect(quit).toHaveBeenCalledOnce()
+  })
+
+  it('asks first with In-flight Work and relaunches on Quit', async () => {
+    const { coordinator, asked, quit, relaunch } = harness([agentRunning], async () => 'quit')
+
+    await expect(coordinator.requestRestart()).resolves.toBe('quit')
+    expect(asked).toEqual([{ items: [agentRunning], more: 0 }])
+    expect(relaunch).toHaveBeenCalledOnce()
+    expect(quit).toHaveBeenCalledOnce()
+  })
+
+  it('Keep open cancels the relaunch', async () => {
+    const { coordinator, quit, relaunch } = harness([agentRunning], async () => 'keep')
+
+    await expect(coordinator.requestRestart()).resolves.toBe('kept-open')
+    expect(relaunch).not.toHaveBeenCalled()
+    expect(quit).not.toHaveBeenCalled()
+  })
+
+  it('a later plain close after a kept-open restart does not relaunch', async () => {
+    let answer: CloseAnswer = 'keep'
+    const { coordinator, relaunch, quit } = harness([agentRunning], async () => answer)
+
+    await coordinator.requestRestart()
+    answer = 'quit'
+    await coordinator.requestClose()
+
+    expect(quit).toHaveBeenCalledOnce()
+    expect(relaunch).not.toHaveBeenCalled()
+  })
+
+  it('a Restart joining an open close question does not turn its Quit into a relaunch', async () => {
+    const question = heldQuestion()
+    const { coordinator, asked, quit, relaunch } = harness([agentRunning], question.pending)
+
+    const close = coordinator.requestClose()
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    const restart = coordinator.requestRestart()
+    question.answer('quit')
+
+    await expect(close).resolves.toBe('quit')
+    await expect(restart).resolves.toBe('quit')
+    expect(asked).toHaveLength(1)
+    expect(quit).toHaveBeenCalledOnce()
+    expect(relaunch).not.toHaveBeenCalled()
+  })
+
+  it('a plain close never relaunches', async () => {
+    const { coordinator, relaunch } = harness([], async () => 'keep')
+
+    await coordinator.requestClose()
+
+    expect(relaunch).not.toHaveBeenCalled()
   })
 })
 

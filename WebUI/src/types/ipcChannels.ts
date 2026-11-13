@@ -1581,6 +1581,20 @@ export const CHANNELS = {
     flat: true as const,
     member: 'requestAppClose' as const,
   },
+  /** Relaunch the app through the close coordinator; Keep open on its question cancels it. */
+  'lifecycle:restart': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Open the machine-level settings file in the OS default application; never creates it. */
+  'lifecycle:openSettingsFile': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
   /** Main asks the window whether to quit while In-flight Work runs. */
   'lifecycle:askClose': {
     kind: 'push',

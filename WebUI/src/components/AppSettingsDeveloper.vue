@@ -129,6 +129,14 @@
             see them take effect.
           </p>
         </template>
+        <div v-if="!demoMode.enabled" class="flex pr-4 gap-2 mb-4">
+          <Button variant="outline" size="sm" @click="openSettingsFile">
+            {{ languages.SETTINGS_EDIT_SETTINGS_JSON }}
+          </Button>
+          <Button variant="outline" size="sm" @click="restartApp">
+            {{ languages.SETTINGS_RESTART }}
+          </Button>
+        </div>
       </div>
       <div class="flex justify-between items-center">
         <SettingsHeading>
@@ -173,6 +181,7 @@ import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useDebugSettings, debugSettingsVisible } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useErrors } from '@/assets/js/store/errors'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
@@ -182,6 +191,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import * as toast from '@/assets/js/toast'
+import { createAppError } from '@/assets/js/errors/appError'
 
 const debugSettings = useDebugSettings()
 const showDebugSettings = debugSettingsVisible()
@@ -199,6 +209,7 @@ const presetsStore = usePresets()
 const i18nState = useI18N().state
 const languages = i18nState
 const developerSettings = useDeveloperSettings()
+const errors = useErrors()
 
 async function loadPresetsFromIntel() {
   const syncStatus = await presetsStore.loadPresetsFromIntel()
@@ -218,6 +229,24 @@ function openSetupWizard() {
 
 function openDevTools() {
   window.electronAPI.openDevTools()
+}
+
+async function openSettingsFile() {
+  const result = await window.electronAPI.lifecycle.openSettingsFile()
+  if (result.success) return
+  errors.report(
+    createAppError({
+      category: 'unknown',
+      code: 'settings/open-file-failed',
+      surface: 'toast',
+      userMessage: languages.SETTINGS_EDIT_SETTINGS_JSON_FAILED,
+      technicalMessage: result.error,
+    }),
+  )
+}
+
+function restartApp() {
+  void window.electronAPI.lifecycle.restart()
 }
 </script>
 

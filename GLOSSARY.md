@@ -18,6 +18,11 @@ _Avoid_: Chat mode, Agent mode
 The general preset of the Assistant Mode, and the one Agents run on.
 _Avoid_: Agent Maker
 
+**Media Mode**:
+A Mode that runs one media preset directly: Audio, Image Gen, Image Edit or Video. The Assistant
+reaches media only through its tools, so it is not a Media Mode. The user can hide all Media Modes.
+_Avoid_: direct media preset, media gen mode
+
 ## Sessions
 
 **Session**:

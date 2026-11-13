@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Önizleme",
   "SETTINGS_THEME_DISCARD_TITLE": "Kaydedilmemiş değişiklikler atılsın mı?",
   "SETTINGS_THEME_DISCARD_BODY": "Renk değişiklikleriniz kaydedilmedi ve kaybolacak.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Kaydedilmemiş tema değişiklikleri",
   "SETTINGS_THEME_RENAME": "Yeniden adlandır",
   "SETTINGS_THEME_RENAME_TITLE": "Temayı yeniden adlandır",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Tema adı",

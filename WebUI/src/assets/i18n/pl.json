@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Podgląd",
   "SETTINGS_THEME_DISCARD_TITLE": "Odrzucić niezapisane zmiany?",
   "SETTINGS_THEME_DISCARD_BODY": "Zmiany kolorów nie zostały zapisane i zostaną utracone.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Niezapisane zmiany motywu",
   "SETTINGS_THEME_RENAME": "Zmień nazwę",
   "SETTINGS_THEME_RENAME_TITLE": "Zmień nazwę motywu",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Nazwa motywu",

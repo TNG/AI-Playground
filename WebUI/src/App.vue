@@ -56,9 +56,9 @@
             <button
               type="button"
               :aria-label="languages.MODEL_MANAGER_OPEN"
-              :aria-pressed="uiStore.showModelManager"
+              :aria-pressed="uiStore.frontmost === 'model'"
               class="-m-1 rounded-md p-1 transition-colors"
-              :class="{ 'bg-primary/20': uiStore.showModelManager }"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'model' }"
               @click="uiStore.toggleModelManager()"
             >
               <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
@@ -71,9 +71,9 @@
             <button
               type="button"
               :aria-label="languages.AGENT_LIBRARY_OPEN"
-              :aria-pressed="uiStore.agentLibrary !== null"
+              :aria-pressed="uiStore.frontmost === 'agent'"
               class="-m-1 rounded-md p-1 transition-colors"
-              :class="{ 'bg-primary/20': uiStore.agentLibrary !== null }"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'agent' }"
               @click="uiStore.toggleAgentLibrary()"
             >
               <Bot class="size-6 text-foreground" />
@@ -87,7 +87,10 @@
               id="app-settings-button"
               type="button"
               :aria-label="languages.COM_APP_SETTINGS"
-              @click="openAppSettings()"
+              :aria-pressed="uiStore.frontmost === 'settings'"
+              class="-m-1 rounded-md p-1 transition-colors"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'settings' }"
+              @click="toggleAppSettings()"
             >
               <Cog6ToothIcon class="size-6 text-foreground"></Cog6ToothIcon>
             </button>
@@ -209,12 +212,6 @@
   >
     <SessionsPanel />
 
-    <AppSettingsDialog
-      :is-visible="showAppSettings"
-      :section="appSettingsSection"
-      @close="showAppSettings = false"
-    />
-
     <SessionTabView>
       <template #viewport>
         <Chat v-if="showsThreadView" ref="threadView" />
@@ -240,6 +237,11 @@
          to appear on top of it. -->
     <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
     <AgentLibrary v-else-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
+    <AppSettingsDialog
+      :is-visible="uiStore.appSettings !== null"
+      :section="uiStore.appSettings?.section"
+      @close="uiStore.closeAppSettings()"
+    />
     <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
     <preset-requirements-dialog
       v-show="dialogStore.presetRequirementsDialogVisible"
@@ -327,11 +329,11 @@ import SessionTabView from '@/components/SessionTabView.vue'
 import ModeSettingsTab from '@/components/ModeSettingsTab.vue'
 import SessionArtifacts from '@/components/SessionArtifacts.vue'
 import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
-import AppSettingsDialog, { type AppSettingsSection } from '@/components/AppSettingsDialog.vue'
+import AppSettingsDialog from '@/components/AppSettingsDialog.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import { useUIStore } from '@/assets/js/store/ui.ts'
+import { useUIStore, type AppSettingsSection } from '@/assets/js/store/ui.ts'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
@@ -398,8 +400,6 @@ useModePromptHandlers({
 })
 
 const isOpen = ref(false)
-const showAppSettings = ref(false)
-const appSettingsSection = ref<{ name: AppSettingsSection }>()
 const fullscreen = ref(false)
 
 const platformTitle = window.envVars.platformTitle
@@ -513,9 +513,12 @@ function openDevTools() {
 
 function openAppSettings(section?: AppSettingsSection) {
   if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
-  // A fresh object per request, so asking again while open scrolls again.
-  appSettingsSection.value = section && { name: section }
-  showAppSettings.value = true
+  uiStore.openAppSettings(section)
+}
+
+function toggleAppSettings() {
+  if (uiStore.appSettings) uiStore.closeAppSettings()
+  else openAppSettings()
 }
 
 function startTour() {

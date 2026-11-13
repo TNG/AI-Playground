@@ -169,15 +169,6 @@
           {{ theme.draftWarning }}
         </p>
 
-        <div v-if="theme.hasUnsavedChanges" class="flex gap-2">
-          <Button size="sm" :disabled="!theme.canSave" @click="theme.saveDraft()">
-            {{ languages.SETTINGS_THEME_SAVE }}
-          </Button>
-          <Button variant="outline" size="sm" @click="theme.discardDraft()">
-            {{ languages.SETTINGS_THEME_DISCARD }}
-          </Button>
-        </div>
-
         <Collapsible v-model:open="advancedOpen" class="flex flex-col gap-2">
           <CollapsibleTrigger class="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
             <ChevronDownIcon

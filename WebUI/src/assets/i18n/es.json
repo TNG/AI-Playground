@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Vista previa",
   "SETTINGS_THEME_DISCARD_TITLE": "¿Descartar los cambios sin guardar?",
   "SETTINGS_THEME_DISCARD_BODY": "Tus cambios de color no se han guardado y se perderán.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Cambios del tema sin guardar",
   "SETTINGS_THEME_RENAME": "Cambiar nombre",
   "SETTINGS_THEME_RENAME_TITLE": "Cambiar nombre del tema",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Nombre del tema",

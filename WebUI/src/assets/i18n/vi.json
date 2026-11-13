@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Xem trước",
   "SETTINGS_THEME_DISCARD_TITLE": "Hủy bỏ các thay đổi chưa lưu?",
   "SETTINGS_THEME_DISCARD_BODY": "Các thay đổi màu của bạn chưa được lưu và sẽ bị mất.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Thay đổi giao diện chưa lưu",
   "SETTINGS_THEME_RENAME": "Đổi tên",
   "SETTINGS_THEME_RENAME_TITLE": "Đổi tên chủ đề",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Tên chủ đề",

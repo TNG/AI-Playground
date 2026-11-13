@@ -4,7 +4,7 @@
   <DialogRoot :open="isVisible" :modal="false">
     <div
       v-if="isVisible"
-      class="absolute inset-0 z-9 flex items-center justify-center bg-background/60"
+      class="absolute inset-0 z-10 flex items-center justify-center bg-background/60"
     >
       <DialogContent
         id="app-settings-dialog"
@@ -73,6 +73,24 @@
                   </template>
                 </section>
               </div>
+              <div
+                v-if="theme.hasUnsavedChanges"
+                role="region"
+                :aria-label="languages.SETTINGS_THEME_UNSAVED_CHANGES"
+                class="sticky bottom-0 -mx-6 flex items-center justify-between gap-4 border-t border-border bg-card px-6 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.15)]"
+              >
+                <span class="text-sm font-medium">
+                  {{ languages.SETTINGS_THEME_UNSAVED_CHANGES }}
+                </span>
+                <div class="flex gap-2">
+                  <Button variant="outline" size="sm" @click="theme.discardDraft()">
+                    {{ languages.SETTINGS_THEME_DISCARD }}
+                  </Button>
+                  <Button size="sm" :disabled="!theme.canSave" @click="theme.saveDraft()">
+                    {{ languages.SETTINGS_THEME_SAVE }}
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
             <TabsContent
               v-for="tab in placeholderTabs"
@@ -109,6 +127,7 @@ import {
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useTheme } from '@/assets/js/store/theme'
+import { useUIStore, type AppSettingsSection } from '@/assets/js/store/ui'
 import AppSettingsLanguage from '@/components/AppSettingsLanguage.vue'
 import AppSettingsPromptBarStyle from '@/components/AppSettingsPromptBarStyle.vue'
 import AppSettingsHuggingFace from '@/components/AppSettingsHuggingFace.vue'
@@ -127,7 +146,6 @@ import {
   type AppSettingsSectionId,
 } from '@/lib/appSettingsSections'
 
-export type AppSettingsSection = 'theme'
 type AppSettingsTab = 'app' | 'components' | 'models'
 type ThemePart = InstanceType<typeof SettingsTheme> | null
 
@@ -154,7 +172,10 @@ const emit = defineEmits<{
 
 const demoMode = useDemoMode()
 const theme = useTheme()
+const ui = useUIStore()
 const languages = useI18N().state
+
+ui.setAppSettingsLeaveGuard(theme.guardUnsaved)
 const themeSection = ref<HTMLElement | null>(null)
 const themeSettings = ref<ThemePart>(null)
 const activeTab = ref<AppSettingsTab>('app')
@@ -197,7 +218,7 @@ function switchTab(tab: AppSettingsTab) {
 }
 
 function requestClose() {
-  theme.guardUnsaved(() => emit('close'))
+  emit('close')
 }
 
 watch(

@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Anteprima",
   "SETTINGS_THEME_DISCARD_TITLE": "Annullare le modifiche non salvate?",
   "SETTINGS_THEME_DISCARD_BODY": "Le modifiche ai colori non sono state salvate e andranno perse.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Modifiche al tema non salvate",
   "SETTINGS_THEME_RENAME": "Rinomina",
   "SETTINGS_THEME_RENAME_TITLE": "Rinomina tema",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Nome del tema",

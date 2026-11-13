@@ -111,11 +111,39 @@ test.describe('App shell', () => {
       await expect(shell.settingsDialog).toBeHidden()
     })
 
+    await test.step('App Settings opens over a Library and returns to it', async () => {
+      const shell = app.shell
+      const modelLibrary = shell.header.getByRole('button', { name: 'Model management' })
+      await shell.openAppSettings()
+      await expect(shell.appSettingsButton).toHaveAttribute('aria-pressed', 'true')
+
+      await modelLibrary.click()
+      await expect(shell.settingsDialog).toBeHidden()
+      await expect(shell.appSettingsButton).toHaveAttribute('aria-pressed', 'false')
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'true')
+
+      await shell.appSettingsButton.click()
+      await expect(shell.settingsDialog).toBeVisible()
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
+
+      await shell.appSettingsButton.click()
+      await expect(shell.settingsDialog).toBeHidden()
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'true')
+
+      await modelLibrary.click()
+      await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
+    })
+
     await test.step('Unsaved theme colors are guarded on tab switch and close', async () => {
       const shell = app.shell
       await shell.customizeTheme()
       const panel = shell.settingsPanel('App Settings')
+      const unsaved = panel.getByRole('region', { name: 'Unsaved theme changes' })
+      await expect(unsaved).toBeHidden()
       await panel.getByLabel('App background', { exact: true }).fill('#123456')
+      await expect(unsaved).toBeInViewport()
+      await expect(unsaved.getByRole('button', { name: 'Save' })).toBeVisible()
+      await expect(unsaved.getByRole('button', { name: 'Discard' })).toBeVisible()
       const discard = window.getByRole('alertdialog', { name: 'Discard unsaved changes?' })
 
       await shell.settingsTab('Component Manager').click()

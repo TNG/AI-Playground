@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "プレビュー",
   "SETTINGS_THEME_DISCARD_TITLE": "保存されていない変更を破棄しますか?",
   "SETTINGS_THEME_DISCARD_BODY": "色の変更は保存されておらず、失われます。",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "テーマの変更が保存されていません",
   "SETTINGS_THEME_RENAME": "名前を変更",
   "SETTINGS_THEME_RENAME_TITLE": "テーマ名を変更",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "テーマ名",

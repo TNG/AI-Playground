@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Vorschau",
   "SETTINGS_THEME_DISCARD_TITLE": "Nicht gespeicherte Änderungen verwerfen?",
   "SETTINGS_THEME_DISCARD_BODY": "Deine Farbänderungen wurden nicht gespeichert und gehen verloren.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Nicht gespeicherte Design-Änderungen",
   "SETTINGS_THEME_RENAME": "Umbenennen",
   "SETTINGS_THEME_RENAME_TITLE": "Design umbenennen",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Name des Designs",

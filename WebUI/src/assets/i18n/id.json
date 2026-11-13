@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Pratinjau",
   "SETTINGS_THEME_DISCARD_TITLE": "Buang perubahan yang belum disimpan?",
   "SETTINGS_THEME_DISCARD_BODY": "Perubahan warna Anda belum disimpan dan akan hilang.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Perubahan tema belum disimpan",
   "SETTINGS_THEME_RENAME": "Ganti nama",
   "SETTINGS_THEME_RENAME_TITLE": "Ganti nama tema",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Nama tema",

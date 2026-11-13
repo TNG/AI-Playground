@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "ตัวอย่าง",
   "SETTINGS_THEME_DISCARD_TITLE": "ละทิ้งการเปลี่ยนแปลงที่ยังไม่ได้บันทึกใช่หรือไม่",
   "SETTINGS_THEME_DISCARD_BODY": "การเปลี่ยนสีของคุณยังไม่ได้บันทึกและจะหายไป",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "การเปลี่ยนแปลงธีมที่ยังไม่ได้บันทึก",
   "SETTINGS_THEME_RENAME": "เปลี่ยนชื่อ",
   "SETTINGS_THEME_RENAME_TITLE": "เปลี่ยนชื่อธีม",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "ชื่อธีม",

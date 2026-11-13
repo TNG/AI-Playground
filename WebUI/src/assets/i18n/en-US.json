@@ -54,6 +54,7 @@
   "SETTINGS_THEME_PREVIEW": "Preview",
   "SETTINGS_THEME_DISCARD_TITLE": "Discard unsaved changes?",
   "SETTINGS_THEME_DISCARD_BODY": "Your color changes have not been saved and will be lost.",
+  "SETTINGS_THEME_UNSAVED_CHANGES": "Unsaved theme changes",
   "SETTINGS_THEME_RENAME": "Rename",
   "SETTINGS_THEME_RENAME_TITLE": "Rename theme",
   "SETTINGS_THEME_NAME_PLACEHOLDER": "Theme name",

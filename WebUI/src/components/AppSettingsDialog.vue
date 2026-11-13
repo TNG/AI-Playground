@@ -69,7 +69,7 @@
                       :is="partComponents[part.id]"
                       v-else
                       :ref="(el: unknown) => part.id === 'theme' && bindThemeSettings(el)"
-                      v-bind="part.disabled ? { disabled: true } : {}"
+                      v-bind="part.id === 'demoMode' ? { disabled: part.disabled } : {}"
                     />
                   </template>
                 </section>

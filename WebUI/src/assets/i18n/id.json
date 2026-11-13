@@ -356,7 +356,6 @@
   "SETTINGS_SPEECH_TTS_ENDPOINT_INFO": "Server /v1/audio/speech yang kompatibel dengan OpenAI (URL dasar seperti http://127.0.0.1:8080/v1). Jika diaktifkan, server ini muncul sebagai mesin \"Endpoint eksternal\" di preset Text to Speech.",
   "SETTINGS_SPEECH_STT_ENDPOINT_INFO": "Server transkripsi yang kompatibel dengan OpenAI, misalnya whisper-server whisper.cpp lokal dengan --inference-path \"/v1/audio/transcriptions\" (URL dasar seperti http://127.0.0.1:2022/v1). Mengaktifkannya juga membuat preset Speech to Text tersedia dalam mode NVIDIA.",
   "SETTINGS_MEDIA_MODES": "Mode Media",
-  "SETTINGS_MEDIA_MODES_TOGGLE": "Mode Media",
   "SETTINGS_MEDIA_MODES_INFO": "Tampilkan Audio, Image Gen, Image Edit, dan Video di bilah prompt. Jika dimatikan, hanya Asisten yang ditawarkan, dan Asisten tetap dapat membuat gambar, video, dan suara dengan alatnya.",
   "SETTINGS_ADVANCED": "Lanjutan",
   "SETTINGS_MODEL_MANAGE_BACKEND": "Kelola Komponen Backend",

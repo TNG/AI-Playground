@@ -3,7 +3,7 @@
     <PromptAttachmentPreviews />
   </div>
   <div class="absolute bottom-4 left-3 flex items-center gap-2">
-    <DropdownMenu v-if="model.modes.length > 1">
+    <DropdownMenu v-if="model.modeSwitch">
       <DropdownMenuTrigger as-child>
         <Button
           id="mode-dropdown"

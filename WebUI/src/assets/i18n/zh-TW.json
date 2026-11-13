@@ -356,7 +356,6 @@
   "SETTINGS_SPEECH_TTS_ENDPOINT_INFO": "相容 OpenAI 的 /v1/audio/speech 伺服器（基礎 URL 例如 http://127.0.0.1:8080/v1）。啟用後，它會以「外部端點」引擎出現在文字轉語音預設中。",
   "SETTINGS_SPEECH_STT_ENDPOINT_INFO": "相容 OpenAI 的轉錄伺服器，例如使用 --inference-path \"/v1/audio/transcriptions\" 的本機 whisper.cpp whisper-server（基礎 URL 例如 http://127.0.0.1:2022/v1）。啟用後，語音轉文字預設在 NVIDIA 模式下也可使用。",
   "SETTINGS_MEDIA_MODES": "媒體模式",
-  "SETTINGS_MEDIA_MODES_TOGGLE": "媒體模式",
   "SETTINGS_MEDIA_MODES_INFO": "在提示列中顯示音訊、Image Gen、Image Edit 和影片。關閉後僅提供助理，助理仍可使用其工具建立圖像、影片和語音。",
   "SETTINGS_ADVANCED": "進階",
   "SETTINGS_MODEL_MANAGE_BACKEND": "管理後端元件",

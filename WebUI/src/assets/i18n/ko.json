@@ -356,7 +356,6 @@
   "SETTINGS_SPEECH_TTS_ENDPOINT_INFO": "OpenAI 호환 /v1/audio/speech 서버(기본 URL 예: http://127.0.0.1:8080/v1). 사용하도록 설정하면 텍스트 음성 변환 프리셋에 \"외부 엔드포인트\" 엔진으로 표시됩니다.",
   "SETTINGS_SPEECH_STT_ENDPOINT_INFO": "OpenAI 호환 전사 서버(예: --inference-path \"/v1/audio/transcriptions\"를 지정한 로컬 whisper.cpp whisper-server, 기본 URL 예: http://127.0.0.1:2022/v1). 사용하도록 설정하면 NVIDIA 모드에서도 음성 텍스트 변환 프리셋을 사용할 수 있습니다.",
   "SETTINGS_MEDIA_MODES": "미디어 모드",
-  "SETTINGS_MEDIA_MODES_TOGGLE": "미디어 모드",
   "SETTINGS_MEDIA_MODES_INFO": "프롬프트 바에 오디오, Image Gen, Image Edit, 비디오를 표시합니다. 끄면 어시스턴트만 제공되며, 어시스턴트는 도구를 사용해 이미지, 동영상, 음성을 계속 만들 수 있습니다.",
   "SETTINGS_ADVANCED": "고급",
   "SETTINGS_MODEL_MANAGE_BACKEND": "백엔드 구성 요소 관리",

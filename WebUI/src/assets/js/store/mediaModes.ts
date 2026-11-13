@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { useErrors } from '@/assets/js/store/errors'
 import { useGlobalSetup } from '@/assets/js/store/globalSetup'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
@@ -11,8 +12,23 @@ export const useMediaModes = defineStore('mediaModes', () => {
   const presets = usePresets()
   const globalSetup = useGlobalSetup()
   const presetSwitching = usePresetSwitching()
+  const errors = useErrors()
 
   const enabled = ref(true)
+
+  async function leaveMediaMode(fallback: string) {
+    try {
+      await presetSwitching.switchPreset(fallback)
+    } catch (err) {
+      errors.report(err, {
+        category: 'setup',
+        code: 'preset/media-mode-fallback-failed',
+        userMessage: 'Could not leave the hidden Media Mode.',
+        surface: 'toast',
+        context: { presetName: fallback },
+      })
+    }
+  }
 
   const prefs = makeFileBackedPreference({ section: 'mediaModes', refs: { enabled } })
   if (import.meta.hot) import.meta.hot.dispose(() => prefs.dispose())
@@ -22,7 +38,7 @@ export const useMediaModes = defineStore('mediaModes', () => {
     [() => presets.activePreset, enabled, () => globalSetup.loadingState === 'running'],
     ([active, on, running]) => {
       const fallback = running ? mediaModeFallbackPreset(active ?? undefined, on) : null
-      if (fallback) void presetSwitching.switchPreset(fallback)
+      if (fallback) void leaveMediaMode(fallback)
     },
     { immediate: true },
   )

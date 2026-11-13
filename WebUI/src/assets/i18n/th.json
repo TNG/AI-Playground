@@ -356,7 +356,6 @@
   "SETTINGS_SPEECH_TTS_ENDPOINT_INFO": "เซิร์ฟเวอร์ /v1/audio/speech ที่เข้ากันได้กับ OpenAI (URL ฐาน เช่น http://127.0.0.1:8080/v1) เมื่อเปิดใช้งาน จะปรากฏเป็นเอนจิน \"เอนด์พอยต์ภายนอก\" ในพรีเซ็ตแปลงข้อความเป็นเสียงพูด",
   "SETTINGS_SPEECH_STT_ENDPOINT_INFO": "เซิร์ฟเวอร์ถอดความที่เข้ากันได้กับ OpenAI เช่น whisper-server ของ whisper.cpp ในเครื่องที่ใช้ --inference-path \"/v1/audio/transcriptions\" (URL ฐาน เช่น http://127.0.0.1:2022/v1) การเปิดใช้งานยังทำให้พรีเซ็ตแปลงเสียงพูดเป็นข้อความใช้ได้ในโหมด NVIDIA ด้วย",
   "SETTINGS_MEDIA_MODES": "โหมดสื่อ",
-  "SETTINGS_MEDIA_MODES_TOGGLE": "โหมดสื่อ",
   "SETTINGS_MEDIA_MODES_INFO": "แสดงเสียง, Image Gen, Image Edit และวิดีโอในแถบพรอมต์ เมื่อปิด จะมีเพียงผู้ช่วยเท่านั้น และผู้ช่วยยังคงสร้างรูปภาพ วิดีโอ และเสียงพูดด้วยเครื่องมือของตนได้",
   "SETTINGS_ADVANCED": "ขั้นสูง",
   "SETTINGS_MODEL_MANAGE_BACKEND": "จัดการส่วนประกอบแบ็กเอนด์",

@@ -37,7 +37,7 @@ export function usePromptBarModel(source: PromptBarModelSource = {}) {
       style: promptBarStyle.active,
       agents: agents.value,
       pickedAgentId: pickedAgentId.value,
-      mediaModes: mediaModes.enabled,
+      showMediaModes: mediaModes.enabled,
     }),
   )
 }

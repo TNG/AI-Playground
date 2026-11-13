@@ -35,11 +35,11 @@
           @focus="(e: FocusEvent) => onPickerFocus(mode, e)"
           @blur="schedulePickerClose()"
           :aria-label="
-            pickerOnly ? `${i18nState.PROMPT_BAR_PRESET}: ${activePresetLabel}` : undefined
+            pickerOnly ? `${i18nState.PROMPT_BAR_PRESET}: ${bar.activeLabel}` : undefined
           "
           @click="handleModeClick(mode)"
         >
-          {{ pickerOnly ? activePresetLabel : mapModeToLabel(mode) }}
+          {{ pickerOnly ? bar.activeLabel : mapModeToLabel(mode) }}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -322,11 +322,7 @@ async function selectAgentFromPicker(agentId: string) {
 
 const bar = usePromptBarModel()
 // With a single Mode there is nothing to switch to, so the one button only opens the preset picker.
-const pickerOnly = computed(() => bar.value.modes.length <= 1)
-const activePresetLabel = computed(() => {
-  const chip = bar.value.headerChips.find((chip) => chip.kind === 'preset')
-  return chip?.kind === 'preset' ? chip.label : ''
-})
+const pickerOnly = computed(() => !bar.value.modeSwitch)
 
 watch(
   () => demoMode.tourOpen,

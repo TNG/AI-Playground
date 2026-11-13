@@ -356,7 +356,6 @@
   "SETTINGS_SPEECH_TTS_ENDPOINT_INFO": "Ein OpenAI-kompatibler /v1/audio/speech-Server (Basis-URL wie http://127.0.0.1:8080/v1). Wenn aktiviert, erscheint er als Engine „Externer Endpunkt“ im Text-to-Speech-Preset.",
   "SETTINGS_SPEECH_STT_ENDPOINT_INFO": "Ein OpenAI-kompatibler Transkriptionsserver, z. B. ein lokaler whisper.cpp-whisper-server mit --inference-path \"/v1/audio/transcriptions\" (Basis-URL wie http://127.0.0.1:2022/v1). Wenn aktiviert, ist das Speech-to-Text-Preset auch im NVIDIA-Modus verfügbar.",
   "SETTINGS_MEDIA_MODES": "Medienmodi",
-  "SETTINGS_MEDIA_MODES_TOGGLE": "Medienmodi",
   "SETTINGS_MEDIA_MODES_INFO": "Audio, Image Gen, Image Edit und Video in der Eingabeleiste anzeigen. Wenn ausgeschaltet, wird nur der Assistent angeboten, der mit seinen Werkzeugen weiterhin Bilder, Videos und Sprache erstellen kann.",
   "SETTINGS_ADVANCED": "Erweitert",
   "SETTINGS_MODEL_MANAGE_BACKEND": "Backend-Komponenten verwalten",

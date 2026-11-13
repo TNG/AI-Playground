@@ -3,7 +3,7 @@
     <SettingsHeading>{{ languages.SETTINGS_MEDIA_MODES }}</SettingsHeading>
     <AppSettingsRow
       v-slot="{ id, describedBy }"
-      :label="languages.SETTINGS_MEDIA_MODES_TOGGLE"
+      :label="languages.SETTINGS_MEDIA_MODES"
       :description="languages.SETTINGS_MEDIA_MODES_INFO"
     >
       <Switch :id="id" v-model="mediaModes.enabled" :aria-describedby="describedBy" />

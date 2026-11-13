@@ -51,7 +51,7 @@ export type PromptBarInput = {
   /** The open Session's picked Agent. */
   pickedAgentId?: string
   /** False offers the Assistant Mode alone. Defaults to true. */
-  mediaModes?: boolean
+  showMediaModes?: boolean
 }
 
 export type PromptBarAgent = AgentEntry & {
@@ -64,12 +64,16 @@ export type AgentEntry = { id: string; name: string; description?: string; image
 export type PromptBarModel = {
   headerChips: HeaderChip[]
   modes: ModeType[]
+  /** Whether there is more than one Mode to switch between. */
+  modeSwitch: boolean
   activeMode: ModeType | null
   modePicks: Partial<Record<ModeType, string>>
   /** What each offered Mode lists, whichever Mode is active. */
   listings: Partial<Record<ModeType, ModeListing>>
   /** The Agent run on Assistant in place of Assistant itself. */
   pickedAgent?: AgentEntry
+  /** The picked Agent's name, else the active preset's label. */
+  activeLabel: string
   presetChip: 'label' | 'dropdown'
   /** The mic and camera buttons. */
   capture: boolean
@@ -104,7 +108,7 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
   const catalog = input.catalog ?? []
   const gateOf = (preset: Preset) => input.presetGate?.(preset) ?? { enabled: true }
   const modes = promptBarModes(catalog).filter(
-    (mode) => input.mediaModes !== false || mode === ASSISTANT_MODE,
+    (mode) => input.showMediaModes !== false || mode === ASSISTANT_MODE,
   )
   const modePicks: Partial<Record<ModeType, string>> = {}
   for (const mode of modes) {
@@ -140,10 +144,13 @@ export function promptBarModel(input: PromptBarInput): PromptBarModel {
   return {
     headerChips: headerChips(input, pickedAgent),
     modes,
+    modeSwitch: modes.length > 1,
     activeMode,
     modePicks,
     listings,
     ...(pickedAgent ? { pickedAgent } : {}),
+    activeLabel:
+      pickedAgent?.name ?? (input.activePreset ? input.presetLabel(input.activePreset.name) : ''),
     presetChip: input.style !== 'classic' && dropdown ? 'dropdown' : 'label',
     capture: hasChatAffordances(input.activePreset),
   }

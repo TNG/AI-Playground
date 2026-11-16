@@ -21,14 +21,29 @@ import {
   type HexThemeColors,
 } from '@/lib/themeColors'
 import { findUnreadablePair, type CorePair, type UnreadablePair } from '@/lib/themeContrast'
-import { colorRoles, roleToken, roleTokens, type ColorRole } from '@/lib/themeRoles'
+import {
+  deriveThemeColors,
+  derivedColorTokens,
+  isMainColorToken,
+  mainColorTokens,
+  mainColorsOf,
+} from '@/lib/themeDerivation'
+
+export type EditingMode = 'simple' | 'advanced'
 
 export type CustomTheme = {
   id: string
   name: string
   baseTheme: Theme
+  mode: EditingMode
   colors: HexThemeColors
 }
+
+type ThemeDraft = { mode: EditingMode; colors: HexThemeColors }
+
+const editingModes: readonly unknown[] = ['simple', 'advanced'] satisfies EditingMode[]
+
+const derivedFrom = (colors: HexThemeColors) => deriveThemeColors(mainColorsOf(colors))
 
 export type ReadabilityVerdict = { readable: true } | ({ readable: false } & UnreadablePair)
 
@@ -57,13 +72,17 @@ const shippedColors = (id: unknown) => toHexColors(builtInOrFallback(id).colors)
 const asRecord = (value: unknown) =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : null
 
-/** Fills tokens an older version did not have from the Base Theme; null for anything malformed. */
+/**
+ * Fills tokens an older version did not have from the Base Theme; null for anything malformed.
+ * An entry from before Editing Modes loads as Simple, its Derived Colours recalculated.
+ */
 function readCustomTheme(value: unknown): CustomTheme | null {
   const t = asRecord(value)
   const stored = asRecord(t?.colors)
   if (!t || !stored) return null
   if (typeof t.id !== 'string' || typeof t.name !== 'string' || typeof t.baseTheme !== 'string')
     return null
+  if (t.mode !== undefined && !editingModes.includes(t.mode)) return null
   const fill = shippedColors(t.baseTheme)
   const colors = {} as HexThemeColors
   for (const token of themeTokens) {
@@ -71,7 +90,9 @@ function readCustomTheme(value: unknown): CustomTheme | null {
     if (!isHexColor(color)) return null
     colors[token] = color
   }
-  return { id: t.id, name: t.name, baseTheme: t.baseTheme as Theme, colors }
+  const base = { id: t.id, name: t.name, baseTheme: t.baseTheme as Theme }
+  if (t.mode === undefined) return { ...base, mode: 'simple', colors: derivedFrom(colors) }
+  return { ...base, mode: t.mode as EditingMode, colors }
 }
 
 const unreadablePairOf = (theme: CustomTheme) => findUnreadablePair(theme.colors)
@@ -86,7 +107,7 @@ export const useTheme = defineStore('theme', () => {
   const errors = useErrors()
   const selected = ref<string | null>(null)
   const customThemes = ref<CustomTheme[]>([])
-  const draft = ref<HexThemeColors | null>(null)
+  const draft = ref<ThemeDraft | null>(null)
   const pendingAction = ref<(() => void) | null>(null)
 
   // Step 8 (§6.1): the theme choice is a kernel-owned preference
@@ -135,9 +156,10 @@ export const useTheme = defineStore('theme', () => {
   })
 
   /** The theme the editor works on: the selected Custom Theme even while it is not applied. */
-  const editedHexColors = computed(
-    () => selectedCustomTheme.value?.colors ?? resolved.value.hexColors,
-  )
+  const edited = computed<ThemeDraft>(() => {
+    const custom = selectedCustomTheme.value
+    return custom ?? { mode: 'simple', colors: resolved.value.hexColors }
+  })
 
   const pairLabel = (pair: UnreadablePair) => i18n.state[pairLabelKeys[pair.text]]
 
@@ -215,17 +237,32 @@ export const useTheme = defineStore('theme', () => {
     return addAndSelect({
       name: newName('THEME_NAME_CUSTOM', 'THEME_NAME_CUSTOM_N', source.name),
       baseTheme: source.id,
+      mode: 'simple',
       colors: toHexColors(source.colors),
     })
   }
 
-  const draftHexColors = computed(() => draft.value ?? editedHexColors.value)
+  const current = computed(() => draft.value ?? edited.value)
+  const draftHexColors = computed(() => current.value.colors)
+  const editingMode = computed(() => current.value.mode)
 
-  const hasUnsavedChanges = computed(
-    () =>
-      !!draft.value &&
-      themeTokens.some((token) => draft.value?.[token] !== editedHexColors.value[token]),
-  )
+  const hasUnsavedChanges = computed(() => {
+    const changed = draft.value
+    if (!changed) return false
+    const saved = edited.value
+    return (
+      changed.mode !== saved.mode ||
+      themeTokens.some((token) => changed.colors[token] !== saved.colors[token])
+    )
+  })
+
+  /** The Derived Colours a switch to Simple mode would recalculate: those set by hand. */
+  const simpleModeRecalculates = computed<ThemeToken[]>(() => {
+    if (editingMode.value === 'simple') return []
+    const colors = draftHexColors.value
+    const derived = derivedFrom(colors)
+    return derivedColorTokens.filter((token) => derived[token] !== colors[token])
+  })
 
   const draftVerdict = computed<ReadabilityVerdict>(() => {
     const unreadable = findUnreadablePair(draftHexColors.value)
@@ -243,29 +280,31 @@ export const useTheme = defineStore('theme', () => {
 
   const canSave = computed(() => hasUnsavedChanges.value && draftVerdict.value.readable)
 
-  function editDraft(tokens: readonly ThemeToken[], hex: HexColor): boolean {
-    if (!isHexColor(hex)) return false
-    const next = { ...draftHexColors.value }
-    for (const token of tokens) next[token] = hex.toLowerCase()
-    draft.value = next
+  /**
+   * Changes the draft only; nothing is applied until `saveDraft`. In Simple mode only a Main
+   * Colour can be set, and every Derived Colour follows it.
+   */
+  function setColor(token: ThemeToken, hex: HexColor): boolean {
+    const mode = editingMode.value
+    if (!isHexColor(hex) || (mode === 'simple' && !isMainColorToken(token))) return false
+    const colors = { ...draftHexColors.value, [token]: hex.toLowerCase() }
+    draft.value = { mode, colors: mode === 'simple' ? derivedFrom(colors) : colors }
     return true
   }
 
-  /** Changes the draft only; nothing is applied until `saveDraft`. */
-  function setColor(token: ThemeToken, hex: HexColor): boolean {
-    return editDraft([token], hex)
-  }
-
-  function setRoleColor(role: ColorRole, hex: HexColor): boolean {
-    return editDraft(roleTokens(role), hex)
+  /** Switching to Simple recalculates `simpleModeRecalculates`; the editor confirms that first. */
+  function setEditingMode(mode: EditingMode) {
+    if (mode === editingMode.value) return
+    const colors = draftHexColors.value
+    draft.value = { mode, colors: mode === 'simple' ? derivedFrom(colors) : { ...colors } }
   }
 
   /** Applies a readable draft; a draft of a Built-in Theme becomes a new, selected Custom Theme. */
   function saveDraft(): boolean {
-    const colors = draft.value
-    if (!colors || !canSave.value) return false
+    const changed = draft.value
+    if (!changed || !canSave.value) return false
     const id = selectedCustomTheme.value?.id ?? customize()
-    updateCustomTheme(id, (t) => ({ ...t, colors }))
+    updateCustomTheme(id, (t) => ({ ...t, ...changed }))
     draft.value = null
     return true
   }
@@ -302,6 +341,7 @@ export const useTheme = defineStore('theme', () => {
     return addAndSelect({
       name: newName('THEME_NAME_COPY', 'THEME_NAME_COPY_N', source.name),
       baseTheme: source.baseTheme,
+      mode: source.mode,
       colors: { ...source.colors },
     })
   }
@@ -318,6 +358,7 @@ export const useTheme = defineStore('theme', () => {
     updateCustomTheme(id, (t) => ({
       ...t,
       baseTheme: target.id,
+      mode: 'simple',
       colors: toHexColors(target.colors),
     }))
     if (selected.value === id) discardDraft()
@@ -346,7 +387,10 @@ export const useTheme = defineStore('theme', () => {
     baseTheme: computed(() => resolved.value.baseId),
     activeColors: computed(() => resolved.value.colors),
     activeHexColors: computed(() => resolved.value.hexColors),
+    mainColorTokens,
     draftHexColors,
+    editingMode,
+    simpleModeRecalculates,
     draftVerdict,
     draftWarning,
     hasUnsavedChanges,
@@ -356,9 +400,7 @@ export const useTheme = defineStore('theme', () => {
     selectTheme,
     customize,
     setColor,
-    colorRoles,
-    roleToken,
-    setRoleColor,
+    setEditingMode,
     saveDraft,
     discardDraft,
     guardUnsaved,

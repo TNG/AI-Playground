@@ -119,17 +119,51 @@
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent class="flex flex-col gap-4">
-        <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_ROLES">
-          <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_ROLES }}</h3>
-          <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_ROLES_HINT }}</p>
+        <div
+          role="group"
+          :aria-label="languages.SETTINGS_THEME_MODE"
+          class="flex self-start rounded-md border p-0.5"
+        >
+          <Button
+            v-for="mode in editingModes"
+            :key="mode"
+            size="sm"
+            :variant="theme.editingMode === mode ? 'secondary' : 'ghost'"
+            :aria-pressed="theme.editingMode === mode"
+            @click="chooseMode(mode)"
+          >
+            {{ languages[modeLabelKeys[mode]] }}
+          </Button>
+        </div>
+
+        <section
+          v-if="theme.editingMode === 'simple'"
+          class="flex flex-col gap-2"
+          :aria-label="languages.SETTINGS_THEME_SIMPLE"
+        >
           <ul class="flex flex-col gap-1.5 pl-1">
             <ThemeColorRow
-              v-for="role in theme.colorRoles"
-              :id="`theme-role-${role}`"
-              :key="role"
-              :label="languages[roleLabelKeys[role]]"
-              :value="theme.draftHexColors[theme.roleToken(role)]"
-              @pick="(hex) => theme.setRoleColor(role, hex)"
+              v-for="token in theme.mainColorTokens"
+              :id="`theme-main-${token}`"
+              :key="token"
+              :label="languages[mainColorLabelKeys[token]]"
+              :value="theme.draftHexColors[token]"
+              @pick="(hex) => theme.setColor(token, hex)"
+            />
+          </ul>
+          <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_SIMPLE_HINT }}</p>
+        </section>
+
+        <section v-else class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_ADVANCED">
+          <ul class="flex flex-col gap-1.5 pl-1">
+            <ThemeColorRow
+              v-for="token in theme.colorTokens"
+              :id="`theme-token-${token}`"
+              :key="token"
+              :label="token"
+              mono-label
+              :value="theme.draftHexColors[token]"
+              @pick="(hex) => theme.setColor(token, hex)"
             />
           </ul>
         </section>
@@ -141,7 +175,7 @@
             :style="{ backgroundColor: draft.background, borderColor: draft.border }"
           >
             <span :style="{ color: draft.foreground }">{{
-              languages.SETTINGS_THEME_ROLE_TEXT
+              languages.SETTINGS_THEME_MAIN_TEXT
             }}</span>
             <div
               class="flex items-center justify-between gap-2 rounded-md border p-2"
@@ -151,12 +185,12 @@
                 borderColor: draft.border,
               }"
             >
-              {{ languages.SETTINGS_THEME_ROLE_PANELS }}
+              {{ languages.SETTINGS_THEME_MAIN_PANELS }}
               <span
                 class="rounded-md px-2 py-1"
                 :style="{ backgroundColor: draft.primary, color: draft['primary-foreground'] }"
               >
-                {{ languages.SETTINGS_THEME_ROLE_ACCENT }}
+                {{ languages.SETTINGS_THEME_MAIN_ACCENT }}
               </span>
             </div>
           </div>
@@ -170,31 +204,30 @@
           <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
           {{ theme.draftWarning }}
         </p>
-
-        <Collapsible v-model:open="advancedOpen" class="flex flex-col gap-2">
-          <CollapsibleTrigger class="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
-            <ChevronDownIcon
-              class="size-4 transition-transform"
-              :class="{ 'rotate-180': advancedOpen }"
-            />
-            {{ languages.SETTINGS_THEME_ADVANCED }}
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <ul class="flex flex-col gap-1.5 pl-1">
-              <ThemeColorRow
-                v-for="token in theme.colorTokens"
-                :id="`theme-token-${token}`"
-                :key="token"
-                :label="token"
-                mono-label
-                :value="theme.draftHexColors[token]"
-                @pick="(hex) => theme.setColor(token, hex)"
-              />
-            </ul>
-          </CollapsibleContent>
-        </Collapsible>
       </CollapsibleContent>
     </Collapsible>
+
+    <AlertDialog v-model:open="toSimpleOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ languages.SETTINGS_THEME_TO_SIMPLE_TITLE }}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {{
+              fillTemplate(languages.SETTINGS_THEME_TO_SIMPLE_BODY, {
+                count: theme.simpleModeRecalculates.length,
+                colors: theme.simpleModeRecalculates.join(', '),
+              })
+            }}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ languages.COM_CANCEL }}</AlertDialogCancel>
+          <AlertDialogAction @click="theme.setEditingMode('simple')">
+            {{ languages.SETTINGS_THEME_TO_SIMPLE_CONFIRM }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <AlertDialog
       :open="theme.discardPending"
@@ -221,7 +254,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
-import { useTheme } from '@/assets/js/store/theme'
+import { useTheme, type EditingMode } from '@/assets/js/store/theme'
 import { useI18N } from '@/assets/js/store/i18n'
 import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
@@ -250,11 +283,10 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { fillTemplate } from '@/lib/fillTemplate'
-import type { ColorRole } from '@/lib/themeRoles'
+import type { MainColorToken } from '@/lib/themeDerivation'
 
 const theme = useTheme()
 const languages = useI18N().state
-const advancedOpen = ref(false)
 const customizerOpen = ref(false)
 const edited = computed(() => theme.editedCustomTheme)
 const draft = computed(() => theme.draftHexColors)
@@ -276,12 +308,26 @@ function copyEdited() {
   if (id) theme.guardUnsaved(() => theme.copyCustomTheme(id))
 }
 
-const roleLabelKeys: Record<ColorRole, string> = {
-  background: 'SETTINGS_THEME_ROLE_BACKGROUND',
-  panels: 'SETTINGS_THEME_ROLE_PANELS',
-  accent: 'SETTINGS_THEME_ROLE_ACCENT',
-  accentText: 'SETTINGS_THEME_ROLE_ACCENT_TEXT',
-  text: 'SETTINGS_THEME_ROLE_TEXT',
+const editingModes: EditingMode[] = ['simple', 'advanced']
+
+const modeLabelKeys: Record<EditingMode, string> = {
+  simple: 'SETTINGS_THEME_SIMPLE',
+  advanced: 'SETTINGS_THEME_ADVANCED',
+}
+
+const mainColorLabelKeys: Record<MainColorToken, string> = {
+  background: 'SETTINGS_THEME_MAIN_BACKGROUND',
+  card: 'SETTINGS_THEME_MAIN_PANELS',
+  foreground: 'SETTINGS_THEME_MAIN_TEXT',
+  primary: 'SETTINGS_THEME_MAIN_ACCENT',
+  'primary-foreground': 'SETTINGS_THEME_MAIN_ACCENT_TEXT',
+}
+
+const toSimpleOpen = ref(false)
+
+function chooseMode(mode: EditingMode) {
+  if (mode === 'simple' && theme.simpleModeRecalculates.length) toSimpleOpen.value = true
+  else theme.setEditingMode(mode)
 }
 
 const renameOpen = ref(false)

@@ -2,9 +2,9 @@
   <p
     v-if="theme.fallbackMessage"
     role="status"
-    class="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
+    class="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-2 text-xs"
   >
-    <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
+    <ExclamationTriangleIcon class="size-4 shrink-0 text-warning" />
     {{ theme.fallbackMessage }}
   </p>
 </template>

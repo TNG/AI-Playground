@@ -156,7 +156,7 @@
                       <p v-if="preset.description" class="mt-1 text-primary-foreground/80">
                         {{ preset.description }}
                       </p>
-                      <p v-if="preset.reason" class="mt-1 text-amber-400 text-xs">
+                      <p v-if="preset.reason" class="mt-1 text-warning text-xs">
                         {{ languages[preset.reason] }}
                       </p>
                     </TooltipContent>

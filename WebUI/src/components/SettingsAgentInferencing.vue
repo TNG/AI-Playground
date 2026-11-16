@@ -80,7 +80,7 @@
           @blur="contextSizeField.commit"
           @keydown.enter="contextSizeField.commit"
         />
-        <span v-if="binding.contextSize < 16384" class="text-xs text-amber-500">
+        <span v-if="binding.contextSize < 16384" class="text-xs text-warning">
           {{ languages.AGENT_SETTINGS_CONTEXT_HINT }}
         </span>
       </div>
@@ -200,7 +200,7 @@
       </label>
     </template>
 
-    <p v-if="!template" class="text-xs text-amber-500">
+    <p v-if="!template" class="text-xs text-warning">
       {{ languages.AGENT_SETTINGS_NEXT_TURN }}
     </p>
 

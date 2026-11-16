@@ -166,7 +166,7 @@ async function submit() {
       >
         <h2 class="text-lg font-semibold">{{ languages.REQUEST_LLM_MODEL_NAME }}</h2>
 
-        <div class="flex flex-col gap-1 rounded-lg border border-yellow-600 bg-yellow-600/10 p-3">
+        <div class="flex flex-col gap-1 rounded-lg border border-warning bg-warning/10 p-3">
           <p class="text-sm">{{ languages.REQUEST_LLM_MODEL_DISCLAIMER_1 }}</p>
           <p class="text-sm">{{ languages.REQUEST_LLM_MODEL_DISCLAIMER_2 }}</p>
         </div>

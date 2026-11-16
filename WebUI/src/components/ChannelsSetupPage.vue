@@ -7,7 +7,7 @@
 
     <p
       v-if="!channelStore.masterEnabled && anyEnabled"
-      class="text-center text-xs text-amber-500 pt-2"
+      class="text-center text-xs text-warning pt-2"
     >
       The Channels master switch is off — enabled channels won't run until you turn it on from the
       title bar.
@@ -54,7 +54,7 @@
                 class="text-xs font-medium"
                 :class="
                   channelStore.channelPrefs[descriptor.kind].verified
-                    ? 'text-emerald-500'
+                    ? 'text-success'
                     : 'text-muted-foreground'
                 "
               >
@@ -116,7 +116,7 @@
               <div class="flex flex-col gap-1.5 min-w-0">
                 <div class="flex items-center gap-2">
                   <svg
-                    class="w-4 h-4 text-emerald-500 shrink-0"
+                    class="w-4 h-4 text-success shrink-0"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"

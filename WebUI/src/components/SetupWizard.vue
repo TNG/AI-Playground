@@ -83,7 +83,7 @@
                   <div class="flex gap-1 pt-0.5">
                     <span
                       v-if="recommendedMode === option.mode"
-                      class="text-[9px] font-semibold uppercase tracking-wider text-green-500"
+                      class="text-[9px] font-semibold uppercase tracking-wider text-success"
                       >{{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}</span
                     >
                     <span

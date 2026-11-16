@@ -84,10 +84,9 @@ const stateLabel = computed(() => {
 })
 
 const stateClass = computed(() => {
-  if (props.state === 'output-available') return 'text-green-600'
+  if (props.state === 'output-available') return 'text-success'
   if (props.state === 'output-error') return 'text-destructive'
-  if (props.state === 'input-streaming' || props.state === 'input-available')
-    return 'text-amber-500'
+  if (props.state === 'input-streaming' || props.state === 'input-available') return 'text-warning'
   return 'text-muted-foreground'
 })
 

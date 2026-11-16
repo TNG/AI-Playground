@@ -107,7 +107,7 @@
                     </div>
                     <div class="flex flex-col items-center" v-else>-</div>
                   </td>
-                  <td class="items-center text-sm text-green-400">
+                  <td class="items-center text-sm text-success">
                     {{ getFunctionTip(item.type) }}
                   </td>
                 </tr>
@@ -159,7 +159,7 @@
             </div>
             <div
               v-if="modelFolderReadOnly"
-              class="flex flex-col items-center gap-2 p-4 border border-amber-500 bg-amber-500/10 rounded-lg"
+              class="flex flex-col items-center gap-2 p-4 border border-warning bg-warning/10 rounded-lg"
             >
               <span class="text-left">{{ languages.DOWNLOADER_READONLY_MODEL_DIR }}</span>
             </div>

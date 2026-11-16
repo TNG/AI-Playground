@@ -118,7 +118,7 @@ async function remove(): Promise<void> {
               fillTemplate(i18n.AGENT_AGENTS_DELETE_LABEL, name)
             }}</AlertDialogTitle>
             <AlertDialogDescription>{{ deleteQuestion }}</AlertDialogDescription>
-            <p v-if="deleteRefusal" role="status" class="text-sm text-amber-500">
+            <p v-if="deleteRefusal" role="status" class="text-sm text-warning">
               {{ deleteRefusal }}
             </p>
           </AlertDialogHeader>

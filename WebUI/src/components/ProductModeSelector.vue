@@ -68,7 +68,7 @@
               </span>
               <span
                 v-else-if="option.mode === 'studio' && recommendedMode === 'essentials'"
-                class="text-xs font-semibold uppercase tracking-wider text-amber-500"
+                class="text-xs font-semibold uppercase tracking-wider text-warning"
               >
                 {{ languages.PRODUCT_MODE_BADGE_INSUFFICIENT_HARDWARE }}
               </span>

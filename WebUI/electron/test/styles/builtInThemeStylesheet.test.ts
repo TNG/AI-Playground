@@ -68,3 +68,29 @@ describe('no dark variant', () => {
     expect(offenders, 'Use theme tokens instead of dark: classes').toEqual([])
   })
 })
+
+const fixedStatusColor = /\b(text|bg|border|ring)-(amber|yellow|green|emerald)-\d{2,3}\b/
+
+// A fixed console palette, and a channel's identity colour beside Telegram's brand blue.
+const fixedPaletteFiles = [
+  'components/ErrorDetailsModal.vue',
+  'assets/js/store/channels/channelRegistry.ts',
+]
+
+describe('status colours', () => {
+  it('uses Warning and Success instead of fixed amber, yellow, green or emerald', () => {
+    const offenders = sourceFiles(srcDir)
+      .filter(
+        (file) =>
+          !fixedPaletteFiles.includes(path.relative(srcDir, file).split(path.sep).join('/')),
+      )
+      .flatMap((file) =>
+        readFileSync(file, 'utf8')
+          .split('\n')
+          .flatMap((line, i) =>
+            fixedStatusColor.test(line) ? [`${path.relative(srcDir, file)}:${i + 1}`] : [],
+          ),
+      )
+    expect(offenders, 'Use text-warning / text-success').toEqual([])
+  })
+})

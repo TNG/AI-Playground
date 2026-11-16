@@ -50,7 +50,7 @@ const { newAgent } = useAgentLibraryEntry()
           </span>
           <span
             v-if="agent.hasDraft"
-            class="flex-none rounded bg-amber-600/15 px-1.5 text-[10px] font-medium uppercase text-amber-500"
+            class="flex-none rounded bg-warning/15 px-1.5 text-[10px] font-medium uppercase text-warning"
           >
             {{ i18n.AGENT_LIBRARY_DRAFT }}
           </span>

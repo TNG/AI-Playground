@@ -87,7 +87,7 @@ const selectedWarnings = computed(() =>
         <p
           v-for="warning in requiredWarnings"
           :key="`required-${warning.label}`"
-          class="rounded-md border border-amber-600 bg-amber-600/10 p-3 text-sm"
+          class="rounded-md border border-warning bg-warning/10 p-3 text-sm"
         >
           {{ warning.label }} — {{ languages.MODEL_MANAGER_DELETE_REQUIRED_BY }}
           {{ warning.requiredBy }}
@@ -95,7 +95,7 @@ const selectedWarnings = computed(() =>
 
         <p
           v-if="selectedWarnings.length > 0"
-          class="rounded-md border border-amber-600 bg-amber-600/10 p-3 text-sm"
+          class="rounded-md border border-warning bg-warning/10 p-3 text-sm"
         >
           {{ languages.MODEL_MANAGER_DELETE_CURRENTLY_SELECTED }}
           {{ selectedWarnings.join(', ') }}

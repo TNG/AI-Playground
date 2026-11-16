@@ -101,7 +101,7 @@ async function confirmDelete() {
 
     <p
       v-if="library.readOnly"
-      class="border-b border-border bg-amber-600/10 px-4 py-2 text-sm text-amber-500"
+      class="border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning"
     >
       {{ languages.MODEL_MANAGER_READ_ONLY }}
     </p>

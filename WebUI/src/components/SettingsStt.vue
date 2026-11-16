@@ -70,7 +70,7 @@
         <Label class="whitespace-nowrap">{{ languages.SETTINGS_INFERENCE_DEVICE }}</Label>
         <device-selector backend="whisper-backend" name-only></device-selector>
       </div>
-      <p v-else class="text-xs text-amber-500">
+      <p v-else class="text-xs text-warning">
         Install the standalone Whisper backend from Settings → Installation Management to use this
         engine.
       </p>

@@ -109,7 +109,7 @@ function stepGlyph(step: MediaRunStep): string {
 
 function stepGlyphClass(step: MediaRunStep): string {
   if (step.state === 'running') return 'animate-spin text-muted-foreground'
-  return step.state === 'failed' ? 'text-destructive' : 'text-green-600'
+  return step.state === 'failed' ? 'text-destructive' : 'text-success'
 }
 
 function mediaSummary(media: MediaItem[]): string {

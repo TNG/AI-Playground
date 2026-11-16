@@ -156,42 +156,23 @@
 
         <ThemeAdvancedColors v-else :aria-label="languages.SETTINGS_THEME_ADVANCED" />
 
-        <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_PREVIEW">
-          <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_PREVIEW }}</h3>
-          <div
-            class="flex flex-col gap-2 rounded-md border p-3 text-xs"
-            :style="{ backgroundColor: draft.background, borderColor: draft.border }"
-          >
-            <span :style="{ color: draft.foreground }">{{
-              languages.SETTINGS_THEME_MAIN_TEXT
-            }}</span>
-            <div
-              class="flex items-center justify-between gap-2 rounded-md border p-2"
-              :style="{
-                backgroundColor: draft.card,
-                color: draft['card-foreground'],
-                borderColor: draft.border,
-              }"
-            >
-              {{ languages.SETTINGS_THEME_MAIN_PANELS }}
-              <span
-                class="rounded-md px-2 py-1"
-                :style="{ backgroundColor: draft.primary, color: draft['primary-foreground'] }"
-              >
-                {{ languages.SETTINGS_THEME_MAIN_ACCENT }}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <p
-          v-if="theme.draftWarning"
+        <div
+          v-if="theme.holdMessage"
           role="alert"
-          class="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
+          class="flex flex-col items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
         >
-          <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
-          {{ theme.draftWarning }}
-        </p>
+          <p class="flex items-start gap-2">
+            <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
+            {{ theme.holdMessage }}
+          </p>
+          <Button v-if="theme.holdFix" variant="outline" size="sm" @click="theme.applyHoldFix()">
+            {{
+              theme.holdFix.color === '#ffffff'
+                ? languages.SETTINGS_THEME_FIX_WHITE
+                : languages.SETTINGS_THEME_FIX_BLACK
+            }}
+          </Button>
+        </div>
       </CollapsibleContent>
     </Collapsible>
 
@@ -281,7 +262,6 @@ const theme = useTheme()
 const languages = useI18N().state
 const customizerOpen = ref(false)
 const edited = computed(() => theme.editedCustomTheme)
-const draft = computed(() => theme.draftHexColors)
 
 function setCustomizerOpen(open: boolean) {
   if (open) customizerOpen.value = true

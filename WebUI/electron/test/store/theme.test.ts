@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick, reactive } from 'vue'
 import { useTheme } from '@/assets/js/store/theme'
+import { advancedRowContrast } from '@/lib/themeAdvancedGroups'
 import type { AppError } from '@/assets/js/errors/types'
 import english from '@/assets/i18n/en-US.json'
 
@@ -424,8 +425,8 @@ describe('Persistence', () => {
   })
 })
 
-describe('Readability guard', () => {
-  it('names the unreadable pair of a draft and refuses to save it', () => {
+describe('Readability rule', () => {
+  it('holds a draft whose text on the background is unreadable, and refuses to save it', () => {
     const theme = useTheme()
     theme.customize('dark')
     theme.setColor('background', '#e0e0e0')
@@ -434,48 +435,65 @@ describe('Readability guard', () => {
       text: 'foreground',
       background: 'background',
     })
-    expect(theme.draftWarning).toContain('main text')
+    expect(theme.holdMessage).toContain('main text')
     expect(theme.saveDraft()).toBe(false)
     expect(theme.activeHexColors.background).not.toBe('#e0e0e0')
   })
 
-  it('clears the warning as soon as the draft is readable again', () => {
+  it('holds a draft whose popup text is unreadable, naming that pair', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    theme.setEditingMode('advanced')
+    theme.setColor('popover', theme.draftHexColors['popover-foreground'])
+    expect(theme.draftVerdict).toMatchObject({
+      readable: false,
+      text: 'popover-foreground',
+      background: 'popover',
+    })
+    expect(theme.holdMessage).toContain('text in menus and popups')
+    expect(theme.canSave).toBe(false)
+  })
+
+  it('clears the notice as soon as the draft is readable again', () => {
     const theme = useTheme()
     theme.customize('dark')
     theme.setColor('background', '#e0e0e0')
     theme.setColor('background', '#101010')
-    expect(theme.draftWarning).toBe('')
+    expect(theme.holdMessage).toBe('')
     expect(theme.canSave).toBe(true)
   })
 
-  it('accepts text down to 2:1 and refuses it below', () => {
+  it('accepts text down to 2:1 and holds it below', () => {
     const theme = useTheme()
     theme.selectTheme('light')
     theme.setColor('foreground', '#b3b3b3')
     expect(theme.canSave).toBe(true)
     theme.setColor('foreground', '#bbbbbb')
     expect(theme.canSave).toBe(false)
-    expect(theme.draftWarning).toBe(
-      "Can't save: main text would be hard to read (contrast 1.91:1).",
+    expect(theme.holdMessage).toBe(
+      'Not applied yet: this change would make main text hard to read (contrast 1.91:1).',
     )
   })
 
-  it('holds every Built-in Theme to the same minimum, whatever it ships', () => {
+  it('only warns about accent text below the minimum: it neither holds nor blocks Save', () => {
     const theme = useTheme()
-    theme.selectTheme('light')
-    theme.setColor('primary', '#66b3ff')
-    expect(theme.canSave).toBe(true)
+    theme.customize('light')
     theme.setColor('primary', '#80c0ff')
-    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'primary-foreground' })
+    expect(theme.draftVerdict).toEqual({ readable: true })
+    const accentRow = { surface: 'primary', text: 'primary-foreground', sample: 'text' } as const
+    expect(advancedRowContrast(accentRow, theme.draftHexColors)?.readable).toBe(false)
+    expect(theme.appliedHexColors.primary).toBe('#80c0ff')
+    expect(theme.canSave).toBe(true)
+    expect(theme.saveDraft()).toBe(true)
   })
 
-  it('a reset drops the draft and its warning', () => {
+  it('a reset drops the draft and its notice', () => {
     const theme = useTheme()
     const id = theme.customize('dark')
     theme.setColor('background', '#e0e0e0')
     theme.resetCustomTheme(id)
     expect(theme.hasUnsavedChanges).toBe(false)
-    expect(theme.draftWarning).toBe('')
+    expect(theme.holdMessage).toBe('')
   })
 
   it('switching theme drops the draft', () => {
@@ -484,7 +502,143 @@ describe('Readability guard', () => {
     theme.setColor('background', '#e0e0e0')
     theme.selectTheme('light')
     expect(theme.hasUnsavedChanges).toBe(false)
-    expect(theme.draftWarning).toBe('')
+    expect(theme.holdMessage).toBe('')
+  })
+})
+
+describe('Live editing', () => {
+  it('applies the saved theme while there is no draft', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    expect(theme.appliedHexColors).toEqual(theme.activeHexColors)
+    expect(theme.appliedColors).toBeNull()
+    theme.customize('dark')
+    expect(theme.appliedHexColors).toEqual(theme.activeHexColors)
+    expect(theme.appliedColors).toEqual(theme.activeColors)
+  })
+
+  it('applies a readable draft as it is edited, also of a Built-in Theme', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    theme.setColor('card', '#123456')
+    expect(theme.appliedHexColors.card).toBe('#123456')
+    expect(theme.appliedColors?.card).toBe('210 65.4% 20.4%')
+    expect(theme.activeHexColors.card).not.toBe('#123456')
+  })
+
+  it('keeps the last readable state while the draft is unreadable', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    theme.setColor('background', '#202020')
+    const lastReadable = { ...theme.appliedHexColors }
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.held).toBe(true)
+    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'foreground' })
+    expect(theme.draftHexColors.background).toBe('#e0e0e0')
+    expect(theme.appliedHexColors).toEqual(lastReadable)
+    expect(lastReadable.background).toBe('#202020')
+  })
+
+  it('keeps the saved theme when no edit has been readable yet', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    const saved = { ...theme.activeHexColors }
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.appliedHexColors).toEqual(saved)
+  })
+
+  it('applies the draft again as soon as it is readable', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    theme.setColor('background', '#e0e0e0')
+    theme.setColor('foreground', '#101010')
+    expect(theme.held).toBe(false)
+    expect(theme.appliedHexColors).toMatchObject({ background: '#e0e0e0', foreground: '#101010' })
+  })
+
+  it('offers black or white text, whichever reads, and never applies it unasked', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    theme.setColor('background', '#f0f0f0')
+    expect(theme.holdFix).toEqual({ text: 'foreground', color: '#000000' })
+    expect(theme.draftHexColors.foreground).not.toBe('#000000')
+    theme.customize('light')
+    theme.setColor('background', '#0a0a0a')
+    expect(theme.holdFix).toEqual({ text: 'foreground', color: '#ffffff' })
+  })
+
+  it('the fix in Simple mode sets Text and derives the rest, and the result is applied', () => {
+    const theme = useTheme()
+    theme.customize('light')
+    theme.setColor('background', '#0a0a0a')
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.held).toBe(false)
+    expect(theme.holdFix).toBeNull()
+    expect(theme.draftHexColors).toMatchObject({
+      foreground: '#ffffff',
+      'popover-foreground': '#ffffff',
+    })
+    expect(theme.appliedHexColors).toEqual(theme.draftHexColors)
+    expect(theme.canSave).toBe(true)
+  })
+
+  it('the fix in Advanced mode sets only the failing text', () => {
+    const theme = useTheme()
+    theme.customize('light')
+    theme.setEditingMode('advanced')
+    theme.setColor('popover', '#000000')
+    const before = { ...theme.draftHexColors }
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.draftHexColors).toEqual({ ...before, 'popover-foreground': '#ffffff' })
+    expect(theme.appliedHexColors.popover).toBe('#000000')
+  })
+
+  it('has no fix while the draft is readable', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    expect(theme.holdFix).toBeNull()
+    expect(theme.applyHoldFix()).toBe(false)
+  })
+
+  it('refuses Save while held; Discard returns to the saved theme', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    const saved = { ...theme.activeHexColors }
+    theme.setColor('background', '#202020')
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.canSave).toBe(false)
+    expect(theme.saveDraft()).toBe(false)
+    theme.discardDraft()
+    expect(theme.appliedHexColors).toEqual(saved)
+    expect(theme.held).toBe(false)
+  })
+
+  it('a discarded Built-in draft hands the colours back to the stylesheet', () => {
+    const theme = useTheme()
+    theme.selectTheme('bmg')
+    theme.setColor('card', '#123456')
+    theme.discardDraft()
+    expect(theme.appliedColors).toBeNull()
+  })
+
+  it('a discarded draft leaves no readable state behind', () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    theme.setColor('background', '#202020')
+    theme.discardDraft()
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.appliedHexColors.background).toBe(theme.activeHexColors.background)
+  })
+
+  it('never writes the draft to disk', async () => {
+    const theme = useTheme()
+    theme.customize('dark')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    writes = []
+    theme.setColor('background', '#202020')
+    theme.setColor('background', '#e0e0e0')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(writes).toEqual([])
   })
 })
 
@@ -535,6 +689,22 @@ describe('Startup fallback', () => {
     await restarted.init()
     return { restarted, stored }
   }
+
+  it('applies the Base Theme for an Advanced theme whose popup text is unreadable', async () => {
+    const theme = useTheme()
+    theme.selectTheme('bmg')
+    const colors = { ...theme.activeHexColors, 'popover-foreground': theme.activeHexColors.popover }
+    const entry = { ...unreadable, mode: 'advanced', colors }
+    storedSections.value = { theme: { selected: unreadable.id, customThemes: [entry] } }
+    setActivePinia(createPinia())
+    const restarted = useTheme()
+    await restarted.init()
+    expect(restarted.active).toBe('bmg')
+    expect(restarted.appliedColors).toBeNull()
+    expect(restarted.fallbackMessage).toBe(
+      'The theme “Night (hand-edited)” makes text in menus and popups hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
+    )
+  })
 
   it('applies the Base Theme and reports why, leaving stored data untouched', async () => {
     const { restarted, stored } = await startWithUnreadableTheme()

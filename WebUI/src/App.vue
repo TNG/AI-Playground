@@ -354,9 +354,9 @@ import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 
 const theme = useTheme()
 
-// Built-in Theme colours come from the stylesheet; only a Custom Theme overrides them on the root.
+// Built-in Theme colours come from the stylesheet; anything else the store applies overrides them.
 watch(
-  () => (theme.activeCustomTheme ? theme.activeColors : null),
+  () => theme.appliedColors,
   (colors) => {
     const root = document.documentElement
     for (const token of theme.colorTokens)

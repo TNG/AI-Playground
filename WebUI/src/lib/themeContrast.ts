@@ -21,20 +21,25 @@ export function contrastRatio(a: HexColor, b: HexColor): number {
 
 export type TokenPair = { text: ThemeToken; background: ThemeToken }
 
-export const corePairs = [
+/** The way back to a known theme: a draft failing one of these is held and cannot be saved. */
+export const blockingPairs = [
   { text: 'foreground', background: 'background' },
-  { text: 'primary-foreground', background: 'primary' },
+  { text: 'popover-foreground', background: 'popover' },
 ] as const satisfies readonly TokenPair[]
 
-export type CorePair = (typeof corePairs)[number]
+export type BlockingPair = (typeof blockingPairs)[number]
 
-export type UnreadablePair = CorePair & { ratio: number }
+export type UnreadablePair = BlockingPair & { ratio: number }
 
-/** The first core pair below the minimum contrast, or null. */
+/** The first blocking pair below the minimum contrast, or null. */
 export function findUnreadablePair(colors: HexThemeColors): UnreadablePair | null {
-  for (const pair of corePairs) {
+  for (const pair of blockingPairs) {
     const ratio = contrastRatio(colors[pair.text], colors[pair.background])
     if (ratio < MIN_CONTRAST_RATIO) return { ...pair, ratio }
   }
   return null
 }
+
+/** White or black, whichever reads better on `surface`. */
+export const readableTextOn = (surface: HexColor): HexColor =>
+  contrastRatio('#ffffff', surface) >= contrastRatio('#000000', surface) ? '#ffffff' : '#000000'

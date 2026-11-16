@@ -20,7 +20,12 @@ import {
   type HexColor,
   type HexThemeColors,
 } from '@/lib/themeColors'
-import { findUnreadablePair, type CorePair, type UnreadablePair } from '@/lib/themeContrast'
+import {
+  findUnreadablePair,
+  readableTextOn,
+  type BlockingPair,
+  type UnreadablePair,
+} from '@/lib/themeContrast'
 import {
   deriveThemeColors,
   derivedColorTokens,
@@ -47,10 +52,12 @@ const derivedFrom = (colors: HexThemeColors) => deriveThemeColors(mainColorsOf(c
 
 export type ReadabilityVerdict = { readable: true } | ({ readable: false } & UnreadablePair)
 
-const pairLabelKeys: Record<CorePair['text'], string> = {
+const pairLabelKeys: Record<BlockingPair['text'], string> = {
   foreground: 'SETTINGS_THEME_PAIR_FOREGROUND',
-  'primary-foreground': 'SETTINGS_THEME_PAIR_PRIMARY_FOREGROUND',
+  'popover-foreground': 'SETTINGS_THEME_PAIR_POPOVER_FOREGROUND',
 }
+
+export type HoldFix = { text: ThemeToken; color: HexColor }
 
 /** Floors at two decimals so a ratio just under the minimum never reads as 3.00. */
 const formatRatio = (ratio: number) => (Math.floor(ratio * 100) / 100).toFixed(2)
@@ -108,6 +115,7 @@ export const useTheme = defineStore('theme', () => {
   const selected = ref<string | null>(null)
   const customThemes = ref<CustomTheme[]>([])
   const draft = ref<ThemeDraft | null>(null)
+  const lastReadableDraft = ref<HexThemeColors | null>(null)
   const pendingAction = ref<(() => void) | null>(null)
 
   // Step 8 (§6.1): the theme choice is a kernel-owned preference
@@ -269,26 +277,56 @@ export const useTheme = defineStore('theme', () => {
     return unreadable ? { readable: false, ...unreadable } : { readable: true }
   })
 
-  const draftWarning = computed(() => {
+  const held = computed(() => !!draft.value && !draftVerdict.value.readable)
+
+  const holdMessage = computed(() => {
     const verdict = draftVerdict.value
-    if (verdict.readable) return ''
-    return fillTemplate(i18n.state.SETTINGS_THEME_UNREADABLE, {
+    if (!held.value || verdict.readable) return ''
+    return fillTemplate(i18n.state.SETTINGS_THEME_HELD, {
       text: pairLabel(verdict),
       ratio: formatRatio(verdict.ratio),
     })
   })
 
+  /** In Simple mode the fix goes through Text, so the derivation follows it. */
+  const holdFix = computed<HoldFix | null>(() => {
+    const verdict = draftVerdict.value
+    if (!held.value || verdict.readable) return null
+    const colors = draftHexColors.value
+    if (editingMode.value === 'simple')
+      return { text: 'foreground', color: readableTextOn(colors.background) }
+    return { text: verdict.text, color: readableTextOn(colors[verdict.background]) }
+  })
+
+  const appliedHexColors = computed<HexThemeColors>(() => {
+    const changed = draft.value
+    if (changed && draftVerdict.value.readable) return changed.colors
+    return (changed && lastReadableDraft.value) || resolved.value.hexColors
+  })
+
+  /** Null while the Built-in Theme's stylesheet block applies unchanged. */
+  const appliedColors = computed<ThemeColors | null>(() => {
+    const showsDraft = !!draft.value && (draftVerdict.value.readable || !!lastReadableDraft.value)
+    if (showsDraft) return toHslColors(appliedHexColors.value)
+    return resolved.value.custom ? resolved.value.colors : null
+  })
+
+  function setDraft(next: ThemeDraft) {
+    draft.value = next
+    if (!findUnreadablePair(next.colors)) lastReadableDraft.value = next.colors
+  }
+
   const canSave = computed(() => hasUnsavedChanges.value && draftVerdict.value.readable)
 
   /**
-   * Changes the draft only; nothing is applied until `saveDraft`. In Simple mode only a Main
+   * Changes the draft only; nothing is saved until `saveDraft`. In Simple mode only a Main
    * Colour can be set, and every Derived Colour follows it.
    */
   function setColor(token: ThemeToken, hex: HexColor): boolean {
     const mode = editingMode.value
     if (!isHexColor(hex) || (mode === 'simple' && !isMainColorToken(token))) return false
     const colors = { ...draftHexColors.value, [token]: hex.toLowerCase() }
-    draft.value = { mode, colors: mode === 'simple' ? derivedFrom(colors) : colors }
+    setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : colors })
     return true
   }
 
@@ -296,7 +334,7 @@ export const useTheme = defineStore('theme', () => {
   function setEditingMode(mode: EditingMode) {
     if (mode === editingMode.value) return
     const colors = draftHexColors.value
-    draft.value = { mode, colors: mode === 'simple' ? derivedFrom(colors) : { ...colors } }
+    setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : { ...colors } })
   }
 
   /** Applies a readable draft; a draft of a Built-in Theme becomes a new, selected Custom Theme. */
@@ -306,11 +344,18 @@ export const useTheme = defineStore('theme', () => {
     const id = selectedCustomTheme.value?.id ?? customize()
     updateCustomTheme(id, (t) => ({ ...t, ...changed }))
     draft.value = null
+    lastReadableDraft.value = null
     return true
+  }
+
+  function applyHoldFix(): boolean {
+    const fix = holdFix.value
+    return !!fix && setColor(fix.text, fix.color)
   }
 
   function discardDraft() {
     draft.value = null
+    lastReadableDraft.value = null
     pendingAction.value = null
   }
 
@@ -392,7 +437,11 @@ export const useTheme = defineStore('theme', () => {
     editingMode,
     simpleModeRecalculates,
     draftVerdict,
-    draftWarning,
+    held,
+    holdMessage,
+    holdFix,
+    appliedHexColors,
+    appliedColors,
     hasUnsavedChanges,
     canSave,
     discardPending: computed(() => !!pendingAction.value),
@@ -401,6 +450,7 @@ export const useTheme = defineStore('theme', () => {
     customize,
     setColor,
     setEditingMode,
+    applyHoldFix,
     saveDraft,
     discardDraft,
     guardUnsaved,

@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name} (copia {n})",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "I temi integrati non possono essere modificati. Salvando le modifiche viene creata una copia modificabile.",
   "SETTINGS_THEME_CUSTOMIZE": "Personalizza",
-  "SETTINGS_THEME_EDIT_COLORS": "Modifica colori",
+  "SETTINGS_THEME_PANEL_TITLE": "Personalizza tema",
   "SETTINGS_THEME_ADVANCED": "Avanzate",
   "SETTINGS_THEME_MODE": "Modalità di modifica",
   "SETTINGS_THEME_SIMPLE": "Semplice",

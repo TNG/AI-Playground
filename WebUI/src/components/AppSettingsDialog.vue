@@ -19,7 +19,7 @@
           orientation="vertical"
           activation-mode="manual"
           class="flex flex-1 min-w-0"
-          @update:model-value="(tab) => switchTab(tab as AppSettingsTab)"
+          @update:model-value="(tab) => (activeTab = tab as AppSettingsTab)"
         >
           <TabsList
             class="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-muted/30 p-3"
@@ -54,7 +54,6 @@
                 <section
                   v-for="section in sections"
                   :key="section.id"
-                  :ref="(el) => section.id === 'theme' && bindThemeSection(el)"
                   :aria-label="sectionLabels[section.id]"
                   class="py-6"
                 >
@@ -68,29 +67,10 @@
                     <component
                       :is="partComponents[part.id]"
                       v-else
-                      :ref="(el: unknown) => part.id === 'theme' && bindThemeSettings(el)"
                       v-bind="part.id === 'demoMode' ? { disabled: part.disabled } : {}"
                     />
                   </template>
                 </section>
-              </div>
-              <div
-                v-if="theme.hasUnsavedChanges"
-                role="region"
-                :aria-label="languages.SETTINGS_THEME_UNSAVED_CHANGES"
-                class="sticky bottom-0 -mx-6 flex items-center justify-between gap-4 border-t border-border bg-card px-6 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.15)]"
-              >
-                <span class="text-sm font-medium">
-                  {{ languages.SETTINGS_THEME_UNSAVED_CHANGES }}
-                </span>
-                <div class="flex gap-2">
-                  <Button variant="outline" size="sm" @click="theme.discardDraft()">
-                    {{ languages.SETTINGS_THEME_DISCARD }}
-                  </Button>
-                  <Button size="sm" :disabled="!theme.canSave" @click="theme.saveDraft()">
-                    {{ languages.SETTINGS_THEME_SAVE }}
-                  </Button>
-                </div>
               </div>
             </TabsContent>
             <TabsContent
@@ -109,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, type Component } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import {
   DialogContent,
   DialogRoot,
@@ -127,20 +107,18 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
-import { useTheme } from '@/assets/js/store/theme'
-import { useUIStore, type AppSettingsSection } from '@/assets/js/store/ui'
 import AppSettingsLanguage from '@/components/AppSettingsLanguage.vue'
 import AppSettingsPromptBarStyle from '@/components/AppSettingsPromptBarStyle.vue'
 import AppSettingsHuggingFace from '@/components/AppSettingsHuggingFace.vue'
 import AppSettingsBackendStatus from '@/components/AppSettingsBackendStatus.vue'
 import AppSettingsSpeech from '@/components/AppSettingsSpeech.vue'
+import AppSettingsTheme from '@/components/AppSettingsTheme.vue'
 import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
-import SettingsTheme from '@/components/SettingsTheme.vue'
 import { Button } from '@/components/ui/button'
 import {
   appSettingsSections,
@@ -149,11 +127,10 @@ import {
 } from '@/lib/appSettingsSections'
 
 type AppSettingsTab = 'app' | 'components' | 'models'
-type ThemePart = InstanceType<typeof SettingsTheme> | null
 
 const partComponents: Record<AppSettingsPartId, Component> = {
   language: AppSettingsLanguage,
-  theme: SettingsTheme,
+  theme: AppSettingsTheme,
   promptBarStyle: AppSettingsPromptBarStyle,
   huggingFace: AppSettingsHuggingFace,
   speech: AppSettingsSpeech,
@@ -166,7 +143,6 @@ const partComponents: Record<AppSettingsPartId, Component> = {
 
 const props = defineProps<{
   isVisible: boolean
-  section?: { name: AppSettingsSection }
 }>()
 
 const emit = defineEmits<{
@@ -174,22 +150,9 @@ const emit = defineEmits<{
 }>()
 
 const demoMode = useDemoMode()
-const theme = useTheme()
-const ui = useUIStore()
 const languages = useI18N().state
 
-ui.setAppSettingsLeaveGuard(theme.guardUnsaved)
-const themeSection = ref<HTMLElement | null>(null)
-const themeSettings = ref<ThemePart>(null)
 const activeTab = ref<AppSettingsTab>('app')
-
-function bindThemeSection(el: unknown) {
-  themeSection.value = el as HTMLElement | null
-}
-
-function bindThemeSettings(el: unknown) {
-  themeSettings.value = el as ThemePart
-}
 
 const sections = computed(() =>
   appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
@@ -217,25 +180,14 @@ const tabs = computed(() => [
 const placeholderTabs = computed(() => tabs.value.map((tab) => tab.id).filter((id) => id !== 'app'))
 const activeLabel = computed(() => tabs.value.find((tab) => tab.id === activeTab.value)?.label)
 
-function switchTab(tab: AppSettingsTab) {
-  if (tab !== activeTab.value) theme.guardUnsaved(() => (activeTab.value = tab))
-}
-
 function requestClose() {
   emit('close')
 }
 
 watch(
-  () => [props.isVisible, props.section] as const,
-  async ([visible, section], previous) => {
-    if (!visible) return
-    const revealTheme = section?.name === 'theme'
-    if (!previous?.[0] || revealTheme) activeTab.value = 'app'
-    if (!revealTheme) return
-    await nextTick()
-    themeSettings.value?.openCustomizer()
-    themeSection.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  () => props.isVisible,
+  (visible) => {
+    if (visible) activeTab.value = 'app'
   },
-  { flush: 'post' },
 )
 </script>

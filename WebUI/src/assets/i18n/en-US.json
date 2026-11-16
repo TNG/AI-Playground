@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name} (copy {n})",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Built-in themes can't be changed. Saving your changes creates an editable copy.",
   "SETTINGS_THEME_CUSTOMIZE": "Customize",
-  "SETTINGS_THEME_EDIT_COLORS": "Edit colors",
+  "SETTINGS_THEME_PANEL_TITLE": "Customize theme",
   "SETTINGS_THEME_ADVANCED": "Advanced",
   "SETTINGS_THEME_MODE": "Editing mode",
   "SETTINGS_THEME_SIMPLE": "Simple",

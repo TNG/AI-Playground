@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name} (kopia {n})",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Wbudowanych motywów nie można zmieniać. Zapisanie zmian tworzy edytowalną kopię.",
   "SETTINGS_THEME_CUSTOMIZE": "Dostosuj",
-  "SETTINGS_THEME_EDIT_COLORS": "Edytuj kolory",
+  "SETTINGS_THEME_PANEL_TITLE": "Dostosuj motyw",
   "SETTINGS_THEME_ADVANCED": "Zaawansowane",
   "SETTINGS_THEME_MODE": "Tryb edycji",
   "SETTINGS_THEME_SIMPLE": "Prosty",

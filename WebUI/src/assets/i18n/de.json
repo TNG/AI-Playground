@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name} (Kopie {n})",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Integrierte Designs können nicht geändert werden. Beim Speichern deiner Änderungen wird eine bearbeitbare Kopie erstellt.",
   "SETTINGS_THEME_CUSTOMIZE": "Anpassen",
-  "SETTINGS_THEME_EDIT_COLORS": "Farben bearbeiten",
+  "SETTINGS_THEME_PANEL_TITLE": "Design anpassen",
   "SETTINGS_THEME_ADVANCED": "Erweitert",
   "SETTINGS_THEME_MODE": "Bearbeitungsmodus",
   "SETTINGS_THEME_SIMPLE": "Einfach",

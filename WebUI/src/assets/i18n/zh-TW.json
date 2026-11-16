@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name}（複本 {n}）",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "內建主題無法變更。儲存變更會建立一個可編輯的副本。",
   "SETTINGS_THEME_CUSTOMIZE": "自訂",
-  "SETTINGS_THEME_EDIT_COLORS": "編輯色彩",
+  "SETTINGS_THEME_PANEL_TITLE": "自訂主題",
   "SETTINGS_THEME_ADVANCED": "進階",
   "SETTINGS_THEME_MODE": "編輯模式",
   "SETTINGS_THEME_SIMPLE": "簡易",

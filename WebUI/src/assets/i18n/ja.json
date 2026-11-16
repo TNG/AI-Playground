@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name}（コピー {n}）",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "組み込みテーマは変更できません。変更を保存すると、編集可能なコピーが作成されます。",
   "SETTINGS_THEME_CUSTOMIZE": "カスタマイズ",
-  "SETTINGS_THEME_EDIT_COLORS": "色を編集",
+  "SETTINGS_THEME_PANEL_TITLE": "テーマをカスタマイズ",
   "SETTINGS_THEME_ADVANCED": "詳細設定",
   "SETTINGS_THEME_MODE": "編集モード",
   "SETTINGS_THEME_SIMPLE": "シンプル",

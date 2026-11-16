@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name}（副本 {n}）",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "内置主题无法更改。保存更改会创建一个可编辑的副本。",
   "SETTINGS_THEME_CUSTOMIZE": "自定义",
-  "SETTINGS_THEME_EDIT_COLORS": "编辑颜色",
+  "SETTINGS_THEME_PANEL_TITLE": "自定义主题",
   "SETTINGS_THEME_ADVANCED": "高级",
   "SETTINGS_THEME_MODE": "编辑模式",
   "SETTINGS_THEME_SIMPLE": "简单",

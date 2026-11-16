@@ -110,11 +110,21 @@ export class AppShellPage {
     await expect(this.themeOptions).toHaveCount(0)
   }
 
-  /** The header theme menu's shortcut: App Settings scrolled to Theme, customizer open. */
+  /** The theme editor, docked beside the app rather than over it. */
+  get themePanel(): Locator {
+    return this.page.getByRole('complementary', { name: 'Customize theme' })
+  }
+
+  /** Scoped to the panel: the header's window-close (X) is also named "Close" and quits the app. */
+  get themePanelCloseButton(): Locator {
+    return this.themePanel.getByRole('button', { name: 'Close', exact: true })
+  }
+
+  /** The header theme menu's shortcut to the theme panel. */
   async customizeTheme(): Promise<void> {
     await this.themeButton.click()
     await this.page.getByRole('menuitem', { name: 'Customize…' }).click()
-    await expect(this.settingsDialog).toBeVisible()
+    await expect(this.themePanel).toBeVisible()
   }
 
   private themeOption(name: string): Locator {

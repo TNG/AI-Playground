@@ -36,7 +36,7 @@
   "THEME_NAME_COPY_N": "{name} (salinan {n})",
   "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Tema bawaan tidak dapat diubah. Menyimpan perubahan Anda akan membuat salinan yang dapat diedit.",
   "SETTINGS_THEME_CUSTOMIZE": "Sesuaikan",
-  "SETTINGS_THEME_EDIT_COLORS": "Edit warna",
+  "SETTINGS_THEME_PANEL_TITLE": "Sesuaikan tema",
   "SETTINGS_THEME_ADVANCED": "Lanjutan",
   "SETTINGS_THEME_MODE": "Mode pengeditan",
   "SETTINGS_THEME_SIMPLE": "Sederhana",

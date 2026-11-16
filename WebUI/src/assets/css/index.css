@@ -7,7 +7,6 @@
 @import './svg.css';
 @import 'tw-animate-css';
 
-@custom-variant dark (&:is(.dark *));
 /* Tailwind gates hover on `hover: hover`, which Chromium on Linux often reports false with a mouse. */
 @custom-variant hover (&:hover);
 @custom-variant can-hover (@media (any-hover: hover));

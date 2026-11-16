@@ -13,7 +13,7 @@ const props = defineProps<{
     role="group"
     :class="
       cn(
-        'group/input-group border-slate-200 dark:bg-slate-200/30 relative flex w-full items-center rounded-md border shadow-xs transition-[color,box-shadow] outline-none dark:border-slate-800 dark:dark:bg-slate-800/30',
+        'group/input-group border-input relative flex w-full items-center rounded-md border shadow-xs transition-[color,box-shadow] outline-none',
         'h-9 min-w-0 has-[>textarea]:h-auto',
 
         // Variants based on alignment.
@@ -23,7 +23,7 @@ const props = defineProps<{
         'has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3',
 
         // Focus state.
-        'has-[[data-slot=input-group-control]:focus-visible]:ring-slate-950 has-[[data-slot=input-group-control]:focus-visible]:ring-1 dark:has-[[data-slot=input-group-control]:focus-visible]:ring-slate-300',
+        'has-[[data-slot=input-group-control]:focus-visible]:ring-ring has-[[data-slot=input-group-control]:focus-visible]:ring-1',
 
         props.class,
       )

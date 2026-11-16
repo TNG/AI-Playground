@@ -154,19 +154,7 @@
           <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_SIMPLE_HINT }}</p>
         </section>
 
-        <section v-else class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_ADVANCED">
-          <ul class="flex flex-col gap-1.5 pl-1">
-            <ThemeColorRow
-              v-for="token in theme.colorTokens"
-              :id="`theme-token-${token}`"
-              :key="token"
-              :label="token"
-              mono-label
-              :value="theme.draftHexColors[token]"
-              @pick="(hex) => theme.setColor(token, hex)"
-            />
-          </ul>
-        </section>
+        <ThemeAdvancedColors v-else :aria-label="languages.SETTINGS_THEME_ADVANCED" />
 
         <section class="flex flex-col gap-2" :aria-label="languages.SETTINGS_THEME_PREVIEW">
           <h3 class="text-sm font-medium">{{ languages.SETTINGS_THEME_PREVIEW }}</h3>
@@ -215,7 +203,9 @@
             {{
               fillTemplate(languages.SETTINGS_THEME_TO_SIMPLE_BODY, {
                 count: theme.simpleModeRecalculates.length,
-                colors: theme.simpleModeRecalculates.join(', '),
+                colors: theme.simpleModeRecalculates
+                  .map((token) => languages[colorLabelKeys[token]])
+                  .join(', '),
               })
             }}
           </AlertDialogDescription>
@@ -259,6 +249,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
+import ThemeAdvancedColors from '@/components/ThemeAdvancedColors.vue'
 import ThemeColorRow from '@/components/ThemeColorRow.vue'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -283,6 +274,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { colorLabelKeys } from '@/lib/themeAdvancedGroups'
 import type { MainColorToken } from '@/lib/themeDerivation'
 
 const theme = useTheme()

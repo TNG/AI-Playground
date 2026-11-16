@@ -250,3 +250,18 @@ _Avoid_: user theme, edited theme
 The Built-in Theme a Custom Theme was made from. Resetting a Custom Theme gives it its Base
 Theme's colours again.
 _Avoid_: parent theme, template
+
+**Editing Mode**:
+How a Custom Theme is edited: Simple (the user picks its Main Colours and the app works out the
+rest) or Advanced (the user sets every colour). Each Custom Theme has exactly one at a time.
+_Avoid_: simple theme, advanced theme
+
+**Main Colours**:
+The few colours the user picks for a Custom Theme in Simple mode: Background, Panels, Text,
+Accent and Accent text.
+_Avoid_: colour roles, base colours, seed colours
+
+**Derived Colours**:
+Every colour of a Custom Theme that is not a Main Colour. In Simple mode the app works them out
+from the Main Colours; in Advanced mode the user sets them like any other.
+_Avoid_: calculated colours, generated colours, secondary colours

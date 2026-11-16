@@ -104,13 +104,18 @@ vi.mock('@/assets/js/store/textInference', () => ({
     settingsPerPreset,
     embeddingBackend: 'llamaCPP',
     getMissingLlmModels,
-    inferenceForSettings: (_preset: string, settings: AgentSessionSettings) => ({
-      inference: {
-        backend: settings.backend ?? 'llamaCPP',
-        activeModel: settings.model,
-        modelSupportsVision: settings.model === VISION_MODEL,
-      },
-    }),
+    inferenceForSettings: (preset: string, settings: AgentSessionSettings) => {
+      const defaults = settingsPerPreset[preset] ?? {}
+      const backend = settings.backend ?? (defaults.backend as string | undefined) ?? 'llamaCPP'
+      const model =
+        settings.backend && settings.model !== undefined
+          ? settings.model
+          : (defaults.selectedModels as Record<string, string> | undefined)?.[backend]
+      return {
+        inference: { backend, activeModel: model, modelSupportsVision: model === VISION_MODEL },
+        cloud: { selectedProviderId: '' },
+      }
+    },
     bindSessionSettings: vi.fn(),
     loadSettingsForActivePreset: vi.fn(),
     settingsAvailability: availability,
@@ -390,6 +395,35 @@ describe('creating an Agent', () => {
     expect(storedDrafts.map((entry) => [entry.agentId, entry.name])).toEqual([
       [draft.agentId, 'Digest'],
     ])
+  })
+
+  it('fixes the Default Settings in its Settings Template, unaffected by later changes', async () => {
+    settingsPerPreset.Assistant = {
+      backend: 'openVINO',
+      selectedModels: { llamaCPP: 'Llama-9B', openVINO: 'Ov-8B' },
+      contextSize: 16384,
+      temperature: 0.3,
+    }
+    const { tasks } = await readyStores()
+
+    const draft = await tasks.createAgentDraft()
+    settingsPerPreset.Assistant = { backend: 'llamaCPP', temperature: 0.9 }
+
+    expect(draft.settingsTemplate).toMatchObject({
+      backend: 'openVINO',
+      model: 'Ov-8B',
+      contextSize: 16384,
+      temperature: 0.3,
+    })
+  })
+
+  it('pins the resolved backend and model when the Default Settings name none', async () => {
+    const { tasks } = await readyStores()
+
+    const draft = await tasks.createAgentDraft()
+
+    expect(draft.settingsTemplate.backend).toBe('llamaCPP')
+    expect(draft.settingsTemplate).not.toHaveProperty('model')
   })
 
   it('starts its Settings Template with every capability, file and shell tools included', async () => {

@@ -28,6 +28,7 @@ import {
   type TurnOutcome,
 } from './agentMode'
 import { HARNESS_CHAT_PRESET, isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { sessionSettingsFromBag } from '@/lib/agentSessionSettings'
 import { useQueuedChannelMessages } from './queuedChannelMessages'
 import { useDemoMode } from './demoMode'
 import { useErrors } from './errors'
@@ -35,7 +36,7 @@ import { useI18N } from './i18n'
 import { useMcp } from './mcp'
 import { usePresets } from './presets'
 import { useSessions } from './sessions'
-import { useTextInference } from './textInference'
+import { useTextInference, type LlmBackend } from './textInference'
 import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
@@ -777,12 +778,31 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return false
   }
 
+  /** The Default Settings as resolved now, so a new Agent does not follow later changes to them. */
+  function settingsTemplateFromDefaults(): AgentSessionSettings {
+    const bag = textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {}
+    const resolved = textInference.inferenceForSettings(HARNESS_CHAT_PRESET, {})
+    const backend = resolved.inference.backend as LlmBackend
+    const { activeModel } = resolved.inference
+    const { capabilities: _capabilities, ...agentDefaults } = agentMode.agentDefaults()
+    return {
+      ...sessionSettingsFromBag(bag, textInference.embeddingBackend),
+      ...cloneForIpc(agentDefaults),
+      backend,
+      ...(activeModel ? { model: activeModel } : {}),
+      ...(backend === 'cloud' && resolved.cloud.selectedProviderId
+        ? { cloudProviderId: resolved.cloud.selectedProviderId }
+        : {}),
+      capabilities: [...AGENT_TEMPLATE_CAPABILITY_IDS],
+    }
+  }
+
   /** A new Agent, which exists only as this Draft until it is first saved. */
   async function createAgentDraft(): Promise<AgentDraft> {
     const draft: AgentDraft = {
       agentId: crypto.randomUUID(),
       name: '',
-      settingsTemplate: { capabilities: [...AGENT_TEMPLATE_CAPABILITY_IDS] },
+      settingsTemplate: settingsTemplateFromDefaults(),
       steps: [],
       updatedAt: Date.now(),
     }

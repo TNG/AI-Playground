@@ -158,7 +158,8 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
     sharedWithChat: false,
     template: {
       model: computed(() => resolved.value.inference.activeModel ?? ''),
-      setModel: (model: string) => edit({ model }),
+      // A model is stored per backend, so the backend it was picked on is kept with it.
+      setModel: (model: string) => edit({ backend: backend.value, model }),
       cloudProviderId: computed(() => resolved.value.cloud.selectedProviderId),
       setCloudProviderId: (cloudProviderId: string) => edit({ cloudProviderId }),
     },

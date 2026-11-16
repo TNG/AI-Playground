@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (özel {n})",
   "THEME_NAME_COPY": "{name} (kopya)",
   "THEME_NAME_COPY_N": "{name} (kopya {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Yerleşik temalar değiştirilemez. Değişikliklerinizi kaydetmek düzenlenebilir bir kopya oluşturur.",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Yerleşik temalar değiştirilemez. \"Özelleştir\" düzenlenebilir bir kopya oluşturur.",
   "SETTINGS_THEME_CUSTOMIZE": "Özelleştir",
   "SETTINGS_THEME_PANEL_TITLE": "Temayı özelleştir",
   "SETTINGS_THEME_ADVANCED": "Gelişmiş",

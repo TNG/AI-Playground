@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name}（自訂 {n}）",
   "THEME_NAME_COPY": "{name}（複本）",
   "THEME_NAME_COPY_N": "{name}（複本 {n}）",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "內建主題無法變更。儲存變更會建立一個可編輯的副本。",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "內建主題無法變更。「自訂」會建立一個可編輯的副本。",
   "SETTINGS_THEME_CUSTOMIZE": "自訂",
   "SETTINGS_THEME_PANEL_TITLE": "自訂主題",
   "SETTINGS_THEME_ADVANCED": "進階",

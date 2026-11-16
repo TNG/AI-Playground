@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (kustom {n})",
   "THEME_NAME_COPY": "{name} (salinan)",
   "THEME_NAME_COPY_N": "{name} (salinan {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Tema bawaan tidak dapat diubah. Menyimpan perubahan Anda akan membuat salinan yang dapat diedit.",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Tema bawaan tidak dapat diubah. \"Sesuaikan\" membuat salinan yang dapat diedit.",
   "SETTINGS_THEME_CUSTOMIZE": "Sesuaikan",
   "SETTINGS_THEME_PANEL_TITLE": "Sesuaikan tema",
   "SETTINGS_THEME_ADVANCED": "Lanjutan",

@@ -70,34 +70,6 @@ export const groupLabelKeys: Record<AdvancedGroupId, string> = {
   status: 'SETTINGS_THEME_GROUP_STATUS',
 }
 
-/** Each colour's readable name, shared by Advanced mode and the Simple-mode confirmation. */
-export const colorLabelKeys: Record<ThemeToken, string> = {
-  background: 'SETTINGS_THEME_MAIN_BACKGROUND',
-  foreground: 'SETTINGS_THEME_MAIN_TEXT',
-  card: 'SETTINGS_THEME_MAIN_PANELS',
-  'card-foreground': 'SETTINGS_THEME_COLOR_PANEL_TEXT',
-  popover: 'SETTINGS_THEME_COLOR_POPOVER',
-  'popover-foreground': 'SETTINGS_THEME_COLOR_POPOVER_TEXT',
-  primary: 'SETTINGS_THEME_MAIN_ACCENT',
-  'primary-foreground': 'SETTINGS_THEME_MAIN_ACCENT_TEXT',
-  ring: 'SETTINGS_THEME_COLOR_RING',
-  muted: 'SETTINGS_THEME_COLOR_MUTED',
-  'muted-foreground': 'SETTINGS_THEME_COLOR_MUTED_TEXT',
-  secondary: 'SETTINGS_THEME_COLOR_SECONDARY',
-  'secondary-foreground': 'SETTINGS_THEME_COLOR_SECONDARY_TEXT',
-  accent: 'SETTINGS_THEME_COLOR_HOVER',
-  'accent-foreground': 'SETTINGS_THEME_COLOR_HOVER_TEXT',
-  border: 'SETTINGS_THEME_COLOR_BORDER',
-  input: 'SETTINGS_THEME_COLOR_INPUT',
-  destructive: 'SETTINGS_THEME_COLOR_DANGER',
-  'destructive-foreground': 'SETTINGS_THEME_COLOR_DANGER_TEXT',
-  warning: 'SETTINGS_THEME_COLOR_WARNING',
-  success: 'SETTINGS_THEME_COLOR_SUCCESS',
-}
-
-/** Rounded down, so a pair just below the minimum never displays as reaching it. */
-export const formatContrastRatio = (ratio: number) => (Math.floor(ratio * 100) / 100).toFixed(2)
-
 export type AdvancedRowContrast = { ratio: number; readable: boolean }
 
 /** The row's contrast against what it sits on, or null for a colour with no such pair. */

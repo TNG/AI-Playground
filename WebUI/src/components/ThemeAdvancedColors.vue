@@ -132,13 +132,12 @@ import { CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outl
 import { useTheme } from '@/assets/js/store/theme'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Label } from '@/components/ui/label'
-import type { ThemeToken } from '@/lib/builtInThemes'
+import { colorLabelKeys, type ThemeToken } from '@/lib/builtInThemes'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { formatContrastRatio } from '@/lib/themeContrast'
 import {
   advancedGroups,
   advancedRowContrast,
-  colorLabelKeys,
-  formatContrastRatio,
   groupLabelKeys,
   type AdvancedRow,
 } from '@/lib/themeAdvancedGroups'

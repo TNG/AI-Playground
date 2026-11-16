@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (angepasst {n})",
   "THEME_NAME_COPY": "{name} (Kopie)",
   "THEME_NAME_COPY_N": "{name} (Kopie {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Integrierte Designs können nicht geändert werden. Beim Speichern deiner Änderungen wird eine bearbeitbare Kopie erstellt.",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Integrierte Designs können nicht geändert werden. „Anpassen“ erstellt eine bearbeitbare Kopie.",
   "SETTINGS_THEME_CUSTOMIZE": "Anpassen",
   "SETTINGS_THEME_PANEL_TITLE": "Design anpassen",
   "SETTINGS_THEME_ADVANCED": "Erweitert",

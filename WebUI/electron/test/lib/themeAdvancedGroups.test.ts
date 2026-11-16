@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import english from '@/assets/i18n/en-US.json'
-import { builtInThemes, themeTokens } from '@/lib/builtInThemes'
+import { builtInThemes, colorLabelKeys, themeTokens } from '@/lib/builtInThemes'
+import { formatContrastRatio } from '@/lib/themeContrast'
 import { toHexColors } from '@/lib/themeColors'
-import {
-  advancedGroups,
-  advancedRowContrast,
-  colorLabelKeys,
-  formatContrastRatio,
-  groupLabelKeys,
-} from '@/lib/themeAdvancedGroups'
+import { advancedGroups, advancedRowContrast, groupLabelKeys } from '@/lib/themeAdvancedGroups'
 
 const labels = english as Record<string, string>
 

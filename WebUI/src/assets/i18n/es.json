@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (personalizado {n})",
   "THEME_NAME_COPY": "{name} (copia)",
   "THEME_NAME_COPY_N": "{name} (copia {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Los temas integrados no se pueden cambiar. Al guardar tus cambios se crea una copia editable.",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Los temas integrados no se pueden cambiar. «Personalizar» crea una copia editable.",
   "SETTINGS_THEME_CUSTOMIZE": "Personalizar",
   "SETTINGS_THEME_PANEL_TITLE": "Personalizar tema",
   "SETTINGS_THEME_ADVANCED": "Avanzado",

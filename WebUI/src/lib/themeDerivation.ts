@@ -61,14 +61,25 @@ function mixOklab(from: HexColor, to: HexColor, amount: number): HexColor {
   return oklabToHex(a.map((v, i) => v + (b[i] - v) * amount) as Vec3)
 }
 
-// Fitted against the four Built-in Themes: how far each colour sits from Background towards Text.
-const mixAmounts = {
-  'muted-foreground': 0.635,
-  muted: 0.085,
-  accent: 0.085,
-  secondary: 0.025,
-  border: 0.14,
-} as const satisfies Partial<Record<ThemeToken, number>>
+type MixedToken = 'muted-foreground' | 'muted' | 'accent' | 'secondary' | 'border'
+
+// How far each colour sits from Background towards Text, fitted per brightness: dark against
+// Dark, Intel® Core™ Ultra and Intel® Arc™, light against Light.
+const darkBackgroundMixes: Record<MixedToken, number> = {
+  'muted-foreground': 0.7,
+  muted: 0.084,
+  accent: 0.084,
+  secondary: 0.027,
+  border: 0.171,
+}
+
+const lightBackgroundMixes: Record<MixedToken, number> = {
+  'muted-foreground': 0.555,
+  muted: 0.038,
+  accent: 0.038,
+  secondary: 0.038,
+  border: 0.086,
+}
 
 const shades = (id: Theme) => {
   const colors = toHexColors(builtInThemes.find((t) => t.id === id)!.colors)
@@ -89,7 +100,9 @@ const isDarkBackground = (hex: HexColor) =>
 /** Every colour of a Simple-mode theme, worked out from its five Main Colours. */
 export function deriveThemeColors(main: MainColors): HexThemeColors {
   const { background, foreground: text, primary } = main
-  const mix = (token: keyof typeof mixAmounts) => mixOklab(background, text, mixAmounts[token])
+  const dark = isDarkBackground(background)
+  const amounts = dark ? darkBackgroundMixes : lightBackgroundMixes
+  const mix = (token: MixedToken) => mixOklab(background, text, amounts[token])
   const border = mix('border')
   return {
     ...main,
@@ -105,6 +118,6 @@ export function deriveThemeColors(main: MainColors): HexThemeColors {
     secondary: mix('secondary'),
     border,
     input: border,
-    ...(isDarkBackground(background) ? darkBackgroundShades : lightBackgroundShades),
+    ...(dark ? darkBackgroundShades : lightBackgroundShades),
   }
 }

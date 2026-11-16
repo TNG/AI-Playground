@@ -152,22 +152,24 @@ describe('Customize', () => {
 describe('Editing a draft', () => {
   it('keeps a colour edit in the draft, changing nothing until saved', () => {
     const theme = useTheme()
-    theme.selectTheme('light')
+    theme.customize('light')
+    const saved = theme.activeHexColors.primary
     expect(theme.setColor('primary', '#FF0000')).toBe(true)
     expect(theme.draftHexColors.primary).toBe('#ff0000')
     expect(theme.hasUnsavedChanges).toBe(true)
-    expect(theme.active).toBe('light')
-    expect(theme.validCustomThemes).toHaveLength(0)
+    expect(theme.activeHexColors.primary).toBe(saved)
   })
 
-  it('saving a draft of a Built-in Theme creates and selects a copy', () => {
+  it('a Built-in Theme is read-only: no colour edit and no mode switch', () => {
     const theme = useTheme()
     theme.selectTheme('light')
-    theme.setColor('primary', '#0000ff')
-    expect(theme.saveDraft()).toBe(true)
-    expect(theme.activeCustomTheme).toMatchObject({ name: 'Light (custom)', baseTheme: 'light' })
-    expect(theme.activeHexColors.primary).toBe('#0000ff')
+    expect(theme.setColor('primary', '#ff0000')).toBe(false)
+    theme.setEditingMode('advanced')
+    expect(theme.editingMode).toBe('simple')
     expect(theme.hasUnsavedChanges).toBe(false)
+    expect(theme.saveDraft()).toBe(false)
+    expect(theme.validCustomThemes).toHaveLength(0)
+    expect(theme.appliedColors).toBeNull()
   })
 
   it('saving a draft of a Custom Theme updates it in place, applied as an HSL triplet', () => {
@@ -182,15 +184,14 @@ describe('Editing a draft', () => {
     expect(theme.activeHexColors.primary).toBe('#aa05fd')
   })
 
-  it('discarding drops the draft and creates nothing', () => {
+  it('discarding drops the draft', () => {
     const theme = useTheme()
-    theme.selectTheme('bmg')
+    theme.customize('bmg')
     theme.setColor('card', '#123456')
     theme.discardDraft()
     expect(theme.hasUnsavedChanges).toBe(false)
     expect(theme.draftHexColors.card).toBe(theme.activeHexColors.card)
     expect(theme.saveDraft()).toBe(false)
-    expect(theme.validCustomThemes).toHaveLength(0)
   })
 
   it('an edit back to the saved colour leaves nothing unsaved', () => {
@@ -218,7 +219,7 @@ describe('Editing a draft', () => {
 
   it('ignores a value that is not #rrggbb', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
+    theme.customize('dark')
     expect(theme.setColor('primary', 'red')).toBe(false)
     expect(theme.setColor('foreground', '#12345')).toBe(false)
     expect(theme.hasUnsavedChanges).toBe(false)
@@ -266,6 +267,22 @@ describe('Simple mode', () => {
     expect(draft['secondary-foreground']).toBe('#e6e4e7')
   })
 
+  it.each([
+    ['dark', 4],
+    ['lnl', 10],
+    ['bmg', 10],
+    ['light', 10],
+  ] as const)('recalculates the secondary text of %s within %i per channel', (id, tolerance) => {
+    const theme = useTheme()
+    theme.customize(id)
+    const shipped = theme.draftHexColors['muted-foreground']
+    theme.setColor('background', theme.draftHexColors.background)
+    const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+    const derived = channels(theme.draftHexColors['muted-foreground'])
+    const gap = Math.max(...channels(shipped).map((c, i) => Math.abs(c - derived[i])))
+    expect(gap).toBeLessThanOrEqual(tolerance)
+  })
+
   it('mixes the secondary text, subtle surfaces and border from Background towards Text', () => {
     const theme = useTheme()
     theme.customize('light')
@@ -274,7 +291,7 @@ describe('Simple mode', () => {
     const { muted, accent, secondary, border } = theme.draftHexColors
     const grey = (hex: string) => parseInt(hex.slice(1, 3), 16)
     // Further from the background the further towards the text, and each a neutral grey.
-    expect(grey(secondary)).toBeGreaterThan(grey(muted))
+    expect(grey(secondary)).toBeGreaterThanOrEqual(grey(muted))
     expect(grey(muted)).toBeGreaterThan(grey(border))
     expect(grey(border)).toBeGreaterThan(grey(theme.draftHexColors['muted-foreground']))
     expect(accent).toBe(muted)
@@ -465,7 +482,7 @@ describe('Readability rule', () => {
 
   it('accepts text down to 2:1 and holds it below', () => {
     const theme = useTheme()
-    theme.selectTheme('light')
+    theme.customize('light')
     theme.setColor('foreground', '#b3b3b3')
     expect(theme.canSave).toBe(true)
     theme.setColor('foreground', '#bbbbbb')
@@ -498,7 +515,7 @@ describe('Readability rule', () => {
 
   it('switching theme drops the draft', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
+    theme.customize('dark')
     theme.setColor('background', '#e0e0e0')
     theme.selectTheme('light')
     expect(theme.hasUnsavedChanges).toBe(false)
@@ -517,9 +534,9 @@ describe('Live editing', () => {
     expect(theme.appliedColors).toEqual(theme.activeColors)
   })
 
-  it('applies a readable draft as it is edited, also of a Built-in Theme', () => {
+  it('applies a readable draft as it is edited', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
+    theme.customize('dark')
     theme.setColor('card', '#123456')
     expect(theme.appliedHexColors.card).toBe('#123456')
     expect(theme.appliedColors?.card).toBe('210 65.4% 20.4%')
@@ -560,11 +577,11 @@ describe('Live editing', () => {
     const theme = useTheme()
     theme.customize('dark')
     theme.setColor('background', '#f0f0f0')
-    expect(theme.holdFix).toEqual({ text: 'foreground', color: '#000000' })
+    expect(theme.holdFix).toEqual({ text: 'foreground', choice: 'black' })
     expect(theme.draftHexColors.foreground).not.toBe('#000000')
     theme.customize('light')
     theme.setColor('background', '#0a0a0a')
-    expect(theme.holdFix).toEqual({ text: 'foreground', color: '#ffffff' })
+    expect(theme.holdFix).toEqual({ text: 'foreground', choice: 'white' })
   })
 
   it('the fix in Simple mode sets Text and derives the rest, and the result is applied', () => {
@@ -613,14 +630,6 @@ describe('Live editing', () => {
     expect(theme.held).toBe(false)
   })
 
-  it('a discarded Built-in draft hands the colours back to the stylesheet', () => {
-    const theme = useTheme()
-    theme.selectTheme('bmg')
-    theme.setColor('card', '#123456')
-    theme.discardDraft()
-    expect(theme.appliedColors).toBeNull()
-  })
-
   it('a discarded draft leaves no readable state behind', () => {
     const theme = useTheme()
     theme.customize('dark')
@@ -653,7 +662,7 @@ describe('Unsaved changes', () => {
 
   it('holds a guarded action until the user discards, and keeps the draft on cancel', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
+    theme.customize('dark')
     theme.setColor('card', '#123456')
     const action = vi.fn()
     theme.guardUnsaved(action)

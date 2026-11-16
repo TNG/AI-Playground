@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (กำหนดเอง {n})",
   "THEME_NAME_COPY": "{name} (สำเนา)",
   "THEME_NAME_COPY_N": "{name} (สำเนา {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "ไม่สามารถเปลี่ยนธีมในตัวได้ การบันทึกการเปลี่ยนแปลงจะสร้างสำเนาที่แก้ไขได้",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "ไม่สามารถเปลี่ยนธีมในตัวได้ \"ปรับแต่ง\" จะสร้างสำเนาที่แก้ไขได้",
   "SETTINGS_THEME_CUSTOMIZE": "ปรับแต่ง",
   "SETTINGS_THEME_PANEL_TITLE": "ปรับแต่งธีม",
   "SETTINGS_THEME_ADVANCED": "ขั้นสูง",

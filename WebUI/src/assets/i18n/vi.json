@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (tùy chỉnh {n})",
   "THEME_NAME_COPY": "{name} (bản sao)",
   "THEME_NAME_COPY_N": "{name} (bản sao {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Không thể thay đổi chủ đề tích hợp. Lưu thay đổi của bạn sẽ tạo một bản sao có thể chỉnh sửa.",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Không thể thay đổi chủ đề tích hợp. \"Tùy chỉnh\" sẽ tạo một bản sao có thể chỉnh sửa.",
   "SETTINGS_THEME_CUSTOMIZE": "Tùy chỉnh",
   "SETTINGS_THEME_PANEL_TITLE": "Tùy chỉnh chủ đề",
   "SETTINGS_THEME_ADVANCED": "Nâng cao",

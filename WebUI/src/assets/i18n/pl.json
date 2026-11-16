@@ -34,7 +34,7 @@
   "THEME_NAME_CUSTOM_N": "{name} (własny {n})",
   "THEME_NAME_COPY": "{name} (kopia)",
   "THEME_NAME_COPY_N": "{name} (kopia {n})",
-  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Wbudowanych motywów nie można zmieniać. Zapisanie zmian tworzy edytowalną kopię.",
+  "SETTINGS_THEME_BUILT_IN_READ_ONLY": "Wbudowanych motywów nie można zmieniać. „Dostosuj” tworzy edytowalną kopię.",
   "SETTINGS_THEME_CUSTOMIZE": "Dostosuj",
   "SETTINGS_THEME_PANEL_TITLE": "Dostosuj motyw",
   "SETTINGS_THEME_ADVANCED": "Zaawansowane",

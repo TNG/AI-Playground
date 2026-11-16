@@ -40,6 +40,15 @@ export function findUnreadablePair(colors: HexThemeColors): UnreadablePair | nul
   return null
 }
 
+/** Rounded down, so a pair just below the minimum never displays as reaching it. */
+export const formatContrastRatio = (ratio: number) => (Math.floor(ratio * 100) / 100).toFixed(2)
+
+export type TextChoice = 'white' | 'black'
+
+export const textChoiceHex: Record<TextChoice, HexColor> = { white: '#ffffff', black: '#000000' }
+
 /** White or black, whichever reads better on `surface`. */
-export const readableTextOn = (surface: HexColor): HexColor =>
-  contrastRatio('#ffffff', surface) >= contrastRatio('#000000', surface) ? '#ffffff' : '#000000'
+export const readableTextOn = (surface: HexColor): TextChoice =>
+  contrastRatio(textChoiceHex.white, surface) >= contrastRatio(textChoiceHex.black, surface)
+    ? 'white'
+    : 'black'

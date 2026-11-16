@@ -22,8 +22,11 @@ import {
 } from '@/lib/themeColors'
 import {
   findUnreadablePair,
+  formatContrastRatio,
   readableTextOn,
+  textChoiceHex,
   type BlockingPair,
+  type TextChoice,
   type UnreadablePair,
 } from '@/lib/themeContrast'
 import {
@@ -34,7 +37,9 @@ import {
   mainColorsOf,
 } from '@/lib/themeDerivation'
 
-export type EditingMode = 'simple' | 'advanced'
+export const editingModes = ['simple', 'advanced'] as const
+
+export type EditingMode = (typeof editingModes)[number]
 
 export type CustomTheme = {
   id: string
@@ -46,8 +51,6 @@ export type CustomTheme = {
 
 type ThemeDraft = { mode: EditingMode; colors: HexThemeColors }
 
-const editingModes: readonly unknown[] = ['simple', 'advanced'] satisfies EditingMode[]
-
 const derivedFrom = (colors: HexThemeColors) => deriveThemeColors(mainColorsOf(colors))
 
 export type ReadabilityVerdict = { readable: true } | ({ readable: false } & UnreadablePair)
@@ -57,10 +60,7 @@ const pairLabelKeys: Record<BlockingPair['text'], string> = {
   'popover-foreground': 'SETTINGS_THEME_PAIR_POPOVER_FOREGROUND',
 }
 
-export type HoldFix = { text: ThemeToken; color: HexColor }
-
-/** Floors at two decimals so a ratio just under the minimum never reads as 3.00. */
-const formatRatio = (ratio: number) => (Math.floor(ratio * 100) / 100).toFixed(2)
+export type HoldFix = { text: ThemeToken; choice: TextChoice }
 
 type ResolvedTheme = {
   id: string
@@ -89,7 +89,7 @@ function readCustomTheme(value: unknown): CustomTheme | null {
   if (!t || !stored) return null
   if (typeof t.id !== 'string' || typeof t.name !== 'string' || typeof t.baseTheme !== 'string')
     return null
-  if (t.mode !== undefined && !editingModes.includes(t.mode)) return null
+  if (t.mode !== undefined && !(editingModes as readonly unknown[]).includes(t.mode)) return null
   const fill = shippedColors(t.baseTheme)
   const colors = {} as HexThemeColors
   for (const token of themeTokens) {
@@ -163,7 +163,7 @@ export const useTheme = defineStore('theme', () => {
     return { id: builtIn.id, colors: builtIn.colors, hexColors, baseId: builtIn.id, custom: null }
   })
 
-  /** The theme the editor works on: the selected Custom Theme even while it is not applied. */
+  /** The theme the editor shows: the selected Custom Theme even while it is not applied. */
   const edited = computed<ThemeDraft>(() => {
     const custom = selectedCustomTheme.value
     return custom ?? { mode: 'simple', colors: resolved.value.hexColors }
@@ -284,7 +284,7 @@ export const useTheme = defineStore('theme', () => {
     if (!held.value || verdict.readable) return ''
     return fillTemplate(i18n.state.SETTINGS_THEME_HELD, {
       text: pairLabel(verdict),
-      ratio: formatRatio(verdict.ratio),
+      ratio: formatContrastRatio(verdict.ratio),
     })
   })
 
@@ -294,8 +294,8 @@ export const useTheme = defineStore('theme', () => {
     if (!held.value || verdict.readable) return null
     const colors = draftHexColors.value
     if (editingMode.value === 'simple')
-      return { text: 'foreground', color: readableTextOn(colors.background) }
-    return { text: verdict.text, color: readableTextOn(colors[verdict.background]) }
+      return { text: 'foreground', choice: readableTextOn(colors.background) }
+    return { text: verdict.text, choice: readableTextOn(colors[verdict.background]) }
   })
 
   const appliedHexColors = computed<HexThemeColors>(() => {
@@ -324,7 +324,8 @@ export const useTheme = defineStore('theme', () => {
    */
   function setColor(token: ThemeToken, hex: HexColor): boolean {
     const mode = editingMode.value
-    if (!isHexColor(hex) || (mode === 'simple' && !isMainColorToken(token))) return false
+    if (!selectedCustomTheme.value || !isHexColor(hex)) return false
+    if (mode === 'simple' && !isMainColorToken(token)) return false
     const colors = { ...draftHexColors.value, [token]: hex.toLowerCase() }
     setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : colors })
     return true
@@ -332,16 +333,15 @@ export const useTheme = defineStore('theme', () => {
 
   /** Switching to Simple recalculates `simpleModeRecalculates`; the editor confirms that first. */
   function setEditingMode(mode: EditingMode) {
-    if (mode === editingMode.value) return
+    if (!selectedCustomTheme.value || mode === editingMode.value) return
     const colors = draftHexColors.value
     setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : { ...colors } })
   }
 
-  /** Applies a readable draft; a draft of a Built-in Theme becomes a new, selected Custom Theme. */
   function saveDraft(): boolean {
     const changed = draft.value
-    if (!changed || !canSave.value) return false
-    const id = selectedCustomTheme.value?.id ?? customize()
+    const id = selectedCustomTheme.value?.id
+    if (!changed || !id || !canSave.value) return false
     updateCustomTheme(id, (t) => ({ ...t, ...changed }))
     draft.value = null
     lastReadableDraft.value = null
@@ -350,7 +350,7 @@ export const useTheme = defineStore('theme', () => {
 
   function applyHoldFix(): boolean {
     const fix = holdFix.value
-    return !!fix && setColor(fix.text, fix.color)
+    return !!fix && setColor(fix.text, textChoiceHex[fix.choice])
   }
 
   function discardDraft() {

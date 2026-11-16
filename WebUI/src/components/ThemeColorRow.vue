@@ -1,6 +1,6 @@
 <template>
   <li class="flex items-center justify-between gap-3">
-    <Label :for="id" class="text-xs" :class="{ 'font-mono': monoLabel }">{{ label }}</Label>
+    <Label :for="id" class="text-xs">{{ label }}</Label>
     <div class="flex items-center gap-2">
       <span class="font-mono text-xs text-muted-foreground">{{ value }}</span>
       <input
@@ -17,6 +17,6 @@
 <script setup lang="ts">
 import { Label } from '@/components/ui/label'
 
-defineProps<{ id: string; label: string; value: string; monoLabel?: boolean }>()
+defineProps<{ id: string; label: string; value: string }>()
 const emit = defineEmits<{ pick: [hex: string] }>()
 </script>

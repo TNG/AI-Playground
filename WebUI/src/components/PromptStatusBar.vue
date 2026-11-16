@@ -109,12 +109,12 @@
             <DropdownMenuGroup
               v-for="group in listing?.groups ?? []"
               :key="group.kind"
-              :aria-label="group.kind === 'agent' ? languages.MODE_AGENT : undefined"
+              :aria-label="groupHeading(group.kind)"
               class="flex min-h-0 flex-col"
             >
               <DropdownMenuSeparator v-if="group.kind !== 'main'" />
-              <DropdownMenuLabel v-if="group.kind === 'agent'" class="text-xs">{{
-                languages.MODE_AGENT
+              <DropdownMenuLabel v-if="groupHeading(group.kind)" class="text-xs">{{
+                groupHeading(group.kind)
               }}</DropdownMenuLabel>
               <DropdownMenuRadioGroup
                 v-if="group.presets.length > 0"
@@ -348,7 +348,7 @@ import { computeDetailSections, formatMib } from '@/lib/computeMetricsFormat'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
 import { hasChatAffordances } from '@/lib/chatAffordances'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
-import { type HeaderChip, type SpeechBackend } from '@/lib/promptBarModel'
+import { type HeaderChip, type PresetGroupKind, type SpeechBackend } from '@/lib/promptBarModel'
 import { usePromptBarModel } from '@/lib/usePromptBarModel'
 import { usePromptBarAgentPick } from '@/lib/usePromptBarAgentPick'
 
@@ -473,6 +473,13 @@ const headerChips = computed(() => bar.value.headerChips)
 const listing = computed(() =>
   bar.value.activeMode ? bar.value.listings[bar.value.activeMode] : undefined,
 )
+
+/** The headline above a preset-list group: none over the Assistant presets. */
+function groupHeading(kind: PresetGroupKind): string | undefined {
+  if (kind === 'agent') return languages.PROMPT_BAR_GAME_AGENTS
+  if (kind === 'saved') return languages.PROMPT_BAR_MY_AGENTS
+  return undefined
+}
 
 async function pickPreset(name: string) {
   if (name) await agentPick.pickPreset(name)

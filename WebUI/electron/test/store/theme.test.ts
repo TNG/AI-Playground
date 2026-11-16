@@ -97,6 +97,21 @@ describe('Built-in Themes', () => {
       for (const value of Object.values(t.colors)) expect(value).toMatch(/^[\d.]+ [\d.]+% [\d.]+%$/)
     }
   })
+
+  // Tailwind's amber-300 / emerald-400 on Dark and amber-600 / emerald-600 elsewhere, in sRGB.
+  it.each([
+    ['dark', '#ffd230', '#00d492'],
+    ['lnl', '#e17100', '#009966'],
+    ['bmg', '#e17100', '#009966'],
+    ['light', '#e17100', '#009966'],
+  ] as const)(
+    '%s keeps the warning and success shades it showed before',
+    (id, warning, success) => {
+      const theme = useTheme()
+      theme.selectTheme(id)
+      expect(theme.activeHexColors).toMatchObject({ warning, success })
+    },
+  )
 })
 
 describe('Customize', () => {
@@ -499,6 +514,20 @@ describe('Stored Custom Themes from another version or a hand edit', () => {
       .customThemes
     expect(written).toHaveLength(1)
     expect(written[0].colors.ring).toBe('#aa05fd')
+  })
+
+  it('fills the Warning and Success colours of an older entry from its Base Theme', async () => {
+    const colors = colorsWithout('dark', 'warning')
+    delete colors.success
+    const stored = { id: 'custom-old', name: 'Old', baseTheme: 'dark', colors }
+    const theme = await load({ selected: stored.id, customThemes: [stored] })
+    expect(theme.activeHexColors).toMatchObject({ warning: '#ffd230', success: '#00d492' })
+    theme.setColor('border', '#334455')
+    theme.saveDraft()
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    const written = (writes.at(-1)?.value as { customThemes: { colors: Record<string, string> }[] })
+      .customThemes
+    expect(written[0].colors).toMatchObject({ warning: '#ffd230', success: '#00d492' })
   })
 
   it('fills from Light when the Base Theme is gone', async () => {

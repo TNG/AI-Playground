@@ -217,7 +217,7 @@
             </div>
             <p
               v-if="settings.isToolEnabled('captureScreenshot') && !modelSupportsVision"
-              class="text-xs text-amber-600 dark:text-amber-300"
+              class="text-xs text-warning"
             >
               The selected model does not support vision, so the assistant cannot use screenshots.
               Choose a vision-capable model to enable this tool.

@@ -62,7 +62,7 @@
               </span>
               <span
                 v-if="recommendedMode === option.mode"
-                class="text-xs font-semibold uppercase tracking-wider text-green-600 dark:text-green-500"
+                class="text-xs font-semibold uppercase tracking-wider text-success"
               >
                 {{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}
               </span>

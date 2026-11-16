@@ -6,7 +6,7 @@
       v-if="
         !openVinoSetUp && !speechToText.isStandaloneAvailable && !speechToText.isExternalAvailable
       "
-      class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
+      class="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
     >
       Install the OpenVINO or standalone Whisper backend from Settings → Installation Management, or
       enable an external transcription endpoint in App Settings → External speech endpoints.

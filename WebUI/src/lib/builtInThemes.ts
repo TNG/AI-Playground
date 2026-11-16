@@ -18,6 +18,8 @@ export const themeTokens = [
   'border',
   'input',
   'ring',
+  'warning',
+  'success',
 ] as const
 
 export type ThemeToken = (typeof themeTokens)[number]
@@ -48,6 +50,8 @@ const purpleDark = {
   border: '280 30% 18%',
   input: '280 30% 18%',
   ring: '280 98.4% 50.6%',
+  warning: '47 100% 59.4%',
+  success: '161.3 100% 41.6%',
 } satisfies Partial<ThemeColors>
 
 export const builtInThemes: readonly BuiltInTheme[] = [
@@ -84,6 +88,8 @@ export const builtInThemes: readonly BuiltInTheme[] = [
       border: '209 30% 25%',
       input: '209 30% 25%',
       ring: '209 100% 60%',
+      warning: '30.1 100% 44.1%',
+      success: '160 100% 30%',
     },
   },
   {
@@ -94,6 +100,8 @@ export const builtInThemes: readonly BuiltInTheme[] = [
       background: '280 50% 10%',
       card: '280 50% 3%',
       popover: '280 50% 5%',
+      warning: '30.1 100% 44.1%',
+      success: '160 100% 30%',
     },
   },
   {
@@ -119,6 +127,8 @@ export const builtInThemes: readonly BuiltInTheme[] = [
       border: '214.3 31.8% 91.4%',
       input: '214.3 31.8% 91.4%',
       ring: '209 100% 60%',
+      warning: '30.1 100% 44.1%',
+      success: '160 100% 30%',
     },
   },
 ]

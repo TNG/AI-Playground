@@ -4,7 +4,7 @@
          Only relevant while Qwen is the selected engine (Kokoro runs on OpenVINO). -->
     <p
       v-if="textToSpeech.selectedEngine === 'qwen3' && !qwen3BackendSetUp"
-      class="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
+      class="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
     >
       Install the Text To Speech backend from Settings → Installation Management to enable speech
       synthesis.
@@ -14,7 +14,7 @@
          standard model-download popup (like every other model). Qwen engine only. -->
     <div
       v-else-if="textToSpeech.selectedEngine === 'qwen3' && !ttsModelDownloaded"
-      class="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300"
+      class="flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
     >
       <span>
         {{

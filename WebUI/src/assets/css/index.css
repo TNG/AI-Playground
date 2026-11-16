@@ -52,6 +52,8 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 209 100% 60%;
+    --warning: 30.1 100% 44.1%;
+    --success: 160 100% 30%;
     --radius: 0.5rem;
 
     /* Demo mode variables - light theme overrides */
@@ -92,6 +94,8 @@
     --border: 280 30% 18%;
     --input: 280 30% 18%;
     --ring: 280 98.4% 50.6%;
+    --warning: 47 100% 59.4%;
+    --success: 161.3 100% 41.6%;
     --radius: 0.5rem;
 
     /* Demo mode variables */
@@ -126,6 +130,8 @@
     --border: 209 30% 25%;
     --input: 209 30% 25%;
     --ring: 209 100% 60%;
+    --warning: 30.1 100% 44.1%;
+    --success: 160 100% 30%;
     --radius: 0.5rem;
 
     /* Demo mode variables */
@@ -160,6 +166,8 @@
     --border: 280 30% 18%;
     --input: 280 30% 18%;
     --ring: 280 98.4% 50.6%;
+    --warning: 30.1 100% 44.1%;
+    --success: 160 100% 30%;
     --radius: 0.5rem;
 
     /* Demo mode variables */

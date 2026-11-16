@@ -250,6 +250,7 @@
       v-show="dialogStore.installationProgressDialogVisible"
     ></installation-progress-dialog>
     <MaskEditorDialog />
+    <CameraCaptureDialog />
 
     <!-- Demo Mode Overlay -->
     <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
@@ -312,6 +313,7 @@ import CloseDialog from '@/components/CloseDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'
+import CameraCaptureDialog from '@/components/CameraCaptureDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
 import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
 import { Bot } from 'lucide-vue-next'

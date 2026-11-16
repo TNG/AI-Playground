@@ -181,20 +181,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Camera Capture Dialog -->
-    <div
-      v-if="dialogStore.cameraDialogVisible"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-    >
-      <div class="bg-background rounded-lg p-6 w-full max-w-lg mx-4 shadow-xl">
-        <h2 class="text-lg font-semibold mb-4">Capture Image</h2>
-        <CameraCapture @capture="dialogStore.handleCameraCapture" />
-        <div class="mt-4 flex justify-end">
-          <Button variant="outline" @click="dialogStore.closeCameraDialog()">Close</Button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -257,7 +243,6 @@ import ClassicBottomBar from '@/components/ClassicBottomBar.vue'
 import ModernBottomBar from '@/components/ModernBottomBar.vue'
 import { usePromptBarStyle } from '@/assets/js/store/promptBarStyle'
 import { useDialogStore } from '@/assets/js/store/dialogs'
-import CameraCapture from '@/components/CameraCapture.vue'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import DemoSamplePrompts from '@/components/DemoSamplePrompts.vue'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'

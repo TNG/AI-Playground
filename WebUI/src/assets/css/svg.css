@@ -218,3 +218,7 @@
 .i-backend-qwen {
   --svg: url('@/assets/svg/backend-qwen.svg');
 }
+
+.i-backend-cloud {
+  --svg: url('@/assets/svg/backend-cloud.svg');
+}

@@ -529,7 +529,7 @@ const BACKEND_NAMES = {
 const BACKEND_ICONS: Record<Extract<HeaderChip, { kind: 'backend' }>['backend'], string> = {
   llamaCPP: 'i-backend-llamacpp',
   openVINO: 'i-backend-openvino',
-  cloud: 'i-download-cloud',
+  cloud: 'i-backend-cloud',
   comfyui: 'i-backend-comfyui',
   qwen3TTS: 'i-backend-qwen',
   external: 'i-speaker',

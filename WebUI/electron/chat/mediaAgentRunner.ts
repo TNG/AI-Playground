@@ -1,6 +1,12 @@
-import { NoSuchToolError, type ModelMessage, type ToolSet } from 'ai'
+import {
+  NoSuchToolError,
+  wrapLanguageModel,
+  type LanguageModel,
+  type ModelMessage,
+  type ToolSet,
+} from 'ai'
 import { jsonSchema, tool } from '@ai-sdk/provider-utils'
-import type { JSONSchema7 } from '@ai-sdk/provider'
+import type { JSONSchema7, LanguageModelV4Prompt } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
 import { createToolAgent, type ToolAgentEvent, type ToolAgentRunOptions } from '@/lib/toolAgent'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
@@ -149,6 +155,34 @@ function sourceImageMessage(dataUri: string): ModelMessage {
   }
 }
 
+const HIDDEN_IMAGE_TEXT = 'A source image is attached for the edit tools; you cannot see it.'
+
+function withoutImages(prompt: LanguageModelV4Prompt): LanguageModelV4Prompt {
+  return prompt.map((message) =>
+    message.role === 'user'
+      ? {
+          ...message,
+          content: message.content.map((part) =>
+            part.type === 'file' && part.mediaType.startsWith('image/')
+              ? { type: 'text' as const, text: HIDDEN_IMAGE_TEXT }
+              : part,
+          ),
+        }
+      : message,
+  )
+}
+
+// Only the request is filtered: the edit tools find the Source Image in the loop's own history.
+function hideImagesFromModel(model: LanguageModel): LanguageModel {
+  if (typeof model === 'string') return model
+  return wrapLanguageModel({
+    model,
+    middleware: {
+      transformParams: async ({ params }) => ({ ...params, prompt: withoutImages(params.prompt) }),
+    },
+  })
+}
+
 /**
  * Runs one delegated media request. Its tools execute in-process; edit
  * source-image discovery reads the nested ModelMessage history in main.
@@ -221,15 +255,17 @@ async function runMediaAgentBracket(
   // Laminar config).
   noteMainChatTurnContext(request.model.trace)
   markDelegatedMediaRun()
+  const vision = request.model.supportsVision === true
+  const model = createMainChatModel(request.model)
   const result = await agent.run({
-    model: createMainChatModel(request.model),
+    model: vision ? model : hideImagesFromModel(model),
     request: request.request,
     priorMessages,
     ...(request.readMediaAsDataUri
       ? {
           presentGeneratedImages: {
             read: request.readMediaAsDataUri,
-            vision: request.model.supportsVision === true,
+            vision,
           },
         }
       : {}),

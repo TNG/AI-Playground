@@ -97,6 +97,18 @@ A short templated digest of the History Entries a chat preset missed since its o
 the Session, handed to it with the next prompt. Never a model-written summary.
 _Avoid_: session summary, recap
 
+## Media
+
+**Media Specialist**:
+The helper that turns a request for an image, video or 3D model into the workflow that makes it
+and the settings to run it with.
+_Avoid_: media agent, media subagent
+
+**Source Image**:
+The existing image a request for media transforms: an image the user attached, or an earlier
+result.
+_Avoid_: input image, reference image
+
 ## Agents
 
 **Agent**:

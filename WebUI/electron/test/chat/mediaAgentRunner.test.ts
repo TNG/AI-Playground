@@ -276,6 +276,68 @@ describe('runMediaAgentInMain', () => {
     expect(result.steps[0].output).toMatchObject({ success: false, declined: true })
   })
 
+  describe('with a Source Image and the edit tool', () => {
+    const EDIT_SPEC: ChatToolSpec = { ...TOOL_SPEC, name: 'comfyUiImageEdit' }
+    const PLACEHOLDER = 'A source image is attached for the edit tools; you cannot see it.'
+
+    function editModel() {
+      let call = 0
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          call++
+          if (call === 1) return toolCallResponse('comfyUiImageEdit', { workflow: 'Upscale' }, 'c1')
+          return textResponse('Upscaled.')
+        },
+      })
+      vi.mocked(createMainChatModel).mockReturnValue(model)
+      return model
+    }
+
+    function editRequest(supportsVision: boolean): MediaAgentRunRequest {
+      const base = runRequest()
+      return {
+        ...base,
+        request: 'upscale this image',
+        toolSpecs: [EDIT_SPEC],
+        repairData: { comfyUiImageEdit: { names: ['Upscale'], defaultWorkflow: 'Upscale' } },
+        model: { ...base.model, supportsVision },
+      }
+    }
+
+    type SentPart = { type: string; text?: string }
+
+    function sentParts(model: MockLanguageModelV3): SentPart[] {
+      return model.doStreamCalls.flatMap((c) =>
+        c.prompt.flatMap<SentPart>((m) => (typeof m.content === 'string' ? [] : m.content)),
+      )
+    }
+
+    it('keeps the image out of a non-vision model request but hands it to ComfyUI', async () => {
+      const model = editModel()
+
+      await runMediaAgentInMain(editRequest(false))
+
+      const parts = sentParts(model)
+      expect(model.doStreamCalls).toHaveLength(2)
+      expect(parts.some((p) => p.type === 'file')).toBe(false)
+      expect(parts).toContainEqual(expect.objectContaining({ type: 'text', text: PLACEHOLDER }))
+      expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+        kind: 'edit',
+        source: 'data:image/png;base64,aGk=',
+      })
+    })
+
+    it('still shows the image to a vision model', async () => {
+      const model = editModel()
+
+      await runMediaAgentInMain(editRequest(true))
+
+      const parts = sentParts(model)
+      expect(parts.some((p) => p.type === 'file')).toBe(true)
+      expect(parts.some((p) => p.type === 'text' && p.text === PLACEHOLDER)).toBe(false)
+    })
+  })
+
   it('cancel aborts a pending in-process run and the specialist settles as a failure', async () => {
     let call = 0
     const model = new MockLanguageModelV3({

@@ -31,7 +31,7 @@ watch(
         :class="{ 'rotate-90': open }"
       />
       <span class="text-sm font-semibold text-foreground whitespace-nowrap">{{ title }}</span>
-      <ExclamationTriangleIcon v-if="attention" class="size-4 flex-none text-amber-500" />
+      <ExclamationTriangleIcon v-if="attention" class="size-4 flex-none text-warning" />
       <span v-if="summary" class="ml-auto min-w-0 truncate text-xs text-muted-foreground">
         {{ summary }}
       </span>

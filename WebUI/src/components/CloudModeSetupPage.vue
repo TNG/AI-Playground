@@ -27,7 +27,7 @@
             <span class="text-xs text-muted-foreground truncate">
               {{ provider.baseUrl || 'Not configured' }}
             </span>
-            <span v-if="provider.models.length" class="text-xs font-medium text-green-500">
+            <span v-if="provider.models.length" class="text-xs font-medium text-success">
               {{ provider.models.length }} models
             </span>
           </SetupSidebarTile>
@@ -87,7 +87,7 @@
               type="password"
               :placeholder="hasStoredKey ? '•••••••• (leave blank to keep)' : 'sk-…'"
             />
-            <span v-if="hasStoredKey" class="text-xs text-green-500">✓ API key saved</span>
+            <span v-if="hasStoredKey" class="text-xs text-success">✓ API key saved</span>
           </div>
 
           <div class="flex items-center gap-3">
@@ -96,7 +96,7 @@
               {{ fetching ? 'Fetching…' : 'Fetch models' }}
             </Button>
             <span v-if="fetchError" class="text-xs text-destructive">{{ fetchError }}</span>
-            <span v-else-if="fetchSuccess" class="text-xs text-green-500">
+            <span v-else-if="fetchSuccess" class="text-xs text-success">
               ✓ Fetched {{ form.models.length }} models
             </span>
           </div>
@@ -104,9 +104,9 @@
           <!-- Fetched models preview -->
           <div
             v-if="form.models.length"
-            class="rounded-md border border-green-500/30 bg-green-500/5 p-3"
+            class="rounded-md border border-success/30 bg-success/5 p-3"
           >
-            <p class="text-xs font-semibold text-green-500 pb-2">
+            <p class="text-xs font-semibold text-success pb-2">
               Available models ({{ form.models.length }})
             </p>
             <ul class="flex flex-col gap-1 max-h-48 overflow-y-auto">
@@ -120,7 +120,7 @@
     <!-- Footer actions -->
     <SetupWizardFooter :primary-disabled="saving" @back="emit('back')" @primary="saveAndDone">
       <template #actions>
-        <span v-if="justSaved" class="text-xs text-green-500">✓ Saved</span>
+        <span v-if="justSaved" class="text-xs text-success">✓ Saved</span>
         <Button variant="secondary" @click="saveOnly" :disabled="saving">Save</Button>
       </template>
     </SetupWizardFooter>

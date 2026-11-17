@@ -37,8 +37,8 @@
                 }}</span>
               </template>
               <template v-else-if="marker.status === 'paused'">
-                <HandRaisedIcon class="size-3.5 text-amber-500" aria-hidden="true" />
-                <span v-if="marker.short" class="text-amber-500" aria-hidden="true">{{
+                <HandRaisedIcon class="size-3.5 text-warning" aria-hidden="true" />
+                <span v-if="marker.short" class="text-warning" aria-hidden="true">{{
                   marker.short
                 }}</span>
               </template>

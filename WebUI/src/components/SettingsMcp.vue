@@ -169,8 +169,8 @@ function getStatusText(serverId: string): string {
 function getStatusDotClass(serverId: string): string {
   const status = mcp.getServerStatus(serverId)
   if (status.state === 'stopped') return 'bg-muted-foreground/40'
-  if (status.state === 'starting') return 'bg-amber-500 animate-pulse'
-  if (status.state === 'running') return 'bg-green-500'
+  if (status.state === 'starting') return 'bg-warning animate-pulse'
+  if (status.state === 'running') return 'bg-success'
   if (status.state === 'error') return 'bg-destructive'
   return 'bg-muted-foreground/40'
 }

@@ -35,7 +35,7 @@ const problemText = computed(() =>
     <p
       v-if="problemText"
       role="status"
-      class="text-xs text-amber-500 rounded-sm ring-1 ring-amber-500 px-2 py-1"
+      class="text-xs text-warning rounded-sm ring-1 ring-warning px-2 py-1"
     >
       {{ problemText }}
     </p>

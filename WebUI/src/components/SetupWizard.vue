@@ -83,7 +83,7 @@
                   <div class="flex gap-1 pt-0.5">
                     <span
                       v-if="recommendedMode === option.mode"
-                      class="text-[9px] font-semibold uppercase tracking-wider text-green-500"
+                      class="text-[9px] font-semibold uppercase tracking-wider text-success"
                       >{{ languages.PRODUCT_MODE_BADGE_RECOMMENDED }}</span
                     >
                     <span
@@ -322,7 +322,7 @@
 
               <div
                 v-if="wizard.phisonAidaptivRow"
-                class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors border-emerald-600/25"
+                class="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30 transition-colors border-success/25"
               >
                 <TooltipProvider :delay-duration="200">
                   <Tooltip>
@@ -341,7 +341,7 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-1.5">
                     <span
-                      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-emerald-600 dark:text-emerald-400"
+                      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-success"
                       aria-hidden="true"
                     >
                       <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">

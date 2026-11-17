@@ -84,7 +84,7 @@
             }}</span>
             <span v-else>Detect</span>
           </button>
-          <span v-if="detectedChatId" class="text-xs text-green-500">
+          <span v-if="detectedChatId" class="text-xs text-success">
             ✅ Chat ID: {{ detectedChatId }}
           </span>
           <span v-if="detectStatus === 'error'" class="text-xs text-destructive">
@@ -126,7 +126,7 @@
             <span v-if="verifyStatus === 'loading'">Sending…</span>
             <span v-else>Send Test Message</span>
           </button>
-          <span v-if="verifyStatus === 'success'" class="text-xs text-green-500">
+          <span v-if="verifyStatus === 'success'" class="text-xs text-success">
             ✅ Message sent — check your Telegram!
           </span>
           <span v-else-if="verifyStatus === 'error'" class="text-xs text-destructive">
@@ -134,7 +134,7 @@
           </span>
           <span
             v-else-if="channelStore.telegramVerified && verifyStatus === 'idle'"
-            class="text-xs text-green-500"
+            class="text-xs text-success"
           >
             ✅ Previously verified
           </span>

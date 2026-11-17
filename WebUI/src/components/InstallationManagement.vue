@@ -104,7 +104,7 @@
                               llamacppStandardRowIsSetUp(component) &&
                               isLlamaStandardVersionUpToDate(component)
                             "
-                            class="text-green-500"
+                            class="text-success"
                             title="Up to date"
                           >
                             ✓
@@ -140,7 +140,7 @@
                         </div>
                         <div
                           v-if="hasUserOverride(component.serviceName)"
-                          class="flex justify-between gap-4 text-amber-400"
+                          class="flex justify-between gap-4 text-warning"
                         >
                           <span>Settings Override:</span>
                           <span>{{ formatUserOverride(component.serviceName) }}</span>
@@ -151,7 +151,7 @@
                             {{ formatEffectiveTarget(component.serviceName) }}
                             <span
                               v-if="hasUserOverride(component.serviceName)"
-                              class="text-amber-400"
+                              class="text-warning"
                             >
                               (override)
                             </span>
@@ -162,7 +162,7 @@
                             hasUserOverride(component.serviceName) &&
                             hasNewerSupportedVersion(component.serviceName)
                           "
-                          class="border-t border-border pt-1 mt-1 text-xs text-amber-400"
+                          class="border-t border-border pt-1 mt-1 text-xs text-warning"
                         >
                           A newer supported version is available
                         </div>
@@ -195,7 +195,7 @@
                           <!-- Status icon -->
                           <span
                             v-if="component.isSetUp && isVersionUpToDate(component.serviceName)"
-                            class="text-green-500"
+                            class="text-success"
                             title="Up to date"
                           >
                             ✓
@@ -229,7 +229,7 @@
                         </div>
                         <div
                           v-if="hasUserOverride(component.serviceName)"
-                          class="flex justify-between gap-4 text-amber-400"
+                          class="flex justify-between gap-4 text-warning"
                         >
                           <span>Settings Override:</span>
                           <span>{{ formatUserOverride(component.serviceName) }}</span>
@@ -240,7 +240,7 @@
                             {{ formatEffectiveTarget(component.serviceName) }}
                             <span
                               v-if="hasUserOverride(component.serviceName)"
-                              class="text-amber-400"
+                              class="text-warning"
                             >
                               (override)
                             </span>
@@ -252,7 +252,7 @@
                             hasUserOverride(component.serviceName) &&
                             hasNewerSupportedVersion(component.serviceName)
                           "
-                          class="border-t border-border pt-1 mt-1 text-xs text-amber-400"
+                          class="border-t border-border pt-1 mt-1 text-xs text-warning"
                         >
                           A newer supported version is available
                         </div>
@@ -331,7 +331,7 @@
               <td class="text-left">
                 <span class="inline-flex items-center gap-2">
                   <span
-                    class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-success/15 text-success"
                     title="Llama.cpp with Phison Pascari aiDAPTIV"
                   >
                     <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -689,15 +689,15 @@ function getLlamaStandardVersionChangeClass(component: ExtendedApiServiceInforma
   if (component.serviceName !== 'llamacpp-backend')
     return getVersionChangeClass(component.serviceName)
   const upgrading = isLlamaStandardUpgrade(component)
-  if (upgrading === true) return 'text-green-500'
-  return 'text-amber-500'
+  if (upgrading === true) return 'text-success'
+  return 'text-warning'
 }
 
 function getLlamaStandardVersionStatusClass(component: ExtendedApiServiceInformation): string {
   if (component.serviceName !== 'llamacpp-backend')
     return getVersionStatusClass(component.serviceName)
   if (hasLlamaStandardVersionChange(component) || hasNewerSupportedVersion(component.serviceName)) {
-    return 'text-amber-500'
+    return 'text-warning'
   }
   return 'text-foreground'
 }
@@ -706,7 +706,7 @@ function getLlamaStandardUninstalledStatusClass(component: ExtendedApiServiceInf
   if (component.serviceName !== 'llamacpp-backend')
     return getUninstalledStatusClass(component.serviceName)
   if (hasLlamaStandardVersionChange(component) || hasNewerSupportedVersion(component.serviceName)) {
-    return 'text-amber-500'
+    return 'text-warning'
   }
   return 'text-muted-foreground'
 }
@@ -1021,8 +1021,8 @@ function getVersionChangeIcon(serviceName: BackendServiceName): string {
 // Get appropriate class: green for upgrade, amber for downgrade
 function getVersionChangeClass(serviceName: BackendServiceName): string {
   const upgrading = isUpgrade(serviceName)
-  if (upgrading === true) return 'text-green-500'
-  return 'text-amber-500'
+  if (upgrading === true) return 'text-success'
+  return 'text-warning'
 }
 
 // Format official target version for display
@@ -1052,7 +1052,7 @@ function formatEffectiveTarget(serviceName: BackendServiceName): string {
 // Get CSS class for version status
 function getVersionStatusClass(serviceName: BackendServiceName): string {
   if (hasVersionChange(serviceName) || hasNewerSupportedVersion(serviceName)) {
-    return 'text-amber-500'
+    return 'text-warning'
   }
   return 'text-foreground'
 }
@@ -1060,7 +1060,7 @@ function getVersionStatusClass(serviceName: BackendServiceName): string {
 // Get CSS class for version status
 function getUninstalledStatusClass(serviceName: BackendServiceName): string {
   if (hasVersionChange(serviceName) || hasNewerSupportedVersion(serviceName)) {
-    return 'text-amber-500'
+    return 'text-warning'
   }
   return 'text-muted-foreground'
 }

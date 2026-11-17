@@ -191,31 +191,34 @@ test.describe('App shell', () => {
       await expect(modelLibrary).toHaveAttribute('aria-pressed', 'false')
     })
 
-    await test.step('Unsaved theme colors are guarded on tab switch and close', async () => {
+    await test.step('The theme panel sits beside a usable app and guards its close', async () => {
       const shell = app.shell
       await shell.customizeTheme()
-      const panel = shell.settingsPanel('App Settings')
+      const panel = shell.themePanel
+      await shell.themeButton.click()
+      await expect(shell.themeOptions.first()).toBeVisible()
+      await shell.closeThemeMenu()
+
       const unsaved = panel.getByRole('region', { name: 'Unsaved theme changes' })
       await expect(unsaved).toBeHidden()
-      await panel.getByLabel('App background', { exact: true }).fill('#123456')
+      await panel.getByLabel('Background', { exact: true }).fill('#123456')
       await expect(unsaved).toBeInViewport()
       await expect(unsaved.getByRole('button', { name: 'Save' })).toBeVisible()
       await expect(unsaved.getByRole('button', { name: 'Discard' })).toBeVisible()
       const discard = window.getByRole('alertdialog', { name: 'Discard unsaved changes?' })
 
-      await shell.settingsTab('Component Manager').click()
+      await shell.themePanelCloseButton.click()
       await expect(discard).toBeVisible()
       await discard.getByRole('button', { name: 'Cancel' }).click()
       await expect(discard).toBeHidden()
-      await expect(shell.settingsTab('App Settings')).toHaveAttribute('aria-selected', 'true')
+      await expect(panel).toBeVisible()
 
-      await shell.settingsCloseButton.click()
-      await expect(discard).toBeVisible()
+      await shell.themePanelCloseButton.click()
       await discard.getByRole('button', { name: 'Discard' }).click()
-      await expect(shell.settingsDialog).toBeHidden()
+      await expect(panel).toBeHidden()
     })
 
-    await test.step('Theme switches from the header and is a section of App Settings', async () => {
+    await test.step('Theme switches from the header and App Settings opens the panel', async () => {
       const shell = app.shell
       await shell.themeButton.click()
       await expect(shell.themeOptions).toHaveText([
@@ -239,13 +242,13 @@ test.describe('App shell', () => {
         .settingsPanel('App Settings')
         .getByRole('region', { name: 'Theme', exact: true })
       await expect(themeSection).toBeVisible()
-      await expect(themeSection.getByRole('region', { name: 'Colors' })).toHaveCount(0)
-      await shell.ensureSettingsClosed()
+      await expect(themeSection.getByLabel('Background', { exact: true })).toHaveCount(0)
 
-      await shell.customizeTheme()
-      await expect(themeSection).toBeInViewport()
-      await expect(themeSection.getByRole('region', { name: 'Colors' })).toBeVisible()
-      await shell.ensureSettingsClosed()
+      await themeSection.getByRole('button', { name: 'Customize…' }).click()
+      await expect(shell.settingsDialog).toBeHidden()
+      await expect(shell.themePanel).toBeVisible()
+      await shell.themePanelCloseButton.click()
+      await expect(shell.themePanel).toBeHidden()
     })
   })
 })

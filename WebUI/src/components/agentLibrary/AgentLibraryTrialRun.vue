@@ -153,7 +153,7 @@ async function stop(): Promise<void> {
         v-if="confirmingFolders"
         role="group"
         :aria-label="i18n.AGENT_LIBRARY_TRIAL_RUN"
-        class="flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2"
+        class="flex flex-col gap-2 rounded-md border border-warning/50 bg-warning/10 px-3 py-2"
       >
         <p class="text-sm">
           {{
@@ -184,7 +184,7 @@ async function stop(): Promise<void> {
       />
 
       <div class="flex flex-wrap items-center gap-2">
-        <span v-if="refusal" role="status" class="min-w-0 flex-1 text-xs text-amber-500">
+        <span v-if="refusal" role="status" class="min-w-0 flex-1 text-xs text-warning">
           {{ refusal }}
         </span>
         <div class="ml-auto flex items-center gap-2">

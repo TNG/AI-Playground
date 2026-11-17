@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUIStore } from '@/assets/js/store/ui'
 
-/** Stands in for unsaved theme colours: every leave waits for a confirm or cancel. */
+/** Stands in for unsaved theme colours: every close waits for a confirm or cancel. */
 function holdUnsavedChanges(ui: ReturnType<typeof useUIStore>) {
   let pending: (() => void) | null = null
-  ui.setAppSettingsLeaveGuard((leave) => (pending = leave))
+  ui.setThemePanelLeaveGuard((leave) => (pending = leave))
   return {
     get asking() {
       return pending !== null
@@ -29,13 +29,13 @@ describe('App Settings and the Libraries', () => {
 
     ui.openAppSettings()
 
-    expect(ui.appSettings).toEqual({})
+    expect(ui.appSettingsOpen).toBe(true)
     expect(ui.agentLibrary).toEqual({ agentId: 't1' })
     expect(ui.frontmost).toBe('settings')
 
     ui.closeAppSettings()
 
-    expect(ui.appSettings).toBeNull()
+    expect(ui.appSettingsOpen).toBe(false)
     expect(ui.agentLibrary).toEqual({ agentId: 't1' })
     expect(ui.frontmost).toBe('agent')
   })
@@ -47,7 +47,7 @@ describe('App Settings and the Libraries', () => {
 
     ui.toggleAgentLibrary()
 
-    expect(ui.appSettings).toBeNull()
+    expect(ui.appSettingsOpen).toBe(false)
     expect(ui.agentLibrary).toEqual({ agentId: 't1', sessionRef: 's1' })
   })
 
@@ -58,7 +58,7 @@ describe('App Settings and the Libraries', () => {
 
     ui.toggleModelManager()
 
-    expect(ui.appSettings).toBeNull()
+    expect(ui.appSettingsOpen).toBe(false)
     expect(ui.agentLibrary).toBeNull()
     expect(ui.frontmost).toBe('model')
   })
@@ -73,7 +73,7 @@ describe('App Settings and the Libraries', () => {
 
     ui.openModelManager()
 
-    expect(ui.appSettings).toBeNull()
+    expect(ui.appSettingsOpen).toBe(false)
     expect(ui.showModelManager).toBe(true)
   })
 
@@ -83,16 +83,8 @@ describe('App Settings and the Libraries', () => {
 
     ui.toggleAgentLibrary()
 
-    expect(ui.appSettings).toBeNull()
+    expect(ui.appSettingsOpen).toBe(false)
     expect(ui.agentLibrary).toEqual({})
-  })
-
-  it('opens App Settings at the requested section', () => {
-    const ui = useUIStore()
-
-    ui.openAppSettings('theme')
-
-    expect(ui.appSettings).toEqual({ section: { name: 'theme' } })
   })
 
   it('returns to the Session when App Settings closes', () => {
@@ -101,49 +93,76 @@ describe('App Settings and the Libraries', () => {
 
     ui.closeAppSettings()
 
-    expect(ui.appSettings).toBeNull()
+    expect(ui.appSettingsOpen).toBe(false)
     expect(ui.agentLibrary).toBeNull()
     expect(ui.showModelManager).toBe(false)
   })
+})
 
-  it('asks before a Library replaces App Settings holding unsaved changes', () => {
+describe('The theme panel', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('opens beside whatever is shown, leaving Libraries open', () => {
     const ui = useUIStore()
-    ui.openAppSettings()
-    const unsaved = holdUnsavedChanges(ui)
-
-    ui.openAgentLibrary({ agentId: 't1' })
-
-    expect(unsaved.asking).toBe(true)
-    expect(ui.appSettings).not.toBeNull()
-    expect(ui.agentLibrary).toBeNull()
-
-    unsaved.confirm()
-
-    expect(ui.appSettings).toBeNull()
-    expect(ui.agentLibrary).toEqual({ agentId: 't1' })
-  })
-
-  it('keeps App Settings open, with no Library, when leaving is cancelled', () => {
-    const ui = useUIStore()
-    ui.openAppSettings()
-    const unsaved = holdUnsavedChanges(ui)
-
-    ui.toggleModelManager()
-    unsaved.cancel()
-    ui.closeAppSettings()
-    unsaved.cancel()
-
-    expect(ui.appSettings).not.toBeNull()
-    expect(ui.showModelManager).toBe(false)
-  })
-
-  it('opens a Library without asking when App Settings is closed', () => {
-    const ui = useUIStore()
-    const unsaved = holdUnsavedChanges(ui)
-
     ui.openModelManager()
 
-    expect(unsaved.asking).toBe(false)
+    ui.openThemePanel()
+
+    expect(ui.themePanelOpen).toBe(true)
     expect(ui.showModelManager).toBe(true)
+  })
+
+  it('closes App Settings when opened from there', () => {
+    const ui = useUIStore()
+    ui.openAppSettings()
+
+    ui.openThemePanel()
+
+    expect(ui.appSettingsOpen).toBe(false)
+    expect(ui.themePanelOpen).toBe(true)
+  })
+
+  it('closes without asking when nothing is unsaved', () => {
+    const ui = useUIStore()
+    ui.openThemePanel()
+
+    ui.closeThemePanel()
+
+    expect(ui.themePanelOpen).toBe(false)
+  })
+
+  it('asks before closing with unsaved changes, and stays open when cancelled', () => {
+    const ui = useUIStore()
+    ui.openThemePanel()
+    const unsaved = holdUnsavedChanges(ui)
+
+    ui.closeThemePanel()
+
+    expect(unsaved.asking).toBe(true)
+    expect(ui.themePanelOpen).toBe(true)
+
+    unsaved.cancel()
+
+    expect(ui.themePanelOpen).toBe(true)
+  })
+
+  it('closes once discarding unsaved changes is confirmed', () => {
+    const ui = useUIStore()
+    ui.openThemePanel()
+    const unsaved = holdUnsavedChanges(ui)
+
+    ui.closeThemePanel()
+    unsaved.confirm()
+
+    expect(ui.themePanelOpen).toBe(false)
+  })
+
+  it('does not ask to close a panel that is not open', () => {
+    const ui = useUIStore()
+    const unsaved = holdUnsavedChanges(ui)
+
+    ui.closeThemePanel()
+
+    expect(unsaved.asking).toBe(false)
   })
 })

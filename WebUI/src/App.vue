@@ -100,7 +100,7 @@
       </TooltipProvider>
       <ThemeMenu
         :can-customize="globalSetup.loadingState === 'running'"
-        @customize="openAppSettings('theme')"
+        @customize="uiStore.openThemePanel()"
       />
       <button
         v-if="globalSetup.loadingState === 'running'"
@@ -201,63 +201,64 @@
     </div>
   </main>
 
-  <main
-    v-if="globalSetup.loadingState === 'running'"
-    class="flex-1 flex relative min-h-0"
-    :class="{
-      'bg-black/50': theme.baseTheme === 'lnl',
-      'bg-black/80': theme.baseTheme === 'bmg',
-      'border-t border-border': theme.baseTheme === 'dark',
-    }"
-  >
-    <SessionsPanel />
+  <div v-if="globalSetup.loadingState === 'running'" class="flex-1 flex min-h-0">
+    <main
+      class="flex-1 flex relative min-h-0 min-w-0"
+      :class="{
+        'bg-black/50': theme.baseTheme === 'lnl',
+        'bg-black/80': theme.baseTheme === 'bmg',
+        'border-t border-border': theme.baseTheme === 'dark',
+      }"
+    >
+      <SessionsPanel />
 
-    <SessionTabView>
-      <template #viewport>
-        <Chat v-if="showsThreadView" ref="threadView" />
-        <SessionTimeline v-else ref="timelineView" />
-        <PromptArea />
-      </template>
-      <template #inferencing>
-        <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="inferencing" />
-      </template>
-      <template #attributes>
-        <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="attributes" />
-      </template>
-      <template #artifacts>
-        <SessionArtifacts v-if="sessionTabs.shown === 'artifacts'" />
-      </template>
-      <template #schedules>
-        <SessionAgentSchedules v-if="sessionTabs.shown === 'schedules'" />
-      </template>
-    </SessionTabView>
+      <SessionTabView>
+        <template #viewport>
+          <Chat v-if="showsThreadView" ref="threadView" />
+          <SessionTimeline v-else ref="timelineView" />
+          <PromptArea />
+        </template>
+        <template #inferencing>
+          <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="inferencing" />
+        </template>
+        <template #attributes>
+          <ModeSettingsTab :mode="promptStore.getCurrentMode()" tab="attributes" />
+        </template>
+        <template #artifacts>
+          <SessionArtifacts v-if="sessionTabs.shown === 'artifacts'" />
+        </template>
+        <template #schedules>
+          <SessionAgentSchedules v-if="sessionTabs.shown === 'schedules'" />
+        </template>
+      </SessionTabView>
 
-    <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
+      <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
          decides, and the download / delete dialogs this view opens must be able
          to appear on top of it. -->
-    <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
-    <AgentLibrary v-else-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
-    <AppSettingsDialog
-      :is-visible="uiStore.appSettings !== null"
-      :section="uiStore.appSettings?.section"
-      @close="uiStore.closeAppSettings()"
-    />
-    <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
-    <preset-requirements-dialog
-      v-show="dialogStore.presetRequirementsDialogVisible"
-    ></preset-requirements-dialog>
-    <installation-progress-dialog
-      v-show="dialogStore.installationProgressDialogVisible"
-    ></installation-progress-dialog>
-    <MaskEditorDialog />
-    <CameraCaptureDialog />
+      <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
+      <AgentLibrary v-else-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
+      <AppSettingsDialog
+        :is-visible="uiStore.appSettingsOpen"
+        @close="uiStore.closeAppSettings()"
+      />
+      <download-dialog v-show="dialogStore.downloadDialogVisible"></download-dialog>
+      <preset-requirements-dialog
+        v-show="dialogStore.presetRequirementsDialogVisible"
+      ></preset-requirements-dialog>
+      <installation-progress-dialog
+        v-show="dialogStore.installationProgressDialogVisible"
+      ></installation-progress-dialog>
+      <MaskEditorDialog />
+      <CameraCaptureDialog />
 
-    <!-- Demo Mode Overlay -->
-    <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
-    <DemoModeNotificationDots />
-    <DemoModeAutoresetDialog v-if="demoMode.showResetDialog" />
-    <ContextualHelpLayer />
-  </main>
+      <!-- Demo Mode Overlay -->
+      <DemoModeOverlayDriverJsRef ref="demoModeOverlayDriverJs" />
+      <DemoModeNotificationDots />
+      <DemoModeAutoresetDialog v-if="demoMode.showResetDialog" />
+      <ContextualHelpLayer />
+    </main>
+    <ThemePanel v-if="uiStore.themePanelOpen && !demoMode.enabled" />
+  </div>
 
   <footer
     class="flex-none px-4 py-1 flex justify-end items-center gap-4 text-xs text-muted-foreground select-none"
@@ -333,9 +334,10 @@ import SessionArtifacts from '@/components/SessionArtifacts.vue'
 import SessionAgentSchedules from '@/components/SessionAgentSchedules.vue'
 import AppSettingsDialog from '@/components/AppSettingsDialog.vue'
 import ThemeMenu from '@/components/ThemeMenu.vue'
+import ThemePanel from '@/components/ThemePanel.vue'
 import { useDialogStore } from '@/assets/js/store/dialogs.ts'
 import { usePromptStore } from '@/assets/js/store/promptArea.ts'
-import { useUIStore, type AppSettingsSection } from '@/assets/js/store/ui.ts'
+import { useUIStore } from '@/assets/js/store/ui.ts'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import * as toast from '@/assets/js/toast'
 import DemoModeOverlayDriverJsRef from './components/DemoModeOverlayDriverJs.vue'
@@ -354,9 +356,9 @@ import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 
 const theme = useTheme()
 
-// Built-in Theme colours come from the stylesheet; only a Custom Theme overrides them on the root.
+// Built-in Theme colours come from the stylesheet; anything else the store applies overrides them.
 watch(
-  () => (theme.activeCustomTheme ? theme.activeColors : null),
+  () => theme.appliedColors,
   (colors) => {
     const root = document.documentElement
     for (const token of theme.colorTokens)
@@ -379,6 +381,16 @@ const oemBranding = useOemBranding()
 const agentMode = useAgentMode()
 const sessions = useSessions()
 const sessionTabs = useSessionTabs()
+
+// A kiosk never keeps an editor open, nor a half-made theme applied.
+watch(
+  () => demoMode.enabled,
+  (enabled) => {
+    if (!enabled) return
+    theme.discardDraft()
+    uiStore.closeThemePanel()
+  },
+)
 
 // Assistant sessions can notify over Channels; the games presets cannot.
 const showChannelsToggle = computed(() => {
@@ -513,13 +525,13 @@ function openDevTools() {
   window.electronAPI.openDevTools()
 }
 
-function openAppSettings(section?: AppSettingsSection) {
+function openAppSettings() {
   if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
-  uiStore.openAppSettings(section)
+  uiStore.openAppSettings()
 }
 
 function toggleAppSettings() {
-  if (uiStore.appSettings) uiStore.closeAppSettings()
+  if (uiStore.appSettingsOpen) uiStore.closeAppSettings()
   else openAppSettings()
 }
 

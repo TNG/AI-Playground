@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2">
-    <p v-if="realShell" class="text-xs text-amber-500">
+    <p v-if="realShell" class="text-xs text-warning">
       {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE }}
     </p>
     <ul
@@ -62,7 +62,7 @@
         {{ languages.AGENT_SETTINGS_MOUNTED_FOLDER_ADD }}
       </Button>
     </div>
-    <p v-if="refusalText" role="alert" class="text-xs text-amber-500">{{ refusalText }}</p>
+    <p v-if="refusalText" role="alert" class="text-xs text-warning">{{ refusalText }}</p>
   </div>
 </template>
 

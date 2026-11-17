@@ -18,9 +18,36 @@ export const themeTokens = [
   'border',
   'input',
   'ring',
+  'warning',
+  'success',
 ] as const
 
 export type ThemeToken = (typeof themeTokens)[number]
+
+/** Each colour's readable name in the theme editor. */
+export const colorLabelKeys: Record<ThemeToken, string> = {
+  background: 'SETTINGS_THEME_MAIN_BACKGROUND',
+  foreground: 'SETTINGS_THEME_MAIN_TEXT',
+  card: 'SETTINGS_THEME_MAIN_PANELS',
+  'card-foreground': 'SETTINGS_THEME_COLOR_PANEL_TEXT',
+  popover: 'SETTINGS_THEME_COLOR_POPOVER',
+  'popover-foreground': 'SETTINGS_THEME_COLOR_POPOVER_TEXT',
+  primary: 'SETTINGS_THEME_MAIN_ACCENT',
+  'primary-foreground': 'SETTINGS_THEME_MAIN_ACCENT_TEXT',
+  ring: 'SETTINGS_THEME_COLOR_RING',
+  muted: 'SETTINGS_THEME_COLOR_MUTED',
+  'muted-foreground': 'SETTINGS_THEME_COLOR_MUTED_TEXT',
+  secondary: 'SETTINGS_THEME_COLOR_SECONDARY',
+  'secondary-foreground': 'SETTINGS_THEME_COLOR_SECONDARY_TEXT',
+  accent: 'SETTINGS_THEME_COLOR_HOVER',
+  'accent-foreground': 'SETTINGS_THEME_COLOR_HOVER_TEXT',
+  border: 'SETTINGS_THEME_COLOR_BORDER',
+  input: 'SETTINGS_THEME_COLOR_INPUT',
+  destructive: 'SETTINGS_THEME_COLOR_DANGER',
+  'destructive-foreground': 'SETTINGS_THEME_COLOR_DANGER_TEXT',
+  warning: 'SETTINGS_THEME_COLOR_WARNING',
+  success: 'SETTINGS_THEME_COLOR_SUCCESS',
+}
 
 /** Space-separated HSL channels, read by the stylesheet as `hsl(var(--token))`. */
 export type ThemeColors = Record<ThemeToken, string>
@@ -48,6 +75,8 @@ const purpleDark = {
   border: '280 30% 18%',
   input: '280 30% 18%',
   ring: '280 98.4% 50.6%',
+  warning: '47 100% 59.4%',
+  success: '161.3 100% 41.6%',
 } satisfies Partial<ThemeColors>
 
 export const builtInThemes: readonly BuiltInTheme[] = [
@@ -84,6 +113,8 @@ export const builtInThemes: readonly BuiltInTheme[] = [
       border: '209 30% 25%',
       input: '209 30% 25%',
       ring: '209 100% 60%',
+      warning: '30.1 100% 44.1%',
+      success: '160 100% 30%',
     },
   },
   {
@@ -94,6 +125,8 @@ export const builtInThemes: readonly BuiltInTheme[] = [
       background: '280 50% 10%',
       card: '280 50% 3%',
       popover: '280 50% 5%',
+      warning: '30.1 100% 44.1%',
+      success: '160 100% 30%',
     },
   },
   {
@@ -119,6 +152,8 @@ export const builtInThemes: readonly BuiltInTheme[] = [
       border: '214.3 31.8% 91.4%',
       input: '214.3 31.8% 91.4%',
       ring: '209 100% 60%',
+      warning: '30.1 100% 44.1%',
+      success: '160 100% 30%',
     },
   },
 ]

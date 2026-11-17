@@ -82,7 +82,7 @@
         >
           {{ languages.AGENT_SETTINGS_REAL_SHELL_UNREACHABLE }}
         </p>
-        <p v-if="agentMode.unsandboxed" class="text-xs text-amber-500">
+        <p v-if="agentMode.unsandboxed" class="text-xs text-warning">
           {{
             languages.AGENT_SETTINGS_REAL_SHELL_WARNING.replace('{folder}', agentMode.workspaceDir)
           }}
@@ -170,7 +170,7 @@
         <p
           v-for="serverId in missingMcpServers"
           :key="serverId"
-          class="text-xs text-amber-500 rounded-sm ring-1 ring-amber-500 px-2 py-1"
+          class="text-xs text-warning rounded-sm ring-1 ring-warning px-2 py-1"
         >
           {{ describeMissingMcpServer(serverId) }}
         </p>
@@ -181,7 +181,7 @@
         />
       </section>
 
-      <p v-if="!template" class="text-xs text-amber-500">
+      <p v-if="!template" class="text-xs text-warning">
         {{ languages.AGENT_SETTINGS_NEXT_TURN }}
       </p>
 

@@ -8,7 +8,7 @@
         v-if="settingsProblems.length > 0"
         role="alert"
         :aria-label="settingsProblemsLabel"
-        class="w-full text-sm text-amber-500 flex flex-col gap-1"
+        class="w-full text-sm text-warning flex flex-col gap-1"
       >
         <p>{{ settingsProblemsNote }}</p>
         <p v-for="problem in settingsProblems" :key="`${problem.field}:${problem.value}`">
@@ -67,7 +67,7 @@
                 side="top"
                 align="start"
                 :side-offset="10"
-                class="z-[40010] w-auto min-w-0 rounded-xl border-[1.5px] border-[var(--demo-popover-border)] bg-[var(--demo-popover-bg)] p-3 text-[var(--demo-text-color)] shadow-[0px_0.75px_4.95px_var(--demo-popover-shadow)] dark:border-[var(--demo-popover-border)] dark:bg-[var(--demo-popover-bg)] dark:text-[var(--demo-text-color)]"
+                class="z-[40010] w-auto min-w-0 rounded-xl border-[1.5px] border-[var(--demo-popover-border)] bg-[var(--demo-popover-bg)] p-3 text-[var(--demo-text-color)] shadow-[0px_0.75px_4.95px_var(--demo-popover-shadow)]"
                 @open-auto-focus.prevent
               >
                 <div @mousedown.prevent @touchstart.prevent>
@@ -104,7 +104,7 @@
             :class="{ 'pointer-events-none opacity-50': downloadGroup }"
             :aria-disabled="!!downloadGroup"
           >
-            <p v-if="!sttAvailable" class="text-sm text-amber-500">
+            <p v-if="!sttAvailable" class="text-sm text-warning">
               <template v-if="productModeStore.isNvidiaModeSelected">
                 Install the standalone Whisper backend from Settings → Installation Management, or
                 set an external transcription endpoint in this preset's settings, to transcribe

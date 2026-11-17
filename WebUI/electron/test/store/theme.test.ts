@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick, reactive } from 'vue'
 import { useTheme } from '@/assets/js/store/theme'
+import { advancedRowContrast } from '@/lib/themeAdvancedGroups'
+import {
+  compositeOver,
+  contrastRatio,
+  MIN_CONTRAST_RATIO,
+  textChoiceHex,
+} from '@/lib/themeContrast'
 import type { AppError } from '@/assets/js/errors/types'
+import type { ThemeToken } from '@/lib/builtInThemes'
 import english from '@/assets/i18n/en-US.json'
 
 const storedSections = vi.hoisted(() => ({ value: {} as Record<string, unknown> }))
@@ -42,6 +50,25 @@ beforeEach(() => {
     removeEventListener: () => {},
   }
 })
+
+type ThemeStore = ReturnType<typeof useTheme>
+
+/** An untouched copy of a Built-in Theme, as the old Customize stored one, selected. */
+function storedCopyOf(theme: ThemeStore, from = theme.baseTheme ?? 'light'): string {
+  theme.selectTheme(from)
+  const source = theme.builtInThemes.find((t) => t.id === from)
+  const id = `custom-${crypto.randomUUID()}`
+  const copy = {
+    id,
+    name: `${source?.name} (custom)`,
+    baseTheme: from,
+    mode: 'simple' as const,
+    colors: { ...theme.activeHexColors },
+  }
+  theme.customThemes = [...theme.validCustomThemes, copy]
+  theme.selectTheme(id)
+  return id
+}
 
 describe('Base Theme', () => {
   it.each(['dark', 'lnl', 'bmg', 'light'] as const)('a Built-in Theme %s is its own', (id) => {
@@ -97,66 +124,116 @@ describe('Built-in Themes', () => {
       for (const value of Object.values(t.colors)) expect(value).toMatch(/^[\d.]+ [\d.]+% [\d.]+%$/)
     }
   })
+
+  // Tailwind's amber-300 / emerald-400 on Dark and amber-600 / emerald-600 elsewhere, in sRGB.
+  it.each([
+    ['dark', '#ffd230', '#00d492'],
+    ['lnl', '#e17100', '#009966'],
+    ['bmg', '#e17100', '#009966'],
+    ['light', '#e17100', '#009966'],
+  ] as const)(
+    '%s keeps the warning and success shades it showed before',
+    (id, warning, success) => {
+      const theme = useTheme()
+      theme.selectTheme(id)
+      expect(theme.activeHexColors).toMatchObject({ warning, success })
+    },
+  )
 })
 
-describe('Customize', () => {
-  it('creates a selected Custom Theme named after its Base Theme, in hex', () => {
+describe('Editing a Built-in Theme', () => {
+  it('edits its own colours live in Simple mode, storing nothing', async () => {
     const theme = useTheme()
+    await theme.init()
     theme.selectTheme('dark')
-    const id = theme.customize()
-    expect(theme.active).toBe(id)
-    expect(theme.activeCustomTheme).toMatchObject({ id, name: 'Dark (custom)', baseTheme: 'dark' })
-    expect(theme.activeCustomTheme?.colors.background).toBe('#0f0613')
-    expect(theme.baseTheme).toBe('dark')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    writes = []
+    expect(theme.editingMode).toBe('simple')
+    expect(theme.draftHexColors.background).toBe('#0f0613')
+    expect(theme.setColor('card', '#123456')).toBe(true)
+    expect(theme.hasUnsavedChanges).toBe(true)
+    expect(theme.appliedHexColors.card).toBe('#123456')
+    expect(theme.active).toBe('dark')
+    expect(theme.validCustomThemes).toHaveLength(0)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(writes).toEqual([])
   })
 
-  it('numbers a second copy, taking the lowest free number', () => {
-    const theme = useTheme()
-    theme.customize('lnl')
-    const second = theme.customize('lnl')
-    theme.customize('lnl')
-    expect(theme.validCustomThemes.map((t) => t.name)).toEqual([
-      'Intel® Core™ Ultra (custom)',
-      'Intel® Core™ Ultra (custom 2)',
-      'Intel® Core™ Ultra (custom 3)',
-    ])
-    theme.customThemes = theme.customThemes.filter((t) => t.id !== second)
-    theme.customize('lnl')
-    expect(theme.activeCustomTheme?.name).toBe('Intel® Core™ Ultra (custom 2)')
-  })
-
-  it('keeps the Base Theme decorations of an Intel® Arc™ copy', () => {
+  it('saving creates and selects a Custom Theme with its Base Theme, Editing Mode and colours', () => {
     const theme = useTheme()
     theme.selectTheme('bmg')
-    theme.customize()
+    theme.setEditingMode('advanced')
+    theme.setColor('border', '#abcdef')
+    const edited = { ...theme.draftHexColors }
+    expect(theme.saveDraft()).toBe(true)
+    expect(theme.validCustomThemes).toHaveLength(1)
+    expect(theme.activeCustomTheme).toMatchObject({
+      name: 'Intel® Arc™ (custom)',
+      baseTheme: 'bmg',
+      mode: 'advanced',
+      colors: edited,
+    })
+    expect(theme.active).toBe(theme.activeCustomTheme?.id)
     expect(theme.baseTheme).toBe('bmg')
+    expect(theme.hasUnsavedChanges).toBe(false)
+    expect(theme.builtInThemes[2].colors.border).not.toBe('#abcdef')
+  })
+
+  it('holds an unreadable draft, keeping the last readable look, and refuses to save it', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    theme.setColor('background', '#202020')
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.held).toBe(true)
+    expect(theme.holdMessage).not.toBe('')
+    expect(theme.appliedHexColors.background).toBe('#202020')
+    expect(theme.saveDraft()).toBe(false)
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.held).toBe(false)
+  })
+
+  it('discarding creates nothing and gives back the Built-in look', () => {
+    const theme = useTheme()
+    theme.selectTheme('light')
+    theme.setEditingMode('advanced')
+    theme.setColor('border', '#ff0000')
+    theme.setNewThemeName('Mine')
+    theme.discardDraft()
+    expect(theme.validCustomThemes).toHaveLength(0)
+    expect(theme.active).toBe('light')
+    expect(theme.editingMode).toBe('simple')
+    expect(theme.appliedColors).toBeNull()
+    expect(theme.newThemeName).toBe('Light (custom)')
+  })
+
+  it('asks before a theme switch drops its unsaved edits', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    theme.setColor('card', '#123456')
+    theme.guardUnsaved(() => theme.selectTheme('light'))
+    expect(theme.discardPending).toBe(true)
+    expect(theme.active).toBe('dark')
+    theme.confirmDiscard()
+    expect(theme.active).toBe('light')
+    expect(theme.validCustomThemes).toHaveLength(0)
   })
 })
 
 describe('Editing a draft', () => {
   it('keeps a colour edit in the draft, changing nothing until saved', () => {
     const theme = useTheme()
-    theme.selectTheme('light')
+    storedCopyOf(theme, 'light')
+    const saved = theme.activeHexColors.primary
     expect(theme.setColor('primary', '#FF0000')).toBe(true)
     expect(theme.draftHexColors.primary).toBe('#ff0000')
     expect(theme.hasUnsavedChanges).toBe(true)
-    expect(theme.active).toBe('light')
-    expect(theme.validCustomThemes).toHaveLength(0)
-  })
-
-  it('saving a draft of a Built-in Theme creates and selects a copy', () => {
-    const theme = useTheme()
-    theme.selectTheme('light')
-    theme.setColor('primary', '#0000ff')
-    expect(theme.saveDraft()).toBe(true)
-    expect(theme.activeCustomTheme).toMatchObject({ name: 'Light (custom)', baseTheme: 'light' })
-    expect(theme.activeHexColors.primary).toBe('#0000ff')
-    expect(theme.hasUnsavedChanges).toBe(false)
+    expect(theme.activeHexColors.primary).toBe(saved)
   })
 
   it('saving a draft of a Custom Theme updates it in place, applied as an HSL triplet', () => {
     const theme = useTheme()
-    theme.customize('dark')
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
     theme.setColor('ring', '#00ff00')
     theme.setColor('ring', '#0000ff')
     expect(theme.saveDraft()).toBe(true)
@@ -165,23 +242,24 @@ describe('Editing a draft', () => {
     expect(theme.activeHexColors.primary).toBe('#aa05fd')
   })
 
-  it('discarding drops the draft and creates nothing', () => {
+  it('discarding drops the draft', () => {
     const theme = useTheme()
-    theme.selectTheme('bmg')
-    theme.setColor('border', '#123456')
+    storedCopyOf(theme, 'bmg')
+    theme.setColor('card', '#123456')
     theme.discardDraft()
     expect(theme.hasUnsavedChanges).toBe(false)
-    expect(theme.draftHexColors.border).toBe(theme.activeHexColors.border)
+    expect(theme.draftHexColors.card).toBe(theme.activeHexColors.card)
     expect(theme.saveDraft()).toBe(false)
-    expect(theme.validCustomThemes).toHaveLength(0)
   })
 
   it('an edit back to the saved colour leaves nothing unsaved', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
-    const saved = theme.activeHexColors.border
-    theme.setColor('border', '#123456')
-    theme.setColor('border', saved)
+    storedCopyOf(theme, 'dark')
+    theme.setColor('background', '#101820')
+    theme.saveDraft()
+    const saved = theme.activeHexColors.card
+    theme.setColor('card', '#123456')
+    theme.setColor('card', saved)
     expect(theme.hasUnsavedChanges).toBe(false)
   })
 
@@ -199,53 +277,180 @@ describe('Editing a draft', () => {
 
   it('ignores a value that is not #rrggbb', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
+    storedCopyOf(theme, 'dark')
     expect(theme.setColor('primary', 'red')).toBe(false)
-    expect(theme.setRoleColor('accent', '#12345')).toBe(false)
+    expect(theme.setColor('foreground', '#12345')).toBe(false)
     expect(theme.hasUnsavedChanges).toBe(false)
   })
 })
 
-describe('Colour roles', () => {
-  it('sets every token a role maps to and no other', () => {
+const mainColors = ['background', 'card', 'foreground', 'primary', 'primary-foreground'] as const
+
+/** What Simple mode must hold whatever the Main Colours: the copies and the shared shades. */
+function expectDerivedFromMainColours(colors: Record<string, string>) {
+  expect(colors).toMatchObject({
+    'card-foreground': colors.foreground,
+    'popover-foreground': colors.foreground,
+    'secondary-foreground': colors.foreground,
+    'accent-foreground': colors.foreground,
+    popover: colors.background,
+    ring: colors.primary,
+    input: colors.border,
+  })
+}
+
+describe('Simple mode', () => {
+  it('an unchanged Custom Theme matches its Built-in Theme exactly, in Simple mode', () => {
+    const theme = useTheme()
+    theme.selectTheme('lnl')
+    const shipped = { ...theme.activeHexColors }
+    storedCopyOf(theme)
+    expect(theme.activeCustomTheme?.mode).toBe('simple')
+    expect(theme.editingMode).toBe('simple')
+    expect(theme.activeHexColors).toEqual(shipped)
+  })
+
+  it('the first Main Colour edit recalculates every Derived Colour and no other Main Colour', () => {
     const theme = useTheme()
     theme.selectTheme('dark')
     const shipped = { ...theme.activeHexColors }
-    theme.setRoleColor('panels', '#223344')
-    theme.setRoleColor('accent', '#00aa55')
-    expect(theme.draftHexColors).toEqual({
-      ...shipped,
-      card: '#223344',
-      popover: '#223344',
-      primary: '#00aa55',
-      ring: '#00aa55',
-    })
+    storedCopyOf(theme)
+    expect(theme.setColor('background', '#101820')).toBe(true)
+    const draft = theme.draftHexColors
+    expect(draft.background).toBe('#101820')
+    for (const token of mainColors.slice(1)) expect(draft[token]).toBe(shipped[token])
+    expectDerivedFromMainColours(draft)
+    for (const token of ['muted', 'muted-foreground', 'border', 'secondary', 'accent'] as const)
+      expect(draft[token]).not.toBe(shipped[token])
+    expect(draft['secondary-foreground']).toBe('#e6e4e7')
   })
 
-  it('fixes button text from the roles alone after a light accent', () => {
+  it.each([
+    ['dark', 4],
+    ['lnl', 10],
+    ['bmg', 10],
+    ['light', 10],
+  ] as const)('recalculates the secondary text of %s within %i per channel', (id, tolerance) => {
     const theme = useTheme()
-    theme.selectTheme('dark')
-    theme.setRoleColor('accent', '#ffee88')
-    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'primary-foreground' })
-    theme.setRoleColor('accentText', '#222222')
-    expect(theme.draftHexColors).toMatchObject({
-      'primary-foreground': '#222222',
-    })
-    expect(theme.canSave).toBe(true)
+    storedCopyOf(theme, id)
+    const shipped = theme.draftHexColors['muted-foreground']
+    theme.setColor('background', theme.draftHexColors.background)
+    const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+    const derived = channels(theme.draftHexColors['muted-foreground'])
+    const gap = Math.max(...channels(shipped).map((c, i) => Math.abs(c - derived[i])))
+    expect(gap).toBeLessThanOrEqual(tolerance)
   })
 
-  it('leaves the text alone when a background changes, so edits work in any order', () => {
+  it('mixes the secondary text, subtle surfaces and border from Background towards Text', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
-    const text = theme.activeHexColors.foreground
-    theme.setRoleColor('background', '#ffffff')
-    expect(theme.draftHexColors.foreground).toBe(text)
-    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'foreground' })
-    expect(theme.canSave).toBe(false)
-    theme.setRoleColor('text', '#111111')
-    expect(theme.canSave).toBe(true)
+    storedCopyOf(theme, 'light')
+    theme.setColor('background', '#ffffff')
+    theme.setColor('foreground', '#000000')
+    const { muted, accent, secondary, border } = theme.draftHexColors
+    const grey = (hex: string) => parseInt(hex.slice(1, 3), 16)
+    // Further from the background the further towards the text, and each a neutral grey.
+    expect(grey(secondary)).toBeGreaterThanOrEqual(grey(muted))
+    expect(grey(muted)).toBeGreaterThan(grey(border))
+    expect(grey(border)).toBeGreaterThan(grey(theme.draftHexColors['muted-foreground']))
+    expect(accent).toBe(muted)
+    for (const hex of [muted, secondary, border]) expect(hex).toMatch(/^#(..)\1\1$/)
+  })
+
+  it('gives the same colours for the same Main Colours whatever the edit order', () => {
+    const picks = {
+      background: '#f4efe6',
+      card: '#ffffff',
+      foreground: '#2b2118',
+      primary: '#c2410c',
+      'primary-foreground': '#ffffff',
+    }
+    const results = [mainColors, [...mainColors].reverse()].map((order) => {
+      setActivePinia(createPinia())
+      const theme = useTheme()
+      storedCopyOf(theme, order === mainColors ? 'dark' : 'lnl')
+      for (const token of order) theme.setColor(token, picks[token])
+      return { ...theme.draftHexColors }
+    })
+    expect(results[0]).toEqual(results[1])
+    expect(results[0]).toMatchObject(picks)
+  })
+
+  it.each([
+    ['#0b0b10', { warning: '#ffd230', success: '#00d492', destructive: '#990000' }],
+    ['#fafafa', { warning: '#e17100', success: '#009966', destructive: '#ef4444' }],
+  ])('picks Danger, Warning and Success for a Background of %s', (background, shades) => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'bmg')
+    theme.setColor('foreground', '#777777')
+    theme.setColor('background', background)
+    expect(theme.draftHexColors).toMatchObject(shades)
+  })
+
+  it('accepts only Main Colours', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    expect(theme.setColor('border', '#123456')).toBe(false)
+    expect(theme.hasUnsavedChanges).toBe(false)
+  })
+})
+
+describe('Advanced mode', () => {
+  it('an edit changes exactly one colour', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
+    const before = { ...theme.draftHexColors }
+    theme.setColor('background', '#223344')
+    theme.setColor('border', '#00aa55')
+    expect(theme.draftHexColors).toEqual({ ...before, background: '#223344', border: '#00aa55' })
+  })
+
+  it('switching from Simple changes no colour and counts as an unsaved change', () => {
+    const theme = useTheme()
+    const id = storedCopyOf(theme, 'dark')
+    theme.setColor('background', '#101820')
+    theme.saveDraft()
+    const saved = { ...theme.activeHexColors }
+    theme.setEditingMode('advanced')
+    expect(theme.editingMode).toBe('advanced')
+    expect(theme.draftHexColors).toEqual(saved)
+    expect(theme.hasUnsavedChanges).toBe(true)
     expect(theme.saveDraft()).toBe(true)
-    expect(theme.activeHexColors).toMatchObject({ background: '#ffffff', foreground: '#111111' })
+    expect(theme.validCustomThemes.find((t) => t.id === id)?.mode).toBe('advanced')
+  })
+
+  it('Discard undoes a mode switch', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
+    theme.discardDraft()
+    expect(theme.editingMode).toBe('simple')
+    expect(theme.hasUnsavedChanges).toBe(false)
+  })
+
+  it('switching back lists exactly the colours set by hand, and recalculates them', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setColor('background', '#101820')
+    theme.setEditingMode('advanced')
+    expect(theme.simpleModeRecalculates).toEqual([])
+    const derived = { ...theme.draftHexColors }
+    theme.setColor('border', '#ff0000')
+    theme.setColor('ring', '#00ff00')
+    theme.setColor('card', '#000000')
+    expect(theme.simpleModeRecalculates).toEqual(['border', 'ring'])
+    theme.setEditingMode('simple')
+    expect(theme.editingMode).toBe('simple')
+    expect(theme.draftHexColors).toEqual({ ...derived, card: '#000000' })
+    expect(theme.simpleModeRecalculates).toEqual([])
+  })
+
+  it('an unchanged Custom Theme lists the Built-in colours a recalculation would change', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'light')
+    theme.setEditingMode('advanced')
+    expect(theme.simpleModeRecalculates).toContain('muted-foreground')
+    expect(theme.simpleModeRecalculates).not.toContain('background')
   })
 })
 
@@ -254,7 +459,8 @@ describe('Persistence', () => {
     const theme = useTheme()
     await theme.init()
     theme.selectTheme('lnl')
-    const id = theme.customize()
+    const id = storedCopyOf(theme)
+    theme.setEditingMode('advanced')
     theme.setColor('border', '#abcdef')
     theme.saveDraft()
     await new Promise((resolve) => setTimeout(resolve, 400))
@@ -263,8 +469,14 @@ describe('Persistence', () => {
     const value = last?.value as { selected: string; customThemes: Record<string, unknown>[] }
     expect(value.selected).toBe(id)
     expect(value.customThemes).toHaveLength(1)
-    expect(Object.keys(value.customThemes[0]).sort()).toEqual(['baseTheme', 'colors', 'id', 'name'])
-    expect(value.customThemes[0]).toMatchObject({ id, baseTheme: 'lnl' })
+    expect(Object.keys(value.customThemes[0]).sort()).toEqual([
+      'baseTheme',
+      'colors',
+      'id',
+      'mode',
+      'name',
+    ])
+    expect(value.customThemes[0]).toMatchObject({ id, baseTheme: 'lnl', mode: 'advanced' })
     const colors = value.customThemes[0].colors as Record<string, string>
     expect(Object.keys(colors).sort()).toEqual([...theme.colorTokens].sort())
     expect(colors.border).toBe('#abcdef')
@@ -273,7 +485,7 @@ describe('Persistence', () => {
   it('loads a saved Custom Theme selection after a restart', async () => {
     const theme = useTheme()
     theme.selectTheme('bmg')
-    const id = theme.customize()
+    const id = storedCopyOf(theme)
     theme.setColor('background', '#000000')
     theme.saveDraft()
     storedSections.value = {
@@ -288,67 +500,278 @@ describe('Persistence', () => {
   })
 })
 
-describe('Readability guard', () => {
-  it('names the unreadable pair of a draft and refuses to save it', () => {
+describe('Way Back', () => {
+  it('holds a draft whose menu text is unreadable, and refuses to save it', () => {
     const theme = useTheme()
-    theme.customize('dark')
+    storedCopyOf(theme, 'dark')
     theme.setColor('background', '#e0e0e0')
     expect(theme.draftVerdict).toMatchObject({
       readable: false,
-      text: 'foreground',
-      background: 'background',
+      text: 'popover-foreground',
+      background: 'popover',
     })
-    expect(theme.draftWarning).toContain('main text')
+    expect(theme.holdMessage).toContain('text in menus and popups')
     expect(theme.saveDraft()).toBe(false)
     expect(theme.activeHexColors.background).not.toBe('#e0e0e0')
   })
 
-  it('clears the warning as soon as the draft is readable again', () => {
+  it('holds a draft whose highlighted menu item is unreadable, naming that pair', () => {
     const theme = useTheme()
-    theme.customize('dark')
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
+    theme.setColor('accent', theme.draftHexColors['accent-foreground'])
+    expect(theme.draftVerdict).toMatchObject({
+      readable: false,
+      text: 'accent-foreground',
+      background: 'accent',
+    })
+    expect(theme.holdMessage).toContain('the highlighted item in menus')
+    expect(theme.saveDraft()).toBe(false)
+  })
+
+  it('leaves menu text that is hard to read but still legible to the user', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
+    theme.setColor('popover', '#000000')
+    theme.setColor('popover-foreground', '#303030')
+    expect(contrastRatio('#303030', '#000000')).toBeLessThan(MIN_CONTRAST_RATIO)
+    expect(theme.draftVerdict).toEqual({ readable: true })
+    expect(theme.saveDraft()).toBe(true)
+  })
+
+  it('neither holds nor blocks Save for unreadable text on the background', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
+    theme.setColor('foreground', theme.draftHexColors.background)
+    expect(theme.draftVerdict).toEqual({ readable: true })
+    expect(theme.appliedHexColors.foreground).toBe(theme.draftHexColors.background)
+    expect(theme.saveDraft()).toBe(true)
+    expect(theme.activeHexColors.foreground).toBe(theme.activeHexColors.background)
+  })
+
+  it('holds a draft whose popup text is unreadable, naming that pair', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setEditingMode('advanced')
+    theme.setColor('popover', theme.draftHexColors['popover-foreground'])
+    expect(theme.draftVerdict).toMatchObject({
+      readable: false,
+      text: 'popover-foreground',
+      background: 'popover',
+    })
+    expect(theme.holdMessage).toContain('text in menus and popups')
+    expect(theme.canSave).toBe(false)
+  })
+
+  it('clears the notice as soon as the draft is readable again', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
     theme.setColor('background', '#e0e0e0')
     theme.setColor('background', '#101010')
-    expect(theme.draftWarning).toBe('')
+    expect(theme.holdMessage).toBe('')
     expect(theme.canSave).toBe(true)
   })
 
-  it('accepts text down to 2:1 and refuses it below', () => {
+  it('accepts text down to 1.1:1 and holds it below', () => {
     const theme = useTheme()
-    theme.selectTheme('light')
-    theme.setColor('foreground', '#b3b3b3')
+    storedCopyOf(theme, 'light')
+    theme.setColor('foreground', '#f0f0f0')
     expect(theme.canSave).toBe(true)
-    theme.setColor('foreground', '#bbbbbb')
+    theme.setColor('foreground', '#f8f8f8')
     expect(theme.canSave).toBe(false)
-    expect(theme.draftWarning).toBe(
-      "Can't save: main text would be hard to read (contrast 1.91:1).",
+    expect(theme.holdMessage).toBe(
+      'Not applied yet: this change would make text in menus and popups unreadable (contrast 1.06:1).',
     )
   })
 
-  it('holds every Built-in Theme to the same minimum, whatever it ships', () => {
+  it('only warns about accent text below the minimum: it neither holds nor blocks Save', () => {
     const theme = useTheme()
-    theme.selectTheme('light')
-    theme.setColor('primary', '#66b3ff')
-    expect(theme.canSave).toBe(true)
+    storedCopyOf(theme, 'light')
     theme.setColor('primary', '#80c0ff')
-    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'primary-foreground' })
+    expect(theme.draftVerdict).toEqual({ readable: true })
+    const accentRow = { surface: 'primary', text: 'primary-foreground', sample: 'text' } as const
+    expect(advancedRowContrast(accentRow, theme.draftHexColors)?.readable).toBe(false)
+    expect(theme.appliedHexColors.primary).toBe('#80c0ff')
+    expect(theme.canSave).toBe(true)
+    expect(theme.saveDraft()).toBe(true)
   })
 
-  it('a reset drops the draft and its warning', () => {
+  it('a reset drops the draft and its notice', () => {
     const theme = useTheme()
-    const id = theme.customize('dark')
+    const id = storedCopyOf(theme, 'dark')
     theme.setColor('background', '#e0e0e0')
     theme.resetCustomTheme(id)
     expect(theme.hasUnsavedChanges).toBe(false)
-    expect(theme.draftWarning).toBe('')
+    expect(theme.holdMessage).toBe('')
   })
 
   it('switching theme drops the draft', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
+    storedCopyOf(theme, 'dark')
     theme.setColor('background', '#e0e0e0')
     theme.selectTheme('light')
     expect(theme.hasUnsavedChanges).toBe(false)
-    expect(theme.draftWarning).toBe('')
+    expect(theme.holdMessage).toBe('')
+  })
+})
+
+describe('Live editing', () => {
+  it('applies the saved theme while there is no draft', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    expect(theme.appliedHexColors).toEqual(theme.activeHexColors)
+    expect(theme.appliedColors).toBeNull()
+    storedCopyOf(theme, 'dark')
+    expect(theme.appliedHexColors).toEqual(theme.activeHexColors)
+    expect(theme.appliedColors).toEqual(theme.activeColors)
+  })
+
+  it('applies a readable draft as it is edited', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setColor('card', '#123456')
+    expect(theme.appliedHexColors.card).toBe('#123456')
+    expect(theme.appliedColors?.card).toBe('210 65.4% 20.4%')
+    expect(theme.activeHexColors.card).not.toBe('#123456')
+  })
+
+  it('keeps the last readable state while the draft is unreadable', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setColor('background', '#202020')
+    const lastReadable = { ...theme.appliedHexColors }
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.held).toBe(true)
+    expect(theme.draftVerdict).toMatchObject({ readable: false, text: 'popover-foreground' })
+    expect(theme.draftHexColors.background).toBe('#e0e0e0')
+    expect(theme.appliedHexColors).toEqual(lastReadable)
+    expect(lastReadable.background).toBe('#202020')
+  })
+
+  it('keeps the saved theme when no edit has been readable yet', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    const saved = { ...theme.activeHexColors }
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.appliedHexColors).toEqual(saved)
+  })
+
+  it('applies the draft again as soon as it is readable', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setColor('background', '#e0e0e0')
+    theme.setColor('foreground', '#101010')
+    expect(theme.held).toBe(false)
+    expect(theme.appliedHexColors).toMatchObject({ background: '#e0e0e0', foreground: '#101010' })
+  })
+
+  it('offers black or white text, whichever reads, and never applies it unasked', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setColor('background', theme.draftHexColors.foreground)
+    expect(theme.holdFix).toEqual({ text: 'foreground', choice: 'black' })
+    expect(theme.draftHexColors.foreground).not.toBe('#000000')
+    storedCopyOf(theme, 'light')
+    theme.setColor('background', theme.draftHexColors.foreground)
+    expect(theme.holdFix).toEqual({ text: 'foreground', choice: 'white' })
+  })
+
+  it('the fix in Simple mode sets Text and derives the rest, and the result is applied', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'light')
+    theme.setColor('background', theme.draftHexColors.foreground)
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.held).toBe(false)
+    expect(theme.holdFix).toBeNull()
+    expect(theme.draftHexColors).toMatchObject({
+      foreground: '#ffffff',
+      'popover-foreground': '#ffffff',
+    })
+    expect(theme.appliedHexColors).toEqual(theme.draftHexColors)
+    expect(theme.canSave).toBe(true)
+  })
+
+  it('the fix in Advanced mode sets only the failing text', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'light')
+    theme.setEditingMode('advanced')
+    theme.setColor('popover', '#000000')
+    theme.setColor('popover-foreground', '#000000')
+    const before = { ...theme.draftHexColors }
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.draftHexColors).toEqual({ ...before, 'popover-foreground': '#ffffff' })
+    expect(theme.appliedHexColors.popover).toBe('#000000')
+  })
+
+  it('the fix in Advanced mode sets the highlighted menu item text', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'light')
+    theme.setEditingMode('advanced')
+    theme.setColor('accent', '#101010')
+    const before = { ...theme.draftHexColors }
+    expect(theme.holdFix).toEqual({ text: 'accent-foreground', choice: 'white' })
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.draftHexColors).toEqual({ ...before, 'accent-foreground': '#ffffff' })
+    expect(theme.held).toBe(false)
+  })
+
+  // In Simple mode both menu texts are Text, so one fix clears both pairs.
+  it('the fix in Simple mode clears both menu pairs through Text', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'light')
+    theme.setColor('foreground', '#f8f8f8')
+    expect(theme.draftVerdict).toMatchObject({ readable: false })
+    expect(theme.holdFix).toEqual({ text: 'foreground', choice: 'black' })
+    expect(theme.applyHoldFix()).toBe(true)
+    expect(theme.draftHexColors).toMatchObject({
+      foreground: '#000000',
+      'popover-foreground': '#000000',
+      'accent-foreground': '#000000',
+    })
+    expect(theme.held).toBe(false)
+    expect(theme.canSave).toBe(true)
+  })
+
+  it('has no fix while the draft is readable', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    expect(theme.holdFix).toBeNull()
+    expect(theme.applyHoldFix()).toBe(false)
+  })
+
+  it('refuses Save while held; Discard returns to the saved theme', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    const saved = { ...theme.activeHexColors }
+    theme.setColor('background', '#202020')
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.canSave).toBe(false)
+    expect(theme.saveDraft()).toBe(false)
+    theme.discardDraft()
+    expect(theme.appliedHexColors).toEqual(saved)
+    expect(theme.held).toBe(false)
+  })
+
+  it('a discarded draft leaves no readable state behind', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    theme.setColor('background', '#202020')
+    theme.discardDraft()
+    theme.setColor('background', '#e0e0e0')
+    expect(theme.appliedHexColors.background).toBe(theme.activeHexColors.background)
+  })
+
+  it('never writes the draft to disk', async () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    writes = []
+    theme.setColor('background', '#202020')
+    theme.setColor('background', '#e0e0e0')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(writes).toEqual([])
   })
 })
 
@@ -363,8 +786,8 @@ describe('Unsaved changes', () => {
 
   it('holds a guarded action until the user discards, and keeps the draft on cancel', () => {
     const theme = useTheme()
-    theme.selectTheme('dark')
-    theme.setColor('border', '#123456')
+    storedCopyOf(theme, 'dark')
+    theme.setColor('card', '#123456')
     const action = vi.fn()
     theme.guardUnsaved(action)
     expect(action).not.toHaveBeenCalled()
@@ -386,12 +809,12 @@ describe('Startup fallback', () => {
     baseTheme: 'bmg' as const,
   }
 
-  async function startWithUnreadableTheme() {
+  async function startWithAdvancedTheme(text: ThemeToken, sameAs: ThemeToken) {
     const theme = useTheme()
     theme.selectTheme('bmg')
-    theme.customize()
-    const colors = { ...theme.activeHexColors, foreground: theme.activeHexColors.background }
-    const stored = { selected: unreadable.id, customThemes: [{ ...unreadable, colors }] }
+    const colors = { ...theme.activeHexColors, [text]: theme.activeHexColors[sameAs] }
+    const entry = { ...unreadable, mode: 'advanced', colors }
+    const stored = { selected: unreadable.id, customThemes: [entry] }
     storedSections.value = { theme: JSON.parse(JSON.stringify(stored)) }
     setActivePinia(createPinia())
     writes = []
@@ -399,6 +822,25 @@ describe('Startup fallback', () => {
     await restarted.init()
     return { restarted, stored }
   }
+
+  const startWithUnreadableTheme = () => startWithAdvancedTheme('popover-foreground', 'popover')
+
+  it('applies the Base Theme for a theme whose highlighted menu item is unreadable', async () => {
+    const { restarted } = await startWithAdvancedTheme('accent-foreground', 'accent')
+    expect(restarted.active).toBe('bmg')
+    expect(restarted.appliedColors).toBeNull()
+    expect(restarted.fallbackMessage).toBe(
+      'The theme “Night (hand-edited)” makes the highlighted item in menus unreadable, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
+    )
+  })
+
+  it('applies a theme whose only unreadable text is on the background, reporting nothing', async () => {
+    const { restarted } = await startWithAdvancedTheme('foreground', 'background')
+    expect(restarted.active).toBe(unreadable.id)
+    expect(restarted.activeHexColors.foreground).toBe(restarted.activeHexColors.background)
+    expect(restarted.fallbackMessage).toBe('')
+    expect(reported.value).toEqual([])
+  })
 
   it('applies the Base Theme and reports why, leaving stored data untouched', async () => {
     const { restarted, stored } = await startWithUnreadableTheme()
@@ -411,7 +853,7 @@ describe('Startup fallback', () => {
     expect(writes).toEqual([])
     expect(reported.value).toHaveLength(1)
     expect((reported.value[0] as AppError).userMessage).toBe(
-      'The theme “Night (hand-edited)” makes main text hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
+      'The theme “Night (hand-edited)” makes text in menus and popups unreadable, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
     )
   })
 
@@ -428,26 +870,28 @@ describe('Startup fallback', () => {
     const { restarted } = await startWithUnreadableTheme()
     expect(restarted.selectedId).toBe(unreadable.id)
     expect(restarted.editedCustomTheme).toMatchObject(unreadable)
-    expect(restarted.draftHexColors.foreground).toBe(restarted.draftHexColors.background)
+    expect(restarted.draftHexColors['popover-foreground']).toBe(restarted.draftHexColors.popover)
     expect(restarted.fallbackMessage).toBe(
-      'The theme “Night (hand-edited)” makes main text hard to read, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
+      'The theme “Night (hand-edited)” makes text in menus and popups unreadable, so Intel® Arc™ is shown instead. Your theme has been kept unchanged.',
     )
   })
 
   it('applies the Custom Theme once a saved edit makes it readable, without a copy', async () => {
     const { restarted } = await startWithUnreadableTheme()
-    restarted.setColor('foreground', restarted.activeHexColors.foreground)
+    restarted.setColor('popover-foreground', restarted.activeHexColors['popover-foreground'])
     expect(restarted.saveDraft()).toBe(true)
     expect(restarted.active).toBe(unreadable.id)
-    expect(restarted.activeHexColors.foreground).not.toBe(restarted.activeHexColors.background)
+    expect(restarted.activeHexColors['popover-foreground']).not.toBe(
+      restarted.activeHexColors.popover,
+    )
     expect(restarted.validCustomThemes).toHaveLength(1)
     expect(restarted.fallbackMessage).toBe('')
   })
 
   it('refuses to save an edit that leaves it unreadable, without a copy', async () => {
     const { restarted } = await startWithUnreadableTheme()
-    restarted.setColor('border', '#445566')
-    expect(restarted.draftVerdict).toMatchObject({ readable: false, text: 'foreground' })
+    restarted.setColor('card', '#445566')
+    expect(restarted.draftVerdict).toMatchObject({ readable: false, text: 'popover-foreground' })
     expect(restarted.saveDraft()).toBe(false)
     expect(restarted.validCustomThemes).toHaveLength(1)
     expect(restarted.active).toBe('bmg')
@@ -481,11 +925,12 @@ describe('Stored Custom Themes from another version or a hand edit', () => {
     return theme
   }
 
-  it('fills a missing token from the Base Theme and keeps it on the next write', async () => {
+  it('fills a missing token of an Advanced entry from the Base Theme and keeps it', async () => {
     const stored = {
       id: 'custom-old',
       name: 'Old',
       baseTheme: 'bmg',
+      mode: 'advanced',
       colors: colorsWithout('bmg', 'ring'),
     }
     const theme = await load({ selected: stored.id, customThemes: [stored] })
@@ -501,16 +946,69 @@ describe('Stored Custom Themes from another version or a hand edit', () => {
     expect(written[0].colors.ring).toBe('#aa05fd')
   })
 
+  it('fills the Warning and Success colours of an Advanced entry from its Base Theme', async () => {
+    const colors = colorsWithout('dark', 'warning')
+    delete colors.success
+    const stored = { id: 'custom-old', name: 'Old', baseTheme: 'dark', mode: 'advanced', colors }
+    const theme = await load({ selected: stored.id, customThemes: [stored] })
+    expect(theme.activeHexColors).toMatchObject({ warning: '#ffd230', success: '#00d492' })
+    theme.setColor('border', '#334455')
+    theme.saveDraft()
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    const written = (writes.at(-1)?.value as { customThemes: { colors: Record<string, string> }[] })
+      .customThemes
+    expect(written[0].colors).toMatchObject({ warning: '#ffd230', success: '#00d492' })
+  })
+
   it('fills from Light when the Base Theme is gone', async () => {
     const stored = {
       id: 'custom-old',
       name: 'Old',
       baseTheme: 'retired',
+      mode: 'advanced',
       colors: colorsWithout('dark', 'border'),
     }
     const theme = await load({ selected: stored.id, customThemes: [stored] })
     expect(theme.active).toBe(stored.id)
     expect(theme.activeHexColors.border).toBe('#e2e8f0')
+  })
+
+  it('loads an entry without a mode as Simple, keeping its Main Colours', async () => {
+    const main = {
+      background: '#f4efe6',
+      card: '#ffffff',
+      foreground: '#2b2118',
+      primary: '#c2410c',
+      'primary-foreground': '#ffffff',
+    }
+    const colors: Record<string, string> = { ...colorsWithout('dark', 'warning'), ...main }
+    delete colors.success
+    colors.border = '#ff00ff'
+    const stored = { id: 'custom-old', name: 'Old', baseTheme: 'dark', colors }
+    const theme = await load({ selected: stored.id, customThemes: [stored] })
+    expect(reported.value).toEqual([])
+    expect(theme.activeCustomTheme?.mode).toBe('simple')
+    expect(theme.editingMode).toBe('simple')
+    expect(theme.hasUnsavedChanges).toBe(false)
+    const loaded = theme.activeHexColors
+    expect(loaded).toMatchObject(main)
+    expectDerivedFromMainColours(loaded)
+    expect(loaded.border).not.toBe('#ff00ff')
+    expect(loaded).toMatchObject({ warning: '#e17100', success: '#009966' })
+    theme.setEditingMode('advanced')
+    expect(theme.simpleModeRecalculates).toEqual([])
+  })
+
+  it('ignores an entry with an unknown mode', async () => {
+    const stored = {
+      id: 'custom-odd',
+      name: 'Odd',
+      baseTheme: 'dark',
+      mode: 'expert',
+      colors: colorsWithout('dark', 'ring'),
+    }
+    const theme = await load({ selected: 'light', customThemes: [stored] })
+    expect(theme.validCustomThemes).toHaveLength(0)
   })
 
   it('ignores a malformed entry', async () => {
@@ -531,21 +1029,89 @@ describe('Stored Custom Themes from another version or a hand edit', () => {
   })
 })
 
+/** Saves an edit of a Built-in Theme, as the theme panel does, and returns the new theme's id. */
+function saveBuiltInEdit(theme: ThemeStore, from: string, name?: string): string | undefined {
+  theme.selectTheme(from)
+  theme.setColor('card', '#123456')
+  if (name !== undefined) theme.setNewThemeName(name)
+  theme.saveDraft()
+  return theme.activeCustomTheme?.id
+}
+
 describe('Names', () => {
   it('come from the locale at creation and stay as created', () => {
     locale.state.THEME_NAME_CUSTOM = '{name} (eigenes)'
     const theme = useTheme()
-    const id = theme.customize('dark')
+    const id = saveBuiltInEdit(theme, 'dark')
     expect(theme.activeCustomTheme?.name).toBe('Dark (eigenes)')
     locale.state.THEME_NAME_CUSTOM = '{name} (custom)'
     expect(theme.validCustomThemes.find((t) => t.id === id)?.name).toBe('Dark (eigenes)')
+  })
+
+  it('a new theme is named after its Built-in Theme, taking the lowest free number', () => {
+    const theme = useTheme()
+    saveBuiltInEdit(theme, 'lnl')
+    const second = saveBuiltInEdit(theme, 'lnl')
+    saveBuiltInEdit(theme, 'lnl')
+    expect(theme.validCustomThemes.map((t) => t.name)).toEqual([
+      'Intel® Core™ Ultra (custom)',
+      'Intel® Core™ Ultra (custom 2)',
+      'Intel® Core™ Ultra (custom 3)',
+    ])
+    theme.customThemes = theme.customThemes.filter((t) => t.id !== second)
+    theme.selectTheme('lnl')
+    expect(theme.newThemeName).toBe('Intel® Core™ Ultra (custom 2)')
+  })
+
+  it('saves a Built-in edit under the name given, trimmed', () => {
+    const theme = useTheme()
+    saveBuiltInEdit(theme, 'light', '  Paper  ')
+    expect(theme.activeCustomTheme?.name).toBe('Paper')
+  })
+
+  it('refuses to save a Built-in edit under a blank name', () => {
+    const theme = useTheme()
+    theme.selectTheme('light')
+    theme.setColor('card', '#123456')
+    theme.setNewThemeName('   ')
+    expect(theme.canSave).toBe(false)
+    expect(theme.saveDraft()).toBe(false)
+    expect(theme.validCustomThemes).toHaveLength(0)
+    expect(theme.hasUnsavedChanges).toBe(true)
+  })
+
+  it('a name typed for a Built-in edit is not an unsaved change on its own', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    theme.setNewThemeName('Night')
+    expect(theme.hasUnsavedChanges).toBe(false)
+    const action = vi.fn()
+    theme.guardUnsaved(action)
+    expect(action).toHaveBeenCalledOnce()
+  })
+
+  it('a name typed for a Built-in edit does not survive leaving the editor', () => {
+    const theme = useTheme()
+    theme.selectTheme('dark')
+    theme.setNewThemeName('Night')
+    theme.guardUnsaved(() => {})
+    expect(theme.newThemeName).toBe('Dark (custom)')
+  })
+
+  it('has no new-theme name while a Custom Theme is edited', () => {
+    const theme = useTheme()
+    storedCopyOf(theme, 'dark')
+    expect(theme.editedBuiltInTheme).toBeNull()
+    expect(theme.newThemeName).toBe('')
+    theme.selectTheme('bmg')
+    expect(theme.editedBuiltInTheme?.id).toBe('bmg')
   })
 })
 
 describe('Managing Custom Themes', () => {
   it('renames a Custom Theme and rejects an empty name', () => {
     const theme = useTheme()
-    const id = theme.customize('dark')
+    const id = storedCopyOf(theme, 'dark')
     expect(theme.renameCustomTheme(id, '  Night  ')).toBe(true)
     expect(theme.activeCustomTheme?.name).toBe('Night')
     expect(theme.renameCustomTheme(id, '   ')).toBe(false)
@@ -554,7 +1120,8 @@ describe('Managing Custom Themes', () => {
 
   it('copies a Custom Theme with its Base Theme and colours under a unique name', () => {
     const theme = useTheme()
-    const original = theme.customize('bmg')
+    const original = storedCopyOf(theme, 'bmg')
+    theme.setEditingMode('advanced')
     theme.setColor('accent', '#112233')
     theme.saveDraft()
     const copy = theme.copyCustomTheme(original)
@@ -573,23 +1140,30 @@ describe('Managing Custom Themes', () => {
 
   it('resets to the Base Theme colours, keeping id, name and selection', () => {
     const theme = useTheme()
-    const id = theme.customize('dark')
+    const id = storedCopyOf(theme, 'dark')
     theme.renameCustomTheme(id, 'Mine')
     const shippedBorder = theme.activeHexColors.border
+    theme.setEditingMode('advanced')
     theme.setColor('border', '#ffffff')
     theme.setColor('ring', '#00ff00')
     theme.saveDraft()
     expect(theme.resetTargetFor(id)?.name).toBe('Dark')
     theme.resetCustomTheme(id)
     expect(theme.active).toBe(id)
-    expect(theme.activeCustomTheme).toMatchObject({ id, name: 'Mine', baseTheme: 'dark' })
+    expect(theme.activeCustomTheme).toMatchObject({
+      id,
+      name: 'Mine',
+      baseTheme: 'dark',
+      mode: 'simple',
+    })
     expect(theme.activeHexColors.border).toBe(shippedBorder)
     expect(theme.activeHexColors.ring).toBe('#aa05fd')
+    expect(theme.editingMode).toBe('simple')
   })
 
   it('deleting the selected Custom Theme selects its Base Theme', () => {
     const theme = useTheme()
-    const id = theme.customize('lnl')
+    const id = storedCopyOf(theme, 'lnl')
     theme.deleteCustomTheme(id)
     expect(theme.validCustomThemes).toHaveLength(0)
     expect(theme.active).toBe('lnl')
@@ -597,8 +1171,8 @@ describe('Managing Custom Themes', () => {
 
   it('deleting another Custom Theme keeps the selection', () => {
     const theme = useTheme()
-    const other = theme.customize('dark')
-    const kept = theme.customize('bmg')
+    const other = storedCopyOf(theme, 'dark')
+    const kept = storedCopyOf(theme, 'bmg')
     theme.deleteCustomTheme(other)
     expect(theme.validCustomThemes.map((t) => t.id)).toEqual([kept])
     expect(theme.active).toBe(kept)
@@ -660,5 +1234,98 @@ describe('A Custom Theme whose Base Theme no longer ships', () => {
     theme.deleteCustomTheme(orphan.id)
     expect(theme.active).toBe('light')
     expect(theme.validCustomThemes).toHaveLength(0)
+  })
+})
+
+describe('Theme button', () => {
+  type BaseId = 'dark' | 'lnl' | 'bmg' | 'light'
+
+  function editAdvanced(base: BaseId) {
+    const theme = useTheme()
+    theme.selectTheme(base)
+    theme.setEditingMode('advanced')
+    return theme
+  }
+
+  // The header shows Background, and on a Light Base Theme Muted at half strength over it.
+  it.each([
+    ['dark', '#ffffff', 'black'],
+    ['lnl', '#ffffff', 'black'],
+    ['bmg', '#ffffff', 'black'],
+    ['light', '#000000', 'white'],
+  ] as const)(
+    'stays visible on %s when Text equals Background %s and Muted equals Text',
+    (base: BaseId, background, icon) => {
+      const theme = editAdvanced(base)
+      const text = background
+      theme.setColor('background', background)
+      theme.setColor('foreground', text)
+      theme.setColor('muted', text)
+      expect(theme.held).toBe(false)
+      expect(theme.themeButtonColor).toBe(icon)
+      expect(contrastRatio(textChoiceHex[icon], background)).toBeGreaterThanOrEqual(
+        MIN_CONTRAST_RATIO,
+      )
+    },
+  )
+
+  it('stays visible on Light when Text reads on Background but not on the Muted overlay', () => {
+    const theme = editAdvanced('light')
+    const [background, text, muted] = ['#000000', '#808080', '#ffffff'] as const
+    theme.setColor('background', background)
+    theme.setColor('foreground', text)
+    theme.setColor('muted', muted)
+    expect(contrastRatio(text, background)).toBeGreaterThanOrEqual(MIN_CONTRAST_RATIO)
+    expect(theme.held).toBe(false)
+    expect(theme.themeButtonColor).toBe('black')
+    const header = compositeOver(muted, 0.5, background)
+    expect(contrastRatio(textChoiceHex.black, header)).toBeGreaterThanOrEqual(MIN_CONTRAST_RATIO)
+  })
+
+  it('uses Text, like the other header icons, while Text reads on the header', () => {
+    const theme = editAdvanced('light')
+    theme.setColor('background', '#000000')
+    theme.setColor('foreground', '#ffffff')
+    theme.setColor('muted', '#ffffff')
+    expect(theme.themeButtonColor).toBe('text')
+  })
+
+  it('keeps Text while it is hard to read but still visible', () => {
+    const theme = editAdvanced('dark')
+    theme.setColor('background', '#000000')
+    theme.setColor('foreground', '#303030')
+    expect(contrastRatio('#303030', '#000000')).toBeLessThan(MIN_CONTRAST_RATIO)
+    expect(theme.themeButtonColor).toBe('text')
+  })
+
+  it('falls back once Text practically disappears into the header', () => {
+    const theme = editAdvanced('dark')
+    theme.setColor('background', '#000000')
+    theme.setColor('foreground', '#0a0a0a')
+    expect(theme.themeButtonColor).toBe('white')
+  })
+
+  it('ignores Muted on a dark Base Theme, whose header has no Muted overlay', () => {
+    const theme = editAdvanced('dark')
+    theme.setColor('background', '#000000')
+    theme.setColor('foreground', '#808080')
+    theme.setColor('muted', '#ffffff')
+    expect(theme.themeButtonColor).toBe('text')
+  })
+
+  it('follows a draft as it changes', () => {
+    const theme = editAdvanced('dark')
+    expect(theme.themeButtonColor).toBe('text')
+    theme.setColor('background', '#ffffff')
+    theme.setColor('foreground', '#ffffff')
+    expect(theme.themeButtonColor).toBe('black')
+    theme.setColor('foreground', '#000000')
+    expect(theme.themeButtonColor).toBe('text')
+  })
+
+  it.each(['dark', 'lnl', 'bmg', 'light'] as const)('uses Text on the Built-in Theme %s', (id) => {
+    const theme = useTheme()
+    theme.selectTheme(id)
+    expect(theme.themeButtonColor).toBe('text')
   })
 })

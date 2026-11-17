@@ -20,25 +20,48 @@ import {
   type HexColor,
   type HexThemeColors,
 } from '@/lib/themeColors'
-import { findUnreadablePair, type CorePair, type UnreadablePair } from '@/lib/themeContrast'
-import { colorRoles, roleToken, roleTokens, type ColorRole } from '@/lib/themeRoles'
+import {
+  findUnreadablePair,
+  formatContrastRatio,
+  readableTextOn,
+  textChoiceHex,
+  themeButtonColorOn,
+  type WayBackPair,
+  type TextChoice,
+  type UnreadablePair,
+} from '@/lib/themeContrast'
+import {
+  deriveThemeColors,
+  derivedColorTokens,
+  isMainColorToken,
+  mainColorTokens,
+  mainColorsOf,
+} from '@/lib/themeDerivation'
+
+export const editingModes = ['simple', 'advanced'] as const
+
+export type EditingMode = (typeof editingModes)[number]
 
 export type CustomTheme = {
   id: string
   name: string
   baseTheme: Theme
+  mode: EditingMode
   colors: HexThemeColors
 }
 
+type ThemeDraft = { mode: EditingMode; colors: HexThemeColors }
+
+const derivedFrom = (colors: HexThemeColors) => deriveThemeColors(mainColorsOf(colors))
+
 export type ReadabilityVerdict = { readable: true } | ({ readable: false } & UnreadablePair)
 
-const pairLabelKeys: Record<CorePair['text'], string> = {
-  foreground: 'SETTINGS_THEME_PAIR_FOREGROUND',
-  'primary-foreground': 'SETTINGS_THEME_PAIR_PRIMARY_FOREGROUND',
+const pairLabelKeys: Record<WayBackPair['text'], string> = {
+  'popover-foreground': 'SETTINGS_THEME_PAIR_POPOVER_FOREGROUND',
+  'accent-foreground': 'SETTINGS_THEME_PAIR_ACCENT_FOREGROUND',
 }
 
-/** Floors at two decimals so a ratio just under the minimum never reads as 3.00. */
-const formatRatio = (ratio: number) => (Math.floor(ratio * 100) / 100).toFixed(2)
+export type HoldFix = { text: ThemeToken; choice: TextChoice }
 
 type ResolvedTheme = {
   id: string
@@ -57,13 +80,17 @@ const shippedColors = (id: unknown) => toHexColors(builtInOrFallback(id).colors)
 const asRecord = (value: unknown) =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : null
 
-/** Fills tokens an older version did not have from the Base Theme; null for anything malformed. */
+/**
+ * Fills tokens an older version did not have from the Base Theme; null for anything malformed.
+ * An entry from before Editing Modes loads as Simple, its Derived Colours recalculated.
+ */
 function readCustomTheme(value: unknown): CustomTheme | null {
   const t = asRecord(value)
   const stored = asRecord(t?.colors)
   if (!t || !stored) return null
   if (typeof t.id !== 'string' || typeof t.name !== 'string' || typeof t.baseTheme !== 'string')
     return null
+  if (t.mode !== undefined && !(editingModes as readonly unknown[]).includes(t.mode)) return null
   const fill = shippedColors(t.baseTheme)
   const colors = {} as HexThemeColors
   for (const token of themeTokens) {
@@ -71,7 +98,9 @@ function readCustomTheme(value: unknown): CustomTheme | null {
     if (!isHexColor(color)) return null
     colors[token] = color
   }
-  return { id: t.id, name: t.name, baseTheme: t.baseTheme as Theme, colors }
+  const base = { id: t.id, name: t.name, baseTheme: t.baseTheme as Theme }
+  if (t.mode === undefined) return { ...base, mode: 'simple', colors: derivedFrom(colors) }
+  return { ...base, mode: t.mode as EditingMode, colors }
 }
 
 const unreadablePairOf = (theme: CustomTheme) => findUnreadablePair(theme.colors)
@@ -86,8 +115,10 @@ export const useTheme = defineStore('theme', () => {
   const errors = useErrors()
   const selected = ref<string | null>(null)
   const customThemes = ref<CustomTheme[]>([])
-  const draft = ref<HexThemeColors | null>(null)
+  const draft = ref<ThemeDraft | null>(null)
+  const lastReadableDraft = ref<HexThemeColors | null>(null)
   const pendingAction = ref<(() => void) | null>(null)
+  const typedNewThemeName = ref<string | null>(null)
 
   // Step 8 (§6.1): the theme choice is a kernel-owned preference
   // (preferences.json), hydrated before mount and written through.
@@ -115,7 +146,7 @@ export const useTheme = defineStore('theme', () => {
     () => storedEntries.value.map(asRecord).find((t) => t?.id === selected.value)?.baseTheme,
   )
 
-  /** A selected Custom Theme that fails the guard (a hand-edited file) shows its Base Theme. */
+  /** A selected Custom Theme that breaks the Way Back (a hand-edited file) shows its Base Theme. */
   const unreadableSelection = computed(() => {
     const custom = selectedCustomTheme.value
     const pair = custom && unreadablePairOf(custom)
@@ -134,10 +165,11 @@ export const useTheme = defineStore('theme', () => {
     return { id: builtIn.id, colors: builtIn.colors, hexColors, baseId: builtIn.id, custom: null }
   })
 
-  /** The theme the editor works on: the selected Custom Theme even while it is not applied. */
-  const editedHexColors = computed(
-    () => selectedCustomTheme.value?.colors ?? resolved.value.hexColors,
-  )
+  /** The theme the editor shows: the selected Custom Theme even while it is not applied. */
+  const edited = computed<ThemeDraft>(() => {
+    const custom = selectedCustomTheme.value
+    return custom ?? { mode: 'simple', colors: resolved.value.hexColors }
+  })
 
   const pairLabel = (pair: UnreadablePair) => i18n.state[pairLabelKeys[pair.text]]
 
@@ -209,76 +241,155 @@ export const useTheme = defineStore('theme', () => {
     reportUnreadableSelection()
   }
 
-  /** Copies a Built-in Theme (the active one's Base Theme by default) and selects the copy. */
-  function customize(from: Theme = resolved.value.baseId ?? fallbackBuiltInTheme.id): string {
-    const source = builtInOrFallback(from)
-    return addAndSelect({
-      name: newName('THEME_NAME_CUSTOM', 'THEME_NAME_CUSTOM_N', source.name),
-      baseTheme: source.id,
-      colors: toHexColors(source.colors),
-    })
+  const editedBuiltInTheme = computed(() =>
+    selectedCustomTheme.value ? null : builtInOrFallback(resolved.value.baseId),
+  )
+
+  const newThemeName = computed(() => {
+    const builtIn = editedBuiltInTheme.value
+    if (!builtIn) return ''
+    return (
+      typedNewThemeName.value ?? newName('THEME_NAME_CUSTOM', 'THEME_NAME_CUSTOM_N', builtIn.name)
+    )
+  })
+
+  function setNewThemeName(name: string) {
+    typedNewThemeName.value = name
   }
 
-  const draftHexColors = computed(() => draft.value ?? editedHexColors.value)
+  const current = computed(() => draft.value ?? edited.value)
+  const draftHexColors = computed(() => current.value.colors)
+  const editingMode = computed(() => current.value.mode)
 
-  const hasUnsavedChanges = computed(
-    () =>
-      !!draft.value &&
-      themeTokens.some((token) => draft.value?.[token] !== editedHexColors.value[token]),
-  )
+  const hasUnsavedChanges = computed(() => {
+    const changed = draft.value
+    if (!changed) return false
+    const saved = edited.value
+    return (
+      changed.mode !== saved.mode ||
+      themeTokens.some((token) => changed.colors[token] !== saved.colors[token])
+    )
+  })
+
+  /** The Derived Colours a switch to Simple mode would recalculate: those set by hand. */
+  const simpleModeRecalculates = computed<ThemeToken[]>(() => {
+    if (editingMode.value === 'simple') return []
+    const colors = draftHexColors.value
+    const derived = derivedFrom(colors)
+    return derivedColorTokens.filter((token) => derived[token] !== colors[token])
+  })
 
   const draftVerdict = computed<ReadabilityVerdict>(() => {
     const unreadable = findUnreadablePair(draftHexColors.value)
     return unreadable ? { readable: false, ...unreadable } : { readable: true }
   })
 
-  const draftWarning = computed(() => {
+  const held = computed(() => !!draft.value && !draftVerdict.value.readable)
+
+  const holdMessage = computed(() => {
     const verdict = draftVerdict.value
-    if (verdict.readable) return ''
-    return fillTemplate(i18n.state.SETTINGS_THEME_UNREADABLE, {
+    if (!held.value || verdict.readable) return ''
+    return fillTemplate(i18n.state.SETTINGS_THEME_HELD, {
       text: pairLabel(verdict),
-      ratio: formatRatio(verdict.ratio),
+      ratio: formatContrastRatio(verdict.ratio),
     })
   })
 
-  const canSave = computed(() => hasUnsavedChanges.value && draftVerdict.value.readable)
+  /** In Simple mode both Way Back texts are Text, so the fix goes through it. */
+  const holdFix = computed<HoldFix | null>(() => {
+    const verdict = draftVerdict.value
+    if (!held.value || verdict.readable) return null
+    const colors = draftHexColors.value
+    if (editingMode.value === 'simple')
+      return { text: 'foreground', choice: readableTextOn(colors.background) }
+    return { text: verdict.text, choice: readableTextOn(colors[verdict.background]) }
+  })
 
-  function editDraft(tokens: readonly ThemeToken[], hex: HexColor): boolean {
-    if (!isHexColor(hex)) return false
-    const next = { ...draftHexColors.value }
-    for (const token of tokens) next[token] = hex.toLowerCase()
+  const appliedHexColors = computed<HexThemeColors>(() => {
+    const changed = draft.value
+    if (changed && draftVerdict.value.readable) return changed.colors
+    return (changed && lastReadableDraft.value) || resolved.value.hexColors
+  })
+
+  /** Null while the Built-in Theme's stylesheet block applies unchanged. */
+  const appliedColors = computed<ThemeColors | null>(() => {
+    const showsDraft = !!draft.value && (draftVerdict.value.readable || !!lastReadableDraft.value)
+    if (showsDraft) return toHslColors(appliedHexColors.value)
+    return resolved.value.custom ? resolved.value.colors : null
+  })
+
+  function setDraft(next: ThemeDraft) {
     draft.value = next
-    return true
+    if (!findUnreadablePair(next.colors)) lastReadableDraft.value = next.colors
   }
 
-  /** Changes the draft only; nothing is applied until `saveDraft`. */
+  const themeButtonColor = computed(() =>
+    themeButtonColorOn(appliedHexColors.value, resolved.value.baseId),
+  )
+
+  const canSave = computed(
+    () =>
+      hasUnsavedChanges.value &&
+      draftVerdict.value.readable &&
+      (!editedBuiltInTheme.value || !!newThemeName.value.trim()),
+  )
+
+  /**
+   * Changes the draft only; nothing is saved until `saveDraft`. In Simple mode only a Main
+   * Colour can be set, and every Derived Colour follows it.
+   */
   function setColor(token: ThemeToken, hex: HexColor): boolean {
-    return editDraft([token], hex)
-  }
-
-  function setRoleColor(role: ColorRole, hex: HexColor): boolean {
-    return editDraft(roleTokens(role), hex)
-  }
-
-  /** Applies a readable draft; a draft of a Built-in Theme becomes a new, selected Custom Theme. */
-  function saveDraft(): boolean {
-    const colors = draft.value
-    if (!colors || !canSave.value) return false
-    const id = selectedCustomTheme.value?.id ?? customize()
-    updateCustomTheme(id, (t) => ({ ...t, colors }))
-    draft.value = null
+    const mode = editingMode.value
+    if (!isHexColor(hex)) return false
+    if (mode === 'simple' && !isMainColorToken(token)) return false
+    const colors = { ...draftHexColors.value, [token]: hex.toLowerCase() }
+    setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : colors })
     return true
+  }
+
+  /** Switching to Simple recalculates `simpleModeRecalculates`; the editor confirms that first. */
+  function setEditingMode(mode: EditingMode) {
+    if (mode === editingMode.value) return
+    const colors = draftHexColors.value
+    setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : { ...colors } })
+  }
+
+  function saveDraft(): boolean {
+    const changed = draft.value
+    if (!changed || !canSave.value) return false
+    const builtIn = editedBuiltInTheme.value
+    if (builtIn) {
+      addAndSelect({ name: newThemeName.value.trim(), baseTheme: builtIn.id, ...changed })
+      return true
+    }
+    const id = selectedCustomTheme.value?.id
+    if (!id) return false
+    updateCustomTheme(id, (t) => ({ ...t, ...changed }))
+    draft.value = null
+    lastReadableDraft.value = null
+    return true
+  }
+
+  function applyHoldFix(): boolean {
+    const fix = holdFix.value
+    return !!fix && setColor(fix.text, textChoiceHex[fix.choice])
   }
 
   function discardDraft() {
     draft.value = null
+    lastReadableDraft.value = null
     pendingAction.value = null
+    typedNewThemeName.value = null
   }
 
-  /** Runs `action` now, or once the user agrees to discard unsaved changes (`confirmDiscard`). */
+  /** Leaves the edit: runs `action` now, or once the user agrees to discard (`confirmDiscard`). */
   function guardUnsaved(action: () => void) {
-    if (!hasUnsavedChanges.value) return action()
-    pendingAction.value = action
+    if (hasUnsavedChanges.value) {
+      pendingAction.value = action
+      return
+    }
+    discardDraft()
+    action()
   }
 
   function confirmDiscard() {
@@ -302,6 +413,7 @@ export const useTheme = defineStore('theme', () => {
     return addAndSelect({
       name: newName('THEME_NAME_COPY', 'THEME_NAME_COPY_N', source.name),
       baseTheme: source.baseTheme,
+      mode: source.mode,
       colors: { ...source.colors },
     })
   }
@@ -318,6 +430,7 @@ export const useTheme = defineStore('theme', () => {
     updateCustomTheme(id, (t) => ({
       ...t,
       baseTheme: target.id,
+      mode: 'simple',
       colors: toHexColors(target.colors),
     }))
     if (selected.value === id) discardDraft()
@@ -346,19 +459,28 @@ export const useTheme = defineStore('theme', () => {
     baseTheme: computed(() => resolved.value.baseId),
     activeColors: computed(() => resolved.value.colors),
     activeHexColors: computed(() => resolved.value.hexColors),
+    mainColorTokens,
     draftHexColors,
+    editingMode,
+    simpleModeRecalculates,
     draftVerdict,
-    draftWarning,
+    held,
+    holdMessage,
+    holdFix,
+    appliedHexColors,
+    appliedColors,
+    themeButtonColor,
     hasUnsavedChanges,
     canSave,
     discardPending: computed(() => !!pendingAction.value),
     fallbackMessage,
     selectTheme,
-    customize,
+    editedBuiltInTheme,
+    newThemeName,
+    setNewThemeName,
     setColor,
-    colorRoles,
-    roleToken,
-    setRoleColor,
+    setEditingMode,
+    applyHoldFix,
     saveDraft,
     discardDraft,
     guardUnsaved,

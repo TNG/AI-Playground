@@ -19,11 +19,11 @@
           <span
             v-if="showNotifyHint(capability.id)"
             id="agent-notify-hint"
-            class="text-xs text-amber-500"
+            class="text-xs text-warning"
           >
             {{ i18n.AGENT_NOTIFY_NEEDS_CHANNEL }}
           </span>
-          <span v-if="capability.unavailableReason" class="text-xs text-amber-500">
+          <span v-if="capability.unavailableReason" class="text-xs text-warning">
             {{ capability.unavailableReason }}
           </span>
         </span>

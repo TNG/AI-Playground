@@ -8,7 +8,10 @@
           <DropdownMenu>
             <DropdownMenuTrigger as-child>
               <button id="theme-button" type="button" :aria-label="languages.COM_THEME">
-                <SwatchIcon class="size-6 text-foreground"></SwatchIcon>
+                <SwatchIcon
+                  class="size-6"
+                  :class="themeButtonClass[theme.themeButtonColor]"
+                ></SwatchIcon>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" class="min-w-48">
@@ -60,6 +63,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import type { ThemeButtonColor } from '@/lib/themeContrast'
+
+const themeButtonClass: Record<ThemeButtonColor, string> = {
+  text: 'text-foreground',
+  white: 'text-white',
+  black: 'text-black',
+}
 
 defineProps<{ canCustomize: boolean }>()
 const emit = defineEmits<{ customize: [] }>()

@@ -86,7 +86,7 @@ const pillClass =
   'inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border border-primary bg-primary/15 text-foreground hover:bg-primary/25 transition-colors'
 
 function dotClass(waiting: boolean): string {
-  return `size-1.5 shrink-0 rounded-full ${waiting ? 'bg-amber-500' : 'bg-primary animate-pulse'}`
+  return `size-1.5 shrink-0 rounded-full ${waiting ? 'bg-warning' : 'bg-primary animate-pulse'}`
 }
 
 const runs = computed<IndicatedRun[]>(() =>

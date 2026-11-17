@@ -42,7 +42,7 @@ const discard = () => run(() => agentTasks.discardAgentDraft(props.agent.id))
   <footer class="flex flex-wrap items-center gap-2 border-t border-border px-6 py-3">
     <span class="flex-1" />
     <span v-if="status" class="text-xs text-muted-foreground">{{ status }}</span>
-    <span v-if="blocker" role="status" class="text-xs text-amber-500">{{ blocker }}</span>
+    <span v-if="blocker" role="status" class="text-xs text-warning">{{ blocker }}</span>
     <Button variant="secondary" size="sm" :disabled="busy || !agent.hasDraft" @click="discard">
       {{ i18n.AGENT_LIBRARY_DISCARD }}
     </Button>

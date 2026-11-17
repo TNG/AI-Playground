@@ -14,7 +14,7 @@ export function useSettingsProblemMarks(
   const fields = computed(() => new Set(toValue(problems).map((p) => p.field)))
 
   function problemClass(field: SessionSettingsProblemField): string {
-    return fields.value.has(field) ? 'rounded-sm ring-1 ring-amber-500 p-1' : ''
+    return fields.value.has(field) ? 'rounded-sm ring-1 ring-warning p-1' : ''
   }
 
   function hasProblem(...candidates: SessionSettingsProblemField[]): boolean {

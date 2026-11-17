@@ -45,7 +45,7 @@
       <div
         v-if="verificationMessage"
         class="text-xs"
-        :class="verificationSuccess ? 'text-green-500' : 'text-yellow-600'"
+        :class="verificationSuccess ? 'text-success' : 'text-warning'"
       >
         {{ verificationMessage }}
       </div>

@@ -335,8 +335,8 @@ const versionActionLabel = computed(() => {
 
 const versionActionClass = computed(() => {
   const actionType = getVersionActionType(props.backend)
-  if (actionType === 'update') return 'text-green-500'
-  if (actionType === 'downgrade') return 'text-amber-500'
+  if (actionType === 'update') return 'text-success'
+  if (actionType === 'downgrade') return 'text-warning'
   return 'text-blue-500'
 })
 

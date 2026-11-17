@@ -141,7 +141,9 @@ and applies to every Step it is relevant to; starting without one runs the Steps
 _Avoid_: task, run instructions, input
 
 **Settings Template**:
-The settings an Agent's runs use, fixed on the Agent rather than taken from the Session.
+The settings an Agent's runs use, fixed on the Agent rather than taken from the Session. A setting
+it leaves out, such as the model, comes from the Assistant preset's Default Settings, never from
+the Session.
 
 **Schedule**:
 The recurring interval at which an Agent runs by itself in one existing Session, set in the Agent
@@ -151,8 +153,9 @@ ends with its Session or its Agent.
 **Agent Run**:
 One execution of an Agent's Steps inside the Session it was started or scheduled in, in a fresh
 Harness Session that starts with no context from the Session. Prompts sent to the Agent afterwards
-continue that Harness Session, until its Steps are run again. Its result is its final answer and
-the Artifacts it produced.
+continue that Harness Session, until its Steps are run again. It works in its Session's Session
+Folder, with the Agent's own Mounted Folders instead of the Session's. Its result is its final
+answer and the Artifacts it produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
 **Follow-up**:

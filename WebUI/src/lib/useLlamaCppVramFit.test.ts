@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { computed, nextTick, reactive } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import type { LlamaCppVramInputs } from '@/lib/vram/types'
 import type { LlmModel } from '@/assets/js/store/textInference'
 import type { GpuSample } from '@/types/computeMetrics'
@@ -50,6 +50,7 @@ const getLlamaCppVramInputs = vi.fn(async (_name: string, _mmproj?: string) => i
 
 beforeEach(async () => {
   getLlamaCppVramInputs.mockClear()
+  getLlamaCppVramInputs.mockImplementation(async () => inputs)
   // The composable is the renderer's only caller of this IPC.
   ;(globalThis as unknown as { window: unknown }).window = {
     electronAPI: { getLlamaCppVramInputs },
@@ -99,6 +100,39 @@ describe('useLlamaCppVramFit', () => {
     await nextTick()
     expect(summary.value?.current.totalBytes).toBeGreaterThan(atEightK)
     expect(getLlamaCppVramInputs).toHaveBeenCalledTimes(reads)
+  })
+
+  it("judges a model at the context size it is handed, not the chat store's", async () => {
+    const model = { name: 'owner/repo/agent.gguf', downloaded: true }
+    const contextSize = ref(32768)
+    const { summary } = useLlamaCppVramFit(
+      computed(() => model),
+      computed(() => contextSize.value),
+    )
+    await settle()
+    expect(summary.value?.current.contextTokens).toBe(32768)
+
+    textInference.contextSize = 4096
+    contextSize.value = 16384
+    await nextTick()
+    expect(summary.value?.current.contextTokens).toBe(16384)
+  })
+
+  it('follows a target that moves to another model', async () => {
+    const small = { name: 'owner/repo/small.gguf', downloaded: true }
+    const large = { name: 'owner/repo/large.gguf', downloaded: true }
+    getLlamaCppVramInputs.mockImplementation(async (name: string) =>
+      name === large.name ? { ...inputs, weightsBytes: 13 * GIB } : inputs,
+    )
+    const target = ref(small)
+    const { summary } = useLlamaCppVramFit(computed(() => target.value))
+    await settle()
+    expect(summary.value?.current.baseBytes).toBe(4 * GIB)
+
+    target.value = large
+    await settle()
+    expect(getLlamaCppVramInputs).toHaveBeenCalledWith(large.name, undefined)
+    expect(summary.value?.current.baseBytes).toBe(13 * GIB)
   })
 
   it('reads a model once for every place the chip is mounted', async () => {

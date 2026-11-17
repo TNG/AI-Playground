@@ -188,6 +188,7 @@ watchEffect(() => {
               v-if="props.bound && boundFitTarget"
               :key="boundFitTarget.name"
               :model="boundFitTarget"
+              as="span"
             />
             <ModelVramFit v-else-if="!props.bound" />
             <ModelCapabilities v-if="currentModel" :model="currentModel" />
@@ -252,7 +253,7 @@ watchEffect(() => {
             <StarIcon v-if="item.favorite" class="size-3 mr-1.5 shrink-0 text-primary" />
             <span class="flex-1 truncate">{{ item.label }}</span>
             <div class="flex items-center gap-1 ml-2 shrink-0">
-              <ModelVramFit :model="item.fitTarget" />
+              <ModelVramFit :model="item.fitTarget" as="span" />
               <CapabilityIcons
                 :model="{
                   supportsVision: item.supportsVision,

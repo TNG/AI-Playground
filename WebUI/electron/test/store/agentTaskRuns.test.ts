@@ -76,6 +76,8 @@ const inference = vi.hoisted(() => {
     /** Models not on disk, as the models store would report them. */
     missing: new Set<string>(),
     cloudProviderIds: [] as string[],
+    /** What the Assistant preset's Default Settings fill in where a template is silent. */
+    defaults: { model: 'Default-4B', contextWindow: 4096 },
   }
 })
 
@@ -118,8 +120,9 @@ vi.mock('@/assets/js/store/textInference', () => ({
       inference: {
         ...inference.base,
         backend: settings.backend ?? 'llamaCPP',
-        activeModel: settings.model,
+        activeModel: settings.model ?? inference.defaults.model,
         contextSize: settings.contextSize,
+        effectiveContextWindow: settings.contextSize ?? inference.defaults.contextWindow,
       },
       cloud: {
         selectedProviderId: 'custom',
@@ -1789,6 +1792,76 @@ describe('an Agent picked in the prompt bar', () => {
     expect(tasks.pickedAgentIn('session-2')).toBeUndefined()
     expect(tasks.pickedAgentIn('session-3')?.id).toBe('t2')
     expect(storedPicks).toEqual({ 'session-3': 't2' })
+  })
+})
+
+describe('what the next send runs on', () => {
+  it("is the picked Agent's Settings Template, not the Session's settings", async () => {
+    const { tasks } = await readyStores(
+      task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, backend: 'openVINO' } }),
+    )
+
+    await tasks.pickAgent('t1')
+
+    expect(tasks.nextSendInference).toEqual({
+      backend: 'openVINO',
+      model: 'Template-27B',
+      contextWindow: 32768,
+    })
+  })
+
+  it("fills what the template leaves out from the Assistant's Default Settings, not the Session", async () => {
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: {} }))
+
+    await tasks.pickAgent('t1')
+
+    expect(tasks.nextSendInference).toEqual({
+      backend: 'llamaCPP',
+      model: 'Default-4B',
+      contextWindow: 4096,
+    })
+  })
+
+  it("is the Session's own inference with no Agent picked, and again once unpicked", async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    const session = { backend: 'llamaCPP', model: 'Live-9B', contextWindow: 8192 }
+    expect(tasks.nextSendInference).toEqual(session)
+
+    await tasks.pickAgent('t1')
+    await tasks.pickAgent(null)
+
+    expect(tasks.nextSendInference).toEqual(session)
+  })
+
+  it('follows a different Agent when one is picked', async () => {
+    const { tasks } = await readyStores(
+      task('t1', ['one']),
+      task('t2', ['two'], { settingsTemplate: { ...TEMPLATE, model: 'Other-14B' } }),
+    )
+    await tasks.pickAgent('t1')
+
+    await tasks.pickAgent('t2')
+
+    expect(tasks.nextSendInference.model).toBe('Other-14B')
+  })
+
+  it("follows the picked Agent's saved Settings Template, never its unsaved Draft", async () => {
+    inference.catalog = [
+      { name: 'Template-27B', type: 'llamaCPP' },
+      { name: 'Other-14B', type: 'llamaCPP' },
+    ]
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+
+    await tasks.editDraftSettings('t1', { model: 'Other-14B', contextSize: 16384 })
+    expect(tasks.nextSendInference.model).toBe('Template-27B')
+
+    expect((await tasks.saveAgentDraft('t1')).ok).toBe(true)
+    expect(tasks.nextSendInference).toEqual({
+      backend: 'llamaCPP',
+      model: 'Other-14B',
+      contextWindow: 16384,
+    })
   })
 })
 

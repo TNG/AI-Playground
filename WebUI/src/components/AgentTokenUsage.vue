@@ -40,7 +40,6 @@ import { computed } from 'vue'
 import Context from '@/components/ui/context/Context.vue'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
-import { useTextInference } from '@/assets/js/store/textInference'
 import { fillTemplate } from '@/lib/fillTemplate'
 
 // Agent Mode reuses the chat Context widget so both modes label context the same
@@ -48,7 +47,6 @@ import { fillTemplate } from '@/lib/fillTemplate'
 // total across all steps and its cost (see store/agentMode.ts).
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
-const textInference = useTextInference()
 
 const format = (value: number) =>
   new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value)
@@ -61,10 +59,10 @@ const report = computed(() =>
 
 const contextTokens = computed(() => report.value?.contextUsage?.tokens ?? 0)
 
-// Pi only reports the window once a session exists; until then it is the same
-// window Chat would use, which is also what the next turn will hand to Pi.
+// Pi only reports the window once a session exists; until then it is the window the next turn
+// will hand to Pi.
 const contextWindow = computed(
-  () => report.value?.contextUsage?.contextWindow || textInference.effectiveContextWindow,
+  () => report.value?.contextUsage?.contextWindow || agentTasks.nextSendInference.contextWindow,
 )
 
 // Pi cannot estimate occupancy between a compaction and the next model response.

@@ -99,6 +99,12 @@ function editableFields(source: AgentDraftEdit): AgentDraftEdit {
 /** Why a draft cannot be saved yet; `settings` only for an Agent Library Draft. */
 export type SessionScheduleState = 'active' | 'paused'
 
+export type NextSendInference = {
+  backend: LlmBackend
+  model: string | null | undefined
+  contextWindow: number
+}
+
 export type SaveTaskBlocker = 'name' | 'no-steps' | 'empty-step' | 'settings'
 
 export const SAVE_TASK_BLOCKER_KEYS = {
@@ -645,6 +651,30 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       ? (pickedAgentLatestRun.value?.harnessSessionId ?? '')
       : agentMode.openSessionId,
   )
+
+  /**
+   * What the next send in the open Session runs on: the picked Agent's saved Settings Template over
+   * the Assistant preset's Default Settings, else the Session's own inference.
+   */
+  const nextSendInference = computed((): NextSendInference => {
+    const agent = pickedAgent.value
+    if (!agent) {
+      return {
+        backend: textInference.backend,
+        model: textInference.activeModel,
+        contextWindow: textInference.effectiveContextWindow,
+      }
+    }
+    const { inference } = textInference.inferenceForSettings(
+      HARNESS_CHAT_PRESET,
+      agent.settingsTemplate,
+    )
+    return {
+      backend: inference.backend as LlmBackend,
+      model: inference.activeModel,
+      contextWindow: inference.effectiveContextWindow,
+    }
+  })
 
   /** Which of ▶ and → Enter triggers with an Agent picked, from its runs and the Session timeline. */
   const pickedAgentComposer = computed((): AgentComposerState | undefined => {
@@ -1801,6 +1831,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     followUpPickedAgent,
     pickedAgentComposer,
     usageSessionId,
+    nextSendInference,
     setSchedule,
     removeSchedule,
     taskSchedule,

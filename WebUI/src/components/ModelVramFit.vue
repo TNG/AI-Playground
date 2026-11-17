@@ -15,15 +15,29 @@ const props = withDefaults(
      * caller knows which backend the row it is rendering belongs to.
      */
     model?: VramFitTarget
+    /** Defaults to the chat store's context size. */
+    contextSize?: number
     iconSize?: string
     delayDuration?: number
+    /**
+     * `span` where the chip sits inside the control itself (a picker row): a nested
+     * button would take the menu's focus and swallow the click that selects the model.
+     */
+    as?: 'button' | 'span'
   }>(),
-  { model: undefined, iconSize: 'size-4', delayDuration: 200 },
+  {
+    model: undefined,
+    contextSize: undefined,
+    iconSize: 'size-4',
+    delayDuration: 200,
+    as: 'button',
+  },
 )
 
 const i18nState = useI18N().state
 const { summary, verdict } = useLlamaCppVramFit(
   props.model ? computed(() => props.model) : undefined,
+  computed(() => props.contextSize),
 )
 
 const bars = computed<VramFitBars>(() =>
@@ -75,12 +89,10 @@ const budgetLine = computed(() =>
   <TooltipProvider v-if="verdict">
     <Tooltip :delay-duration="delayDuration">
       <TooltipTrigger as-child>
-        <!-- A row of the picker is itself the control: a nested button would take
-             the menu's focus and swallow the click that selects the model. -->
         <component
-          :is="model ? 'span' : 'button'"
-          :type="model ? undefined : 'button'"
-          :role="model ? 'img' : undefined"
+          :is="as"
+          :type="as === 'button' ? 'button' : undefined"
+          :role="as === 'span' ? 'img' : undefined"
           class="flex flex-none items-center cursor-help"
           :aria-label="t('VRAM_FIT_ARIA', { level: levelLabel })"
         >

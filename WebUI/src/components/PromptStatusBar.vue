@@ -81,7 +81,14 @@
             </TooltipContent>
           </Tooltip>
           <!-- Whether the model plus its context fits the card (llama.cpp only) -->
-          <ModelVramFit v-if="modelChip.source === 'chat'" :delay-duration="0" />
+          <template v-if="modelChip.source === 'chat'">
+            <ModelVramFit
+              v-if="nextSendFitTarget"
+              :model="nextSendFitTarget"
+              :context-size="agentTasks.nextSendInference.contextWindow"
+              :delay-duration="0"
+            />
+          </template>
         </template>
         <DropdownMenu v-if="bar.presetChip === 'dropdown'">
           <DropdownMenuTrigger as-child>
@@ -312,6 +319,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useErrors } from '@/assets/js/store/errors'
 import {
   useTextInference,
@@ -340,6 +348,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import ModelCapabilities from '@/components/ModelCapabilities.vue'
 import ModelVramFit from '@/components/ModelVramFit.vue'
+import { llamaCppFitTarget } from '@/lib/useLlamaCppVramFit'
 import CapabilityIcons from '@/components/CapabilityIcons.vue'
 import AgentTokenUsage from '@/components/AgentTokenUsage.vue'
 import SessionReachabilityChip from '@/components/SessionReachabilityChip.vue'
@@ -363,6 +372,7 @@ const textToSpeech = useTextToSpeech()
 const languages = useI18N().state
 const computeMetrics = useComputeMetrics()
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const errors = useErrors()
 const agentPick = usePromptBarAgentPick()
 const { pickedAgentId, pickedPresetName } = agentPick
@@ -443,7 +453,7 @@ const activeService = computed<BackendServiceName | undefined>(() => {
     if (textToSpeech.selectedEngine === 'external') return undefined
     return textToSpeech.selectedEngine === 'kokoro' ? 'openvino-backend' : 'qwen3-tts-backend'
   }
-  return backendToService[textInference.backend] ?? undefined
+  return backendToService[agentTasks.nextSendInference.backend] ?? undefined
 })
 
 const SPEECH_BACKEND_OF: Partial<Record<BackendServiceName, SpeechBackend>> = {
@@ -461,8 +471,8 @@ const speechBackend = computed<SpeechBackend | undefined>(() => {
 const bar = usePromptBarModel({
   activePreset: () => activePreset.value,
   machine: () => ({
-    chatBackend: textInference.backend,
-    chatModel: textInference.activeModel,
+    chatBackend: agentTasks.nextSendInference.backend,
+    chatModel: agentTasks.nextSendInference.model ?? undefined,
     speechBackend: speechBackend.value,
     device: activeService.value ? selectedDevice(activeService.value) : undefined,
   }),
@@ -564,9 +574,12 @@ function descriptionOf(name: string): string | undefined {
   return presetsStore.presets.find((p) => p.name === name)?.description
 }
 
-const currentModel = computed(() =>
-  textInference.llmModels.find((m) => m.active && m.type === textInference.backend),
-)
+const currentModel = computed(() => {
+  const { backend, model } = agentTasks.nextSendInference
+  return textInference.llmModels.find((m) => m.type === backend && m.name === model)
+})
+
+const nextSendFitTarget = computed(() => llamaCppFitTarget(currentModel.value))
 
 // Assistant shows per-capability icons on its model chip.
 const isAssistantPreset = computed(() => isHarnessChatPreset(presetChip.value?.name))

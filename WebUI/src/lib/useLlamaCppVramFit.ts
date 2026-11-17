@@ -215,14 +215,18 @@ export function useVramFitLevels() {
 
 /**
  * How a llama.cpp model sits in the card's memory, at the current, a reference
- * and the model's maximum context. Defaults to the active model; pass one to ask
- * about a model the user is only looking at. Null whenever the answer would be a
+ * and the model's maximum context. Defaults to the active model at the chat store's
+ * context size; pass either to ask about a model the user is only looking at, or one
+ * a picked Agent will run at its own context size. Null whenever the answer would be a
  * guess: another backend, a header that could not be read, or no GPU sample yet.
  *
  * A model that is not on disk is read from its header on HuggingFace, which is
  * the moment the verdict is worth the most: before paying for the download.
  */
-export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
+export function useLlamaCppVramFit(
+  target?: Ref<VramFitTarget | undefined>,
+  contextSize?: Ref<number | undefined>,
+) {
   const textInference = useTextInference()
   const computeMetrics = useComputeMetrics()
 
@@ -246,7 +250,7 @@ export function useLlamaCppVramFit(target?: Ref<VramFitTarget | undefined>) {
     const source = inputs.value
     const current = model.value
     if (!source || !card || !current) return null
-    return summarize(current, source, card, textInference.contextSize)
+    return summarize(current, source, card, contextSize?.value ?? textInference.contextSize)
   })
 
   /**

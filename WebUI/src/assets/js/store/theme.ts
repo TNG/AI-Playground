@@ -25,7 +25,8 @@ import {
   formatContrastRatio,
   readableTextOn,
   textChoiceHex,
-  type BlockingPair,
+  themeButtonColorOn,
+  type WayBackPair,
   type TextChoice,
   type UnreadablePair,
 } from '@/lib/themeContrast'
@@ -55,9 +56,9 @@ const derivedFrom = (colors: HexThemeColors) => deriveThemeColors(mainColorsOf(c
 
 export type ReadabilityVerdict = { readable: true } | ({ readable: false } & UnreadablePair)
 
-const pairLabelKeys: Record<BlockingPair['text'], string> = {
-  foreground: 'SETTINGS_THEME_PAIR_FOREGROUND',
+const pairLabelKeys: Record<WayBackPair['text'], string> = {
   'popover-foreground': 'SETTINGS_THEME_PAIR_POPOVER_FOREGROUND',
+  'accent-foreground': 'SETTINGS_THEME_PAIR_ACCENT_FOREGROUND',
 }
 
 export type HoldFix = { text: ThemeToken; choice: TextChoice }
@@ -117,6 +118,7 @@ export const useTheme = defineStore('theme', () => {
   const draft = ref<ThemeDraft | null>(null)
   const lastReadableDraft = ref<HexThemeColors | null>(null)
   const pendingAction = ref<(() => void) | null>(null)
+  const typedNewThemeName = ref<string | null>(null)
 
   // Step 8 (§6.1): the theme choice is a kernel-owned preference
   // (preferences.json), hydrated before mount and written through.
@@ -144,7 +146,7 @@ export const useTheme = defineStore('theme', () => {
     () => storedEntries.value.map(asRecord).find((t) => t?.id === selected.value)?.baseTheme,
   )
 
-  /** A selected Custom Theme that fails the guard (a hand-edited file) shows its Base Theme. */
+  /** A selected Custom Theme that breaks the Way Back (a hand-edited file) shows its Base Theme. */
   const unreadableSelection = computed(() => {
     const custom = selectedCustomTheme.value
     const pair = custom && unreadablePairOf(custom)
@@ -239,15 +241,20 @@ export const useTheme = defineStore('theme', () => {
     reportUnreadableSelection()
   }
 
-  /** Copies a Built-in Theme (the active one's Base Theme by default) and selects the copy. */
-  function customize(from: Theme = resolved.value.baseId ?? fallbackBuiltInTheme.id): string {
-    const source = builtInOrFallback(from)
-    return addAndSelect({
-      name: newName('THEME_NAME_CUSTOM', 'THEME_NAME_CUSTOM_N', source.name),
-      baseTheme: source.id,
-      mode: 'simple',
-      colors: toHexColors(source.colors),
-    })
+  const editedBuiltInTheme = computed(() =>
+    selectedCustomTheme.value ? null : builtInOrFallback(resolved.value.baseId),
+  )
+
+  const newThemeName = computed(() => {
+    const builtIn = editedBuiltInTheme.value
+    if (!builtIn) return ''
+    return (
+      typedNewThemeName.value ?? newName('THEME_NAME_CUSTOM', 'THEME_NAME_CUSTOM_N', builtIn.name)
+    )
+  })
+
+  function setNewThemeName(name: string) {
+    typedNewThemeName.value = name
   }
 
   const current = computed(() => draft.value ?? edited.value)
@@ -288,7 +295,7 @@ export const useTheme = defineStore('theme', () => {
     })
   })
 
-  /** In Simple mode the fix goes through Text, so the derivation follows it. */
+  /** In Simple mode both Way Back texts are Text, so the fix goes through it. */
   const holdFix = computed<HoldFix | null>(() => {
     const verdict = draftVerdict.value
     if (!held.value || verdict.readable) return null
@@ -316,7 +323,16 @@ export const useTheme = defineStore('theme', () => {
     if (!findUnreadablePair(next.colors)) lastReadableDraft.value = next.colors
   }
 
-  const canSave = computed(() => hasUnsavedChanges.value && draftVerdict.value.readable)
+  const themeButtonColor = computed(() =>
+    themeButtonColorOn(appliedHexColors.value, resolved.value.baseId),
+  )
+
+  const canSave = computed(
+    () =>
+      hasUnsavedChanges.value &&
+      draftVerdict.value.readable &&
+      (!editedBuiltInTheme.value || !!newThemeName.value.trim()),
+  )
 
   /**
    * Changes the draft only; nothing is saved until `saveDraft`. In Simple mode only a Main
@@ -324,7 +340,7 @@ export const useTheme = defineStore('theme', () => {
    */
   function setColor(token: ThemeToken, hex: HexColor): boolean {
     const mode = editingMode.value
-    if (!selectedCustomTheme.value || !isHexColor(hex)) return false
+    if (!isHexColor(hex)) return false
     if (mode === 'simple' && !isMainColorToken(token)) return false
     const colors = { ...draftHexColors.value, [token]: hex.toLowerCase() }
     setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : colors })
@@ -333,15 +349,21 @@ export const useTheme = defineStore('theme', () => {
 
   /** Switching to Simple recalculates `simpleModeRecalculates`; the editor confirms that first. */
   function setEditingMode(mode: EditingMode) {
-    if (!selectedCustomTheme.value || mode === editingMode.value) return
+    if (mode === editingMode.value) return
     const colors = draftHexColors.value
     setDraft({ mode, colors: mode === 'simple' ? derivedFrom(colors) : { ...colors } })
   }
 
   function saveDraft(): boolean {
     const changed = draft.value
+    if (!changed || !canSave.value) return false
+    const builtIn = editedBuiltInTheme.value
+    if (builtIn) {
+      addAndSelect({ name: newThemeName.value.trim(), baseTheme: builtIn.id, ...changed })
+      return true
+    }
     const id = selectedCustomTheme.value?.id
-    if (!changed || !id || !canSave.value) return false
+    if (!id) return false
     updateCustomTheme(id, (t) => ({ ...t, ...changed }))
     draft.value = null
     lastReadableDraft.value = null
@@ -357,12 +379,17 @@ export const useTheme = defineStore('theme', () => {
     draft.value = null
     lastReadableDraft.value = null
     pendingAction.value = null
+    typedNewThemeName.value = null
   }
 
-  /** Runs `action` now, or once the user agrees to discard unsaved changes (`confirmDiscard`). */
+  /** Leaves the edit: runs `action` now, or once the user agrees to discard (`confirmDiscard`). */
   function guardUnsaved(action: () => void) {
-    if (!hasUnsavedChanges.value) return action()
-    pendingAction.value = action
+    if (hasUnsavedChanges.value) {
+      pendingAction.value = action
+      return
+    }
+    discardDraft()
+    action()
   }
 
   function confirmDiscard() {
@@ -442,12 +469,15 @@ export const useTheme = defineStore('theme', () => {
     holdFix,
     appliedHexColors,
     appliedColors,
+    themeButtonColor,
     hasUnsavedChanges,
     canSave,
     discardPending: computed(() => !!pendingAction.value),
     fallbackMessage,
     selectTheme,
-    customize,
+    editedBuiltInTheme,
+    newThemeName,
+    setNewThemeName,
     setColor,
     setEditingMode,
     applyHoldFix,

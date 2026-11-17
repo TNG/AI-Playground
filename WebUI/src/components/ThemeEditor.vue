@@ -7,14 +7,25 @@
 
       <ThemeFallbackNotice />
 
-      <div v-if="!edited" class="flex flex-col items-start gap-2 text-xs text-muted-foreground">
-        <p>{{ languages.SETTINGS_THEME_BUILT_IN_READ_ONLY }}</p>
-        <Button variant="outline" size="sm" @click="theme.customize()">
-          {{ languages.SETTINGS_THEME_CUSTOMIZE }}
-        </Button>
-      </div>
+      <section
+        v-if="builtIn"
+        :aria-label="languages.SETTINGS_THEME_NEW_THEME"
+        class="flex flex-col gap-2 rounded-md border border-border bg-muted/50 p-2 text-xs"
+      >
+        <p class="flex items-start gap-2">
+          <InformationCircleIcon class="size-4 shrink-0" />
+          {{ fillTemplate(languages.SETTINGS_THEME_SAVES_AS_NEW, { base: builtIn.name }) }}
+        </p>
+        <Input
+          :model-value="theme.newThemeName"
+          type="text"
+          :aria-label="languages.SETTINGS_THEME_NAME_PLACEHOLDER"
+          :placeholder="languages.SETTINGS_THEME_NAME_PLACEHOLDER"
+          @update:model-value="(name) => theme.setNewThemeName(String(name))"
+        />
+      </section>
 
-      <div v-else class="flex flex-wrap gap-2">
+      <div v-else-if="edited" class="flex flex-wrap gap-2">
         <Dialog v-model:open="renameOpen">
           <DialogTrigger as-child>
             <Button variant="outline" size="sm" @click="renameName = edited.name">
@@ -95,62 +106,60 @@
         </AlertDialog>
       </div>
 
-      <template v-if="edited">
-        <div
-          role="group"
-          :aria-label="languages.SETTINGS_THEME_MODE"
-          class="flex self-start rounded-md border p-0.5"
+      <div
+        role="group"
+        :aria-label="languages.SETTINGS_THEME_MODE"
+        class="flex self-start rounded-md border p-0.5"
+      >
+        <Button
+          v-for="mode in editingModes"
+          :key="mode"
+          size="sm"
+          :variant="theme.editingMode === mode ? 'secondary' : 'ghost'"
+          :aria-pressed="theme.editingMode === mode"
+          @click="chooseMode(mode)"
         >
-          <Button
-            v-for="mode in editingModes"
-            :key="mode"
-            size="sm"
-            :variant="theme.editingMode === mode ? 'secondary' : 'ghost'"
-            :aria-pressed="theme.editingMode === mode"
-            @click="chooseMode(mode)"
-          >
-            {{ languages[modeLabelKeys[mode]] }}
-          </Button>
-        </div>
+          {{ languages[modeLabelKeys[mode]] }}
+        </Button>
+      </div>
 
-        <section
-          v-if="theme.editingMode === 'simple'"
-          class="flex flex-col gap-2"
-          :aria-label="languages.SETTINGS_THEME_SIMPLE"
-        >
-          <ul class="flex flex-col gap-1.5 pl-1">
-            <ThemeColorRow
-              v-for="token in theme.mainColorTokens"
-              :id="`theme-main-${token}`"
-              :key="token"
-              :label="languages[colorLabelKeys[token]]"
-              :value="theme.draftHexColors[token]"
-              @pick="(hex) => theme.setColor(token, hex)"
-            />
-          </ul>
-          <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_SIMPLE_HINT }}</p>
-        </section>
+      <section
+        v-if="theme.editingMode === 'simple'"
+        class="flex flex-col gap-2"
+        :aria-label="languages.SETTINGS_THEME_SIMPLE"
+      >
+        <ul class="flex flex-col gap-1.5 pl-1">
+          <ThemeColorRow
+            v-for="token in theme.mainColorTokens"
+            :id="`theme-main-${token}`"
+            :key="token"
+            :label="languages[colorLabelKeys[token]]"
+            :value="theme.draftHexColors[token]"
+            @pick="(hex) => theme.setColor(token, hex)"
+          />
+        </ul>
+        <p class="text-xs text-muted-foreground">{{ languages.SETTINGS_THEME_SIMPLE_HINT }}</p>
+      </section>
 
-        <ThemeAdvancedColors v-else :aria-label="languages.SETTINGS_THEME_ADVANCED" />
+      <ThemeAdvancedColors v-else :aria-label="languages.SETTINGS_THEME_ADVANCED" />
 
-        <div
-          v-if="theme.holdMessage"
-          role="alert"
-          class="flex flex-col items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
-        >
-          <p class="flex items-start gap-2">
-            <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
-            {{ theme.holdMessage }}
-          </p>
-          <Button v-if="theme.holdFix" variant="outline" size="sm" @click="theme.applyHoldFix()">
-            {{ languages[fixLabelKeys[theme.holdFix.choice]] }}
-          </Button>
-        </div>
-      </template>
+      <div
+        v-if="theme.holdMessage"
+        role="alert"
+        class="flex flex-col items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs"
+      >
+        <p class="flex items-start gap-2">
+          <ExclamationTriangleIcon class="size-4 shrink-0 text-destructive" />
+          {{ theme.holdMessage }}
+        </p>
+        <Button v-if="theme.holdFix" variant="outline" size="sm" @click="theme.applyHoldFix()">
+          {{ languages[fixLabelKeys[theme.holdFix.choice]] }}
+        </Button>
+      </div>
     </div>
 
     <div
-      v-if="edited && theme.hasUnsavedChanges"
+      v-if="theme.hasUnsavedChanges"
       role="region"
       :aria-label="languages.SETTINGS_THEME_UNSAVED_CHANGES"
       class="flex items-center justify-between gap-4 border-t border-border px-4 py-3"
@@ -161,7 +170,7 @@
           {{ languages.SETTINGS_THEME_DISCARD }}
         </Button>
         <Button size="sm" :disabled="!theme.canSave" @click="theme.saveDraft()">
-          {{ languages.SETTINGS_THEME_SAVE }}
+          {{ builtIn ? languages.SETTINGS_THEME_SAVE_AS_NEW : languages.SETTINGS_THEME_SAVE }}
         </Button>
       </div>
     </div>
@@ -214,7 +223,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+import { ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/vue/24/outline'
 import { editingModes, useTheme, type EditingMode } from '@/assets/js/store/theme'
 import { useI18N } from '@/assets/js/store/i18n'
 import AppSettingsRow from '@/components/AppSettingsRow.vue'
@@ -250,6 +259,7 @@ import type { TextChoice } from '@/lib/themeContrast'
 const theme = useTheme()
 const languages = useI18N().state
 const edited = computed(() => theme.editedCustomTheme)
+const builtIn = computed(() => theme.editedBuiltInTheme)
 
 function copyEdited() {
   const id = edited.value?.id

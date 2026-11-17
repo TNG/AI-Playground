@@ -242,7 +242,7 @@ A Theme that ships with the app. The user can pick it but never change it; app u
 _Avoid_: default theme, preset theme, standard theme
 
 **Custom Theme**:
-A Theme the user made by copying another one and changing its colours. The user can rename,
+A Theme the user made by saving changed colours of another one. The user can rename,
 recolour, reset and delete it.
 _Avoid_: user theme, edited theme
 
@@ -252,9 +252,15 @@ Theme's colours again.
 _Avoid_: parent theme, template
 
 **Editing Mode**:
-How a Custom Theme is edited: Simple (the user picks its Main Colours and the app works out the
-rest) or Advanced (the user sets every colour). Each Custom Theme has exactly one at a time.
+How a theme's colours are edited: Simple (the user picks its Main Colours and the app works out
+the rest) or Advanced (the user sets every colour). Each Custom Theme has exactly one at a time;
+edits to a Built-in Theme carry theirs into the Custom Theme that saving them creates.
 _Avoid_: simple theme, advanced theme
+
+**Way Back**:
+The theme button and its menu, which every theme must leave visible so the user can always
+switch to a readable one. It is the only thing a theme is required to keep readable.
+_Avoid_: minimal rule, readability check, blocking pairs
 
 **Main Colours**:
 The few colours the user picks for a Custom Theme in Simple mode: Background, Panels, Text,

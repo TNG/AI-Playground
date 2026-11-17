@@ -18,7 +18,11 @@
               class="flex-none cursor-help"
               :aria-label="`Inference backend: ${backendChip.name}`"
             >
-              <span>{{ backendChip.name }}</span>
+              <span
+                class="svg-icon h-3.5 w-3.5"
+                :class="backendChip.icon"
+                aria-hidden="true"
+              ></span>
             </button>
           </TooltipTrigger>
           <TooltipContent
@@ -522,15 +526,29 @@ const BACKEND_NAMES = {
   qwen3TTS: 'Qwen3-TTS',
 } as const
 
+const BACKEND_ICONS: Record<Extract<HeaderChip, { kind: 'backend' }>['backend'], string> = {
+  llamaCPP: 'i-backend-llamacpp',
+  openVINO: 'i-backend-openvino',
+  cloud: 'i-download-cloud',
+  comfyui: 'i-backend-comfyui',
+  qwen3TTS: 'i-backend-qwen',
+  external: 'i-speaker',
+}
+
 const backendChip = computed(() => {
   const chip = headerChips.value.find((c) => c.kind === 'backend')
   if (!chip) return undefined
+  const icon = BACKEND_ICONS[chip.backend]
   if (chip.backend === 'external' || speechBackend.value) {
     const name =
       chip.backend === 'external'
         ? languages.PROMPT_BAR_EXTERNAL_SPEECH_ENDPOINT
         : BACKEND_NAMES[chip.backend]
-    return { name, description: languages.PROMPT_BAR_SPEECH_BACKEND.replace('{engine}', name) }
+    return {
+      icon,
+      name,
+      description: languages.PROMPT_BAR_SPEECH_BACKEND.replace('{engine}', name),
+    }
   }
   const provider = cloudMode.selectedProvider?.name
   const name =
@@ -545,7 +563,7 @@ const backendChip = computed(() => {
         : chip.backend === 'llamaCPP'
           ? 'Chat is running on the llama.cpp backend (GGUF models).'
           : 'Chat is running on the OpenVINO backend (OpenVINO IR models).'
-  return { name, description }
+  return { icon, name, description }
 })
 
 const computeChip = computed(() => {

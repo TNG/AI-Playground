@@ -1407,12 +1407,18 @@ export const useAgentMode = defineStore(
 
     const messages = computed(() => chat.value.messages)
 
-    const sessionUsage = computed(() => latestTurnMetadata(messages.value, 'usage'))
-    const sessionTokens = computed(
-      () => (sessionUsage.value?.inputTokens ?? 0) + (sessionUsage.value?.outputTokens ?? 0),
-    )
-    const contextUsage = computed(() => latestTurnMetadata(messages.value, 'contextUsage'))
-    const lastStepUsage = computed(() => latestTurnMetadata(messages.value, 'lastStep'))
+    /** A Harness Session's latest usage report: its live turn's while it has one, else its record's. */
+    function usageOf(sessionId: string) {
+      const live = turns.runtimeOf(sessionId)?.chat.messages
+      const transcript = live?.length ? live : (sessions.value[sessionId]?.messages ?? [])
+      const usage = latestTurnMetadata(transcript, 'usage')
+      return {
+        usage,
+        totalTokens: (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+        contextUsage: latestTurnMetadata(transcript, 'contextUsage'),
+        lastStep: latestTurnMetadata(transcript, 'lastStep'),
+      }
+    }
 
     /**
      * Save a session's transcript from its runtime. The open Harness Session takes the live
@@ -2354,10 +2360,7 @@ export const useAgentMode = defineStore(
       messages,
       toolProgress,
       toolImages,
-      sessionUsage,
-      sessionTokens,
-      contextUsage,
-      lastStepUsage,
+      usageOf,
       chat,
       anyTurnOpen,
       sessionTurns,

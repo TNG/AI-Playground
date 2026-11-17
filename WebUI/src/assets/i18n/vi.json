@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Hãy hỏi Assistant bất cứ điều gì. Với các công cụ bạn bật, nó có thể tìm kiếm trên web, tra cứu trong tài liệu bạn đính kèm và tạo hình ảnh, video hoặc giọng nói.",
   "AGENT_EMPTY_STATE_WORKSPACE": "Tệp: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Cấu hình mô hình và công cụ trong các thẻ Suy luận và Thuộc tính.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Đang hiển thị lần chạy gần nhất của {agent} trong phiên này.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} chưa chạy trong phiên này.",
   "AGENT_REPLY_ARIA": "Câu trả lời của trợ lý",
   "TOOL_CALL_ARIA": "Gọi công cụ: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",

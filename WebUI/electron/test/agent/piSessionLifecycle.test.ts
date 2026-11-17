@@ -75,7 +75,7 @@ async function makeAgentSession(): Promise<{ session: FakeSession }> {
     }),
     getSessionStats: () => ({
       sessionFile,
-      tokens: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, total: 120 },
+      tokens: { input: 100, output: 20, cacheRead: 30, cacheWrite: 4, total: 154 },
       cost: 0,
     }),
     getContextUsage: () => ({ tokens: 1200, contextWindow: 32768, percent: 3.7 }),
@@ -928,9 +928,9 @@ describe('turn streaming', () => {
     expect(finish).toMatchObject({
       type: 'finish',
       messageMetadata: {
-        usage: { inputTokens: 100, outputTokens: 20, costUsd: 0 },
+        usage: { inputTokens: 134, outputTokens: 20, cacheReadTokens: 30, costUsd: 0 },
         contextUsage: { tokens: 1200, contextWindow: 32768, percent: 3.7 },
-        lastStep: { inputTokens: 80, outputTokens: 12, cacheReadTokens: 5 },
+        lastStep: { inputTokens: 85, outputTokens: 12, cacheReadTokens: 5 },
       },
     })
   })

@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Assistant に何でも聞いてください。有効にしたツールに応じて、Web 検索、添付したドキュメントの参照、画像・動画・音声の作成ができます。",
   "AGENT_EMPTY_STATE_WORKSPACE": "ファイル: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "モデルとツールは「推論」タブと「属性」タブで設定します。",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "このセッションでの {agent} の最新の実行を表示しています。",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} はこのセッションでまだ実行されていません。",
   "AGENT_REPLY_ARIA": "アシスタントの返信",
   "TOOL_CALL_ARIA": "ツール呼び出し: {tool}",
   "AGENT_SETTING_BACKEND": "バックエンド",

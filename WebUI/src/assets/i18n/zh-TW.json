@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "向 Assistant 提出任何問題。藉由你開啟的工具，它可以搜尋網頁、查閱你附加的文件，並產生影像、影片或語音。",
   "AGENT_EMPTY_STATE_WORKSPACE": "檔案：{path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "在「推論」和「屬性」分頁中設定模型和工具。",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "正在顯示 {agent} 在此工作階段中的最近一次執行。",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} 尚未在此工作階段中執行。",
   "AGENT_REPLY_ARIA": "助理回覆",
   "TOOL_CALL_ARIA": "工具呼叫：{tool}",
   "AGENT_SETTING_BACKEND": "後端",

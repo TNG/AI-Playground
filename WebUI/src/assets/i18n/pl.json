@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Zapytaj Assistant o cokolwiek. Dzięki włączonym narzędziom może przeszukiwać internet, sprawdzać dołączone dokumenty i tworzyć obrazy, wideo lub mowę.",
   "AGENT_EMPTY_STATE_WORKSPACE": "Pliki: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Model i narzędzia skonfigurujesz na kartach Wnioskowanie i Atrybuty.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Wyświetlane jest ostatnie uruchomienie {agent} w tej sesji.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} nie był jeszcze uruchomiony w tej sesji.",
   "AGENT_REPLY_ARIA": "Odpowiedź asystenta",
   "TOOL_CALL_ARIA": "Wywołanie narzędzia: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",

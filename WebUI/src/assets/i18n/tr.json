@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Assistant'a istediğinizi sorun. Açtığınız araçlarla web'de arama yapabilir, eklediğiniz belgelerde bilgi arayabilir ve görüntü, video veya konuşma oluşturabilir.",
   "AGENT_EMPTY_STATE_WORKSPACE": "Dosyalar: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Modeli ve araçları Çıkarım ve Öznitelikler sekmelerinde yapılandırın.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Bu oturumdaki {agent} ajanının son çalıştırması gösteriliyor.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} bu oturumda henüz çalışmadı.",
   "AGENT_REPLY_ARIA": "Asistan yanıtı",
   "TOOL_CALL_ARIA": "Araç çağrısı: {tool}",
   "AGENT_SETTING_BACKEND": "Arka uç",

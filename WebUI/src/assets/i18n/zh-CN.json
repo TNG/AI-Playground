@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "向 Assistant 提出任何问题。借助你开启的工具，它可以搜索网页、查阅你附加的文档，并生成图像、视频或语音。",
   "AGENT_EMPTY_STATE_WORKSPACE": "文件：{path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "在“推理”和“属性”选项卡中配置模型和工具。",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "正在显示 {agent} 在此会话中的最近一次运行。",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} 尚未在此会话中运行。",
   "AGENT_REPLY_ARIA": "助手回复",
   "TOOL_CALL_ARIA": "工具调用：{tool}",
   "AGENT_SETTING_BACKEND": "后端",

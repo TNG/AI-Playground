@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Tanyakan apa saja kepada Assistant. Dengan alat yang Anda aktifkan, ia dapat mencari di web, mencari informasi dalam dokumen yang Anda lampirkan, serta membuat gambar, video, atau suara.",
   "AGENT_EMPTY_STATE_WORKSPACE": "File: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Atur model dan alat di tab Inferensi dan Atribut.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Menampilkan proses terakhir {agent} di sesi ini.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} belum pernah berjalan di sesi ini.",
   "AGENT_REPLY_ARIA": "Balasan asisten",
   "TOOL_CALL_ARIA": "Panggilan alat: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",

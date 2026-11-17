@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "ถาม Assistant ได้ทุกเรื่อง ด้วยเครื่องมือที่คุณเปิดไว้ มันสามารถค้นหาเว็บ ค้นข้อมูลในเอกสารที่คุณแนบ และสร้างภาพ วิดีโอ หรือเสียงพูดได้",
   "AGENT_EMPTY_STATE_WORKSPACE": "ไฟล์: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "กำหนดค่าโมเดลและเครื่องมือได้ในแท็บ การอนุมาน และ คุณสมบัติ",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "กำลังแสดงการทำงานล่าสุดของ {agent} ในเซสชันนี้",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} ยังไม่เคยทำงานในเซสชันนี้",
   "AGENT_REPLY_ARIA": "คำตอบของผู้ช่วย",
   "TOOL_CALL_ARIA": "การเรียกใช้เครื่องมือ: {tool}",
   "AGENT_SETTING_BACKEND": "แบ็กเอนด์",

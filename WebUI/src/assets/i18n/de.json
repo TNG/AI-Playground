@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Fragen Sie den Assistant, was Sie möchten. Mit den aktivierten Tools kann er im Web suchen, in angehängten Dokumenten nachschlagen und Bilder, Videos oder Sprache erstellen.",
   "AGENT_EMPTY_STATE_WORKSPACE": "Dateien: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Modell und Tools legen Sie in den Tabs Inferenz und Attribute fest.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Angezeigt wird der letzte Lauf von {agent} in dieser Sitzung.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} ist in dieser Sitzung noch nicht gelaufen.",
   "AGENT_REPLY_ARIA": "Antwort des Assistenten",
   "TOOL_CALL_ARIA": "Tool-Aufruf: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",

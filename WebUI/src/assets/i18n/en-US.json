@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Ask the Assistant anything. With the tools you turn on, it can search the web, look things up in documents you attach and create images, video or speech.",
   "AGENT_EMPTY_STATE_WORKSPACE": "Files: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Configure model and tools in the Inferencing and Attributes tabs.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Showing the latest run of {agent} in this Session.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} has not run in this Session yet.",
   "AGENT_REPLY_ARIA": "Assistant reply",
   "TOOL_CALL_ARIA": "Tool call: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",

@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Pregunta lo que quieras a Assistant. Con las herramientas que actives, puede buscar en la web, consultar los documentos que adjuntes y crear imágenes, vídeo o voz.",
   "AGENT_EMPTY_STATE_WORKSPACE": "Archivos: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "Configura el modelo y las herramientas en las pestañas Inferencia y Atributos.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "Se muestra la última ejecución de {agent} en esta sesión.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent} aún no se ha ejecutado en esta sesión.",
   "AGENT_REPLY_ARIA": "Respuesta del asistente",
   "TOOL_CALL_ARIA": "Llamada a herramienta: {tool}",
   "AGENT_SETTING_BACKEND": "Backend",

@@ -207,6 +207,11 @@ function answerMetrics(
   return { ...(timings ? { timings } : {}), compute }
 }
 
+/** The whole prompt, cache hits included — Pi's own `input` leaves them out. */
+function promptTokens(input: number, cacheRead: number, cacheWrite: number): number {
+  return input + cacheRead + cacheWrite
+}
+
 /** Usage + context occupancy at this moment, read off the live session. */
 function turnSummary(session: AgentSession): TurnSummary {
   const summary: TurnSummary = {}
@@ -215,7 +220,7 @@ function turnSummary(session: AgentSession): TurnSummary {
     const tokens = stats.tokens
     if (tokens) {
       summary.usage = {
-        inputTokens: tokens.input,
+        inputTokens: promptTokens(tokens.input, tokens.cacheRead, tokens.cacheWrite),
         outputTokens: tokens.output,
         cacheReadTokens: tokens.cacheRead,
         cacheWriteTokens: tokens.cacheWrite,
@@ -258,7 +263,11 @@ function lastStepUsage(session: AgentSession): StepUsage | undefined {
     if (!usage) return undefined
     const number = (value: unknown) => (typeof value === 'number' ? value : 0)
     return {
-      inputTokens: number(usage.input),
+      inputTokens: promptTokens(
+        number(usage.input),
+        number(usage.cacheRead),
+        number(usage.cacheWrite),
+      ),
       outputTokens: number(usage.output),
       cacheReadTokens: number(usage.cacheRead),
     }

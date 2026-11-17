@@ -632,12 +632,25 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return runs.sort((a, b) => a.startedAt - b.startedAt).at(-1)
   }
 
+  /** The picked Agent's latest Agent Run in the open Session. */
+  const pickedAgentLatestRun = computed((): LatestAgentRun | undefined => {
+    const agent = pickedAgent.value
+    const open = sessionsStore.openSessionId
+    return agent && open ? latestRunOf(agent.id, open) : undefined
+  })
+
+  /** The Harness Session whose usage the prompt bar reports; a picked Agent runs in its own. */
+  const usageSessionId = computed((): string =>
+    pickedAgent.value
+      ? (pickedAgentLatestRun.value?.harnessSessionId ?? '')
+      : agentMode.openSessionId,
+  )
+
   /** Which of ▶ and → Enter triggers with an Agent picked, from its runs and the Session timeline. */
   const pickedAgentComposer = computed((): AgentComposerState | undefined => {
     const agent = pickedAgent.value
-    const open = sessionsStore.openSessionId
     if (!agent) return undefined
-    const latestRun = open ? latestRunOf(agent.id, open) : undefined
+    const latestRun = pickedAgentLatestRun.value
     return agentComposerState({
       latestRun,
       latestTurn: latestTurnOf(
@@ -1787,6 +1800,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     runPickedAgent,
     followUpPickedAgent,
     pickedAgentComposer,
+    usageSessionId,
     setSchedule,
     removeSchedule,
     taskSchedule,

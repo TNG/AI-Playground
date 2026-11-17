@@ -1049,6 +1049,8 @@
   "AGENT_EMPTY_STATE_ASSISTANT": "Assistant에게 무엇이든 물어보세요. 켜 둔 도구에 따라 웹을 검색하고, 첨부한 문서를 찾아보고, 이미지·동영상·음성을 만들 수 있습니다.",
   "AGENT_EMPTY_STATE_WORKSPACE": "파일: {path}",
   "AGENT_EMPTY_STATE_CONFIGURE": "모델과 도구는 추론 및 속성 탭에서 설정합니다.",
+  "AGENT_USAGE_PICKED_AGENT_RUN": "이 세션에서 {agent}의 최근 실행을 표시합니다.",
+  "AGENT_USAGE_PICKED_AGENT_NO_RUN": "{agent}이(가) 이 세션에서 아직 실행되지 않았습니다.",
   "AGENT_REPLY_ARIA": "어시스턴트 답변",
   "TOOL_CALL_ARIA": "도구 호출: {tool}",
   "AGENT_SETTING_BACKEND": "백엔드",

@@ -26,7 +26,23 @@
     <p v-if="prompt.step" class="text-xs font-medium text-muted-foreground">
       {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(prompt.step) }) }}
     </p>
-    <p v-if="prompt.agentRun">{{ runLabel(prompt.agentRun) }}</p>
+    <Collapsible v-if="prompt.agentRun" v-model:open="runPromptOpen" class="flex flex-col gap-2">
+      <CollapsibleTrigger
+        class="flex items-center gap-1.5 self-start rounded-sm text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <ChevronRightIcon
+          class="size-3.5 flex-none text-muted-foreground transition-transform"
+          :class="{ 'rotate-90': runPromptOpen }"
+          aria-hidden="true"
+        />
+        <span>{{ runLabel(prompt.agentRun) }}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div class="rounded-md border border-border px-3 py-2 text-sm">
+          <MarkdownRenderer :content="prompt.agentRun.prompt" :on-copy="copyText" />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
     <MarkdownRenderer v-if="prompt.text" :content="prompt.text" :on-copy="copyText" />
     <p v-else-if="prompt.placeholder" class="text-muted-foreground italic">
       {{ prompt.placeholder }}
@@ -89,8 +105,10 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import {
   ArrowPathIcon,
+  ChevronRightIcon,
   ClockIcon,
   DocumentDuplicateIcon,
   DevicePhoneMobileIcon,
@@ -104,6 +122,7 @@ import { useSessions } from '@/assets/js/store/sessions'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentRunControls } from '@/lib/sessionTimeline'
@@ -123,6 +142,7 @@ const emit = defineEmits<{ resend: []; editAgent: [] }>()
 const sessions = useSessions()
 const i18nStore = useI18N()
 const languages = i18nStore.state
+const runPromptOpen = ref(false)
 
 function runLabel(run: AgentRunIdentity): string {
   if (run.trigger === 'manual')

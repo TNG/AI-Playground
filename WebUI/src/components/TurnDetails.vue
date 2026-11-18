@@ -16,12 +16,7 @@
         <template v-if="turnDetailsShown(details)">
           <span class="text-xs text-muted-foreground" aria-hidden="true">·</span>
           <CollapsibleTrigger as-child>
-            <TurnDetailsHeader
-              :summary="details.summary"
-              :live="details.live"
-              :progress="details.progress"
-              :open="open"
-            />
+            <TurnDetailsHeader :summary="details.summary" :live="details.live" :open="open" />
           </CollapsibleTrigger>
         </template>
         <button

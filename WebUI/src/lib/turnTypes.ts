@@ -31,7 +31,6 @@ export type AnswerDetailKind = 'reasoning' | 'tool' | 'generation' | 'compaction
 export type TurnDetailPart =
   | ({ kind: AnswerDetailKind } & AnswerPartRef)
   | { kind: 'workspace-path'; path: string }
-  | { kind: 'step-prompt'; step: number; prompt: TurnPrompt }
   | {
       kind: 'workflow'
       variant?: string
@@ -52,8 +51,6 @@ export type ArtifactKind = 'image' | 'video' | 'model3d' | 'audio'
 export type TurnSummary =
   | {
       kind: 'activity'
-      /** Set on an Agent Run: how many of its Steps have started. */
-      steps?: number
       reasoningMs?: number
       tools?: number
       artifacts?: Partial<Record<ArtifactKind, number>>
@@ -86,8 +83,6 @@ export type TurnDetails = {
   parts: TurnDetailPart[]
   summary: TurnSummary
   live?: TurnLiveStatus
-  /** Which Step of an Agent Run, or a Run steps run, is under way. */
-  progress?: RunProgress
   error?: string
   /** One line under the header, for an error the Result does not already say. */
   errorLine?: string
@@ -99,6 +94,8 @@ export type AgentRunIdentity = Pick<AgentRunTag, 'startedAt'> & {
   channel?: AgentRunTag['channel']
   name: string
   agentId?: string
+  /** The whole prompt the run started with, Steps included. */
+  prompt: string
 }
 
 export type TurnPrompt = {
@@ -178,7 +175,7 @@ export type AgentTurn = TurnOf<
   {
     presetName: string
     harnessSessionId: string
-    /** Set on an Agent Run's Turn, or a Run steps run's: what its Steps are grouped by. */
+    /** Set on the Turns of an Agent Run, or of a Run steps run, outside its Follow-ups. */
     runKey?: string
     prompt?: TurnPrompt
     answers: UIMessage[]
@@ -248,8 +245,8 @@ export type MediaStepStatus = { label: string; progress?: number }
 export type LiveTurns<M extends PendingMedia, A extends PendingAudio> = {
   chat?: readonly { id: string }[]
   agents?: readonly LiveAgentTurn[]
-  /** Runs still in flight, including between two Steps, by run key. */
-  agentRunsInFlight?: Readonly<Record<string, RunProgress>>
+  /** Run keys of the Agent Runs still in flight. */
+  agentRunsInFlight?: readonly string[]
   chatStatus?: LiveChatStatus
   media?: M | null
   mediaSteps?: Readonly<Record<string, MediaStepStatus>>

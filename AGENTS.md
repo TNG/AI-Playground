@@ -1370,6 +1370,43 @@ Automated coverage: `electron/test/channels/` and
 `electron/test/adapters/backends/localWebConfig.test.ts` for the units,
 `e2e/channels-local-web.spec.ts` for the whole page in a real browser window.
 
+### Remote kernel (thin client ↔ workstation, PoC)
+
+One AI Playground can render another's kernel over the LAN: Settings → App → **Remote inference**
+picks `off` / `host` (workstation) / `client` (thin client), stored as `remoteKernel*` keys in
+`settings.json`, tokens in `{userData}/remote-kernel-secrets.json`; a change applies on restart.
+
+- **Routing is a typed table**, `src/types/ipcRouting.ts`: every invoke/send row is `local` or
+  `remote` (`satisfies Record<…>`, so a new manifest row fails the build until classified), every
+  push row `local` / `broadcast` / `driver`. The host dispatches `remote` rows only. Handlers that
+  read the caller's window off `event.sender` must stay `local` — remote calls get a synthetic
+  event whose `sender` is the workstation window.
+- **Seams:** `typedHandle`/`typedOn` record every handler (`kernel/remoteKernel/dispatch.ts`) and,
+  in client mode, register forwarders for `remote` rows instead; `typedSend` goes through
+  `kernel/rendererSinks.ts`. Pushes that make a renderer _execute_ work (`agentMode:executeTool`,
+  `chat:ask`, `artifact:request`) go to the `driver` — the renderer that last started a turn or
+  run — so a tool never runs twice; prompts broadcast and the first answer wins.
+- **Transport** (`kernel/remoteKernel/host.ts` / `client.ts`): HTTP + SSE on port 47800,
+  `x-aipg-remote-token` header. `/rpc` (JSON via `wireCodec.ts`, which keeps bytes and `undefined`),
+  `/events` (kernel events with a replay buffer, pushes, a `bootId` so a host restart re-hydrates
+  the client), `/media` (the client's `aipg-media` handler), `/svc/<port>` (the renderer's direct
+  backend fetches: the client rewrites loopback service URLs onto a local tunnel).
+- **The client starts no backends and reaps no orphans** (`startBackends: false`) — on one box the
+  reap would kill the workstation's processes — and its kernel bus only relays (`setKernelRelayOnly`).
+- **Two instances on one VM:** run the workstation with `npm run dev` (host mode), write client
+  mode into the client's userData _before_ its first launch (an `off` client would start the
+  shared backends), then start it against the same dev server:
+
+  ```bash
+  XAUTHORITY=~/.Xauthority HOME=/tmp/aipg-client-home DISPLAY=:1 \
+    VITE_DEV_SERVER_URL=http://localhost:25413 VITE_DEBUG_TOOLS=true NODE_ENV=development \
+    ./node_modules/.bin/electron --no-sandbox dist/main/main.js \
+    --user-data-dir=/tmp/aipg-client-home/.config/ai-playground
+  ```
+
+- The LFM2.5 test model's 1024-token window is too small for the Pi-backed chat presets (one-token
+  replies, with or without the remote kernel); demo with Qwen3.5-4B, thinking off.
+
 ### Tracing agent and chat turns (Laminar)
 
 To judge a change to the agentic system you need the turn's shape, not its final answer:

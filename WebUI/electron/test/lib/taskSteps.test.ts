@@ -40,9 +40,12 @@ describe('the prompt a run is sent', () => {
   })
 
   const instruction =
-    'Carry out these steps. They are instructions, not a script: follow them in order unless a ' +
-    'step says otherwise, and a step may be conditional or repeat. When a step needs the ' +
-    "user's input, ask for it in your reply and stop; the answer arrives as the next message."
+    'Carry out these steps now. They are instructions, not a script: follow them in order ' +
+    'unless a step says otherwise, and a step may be conditional or repeat. Do the work ' +
+    "directly; stop only when a step needs the user's input, then ask for it in your reply; " +
+    'the answer arrives as the next message. In your replies, tell the user only what matters ' +
+    'to them: results, findings and questions. Do not announce your plan or which step you are ' +
+    'on, and do not repeat the steps.'
 
   it('holds the instruction and every Step, numbered in order', () => {
     expect(runPrompt('', ['search', 'summarise', 'send'])).toBe(

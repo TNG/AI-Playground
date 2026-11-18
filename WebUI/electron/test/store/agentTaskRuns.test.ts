@@ -161,6 +161,8 @@ vi.mock('@/assets/js/toast', () => ({ show: vi.fn() }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({ getAgentToolSpecs: () => [] }))
 
+vi.mock('@/assets/js/store/sessionLifecycle', () => ({ useSessionLifecycle: () => ({}) }))
+
 const TEMPLATE: AgentSessionSettings = {
   backend: 'llamaCPP',
   model: 'Template-27B',
@@ -383,6 +385,8 @@ const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const { useQueuedChannelMessages } = await import('@/assets/js/store/queuedChannelMessages')
+const { registerChannelSessionPort } = await import('@/lib/channelSessionPort')
+const { sessionPort } = await import('@/assets/js/store/channels/sessionPort')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -898,7 +902,7 @@ describe('a run that fails', () => {
   })
 })
 
-describe('a run a Channel started whose Step is refused in this window', () => {
+describe('a run a Channel started', () => {
   const ORIGIN = { channel: 'telegram' as const, replyTo: 'msg-9' }
   const startable = (prompts: string[]) => task('t1', prompts, { startableFromChannel: true })
 
@@ -943,6 +947,31 @@ describe('a run a Channel started whose Step is refused in this window', () => {
     expect(sentSteps()).toEqual([['one', 'two']])
     expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', notifiesResult: true })
     expect(sentConfig(0).answer).toEqual(ORIGIN)
+  })
+
+  it('continues the run as a Follow-up when a Channel answers its result', async () => {
+    const { tasks } = await readyStores(startable(['ask me which city', 'forecast it']))
+    registerChannelSessionPort({ harness: () => '', session: () => '', trialRun: () => '' })
+    await tasks.startFromChannel('t1', SESSION, ORIGIN)
+    const run = sentConfig(0).sessionId
+    await finishTurn(0)
+    await settledOutcome(tasks, 't1')
+
+    const reply = { channel: 'telegram' as const, replyTo: 'msg-12' }
+    const sent = await sessionPort()!.send(
+      { sessionRef: SESSION, harnessSessionId: run },
+      'Berlin',
+      reply,
+    )
+
+    expect(sent).toMatchObject({ ok: true })
+    await turnIdOf(1)
+    expect(sentConfig(1)).toMatchObject({
+      sessionId: run,
+      answer: reply,
+      followUp: { agentId: 't1', agentName: 'Task t1' },
+    })
+    expect(sentConfig(1).taskRun).toBeUndefined()
   })
 })
 

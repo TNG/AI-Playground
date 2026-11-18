@@ -1250,6 +1250,36 @@ describe('a Trial Run outliving the Agent Library', () => {
     expect(startTurn).not.toHaveBeenCalled()
   })
 
+  it('can be stopped after a reload picked it up', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const first = await readyStores()
+    await first.trials.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+    const harness = first.trials.trialRuns.t1.harnessSessionId
+    const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
+    const { trials } = await reloadWindow(
+      [record],
+      [
+        {
+          sessionId: harness,
+          turnId,
+          state: 'running',
+          chunks: [],
+          toolProgress: {},
+          toolImages: {},
+        },
+      ],
+    )
+    vi.mocked(window.electronAPI.agentMode.cancel).mockClear()
+
+    await trials.stopTrialRun('t1')
+    await settleMicrotasks()
+
+    expect(trials.trialRuns.t1.state).toBe('stopped')
+    expect(trials.trialRunsInFlight).toEqual([])
+    expect(window.electronAPI.agentMode.cancel).toHaveBeenCalledWith(harness, turnId)
+  })
+
   it('ends as failed when the reload finds its turn gone', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()

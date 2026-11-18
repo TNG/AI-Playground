@@ -387,6 +387,7 @@ const { useSessions } = await import('@/assets/js/store/sessions')
 const { useQueuedChannelMessages } = await import('@/assets/js/store/queuedChannelMessages')
 const { registerChannelSessionPort } = await import('@/lib/channelSessionPort')
 const { sessionPort } = await import('@/assets/js/store/channels/sessionPort')
+const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -2279,5 +2280,63 @@ describe('a running Follow-up', () => {
     void tasks.afterAgentRun(SESSION)
 
     expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'agent-run', name: 'Task t1' } })
+  })
+})
+
+describe('a question an Agent Run asks', () => {
+  async function runAsking(before?: (stores: Awaited<ReturnType<typeof readyStores>>) => void) {
+    const stores = await readyStores(task('t1', ['one']))
+    stores.agentMode.setViewShown(true)
+    before?.(stores)
+    await stores.tasks.runTask('t1')
+    await turnIdOf(0)
+    const asked = { shown: false }
+    const shown = whenSessionInView(sentConfig(0).sessionId).then(() => {
+      asked.shown = true
+    })
+    await settleMicrotasks()
+    return { ...stores, asked, shown }
+  }
+
+  it('shows at once while its Session is showing', async () => {
+    const { asked } = await runAsking()
+    expect(asked.shown).toBe(true)
+  })
+
+  it('shows at once while its Session is showing under a Media Mode', async () => {
+    const { asked } = await runAsking(({ agentMode }) => agentMode.setViewShown(false))
+    expect(asked.shown).toBe(true)
+  })
+
+  it('waits while another Session is showing, and shows once its own is opened', async () => {
+    const stores = await readyStores(task('t1', ['one']))
+    stores.agentMode.setViewShown(true)
+    await stores.tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessions = useSessions(pinia)
+    nextSessionId = 'session-2'
+    await sessions.create()
+
+    const asked = { shown: false }
+    const shown = whenSessionInView(sentConfig(0).sessionId).then(() => {
+      asked.shown = true
+    })
+    await settleMicrotasks()
+    expect(asked.shown).toBe(false)
+
+    await sessions.open(SESSION)
+    await shown
+    expect(asked.shown).toBe(true)
+  })
+
+  it('waits while a Library covers its Session, and shows once it closes', async () => {
+    const { agentMode, asked, shown } = await runAsking(({ agentMode }) =>
+      agentMode.setLibraryShowing({ library: 'model' }),
+    )
+    expect(asked.shown).toBe(false)
+
+    agentMode.setLibraryHidden('model')
+    await shown
+    expect(asked.shown).toBe(true)
   })
 })

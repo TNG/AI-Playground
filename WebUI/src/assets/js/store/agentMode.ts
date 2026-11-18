@@ -2196,7 +2196,15 @@ export const useAgentMode = defineStore(
       return stored.inference.modelSupportsVision
     }
 
-    /** Main rewinds before the new answer streams, so until then the old one stays. */
+    /**
+     * The answers Regenerate replaces leave the open timeline the moment it
+     * starts, with the truncation that takes them out of the runtime chat —
+     * renderer optimism, undone if nothing streams. Main can only delete them
+     * from the Session file once the regenerated turn settles (it refuses
+     * deletions for a session with a turn in flight), so that file-side forget
+     * runs after the turn without holding the turn's settlement hostage to the
+     * deletion round trip.
+     */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
@@ -2204,12 +2212,17 @@ export const useAgentMode = defineStore(
     ): Promise<void> {
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
-      let forgotten: Promise<void> | undefined
+      const sessionRef = sessionRefOf(redo.harnessSessionId)
+      const answerIds = redo.messageIds.filter((messageId) => messageId !== redo.promptId)
+      if (sessionRef && answerIds.length > 0) {
+        sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
+      }
+      let replaced = false
       const stop = watch(
         () => chat.messages.at(-1),
         (last) => {
-          if (forgotten || last?.role !== 'assistant' || known.has(last.id)) return
-          forgotten = forgetAnswers(redo)
+          if (replaced || last?.role !== 'assistant' || known.has(last.id)) return
+          replaced = true
         },
         { flush: 'sync' },
       )
@@ -2220,8 +2233,13 @@ export const useAgentMode = defineStore(
         })
       } finally {
         stop()
-        if (forgotten) await forgotten
-        else chat.messages = before
+        // Main deregisters the turn before it closes the stream this await
+        // resolved on, so the deletion is no longer refused as in-flight.
+        if (replaced) void forgetAnswers(redo)
+        else {
+          if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
+          chat.messages = before
+        }
       }
     }
 
@@ -2231,9 +2249,18 @@ export const useAgentMode = defineStore(
       const sessionRef = sessionRefOf(id)
       const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
       if (!sessionRef || answerIds.length === 0) return
-      const result = await requestTurnDeletion(id, [], answerIds)
-      if (!result.success) {
-        errors.report(new Error(result.error), {
+      try {
+        const result = await requestTurnDeletion(id, [], answerIds)
+        if (!result.success) {
+          errors.report(new Error(result.error), {
+            category: 'unknown',
+            code: 'agent/regenerate-forget-failed',
+            surface: 'silent',
+          })
+          return
+        }
+      } catch (error) {
+        errors.report(error, {
           category: 'unknown',
           code: 'agent/regenerate-forget-failed',
           surface: 'silent',

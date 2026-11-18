@@ -854,7 +854,11 @@ async function runChatTurn(request: ChatTurnRequest, turn: ActiveChatTurn): Prom
   const { conversationKey, turnId } = turn
   let ragSourceText: string | null = null
   const sessionTurn = request.sessionRef
-    ? trackChatTurnInSession(request.sessionRef, (url) => engineDeps?.localPathOf?.(url) ?? null)
+    ? trackChatTurnInSession(
+        request.sessionRef,
+        (url) => engineDeps?.localPathOf?.(url) ?? null,
+        request.trigger,
+      )
     : null
   // Stored with the transcript, so later turns resend the same prompt prefix.
   const turnMessages = request.sessionRef

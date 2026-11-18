@@ -1,6 +1,6 @@
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
-import { appendHistoryEntry } from './sessionHistory'
+import { appendHistoryEntry, readHistoryEntries, removeHistoryEntry } from './sessionHistory'
 import path from 'node:path'
 import { adoptMediaFile } from './sessionMediaTurn'
 import { copyIntoSessionFiles } from '../persist/sessionMediaFiles'
@@ -156,11 +156,13 @@ const URL_KEYS: Array<{
 /**
  * Follows one chat turn of a Session: media its tools generated moves into
  * `files/` (the tool output then names it there), and settling appends the
- * turn's History Entry.
+ * turn's History Entry. A regenerate's new entry takes the place of the
+ * attempt it replaces, which leaves the history first.
  */
 export function trackChatTurnInSession(
   sessionId: string,
   localPathOf: (url: string) => string | null,
+  trigger: 'submit-message' | 'regenerate-message' = 'submit-message',
 ) {
   const artifacts: HistoryArtifact[] = []
 
@@ -200,6 +202,20 @@ export function trackChatTurnInSession(
     return { ...(output as object), images: adopted }
   }
 
+  /**
+   * The entry a regenerate replaces leaves the history, so it, the Session
+   * Update and `session_history` tell of one attempt per turn. Only the
+   * newest chat entry goes, and only when it is the replaced attempt — the
+   * same prompt the turn re-sends.
+   */
+  async function forgetReplacedAttempt(prompt: string): Promise<void> {
+    const last = (await readHistoryEntries(sessionId))
+      .filter((entry) => entry.kind === 'chat')
+      .at(-1)
+    if (!last || last.prompt !== prompt) return
+    await removeHistoryEntry(sessionId, last.id)
+  }
+
   async function settle(turn: {
     preset: string
     variant?: string
@@ -208,6 +224,7 @@ export function trackChatTurnInSession(
     response?: string
   }): Promise<void> {
     try {
+      if (trigger === 'regenerate-message') await forgetReplacedAttempt(turn.prompt)
       await appendHistoryEntry(sessionId, {
         preset: turn.preset,
         variant: turn.variant,

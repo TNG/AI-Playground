@@ -15,7 +15,7 @@ import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
-import { asChatTranscriptMessage } from '@/lib/sessionChat'
+import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
 import { runInputOf } from '@/lib/taskSteps'
 import {
   generationFailure,
@@ -162,6 +162,15 @@ export function withLiveAgentTurn(
   return [...merged, ...tagged.values()]
 }
 
+/**
+ * A live copy replaces its saved message in place; unsaved live messages
+ * follow at the end. A live list that starts where the stored transcript
+ * does is the chat's whole history, so a saved message it no longer holds
+ * was dropped by a regenerate's truncation and leaves now — the timeline must
+ * not keep showing the answer the new one replaces. A live list that starts
+ * mid-way (a resumed turn carries the running turn alone) keeps the stored
+ * transcript ahead of it.
+ */
 function withLiveChatTurn(
   timeline: readonly unknown[],
   live: readonly { id: string }[],
@@ -173,12 +182,15 @@ function withLiveChatTurn(
       return [message.id, { ...message, metadata: { ...metadata, chatTurn: true } }]
     }),
   )
-  const merged = timeline.map((value) => {
-    const saved = asChatTranscriptMessage(value)
-    const copy = saved ? tagged.get(saved.id) : undefined
-    if (!saved || !copy) return value
-    tagged.delete(saved.id)
-    return { ...copy, metadata: { ...saved.metadata, ...copy.metadata } }
+  const saved = chatTranscriptOf(timeline)
+  const wholeHistory = saved.length === 0 || saved[0].id === live[0].id
+  const merged = timeline.flatMap((value) => {
+    const stored = asChatTranscriptMessage(value)
+    if (!stored) return [value]
+    const copy = tagged.get(stored.id)
+    if (!copy) return wholeHistory ? [] : [value]
+    tagged.delete(stored.id)
+    return [{ ...copy, metadata: { ...stored.metadata, ...copy.metadata } }]
   })
   return [...merged, ...tagged.values()]
 }

@@ -91,6 +91,14 @@ export async function appendHistoryLine(id: string, line: string): Promise<void>
   await fs.appendFile(sessionFolderPaths(id).historyFile, `${line}\n`)
 }
 
+/** Rewrites the history file from its lines; a crash mid-write leaves the old file intact. */
+export async function writeHistoryLines(id: string, lines: readonly string[]): Promise<void> {
+  const file = sessionFolderPaths(id).historyFile
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await fs.writeFile(tmp, lines.map((line) => `${line}\n`).join(''), 'utf8')
+  await fs.rename(tmp, file)
+}
+
 /** The raw history file; empty when the Session has none yet. */
 export async function readHistoryFile(id: string): Promise<string> {
   try {

@@ -327,6 +327,67 @@ describe('a chat turn in a Session', () => {
     expect(timeline[1].parts.some((part) => part.text === 'Second.')).toBe(true)
   })
 
+  it('takes the replaced attempt out of the Session history on a regenerate', async () => {
+    const { id } = await createSession()
+    queueReplies(textReply('First.'), textReply('Second.'))
+    await runTurn({ sessionRef: id, messages: [user('u1', 'hi')] })
+
+    await runTurn({
+      sessionRef: id,
+      trigger: 'regenerate-message',
+      messages: [user('u1', 'hi')],
+    })
+
+    const entries = await readHistoryEntries(id)
+    expect(entries.filter((entry) => entry.kind === 'chat')).toEqual([
+      expect.objectContaining({
+        kind: 'chat',
+        prompt: 'hi',
+        status: 'completed',
+        response: 'Second.',
+      }),
+    ])
+  })
+
+  it('keeps a replaced attempt when the newest chat entry is another turn', async () => {
+    const { id } = await createSession()
+    queueReplies(textReply('First.'), textReply('Other.'), textReply('Again.'))
+    await runTurn({ sessionRef: id, messages: [user('u1', 'hi')] })
+    await runTurn({ sessionRef: id, messages: [user('u2', 'bye')] })
+
+    // A regenerate whose turn is not the newest chat entry must not touch the
+    // history: the entry it would replace is not the one that is there.
+    await runTurn({
+      sessionRef: id,
+      trigger: 'regenerate-message',
+      messages: [user('u1', 'hi')],
+    })
+
+    const prompts = (await readHistoryEntries(id))
+      .filter((entry) => entry.kind === 'chat')
+      .map((entry) => entry.prompt)
+    expect(prompts).toEqual(['hi', 'bye', 'hi'])
+  })
+
+  it('moves a Session Update cursor off the entry a regenerate removed', async () => {
+    const { id } = await createSession()
+    queueReplies(textReply('First.'), textReply('Second.'))
+    await runTurn({ sessionRef: id, messages: [user('u1', 'hi')] })
+    // Another consumer's cursor sits on the entry the regenerate replaces.
+    const [replaced] = await readHistoryEntries(id)
+    await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })
+    expect((await readSession(id)).updateCursors['agent-1']).toBe(replaced.id)
+
+    await runTurn({
+      sessionRef: id,
+      trigger: 'regenerate-message',
+      messages: [user('u1', 'hi')],
+    })
+
+    const session = await readSession(id)
+    expect(Object.values(session.updateCursors)).not.toContain(replaced.id)
+  })
+
   it('moves Agentic Chat media into files/ and lists it on the History Entry', async () => {
     const { id } = await createSession()
     await fs.writeFile(path.join(dirs.media, 'cat.png'), 'png')

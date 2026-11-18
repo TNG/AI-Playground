@@ -46,6 +46,14 @@ export const useSessions = defineStore('sessions', () => {
   const showMore = ref<ShowMore>({ pinned: false, older: false })
   const openSessionId = ref<string | null>(null)
   const openTimeline = ref<unknown[]>([])
+  /**
+   * Open-Session message ids removed from the timeline before main's file
+   * dropped them (a regenerate forgets the answers it replaces the moment it
+   * starts, while main can only delete them once the turn settles). A
+   * `session-changed` whose document still holds one must not bring it back;
+   * one whose document dropped it dissolves the entry.
+   */
+  const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
   const openDeletedFiles = ref<string[]>([])
   const pendingTurns = ref<Record<string, PendingMediaTurn>>({})
@@ -81,7 +89,18 @@ export const useSessions = defineStore('sessions', () => {
   function applyChanged(document: SessionDocument): void {
     const { timeline, ...summary } = document
     remember(summary)
-    if (openSessionId.value === document.id) openTimeline.value = timeline
+    if (openSessionId.value !== document.id) return
+    for (const id of forgottenTimelineIds) {
+      if (!timeline.some((message) => (message as { id?: string }).id === id)) {
+        forgottenTimelineIds.delete(id)
+      }
+    }
+    openTimeline.value = forgottenTimelineIds.size
+      ? timeline.filter((message) => {
+          const messageId = (message as { id?: string }).id ?? ''
+          return !forgottenTimelineIds.has(messageId)
+        })
+      : timeline
   }
 
   function applyGroups(state: SessionGroupsState): void {
@@ -216,6 +235,7 @@ export const useSessions = defineStore('sessions', () => {
     const { timeline, ...summary } = result.session
     remember(summary)
     openSessionId.value = id
+    forgottenTimelineIds.clear()
     openTimeline.value = timeline
     openDeletedFiles.value = result.missingFiles
     if (reveal) revealInGroup(summary)
@@ -359,13 +379,21 @@ export const useSessions = defineStore('sessions', () => {
     )
   }
 
-  /** Main already took these out of the Session file; this drops the open copy's. */
+  /** Takes messages out of the open timeline: main's copy follows, or already went. */
   function forgetTimelineMessages(id: string, messageIds: string[]): void {
     if (id !== openSessionId.value) return
-    const removed = new Set(messageIds)
-    openTimeline.value = openTimeline.value.filter(
-      (message) => !removed.has((message as { id?: string }).id ?? ''),
-    )
+    for (const messageId of messageIds) forgottenTimelineIds.add(messageId)
+    openTimeline.value = openTimeline.value.filter((message) => {
+      const messageId = (message as { id?: string }).id ?? ''
+      return !forgottenTimelineIds.has(messageId)
+    })
+  }
+
+  /** Brings back what a premature forget removed; main never took them out of the file. */
+  async function restoreForgottenTimelineMessages(id: string): Promise<void> {
+    if (id !== openSessionId.value) return
+    forgottenTimelineIds.clear()
+    await open(id, { reveal: false })
   }
 
   async function remove(id: string): Promise<void> {
@@ -377,6 +405,7 @@ export const useSessions = defineStore('sessions', () => {
     sessions.value = rest
     if (openSessionId.value !== id) return
     openSessionId.value = null
+    forgottenTimelineIds.clear()
     openTimeline.value = []
     openDeletedFiles.value = []
     await openNewestOrCreate()
@@ -414,6 +443,7 @@ export const useSessions = defineStore('sessions', () => {
     remove,
     saveTimelineMessages,
     forgetTimelineMessages,
+    restoreForgottenTimelineMessages,
     ensureOpenSession,
     isFileDeleted,
     markFileDeleted,

@@ -135,7 +135,11 @@ const openRecord = {
 let pushKernelEvent: (event: KernelEvent) => void = () => {}
 let seq = 10
 
+/** Faithful to main (electron/agent/harnessTurns.ts): a session with a turn in flight refuses deletions. */
+const runningSessions = new Set<string>()
+
 function pushEvent(payload: Record<string, unknown>): void {
+  if (payload.type === 'agent-turn-done') runningSessions.delete(payload.sessionId as string)
   pushKernelEvent({ ...payload, scope: { kind: 'global' }, seq: ++seq } as KernelEvent)
 }
 
@@ -146,15 +150,25 @@ const startTurn = vi.fn(async (_turnId: string, _prompt: string, _config: AgentM
 const cancel = vi.fn(async (_sessionId: string, _turnId?: string) => {})
 const saveSession = vi.fn(async (_record: Record<string, unknown>) => ({ success: true }))
 const existsPath = vi.fn(async (dir: string) => dir !== '/missing')
-const deleteTurns = vi.fn(async (_request: unknown) => ({ success: true }))
+const deleteTurns = vi.fn(async (request: { harnessSessionId: string }) =>
+  runningSessions.has(request.harnessSessionId)
+    ? { success: false, error: 'This session already has a turn in flight.' }
+    : { success: true },
+)
 
 beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
   seq = 10
+  runningSessions.clear()
   inference.live.activeModel = 'Live-9B'
   inference.catalog = []
-  startTurn.mockImplementation(async () => ({ success: true, error: undefined }))
+  startTurn.mockImplementation(
+    async (_turnId: string, _prompt: string, config: AgentModeTurnConfig) => {
+      runningSessions.add(config.sessionId)
+      return { success: true, error: undefined }
+    },
+  )
   const storage = new Map<string, string>()
   const storageShim = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -219,6 +233,7 @@ afterEach(async () => {
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useChatAware } = await import('@/assets/js/store/chatAware')
+const { useSessions } = await import('@/assets/js/store/sessions')
 
 const REPLY_LANGUAGE = 'Use English as the default response language.'
 
@@ -428,9 +443,14 @@ describe('regenerating the latest turn', () => {
 
   it('keeps the old answer when the turn fails before it rewound', async () => {
     const store = await readyStore()
-    const { id, outcomes, ref } = await answeredInSession(store)
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
+    const { id, outcomes, answer, ref } = await answeredInSession(store)
 
     await store.regenerateTurn(ref)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
     const turnId = await turnIdOf(1)
     pushEvent({
       type: 'agent-chunk',
@@ -441,23 +461,47 @@ describe('regenerating the latest turn', () => {
     pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
     await vi.waitFor(() => expect(outcomes).toHaveLength(2))
 
+    // Nothing streamed, so the premature forget was undone, not committed.
+    expect(restoreSpy).toHaveBeenCalledWith('session-1')
     expect(deleteTurns).not.toHaveBeenCalled()
     expect(JSON.stringify(lastSaved(id)?.messages)).toContain('plum')
   })
 
-  it('drops the old answer from the timeline once the new one starts', async () => {
+  it('deletes the replaced answer only once the new turn settled', async () => {
     const store = await readyStore()
+    const sessionsStore = useSessions()
+    const forgetSpy = vi.spyOn(sessionsStore, 'forgetTimelineMessages')
+    const restoreSpy = vi.spyOn(sessionsStore, 'restoreForgottenTimelineMessages')
     const { id, outcomes, answer, ref } = await answeredInSession(store)
 
     await store.regenerateTurn(ref)
-    await turnIdOf(1)
+    // The replaced answers left the open timeline the moment the turn started.
+    expect(forgetSpy).toHaveBeenCalledWith('session-1', [answer.id])
+    expect(restoreSpy).not.toHaveBeenCalled()
+    const turnId = await turnIdOf(1)
+    // The new answer is streaming, but the turn has not settled: main refuses
+    // deletions for a session with a turn in flight, so none may be sent yet.
+    for (const chunk of [
+      { type: 'start' },
+      { type: 'text-start', id: 't' },
+      { type: 'text-delta', id: 't', delta: 'pear' },
+      { type: 'text-end', id: 't' },
+      { type: 'finish' },
+    ]) {
+      pushEvent({ type: 'agent-chunk', sessionId: id, turnId, chunk })
+    }
     expect(deleteTurns).not.toHaveBeenCalled()
-    await finishTurn(id, 1, 'pear')
-    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+    expect(restoreSpy).not.toHaveBeenCalled()
 
-    expect(deleteTurns).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionRef: 'session-1', messageIds: [answer.id], turnIds: [] }),
+    pushEvent({ type: 'agent-turn-done', sessionId: id, turnId })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+    await vi.waitFor(() =>
+      expect(deleteTurns).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionRef: 'session-1', messageIds: [answer.id], turnIds: [] }),
+      ),
     )
+    expect(deleteTurns).toHaveBeenCalledTimes(1)
+    expect(restoreSpy).not.toHaveBeenCalled()
     expect(JSON.stringify(lastSaved(id)?.messages)).not.toContain('plum')
   })
 

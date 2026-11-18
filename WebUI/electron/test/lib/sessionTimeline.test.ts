@@ -631,6 +631,17 @@ describe('the one Session timeline with every live turn in it', () => {
     })
   })
 
+  it('drops the answer a regenerate truncates away as soon as the live copy does', () => {
+    const items = sessionTimelineItems(
+      [chatMessage('u1', 'user', 'hi'), chatMessage('a1', 'assistant', 'First.')],
+      { chat: [live('u1', 'user', 'hi'), live('a2', 'assistant', 'Second.')] },
+    )
+
+    expect(kinds(items)).toEqual(['chat'])
+    expect(items[0]).toMatchObject({ kind: 'chat', id: 'u1', answers: [{ id: 'a2' }] })
+    expect(JSON.stringify(items)).not.toContain('First.')
+  })
+
   it('drops the in-flight media run once its result card is in the timeline', () => {
     const items = sessionTimelineItems([mediaPrompt, mediaCard], {
       media: { ...pendingMedia, runId: 'r1' },

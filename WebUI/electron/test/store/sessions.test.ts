@@ -28,6 +28,8 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
+const { upsertTimelineMessages, removeTimelineMessages } =
+  await import('../../session/sessionTimeline')
 const { readSessionSettings } = await import('../../session/sessionSettings')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const ledger = await import('../../session/sessionTurns')
@@ -36,6 +38,7 @@ type SessionsDeps = import('../../kernel/registries/sessions').SessionsDeps
 
 const registry = buildSessionsRegistry(sessionModule as unknown as SessionsDeps)
 const noEvent = {} as never
+const idsOf = (timeline: unknown[]) => timeline.map((message) => (message as { id?: string }).id)
 
 function ok<T extends object>(run: () => Promise<T>) {
   return async () => ({ success: true as const, ...(await run()) })
@@ -246,6 +249,73 @@ describe('Sessions store', () => {
       title: 'a red fox',
       presetsUsed: ['Dummy Image (test)'],
     })
+  })
+
+  it('keeps a prematurely forgotten message out while the file still holds it, and dissolves the forget once the file drops it', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const answer = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working' }] }
+    await upsertTimelineMessages(id, [user, answer])
+    await sessionModule.renameSession(id, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1']))
+
+    store.forgetTimelineMessages(id, ['a1'])
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    // The file still holds the message: a later change must not bring it back.
+    await sessionModule.renameSession(id, 'regenerating')
+    await vi.waitFor(() => expect(store.openSession?.title).toBe('regenerating'))
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    // Main settled and dropped it: the forget dissolves.
+    await removeTimelineMessages(id, ['a1'])
+    await sessionModule.renameSession(id, 'settled')
+    await vi.waitFor(() => expect(store.openSession?.title).toBe('settled'))
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    // The forget is truly gone: that id coming back in a document shows again.
+    await upsertTimelineMessages(id, [answer])
+    await sessionModule.renameSession(id, 'resurfaced')
+    await vi.waitFor(() => expect(store.openSession?.title).toBe('resurfaced'))
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1'])
+  })
+
+  it('brings back what a premature forget removed, from the file that still holds it', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const answer = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working' }] }
+    await upsertTimelineMessages(id, [user, answer])
+    await sessionModule.renameSession(id, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1']))
+
+    store.forgetTimelineMessages(id, ['a1'])
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    await store.restoreForgottenTimelineMessages(id)
+
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1'])
+  })
+
+  it('clears the forget when another Session opens', async () => {
+    const store = useSessions()
+    await store.init()
+    const forgotten = store.openSessionId!
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const answer = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working' }] }
+    await upsertTimelineMessages(forgotten, [user, answer])
+    await sessionModule.renameSession(forgotten, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1']))
+    store.forgetTimelineMessages(forgotten, ['a1'])
+
+    const other = (await store.create())!
+
+    expect(store.openSessionId).toBe(other)
+    await store.open(forgotten)
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1'])
   })
 
   it("knows each Session's turn in flight, and marks one that ended out of sight as unseen", async () => {

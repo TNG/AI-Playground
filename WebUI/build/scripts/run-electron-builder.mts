@@ -17,10 +17,17 @@ console.log(
     ` (commit ${identity.commit || 'unknown'}${identity.tag ? `, tag ${identity.tag}` : ''})`,
 )
 
+// node-liblzma's binding.gyp hard-codes -Werror, and gcc warns on Electron 44.10+'s V8 headers;
+// node-gyp appends CXXFLAGS after the module's own flags, so this keeps them warnings.
+const nativeRebuildEnv =
+  process.platform === 'win32'
+    ? {}
+    : { CXXFLAGS: [process.env.CXXFLAGS, '-Wno-error'].filter(Boolean).join(' ') }
+
 const result = spawnSync('electron-builder', process.argv.slice(2), {
   stdio: 'inherit',
   shell: process.platform === 'win32',
-  env: { ...process.env, INSTALLER_ID: identity.installerId },
+  env: { ...process.env, ...nativeRebuildEnv, INSTALLER_ID: identity.installerId },
 })
 
 if (result.error) {

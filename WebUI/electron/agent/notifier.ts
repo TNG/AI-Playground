@@ -123,8 +123,6 @@ let windowShown: () => boolean = () => false
 type ReportedTurn = {
   turnId: string
   workspaceDir: string
-  /** Sent after the turn's text: what earlier Steps of its run generated. */
-  media: string[]
   /** Files already on the Channel, sent as made or by `notify_user`; not sent again. */
   attached: Set<string>
   /** Media sent as it is made, in order. */
@@ -141,17 +139,12 @@ type ReportedTurn = {
   answer?: AgentAnswerOrigin
   /** The reply is spoken too, after its text, unless the turn already sent a voice clip. */
   speaks?: boolean
-  /** A Step of an Agent Run before its last: its result is kept for the run's. */
-  quiet?: boolean
   /** The "Started" message, sent before anything else of the run. */
   started?: Promise<unknown>
 }
 
-/** A Channel-started Agent Run's Step, as its turn config names it. */
-export type ReportedStep = { taskName: string; stepIndex: number; notifiesResult?: boolean }
-
-/** What a Channel-started run's earlier Steps generated, for its last Step to send. */
-const runMedia = new Map<string, string[]>()
+/** A Channel-started Agent Run's turn, as its turn config names it. */
+export type ReportedRun = { taskName: string }
 
 /** Per Harness Session. */
 const reportedTurns = new Map<string, ReportedTurn>()
@@ -179,11 +172,10 @@ function replaceReportedTurn(sessionId: string, turn: ReportedTurn): void {
   reportedTurns.set(sessionId, turn)
 }
 
-function newReportedTurn(turnId: string, workspaceDir: string, media: string[]): ReportedTurn {
+function newReportedTurn(turnId: string, workspaceDir: string): ReportedTurn {
   return {
     turnId,
     workspaceDir,
-    media,
     attached: new Set(),
     sending: Promise.resolve(),
     streamed: new Map(),
@@ -196,25 +188,18 @@ export function answerSpeaks(config: Pick<AgentModeTurnConfig, 'answer' | 'toolS
   return !!config.toolSpecs?.some((spec) => spec.name === 'synthesizeTextToSpeech')
 }
 
-/** A turn a Channel caused; each Step of an Agent Run it started reports only the run's result. */
+/** A turn a Channel caused; an Agent Run it started says "Started" before anything else. */
 export function noteAnswerTurn(
   sessionId: string,
   turnId: string,
   workspaceDir: string,
   origin: AgentAnswerOrigin,
   speaks = false,
-  step?: ReportedStep,
+  run?: ReportedRun,
 ): void {
-  const media = step && step.stepIndex > 1 ? (runMedia.get(sessionId) ?? []) : []
-  runMedia.delete(sessionId)
-  const turn: ReportedTurn = {
-    ...newReportedTurn(turnId, workspaceDir, media),
-    answer: origin,
-    speaks,
-    ...(step && !step.notifiesResult ? { quiet: true } : {}),
-  }
+  const turn: ReportedTurn = { ...newReportedTurn(turnId, workspaceDir), answer: origin, speaks }
   replaceReportedTurn(sessionId, turn)
-  if (step?.stepIndex === 1) turn.started = sendStarted(sessionId, step.taskName)
+  if (run) turn.started = sendStarted(sessionId, run.taskName)
 }
 
 async function sendStarted(sessionId: string, name: string): Promise<void> {
@@ -228,9 +213,9 @@ async function sendStarted(sessionId: string, name: string): Promise<void> {
   await deliverOrWarn({ text, bare: true, plain: true }, sessionId, 'agent start')
 }
 
-/** A Scheduled Run's last Step: its result goes to every Channel when it completes. */
+/** A Scheduled Run's turn: its result and its media go to every Channel. */
 export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: string): void {
-  replaceReportedTurn(sessionId, newReportedTurn(turnId, workspaceDir, []))
+  replaceReportedTurn(sessionId, newReportedTurn(turnId, workspaceDir))
 }
 
 type Owner = AnswerTarget | TrialRunOwner
@@ -311,7 +296,7 @@ function streamedText(turn: ReportedTurn): string {
 function streamReply(sessionId: string, turn: ReportedTurn): void {
   const kind = turn.answer?.channel
   const port = channel
-  if (!kind || turn.quiet || !port || !config.channels.includes(kind)) return
+  if (!kind || !port || !config.channels.includes(kind)) return
   turn.heading ??= headingOf(sessionId).catch(() => null)
   void turn.heading.then((heading) => {
     if (!heading || turn.ended) return
@@ -334,6 +319,7 @@ async function closeReply(turn: ReportedTurn): Promise<ChannelDraft | null> {
 
 /** A turn that ended without its result still settles what it streamed. */
 async function settleStreamed(sessionId: string, turn: ReportedTurn): Promise<void> {
+  await turn.started
   await turn.sending
   const draft = await closeReply(turn)
   if (!draft) return
@@ -343,12 +329,8 @@ async function settleStreamed(sessionId: string, turn: ReportedTurn): Promise<vo
   }
 }
 
-/** Media a reported turn made, sent at once unless its run's result keeps it. */
+/** Media a reported turn made, sent as it is made. */
 function noteTurnMedia(sessionId: string, turn: ReportedTurn, files: string[]): void {
-  if (turn.quiet) {
-    turn.media.push(...files)
-    return
-  }
   const fresh = files.filter((file) => !turn.attached.has(file))
   for (const file of fresh) turn.attached.add(file)
   if (fresh.length === 0) return
@@ -566,7 +548,7 @@ function laidOut(
 
 const REPLY_MAX_CHARS = 3800
 
-/** A reported turn's result: its last text, settling its draft, then what earlier Steps made. */
+/** A reported turn's result: its last text, settling its draft. */
 async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: string | undefined) {
   await turn.started
   await turn.sending
@@ -576,10 +558,6 @@ async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: stri
     await deliverOrWarn({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
   }
   if (reply && turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
-  await sendMedia(
-    sessionId,
-    turn.media.filter((file) => !turn.attached.has(file)),
-  )
 }
 
 const CLIP_EXTENSIONS: Record<string, string> = {
@@ -698,14 +676,8 @@ export function startAutoNotifications(): () => void {
   const stopFailures = onAgentTurnEnd((end) => {
     const reported = reportedTurnOf(end.sessionId, end.turnId)
     if (reported) typing.stop(end.turnId)
-    if (reported?.quiet && end.outcome === 'completed') {
-      runMedia.set(
-        end.sessionId,
-        reported.media.filter((file) => !reported.attached.has(file)),
-      )
-    }
     const sending =
-      end.outcome === 'completed' && reported && !reported.quiet
+      end.outcome === 'completed' && reported
         ? sendTurnResult(end.sessionId, reported, end.reply)
         : (reported ? settleStreamed(end.sessionId, reported) : Promise.resolve()).then(() =>
             end.outcome === 'failed'

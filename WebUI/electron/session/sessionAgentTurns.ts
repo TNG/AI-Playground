@@ -35,8 +35,15 @@ export type AgentTurnInSession = {
   workspaceDir: string
   prompt: string
   harnessSessionId: string
-  taskRun?: { taskName: string; stepIndex: number }
+  taskRun?: { taskName: string; input?: string }
   followUp?: AgentFollowUpTag
+}
+
+/** An Agent Run is recorded as what was run, not as the run prompt holding every Step. */
+function recordedPrompt(turn: AgentTurnInSession): string {
+  if (!turn.taskRun) return turn.prompt
+  const { taskName, input } = turn.taskRun
+  return input?.trim() ? `Run Agent ${taskName}: ${input.trim()}` : `Run Agent ${taskName}`
 }
 
 /** Collects an agent turn's media while it runs; only files inside the Session Folder count. */
@@ -46,6 +53,7 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
   const { root } = sessionPaths(turn.sessionRef)
   const workspace = path.resolve(turn.workspaceDir)
   const artifacts: HistoryArtifact[] = []
+  const prompt = recordedPrompt(turn)
   const stop = onGeneratedMedia((workspaceDir, relativePaths, sessionCopies) => {
     if (path.resolve(workspaceDir) !== workspace) return
     const saved =
@@ -68,17 +76,17 @@ export function trackAgentTurnInSession(turn: AgentTurnInSession): {
         await appendHistoryEntry(turn.sessionRef, {
           preset: turn.presetName,
           kind: 'agent',
-          prompt: turn.prompt,
+          prompt,
           status: end.outcome,
           artifacts,
           ...(end.outcome === 'completed' && end.reply ? { response: end.reply } : {}),
           harnessSessionId: turn.harnessSessionId,
-          ...(turn.taskRun ? turn.taskRun : {}),
+          ...(turn.taskRun ? { taskName: turn.taskRun.taskName } : {}),
           ...(turn.followUp ? { ...turn.followUp, followUp: true } : {}),
         })
         const file = await mutateSession(turn.sessionRef, (current) => ({
           ...current,
-          ...afterTurn(current, { kind: 'agent', preset: turn.presetName, prompt: turn.prompt }),
+          ...afterTurn(current, { kind: 'agent', preset: turn.presetName, prompt }),
           updatedAt: Math.max(Date.now(), current.updatedAt),
         }))
         emitSessionChanged(sessionDocumentOf(file))

@@ -602,6 +602,8 @@ describe('running a Task', () => {
       'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
     )
     expect(sentPrompts()[1]).not.toContain('For this run the user added')
+    expect(sentConfig(0).taskRun?.input).toBe('only news from Germany')
+    expect(sentConfig(1).taskRun).not.toHaveProperty('input')
   })
 
   it('ends the run when its turn settles, recording completed', async () => {

@@ -600,21 +600,33 @@ describe('a Task run', () => {
   }, 30000)
 })
 
-describe('a Scheduled Run’s last Step', () => {
+/** Writes `names` into a fresh `generated/` folder of the turn's workspace. */
+function generatedFiles(config: AgentModeTurnConfig, names: string[]): string[] {
+  const generated = path.join(config.workspaceDir, 'generated')
+  fs.mkdirSync(generated, { recursive: true })
+  for (const name of names) fs.writeFileSync(path.join(generated, name), 'bytes')
+  return names.map((name) => `generated/${name}`)
+}
+
+describe('a Scheduled Run', () => {
   const EVERY: ChannelKind[] = ['telegram', 'slack']
-  const step = (stepIndex: number, notifiesResult?: boolean): AgentModeTurnConfig => ({
+  const run = (notifiesResult?: boolean): AgentModeTurnConfig => ({
     ...configFor(TASK_SESSION),
-    taskRun: { taskName: 'Daily digest', stepIndex, ...(notifiesResult ? { notifiesResult } : {}) },
+    taskRun: {
+      taskName: 'Daily digest',
+      stepIndex: 1,
+      ...(notifiesResult ? { notifiesResult } : {}),
+    },
   })
+  const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 1/3)'
 
   beforeEach(async () => {
-    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
+    await saveTaskRun({ stepIndex: 1, stepCount: 3 })
     notifier.setNotificationConfig({ ...CONFIG, channels: EVERY })
   })
 
   it('sends its result to every Channel, recorded as the Session’s', async () => {
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
-    const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 3/3)'
+    await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
     await vi.waitFor(async () => {
       expect(sent).toEqual([
         { kind: 'telegram', text: `${header}\ndone${REPLY_HINT}` },
@@ -626,15 +638,17 @@ describe('a Scheduled Run’s last Step', () => {
     })
   }, 30000)
 
-  it('sends the media it generated to every Channel too', async () => {
-    const config = step(3, true)
-    const generated = path.join(config.workspaceDir, 'generated')
-    fs.mkdirSync(generated, { recursive: true })
-    fs.writeFileSync(path.join(generated, 'chart.png'), 'bytes')
+  it('sends every Artifact its turn generated to every Channel too', async () => {
+    const config = run(true)
+    const [chart, map] = generatedFiles(config, ['chart.png', 'map.png'])
     const media = await import('../../agent/generatedMedia')
     await withWaitingTurn(
       TASK_SESSION,
-      async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/chart.png']),
+      async () => {
+        media.noteGeneratedMedia(config.workspaceDir, [chart])
+        await vi.waitFor(() => expect(sent).toHaveLength(2))
+        media.noteGeneratedMedia(config.workspaceDir, [map])
+      },
       config,
     )
     // Wait for the result texts that follow the media too, or they leak into the next test.
@@ -642,23 +656,34 @@ describe('a Scheduled Run’s last Step', () => {
       expect(sent.map((s) => [s.kind, s.media ?? s.text.split('\n')[1]])).toEqual([
         ['telegram', 'photo:chart.png'],
         ['slack', 'photo:chart.png'],
+        ['telegram', 'photo:map.png'],
+        ['slack', 'photo:map.png'],
         ['telegram', 'done'],
         ['slack', 'done'],
       ]),
     )
   }, 30000)
 
-  it('sends nothing for an earlier Step or a run nobody scheduled', async () => {
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(2))
-    asks = []
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(3))
+  it('reports the question its turn ends on as its result', async () => {
+    finalText = 'Which city should the digest cover?'
+    await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
+    await vi.waitFor(() =>
+      expect(sent.map((s) => [s.kind, s.text.split('\n')[1]])).toEqual([
+        ['telegram', 'Which city should the digest cover?'],
+        ['slack', 'Which city should the digest cover?'],
+      ]),
+    )
+  }, 30000)
+
+  it('sends nothing for a run nobody scheduled', async () => {
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
     await settle()
     expect(sent).toEqual([])
   }, 30000)
 
   it('sends nothing while the Channels toggle is off', async () => {
     notifier.setNotificationConfig({ ...CONFIG, channels: [] })
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
     await settle()
     expect(sent).toEqual([])
   }, 30000)
@@ -666,40 +691,57 @@ describe('a Scheduled Run’s last Step', () => {
 
 describe('an Agent Run started from a Channel', () => {
   const STARTED_BY = { channel: 'telegram' as const, replyTo: 'agents-12' }
-  const step = (stepIndex: number, last = false): AgentModeTurnConfig => ({
+  const run = (): AgentModeTurnConfig => ({
     ...configFor(TASK_SESSION),
     answer: STARTED_BY,
-    taskRun: { taskName: 'Daily digest', stepIndex, ...(last ? { notifiesResult: true } : {}) },
+    taskRun: { taskName: 'Daily digest', stepIndex: 1, notifiesResult: true },
   })
-  const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 3/3)'
+  const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 1/3)'
+  const started = {
+    kind: 'telegram',
+    text: '▶️ Started “Daily digest” in "Weekday news".',
+    replyTo: 'agents-12',
+    plain: true,
+  }
 
   beforeEach(async () => {
-    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
+    await saveTaskRun({ stepIndex: 1, stepCount: 3 })
     notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
   })
 
-  it('says it started, then reports only its result, to the starting Channel alone', async () => {
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(1))
-    asks = []
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(2))
-    asks = []
+  it('says it started, then reports its result, to the starting Channel alone', async () => {
     finalText = 'Three headlines.'
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
     await vi.waitFor(() =>
       expect(sent).toEqual([
-        {
-          kind: 'telegram',
-          text: '▶️ Started “Daily digest” in "Weekday news".',
-          replyTo: 'agents-12',
-          plain: true,
-        },
+        started,
         { kind: 'telegram', text: `${header}\nThree headlines.`, replyTo: 'agents-12' },
       ]),
     )
   }, 30000)
 
+  it('says it started only once, not again for an Answer to its question', async () => {
+    finalText = 'Which city?'
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
+    await vi.waitFor(() => expect(sent).toHaveLength(2))
+    asks = []
+    finalText = 'Berlin news.'
+    const { taskRun: _run, ...answerTurn } = run()
+    await withWaitingTurn(TASK_SESSION, async () => {}, {
+      ...answerTurn,
+      answer: { channel: 'telegram', replyTo: 'msg-2' },
+    })
+    await vi.waitFor(() =>
+      expect(sent).toEqual([
+        started,
+        { kind: 'telegram', text: `${header}\nWhich city?`, replyTo: 'agents-12' },
+        { kind: 'telegram', text: `${header}\nBerlin news.`, replyTo: 'msg-2' },
+      ]),
+    )
+  }, 30000)
+
   it('records its result, so a reply to it reaches the run’s Harness Session', async () => {
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
+    await withWaitingTurn(TASK_SESSION, async () => {}, run())
     await vi.waitFor(async () => {
       const result = sent.findIndex((s) => s.text.includes('\ndone'))
       expect(result).not.toBe(-1)
@@ -709,38 +751,36 @@ describe('an Agent Run started from a Channel', () => {
     })
   }, 30000)
 
-  it('sends what its earlier Steps generated with its result', async () => {
+  it('sends every Artifact its turn generated, after it said it started', async () => {
+    const config = run()
+    const files = generatedFiles(config, ['chart.png', 'map.png'])
     const media = await import('../../agent/generatedMedia')
-    const first = step(1)
-    const generated = path.join(first.workspaceDir, 'generated')
-    fs.mkdirSync(generated, { recursive: true })
-    fs.writeFileSync(path.join(generated, 'chart.png'), 'bytes')
     await withWaitingTurn(
       TASK_SESSION,
-      async () => media.noteGeneratedMedia(first.workspaceDir, ['generated/chart.png']),
-      first,
+      async () => media.noteGeneratedMedia(config.workspaceDir, files),
+      config,
     )
-    await settle()
-    expect(sent.filter((s) => s.media)).toEqual([])
-    asks = []
-    await withWaitingTurn(TASK_SESSION, async () => {}, step(3, true))
     await vi.waitFor(() =>
-      expect(sent.filter((s) => s.media).map((s) => [s.kind, s.media])).toEqual([
-        ['telegram', 'photo:chart.png'],
+      expect(sent.map((s) => s.media ?? s.text.split('\n').at(-1))).toEqual([
+        '▶️ Started “Daily digest” in "Weekday news".',
+        'photo:chart.png',
+        'photo:map.png',
+        'done',
       ]),
     )
   }, 30000)
 
-  it('notifies a failed Step on the starting Channel, although the Session is on screen', async () => {
+  it('notifies a failed run on the starting Channel, although the Session is on screen', async () => {
     notifier.setNotificationConfig({
       ...CONFIG,
       channels: ['telegram', 'slack'],
       sessionOnScreen: await sessionOfHarnessSession(TASK_SESSION),
     })
     modelRetired = true
-    await manager.startAgentTurn(crypto.randomUUID(), 'hi', step(2))
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', run())
     await vi.waitFor(() =>
       expect(sent.map((s) => [s.kind, s.replyTo, s.text.includes('❌ Failed')])).toEqual([
+        ['telegram', 'agents-12', false],
         ['telegram', 'agents-12', true],
       ]),
     )

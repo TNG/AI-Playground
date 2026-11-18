@@ -15,7 +15,7 @@ export type StepSender = {
       signal: AbortSignal
       quietErrors: boolean
       answer?: AgentAnswerOrigin
-      taskRun: { taskName: string; stepIndex: number; notifiesResult?: boolean }
+      taskRun: { taskName: string; stepIndex: number; input?: string; notifiesResult?: boolean }
     },
   ) => Promise<SendToSessionResult>
 }
@@ -40,6 +40,7 @@ export async function sendRunTurn(
   run: RunTurn,
   onFailed: (message: string) => unknown,
 ): Promise<void> {
+  const input = run.prompt?.trim()
   const result = await sender.sendToSession(
     run.sessionId,
     runPrompt(run.prompt ?? '', stepPrompts(run.steps)),
@@ -51,6 +52,7 @@ export async function sendRunTurn(
       taskRun: {
         taskName: run.taskName,
         stepIndex: 1,
+        ...(input ? { input } : {}),
         ...(run.scheduled || run.origin ? { notifiesResult: true } : {}),
       },
     },

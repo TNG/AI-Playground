@@ -418,7 +418,10 @@ const downloadGroup = computed(() => {
       : mode === 'chat' || mode === 'audio'
         ? conversations.activeKey
         : ''
-  return key && modelDownloads().snapshot(key) ? key : ''
+  const harnesses = sessions.openSessionId
+    ? agentMode.liveTurnsIn(sessions.openSessionId).map((turn) => turn.tag.harnessSessionId)
+    : []
+  return [key, ...harnesses].find((group) => group && modelDownloads().snapshot(group)) ?? ''
 })
 
 const shouldShowImageUploadButton = computed(() => {

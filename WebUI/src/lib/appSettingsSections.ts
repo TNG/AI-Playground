@@ -6,6 +6,7 @@ export type AppSettingsSectionId =
   | 'speech'
   | 'mediaModes'
   | 'permissions'
+  | 'remoteKernel'
   | 'advanced'
 
 export type AppSettingsPartId =
@@ -16,6 +17,7 @@ export type AppSettingsPartId =
   | 'speech'
   | 'mediaModes'
   | 'permissions'
+  | 'remoteKernel'
   | 'backendStatus'
   | 'developer'
   | 'demoMode'
@@ -41,6 +43,7 @@ const SECTIONS: SectionSpec[] = [
   { id: 'speech', heading: false, parts: [{ id: 'speech', demo: 'block' }] },
   { id: 'mediaModes', heading: false, parts: [{ id: 'mediaModes', demo: 'block' }] },
   { id: 'permissions', heading: false, parts: [{ id: 'permissions', demo: 'block' }] },
+  { id: 'remoteKernel', heading: false, parts: [{ id: 'remoteKernel', demo: 'block' }] },
   {
     id: 'advanced',
     heading: true,

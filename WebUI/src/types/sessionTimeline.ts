@@ -51,5 +51,5 @@ export type { AgentRunTag }
 /** Set on an agent turn's timeline messages: the agent preset and Harness Session they came from. */
 export type AgentTurnTag = { presetName: string; harnessSessionId: string; taskRun?: AgentRunTag }
 
-/** On a Step prompt the retired Run steps sent into Assistant; kept to show old Sessions. */
+/** Marks a run prompt sent into Assistant in older Sessions, which still show it. */
 export type PromptRunTag = AgentRunTag & { runId: string }

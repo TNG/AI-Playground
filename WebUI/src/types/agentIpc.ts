@@ -155,12 +155,13 @@ export const AgentModeTurnConfigSchema = z.object({
   readiness: ChatModelConfigSchema.shape.readiness,
   /** Set when a channel Answer started this turn: its result is replied under the Answer. */
   answer: AgentAnswerOriginSchema.optional(),
-  /** A Task Run's Step: no Session Update, no `session_history`, its entry tagged with the Task. */
+  /** An Agent Run's turn: no Session Update, no `session_history`, its entry tagged with the Agent. */
   taskRun: z
     .object({
       taskName: z.string(),
-      stepIndex: z.number().int().positive(),
-      /** A Scheduled Run's last Step: its result is a Notification to every Channel. */
+      /** The Start Prompt, which the run's History Entry records instead of the run prompt. */
+      input: z.string().optional(),
+      /** A Scheduled or Channel-started run: its result is a Notification. */
       notifiesResult: z.boolean().optional(),
     })
     .optional(),

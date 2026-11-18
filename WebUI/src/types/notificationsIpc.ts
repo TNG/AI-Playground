@@ -63,8 +63,6 @@ export type NotificationTemplates = {
   failed: string
   /** The label of a session, quoted: `{title}` */
   sessionLabel: string
-  /** The label of a Task run: `{task}`, `{step}`, `{steps}` */
-  taskLabel: string
   /** The title of a session with no title. */
   untitled: string
   /** Label of the 💬 Answer button under an answerable Notification. */

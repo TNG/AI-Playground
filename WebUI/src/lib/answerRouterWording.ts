@@ -26,7 +26,7 @@ export type AnswerRouterCopy = {
   voiceFailed: string
   /** `{position}` (an ordinal), `{title}`, `{waitingFor}`; a message queued behind a busy Session */
   queuedMessage: string
-  /** What a queued message waits for: the turn, or `{name}`, `{step}`, `{steps}` of an Agent Run */
+  /** What a queued message waits for: the turn, or the `{name}` of an Agent Run */
   queueAfterTurn: string
   queueAfterAgentRun: string
   /** A line under the queued acknowledgement while the turn is paused */
@@ -41,7 +41,7 @@ export type AnswerRouterCopy = {
   queueDroppedDeleted: string
   /** `{count}` */
   queueDroppedThrownAway: string
-  /** `/stop`: what it stopped (`{title}`; an Agent Run's `{name}`, `{step}`, `{steps}`) */
+  /** `/stop`: what it stopped (`{title}`; an Agent Run's `{name}`) */
   stopTurn: string
   stopAgentRun: string
   /** `{count}`, the line under what `/stop` stopped */
@@ -100,8 +100,6 @@ export type AnswerRouterCopy = {
   agentNotStarted: string
   /** Follows `agentNotStarted` when the reason can only be fixed on the computer. */
   agentFixOnDesktop: string
-  /** `{name}` (the Agent), `{step}`, `{title}` (a quoted Session title), `{reason}` */
-  agentStepRefused: string
   /** Under the `/agents` buttons: what ✎ does */
   agentsPromptHint: string
   /** `{name}` (the Agent), `{title}` (a quoted Session title); a Start Prompt Request */
@@ -189,7 +187,6 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   agentNotStartable: 'AGENT_TASK_NOT_STARTABLE_FROM_CHANNEL',
   agentNotStarted: 'CHANNEL_AGENT_NOT_STARTED',
   agentFixOnDesktop: 'CHANNEL_AGENT_FIX_ON_DESKTOP',
-  agentStepRefused: 'CHANNEL_AGENT_STEP_REFUSED',
   agentsPromptHint: 'CHANNEL_AGENTS_PROMPT_HINT',
   startPromptRequest: 'CHANNEL_START_PROMPT_REQUEST',
   startPromptRequestThread: 'CHANNEL_START_PROMPT_REQUEST_THREAD',

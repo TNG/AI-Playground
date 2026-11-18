@@ -37,7 +37,7 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
         'arrives in this session as their next message. ' +
         'Call it whenever the user asks to be notified, pinged, messaged, alerted or told about ' +
         'something ("let me know when it is done", "notify me if it fails"), even without naming ' +
-        'a device or channel, and when a Task step says so. Do not call it otherwise. ' +
+        'a device or channel, and when a Step says so. Do not call it otherwise. ' +
         'To show the user a file (an image, video, speech clip or 3D model you generated), pass ' +
         `it in \`attachments\` (${allowedAttachmentExtensions()}); for a 3D model the user ` +
         'receives a picture of it plus the file. Generated files are not sent ' +

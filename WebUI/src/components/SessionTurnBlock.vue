@@ -27,19 +27,6 @@
           <p v-if="part.kind === 'workspace-path'" class="text-xs text-muted-foreground break-all">
             {{ fillTemplate(languages.AGENT_MEDIA_IN_WORKSPACE, { path: part.path }) }}
           </p>
-          <div
-            v-else-if="part.kind === 'step-prompt'"
-            role="group"
-            :aria-label="
-              fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(part.step) })
-            "
-            class="flex flex-col gap-1 rounded-md bg-muted px-3 py-2 text-sm"
-          >
-            <p class="text-xs text-muted-foreground">
-              {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(part.step) }) }}
-            </p>
-            <MarkdownRenderer :content="part.prompt.text" />
-          </div>
           <TurnWorkflowParameters
             v-else-if="part.kind === 'workflow'"
             :variant="part.variant"
@@ -133,7 +120,6 @@ import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
 import ChatConfirmation from '@/components/ChatConfirmation.vue'
 import ChatMessageParts from '@/components/ChatMessageParts.vue'
-import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import MediaTurnBlock from '@/components/MediaTurnBlock.vue'
 import SessionAssistantBubble from '@/components/SessionAssistantBubble.vue'
 import SessionMessage from '@/components/SessionMessage.vue'

@@ -36,7 +36,7 @@ const SUMMARY = 'Top story: the bridge reopened.'
 
 type RequestBody = {
   messages?: Array<{ role: string; content?: unknown }>
-  tools?: Array<{ function?: { name?: string } }>
+  tools?: Array<{ function?: { name?: string; description?: string } }>
 }
 
 let requests: RequestBody[] = []
@@ -134,7 +134,6 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
       pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
       failed: '',
       sessionLabel: '"{title}"',
-      taskLabel: '',
       untitled: 'An agent run',
       answerButton: '💬 Answer',
       answerOnComputer: 'Answer on your computer',
@@ -352,6 +351,13 @@ describe('notify_user', () => {
     expect(toolResultText()).toContain('not delivered: Telegram not configured')
   }, 30000)
 
+  it('tells the model to notify when a Step of an Agent says so', async () => {
+    await runTurn('aipg-agent-notify-described')
+    const tool = requests[0].tools?.find((entry) => entry.function?.name === 'notify_user')
+    expect(tool?.function?.description).toContain('when a Step says so')
+    expect(tool?.function?.description).not.toContain('Task step')
+  }, 30000)
+
   it('is absent from a session without the notify capability', async () => {
     await runTurn('aipg-agent-notify-unticked', [])
     expect(requests.length).toBeGreaterThan(0)
@@ -368,8 +374,6 @@ describe('notify_user in a Trial Run', () => {
       agentId,
       harnessSessionId,
       name,
-      stepIndex: 1,
-      stepCount: 1,
       startedAt: 1,
       state: 'running',
     })

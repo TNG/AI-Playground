@@ -1238,6 +1238,8 @@ export const useAgentMode = defineStore(
     function inView(sessionId: string): boolean {
       const showing = libraryShowing.value
       if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
+      const sessionRef = sessionRefOf(sessionId)
+      if (sessionRef) return sessionRef === sessionsStore.openSessionId
       return viewShown.value && openSessionId.value === sessionId
     }
 
@@ -1280,7 +1282,7 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId, libraryShowing], () => {
+    watch([viewShown, openSessionId, () => sessionsStore.openSessionId, libraryShowing], () => {
       for (const sessionId of Object.keys(heldPrompts)) {
         if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
       }

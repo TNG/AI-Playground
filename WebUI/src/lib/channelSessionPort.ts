@@ -23,7 +23,7 @@ import type { AgentAnswerOrigin } from '@/types/agentIpc'
 const ADMISSION_WAIT_MS = 3000
 
 export type ChannelSessionLabels = {
-  /** A Harness Session's Notification label (a Task run names its Step). */
+  /** A Harness Session's Notification label (an Agent Run names its Agent). */
   harness: (harnessSessionId: string) => string
   /** A Session's quoted title. */
   session: (sessionRef: string) => string
@@ -162,8 +162,8 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
   }
 
   function activity(sessionRef: string): SessionActivity {
-    const run = agentTasks.agentRunStepIn(sessionRef)
-    if (run) return { kind: 'agent-run', ...run }
+    const run = agentTasks.agentRunIn(sessionRef)
+    if (run) return { kind: 'agent-run', name: run.name }
     const turn = sessions.turns[sessionRef]
     const live = liveHarnessTurns(sessionRef)
     if (!turn && live.length === 0) return { kind: 'idle' }
@@ -197,7 +197,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
         ...Object.values(agentMode.sessions)
           .filter((record) => record.sessionRef && agentMode.sessionTurns[record.id])
           .map((record) => record.sessionRef!),
-        ...Object.keys(sessions.sessions).filter((id) => agentTasks.agentRunStepIn(id)),
+        ...Object.keys(sessions.sessions).filter((id) => agentTasks.agentRunIn(id)),
       ]),
   )
   const reachableSessions = computed(
@@ -299,7 +299,6 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       changeListeners.add(listener)
       return () => changeListeners.delete(listener)
     },
-    onAgentRunRefused: (listener) => agentTasks.onChannelRunRefused(listener),
     trialRunLive: (harnessSessionId) => !!agentTrialRuns.trialRunOfSession(harnessSessionId),
     trialRunActivity,
     onTrialRunChange: (listener) => {

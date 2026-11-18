@@ -7,10 +7,7 @@ import type { ChannelKind } from '@/assets/js/store/channels/types'
 export type CloseChoice = 'keep' | 'minimize' | 'quit'
 
 export type InFlightWorkState =
-  { status: 'running' } | { status: 'paused' } | { status: 'queued'; count?: number } | StepState
-
-/** 1-based. */
-export type StepState = { status: 'step'; index: number; count: number }
+  { status: 'running' } | { status: 'paused' } | { status: 'queued'; count?: number }
 
 /** `taskId` / `sessionId` let main merge a run with its marker and its open agent turn. */
 export type InFlightWorkItem =
@@ -27,8 +24,8 @@ export type InFlightWorkItem =
       state: TaskRunWorkState
     }
 
-/** A Task Run is `starting` while its models are checked, before its first Step exists. */
-export type TaskRunWorkState = StepState | { status: 'starting' }
+/** An Agent Run is `starting` while its models are checked, before its turn exists. */
+export type TaskRunWorkState = { status: 'running' } | { status: 'starting' }
 
 export type InFlightWorkKind = InFlightWorkItem['kind']
 

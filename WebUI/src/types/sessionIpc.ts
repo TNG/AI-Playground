@@ -119,7 +119,6 @@ export const HistoryEntrySchema = z.object({
   artifacts: z.array(z.object({ path: z.string(), mediaType: ArtifactMediaTypeSchema })),
   response: z.string().optional(),
   taskName: z.string().optional(),
-  stepIndex: z.number().int().nonnegative().optional(),
   /** A Follow-up to a saved Agent, which `preset` (Assistant) ran; older: a chat with it. */
   agentId: z.string().optional(),
   agentName: z.string().optional(),

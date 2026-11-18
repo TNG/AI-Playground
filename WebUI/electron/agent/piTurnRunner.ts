@@ -399,7 +399,7 @@ async function withSessionUpdate(
       workspaceDir: config.workspaceDir,
       isOwn: (entry: HistoryEntry) => replayed.has(entry.id),
     }
-    // A run's Steps get none, but its Follow-ups must hear only what happened since.
+    // A run's own turn gets none, but its Follow-ups must hear only what happened since.
     if (config.taskRun) {
       await skipSessionUpdate(config.sessionRef, consumer)
       return prompt
@@ -444,7 +444,7 @@ export async function startAgentTurn(
       config.workspaceDir,
       config.answer,
       answerSpeaks(config),
-      config.taskRun,
+      config.taskRun?.taskName,
     )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
@@ -457,7 +457,7 @@ export async function startAgentTurn(
         workspaceDir: config.workspaceDir,
         prompt,
         ...(config.taskRun
-          ? { taskRun: { taskName: config.taskRun.taskName, stepIndex: config.taskRun.stepIndex } }
+          ? { taskRun: { taskName: config.taskRun.taskName, input: config.taskRun.input } }
           : {}),
         harnessSessionId: sessionId,
         ...(config.followUp ? { followUp: config.followUp } : {}),

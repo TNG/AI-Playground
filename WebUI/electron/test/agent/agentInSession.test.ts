@@ -330,7 +330,6 @@ describe('the Session Update and session_history for an agent preset', () => {
       artifacts: [],
       response: 'Three new mails.',
       taskName: 'Morning digest',
-      stepIndex: 1,
     })
     bodies = []
 

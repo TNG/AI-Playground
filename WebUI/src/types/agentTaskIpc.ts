@@ -13,8 +13,6 @@ export const AgentTaskOutcomeSchema = z.object({
   at: z.number(),
   /** Absent when a Scheduled Run could not start, so no Harness Session exists. */
   sessionId: z.string().optional(),
-  stepIndex: z.number().optional(),
-  stepCount: z.number(),
   message: z.string().optional(),
   // Translated where shown, since `app-closed` is written at boot before the locale has loaded.
   reason: z.enum(['app-closed', 'not-started', 'download-declined']).optional(),
@@ -29,8 +27,6 @@ export const AgentTaskActiveRunSchema = z.object({
   sessionId: z.string(),
   /** The Session the run is in; empty on a marker from before runs knew their Session. */
   sessionRef: z.string(),
-  stepIndex: z.number(),
-  stepCount: z.number(),
   /** Set for a Scheduled Run, so a reattached one still toasts a failure. */
   scheduled: z.boolean().optional(),
 })
@@ -135,20 +131,15 @@ export const AgentDraftsFileSchema = z.object({
   drafts: z.array(AgentDraftSchema),
 })
 
-/**
- * Where an Agent's Trial Run is, kept beside its scratch folder so a reloaded window can pick it
- * up. `stepIndex` is 1-based; `stepCount` is how many Steps it runs.
- */
+/** Where an Agent's Trial Run is, kept beside its scratch folder for a reloaded window. */
 export const TrialRunRecordSchema = z.object({
   agentId: z.string().min(1),
   harnessSessionId: z.string().min(1),
   name: z.string(),
-  stepIndex: z.number(),
-  stepCount: z.number(),
   startedAt: z.number(),
   state: z.enum(['running', 'completed', 'failed', 'stopped']),
   message: z.string().optional(),
-  /** What the user typed in front of Step 1. */
+  /** What the user typed to adjust the run. */
   input: z.string().optional(),
 })
 export type TrialRunRecord = z.infer<typeof TrialRunRecordSchema>

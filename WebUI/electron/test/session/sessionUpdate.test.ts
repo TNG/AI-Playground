@@ -181,8 +181,8 @@ describe('takeSessionUpdate', () => {
     const followUp = { agentId: 't1', agentName: 'Digest', followUp: true }
     await appendHistoryEntry(id, imageTurn)
     await skipSessionUpdate(id, run)
-    await appendHistoryEntry(id, { ...step, stepIndex: 1, prompt: 'step one' })
-    await appendHistoryEntry(id, { ...step, stepIndex: 2, prompt: 'step two' })
+    await appendHistoryEntry(id, { ...step, prompt: 'step one' })
+    await appendHistoryEntry(id, { ...step, prompt: 'step two' })
     await appendHistoryEntry(id, { ...imageTurn, prompt: 'a blue fox' })
 
     const first = await takeSessionUpdate(id, run)
@@ -192,7 +192,7 @@ describe('takeSessionUpdate', () => {
 
     await appendHistoryEntry(id, { ...agentTurn, ...followUp, harnessSessionId: run.key })
     const otherRun = { ...agentTurn, taskName: 'Other', harnessSessionId: 'aipg-agent-other' }
-    await appendHistoryEntry(id, { ...otherRun, stepIndex: 1, prompt: 'the other agent' })
+    await appendHistoryEntry(id, { ...otherRun, prompt: 'the other agent' })
 
     const second = await takeSessionUpdate(id, run)
     expect(second).toContain('the other agent')
@@ -205,8 +205,8 @@ describe('takeSessionUpdate', () => {
     await new Promise((resolve) => setTimeout(resolve, 5))
     const startedAt = Date.now()
     const legacyStep = { ...agentTurn, taskName: 'Digest' }
-    await appendHistoryEntry(id, { ...legacyStep, stepIndex: 1, prompt: 'step one' })
-    await appendHistoryEntry(id, { ...legacyStep, stepIndex: 2, prompt: 'step two' })
+    await appendHistoryEntry(id, { ...legacyStep, prompt: 'step one' })
+    await appendHistoryEntry(id, { ...legacyStep, prompt: 'step two' })
     await appendHistoryEntry(id, { ...imageTurn, prompt: 'a blue fox' })
 
     const update = await takeSessionUpdate(id, {

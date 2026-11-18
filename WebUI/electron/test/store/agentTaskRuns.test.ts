@@ -5,10 +5,10 @@ import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
 import type { AgentTask } from '@/types/agentTaskIpc'
 import type { KernelEvent, KernelSnapshot } from '@/types/kernelEvents'
-import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
+import { runPrompt } from '@/lib/taskSteps'
 
 // Running a Task: the Tasks store creates a Task Session in the background and
-// sends its Steps one after another, each once the previous Step's turn settled.
+// sends all its Steps at once, in one turn; the run ends when that turn settles.
 // Driven through the Tasks store against the real Agent store, with a fake
 // electronAPI and kernel events delivered through the registered listener.
 
@@ -160,6 +160,8 @@ vi.mock('@/assets/js/store/i18n', () => ({
 vi.mock('@/assets/js/toast', () => ({ show: vi.fn() }))
 
 vi.mock('@/assets/js/tools/agentBridge', () => ({ getAgentToolSpecs: () => [] }))
+
+vi.mock('@/assets/js/store/sessionLifecycle', () => ({ useSessionLifecycle: () => ({}) }))
 
 const TEMPLATE: AgentSessionSettings = {
   backend: 'llamaCPP',
@@ -383,6 +385,9 @@ const { useAgentMode } = await import('@/assets/js/store/agentMode')
 const { useAgentTasks } = await import('@/assets/js/store/agentTasks')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const { useQueuedChannelMessages } = await import('@/assets/js/store/queuedChannelMessages')
+const { registerChannelSessionPort } = await import('@/lib/channelSessionPort')
+const { sessionPort } = await import('@/assets/js/store/channels/sessionPort')
+const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -399,9 +404,9 @@ async function readyStoresIn(options: { session: boolean }, ...saved: AgentTask[
 }
 
 const sentPrompts = () => startTurn.mock.calls.map(([, prompt]) => prompt)
-/** A Step's turn carries the run's framing; its last line, minus `Step i of n: `, is the Step. */
+/** The Steps each sent turn carries, from the run prompt's numbered lines. */
 const sentSteps = () =>
-  sentPrompts().map((prompt) => (prompt.split('\n').at(-1) ?? '').replace(/^Step \d+ of \d+: /, ''))
+  sentPrompts().map((prompt) => [...prompt.matchAll(/^\d+\. (.*)$/gm)].map((line) => line[1]))
 const sentConfig = (call: number) => startTurn.mock.calls[call][2]
 
 async function turnIdOf(call: number): Promise<string> {
@@ -478,12 +483,9 @@ describe('where an Agent Run runs', () => {
 
     nextSessionId = 'session-2'
     await useSessions(pinia).create()
-    await finishTurn(0)
-    await turnIdOf(1)
 
     const runsIn = (sessionRef: string) =>
       agentMode.liveTurnsIn(sessionRef).filter((turn) => turn.tag.taskRun)
-    expect(sentConfig(1).sessionId).toBe(sentConfig(0).sessionId)
     expect(runsIn(SESSION)).toHaveLength(1)
     expect(runsIn('session-2')).toEqual([])
   })
@@ -499,7 +501,7 @@ describe('deleting the Session a run is in', () => {
 
     await useSessions(pinia).remove(SESSION)
 
-    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped', stepIndex: 1 })
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped' })
     expect(window.electronAPI.agentMode.cancel).toHaveBeenCalled()
     expect(tasks.tasks.map((agent) => agent.id)).toEqual(['t1'])
     expect(lastSavedTask('t1')).not.toHaveProperty('activeRuns')
@@ -579,99 +581,77 @@ describe('running a Task', () => {
     expect(sentConfig(0)).toMatchObject({ presetName: 'Assistant' })
   })
 
-  it('frames each Step with its place in the run', async () => {
-    const { tasks } = await readyStores(task('t1', ['one', 'two']))
+  it('sends one turn holding every Step in order, with the run instruction', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
 
     await tasks.runTask('t1')
     await turnIdOf(0)
     await finishTurn(0)
-    await turnIdOf(1)
+    await settledOutcome(tasks, 't1')
     await settleMicrotasks()
 
-    expect(sentPrompts()).toEqual([firstStepTurn('', ['one', 'two']), stepTurn(2, ['one', 'two'])])
+    expect(sentPrompts()).toEqual([runPrompt('', ['one', 'two', 'three'])])
+    expect(sentPrompts()[0]).toContain('instructions, not a script')
+    expect(sentSteps()).toEqual([['one', 'two', 'three']])
   })
 
-  it('sends each Step only after the previous one settled, then records completed', async () => {
+  it('carries the Start Prompt in that turn with the follow-the-user clause, and none without', async () => {
+    const { tasks } = await readyStores(task('t1', ['one', 'two']), task('t2', ['three']))
+
+    await tasks.runTask('t1', ' only news from Germany ')
+    await tasks.runTask('t2')
+    await turnIdOf(1)
+
+    expect(sentPrompts()[0]).toBe(runPrompt('only news from Germany', ['one', 'two']))
+    expect(sentPrompts()[0]).toContain(
+      'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
+    )
+    expect(sentPrompts()[1]).not.toContain('For this run the user added')
+    expect(sentConfig(0).taskRun?.input).toBe('only news from Germany')
+    expect(sentConfig(1).taskRun).not.toHaveProperty('input')
+  })
+
+  it('ends the run when its turn settles, recording completed', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
 
     await tasks.runTask('t1')
     await turnIdOf(0)
-    await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one'])
-
-    await finishTurn(0)
-    await turnIdOf(1)
-    await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one', 'two'])
-
-    await finishTurn(1)
-    await turnIdOf(2)
-    await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one', 'two', 'three'])
     const sessionId = sentConfig(0).sessionId
-    expect(startTurn.mock.calls.every(([, , config]) => config.sessionId === sessionId)).toBe(true)
+    await finishTurn(0)
 
-    await finishTurn(2)
     await vi.waitFor(() => expect(tasks.taskState('t1')).toHaveProperty('idle'))
-    const outcome = { kind: 'completed', sessionId, stepCount: 3 }
+    const outcome = { kind: 'completed', sessionId }
     expect(tasks.taskState('t1')).toEqual({ idle: expect.objectContaining(outcome) })
     expect(lastSavedTask('t1')?.lastOutcome).toMatchObject(outcome)
+    await settleMicrotasks()
+    expect(startTurn).toHaveBeenCalledTimes(1)
     const transcript = JSON.stringify(agentMode.sessions[sessionId].messages)
-    expect(transcript).toContain('one')
     expect(transcript).toContain('three')
   })
 
-  it('reports the running Step while the run lasts', async () => {
+  it('is running while its turn lasts', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))
 
     await tasks.runTask('t1')
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
     expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
-    })
-
-    await finishTurn(0)
-    await turnIdOf(1)
-    expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', stepIndex: 2, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', sessionId, sessionRef: SESSION },
     })
   })
 })
 
 describe('the settings a run uses', () => {
-  it('takes every Step’s turn config from the Settings Template, not the live controls', async () => {
+  it('takes the run turn’s config from the Settings Template, not the live controls', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))
     inference.live.activeModel = 'Changed-4B'
 
     await tasks.runTask('t1')
-    await finishTurn(0)
-    await turnIdOf(1)
-
-    for (const call of [0, 1]) {
-      expect(sentConfig(call)).toMatchObject({
-        workspaceDir: '/work/task',
-        presetName: 'Assistant',
-        capabilities: ['files', 'web'],
-        modelConfig: { model: 'Template-27B' },
-      })
-    }
-  })
-
-  it('keeps to the template while the Task Session is open and the panel changes', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-    await tasks.runTask('t1')
     await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
 
-    await agentMode.switchSession(sessionId)
-    agentMode.setCapabilityEnabled('web', false)
-    inference.live.activeModel = 'Changed-4B'
-    await finishTurn(0)
-    await turnIdOf(1)
-
-    expect(sentConfig(1)).toMatchObject({
-      sessionId,
+    expect(sentConfig(0)).toMatchObject({
+      workspaceDir: '/work/task',
+      presetName: 'Assistant',
       capabilities: ['files', 'web'],
       modelConfig: { model: 'Template-27B' },
     })
@@ -691,14 +671,11 @@ describe('the Mounted Folders a run reaches', () => {
     expect(agentMode.mountedFolders).toEqual([inSession])
 
     await tasks.runTask('t1')
-    await finishTurn(0)
-    await turnIdOf(1)
+    await turnIdOf(0)
 
-    for (const call of [0, 1]) {
-      expect(sentConfig(call).mountedFolders).toEqual([
-        { hostPath: '/Users/ada/inbox', name: 'mail', access: 'read-only' },
-      ])
-    }
+    expect(sentConfig(0).mountedFolders).toEqual([
+      { hostPath: '/Users/ada/inbox', name: 'mail', access: 'read-only' },
+    ])
   })
 
   it('are none when its Agent has none, whatever the Session has', async () => {
@@ -730,7 +707,7 @@ describe('one run per Task', () => {
     await tasks.runTask('t2')
     await turnIdOf(1)
 
-    expect(sentSteps()).toEqual(['a1', 'b1'])
+    expect(sentSteps()).toEqual([['a1', 'a2'], ['b1']])
     expect(sentConfig(0).sessionId).not.toBe(sentConfig(1).sessionId)
     expect(tasks.taskState('t1')).toHaveProperty('running')
     expect(tasks.taskState('t2')).toHaveProperty('running')
@@ -743,7 +720,7 @@ describe('one run per Task', () => {
     )
     expect(tasks.taskState('t1')).toHaveProperty('running')
     await settleMicrotasks()
-    expect(sentSteps()).toEqual(['a1', 'b1'])
+    expect(startTurn).toHaveBeenCalledTimes(2)
   })
 
   it('refuses to delete a running Task', async () => {
@@ -776,8 +753,8 @@ describe('a run in the background', () => {
     await agentMode.newSession()
     await finishTurn(0)
 
-    await turnIdOf(1)
-    expect(sentSteps()).toEqual(['one', 'two'])
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed' })
+    expect(window.electronAPI.agentMode.cancel).not.toHaveBeenCalled()
   })
 
   it('keeps going when the active preset changes', async () => {
@@ -792,8 +769,7 @@ describe('a run in the background', () => {
     await settleMicrotasks()
     await finishTurn(0)
 
-    await turnIdOf(1)
-    expect(sentConfig(1)).toMatchObject({ sessionId, presetName: 'Assistant' })
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed', sessionId })
     expect(agentMode.sessions[sessionId]).toMatchObject({
       taskId: 't1',
       workspaceDir: '/work/task',
@@ -812,8 +788,7 @@ describe('a run in the background', () => {
     await settleMicrotasks()
     await finishTurn(0)
 
-    await turnIdOf(1)
-    expect(sentConfig(1)).toMatchObject({ sessionId, modelConfig: { model: 'Template-27B' } })
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed', sessionId })
     expect(window.electronAPI.agentMode.cancel).not.toHaveBeenCalled()
   })
 })
@@ -834,25 +809,19 @@ async function settledOutcome(tasks: ReturnType<typeof useAgentTasks>, id: strin
 }
 
 describe('a run that fails', () => {
-  it('settles failed on the Step whose turn errored, and sends no further Step', async () => {
+  it('settles failed when its turn errored, and sends nothing more', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
     await tasks.runTask('t1')
-    await finishTurn(0)
+    await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
 
-    await failTurn(1, 'model refused')
+    await failTurn(0, 'model refused')
 
-    const outcome = {
-      kind: 'failed',
-      sessionId,
-      stepIndex: 2,
-      stepCount: 3,
-      message: 'model refused',
-    }
+    const outcome = { kind: 'failed', sessionId, message: 'model refused' }
     expect(await settledOutcome(tasks, 't1')).toMatchObject(outcome)
     expect(lastSavedTask('t1')?.lastOutcome).toMatchObject(outcome)
     await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one', 'two'])
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('records on the run how it failed, so its timeline Turn can show it', async () => {
@@ -879,7 +848,6 @@ describe('a run that fails', () => {
 
     expect(await settledOutcome(tasks, 't1')).toMatchObject({
       kind: 'failed',
-      stepIndex: 1,
       message: expect.stringContaining('/work/task'),
     })
     expect(startTurn).not.toHaveBeenCalled()
@@ -893,11 +861,10 @@ describe('a run that fails', () => {
 
     expect(await settledOutcome(tasks, 't1')).toMatchObject({
       kind: 'failed',
-      stepIndex: 1,
       message: 'refused by main',
     })
     await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one'])
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('records the failure in the error sink silently, without toasting it', async () => {
@@ -936,7 +903,7 @@ describe('a run that fails', () => {
   })
 })
 
-describe('a run a Channel started whose Step is refused in this window', () => {
+describe('a run a Channel started', () => {
   const ORIGIN = { channel: 'telegram' as const, replyTo: 'msg-9' }
   const startable = (prompts: string[]) => task('t1', prompts, { startableFromChannel: true })
 
@@ -962,7 +929,7 @@ describe('a run a Channel started whose Step is refused in this window', () => {
     ).toEqual({ ok: true })
 
     await turnIdOf(0)
-    expect(sentPrompts()).toEqual([firstStepTurn('only news from Germany', ['one', 'two'])])
+    expect(sentPrompts()).toEqual([runPrompt('only news from Germany', ['one', 'two'])])
     expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
       trigger: 'channel',
       channel: 'telegram',
@@ -970,39 +937,42 @@ describe('a run a Channel started whose Step is refused in this window', () => {
     })
   })
 
-  it('tells the starting Channel when a later Step is refused', async () => {
+  it('sends one turn with every Step, answering the Channel and asking for its result', async () => {
     const { tasks } = await readyStores(startable(['one', 'two']))
-    const refusals: unknown[] = []
-    tasks.onChannelRunRefused((sessionRef, refusal) => refusals.push({ sessionRef, ...refusal }))
-    expect(await tasks.startFromChannel('t1', SESSION, ORIGIN)).toEqual({ ok: true })
-    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
 
+    expect(await tasks.startFromChannel('t1', SESSION, ORIGIN)).toEqual({ ok: true })
     await finishTurn(0)
 
-    await vi.waitFor(() =>
-      expect(refusals).toEqual([
-        {
-          sessionRef: SESSION,
-          origin: ORIGIN,
-          name: 'Task t1',
-          step: 2,
-          reason: expect.stringContaining('/work/task'),
-        },
-      ]),
-    )
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed' })
+    await settleMicrotasks()
+    expect(sentSteps()).toEqual([['one', 'two']])
+    expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', notifiesResult: true })
+    expect(sentConfig(0).answer).toEqual(ORIGIN)
   })
 
-  it('tells no Channel about a refused Step of a run started on the computer', async () => {
-    const { tasks } = await readyStores(startable(['one', 'two']))
-    const refusals: unknown[] = []
-    tasks.onChannelRunRefused((sessionRef, refusal) => refusals.push({ sessionRef, ...refusal }))
-    await tasks.runTask('t1')
-    vi.mocked(window.electronAPI.existsPath).mockResolvedValue(false)
-
+  it('continues the run as a Follow-up when a Channel answers its result', async () => {
+    const { tasks } = await readyStores(startable(['ask me which city', 'forecast it']))
+    registerChannelSessionPort({ harness: () => '', session: () => '', trialRun: () => '' })
+    await tasks.startFromChannel('t1', SESSION, ORIGIN)
+    const run = sentConfig(0).sessionId
     await finishTurn(0)
     await settledOutcome(tasks, 't1')
 
-    expect(refusals).toEqual([])
+    const reply = { channel: 'telegram' as const, replyTo: 'msg-12' }
+    const sent = await sessionPort()!.send(
+      { sessionRef: SESSION, harnessSessionId: run },
+      'Berlin',
+      reply,
+    )
+
+    expect(sent).toMatchObject({ ok: true })
+    await turnIdOf(1)
+    expect(sentConfig(1)).toMatchObject({
+      sessionId: run,
+      answer: reply,
+      followUp: { agentId: 't1', agentName: 'Task t1' },
+    })
+    expect(sentConfig(1).taskRun).toBeUndefined()
   })
 })
 
@@ -1052,22 +1022,6 @@ describe('a Task whose Settings Template has a problem', () => {
     expect(saveTask).not.toHaveBeenCalled()
   })
 
-  it('fails the run at the next Step when the model goes missing mid-run', async () => {
-    inference.catalog = [{ name: 'Template-27B', type: 'llamaCPP' }]
-    const { tasks } = await readyStores(task('t1', ['one', 'two']))
-    await tasks.runTask('t1')
-
-    inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
-    await finishTurn(0)
-
-    expect(await settledOutcome(tasks, 't1')).toMatchObject({
-      kind: 'failed',
-      stepIndex: 2,
-      message: 'model “Template-27B” is no longer available.',
-    })
-    expect(sentSteps()).toEqual(['one'])
-  })
-
   it('runs once the problem is fixed', async () => {
     inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
     const { tasks } = await readyStores(task('t1', ['one']))
@@ -1077,7 +1031,7 @@ describe('a Task whose Settings Template has a problem', () => {
 
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
-    expect(sentSteps()).toEqual(['one'])
+    expect(sentSteps()).toEqual([['one']])
   })
 })
 
@@ -1108,7 +1062,7 @@ describe('running a Task whose chat model is not downloaded', () => {
 
     expect(await running).toEqual({ ok: true })
     await turnIdOf(0)
-    expect(sentSteps()).toEqual(['one'])
+    expect(sentSteps()).toEqual([['one', 'two']])
   })
 
   it.each([
@@ -1203,27 +1157,26 @@ describe('running a Task whose chat model is not downloaded', () => {
 describe('stopping a run', () => {
   const cancel = () => vi.mocked(window.electronAPI.agentMode.cancel)
 
-  async function expectStopped(tasks: ReturnType<typeof useAgentTasks>, stepIndex: number) {
-    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped', stepIndex })
-    expect(lastSavedTask('t1')?.lastOutcome).toMatchObject({ kind: 'stopped', stepIndex })
+  async function expectStopped(tasks: ReturnType<typeof useAgentTasks>) {
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'stopped' })
+    expect(lastSavedTask('t1')?.lastOutcome).toMatchObject({ kind: 'stopped' })
     await settleMicrotasks()
   }
 
-  it('cancels a running Step and sends no further Step', async () => {
+  it('cancels the run turn and settles stopped, sending nothing more', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two', 'three']))
     await tasks.runTask('t1')
-    await finishTurn(0)
-    const turnId = await turnIdOf(1)
-    const sessionId = sentConfig(1).sessionId
+    const turnId = await turnIdOf(0)
+    const sessionId = sentConfig(0).sessionId
 
     await tasks.stopTask('t1')
 
     expect(cancel()).toHaveBeenCalledWith(sessionId, turnId)
-    await expectStopped(tasks, 2)
-    expect(sentSteps()).toEqual(['one', 'two'])
+    await expectStopped(tasks)
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['queued', 'paused'] as const)('cancels a %s Step', async (state) => {
+  it.each(['queued', 'paused'] as const)('cancels a %s run turn', async (state) => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')
     const turnId = await turnIdOf(0)
@@ -1233,8 +1186,8 @@ describe('stopping a run', () => {
     await tasks.stopTask('t1')
 
     expect(cancel()).toHaveBeenCalledWith(sessionId, turnId)
-    await expectStopped(tasks, 1)
-    expect(sentSteps()).toEqual(['one'])
+    await expectStopped(tasks)
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('settles stopped when the Task Session’s turn is stopped directly', async () => {
@@ -1246,8 +1199,8 @@ describe('stopping a run', () => {
 
     await agentMode.stop()
 
-    await expectStopped(tasks, 1)
-    expect(sentSteps()).toEqual(['one'])
+    await expectStopped(tasks)
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('does not send a Step that was being handed off when stopped', async () => {
@@ -1261,7 +1214,7 @@ describe('stopping a run', () => {
     await tasks.stopTask('t1')
     release()
 
-    await expectStopped(tasks, 1)
+    await expectStopped(tasks)
     expect(startTurn).not.toHaveBeenCalled()
   })
 
@@ -1308,16 +1261,8 @@ describe('the app closing during a run', () => {
     await turnIdOf(0)
     const sessionId = sentConfig(0).sessionId
 
-    expect(lastSavedTask('t1')?.activeRuns).toEqual([
-      { sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
-    ])
+    expect(lastSavedTask('t1')?.activeRuns).toEqual([{ sessionId, sessionRef: SESSION }])
     await finishTurn(0)
-    await turnIdOf(1)
-    await vi.waitFor(() =>
-      expect(lastSavedTask('t1')?.activeRuns).toEqual([expect.objectContaining({ stepIndex: 2 })]),
-    )
-
-    await finishTurn(1)
     await settledOutcome(tasks, 't1')
     const saved = lastSavedTask('t1')!
     expect(saved.lastOutcome).toMatchObject({ kind: 'completed' })
@@ -1340,17 +1285,11 @@ describe('the app closing during a run', () => {
 
   it('settles a Task left with a run marker as failed on init, and runs it again', async () => {
     const interrupted = task('t1', ['one', 'two', 'three'], {
-      activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION, stepIndex: 2, stepCount: 3 }],
+      activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION }],
     })
     const { tasks } = await readyStores(interrupted)
 
-    const outcome = {
-      kind: 'failed',
-      sessionId: 'session-old',
-      stepIndex: 2,
-      stepCount: 3,
-      reason: 'app-closed',
-    }
+    const outcome = { kind: 'failed', sessionId: 'session-old', reason: 'app-closed' }
     expect(tasks.taskState('t1')).toEqual({ idle: expect.objectContaining(outcome) })
     const saved = lastSavedTask('t1')!
     expect(saved.lastOutcome).toMatchObject(outcome)
@@ -1359,7 +1298,17 @@ describe('the app closing during a run', () => {
 
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
-    expect(sentSteps()).toEqual(['one'])
+    expect(sentSteps()).toEqual([['one', 'two', 'three']])
+  })
+
+  it('settles a marker from when runs counted Steps the same way, without the Step', async () => {
+    const marker = { sessionId: 'session-old', sessionRef: SESSION, stepIndex: 2, stepCount: 3 }
+    const { tasks } = await readyStores(task('t1', ['one'], { activeRuns: [marker] }))
+
+    const outcome = { kind: 'failed', sessionId: 'session-old', reason: 'app-closed' }
+    expect(tasks.taskState('t1')).toEqual({ idle: expect.objectContaining(outcome) })
+    expect(lastSavedTask('t1')!.lastOutcome).not.toHaveProperty('stepIndex')
+    expect(lastSavedTask('t1')!.lastOutcome).not.toHaveProperty('stepCount')
   })
 
   it('records on the run that the app closed, so its timeline Turn shows the error', async () => {
@@ -1384,7 +1333,7 @@ describe('the app closing during a run', () => {
       ],
     } as never)
     const interrupted = task('t1', ['one', 'two'], {
-      activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION, stepIndex: 1, stepCount: 2 }],
+      activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION }],
     })
 
     const { agentMode } = await readyStores(interrupted)
@@ -1397,7 +1346,7 @@ describe('the app closing during a run', () => {
     )
   })
 
-  it('reattaches a run whose turn main still holds, and sends the next step when it ends', async () => {
+  it('reattaches a run whose turn main still holds, and ends it with that turn', async () => {
     const sessionId = 'session-old'
     const turnId = 'turn-live'
     vi.mocked(window.electronAPI.agentMode.bootstrapSessions).mockResolvedValue({
@@ -1441,14 +1390,12 @@ describe('the app closing during a run', () => {
     })
     const { agentMode, tasks } = await readyStores(
       task('t1', ['one', 'two'], {
-        activeRuns: [
-          { sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2, scheduled: true },
-        ],
+        activeRuns: [{ sessionId, sessionRef: SESSION, scheduled: true }],
       }),
     )
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', sessionId, sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
+      running: { taskId: 't1', sessionId, sessionRef: SESSION },
     })
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
     expect(saveTask.mock.calls.some(([saved]) => saved.lastOutcome?.reason === 'app-closed')).toBe(
@@ -1467,11 +1414,10 @@ describe('the app closing during a run', () => {
     }
     pushEvent({ type: 'agent-turn-done', sessionId, turnId })
 
-    await turnIdOf(0)
-    expect(sentSteps()).toEqual(['two'])
-    expect(lastSavedTask('t1')?.activeRuns).toEqual([
-      expect.objectContaining({ sessionId, stepIndex: 2, scheduled: true }),
-    ])
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed', sessionId })
+    expect(lastSavedTask('t1')).not.toHaveProperty('activeRuns')
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
   })
 
   it('keeps the interrupted Task Session’s "not run" message and resend action', async () => {
@@ -1493,7 +1439,7 @@ describe('the app closing during a run', () => {
     } as never)
     const { agentMode, tasks } = await readyStores(
       task('t1', ['one'], {
-        activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION, stepIndex: 1, stepCount: 1 }],
+        activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION }],
       }),
     )
 
@@ -1515,11 +1461,6 @@ describe('locking the Task Session', () => {
     expect(tasks.isSessionLockedByTask('session-open')).toBe(false)
 
     await finishTurn(0)
-    expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
-    await turnIdOf(1)
-    expect(tasks.isSessionLockedByTask(sessionId)).toBe(true)
-
-    await finishTurn(1)
     await settledOutcome(tasks, 't1')
     expect(tasks.isSessionLockedByTask(sessionId)).toBe(false)
   })
@@ -1534,32 +1475,6 @@ describe('locking the Task Session', () => {
       ok: false,
       reason: 'task-locked',
     })
-  })
-
-  it('refuses anyone else sending into the Task Session between two Steps', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
-    await tasks.runTask('t1')
-    await turnIdOf(0)
-    const sessionId = sentConfig(0).sessionId
-    let releaseStep: () => void = () => {}
-    vi.mocked(window.electronAPI.existsPath).mockImplementationOnce(
-      () => new Promise((resolve) => (releaseStep = () => resolve(true))),
-    )
-
-    await finishTurn(0)
-    await vi.waitFor(() =>
-      expect(tasks.taskState('t1')).toMatchObject({ running: { stepIndex: 2 } }),
-    )
-    await settleMicrotasks()
-    const interloper = await agentMode.sendToSession(sessionId, 'answer', {
-      useStoredSettings: true,
-    })
-    releaseStep()
-
-    expect(interloper).toMatchObject({ ok: false, reason: 'task-locked' })
-    await turnIdOf(1)
-    await settleMicrotasks()
-    expect(sentSteps()).toEqual(['one', 'two'])
   })
 
   it('accepts a send into the session once the run has settled', async () => {
@@ -1597,11 +1512,8 @@ describe('locking the Task Session', () => {
 
     await agentMode.switchSession(sessionId)
     expect(tasks.openSessionSettingsReadOnly).toBe(true)
-    await finishTurn(0)
-    await turnIdOf(1)
-    expect(tasks.openSessionSettingsReadOnly).toBe(true)
 
-    await finishTurn(1)
+    await finishTurn(0)
     await settledOutcome(tasks, 't1')
     expect(tasks.openSessionSettingsReadOnly).toBe(false)
   })
@@ -1649,7 +1561,7 @@ describe('an Agent with a Draft', () => {
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
     await turnIdOf(0)
 
-    expect(sentSteps()).toEqual(['one'])
+    expect(sentSteps()).toEqual([['one']])
     expect(sentConfig(0)).toMatchObject({ modelConfig: { model: 'Template-27B' } })
   })
 
@@ -1666,14 +1578,13 @@ describe('an Agent with a Draft', () => {
 
     expect((await tasks.saveAgentDraft('t1')).ok).toBe(true)
     await finishTurn(0)
-    await turnIdOf(1)
-    expect(sentSteps()).toEqual(['one', 'two'])
-
-    await finishTurn(1)
     await settledOutcome(tasks, 't1')
     expect(await tasks.runTask('t1')).toEqual({ ok: true })
-    await turnIdOf(2)
-    expect(sentSteps().at(-1)).toBe('first')
+    await turnIdOf(1)
+    expect(sentSteps()).toEqual([
+      ['one', 'two'],
+      ['first', 'second'],
+    ])
   })
 })
 
@@ -1724,7 +1635,7 @@ describe('an Agent picked in the prompt bar', () => {
     expect(tasks.pickedAgentIn(SESSION)?.id).toBe('t1')
   })
 
-  it('runs its Steps in the open Session with ▶, the typed text leading Step 1', async () => {
+  it('runs its Steps in the open Session with ▶, the typed text as the Start Prompt', async () => {
     const { agentMode, tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.pickAgent('t1')
 
@@ -1732,13 +1643,10 @@ describe('an Agent picked in the prompt bar', () => {
 
     await turnIdOf(0)
     expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
-    expect(sentPrompts()[0]).toBe(firstStepTurn('only the headlines', ['one', 'two']))
+    expect(sentPrompts()).toEqual([runPrompt('only the headlines', ['one', 'two'])])
     expect(agentMode.liveTurnsIn(SESSION).map((turn) => turn.tag.taskRun?.taskName)).toContain(
       'Task t1',
     )
-    await finishTurn(0)
-    await turnIdOf(1)
-    expect(sentPrompts()[1]).toBe(stepTurn(2, ['one', 'two']))
   })
 
   it("blocks the prompt bar with its Settings Template's problems, not the Session's", async () => {
@@ -2036,6 +1944,43 @@ describe('following up on a picked Agent’s run', () => {
     expect(savedTimelineUserMessages(SESSION)[0].metadata).not.toHaveProperty('followUp')
   })
 
+  it('answers a question the run ended on, with its Steps still in context', async () => {
+    const { agentMode, tasks } = await readyStores(task('t1', ['ask me which city', 'forecast it']))
+    await tasks.pickAgent('t1')
+    await tasks.runPickedAgent('')
+    const run = await runToEnd(0)
+    expect(tasks.pickedAgentComposer).toMatchObject({ primary: 'send' })
+
+    expect(await tasks.followUpPickedAgent('Berlin')).toEqual({ ok: true })
+
+    await turnIdOf(1)
+    expect(sentConfig(1).sessionId).toBe(run)
+    const transcript = JSON.stringify(agentMode.sessions[run].messages)
+    expect(transcript).toContain('1. ask me which city')
+    expect(transcript).toContain('2. forecast it')
+  })
+
+  it.each([
+    ['completes', (call: number) => finishTurn(call)],
+    ['fails', (call: number) => failTurn(call, 'boom')],
+  ] as const)('leaves the Agent’s last outcome alone when it %s', async (_how, end) => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    await tasks.pickAgent('t1')
+    await tasks.runPickedAgent('')
+    await runToEnd(0)
+    const outcome = await settledOutcome(tasks, 't1')
+    const saves = saveTask.mock.calls.length
+
+    await tasks.followUpPickedAgent('more')
+    await end(1)
+    await settleMicrotasks()
+
+    expect(tasks.taskState('t1')).toEqual({ idle: outcome })
+    expect(saveTask.mock.calls.slice(saves).map(([saved]) => saved.lastOutcome)).not.toContainEqual(
+      expect.objectContaining({ kind: 'failed' }),
+    )
+  })
+
   it('is refused with the reason when the Settings Template has a problem', async () => {
     inference.catalog = [{ name: 'Other-9B', type: 'llamaCPP' }]
     storedRecords = [runRecord('aipg-agent-manual', { startedAt: 100 })]
@@ -2128,21 +2073,19 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     expect(await tasks.afterAgentRun(SESSION)).toBe(true)
   })
 
-  it('waits until the run’s last Step settled, while the Steps go on', async () => {
+  it('waits until the run’s turn settled', async () => {
     const { tasks } = await readyStores(task('t1', ['one', 'two']))
     await tasks.runTask('t1')
     await turnIdOf(0)
 
     const prompt = track(tasks.afterAgentRun(SESSION))
-    await finishTurn(0)
-    await turnIdOf(1)
     await settleMicrotasks()
     expect(prompt.settled).toBe(false)
 
-    await finishTurn(1)
+    await finishTurn(0)
 
     await vi.waitFor(() => expect(prompt).toEqual({ settled: true, value: true }))
-    expect(sentSteps()).toEqual(['one', 'two'])
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('names the Agent Run it waits for, until it goes ahead', async () => {
@@ -2193,7 +2136,7 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     await tasks.stopTask('t1')
 
     expect(await prompt).toBe(true)
-    expect(sentSteps()).toEqual(['one'])
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('goes ahead when a Step fails', async () => {
@@ -2205,7 +2148,7 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     await failTurn(0, 'model crashed')
 
     expect(await prompt).toBe(true)
-    expect(sentSteps()).toEqual(['one'])
+    expect(startTurn).toHaveBeenCalledTimes(1)
   })
 
   it('is dropped when cancelled, and the run goes on', async () => {
@@ -2218,7 +2161,7 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
 
     expect(await prompt).toBe(false)
     expect(tasks.queuedPrompts).toEqual({})
-    expect(tasks.taskState('t1')).toEqual({ running: expect.objectContaining({ stepIndex: 1 }) })
+    expect(tasks.taskState('t1')).toEqual({ running: expect.objectContaining({ taskId: 't1' }) })
   })
 
   it('is handed back to its own Session, and said so, when another Session is opened', async () => {
@@ -2273,6 +2216,127 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
     await tasks.stopRunIn(SESSION)
 
     expect(tasks.agentRunIn(SESSION)).toBeUndefined()
-    expect(sentSteps()).toEqual(['one'])
+    expect(startTurn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a running Follow-up', () => {
+  const reported = () =>
+    vi.mocked(window.electronAPI.reportInFlightWork).mock.calls.at(-1)?.[0] ?? []
+
+  async function followUpRunning() {
+    window.electronAPI.reportInFlightWork = vi.fn()
+    const stores = await readyStores(task('t1', ['ask me which city', 'forecast it']))
+    await stores.tasks.pickAgent('t1')
+    await stores.tasks.runPickedAgent('')
+    await turnIdOf(0)
+    const run = sentConfig(0).sessionId
+    await finishTurn(0)
+    const outcome = await settledOutcome(stores.tasks, 't1')
+    await stores.tasks.followUpPickedAgent('Berlin')
+    const turnId = await turnIdOf(1)
+    await vi.waitFor(() => expect(stores.agentMode.sessionTurns[run]).toBeDefined())
+    return { ...stores, run, turnId, outcome }
+  }
+
+  it('is the Agent Run in flight in its Session', async () => {
+    const { tasks } = await followUpRunning()
+
+    expect(tasks.agentRunIn(SESSION)?.id).toBe('t1')
+    expect(tasks.agentRunIn('session-2')).toBeUndefined()
+  })
+
+  it('is reported as the Agent Run running', async () => {
+    const { run } = await followUpRunning()
+
+    await vi.waitFor(() =>
+      expect(reported()).toEqual([
+        {
+          kind: 'task-run',
+          taskId: 't1',
+          sessionId: run,
+          name: 'Task t1',
+          state: { status: 'running' },
+        },
+      ]),
+    )
+  })
+
+  it('is stopped as the Agent Run, leaving the Agent’s last outcome alone', async () => {
+    const { tasks, run, turnId, outcome } = await followUpRunning()
+    const saves = saveTask.mock.calls.length
+
+    await tasks.stopRunIn(SESSION)
+
+    expect(vi.mocked(window.electronAPI.agentMode.cancel)).toHaveBeenCalledWith(run, turnId)
+    await settleMicrotasks()
+    expect(tasks.taskState('t1')).toEqual({ idle: outcome })
+    expect(saveTask.mock.calls.length).toBe(saves)
+  })
+
+  it('holds a prompt sent meanwhile as behind the Agent Run', async () => {
+    const { tasks } = await followUpRunning()
+
+    void tasks.afterAgentRun(SESSION)
+
+    expect(tasks.queuedPrompts).toEqual({ [SESSION]: { behind: 'agent-run', name: 'Task t1' } })
+  })
+})
+
+describe('a question an Agent Run asks', () => {
+  async function runAsking(before?: (stores: Awaited<ReturnType<typeof readyStores>>) => void) {
+    const stores = await readyStores(task('t1', ['one']))
+    stores.agentMode.setViewShown(true)
+    before?.(stores)
+    await stores.tasks.runTask('t1')
+    await turnIdOf(0)
+    const asked = { shown: false }
+    const shown = whenSessionInView(sentConfig(0).sessionId).then(() => {
+      asked.shown = true
+    })
+    await settleMicrotasks()
+    return { ...stores, asked, shown }
+  }
+
+  it('shows at once while its Session is showing', async () => {
+    const { asked } = await runAsking()
+    expect(asked.shown).toBe(true)
+  })
+
+  it('shows at once while its Session is showing under a Media Mode', async () => {
+    const { asked } = await runAsking(({ agentMode }) => agentMode.setViewShown(false))
+    expect(asked.shown).toBe(true)
+  })
+
+  it('waits while another Session is showing, and shows once its own is opened', async () => {
+    const stores = await readyStores(task('t1', ['one']))
+    stores.agentMode.setViewShown(true)
+    await stores.tasks.runTask('t1')
+    await turnIdOf(0)
+    const sessions = useSessions(pinia)
+    nextSessionId = 'session-2'
+    await sessions.create()
+
+    const asked = { shown: false }
+    const shown = whenSessionInView(sentConfig(0).sessionId).then(() => {
+      asked.shown = true
+    })
+    await settleMicrotasks()
+    expect(asked.shown).toBe(false)
+
+    await sessions.open(SESSION)
+    await shown
+    expect(asked.shown).toBe(true)
+  })
+
+  it('waits while a Library covers its Session, and shows once it closes', async () => {
+    const { agentMode, asked, shown } = await runAsking(({ agentMode }) =>
+      agentMode.setLibraryShowing({ library: 'model' }),
+    )
+    expect(asked.shown).toBe(false)
+
+    agentMode.setLibraryHidden('model')
+    await shown
+    expect(asked.shown).toBe(true)
   })
 })

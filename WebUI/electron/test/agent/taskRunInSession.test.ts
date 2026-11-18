@@ -135,13 +135,16 @@ async function agentConfig(sessionId: string): Promise<AgentModeTurnConfig> {
   }
 }
 
-async function taskRunConfig(sessionId: string, stepIndex = 1): Promise<AgentModeTurnConfig> {
+/** A run turn's prompt as the window sends it: the instruction and every Step. */
+const RUN_PROMPT = 'Carry out these steps.\n1. Fetch the headlines.\n2. Summarise them.'
+
+async function taskRunConfig(sessionId: string, input?: string): Promise<AgentModeTurnConfig> {
   const { harnessSessionId, workspaceDir } = await taskRuns.taskRunHarnessFor(sessionId)
   return {
     ...(await agentConfig(sessionId)),
     sessionId: harnessSessionId,
     workspaceDir,
-    taskRun: { taskName: 'Morning digest', stepIndex },
+    taskRun: { taskName: 'Morning digest', ...(input ? { input } : {}) },
   }
 }
 
@@ -199,21 +202,45 @@ describe('a Task Run in its Session', () => {
     expect(JSON.stringify(body.messages)).not.toContain('plum')
   }, 30000)
 
-  it('appends a History Entry per Step, tagged with the Task name and Step index', async () => {
+  it('appends one History Entry for the run, naming the Agent and its Start Prompt', async () => {
     const session = await sessions.createSession()
-    const step1 = await taskRunConfig(session.id, 1)
+    const run = await taskRunConfig(session.id, 'only Europe')
 
-    await manager.startAgentTurn('t1', 'first step', step1)
-    await manager.startAgentTurn('t2', 'second step', {
-      ...step1,
-      taskRun: { taskName: 'Morning digest', stepIndex: 2 },
-    })
+    await manager.startAgentTurn('t1', RUN_PROMPT, run)
 
     const entries = await history.readHistoryEntries(session.id)
     expect(entries).toEqual([
-      expect.objectContaining({ prompt: 'first step', taskName: 'Morning digest', stepIndex: 1 }),
-      expect.objectContaining({ prompt: 'second step', taskName: 'Morning digest', stepIndex: 2 }),
+      expect.objectContaining({
+        prompt: 'Run Agent Morning digest: only Europe',
+        taskName: 'Morning digest',
+      }),
     ])
+    expect(entries[0]).not.toHaveProperty('stepIndex')
+  }, 30000)
+
+  it('names only the Agent in its History Entry when it was run with no Start Prompt', async () => {
+    const session = await sessions.createSession()
+
+    await manager.startAgentTurn('t1', RUN_PROMPT, await taskRunConfig(session.id))
+
+    const [entry] = await history.readHistoryEntries(session.id)
+    expect(entry.prompt).toBe('Run Agent Morning digest')
+  }, 30000)
+
+  it('is one line of the Session Update for another preset, without its Steps', async () => {
+    const session = await sessions.createSession()
+    const assistant = await agentConfig(session.id)
+    await manager.startAgentTurn('t0', 'hello', assistant)
+    await manager.startAgentTurn('t1', RUN_PROMPT, await taskRunConfig(session.id, 'only Europe'))
+    bodies = []
+
+    await manager.startAgentTurn('t2', 'anything new', assistant)
+
+    const update = userTexts(bodies[0]).at(-1) ?? ''
+    expect(update).toContain('Session Update')
+    expect(update.match(/\[\d\d:\d\d\]/g)).toHaveLength(1)
+    expect(update).toContain('Run Agent Morning digest: only Europe')
+    expect(update).not.toContain('Fetch the headlines')
   }, 30000)
 
   it("deletes a run's Pi file with the Session", async () => {
@@ -259,7 +286,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     await manager.startAgentTurn('t1', 'first step', run)
     await manager.startAgentTurn('t2', 'second step', {
       ...run,
-      taskRun: { taskName: 'Morning digest', stepIndex: 2 },
+      taskRun: { taskName: 'Morning digest' },
     })
     await manager.startAgentTurn('t3', 'assistant turn', await agentConfig(session.id))
     bodies = []
@@ -287,7 +314,6 @@ describe('a Follow-up to an Agent Run in its Session', () => {
       preset: 'Agent',
       prompt: 'legacy step',
       taskName: 'Morning digest',
-      stepIndex: 1,
     })
     await history.appendHistoryEntry(session.id, { ...legacy, preset: 'Agent', prompt: 'a tower' })
 

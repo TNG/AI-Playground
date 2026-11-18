@@ -108,7 +108,6 @@ describe('the kernel Tasks file', () => {
       kind: 'completed' as const,
       at: 5,
       sessionId: 'aipg-agent-1',
-      stepCount: 2,
     }
 
     await saveAgentTask(task('a', { name: 'Renamed', lastOutcome: outcome }))
@@ -121,15 +120,13 @@ describe('the kernel Tasks file', () => {
 
   it('round-trips run markers and an app-closed outcome', async () => {
     const activeRuns = [
-      { sessionId: 'aipg-agent-1', sessionRef: 'session-1', stepIndex: 2, stepCount: 3 },
-      { sessionId: 'aipg-agent-2', sessionRef: 'session-2', stepIndex: 1, stepCount: 3 },
+      { sessionId: 'aipg-agent-1', sessionRef: 'session-1' },
+      { sessionId: 'aipg-agent-2', sessionRef: 'session-2' },
     ]
     const outcome = {
       kind: 'failed' as const,
       at: 9,
       sessionId: 'aipg-agent-1',
-      stepIndex: 2,
-      stepCount: 3,
       reason: 'app-closed' as const,
     }
 
@@ -140,11 +137,28 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
   })
 
+  it('reads run markers and outcomes written when runs counted Steps, without the Steps', async () => {
+    const marker = { sessionId: 'aipg-agent-1', sessionRef: 'session-1' }
+    const outcome = { kind: 'completed' as const, at: 9, sessionId: 'aipg-agent-0' }
+    const old = {
+      ...task('a'),
+      activeRuns: [{ ...marker, stepIndex: 2, stepCount: 3 }],
+      lastOutcome: { ...outcome, stepIndex: 3, stepCount: 3 },
+    }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 3, tasks: [old] }), 'utf8')
+
+    expect(await readAgentTasks()).toEqual([
+      task('a', { activeRuns: [marker], lastOutcome: outcome }),
+    ])
+    await saveAgentTask(task('b'))
+    const raw = (await readRaw(files.real)) as { tasks: Record<string, unknown>[] }
+    expect(JSON.stringify(raw.tasks[0])).not.toMatch(/step(Index|Count)/)
+  })
+
   it('round-trips the outcome of a Scheduled Run that could not start, which has no session', async () => {
     const outcome = {
       kind: 'failed' as const,
       at: 9,
-      stepCount: 3,
       message: 'The workspace folder is missing: /work',
       reason: 'not-started' as const,
     }
@@ -213,7 +227,9 @@ describe('the kernel Tasks file', () => {
 
     const [read] = await readAgentTasks()
 
-    expect(read).toEqual(task('a', { activeRuns: [{ ...activeRun, sessionRef: 'session-1' }] }))
+    expect(read).toEqual(
+      task('a', { activeRuns: [{ sessionId: 'aipg-agent-1', sessionRef: 'session-1' }] }),
+    )
   })
 
   it('writes the migrated shape back on the next upsert', async () => {
@@ -243,7 +259,7 @@ describe('the kernel Tasks file', () => {
     const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true, nextRunAt: 200 }
     const here = { sessionRef: 'session-1', ...daily }
     const there = { sessionRef: 'session-2', ...daily }
-    const outcome = { kind: 'completed' as const, at: 5, stepCount: 1 }
+    const outcome = { kind: 'completed' as const, at: 5 }
     await saveAgentTask(task('a', { schedules: [here, there], lastOutcome: outcome }))
     await saveAgentTask(task('b', { sessionRef: 'session-2', schedules: [there] }))
     await saveAgentTask({ ...legacy, schedules: [here] })

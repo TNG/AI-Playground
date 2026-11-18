@@ -9,8 +9,6 @@ import type { AgentFollowUpTag, AgentSessionSettings } from '@/types/agentSessio
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { SessionSummary } from '@/types/sessionIpc'
-import type { RunProgress } from '@/lib/turnTypes'
-import type { AgentRunRefusal } from './channels/answerRouter'
 import type {
   AgentDraft,
   AgentSessionSchedule,
@@ -41,7 +39,7 @@ import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
+import { afterRunTurn, sendRunTurn } from '@/lib/agentRunTurn'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
@@ -117,8 +115,6 @@ export const SAVE_TASK_BLOCKER_KEYS = {
 /** An Agent Run in flight, in memory only; `skippedSlots` passed while it was paused. */
 export type TaskRun = {
   taskId: string
-  stepIndex: number
-  stepCount: number
   sessionId: string
   sessionRef: string
   skippedSlots?: number
@@ -169,7 +165,10 @@ export type AgentScheduleEntry = {
 /** One Schedule in a Session, of any Agent, as the Session's Agent Schedules tab lists it. */
 export type SessionScheduleEntry = Omit<AgentScheduleEntry, 'sessionRef'> & { agentId: string }
 
-type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
+type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'message'>
+
+/** An Agent Run in flight in a Session: its first turn, or a Follow-up continuing it. */
+type RunInFlight = Pick<TaskRun, 'taskId' | 'sessionId' | 'sessionRef'>
 
 type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
 
@@ -237,7 +236,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Runs in flight by Harness Session; at most one per Agent and Session. */
   const runs = ref<Record<string, TaskRun>>({})
-  /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
+  /** The Agent as its run started, and the abort that keeps an ended run from sending its turn. */
   const runContexts: Record<
     string,
     {
@@ -257,9 +256,25 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const contributedWork = shallowRef<(() => InFlightWorkItem[])[]>([])
   const agentDeletedListeners = new Set<(agentId: string) => Promise<void>>()
 
+  /** Follow-ups running in a saved Agent's run Harness Session, after that run's first turn. */
+  const followUpsInFlight = computed((): RunInFlight[] =>
+    Object.values(agentMode.sessions).flatMap((record) => {
+      const taskId = record.taskRun?.taskId
+      const live = !!agentMode.sessionTurns[record.id] && !runs.value[record.id]
+      return taskId && record.sessionRef && live
+        ? [{ taskId, sessionId: record.id, sessionRef: record.sessionRef }]
+        : []
+    }),
+  )
+
+  const agentRunsInFlight = computed((): RunInFlight[] => [
+    ...Object.values(runs.value),
+    ...followUpsInFlight.value,
+  ])
+
   // Main reads Task Run markers from the tasks file; this covers what it cannot see yet.
   const inFlightWork = computed((): InFlightWorkItem[] => [
-    ...Object.values(runs.value).flatMap((run) => {
+    ...agentRunsInFlight.value.flatMap((run) => {
       const task = tasks.value.find((entry) => entry.id === run.taskId)
       return task ? [taskRunWorkItem(task, run)] : []
     }),
@@ -285,15 +300,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   let schedulesHeld = false
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
-  /** The runs in flight, including between two Steps, by the key the timeline groups them by. */
-  const runsInFlight = computed<Record<string, RunProgress>>(() =>
-    Object.fromEntries(
-      Object.entries(runs.value).map(([id, run]) => [
-        id,
-        { step: run.stepIndex, count: run.stepCount },
-      ]),
-    ),
-  )
+  /** The Harness Sessions of the runs whose first turn is in flight. */
+  const firstTurnsInFlight = computed((): string[] => Object.keys(runs.value))
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(
@@ -394,7 +402,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const live = await liveAgentSessions()
     for (const task of [...tasks.value]) {
       for (const activeRun of task.activeRuns ?? []) {
-        const { sessionId, stepIndex, stepCount } = activeRun
+        const { sessionId } = activeRun
         if (turnStillHeard(sessionId, live)) {
           reattachRun(task, activeRun)
           continue
@@ -403,13 +411,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           kind: 'failed',
           message: i18n.state.AGENT_TASKS_OUTCOME_APP_CLOSED ?? 'The app closed during the run.',
         })
-        await recordOutcome(task.id, {
-          kind: 'failed',
-          sessionId,
-          stepIndex,
-          stepCount,
-          reason: 'app-closed',
-        })
+        await recordOutcome(task.id, { kind: 'failed', sessionId, reason: 'app-closed' })
       }
     }
   }
@@ -421,8 +423,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         taskId: task.id,
         sessionId: activeRun.sessionId,
         sessionRef: activeRun.sessionRef,
-        stepIndex: activeRun.stepIndex,
-        stepCount: activeRun.stepCount,
       },
     }
     runContexts[activeRun.sessionId] = {
@@ -549,18 +549,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     agentDeletedListeners.add(listener)
   }
 
-  const channelRunRefusedListeners = new Set<
-    (sessionRef: string, refusal: AgentRunRefusal) => void
-  >()
-
-  /** Hear a Channel-started run's later Step refused here, which main never sees; returns the unsubscribe. */
-  function onChannelRunRefused(
-    listener: (sessionRef: string, refusal: AgentRunRefusal) => void,
-  ): () => void {
-    channelRunRefusedListeners.add(listener)
-    return () => channelRunRefusedListeners.delete(listener)
-  }
-
   /** Removes its Schedules in every Session, keeping its runs; refused while it runs. */
   async function deleteTask(id: string): Promise<boolean> {
     if (runningSessionCount(id) > 0) return false
@@ -621,7 +609,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return sessionsStore.pickAgent(sessionRef, agentId)
   }
 
-  /** ▶ with an Agent picked: an Agent Run of it in the open Session, the prompt leading Step 1. */
+  /** ▶ with an Agent picked: an Agent Run of it in the open Session, the prompt its Start Prompt. */
   async function runPickedAgent(prompt: string): Promise<RunTaskResult> {
     const agent = pickedAgent.value
     if (!agent) return { ok: false, reason: 'no-task' }
@@ -1220,11 +1208,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   async function recordNotStarted(task: AgentTask, message: string, scheduled: boolean) {
-    await recordOutcome(
-      task.id,
-      { kind: 'failed', reason: 'not-started', message, stepCount: task.steps.length },
-      scheduled,
-    )
+    await recordOutcome(task.id, { kind: 'failed', reason: 'not-started', message }, scheduled)
   }
 
   function stillScheduled(id: string, sessionRef: string): AgentTask | undefined {
@@ -1274,7 +1258,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /**
    * An Agent Run a Channel asked for, in that Channel's Session on the Agent's Settings Template.
-   * Like a Scheduled Run nobody watches, a missing model is asked for by its first Step.
+   * Like a Scheduled Run nobody watches, a missing model is asked for by its turn.
    */
   async function startFromChannel(
     id: string,
@@ -1386,23 +1370,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     runs.value = {
       ...runs.value,
-      [sessionId]: {
-        taskId: id,
-        sessionId,
-        sessionRef,
-        stepIndex: 1,
-        stepCount: plan.steps.length,
-      },
+      [sessionId]: { taskId: id, sessionId, sessionRef },
     }
     if (!origin) {
-      void sendStep(sessionId, 1)
+      void sendRun(sessionId)
       return null
     }
-    // The Channel hears a refused first Step as the start's own refusal.
-    return sendStep(sessionId, 1)
+    // The Channel hears a refused run turn as the start's own refusal.
+    return sendRun(sessionId)
   }
 
-  /** A Session runs one turn at a time: a Step due while it has one in flight waits for it. */
+  /** A Session runs one turn at a time: a run due while it has one in flight waits for it. */
   function sessionBusy(sessionRef: string): boolean {
     return !!sessionsStore.turns[sessionRef]
   }
@@ -1412,26 +1390,16 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     () => {
       for (const run of Object.values(runs.value)) {
         if (run.waiting && !sessionBusy(run.sessionRef)) {
-          void sendLaterStep(run.sessionId, run.stepIndex)
+          void sendRun(run.sessionId)
         }
       }
     },
   )
 
-  /** The Agent whose run is in flight in the Session, if any. */
+  /** The Agent whose run is in flight in the Session, a running Follow-up included. */
   function agentRunIn(sessionRef: string): AgentTask | undefined {
-    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
+    const run = agentRunsInFlight.value.find((entry) => entry.sessionRef === sessionRef)
     return run ? tasks.value.find((task) => task.id === run.taskId) : undefined
-  }
-
-  /** The Agent Run in flight in the Session (between Steps too): its Agent's name and Step. */
-  function agentRunStepIn(
-    sessionRef: string,
-  ): { name: string; step: number; steps: number } | undefined {
-    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
-    if (!run) return undefined
-    const name = tasks.value.find((task) => task.id === run.taskId)?.name ?? ''
-    return { name, step: run.stepIndex, steps: run.stepCount }
   }
 
   /** Each Session's prompt waiting for its Agent Run or queued Channel messages. Memory only. */
@@ -1544,32 +1512,26 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     },
   )
 
-  /** Sends the Step unless it has to wait; returns why the window refused it, or null. */
-  async function sendStep(sessionId: string, stepIndex: number): Promise<string | null> {
+  /** Sends the run's turn unless it has to wait; returns why the window refused it, or null. */
+  async function sendRun(sessionId: string): Promise<string | null> {
     const run = runs.value[sessionId]
     const context = runContexts[sessionId]
     if (!run || !context) return null
     const { plan, abort } = context
     const waiting = sessionBusy(run.sessionRef)
     const { waiting: _wasWaiting, ...rest } = run
-    runs.value = {
-      ...runs.value,
-      [sessionId]: { ...rest, stepIndex, ...(waiting ? { waiting } : {}) },
-    }
+    runs.value = { ...runs.value, [sessionId]: { ...rest, ...(waiting ? { waiting } : {}) } }
     markRunInFlight(run.taskId, {
       sessionId,
       sessionRef: run.sessionRef,
-      stepIndex,
-      stepCount: run.stepCount,
       ...(context.scheduled ? { scheduled: true } : {}),
     })
     if (waiting) return null
     let refusal: string | null = null
-    await sendRunStep(
+    await sendRunTurn(
       agentMode,
       {
         sessionId,
-        stepIndex,
         taskName: plan.name,
         steps: plan.steps,
         settingsTemplate: plan.settingsTemplate,
@@ -1580,20 +1542,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       },
       (message) => {
         refusal = message
-        return settleRun(sessionId, { kind: 'failed', stepIndex, message })
+        return settleRun(sessionId, { kind: 'failed', message })
       },
     )
     return refusal
-  }
-
-  /** A Step after the run's start; a Channel-started run's refusal goes to its Channel. */
-  async function sendLaterStep(sessionId: string, stepIndex: number): Promise<void> {
-    const run = runs.value[sessionId]
-    const context = runContexts[sessionId]
-    const reason = await sendStep(sessionId, stepIndex)
-    if (reason === null || !run || !context?.origin) return
-    const refusal = { origin: context.origin, name: context.plan.name, step: stepIndex, reason }
-    for (const listener of [...channelRunRefusedListeners]) listener(run.sessionRef, refusal)
   }
 
   function markRunInFlight(taskId: string, activeRun: AgentTaskActiveRun): void {
@@ -1614,17 +1566,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (run) await stopRun(run.sessionId)
   }
 
-  /** Stop the Agent Run in flight in the Session, whichever Agent it is. */
+  /** Stop the Session's Agent Run, whichever Agent; stopping a Follow-up keeps the outcome. */
   async function stopRunIn(sessionRef: string): Promise<void> {
-    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
-    if (run) await stopRun(run.sessionId)
+    const run = agentRunsInFlight.value.find((entry) => entry.sessionRef === sessionRef)
+    if (!run) return
+    if (runs.value[run.sessionId]) await stopRun(run.sessionId)
+    else await agentMode.stopSession(run.sessionId)
   }
 
   async function stopRun(sessionId: string): Promise<void> {
-    const run = runs.value[sessionId]
-    if (!run) return
-    // Settled first, so the stopped turn's own settle finds no run and no Step can follow.
-    const settled = settleRun(sessionId, { kind: 'stopped', stepIndex: run.stepIndex })
+    if (!runs.value[sessionId]) return
+    // Settled first, so the stopped turn's own settle finds no run.
+    const settled = settleRun(sessionId, { kind: 'stopped' })
     await agentMode.stopSession(sessionId)
     await settled
   }
@@ -1640,7 +1593,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return { taskName, signal: runContexts[sessionId]?.abort.signal }
   })
 
-  /** The open Harness Session's Steps run with its Task's Settings Template: its own are locked. */
+  /** The open Harness Session's run uses its Agent's Settings Template: its own are locked. */
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 
   /** Turns that ended while `init` restored the runs, which may have been theirs. */
@@ -1667,15 +1620,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   })
 
   function onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
-    const run = runs.value[sessionId]
-    if (!run) return
-    const { stepIndex } = run
-    const next = afterStepTurn(outcome, stepIndex, run.stepCount)
-    if (next.kind === 'step') void sendLaterStep(sessionId, next.stepIndex)
-    else if (next.kind === 'completed') void settleRun(sessionId, { kind: 'completed' })
-    else if (next.kind === 'failed')
-      void settleRun(sessionId, { kind: 'failed', stepIndex, message: next.message })
-    else void settleRun(sessionId, { kind: 'stopped', stepIndex })
+    if (!runs.value[sessionId]) return
+    void settleRun(sessionId, afterRunTurn(outcome))
   }
 
   /** End the run and keep how it ended as the Task's only outcome. */
@@ -1699,7 +1645,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       {
         ...end,
         sessionId,
-        stepCount: run.stepCount,
         ...(declined ? { reason: 'download-declined' as const } : {}),
       },
       scheduled,
@@ -1719,8 +1664,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       kind: fields.kind,
       at: Date.now(),
       ...(fields.sessionId !== undefined ? { sessionId: fields.sessionId } : {}),
-      stepCount: fields.stepCount,
-      ...(fields.stepIndex !== undefined ? { stepIndex: fields.stepIndex } : {}),
       ...(fields.message !== undefined ? { message: fields.message } : {}),
       ...(fields.reason !== undefined ? { reason: fields.reason } : {}),
     }
@@ -1758,8 +1701,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           severity: 'warning',
           surface: 'toast',
           userMessage,
-          technicalMessage: `Task "${task.name}" at step ${end.stepIndex ?? '-'}: ${userMessage}`,
-          context: { taskId: task.id, stepIndex: end.stepIndex },
+          technicalMessage: `Agent "${task.name}": ${userMessage}`,
+          context: { taskId: task.id },
         }),
       )
       return
@@ -1771,8 +1714,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         severity: 'warning',
         surface: 'silent',
         userMessage: message,
-        technicalMessage: `Task "${task.name}" failed at step ${end.stepIndex ?? '?'}: ${message}`,
-        context: { taskId: task.id, stepIndex: end.stepIndex },
+        technicalMessage: `Agent Run of "${task.name}" failed: ${message}`,
+        context: { taskId: task.id },
       }),
     )
   }
@@ -1814,8 +1757,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     chatModelRefusal,
     contributeInFlightWork,
     onAgentDeleted,
-    onChannelRunRefused,
-    runsInFlight,
+    firstTurnsInFlight,
     scheduledSessions,
     scheduledSessionCount,
     runningSessionCount,
@@ -1851,7 +1793,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     stopTask,
     stopRunIn,
     agentRunIn,
-    agentRunStepIn,
     isSessionLockedByTask,
     afterAgentRun,
     cancelQueuedPrompt,

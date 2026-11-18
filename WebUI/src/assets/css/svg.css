@@ -202,3 +202,23 @@
 .i-rag {
   --svg: url('@/assets/svg/rag-on.svg');
 }
+
+.i-backend-llamacpp {
+  --svg: url('@/assets/svg/backend-llamacpp.svg');
+}
+
+.i-backend-openvino {
+  --svg: url('@/assets/svg/backend-openvino.svg');
+}
+
+.i-backend-comfyui {
+  --svg: url('@/assets/svg/backend-comfyui.svg');
+}
+
+.i-backend-qwen {
+  --svg: url('@/assets/svg/backend-qwen.svg');
+}
+
+.i-backend-cloud {
+  --svg: url('@/assets/svg/backend-cloud.svg');
+}

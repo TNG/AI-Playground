@@ -870,8 +870,6 @@ describe('a Trial Run', () => {
       agentId,
       harnessSessionId,
       name: 'Helper',
-      stepIndex: 1,
-      stepCount: 1,
       startedAt: 1,
       state: 'running',
     })

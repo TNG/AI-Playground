@@ -402,9 +402,11 @@ async function readyStoresIn(options: { session: boolean }, ...saved: AgentTask[
 }
 
 const sentPrompts = () => startTurn.mock.calls.map(([, prompt]) => prompt)
-/** A Step's turn carries the run's framing; its last line, minus `Step i of n: `, is the Step. */
+/** The numbered Steps of every turn sent, in order. */
 const sentSteps = () =>
-  sentPrompts().map((prompt) => (prompt.split('\n').at(-1) ?? '').replace(/^Step \d+ of \d+: /, ''))
+  sentPrompts().flatMap((prompt) =>
+    prompt.split('\n').flatMap((line) => /^\d+\. (.*)$/.exec(line)?.slice(1) ?? []),
+  )
 const sentConfig = (call: number) => startTurn.mock.calls[call][2]
 
 async function turnIdOf(call: number): Promise<string> {
@@ -495,11 +497,9 @@ describe('a Trial Run', () => {
 
     await trials.startTrialRun('t1')
     await finishTurn(0)
-    await finishTurn(1)
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
 
     expect(sentConfig(0).sessionRef).toBeUndefined()
-    expect(sentConfig(1).sessionRef).toBeUndefined()
     expect(window.electronAPI.sessions.taskRunHarness).not.toHaveBeenCalled()
     expect(window.electronAPI.sessions.saveTimelineMessages).not.toHaveBeenCalled()
     expect(agentMode.liveTurnsIn(SESSION).map((turn) => turn.tag.harnessSessionId)).not.toContain(
@@ -508,17 +508,33 @@ describe('a Trial Run', () => {
     expect(Object.keys(useSessions(pinia).sessions)).toEqual([SESSION])
   })
 
-  it('runs its Steps one after another and ends after the last', async () => {
+  it('sends all its Steps in one turn, and ends when that turn settles', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
     const { trials } = await readyStores()
 
     await trials.startTrialRun('t1')
     await finishTurn(0)
-    await finishTurn(1)
-    await finishTurn(2)
 
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    await settleMicrotasks()
+    expect(sentPrompts()).toHaveLength(1)
+    expect(sentPrompts()[0]).toContain('They are instructions, not a script')
     expect(sentSteps()).toEqual(['one', 'two', 'three'])
+    expect(sentConfig(0).taskRun).toMatchObject({ taskName: 'Draft t1' })
+  })
+
+  it('no longer tracks a Step in its saved record', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const { trials } = await readyStores()
+
+    await trials.startTrialRun('t1')
+    await turnIdOf(0)
+    expect(trialFolders.t1.run).not.toHaveProperty('stepIndex')
+    expect(trialFolders.t1.run).not.toHaveProperty('stepCount')
+
+    await finishTurn(0)
+    await vi.waitFor(() => expect(trialFolders.t1.run?.state).toBe('completed'))
+    expect(trialFolders.t1.run).not.toHaveProperty('stepIndex')
   })
 
   it('stops when the user stops it', async () => {
@@ -535,7 +551,7 @@ describe('a Trial Run', () => {
       trials.trialRuns.t1.harnessSessionId,
       turnId,
     )
-    expect(sentSteps()).toEqual(['one'])
+    expect(sentPrompts()).toHaveLength(1)
   })
 
   it('can be stopped while it waits on its chat model, and then does not start', async () => {
@@ -667,44 +683,47 @@ describe('a Trial Run', () => {
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('failed'))
     await settleMicrotasks()
     expect(trials.trialRuns.t1.message).toContain('boom')
-    expect(sentSteps()).toEqual(['one'])
+    expect(sentPrompts()).toHaveLength(1)
   })
 
-  it('shows in the Agent Library as a conversation, one Step after another', async () => {
+  it('shows in the Agent Library as the start bubble, then its reply', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const { trials } = await readyStores()
     await trials.startTrialRun('t1')
-    await finishTurn(0)
-    await turnIdOf(1)
+    await turnIdOf(0)
 
     const running = trialRunItems(trials.trialRunView('t1')!)
     expect(running).toMatchObject([
-      { prompt: { text: sentPrompts()[0], step: 1 } },
-      { prompt: { text: sentPrompts()[1], step: 2 } },
+      {
+        streaming: true,
+        prompt: { text: '', agentRun: { name: 'Draft t1', prompt: sentPrompts()[0] } },
+      },
     ])
+    expect(running[0]).not.toHaveProperty('details.progress')
 
-    await finishTurn(1)
+    await finishTurn(0)
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     const ended = trialRunItems(trials.trialRunView('t1')!)
-    expect(ended).toHaveLength(2)
-    expect(ended[1]).toMatchObject({
+    expect(ended).toHaveLength(1)
+    expect(ended[0]).toMatchObject({
       kind: 'agent',
+      hint: { preset: 'Draft t1' },
       footer: { actions: ['copy', 'speak'], text: 'done' },
     })
+    expect(ended[0]).not.toHaveProperty('streaming', true)
   })
 
-  it('puts the input it was started with into Step 1, and shows Step 1 as sent', async () => {
+  it('carries the input it was started with in its one turn, and shows it under the start bubble', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const { trials } = await readyStores()
 
     await trials.startTrialRun('t1', { input: 'Only sports' })
-    await finishTurn(0)
-    await turnIdOf(1)
+    await turnIdOf(0)
 
     expect(sentPrompts()[0]).toContain('For this run the user added: "Only sports"')
-    expect(sentPrompts()[1]).not.toContain('Only sports')
+    expect(sentSteps()).toEqual(['one', 'two'])
     expect(trialRunItems(trials.trialRunView('t1')!)[0]).toMatchObject({
-      prompt: { text: sentPrompts()[0], step: 1 },
+      prompt: { text: 'Only sports', agentRun: { prompt: sentPrompts()[0] } },
     })
   })
 })
@@ -780,7 +799,7 @@ describe('a Follow-up to a Trial Run', () => {
     expect(sessionAnswerOrigin(trial)).toEqual(answer)
   })
 
-  it('asks on the desktop alone when no Channel answered it, as its Steps do', async () => {
+  it('asks on the desktop alone when no Channel answered it, as its run turn does', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const { trials } = await readyStores()
     await trials.startTrialRun('t1')
@@ -789,11 +808,10 @@ describe('a Follow-up to a Trial Run', () => {
 
     expect(sessionTurnReachesChannels(trial)).toBe(false)
     await finishTurn(0)
-    await finishTurn(1)
     await vi.waitFor(() => expect(trials.trialRuns.t1.state).toBe('completed'))
 
     await trials.followUpTrialRun('t1', 'why?')
-    await turnIdOf(2)
+    await turnIdOf(1)
 
     expect(isAgentSessionTurn(trial)).toBe(true)
     expect(sessionTurnReachesChannels(trial)).toBe(false)
@@ -849,17 +867,21 @@ describe('a Follow-up to a Trial Run', () => {
     expect(trials.trialRuns.t1.state).toBe('completed')
   })
 
-  it('shows as a plain prompt after the Steps, not as another Step', async () => {
-    storedDrafts = [draftOf('t1', ['one'])]
+  it('answers a question the Agent ended its turn with, shown as a plain prompt after the run', async () => {
+    storedDrafts = [draftOf('t1', ['Ask me which city', 'Give its weather'])]
     const { trials } = await readyStores()
-    await trialToEnd(trials, 't1', 0)
-    await followUpToEnd(trials, 't1', 'why?', 1)
+    const trial = await trialToEnd(trials, 't1', 0)
 
+    expect(trials.trialComposer('t1')).toMatchObject({ primary: 'send' })
+    await followUpToEnd(trials, 't1', 'Berlin', 1)
+
+    expect(sentConfig(1)).toMatchObject({ sessionId: trial })
     const items = trialRunItems(trials.trialRunView('t1')!)
     expect(items).toHaveLength(2)
-    expect(items[0]).toMatchObject({ prompt: { step: 1 } })
-    expect(items[1]).toMatchObject({ prompt: { text: 'why?' } })
-    expect(items[1].kind === 'agent' && items[1].prompt?.step).toBeUndefined()
+    expect(items[0]).toMatchObject({ prompt: { agentRun: { name: 'Draft t1' } } })
+    expect(items[1]).toMatchObject({ prompt: { text: 'Berlin' } })
+    expect(items[1]).not.toHaveProperty('prompt.agentRun')
+    expect(trials.trialRuns.t1.state).toBe('completed')
   })
 
   it('is thrown away with its Trial Run when the next Trial Run starts', async () => {
@@ -1010,20 +1032,18 @@ describe('a Trial Run outliving the Agent Library', () => {
     const { trials } = await readyStores()
 
     await trials.startTrialRun('t1')
-    await finishTurn(0)
-    await turnIdOf(1)
+    await turnIdOf(0)
 
-    expect(trialWork()).toEqual([
+    expect(trialWork()).toMatchObject([
       {
         kind: 'trial-run',
         agentId: 't1',
         sessionId: trials.trialRuns.t1.harnessSessionId,
         name: 'Draft t1',
-        state: { status: 'step', index: 2, count: 2 },
       },
     ])
 
-    await finishTurn(1)
+    await finishTurn(0)
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
     expect(trialWork()).toEqual([])
   })
@@ -1117,7 +1137,7 @@ describe('a Trial Run outliving the Agent Library', () => {
     expect(toastShow.mock.calls[0][0]).toBe("Trial Run of 'Renamed' needs your input")
   })
 
-  it('is picked up by a reloaded window, and runs its next Step when the live one ends', async () => {
+  it('is picked up by a reloaded window, and ends when its live turn ends', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()
     await first.trials.startTrialRun('t1')
@@ -1139,21 +1159,52 @@ describe('a Trial Run outliving the Agent Library', () => {
       ],
     )
 
-    expect(trials.trialRuns.t1).toMatchObject({ state: 'running', stepIndex: 1, stepCount: 2 })
+    expect(trials.trialRuns.t1).toMatchObject({ state: 'running' })
     expect(trials.trialRunsInFlight).toEqual(['t1'])
     for (const chunk of [{ type: 'start' }, { type: 'finish' }]) {
       pushEvent({ type: 'agent-chunk', sessionId: harness, turnId, chunk })
     }
     pushEvent({ type: 'agent-turn-done', sessionId: harness, turnId })
 
-    await turnIdOf(0)
-    expect(sentSteps()).toEqual(['two'])
-    expect(sentConfig(0).sessionId).toBe(harness)
-    await finishTurn(0)
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
   })
 
-  it('runs its next Step when the live one ended while the reloaded window was starting', async () => {
+  it('picks up a run saved while it still tracked its Step', async () => {
+    storedDrafts = [draftOf('t1', ['one', 'two'])]
+    const first = await readyStores()
+    await first.trials.startTrialRun('t1')
+    const turnId = await turnIdOf(0)
+    const harness = first.trials.trialRuns.t1.harnessSessionId
+    const record = JSON.parse(JSON.stringify(first.agentMode.sessions[harness]))
+    trialFolders.t1 = {
+      ...trialFolders.t1,
+      run: { ...trialFolders.t1.run!, stepIndex: 1, stepCount: 2 } as TrialRunRecord,
+    }
+
+    const { trials } = await reloadWindow(
+      [record],
+      [
+        {
+          sessionId: harness,
+          turnId,
+          state: 'running',
+          chunks: [],
+          toolProgress: {},
+          toolImages: {},
+        },
+      ],
+    )
+    expect(trials.trialRuns.t1).toMatchObject({ state: 'running' })
+    pushEvent({ type: 'agent-turn-done', sessionId: harness, turnId })
+
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('ends when its live turn ended while the reloaded window was starting', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()
     await first.trials.startTrialRun('t1')
@@ -1194,13 +1245,12 @@ describe('a Trial Run outliving the Agent Library', () => {
     releaseRead()
     const { trials } = await reloading
 
-    await turnIdOf(0)
-    expect(sentSteps()).toEqual(['two'])
-    await finishTurn(0)
     await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('completed'))
+    await settleMicrotasks()
+    expect(startTurn).not.toHaveBeenCalled()
   })
 
-  it('ends as failed when the reload cut it off between Steps', async () => {
+  it('ends as failed when the reload finds its turn gone', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two'])]
     const first = await readyStores()
     await first.trials.startTrialRun('t1')

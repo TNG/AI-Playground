@@ -23,9 +23,6 @@
         :aria-label="clip.name ?? languages.SESSION_TURN_INPUT_AUDIO"
       />
     </template>
-    <p v-if="prompt.step" class="text-xs font-medium text-muted-foreground">
-      {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(prompt.step) }) }}
-    </p>
     <Collapsible v-if="prompt.agentRun" v-model:open="runPromptOpen" class="flex flex-col gap-2">
       <CollapsibleTrigger
         class="flex items-center gap-1.5 self-start rounded-sm text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

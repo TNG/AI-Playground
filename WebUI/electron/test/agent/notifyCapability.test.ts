@@ -375,8 +375,6 @@ describe('notify_user in a Trial Run', () => {
       agentId,
       harnessSessionId,
       name,
-      stepIndex: 1,
-      stepCount: 1,
       startedAt: 1,
       state: 'running',
     })

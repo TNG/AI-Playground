@@ -34,39 +34,17 @@ const RUN_INSTRUCTION =
   'step says otherwise, and a step may be conditional or repeat. When a step needs the ' +
   "user's input, ask for it in your reply and stop; the answer arrives as the next message."
 
-/**
- * The turn that starts a run of Steps: how it will be carried out, the user's prompt for this run
- * (when there is one) as an adjustment that wins over the Steps, and Step 1.
- * Model-facing, so not translated.
- */
-export function firstStepTurn(prompt: string, steps: readonly string[]): string {
-  const plan =
-    steps.length === 1
-      ? 'Carry this out in one step:'
-      : `Carry this out in ${steps.length} steps. I will send them one at a time; do only the ` +
-        'current one, then stop.'
-  const request = prompt.trim()
-  const adjustment = request ? [`${ADJUSTMENT_OPEN}${request}${ADJUSTMENT_CLOSE}`, ''] : []
-  return [plan, '', ...adjustment, stepTurn(1, steps)].join('\n')
-}
-
 const ADJUSTMENT_OPEN = 'For this run the user added: "'
 const ADJUSTMENT_CLOSE =
   '"\nApply it to every step it is relevant to. Where it conflicts with a step, follow the user.'
 
-/** The user's prompt inside a run's first turn, old or new, for runs that did not record it. */
+/** The Start Prompt inside a run's first turn, run prompt or old first Step, when not recorded. */
 export function runInputOf(turn: string): string | undefined {
   const start = turn.indexOf(ADJUSTMENT_OPEN)
   if (start < 0) return undefined
   const from = start + ADJUSTMENT_OPEN.length
   const end = turn.indexOf(ADJUSTMENT_CLOSE, from)
   return end < 0 ? undefined : turn.slice(from, end)
-}
-
-/** The turn for Step `index` (1-based) of a prompt's Steps. */
-export function stepTurn(index: number, steps: readonly string[]): string {
-  if (steps.length === 1) return steps[0]
-  return `Step ${index} of ${steps.length}: ${steps[index - 1]}`
 }
 
 export function withStepRemoved(steps: AgentTaskStep[], id: string): AgentTaskStep[] {

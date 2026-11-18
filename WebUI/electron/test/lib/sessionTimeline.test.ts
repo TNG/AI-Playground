@@ -7,7 +7,6 @@ import {
   timelineTurns,
   withLiveAgentTurn,
 } from '@/lib/sessionTimeline'
-import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
@@ -20,6 +19,16 @@ import {
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { AgentTurnTag } from '@/types/sessionTimeline'
+
+// How runs were sent before ADR 0012: a first turn holding Step 1, then one turn per later Step.
+const firstStepTurn = (input: string, steps: string[]) =>
+  `Carry this out in ${steps.length} steps. I will send them one at a time; do only the current one, then stop.\n\n` +
+  (input
+    ? `For this run the user added: "${input}"\nApply it to every step it is relevant to. Where it conflicts with a step, follow the user.\n\n`
+    : '') +
+  `Step 1 of ${steps.length}: ${steps[0]}`
+const stepTurn = (index: number, steps: string[]) =>
+  `Step ${index} of ${steps.length}: ${steps[index - 1]}`
 
 const agentTurn = { presetName: 'Agent', harnessSessionId: 'aipg-agent-1' }
 

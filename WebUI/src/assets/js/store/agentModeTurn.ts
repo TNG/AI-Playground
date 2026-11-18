@@ -97,6 +97,7 @@ export async function buildTurnConfig(options: {
   instructions: string
   /** The preset's `agentOwnsPrompt`. */
   ownsPrompt?: boolean
+  harness?: 'pi' | 'hermes'
   capabilities: string[]
   unsandboxed: boolean
   mountedFolders?: ResolvedMountedFolder[]
@@ -153,6 +154,8 @@ export async function buildTurnConfig(options: {
       presetName: options.presetName,
       instructions: options.instructions,
       ...(options.ownsPrompt ? { ownsPrompt: true } : {}),
+      ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
+      ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
       ...mountedFoldersOf(options.mountedFolders),

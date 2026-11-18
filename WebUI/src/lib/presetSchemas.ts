@@ -227,6 +227,8 @@ export const ChatPresetSchema = BasePresetFieldsSchema.omit({ backend: true }).e
   agentWorkspace: z.enum(['pick', 'games']).optional(),
   // `systemPrompt` replaces Pi's coding-agent prompt; file and shell tools need `files`.
   agentOwnsPrompt: z.boolean().optional(),
+  // Which agent runtime runs the turns: AIPG's built-in Pi (default) or the Hermes Agent sidecar.
+  harness: z.enum(['pi', 'hermes']).optional(),
   requiresCoding: z.boolean().optional(), // Filter models to ones fit for writing code
   // Filter models to ones reliable at multi-step tool use (Agent, Game Agent, Quick Coder).
   requiresAgentic: z.boolean().optional(),

@@ -136,6 +136,8 @@ export const AgentModeTurnConfigSchema = z.object({
   instructions: z.string().optional(),
   /** `instructions` replace Pi's coding-agent prompt; file and shell tools need `files`. */
   ownsPrompt: z.boolean().optional(),
+  /** The agent runtime: Pi in main (default) or the Hermes Agent sidecar. */
+  harness: z.enum(['pi', 'hermes']).optional(),
   /** The agent preset this turn was held with, for labelling its trace. */
   presetName: z.string().optional(),
   capabilities: z.array(z.string()).optional(),

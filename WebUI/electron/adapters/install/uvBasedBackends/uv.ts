@@ -371,6 +371,40 @@ export const installBackend = async (
   }
 }
 
+/**
+ * `uv sync --frozen` for a third-party checkout that brings its own lockfile, interpreter
+ * requirement and extras (Hermes Agent), rather than one of AIPG's own backend projects.
+ */
+export const syncUpstreamProject = async (
+  projectDir: string,
+  options: { python: string; extras: string[] },
+  extraEnv?: Record<string, string>,
+) => {
+  const logger = loggerFor(`uv.sync-upstream.${path.basename(projectDir)}`)
+  await assertUv(logger)
+  await removeBrokenVenv(path.join(projectDir, '.venv'))
+  const command = [
+    'sync',
+    '--directory',
+    projectDir,
+    '--python',
+    options.python,
+    '--frozen',
+    ...options.extras.flatMap((extra) => ['--extra', extra]),
+  ]
+  try {
+    await uv(command, logger, { UV_PYTHON_PREFERENCE: 'only-managed', ...extraEnv })
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (!isHashMismatchError(errorMessage)) throw error
+    logger.warn('Hash mismatch detected in UV cache, retrying with --no-cache')
+    await uv([...command, '--no-cache'], logger, {
+      UV_PYTHON_PREFERENCE: 'only-managed',
+      ...extraEnv,
+    })
+  }
+}
+
 export type UvExtra = 'xpu' | 'cuda' | 'cpu'
 
 /**

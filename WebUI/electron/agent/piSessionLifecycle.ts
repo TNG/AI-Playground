@@ -149,7 +149,7 @@ async function shutdownSessionExtensions(session: AgentSession): Promise<void> {
 }
 
 /** A Session's turn works in its `files/` folder or in a game folder; media follows suit. */
-function sessionMediaOf(
+export function sessionMediaOf(
   sessionRef: string | undefined,
   workspaceDir: string,
 ): SessionMediaTarget | undefined {

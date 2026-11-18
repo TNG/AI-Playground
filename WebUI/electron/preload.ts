@@ -401,6 +401,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listInstalledCustomNodes: () => invoke('comfyui:listInstalledCustomNodes'),
     openInBrowser: () => invoke('comfyui:openInBrowser'),
   },
+  hermes: {
+    openDashboard: () => invoke('hermes:openDashboard'),
+  },
   mcp: {
     listServers: () => invoke('mcp:listServers'),
     startServer: (serverId: string) => invoke('mcp:startServer', serverId),

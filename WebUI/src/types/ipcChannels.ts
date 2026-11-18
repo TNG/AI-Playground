@@ -1740,6 +1740,13 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as IpcMutationResult,
   },
+  /** Open the Hermes Agent dashboard in the OS browser, starting it on first use. */
+  'hermes:openDashboard': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
   /** Capturable desktop windows with thumbnails, for the settings window picker. */
   'screenshot:listWindows': {
     kind: 'invoke',

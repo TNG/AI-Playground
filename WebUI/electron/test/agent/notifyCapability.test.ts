@@ -36,7 +36,7 @@ const SUMMARY = 'Top story: the bridge reopened.'
 
 type RequestBody = {
   messages?: Array<{ role: string; content?: unknown }>
-  tools?: Array<{ function?: { name?: string } }>
+  tools?: Array<{ function?: { name?: string; description?: string } }>
 }
 
 let requests: RequestBody[] = []
@@ -350,6 +350,13 @@ describe('notify_user', () => {
     await runTurn('aipg-agent-notify-error')
     expect(sent).toHaveLength(1)
     expect(toolResultText()).toContain('not delivered: Telegram not configured')
+  }, 30000)
+
+  it('tells the model to notify when a Step of an Agent says so', async () => {
+    await runTurn('aipg-agent-notify-described')
+    const tool = requests[0].tools?.find((entry) => entry.function?.name === 'notify_user')
+    expect(tool?.function?.description).toContain('when a Step says so')
+    expect(tool?.function?.description).not.toContain('Task step')
   }, 30000)
 
   it('is absent from a session without the notify capability', async () => {

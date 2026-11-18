@@ -3,7 +3,7 @@ import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { AgentTaskStep } from '@/types/agentTaskIpc'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { firstStepTurn, stepPrompts, stepTurn } from '@/lib/taskSteps'
+import { firstStepTurn, runPrompt, stepPrompts, stepTurn } from '@/lib/taskSteps'
 
 /** What sends a Step's turn: the Agent Mode store. */
 export type StepSender = {
@@ -60,6 +60,40 @@ export async function sendRunStep(
   if (!result.ok && result.reason !== 'aborted') await onFailed(result.message)
 }
 
+export type RunTurn = Omit<RunStep, 'stepIndex'>
+
+/** Send an Agent Run's one turn, all its Steps at once; a refusal other than an abort fails it. */
+export async function sendRunTurn(
+  sender: StepSender,
+  run: RunTurn,
+  onFailed: (message: string) => unknown,
+): Promise<void> {
+  const result = await sender.sendToSession(
+    run.sessionId,
+    runPrompt(run.prompt ?? '', stepPrompts(run.steps)),
+    {
+      settings: cloneForIpc(run.settingsTemplate),
+      signal: run.signal,
+      quietErrors: true,
+      ...(run.origin ? { answer: run.origin } : {}),
+      taskRun: {
+        taskName: run.taskName,
+        stepIndex: 1,
+        ...(run.scheduled || run.origin ? { notifiesResult: true } : {}),
+      },
+    },
+  )
+  if (!result.ok && result.reason !== 'aborted') await onFailed(result.message)
+}
+
+export type RunTurnEnd = Exclude<AfterStepTurn, { kind: 'step' }>
+
+/** How an Agent Run ended, from its one turn. */
+export function afterRunTurn(outcome: TurnOutcome): RunTurnEnd {
+  if (outcome.kind === 'error') return { kind: 'failed', message: outcome.message }
+  return outcome.kind === 'completed' ? { kind: 'completed' } : { kind: 'stopped' }
+}
+
 export type AfterStepTurn =
   | { kind: 'step'; stepIndex: number }
   | { kind: 'completed' }
@@ -72,7 +106,8 @@ export function afterStepTurn(
   stepIndex: number,
   stepCount: number,
 ): AfterStepTurn {
-  if (outcome.kind === 'error') return { kind: 'failed', message: outcome.message }
-  if (outcome.kind !== 'completed') return { kind: 'stopped' }
-  return stepIndex < stepCount ? { kind: 'step', stepIndex: stepIndex + 1 } : { kind: 'completed' }
+  const end = afterRunTurn(outcome)
+  return end.kind === 'completed' && stepIndex < stepCount
+    ? { kind: 'step', stepIndex: stepIndex + 1 }
+    : end
 }

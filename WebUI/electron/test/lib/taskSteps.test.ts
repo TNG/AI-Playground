@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   firstStepTurn,
+  runInputOf,
+  runPrompt,
   stepPrompts,
   stepTurn,
   withStepInserted,
@@ -70,5 +72,41 @@ describe('the turns a prompt is carried out in', () => {
     )
     expect(firstStepTurn(' ', ['search'])).toBe('Carry this out in one step:\n\nsearch')
     expect(stepTurn(1, ['search'])).toBe('search')
+  })
+})
+
+describe('the prompt a run is sent', () => {
+  const instruction =
+    'Carry out these steps. They are instructions, not a script: follow them in order unless a ' +
+    'step says otherwise, and a step may be conditional or repeat. When a step needs the ' +
+    "user's input, ask for it in your reply and stop; the answer arrives as the next message."
+
+  it('holds the instruction and every Step, numbered in order', () => {
+    expect(runPrompt('', ['search', 'summarise', 'send'])).toBe(
+      instruction + '\n\n1. search\n2. summarise\n3. send',
+    )
+  })
+
+  it('carries the Start Prompt after the Steps, with the follow-the-user clause', () => {
+    expect(runPrompt(' only news from Germany ', ['search', 'summarise'])).toBe(
+      instruction +
+        '\n\n1. search\n2. summarise\n\n' +
+        'For this run the user added: "only news from Germany"\n' +
+        'Apply it to every step it is relevant to. Where it conflicts with a step, follow the user.',
+    )
+  })
+
+  it('leaves out the Start Prompt clause when there is none', () => {
+    expect(runPrompt(' \n\t ', ['search'])).not.toContain('For this run')
+  })
+
+  it('gives one Step the same shape', () => {
+    expect(runPrompt('', ['search'])).toBe(instruction + '\n\n1. search')
+  })
+
+  it('recovers the Start Prompt from a run prompt and from an old first-Step prompt', () => {
+    expect(runInputOf(runPrompt('only news', ['search', 'summarise']))).toBe('only news')
+    expect(runInputOf(firstStepTurn('only news', ['search', 'summarise']))).toBe('only news')
+    expect(runInputOf(runPrompt('', ['search']))).toBeUndefined()
   })
 })

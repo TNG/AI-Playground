@@ -18,6 +18,23 @@ export function stepPrompts(steps: readonly AgentTaskStep[]): string[] {
 }
 
 /**
+ * The one turn an Agent Run is sent: how to carry out the Steps, every Step numbered, and the
+ * user's prompt for this run (when there is one) as an adjustment that wins over the Steps.
+ * Model-facing, so not translated.
+ */
+export function runPrompt(prompt: string, steps: readonly string[]): string {
+  const numbered = steps.map((step, index) => `${index + 1}. ${step}`).join('\n')
+  const request = prompt.trim()
+  const adjustment = request ? ['', `${ADJUSTMENT_OPEN}${request}${ADJUSTMENT_CLOSE}`] : []
+  return [RUN_INSTRUCTION, '', numbered, ...adjustment].join('\n')
+}
+
+const RUN_INSTRUCTION =
+  'Carry out these steps. They are instructions, not a script: follow them in order unless a ' +
+  'step says otherwise, and a step may be conditional or repeat. When a step needs the ' +
+  "user's input, ask for it in your reply and stop; the answer arrives as the next message."
+
+/**
  * The turn that starts a run of Steps: how it will be carried out, the user's prompt for this run
  * (when there is one) as an adjustment that wins over the Steps, and Step 1.
  * Model-facing, so not translated.
@@ -37,7 +54,7 @@ const ADJUSTMENT_OPEN = 'For this run the user added: "'
 const ADJUSTMENT_CLOSE =
   '"\nApply it to every step it is relevant to. Where it conflicts with a step, follow the user.'
 
-/** The user's prompt inside a turn built by `firstStepTurn`, for runs that did not record it. */
+/** The user's prompt inside a run's first turn, old or new, for runs that did not record it. */
 export function runInputOf(turn: string): string | undefined {
   const start = turn.indexOf(ADJUSTMENT_OPEN)
   if (start < 0) return undefined

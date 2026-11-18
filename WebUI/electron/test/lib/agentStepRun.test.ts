@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { sendRunTurn, type RunTurn, type StepSender } from '@/lib/agentStepRun'
 
 function recordingSender() {
-  const sent: Array<{ taskName: string; stepIndex: number; notifiesResult?: boolean }> = []
+  const sent: Array<{ taskName: string; notifiesResult?: boolean }> = []
   const sender: StepSender = {
     sendToSession: async (_sessionId, _prompt, options) => {
       sent.push(options.taskRun)
@@ -28,9 +28,9 @@ describe('sendRunTurn', () => {
     await sendRunTurn(sender, run({ origin: { channel: 'telegram', replyTo: '1' } }), () => {})
     await sendRunTurn(sender, run(), () => {})
     expect(sent).toEqual([
-      { taskName: 'Daily digest', stepIndex: 1, notifiesResult: true },
-      { taskName: 'Daily digest', stepIndex: 1, notifiesResult: true },
-      { taskName: 'Daily digest', stepIndex: 1 },
+      { taskName: 'Daily digest', notifiesResult: true },
+      { taskName: 'Daily digest', notifiesResult: true },
+      { taskName: 'Daily digest' },
     ])
   })
 })

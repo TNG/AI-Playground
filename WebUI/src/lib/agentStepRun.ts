@@ -15,7 +15,7 @@ export type StepSender = {
       signal: AbortSignal
       quietErrors: boolean
       answer?: AgentAnswerOrigin
-      taskRun: { taskName: string; stepIndex: number; input?: string; notifiesResult?: boolean }
+      taskRun: { taskName: string; input?: string; notifiesResult?: boolean }
     },
   ) => Promise<SendToSessionResult>
 }
@@ -51,7 +51,6 @@ export async function sendRunTurn(
       ...(run.origin ? { answer: run.origin } : {}),
       taskRun: {
         taskName: run.taskName,
-        stepIndex: 1,
         ...(input ? { input } : {}),
         ...(run.scheduled || run.origin ? { notifiesResult: true } : {}),
       },

@@ -51,14 +51,6 @@ export type SessionSendResult =
 /** How starting an Agent Run went; a busy Session takes the start once its turn ends. */
 export type AgentStartResult = { ok: true } | { ok: false; reason: string; message: string }
 
-/** A later Step of a Channel-started Agent Run that the window refused to send, ending the run. */
-export type AgentRunRefusal = {
-  origin: AgentAnswerOrigin
-  name: string
-  step: number
-  reason: string
-}
-
 /** An Agent marked "Can be started from a Channel". */
 export type StartableAgent = { agentId: string; name: string }
 
@@ -67,9 +59,7 @@ export type SessionPause = 'download' | 'desktop'
 
 /** What a Session is busy with: a queued message waits for it to end. */
 export type SessionActivity =
-  | { kind: 'idle' }
-  | { kind: 'turn'; paused?: SessionPause }
-  | { kind: 'agent-run'; name: string; step: number; steps: number }
+  { kind: 'idle' } | { kind: 'turn'; paused?: SessionPause } | { kind: 'agent-run'; name: string }
 
 /** The Session's turn and Agent Run are over, or it can no longer take queued messages. */
 export type SessionChange = 'settled' | 'unreachable' | 'deleted'
@@ -83,7 +73,7 @@ export type TrialRunTarget = { trialRunSessionId: string }
 /** Where a Channel's message runs: a Session, or a Trial Run it answers. */
 export type ChannelTarget = SessionTarget | TrialRunTarget
 
-/** The Trial Run's turn and Steps are over, or it was thrown away with its Harness Session. */
+/** The Trial Run's turn is over, or it was thrown away with its Harness Session. */
 export type TrialRunChange = 'settled' | 'thrown-away'
 
 /** One message of a Session's transcript, for repainting a Channel that keeps no history. */
@@ -148,19 +138,15 @@ export type SessionPort = {
     origin: AgentAnswerOrigin,
     prompt?: string,
   ) => Promise<AgentStartResult>
-  /** The Session's turn in flight, or its Agent Run (also between Steps). */
+  /** The Session's turn in flight, or its Agent Run (its first turn or a Follow-up). */
   activity: (sessionRef: string) => SessionActivity
-  /** Stops the Session's turn or Agent Run, the run's next Step included; returns what it was. */
+  /** Stops the Session's turn or Agent Run; returns what it was. */
   stop: (sessionRef: string) => Promise<SessionActivity>
   /** Hear each Session settle, become unreachable or be deleted; returns the unsubscribe. */
   onSessionChange: (listener: (sessionRef: string, change: SessionChange) => void) => () => void
-  /** Hear a Channel-started run's later Step refused by the window; returns the unsubscribe. */
-  onAgentRunRefused: (
-    listener: (sessionRef: string, refusal: AgentRunRefusal) => void,
-  ) => () => void
   /** The window still holds this Trial Run: it is neither superseded nor discarded. */
   trialRunLive: (harnessSessionId: string) => boolean
-  /** The Trial Run's Step or Follow-up in flight, also between its Steps. */
+  /** The Trial Run's turn or Follow-up in flight. */
   trialRunActivity: (harnessSessionId: string) => SessionActivity
   /** Hear each Trial Run settle or be thrown away; returns the unsubscribe. */
   onTrialRunChange: (
@@ -278,8 +264,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const draining = new Set<string>()
   // Per Channel: its messages behind a voice message whose speech model downloads, in order.
   const waitingForSpeech = new Map<ChannelKind, Promise<void>>()
-  // Per Session: where its Agent Run was started from a Channel, for a refused Step to be told.
-  const agentRunStarts = new Map<string, { adapter: ChannelAdapter; meta?: InboundMeta }>()
   let unsubscribe: (() => void) | null = null
   let subscribedTo: SessionPort | null = null
 
@@ -292,9 +276,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       if (change === 'settled') void drain(sessions, lane)
       else void dropQueue(sessions, lane, change)
     })
-    const stopRefusals = sessions.onAgentRunRefused((sessionRef, refusal) => {
-      void tellRunRefused(sessions, sessionRef, refusal)
-    })
     const stopTrialChanges = sessions.onTrialRunChange((harnessSessionId, change) => {
       const lane = laneOf(sessions, { trialRunSessionId: harnessSessionId })
       if (change === 'settled') void drain(sessions, lane)
@@ -302,7 +283,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     })
     unsubscribe = () => {
       stopChanges()
-      stopRefusals()
       stopTrialChanges()
     }
   }
@@ -328,23 +308,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       activity: () => sessions.activity(id),
       publishSending: (sending) => deps.publishSending?.(id, sending),
     }
-  }
-
-  async function tellRunRefused(
-    sessions: SessionPort,
-    sessionRef: string,
-    refusal: AgentRunRefusal,
-  ): Promise<void> {
-    const started = agentRunStarts.get(sessionRef)
-    if (!started || started.adapter.kind !== refusal.origin.channel) return
-    agentRunStarts.delete(sessionRef)
-    const text = fillTemplate(copy().agentStepRefused, {
-      name: refusal.name,
-      step: refusal.step,
-      title: sessions.label({ sessionRef }),
-      reason: refusal.reason,
-    })
-    await tell(started.adapter, text, started.meta)
   }
 
   async function send(
@@ -397,7 +360,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
   }
 
-  /** The Notifier says an Agent Run started, once its first Step runs; only a refusal is told here. */
+  /** The Notifier says an Agent Run started, once its turn runs; only a refusal is told here. */
   async function confirmStart(
     sessions: SessionPort,
     entry: QueuedMessage & { agent: StartableAgent },
@@ -429,7 +392,6 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       const { sessionRef } = entry.target
       const result = await startAgent(sessions, sessionRef, entry.agent, entry.origin, entry.prompt)
       if (!result.ok && isBusy(result.reason)) return 'busy'
-      if (result.ok) agentRunStarts.set(sessionRef, { adapter: entry.adapter, meta: entry.meta })
       entry.settled?.(result.ok)
       await confirmStart(sessions, entry, result)
       return result.ok ? 'started' : 'refused'
@@ -480,11 +442,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'
-        ? fillTemplate(wording.queueAfterAgentRun, {
-            name: activity.name,
-            step: activity.step,
-            steps: activity.steps,
-          })
+        ? fillTemplate(wording.queueAfterAgentRun, { name: activity.name })
         : wording.queueAfterTurn
     const ack = fillTemplate(wording.queuedMessage, {
       position: wording.ordinal(position),
@@ -726,12 +684,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
         const stopped = running.kind === 'idle' ? running : await sessions.stop(sessionRef)
         const what =
           stopped.kind === 'agent-run'
-            ? fillTemplate(wording.stopAgentRun, {
-                name: stopped.name,
-                title,
-                step: stopped.step,
-                steps: stopped.steps,
-              })
+            ? fillTemplate(wording.stopAgentRun, { name: stopped.name, title })
             : stopped.kind === 'turn'
               ? fillTemplate(wording.stopTurn, { title })
               : fillTemplate(wording.stopNothing, { title })

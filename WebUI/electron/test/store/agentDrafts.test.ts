@@ -710,7 +710,7 @@ describe('duplicating an Agent', () => {
         startableFromChannel: true,
         sessionRef: SESSION,
         workspaceDir: '/work/legacy',
-        lastOutcome: { kind: 'completed', at: 4, stepCount: 2 },
+        lastOutcome: { kind: 'completed', at: 4 },
         schedules: [{ every: 1, unit: 'days', startAt: 5, enabled: true, sessionRef: SESSION }],
       }),
     ]

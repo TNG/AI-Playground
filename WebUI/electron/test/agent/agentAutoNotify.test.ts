@@ -145,7 +145,6 @@ const CONFIG: NotificationConfig = {
     },
     failed: '❌ Failed: {error}. Open AI Playground for details.',
     sessionLabel: '"{title}"',
-    taskLabel: '"{task}" (step {step}/{steps})',
     untitled: 'An agent run',
     answerButton: '💬 Answer',
     answerOnComputer: 'Answer on your computer',
@@ -518,7 +517,7 @@ describe('a Background Session pausing for the user', () => {
 const TASK_SESSION = 'aipg-agent-task-run'
 
 /** Saves a "Daily digest" Task whose run is in flight in `TASK_SESSION`. */
-async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number }) {
+async function saveTaskRun(inFlight = true) {
   await sessionFiles.saveAgentSession({
     id: TASK_SESSION,
     workspaceDir: tempRoot,
@@ -535,9 +534,7 @@ async function saveTaskRun(activeRun?: { stepIndex: number; stepCount: number })
     steps: ['one', 'two', 'three'].map((prompt) => ({ id: prompt, prompt })),
     createdAt: 1,
     updatedAt: 1,
-    ...(activeRun
-      ? { activeRuns: [{ sessionId: TASK_SESSION, sessionRef: 'session-1', ...activeRun }] }
-      : {}),
+    ...(inFlight ? { activeRuns: [{ sessionId: TASK_SESSION, sessionRef: 'session-1' }] } : {}),
   })
 }
 
@@ -547,47 +544,35 @@ describe('a Task run', () => {
     await sessions.renameSession(await sessionHolding(TASK_SESSION), 'Weekday news')
   })
 
-  it('is labelled by its Session, Task name and step when it pauses', async () => {
-    await saveTaskRun({ stepIndex: 2, stepCount: 3 })
+  it('is labelled by its Session and Agent, without a Step, when it pauses', async () => {
+    await saveTaskRun()
     await withWaitingTurn(TASK_SESSION, async () => {
       pauseFor(TASK_SESSION, 'question', 'Which source?')
       await settle()
       userWait.setAwaitingUser(TASK_SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Weekday news" · "Daily digest" (step 2/3)\n⏸ Waiting for you: a question (Which source?). ' +
+      '🤖 Agent · "Weekday news" · "Daily digest"\n⏸ Waiting for you: a question (Which source?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
   }, 30000)
 
   it('is labelled the same way when it fails', async () => {
-    await saveTaskRun({ stepIndex: 3, stepCount: 3 })
+    await saveTaskRun()
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await vi.waitFor(() =>
       expect(sent.map((s) => s.text)).toEqual([
-        '🤖 Agent · "Weekday news" · "Daily digest" (step 3/3)\n❌ Failed: 400: model test-model was retired. ' +
+        '🤖 Agent · "Weekday news" · "Daily digest"\n❌ Failed: 400: model test-model was retired. ' +
           'Open AI Playground for details.' +
           REPLY_HINT,
       ]),
     )
   }, 30000)
 
-  it('falls back to the Task name when the step cannot be resolved', async () => {
-    await saveTaskRun({ stepIndex: 0, stepCount: 0 })
-    modelRetired = true
-    await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
-    await vi.waitFor(() =>
-      expect(sent.map((s) => s.text)).toEqual([
-        '🤖 Agent · "Weekday news" · "Daily digest"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.' +
-          REPLY_HINT,
-      ]),
-    )
-  }, 30000)
-
   it('names only its Session once the run is over', async () => {
-    await saveTaskRun()
+    await saveTaskRun(false)
     modelRetired = true
     await manager.startAgentTurn(crypto.randomUUID(), 'hi', configFor(TASK_SESSION))
     await vi.waitFor(() =>
@@ -614,14 +599,13 @@ describe('a Scheduled Run', () => {
     ...configFor(TASK_SESSION),
     taskRun: {
       taskName: 'Daily digest',
-      stepIndex: 1,
       ...(notifiesResult ? { notifiesResult } : {}),
     },
   })
-  const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 1/3)'
+  const header = '🤖 Agent · "Weekday news" · "Daily digest"'
 
   beforeEach(async () => {
-    await saveTaskRun({ stepIndex: 1, stepCount: 3 })
+    await saveTaskRun()
     notifier.setNotificationConfig({ ...CONFIG, channels: EVERY })
   })
 
@@ -694,9 +678,9 @@ describe('an Agent Run started from a Channel', () => {
   const run = (): AgentModeTurnConfig => ({
     ...configFor(TASK_SESSION),
     answer: STARTED_BY,
-    taskRun: { taskName: 'Daily digest', stepIndex: 1, notifiesResult: true },
+    taskRun: { taskName: 'Daily digest', notifiesResult: true },
   })
-  const header = '🤖 Agent · "Weekday news" · "Daily digest" (step 1/3)'
+  const header = '🤖 Agent · "Weekday news" · "Daily digest"'
   const started = {
     kind: 'telegram',
     text: '▶️ Started “Daily digest” in "Weekday news".',
@@ -705,7 +689,7 @@ describe('an Agent Run started from a Channel', () => {
   }
 
   beforeEach(async () => {
-    await saveTaskRun({ stepIndex: 1, stepCount: 3 })
+    await saveTaskRun()
     notifier.setNotificationConfig({ ...CONFIG, channels: ['telegram', 'slack'] })
   })
 

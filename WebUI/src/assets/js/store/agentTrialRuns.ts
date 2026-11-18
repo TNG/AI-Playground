@@ -112,11 +112,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
         agentId,
         sessionId: run.harnessSessionId,
         name: run.name,
-        state: {
-          status: 'step',
-          index: 1,
-          count: agentMode.sessions[run.harnessSessionId]?.steps?.length ?? 1,
-        },
+        state: { status: 'running' },
       }
     }),
   )

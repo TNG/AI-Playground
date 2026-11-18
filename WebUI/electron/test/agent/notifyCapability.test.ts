@@ -134,7 +134,6 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
       pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
       failed: '',
       sessionLabel: '"{title}"',
-      taskLabel: '',
       untitled: 'An agent run',
       answerButton: '💬 Answer',
       answerOnComputer: 'Answer on your computer',

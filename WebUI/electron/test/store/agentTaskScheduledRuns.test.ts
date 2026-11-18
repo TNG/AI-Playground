@@ -414,7 +414,7 @@ describe('a Scheduled Run in its Session', () => {
     expect(sentConfig(0)).toMatchObject({
       sessionRef: SESSION,
       workspaceDir: '/work/task',
-      taskRun: { taskName: 'Task t1', stepIndex: 1 },
+      taskRun: { taskName: 'Task t1' },
     })
     expect(sentConfig(0).sessionId).toMatch(/^aipg-agent-run-/)
     expect(agentMode.sessions[sentConfig(0).sessionId].taskRun).toMatchObject({
@@ -457,7 +457,6 @@ describe('a Scheduled Run in its Session', () => {
     expect(sentPrompts()).toEqual([runPrompt('', ['t1 one', 't1 two'])])
     expect(sentConfig(0).taskRun).toEqual({
       taskName: 'Task t1',
-      stepIndex: 1,
       notifiesResult: true,
     })
   })
@@ -471,7 +470,7 @@ describe('a Scheduled Run in its Session', () => {
 
     expect(startTurn).not.toHaveBeenCalled()
     expect(tasks.taskState('t1')).toEqual({
-      running: expect.objectContaining({ stepIndex: 1, waiting: true }),
+      running: expect.objectContaining({ waiting: true }),
     })
 
     setSessionTurns({})
@@ -511,7 +510,7 @@ describe('a Schedule reaching its Next Run', () => {
       settings: TEMPLATE,
     })
     expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', sessionId, sessionRef: SESSION },
     })
   })
 
@@ -649,7 +648,7 @@ describe('a slot that finds a Task Run in flight', () => {
     expect(startTurn).toHaveBeenCalledTimes(1)
     expect(Object.keys(agentMode.sessions)).toEqual(sessionsBefore)
     expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', sessionId, sessionRef: SESSION },
     })
     expect(savedRuns('t1')).toEqual([expect.not.objectContaining({ scheduled: true })])
     expect(lastSavedTask('t1')).not.toHaveProperty('lastOutcome')
@@ -770,7 +769,7 @@ describe('one Agent scheduled in two Sessions', () => {
 
     expect(tasks.taskState('t1')).toHaveProperty('idle')
     expect(tasks.taskState('t1', 'session-2')).toMatchObject({
-      running: { sessionRef: 'session-2', stepIndex: 1 },
+      running: { sessionRef: 'session-2' },
     })
   })
 
@@ -851,9 +850,7 @@ describe('a slot that was missed', () => {
       scheduledTask(
         't1',
         {
-          activeRuns: [
-            { sessionId: 'session-old', sessionRef: SESSION, stepIndex: 1, stepCount: 2 },
-          ],
+          activeRuns: [{ sessionId: 'session-old', sessionRef: SESSION }],
         },
         { startAt: NOW - 5 * MINUTE, nextRunAt: NOW - 5 * MINUTE },
       ),
@@ -944,7 +941,7 @@ describe('a Scheduled Run that cannot start', () => {
 
     await vi.waitFor(() =>
       expect(tasks.taskState('t1')).toEqual({
-        idle: expect.objectContaining({ kind: 'failed', reason: 'not-started', stepCount: 2 }),
+        idle: expect.objectContaining({ kind: 'failed', reason: 'not-started' }),
       }),
     )
     const outcome = lastSavedTask('t1')?.lastOutcome
@@ -1105,7 +1102,6 @@ describe('a Scheduled Run that fails part-way', () => {
         idle: expect.objectContaining({
           kind: 'failed',
           sessionId,
-          stepIndex: 1,
           message: 'model refused',
         }),
       }),
@@ -1155,7 +1151,7 @@ describe('a Scheduled Run that fails part-way', () => {
     await tasks.stopTask('t1')
 
     expect(tasks.taskState('t1')).toEqual({
-      idle: expect.objectContaining({ kind: 'stopped', stepIndex: 1 }),
+      idle: expect.objectContaining({ kind: 'stopped' }),
     })
     await settleMicrotasks()
     expect(errorsReport).not.toHaveBeenCalled()
@@ -1308,8 +1304,6 @@ describe('a Task Run whose Task Session is paused', () => {
     expect(tasks.taskState('t1')).toEqual({
       running: {
         taskId: 't1',
-        stepIndex: 1,
-        stepCount: 2,
         sessionId,
         sessionRef: SESSION,
         paused: { reason: DOWNLOAD_PAUSE },
@@ -1319,7 +1313,7 @@ describe('a Task Run whose Task Session is paused', () => {
     await resumeTurn(0)
 
     expect(tasks.taskState('t1')).toEqual({
-      running: { taskId: 't1', stepIndex: 1, stepCount: 2, sessionId, sessionRef: SESSION },
+      running: { taskId: 't1', sessionId, sessionRef: SESSION },
     })
   })
 
@@ -1380,7 +1374,7 @@ describe('a Task Run whose Task Session is paused', () => {
     await pauseTurn(0, DOWNLOAD_PAUSE)
 
     expect(tasks.taskState('t1')).toMatchObject({
-      running: { stepIndex: 1, paused: { reason: DOWNLOAD_PAUSE } },
+      running: { paused: { reason: DOWNLOAD_PAUSE } },
     })
     expect(reportedCodes()).not.toContain('agent-tasks/scheduled-run-not-started')
     for (const saved of savedCopies('t1')) expect(saved).not.toHaveProperty('lastOutcome')
@@ -1400,7 +1394,6 @@ describe('a Task Run whose Task Session is paused', () => {
         idle: expect.objectContaining({
           kind: 'failed',
           sessionId,
-          stepIndex: 1,
           message: 'model download declined',
           reason: 'download-declined',
         }),
@@ -1489,7 +1482,7 @@ describe('reporting In-flight Work to the close question', () => {
     await running
     await settleMicrotasks()
     expect(lastReport()).toEqual([
-      expect.objectContaining({ kind: 'task-run', state: { status: 'step', index: 1, count: 2 } }),
+      expect.objectContaining({ kind: 'task-run', state: { status: 'running' } }),
     ])
   })
   it('reports a Scheduled Run and not after, even while the Schedule stays on', async () => {
@@ -1502,7 +1495,7 @@ describe('reporting In-flight Work to the close question', () => {
     await settleMicrotasks()
     expect(lastReport()).toEqual([expect.objectContaining({ kind: 'task-run', taskId: 't1' })])
     expect(savedRuns('t1')).toEqual([
-      expect.objectContaining({ sessionRef: SESSION, scheduled: true, stepIndex: 1 }),
+      expect.objectContaining({ sessionRef: SESSION, scheduled: true }),
     ])
 
     await finishTurn(0)

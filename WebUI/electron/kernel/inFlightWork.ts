@@ -16,7 +16,7 @@ export type InFlightWorkSources = {
 }
 
 /** The window's Task Runs win over their markers: a marker lags the run by a write. */
-function stepRuns(sources: InFlightWorkSources): InFlightWorkItem[] {
+function runItems(sources: InFlightWorkSources): InFlightWorkItem[] {
   const reported = sources.rendererWork.filter(
     (item) => item.kind === 'task-run' || item.kind === 'trial-run',
   )
@@ -47,8 +47,8 @@ export function collectInFlightWork(sources: InFlightWorkSources): InFlightWorkI
     sources.textRequests.find(
       (request) => request.conversationKey === conversationKey && request.work !== 'summary',
     )?.state ?? fallback
-  const items = stepRuns(sources)
-  // A Step of an Agent Run or Trial Run is an agent turn; the run already names it.
+  const items = runItems(sources)
+  // An Agent Run's or Trial Run's turn, a Follow-up's included, is an agent turn the run names.
   const runSessions = new Set(
     items.flatMap((item) => ('sessionId' in item && item.sessionId ? [item.sessionId] : [])),
   )

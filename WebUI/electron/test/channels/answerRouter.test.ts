@@ -8,7 +8,6 @@ import {
   type TrialRunChange,
   type VoicePreparation,
   type AgentStartResult,
-  type AgentRunRefusal,
   type ChannelSessionPointers,
   type ChannelTranscriptMessage,
 } from '../../../src/assets/js/store/channels/answerRouter'
@@ -145,7 +144,6 @@ function fakeSessions(
   const tellListeners = (sessionRef: string, change: SessionChange) => {
     for (const listener of [...listeners]) listener(sessionRef, change)
   }
-  const refusalListeners = new Set<(sessionRef: string, refusal: AgentRunRefusal) => void>()
   /** Files attached, by the Harness Session or Session they went to. */
   const attached: { to: string; kind: string; filename: string }[] = []
   const attaching = { fails: false }
@@ -289,7 +287,7 @@ function fakeSessions(
       const { result } = agentStart
       if (result.ok && turns.start) {
         const name = startable.find((agent) => agent.agentId === agentId)?.name ?? ''
-        activities[sessionRef] = { kind: 'agent-run', name, step: 1, steps: 2 }
+        activities[sessionRef] = { kind: 'agent-run', name }
       }
       return result
     },
@@ -304,10 +302,6 @@ function fakeSessions(
     onSessionChange: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
-    },
-    onAgentRunRefused: (listener) => {
-      refusalListeners.add(listener)
-      return () => refusalListeners.delete(listener)
     },
     trialRunLive: (harnessSessionId) => !!trialRuns[harnessSessionId],
     trialRunActivity: (harnessSessionId) => trialActivities[harnessSessionId] ?? { kind: 'idle' },
@@ -331,13 +325,6 @@ function fakeSessions(
     delete trialRuns[harnessSessionId]
     delete trialActivities[harnessSessionId]
     tellTrialListeners(harnessSessionId, 'thrown-away')
-    await flush()
-  }
-  /** The window refused a later Step of the Session's Agent Run, ending it. */
-  const refuseStep = async (sessionRef: string, refusal: AgentRunRefusal) => {
-    delete activities[sessionRef]
-    for (const listener of [...refusalListeners]) listener(sessionRef, refusal)
-    tellListeners(sessionRef, 'settled')
     await flush()
   }
   /**
@@ -376,7 +363,6 @@ function fakeSessions(
     agentNames,
     agentStarts,
     agentStart,
-    refuseStep,
     trialRuns,
     busyTrial,
     settleTrial,
@@ -860,16 +846,16 @@ describe('a message to a busy Session', () => {
     ])
   })
 
-  it('waits for an Agent Run’s last Step, naming the run and its Step', async () => {
+  it('waits for an Agent Run, naming it without a Step', async () => {
     const { router, plain, busy, settle } = channelSetup(
       { [TRIP]: { title: 'Trip planning' } },
       { telegram: TRIP },
     )
-    busy(TRIP, { kind: 'agent-run', name: 'Digest', step: 2, steps: 3 })
+    busy(TRIP, { kind: 'agent-run', name: 'Digest' })
     const ch = fakeChannel('telegram')
     await router.route(ch.adapter, { text: 'add sources' })
     expect(ch.replies).toEqual([
-      '⏳ Queued (1st) for "Trip planning", runs after Agent Run “Digest” (Step 2 of 3).',
+      '⏳ Queued (1st) for "Trip planning", runs after Agent Run “Digest”.',
     ])
     expect(plain).toEqual([])
     await settle(TRIP)
@@ -1119,15 +1105,14 @@ describe('/stop', () => {
     expect(plain).toEqual([])
   })
 
-  it('stops an Agent Run, between its Steps too, naming it and its Step', async () => {
+  it('stops an Agent Run, naming it without a Step', async () => {
     const { router, busy, stopped } = channelSetup(trip, { telegram: TRIP })
-    busy(TRIP, { kind: 'agent-run', name: 'Digest', step: 2, steps: 3 })
+    busy(TRIP, { kind: 'agent-run', name: 'Digest' })
     const ch = fakeChannel('telegram')
     await router.route(ch.adapter, { text: '/stop' })
     expect(stopped).toEqual([TRIP])
     expect(ch.replies).toEqual([
-      '⏹️ Stopped Agent Run “Digest” in "Trip planning" at Step 2 of 3.\n' +
-        'Queued messages dropped: 0.',
+      '⏹️ Stopped Agent Run “Digest” in "Trip planning".\n' + 'Queued messages dropped: 0.',
     ])
   })
 
@@ -1637,27 +1622,6 @@ ${PICK}`,
     ])
   })
 
-  it('tells the starting Channel when the window refuses a later Step of the run', async () => {
-    const { router, refuseStep } = agents()
-    const ch = fakeChannel('telegram')
-    const other = fakeChannel('slack')
-    await router.route(ch.adapter, { text: '/agents Daily digest', replyTarget: '42' })
-    await router.route(other.adapter, { text: '/help' })
-    other.replies.length = 0
-
-    await refuseStep(TRIP, {
-      origin: { channel: 'telegram', replyTo: '42' },
-      name: 'Daily digest',
-      step: 2,
-      reason: 'The workspace folder is missing: /work/trip',
-    })
-
-    expect(ch.replies).toEqual([
-      '⚠️ “Daily digest” stopped before Step 2 in "Trip planning": The workspace folder is missing: /work/trip',
-    ])
-    expect(other.replies).toEqual([])
-  })
-
   describe('in a busy Session', () => {
     it('queues the start like a message, and starts the Agent once the turn ends', async () => {
       const { router, agentStarts, busy, settle, published } = agents()
@@ -1697,11 +1661,11 @@ ${PICK}`,
 
     it('waits for an Agent Run, and is dropped by /stop', async () => {
       const { router, agentStarts, busy, settle } = agents()
-      busy(TRIP, { kind: 'agent-run', name: 'Tidy downloads', step: 1, steps: 2 })
+      busy(TRIP, { kind: 'agent-run', name: 'Tidy downloads' })
       const ch = fakeChannel('telegram')
       await router.route(ch.adapter, { text: '/agents Daily digest' })
       expect(ch.replies).toEqual([
-        '⏳ Queued (1st) for "Trip planning", runs after Agent Run “Tidy downloads” (Step 1 of 2).',
+        '⏳ Queued (1st) for "Trip planning", runs after Agent Run “Tidy downloads”.',
       ])
       await router.route(ch.adapter, { text: '/stop' })
       await settle(TRIP)

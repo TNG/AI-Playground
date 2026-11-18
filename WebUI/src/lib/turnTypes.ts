@@ -77,8 +77,6 @@ export type TurnLiveStatus =
   | { kind: 'artifact'; phase: ArtifactPhase; progress?: ArtifactProgress }
   | { kind: 'audio'; phase: AudioPhase }
 
-export type RunProgress = { step: number; count: number }
-
 export type TurnDetails = {
   parts: TurnDetailPart[]
   summary: TurnSummary

@@ -100,7 +100,6 @@ const OFF_CONFIG: NotificationConfig = {
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
     failed: '',
     sessionLabel: '',
-    taskLabel: '',
     untitled: '',
     answerButton: '',
     answerOnComputer: '',
@@ -118,7 +117,7 @@ let windowShown: () => boolean = () => false
 
 /**
  * A turn whose result is sent when it ends: the turn an Answer started, which replies on
- * the Answer's Channel alone, or a Scheduled Run's last Step, which reports to every Channel.
+ * the Answer's Channel alone, or a Scheduled Run's turn, which reports to every Channel.
  */
 type ReportedTurn = {
   turnId: string
@@ -621,7 +620,7 @@ function pauseReasonText(reason: PauseReason | undefined): string {
   return reason?.summary ? fillTemplate(pauseReason, { kind, summary: reason.summary }) : kind
 }
 
-/** The Session's quoted title, then the Agent Run's name and Step while one runs in it. */
+/** The Session's quoted title, then the Agent Run's name while one runs in it. */
 async function sessionLabel(sessionId: string, sessionTitle: string): Promise<string> {
   const { templates } = config
   const tasks = await readAgentTasks().catch(() => [])

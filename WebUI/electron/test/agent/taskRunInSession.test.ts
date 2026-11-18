@@ -144,7 +144,7 @@ async function taskRunConfig(sessionId: string, input?: string): Promise<AgentMo
     ...(await agentConfig(sessionId)),
     sessionId: harnessSessionId,
     workspaceDir,
-    taskRun: { taskName: 'Morning digest', stepIndex: 1, ...(input ? { input } : {}) },
+    taskRun: { taskName: 'Morning digest', ...(input ? { input } : {}) },
   }
 }
 
@@ -286,7 +286,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     await manager.startAgentTurn('t1', 'first step', run)
     await manager.startAgentTurn('t2', 'second step', {
       ...run,
-      taskRun: { taskName: 'Morning digest', stepIndex: 2 },
+      taskRun: { taskName: 'Morning digest' },
     })
     await manager.startAgentTurn('t3', 'assistant turn', await agentConfig(session.id))
     bodies = []
@@ -314,7 +314,6 @@ describe('a Follow-up to an Agent Run in its Session', () => {
       preset: 'Agent',
       prompt: 'legacy step',
       taskName: 'Morning digest',
-      stepIndex: 1,
     })
     await history.appendHistoryEntry(session.id, { ...legacy, preset: 'Agent', prompt: 'a tower' })
 

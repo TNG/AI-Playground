@@ -5,7 +5,7 @@ import en from '@/assets/i18n/en-US.json'
 // The close dialog's lines, read with the English strings.
 
 describe('closeQuestionLines', () => {
-  it('names a Trial Run by its Agent, with its Step', () => {
+  it('names a running Trial Run by its Agent, without a Step', () => {
     const lines = closeQuestionLines(
       {
         items: [
@@ -14,7 +14,7 @@ describe('closeQuestionLines', () => {
             agentId: 'agent-1',
             sessionId: 'trial-harness',
             name: 'Morning news',
-            state: { status: 'step', index: 2, count: 3 },
+            state: { status: 'running' },
           },
         ],
         more: 0,
@@ -22,7 +22,27 @@ describe('closeQuestionLines', () => {
       en,
     )
 
-    expect(lines).toEqual(["Trial Run of 'Morning news': step 2 of 3"])
+    expect(lines).toEqual(["Trial Run of 'Morning news': running"])
+  })
+
+  it('names a running Agent Run by its Agent, without a Step', () => {
+    const lines = closeQuestionLines(
+      {
+        items: [
+          {
+            kind: 'task-run',
+            taskId: 'agent-1',
+            sessionId: 'aipg-agent-run',
+            name: 'Morning news',
+            state: { status: 'running' },
+          },
+        ],
+        more: 0,
+      },
+      en,
+    )
+
+    expect(lines).toEqual(["Agent 'Morning news': running"])
   })
 
   it('names a Trial Run still in its pre-flight checks', () => {

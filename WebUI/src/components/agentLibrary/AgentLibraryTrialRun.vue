@@ -39,7 +39,7 @@ const agentName = computed(() => agentDisplayName(props.agent.name, i18n))
 const placeholder = computed(() =>
   composer.value.primary === 'send'
     ? i18n.AGENT_LIBRARY_TRIAL_RUN_FOLLOW_UP_INPUT
-    : i18n.AGENT_LIBRARY_TRIAL_RUN_INPUT,
+    : fillTemplate(i18n.AGENT_COMPOSER_START_PROMPT, { agent: agentName.value }),
 )
 
 const downloadGroup = computed(() => {

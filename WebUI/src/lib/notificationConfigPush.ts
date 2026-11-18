@@ -61,7 +61,6 @@ export function startNotificationConfigPush(): void {
         },
         failed: text.AGENT_NOTIFY_FAILED ?? '',
         sessionLabel: text.AGENT_NOTIFY_SESSION_LABEL ?? '',
-        taskLabel: text.AGENT_NOTIFY_TASK_LABEL ?? '',
         untitled: text.AGENT_NOTIFY_UNTITLED ?? '',
         answerButton: text.AGENT_NOTIFY_ANSWER_BUTTON ?? '',
         answerOnComputer: text.AGENT_NOTIFY_ANSWER_ON_COMPUTER ?? '',

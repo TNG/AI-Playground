@@ -159,7 +159,6 @@ export const AgentModeTurnConfigSchema = z.object({
   taskRun: z
     .object({
       taskName: z.string(),
-      stepIndex: z.number().int().positive(),
       /** The Start Prompt, which the run's History Entry records instead of the run prompt. */
       input: z.string().optional(),
       /** A Scheduled or Channel-started run: its result is a Notification. */

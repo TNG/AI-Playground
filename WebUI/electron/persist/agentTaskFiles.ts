@@ -215,13 +215,7 @@ export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> 
       const { activeRuns: _runs, ...rest } = task
       return {
         ...rest,
-        lastOutcome: {
-          kind: 'stopped',
-          at,
-          sessionId: activeRun.sessionId,
-          stepIndex: activeRun.stepIndex,
-          stepCount: activeRun.stepCount,
-        },
+        lastOutcome: { kind: 'stopped', at, sessionId: activeRun.sessionId },
       }
     })
     if (settled > 0) await writeTasks(next)

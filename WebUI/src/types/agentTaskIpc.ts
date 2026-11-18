@@ -13,8 +13,6 @@ export const AgentTaskOutcomeSchema = z.object({
   at: z.number(),
   /** Absent when a Scheduled Run could not start, so no Harness Session exists. */
   sessionId: z.string().optional(),
-  stepIndex: z.number().optional(),
-  stepCount: z.number(),
   message: z.string().optional(),
   // Translated where shown, since `app-closed` is written at boot before the locale has loaded.
   reason: z.enum(['app-closed', 'not-started', 'download-declined']).optional(),
@@ -29,8 +27,6 @@ export const AgentTaskActiveRunSchema = z.object({
   sessionId: z.string(),
   /** The Session the run is in; empty on a marker from before runs knew their Session. */
   sessionRef: z.string(),
-  stepIndex: z.number(),
-  stepCount: z.number(),
   /** Set for a Scheduled Run, so a reattached one still toasts a failure. */
   scheduled: z.boolean().optional(),
 })

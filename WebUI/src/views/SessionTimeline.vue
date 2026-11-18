@@ -121,7 +121,7 @@ const items = computed(() =>
       chat: chatLive.value,
       chatStatus: chatStatus.value,
       agents: agentLive.value,
-      agentRunsInFlight: Object.keys(agentTasks.runsInFlight),
+      agentRunsInFlight: agentTasks.runsInFlight,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
       mediaSteps: mediaSteps.value,
       audio: sessionAudio.pendingTurn,

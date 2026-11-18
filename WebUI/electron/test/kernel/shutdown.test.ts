@@ -118,15 +118,7 @@ describe('Task Runs on shutdown', () => {
     ],
     createdAt: 1,
     updatedAt: 2,
-    activeRuns: [
-      {
-        sessionId: 'aipg-agent-1',
-        sessionRef: 'session-1',
-        stepIndex: 2,
-        stepCount: 3,
-        scheduled: true,
-      },
-    ],
+    activeRuns: [{ sessionId: 'aipg-agent-1', sessionRef: 'session-1', scheduled: true }],
   }
   const { activeRuns: _runs, ...unmarked } = marked
   const idle: AgentTask = { ...unmarked, id: 'weekly', name: 'Weekly' }
@@ -145,16 +137,15 @@ describe('Task Runs on shutdown', () => {
     await shutdown.shutdown(cause)
   }
 
-  it('records a Task Run the user quit during as stopped at the step it reached', async () => {
+  it('records a Task Run the user quit during as stopped', async () => {
     await shutDownWith('quit')
 
     const [daily, weekly] = await readAgentTasks()
     expect(daily.activeRuns).toBeUndefined()
-    expect(daily.lastOutcome).toMatchObject({
+    expect(daily.lastOutcome).toEqual({
       kind: 'stopped',
+      at: expect.any(Number),
       sessionId: 'aipg-agent-1',
-      stepIndex: 2,
-      stepCount: 3,
     })
     expect(daily.lastOutcome?.reason).toBeUndefined()
     expect(weekly).toEqual(idle)
@@ -171,7 +162,7 @@ describe('Task Runs on shutdown', () => {
 
   it('keeps the stopped outcome when the window writes the run after the quit settled it', async () => {
     await shutDownWith('quit')
-    await saveAgentTask({ ...marked, activeRuns: [{ ...marked.activeRuns![0], stepIndex: 3 }] })
+    await saveAgentTask(marked)
 
     const [daily] = await readAgentTasks()
     expect(daily.activeRuns).toBeUndefined()
@@ -183,7 +174,7 @@ describe('Task Runs on shutdown', () => {
     const settled = unmarked
     await saveAgentTask({
       ...settled,
-      lastOutcome: { kind: 'failed', at: 9, sessionId: 'aipg-agent-1', stepIndex: 2, stepCount: 3 },
+      lastOutcome: { kind: 'failed', at: 9, sessionId: 'aipg-agent-1' },
     })
 
     const [daily] = await readAgentTasks()

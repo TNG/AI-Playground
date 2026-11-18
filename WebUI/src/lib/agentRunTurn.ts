@@ -6,7 +6,7 @@ import { cloneForIpc } from '@/lib/cloneForIpc'
 import { runPrompt, stepPrompts } from '@/lib/taskSteps'
 
 /** What sends an Agent Run's turn: the Agent Mode store. */
-export type StepSender = {
+export type RunTurnSender = {
   sendToSession: (
     sessionId: string,
     prompt: string,
@@ -36,7 +36,7 @@ export type RunTurn = {
 
 /** Send an Agent Run's one turn, all its Steps at once; a refusal other than an abort fails it. */
 export async function sendRunTurn(
-  sender: StepSender,
+  sender: RunTurnSender,
   run: RunTurn,
   onFailed: (message: string) => unknown,
 ): Promise<void> {

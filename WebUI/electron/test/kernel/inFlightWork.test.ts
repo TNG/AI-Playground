@@ -50,7 +50,7 @@ describe('collectInFlightWork', () => {
     expect(collectInFlightWork(sources({ tasks: [dailyReport] }))).toEqual([])
   })
 
-  it('names a Task Run from its marker as running', () => {
+  it('names an Agent Run from its marker as running', () => {
     expect(collectInFlightWork(sources({ tasks: [marker()] }))).toEqual([runningTaskRun('s-1')])
   })
 
@@ -105,7 +105,7 @@ describe('collectInFlightWork', () => {
     ).toEqual([starting])
   })
 
-  it("leaves out the agent turn that is a Task Run's turn", () => {
+  it("leaves out the agent turn that is an Agent Run's turn", () => {
     const items = collectInFlightWork(
       sources({
         tasks: [marker()],

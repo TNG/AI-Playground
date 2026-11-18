@@ -131,10 +131,7 @@ export const AgentDraftsFileSchema = z.object({
   drafts: z.array(AgentDraftSchema),
 })
 
-/**
- * Where an Agent's Trial Run is, kept beside its scratch folder so a reloaded window can pick it
- * up.
- */
+/** Where an Agent's Trial Run is, kept beside its scratch folder for a reloaded window. */
 export const TrialRunRecordSchema = z.object({
   agentId: z.string().min(1),
   harnessSessionId: z.string().min(1),

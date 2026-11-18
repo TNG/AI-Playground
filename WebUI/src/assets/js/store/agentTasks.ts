@@ -39,7 +39,7 @@ import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload } from '@/assets/js/permissions/permissions'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { afterRunTurn, sendRunTurn } from '@/lib/agentStepRun'
+import { afterRunTurn, sendRunTurn } from '@/lib/agentRunTurn'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
@@ -236,7 +236,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Runs in flight by Harness Session; at most one per Agent and Session. */
   const runs = ref<Record<string, TaskRun>>({})
-  /** The Task as its run started, and the abort that keeps an ended run from sending its turn. */
+  /** The Agent as its run started, and the abort that keeps an ended run from sending its turn. */
   const runContexts: Record<
     string,
     {
@@ -301,7 +301,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
   /** The Harness Sessions of the runs whose first turn is in flight. */
-  const runsInFlight = computed((): string[] => Object.keys(runs.value))
+  const firstTurnsInFlight = computed((): string[] => Object.keys(runs.value))
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(
@@ -1593,7 +1593,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return { taskName, signal: runContexts[sessionId]?.abort.signal }
   })
 
-  /** The open Harness Session's run uses its Task's Settings Template: its own are locked. */
+  /** The open Harness Session's run uses its Agent's Settings Template: its own are locked. */
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 
   /** Turns that ended while `init` restored the runs, which may have been theirs. */
@@ -1701,7 +1701,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           severity: 'warning',
           surface: 'toast',
           userMessage,
-          technicalMessage: `Task "${task.name}": ${userMessage}`,
+          technicalMessage: `Agent "${task.name}": ${userMessage}`,
           context: { taskId: task.id },
         }),
       )
@@ -1714,7 +1714,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         severity: 'warning',
         surface: 'silent',
         userMessage: message,
-        technicalMessage: `Task "${task.name}" failed: ${message}`,
+        technicalMessage: `Agent Run of "${task.name}" failed: ${message}`,
         context: { taskId: task.id },
       }),
     )
@@ -1757,7 +1757,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     chatModelRefusal,
     contributeInFlightWork,
     onAgentDeleted,
-    runsInFlight,
+    firstTurnsInFlight,
     scheduledSessions,
     scheduledSessionCount,
     runningSessionCount,

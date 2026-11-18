@@ -13,7 +13,7 @@ import { useUIStore } from './ui'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { agentComposerState, type AgentComposerState } from '@/lib/agentComposer'
 import { sameAgentSetup } from '@/lib/agentSetup'
-import { afterRunTurn, sendRunTurn } from '@/lib/agentStepRun'
+import { afterRunTurn, sendRunTurn } from '@/lib/agentRunTurn'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
   agentDisplayName,

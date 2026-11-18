@@ -130,7 +130,7 @@ export function followUpAgentName(message: unknown): string | undefined {
   return role === 'user' && typeof name === 'string' ? name : undefined
 }
 
-/** An Agent Run fills its own Harness Session; the retired Run steps marked each prompt it sent. */
+/** An Agent Run fills its own Harness Session; older Sessions mark each run prompt instead. */
 function runTagOf(tag: AgentTurnTag, message: UIMessage): { key: string; run: AgentRunTag } | null {
   if (tag.taskRun) return { key: tag.harnessSessionId, run: tag.taskRun }
   const marked = (message.metadata as { agentRun?: PromptRunTag } | undefined)?.agentRun
@@ -731,7 +731,7 @@ export function timelineTurns(
       }
       const followUp = followingUp.get(tag.harnessSessionId)
       const marked = followUp === undefined ? runTagOf(tag, message) : null
-      const run = marked ? runs.get(marked.key) : undefined
+      let run = marked ? runs.get(marked.key) : undefined
       const last = turns.at(-1)
       if (
         message.role === 'assistant' &&
@@ -763,12 +763,15 @@ export function timelineTurns(
         if (marked) {
           turn.runKey = marked.key
           if (run) run.lastTurn = turn
-          else runs.set(marked.key, { name: marked.run.taskName, lastTurn: turn })
+          else {
+            run = { name: marked.run.taskName, lastTurn: turn }
+            runs.set(marked.key, run)
+          }
         }
         turns.push(turn)
       }
       const end = marked?.run.end
-      if (marked && end) runs.get(marked.key)!.end = end
+      if (run && end) run.end = end
       continue
     }
     if (asChatTranscriptMessage(message) && isUIMessage(message)) {

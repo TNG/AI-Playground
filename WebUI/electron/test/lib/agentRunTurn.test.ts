@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { sendRunTurn, type RunTurn, type StepSender } from '@/lib/agentStepRun'
+import { sendRunTurn, type RunTurn, type RunTurnSender } from '@/lib/agentRunTurn'
 
 function recordingSender() {
   const sent: Array<{ taskName: string; notifiesResult?: boolean }> = []
-  const sender: StepSender = {
+  const sender: RunTurnSender = {
     sendToSession: async (_sessionId, _prompt, options) => {
       sent.push(options.taskRun)
       return { ok: true }

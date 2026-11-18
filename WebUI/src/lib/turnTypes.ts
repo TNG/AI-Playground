@@ -171,7 +171,7 @@ export type AgentTurn = TurnOf<
   {
     presetName: string
     harnessSessionId: string
-    /** Set on the Turns of an Agent Run, or of a Run steps run, outside its Follow-ups. */
+    /** Set on an Agent Run's Turns outside its Follow-ups, and on older Sessions' run prompts. */
     runKey?: string
     prompt?: TurnPrompt
     answers: UIMessage[]

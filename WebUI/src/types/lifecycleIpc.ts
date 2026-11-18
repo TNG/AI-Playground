@@ -24,7 +24,7 @@ export type InFlightWorkItem =
       state: TaskRunWorkState
     }
 
-/** A Task Run is `starting` while its models are checked, before its turn exists. */
+/** An Agent Run is `starting` while its models are checked, before its turn exists. */
 export type TaskRunWorkState = { status: 'running' } | { status: 'starting' }
 
 export type InFlightWorkKind = InFlightWorkItem['kind']

@@ -142,9 +142,6 @@ type ReportedTurn = {
   started?: Promise<unknown>
 }
 
-/** A Channel-started Agent Run's turn, as its turn config names it. */
-export type ReportedRun = { taskName: string }
-
 /** Per Harness Session. */
 const reportedTurns = new Map<string, ReportedTurn>()
 
@@ -194,11 +191,11 @@ export function noteAnswerTurn(
   workspaceDir: string,
   origin: AgentAnswerOrigin,
   speaks = false,
-  run?: ReportedRun,
+  runName?: string,
 ): void {
   const turn: ReportedTurn = { ...newReportedTurn(turnId, workspaceDir), answer: origin, speaks }
   replaceReportedTurn(sessionId, turn)
-  if (run) turn.started = sendStarted(sessionId, run.taskName)
+  if (runName) turn.started = sendStarted(sessionId, runName)
 }
 
 async function sendStarted(sessionId: string, name: string): Promise<void> {

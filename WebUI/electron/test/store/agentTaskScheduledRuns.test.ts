@@ -446,7 +446,7 @@ describe('a Scheduled Run in its Session', () => {
     expect(window.electronAPI.sessions.taskRunHarness).toHaveBeenCalledWith(SESSION)
   })
 
-  it('sends one turn with every Step, tagged with the Task and asking for its result', async () => {
+  it('sends one turn with every Step, tagged with the Agent and asking for its result', async () => {
     const { tasks } = await readyStores(scheduledTask('t1'))
     await runClockTo(NOW + 10 * MINUTE)
 
@@ -1450,7 +1450,7 @@ describe('reporting In-flight Work to the close question', () => {
 
     expect(lastReport()).toEqual([])
   })
-  it('reports a whole Task Run by name while its turn lasts, and not after', async () => {
+  it('reports a whole Agent Run by name while its turn lasts, and not after', async () => {
     const { tasks } = await readyStores(task('t1'))
     await tasks.runTask('t1')
     await settleMicrotasks()

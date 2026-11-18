@@ -8,7 +8,7 @@ export type LabelTask = {
 
 type LabelTemplates = Pick<NotificationTemplates, 'sessionLabel' | 'untitled'>
 
-/** A Task run reads as its Agent's quoted name; any other session its quoted title. */
+/** An Agent Run reads as its Agent's quoted name; any other session its quoted title. */
 export function notificationSessionLabel(
   templates: LabelTemplates,
   sessionId: string,

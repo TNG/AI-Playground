@@ -137,7 +137,7 @@ describe('Task Runs on shutdown', () => {
     await shutdown.shutdown(cause)
   }
 
-  it('records a Task Run the user quit during as stopped', async () => {
+  it('records an Agent Run the user quit during as stopped', async () => {
     await shutDownWith('quit')
 
     const [daily, weekly] = await readAgentTasks()

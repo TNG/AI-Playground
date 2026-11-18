@@ -23,7 +23,7 @@ import type { AgentAnswerOrigin } from '@/types/agentIpc'
 const ADMISSION_WAIT_MS = 3000
 
 export type ChannelSessionLabels = {
-  /** A Harness Session's Notification label (a Task run names its Agent). */
+  /** A Harness Session's Notification label (an Agent Run names its Agent). */
   harness: (harnessSessionId: string) => string
   /** A Session's quoted title. */
   session: (sessionRef: string) => string

@@ -444,7 +444,7 @@ export async function startAgentTurn(
       config.workspaceDir,
       config.answer,
       answerSpeaks(config),
-      config.taskRun,
+      config.taskRun?.taskName,
     )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)

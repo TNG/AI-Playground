@@ -8,6 +8,14 @@ import type {
   PushPayload,
   SendChannelName,
 } from '@/types/ipcChannels'
+import { deliverPush, noteDriver } from './rendererSinks'
+import {
+  isDriverChannel,
+  recordInvokeHandler,
+  recordSendHandler,
+  remoteInvokeForwarder,
+  remoteSendForwarder,
+} from './remoteKernel/dispatch'
 
 export type InvokeHandler<N extends InvokeChannelName> = (
   event: IpcMainInvokeEvent,
@@ -18,6 +26,19 @@ export function typedHandle<N extends InvokeChannelName>(
   channel: N,
   handler: InvokeHandler<N>,
 ): void {
+  recordInvokeHandler(channel, handler as never)
+  const forward = remoteInvokeForwarder(channel)
+  if (forward) {
+    ipcMain.handle(channel, (_event, ...args: unknown[]) => forward(args))
+    return
+  }
+  if (isDriverChannel(channel)) {
+    ipcMain.handle(channel, ((event: IpcMainInvokeEvent, ...args: ChannelArgs<N>) => {
+      noteDriver('window')
+      return handler(event, ...args)
+    }) as never)
+    return
+  }
   ipcMain.handle(channel, handler as never)
 }
 
@@ -27,6 +48,12 @@ export type SendHandler<N extends SendChannelName> = (
 ) => void
 
 export function typedOn<N extends SendChannelName>(channel: N, listener: SendHandler<N>): void {
+  recordSendHandler(channel, listener as never)
+  const forward = remoteSendForwarder(channel)
+  if (forward) {
+    ipcMain.on(channel, (_event, ...args: unknown[]) => forward(args))
+    return
+  }
   ipcMain.on(channel, listener as never)
 }
 
@@ -35,7 +62,7 @@ export function typedSend<N extends PushChannelName>(
   channel: N,
   payload: PushPayload<N>,
 ): void {
-  sender.send(channel, payload)
+  deliverPush(sender, channel, payload)
 }
 
 export const ipcErrorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))

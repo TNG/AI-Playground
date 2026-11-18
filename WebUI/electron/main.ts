@@ -117,11 +117,18 @@ import {
   submitAgentToolResult,
 } from './agent/piAgentManager'
 import {
+  getKernelEventWindow,
   getKernelSnapshot,
   onKernelEvent,
+  relayKernelEvent,
   setComponentHolds,
   setKernelEventWindow,
+  setKernelRelayOnly,
 } from './kernel/kernelBus'
+import { createRemoteKernel } from './kernel/remoteKernel/remoteKernel'
+import { createRemoteKernelSecrets } from './persist/remoteKernelSecrets'
+import { buildRemoteKernelRegistry } from './kernel/registries/remoteKernel'
+import type { PushChannelName } from '@/types/ipcChannels'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
 import { typedSend } from './kernel/typedIpc'
 import { bindRendererWorkReset, createCloseCoordinator } from './kernel/closeCoordinator'
@@ -820,6 +827,20 @@ const demoModeConfig = createDemoModeConfig({
 // device chosen after install) without importing main.ts's private writer.
 registerSettingsPersist(persistLocalSettingsToDisk)
 
+const remoteKernel = createRemoteKernel({
+  settings: () => settings,
+  persistSettings: persistLocalSettingsToDisk,
+  secrets: createRemoteKernelSecrets(
+    () => path.join(app.getPath('userData'), 'remote-kernel-secrets.json'),
+    {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (data) => safeStorage.decryptString(data),
+    },
+  ),
+  log: (message, level = 'info') => appLogger[level](message, 'remote-kernel', true),
+})
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'aipg-media',
@@ -1385,7 +1406,9 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 })
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
-  serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings)
+  serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings, {
+    startBackends: !remoteKernel.isClient(),
+  })
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
     homeAgent.registerIpcHandlers()
@@ -1773,6 +1796,7 @@ function initEventHandle() {
   // BEFORE requesting this snapshot and applies only events above its
   // sequence (docs/architecture-target.md §4.6).
   registerInvokeHandlers(buildKernelRegistry({ getKernelSnapshot }))
+  registerInvokeHandlers(buildRemoteKernelRegistry({ remoteKernel }))
 
   const pathsManager = new PathsManager(
     // Packaged: the per-user writable copy (seeded from the shared default on
@@ -2288,6 +2312,22 @@ app.whenReady().then(async () => {
     appLogger.info('startup step: initializing tracing', 'electron-backend', true)
     await initLaminarTracing()
 
+    // Before the registries register: a thin client's remote rows become forwarders.
+    if (
+      await remoteKernel.startClient({
+        relayKernelEvent,
+        deliverPush: (channel, payload) => {
+          if (win && !win.isDestroyed())
+            typedSend(win.webContents, channel as PushChannelName, payload as never)
+        },
+        rehydrate: () => {
+          if (win && !win.isDestroyed()) win.webContents.reload()
+        },
+      })
+    ) {
+      setKernelRelayOnly(true)
+    }
+
     appLogger.info('startup step: initializing event handlers', 'electron-backend', true)
     initEventHandle()
 
@@ -2296,6 +2336,8 @@ app.whenReady().then(async () => {
     // handler enforces the same path-traversal containment as the IPC reader
     // — without it, crafted `aipg-media://../...` URLs could escape `mediaDir`.
     protocol.handle('aipg-media', async (request) => {
+      const remote = remoteKernel.fetchMedia(request)
+      if (remote) return remote
       const safePath = getLocalPathFromAipgMediaUrl(request.url)
       if (!safePath) {
         return new Response('Not Found', { status: 404 })
@@ -2328,7 +2370,12 @@ app.whenReady().then(async () => {
     }
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
-    if (!settings.isDemoModeEnabled) {
+    await remoteKernel.startHost({
+      sender: () => getKernelEventWindow()?.webContents,
+      resolveMediaPath: getLocalPathFromAipgMediaUrl,
+      onKernelEvent,
+    })
+    if (!settings.isDemoModeEnabled && !remoteKernel.isClient()) {
       appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
       await migrateAgentLibrary({
         presetsDir: getUserPresetsDir(),

@@ -258,6 +258,9 @@ export function peekApiServiceRegistry(): ApiServiceRegistryImpl | null {
 export async function aiplaygroundApiServiceRegistry(
   win: BrowserWindow,
   settings: LocalSettings,
+  // A remote-kernel thin client renders another machine's backends; on a shared
+  // box the orphan reap would also kill that machine's live processes.
+  options: { startBackends: boolean } = { startBackends: true },
 ): Promise<ApiServiceRegistryImpl> {
   if (!instance) {
     instance = new ApiServiceRegistryImpl()
@@ -321,14 +324,16 @@ export async function aiplaygroundApiServiceRegistry(
       ),
     )
 
-    // Before anything of ours is spawned, so every match is genuinely a leftover
-    // from an earlier session rather than a backend we just started.
-    await instance.reapOrphansFromPreviousSession()
-
-    // Automatically start all set-up services in the background
-    // This happens regardless of frontend state, making it more reliable
     instance.setDisabledBackends(settings.disabledBackends ?? [])
-    instance.startAllSetUpServices()
+    if (options.startBackends) {
+      // Before anything of ours is spawned, so every match is genuinely a leftover
+      // from an earlier session rather than a backend we just started.
+      await instance.reapOrphansFromPreviousSession()
+
+      // Automatically start all set-up services in the background
+      // This happens regardless of frontend state, making it more reliable
+      instance.startAllSetUpServices()
+    }
   }
   return instance
 }

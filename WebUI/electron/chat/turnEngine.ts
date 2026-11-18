@@ -751,9 +751,16 @@ export function anyChatTurnActive(): boolean {
   return activeTurns.size > 0
 }
 
+// Presets like Assistant tell the model it can generate images; without this it fakes the call.
+export const NO_TOOLS_NOTE =
+  'Tools are unavailable in this mode. You cannot call functions or generate, edit or show ' +
+  'images, audio or video, so never pretend to or write out a function call. If asked for ' +
+  'one, say it is not available here and offer to help in text instead.'
+
 function withoutTools(request: ChatTurnRequest): ChatTurnRequest {
   return {
     ...request,
+    systemPrompt: [request.systemPrompt, NO_TOOLS_NOTE].filter(Boolean).join('\n\n'),
     tools: [],
     repairData: undefined,
     mediaAgent: undefined,

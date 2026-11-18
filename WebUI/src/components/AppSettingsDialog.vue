@@ -126,6 +126,7 @@ import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
 import AppSettingsMcp from '@/components/AppSettingsMcp.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
 import AppSettingsHide from '@/components/AppSettingsHide.vue'
+import AppSettingsRemoteKernel from '@/components/AppSettingsRemoteKernel.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
@@ -150,6 +151,8 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   mcp: AppSettingsMcp,
   permissions: AppSettingsPermissions,
   hideMessages: AppSettingsHide,
+  remoteKernel: AppSettingsRemoteKernel,
+  backendStatus: AppSettingsBackendStatus,
   developer: AppSettingsDeveloper,
   demoMode: DemoModeSettings,
 }
@@ -181,6 +184,7 @@ const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   mcp: languages.SETTINGS_MCP_SERVERS,
   permissions: languages.SETTINGS_PERMISSIONS,
   hide: languages.SETTINGS_HIDE_MESSAGES,
+  remoteKernel: languages.SETTINGS_REMOTE_KERNEL,
   advanced: languages.SETTINGS_ADVANCED,
 }))
 

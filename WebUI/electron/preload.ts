@@ -36,6 +36,7 @@ import type { PauseReason } from '@/types/kernelEvents'
 import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from '@/types/lifecycleIpc'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
+import type { RemoteKernelConfigUpdate, RemoteKernelTarget } from '@/types/remoteKernelIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type {
   PermissionGrant,
@@ -558,6 +559,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteKey: (providerId: string) => invoke('cloudProvider:deleteKey', providerId),
     listModels: (providerId: string, baseUrl: string, authStyle: string) =>
       invoke('cloudProvider:listModels', providerId, baseUrl, authStyle),
+  },
+  remoteKernel: {
+    getStatus: () => invoke('remoteKernel:getStatus'),
+    saveConfig: (update: RemoteKernelConfigUpdate) => invoke('remoteKernel:saveConfig', update),
+    regenerateToken: () => invoke('remoteKernel:regenerateToken'),
+    testConnection: (target: RemoteKernelTarget) => invoke('remoteKernel:testConnection', target),
   },
   // The one whole-object exhaustiveness check: every member of this object must
   // match the manifest-derived ElectronApi exactly (path, args, result) — a

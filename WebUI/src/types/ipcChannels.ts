@@ -32,6 +32,11 @@ import type {
   PermissionsPromptResponse,
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
+import type {
+  RemoteKernelConfigUpdate,
+  RemoteKernelStatus,
+  RemoteKernelTarget,
+} from './remoteKernelIpc'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type {
   ArtifactMediaType,
@@ -2217,6 +2222,37 @@ export const CHANNELS = {
     // already calls `electronAPI.getKernelSnapshot()`.
     flat: true as const,
     member: 'getKernelSnapshot' as const,
+  },
+
+  // ── Remote kernel (thin client ↔ workstation over the LAN) ──
+
+  /** This launch's remote-kernel mode, the saved config, and the live connection. */
+  'remoteKernel:getStatus': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as RemoteKernelStatus,
+  },
+  /** Save mode / host port / client target; applies on the next start. */
+  'remoteKernel:saveConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelConfigUpdate] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Mint a fresh host token; connected clients must be given the new one. */
+  'remoteKernel:regenerateToken': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as { token: string },
+  },
+  /** Reach a workstation with the given target and report its hostname. */
+  'remoteKernel:testConnection': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelTarget] as const,
+    result: null as unknown as IpcOkWith<{ hostname: string }>,
   },
 } satisfies Record<string, IpcRow>
 

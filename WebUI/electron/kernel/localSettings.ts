@@ -1,4 +1,5 @@
 import z from 'zod'
+import { REMOTE_KERNEL_DEFAULT_PORT } from '@/types/remoteKernelIpc'
 
 // Machine-level settings (`ai-playground-local-settings.json` / `settings.json`).
 // They live here rather than in `main.ts` so a backend adapter can type its
@@ -85,6 +86,18 @@ export const LocalSettingsSchema = z.object({
   // while saving a LAN chat password. Re-applied at startup so decrypt still
   // works; first-time opt-in is the renderer WarningDialog, not a native prompt.
   allowPlaintextSecretStorage: z.boolean().default(false),
+  // Remote kernel: `host` serves this app's kernel to thin clients on the LAN,
+  // `client` renders a workstation's kernel instead of running one. Read at
+  // startup only; the tokens live in userData (remote-kernel-secrets.json).
+  remoteKernelMode: z.enum(['off', 'host', 'client']).default('off'),
+  remoteKernelHostPort: z.number().int().min(1024).max(65535).default(REMOTE_KERNEL_DEFAULT_PORT),
+  remoteKernelClientHost: z.string().default(''),
+  remoteKernelClientPort: z
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .default(REMOTE_KERNEL_DEFAULT_PORT),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>

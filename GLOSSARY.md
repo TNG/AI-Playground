@@ -133,11 +133,13 @@ and closing it returns to the Session.
 _Avoid_: overlay, modal, panel
 
 **Step**:
-One prompt of an Agent, sent as its own turn.
+One instruction in an Agent's ordered list. An Agent Run is given all its Steps at once and decides
+how to carry them out: in order, conditionally, repeatedly, or by asking the user.
+_Avoid_: task, stage
 
 **Start Prompt**:
-Text the user gives when starting an Agent, for that Agent Run only. It goes in with the first Step
-and applies to every Step it is relevant to; starting without one runs the Steps as written.
+Text the user gives when starting an Agent, for that Agent Run only. It goes in with the Steps and
+applies to every Step it is relevant to; starting without one runs the Steps as written.
 _Avoid_: task, run instructions, input
 
 **Settings Template**:
@@ -151,16 +153,17 @@ Library. An Agent can have Schedules in several Sessions but at most one per Ses
 ends with its Session or its Agent.
 
 **Agent Run**:
-One execution of an Agent's Steps inside the Session it was started or scheduled in, in a fresh
-Harness Session that starts with no context from the Session. Prompts sent to the Agent afterwards
-continue that Harness Session, until its Steps are run again. It works in its Session's Session
-Folder, with the Agent's own Mounted Folders instead of the Session's. Its result is its final
-answer and the Artifacts it produced.
+One conversation with an Agent inside the Session it was started or scheduled in. It starts by
+giving the Agent all its Steps at once, in a fresh Harness Session with no context from the
+Session, and its Follow-ups continue it until the Agent is run again. It works in its Session's
+Session Folder, with the Agent's own Mounted Folders instead of the Session's. Its result is the
+final answer of its first turn and the Artifacts that turn produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
 **Follow-up**:
-A prompt sent to an Agent without running its Steps. It continues the Harness Session of the
-Agent's latest Agent Run or Trial Run; an Agent that has not run yet takes none.
+A prompt sent to an Agent without running its Steps: a later turn of the Agent's latest Agent Run
+or Trial Run, and how the user answers a question the run asked. An Agent that has not run yet
+takes none.
 _Avoid_: Agent chat, chat with agent
 
 **Draft**:

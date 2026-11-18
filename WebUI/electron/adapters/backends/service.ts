@@ -15,6 +15,7 @@ import {
   spawnErrorEvidence,
 } from './applicationControl.ts'
 import { fetchInstallArtifact } from '../install/fetchInstallArtifact.ts'
+import { portableGitArchive } from '../install/portableGitPin.ts'
 import { terminateProcessTree, type ProcessSignature } from '../install/processLifecycle.ts'
 import { assert } from 'node:console'
 import { createHash } from 'crypto'
@@ -419,10 +420,9 @@ export class GitService extends ExecutableService {
     await this.install()
   }
 
-  readonly remoteUrl =
-    'https://github.com/git-for-windows/git/releases/download/v2.51.2.windows.1/PortableGit-2.51.2-64-bit.7z.exe'
-  readonly sha256 = 'f5764d546ff9a2511b50ec4e20424c5f4669de1695abc3fa4128e7f7d4a7b2cd'
-  readonly zipPath = path.resolve(path.join(this.baseDir, 'portable-git.7z.exe'))
+  readonly remoteUrl = portableGitArchive.url
+  readonly sha256 = portableGitArchive.sha256
+  readonly zipPath = path.resolve(path.join(this.baseDir, portableGitArchive.fileName))
   readonly unzipExePath = path.resolve(path.join(this.buildResourcesDir, '7zr.exe'))
 
   private async checkGitZip(): Promise<boolean> {

@@ -7,7 +7,12 @@ import { packagedResourcesRoot } from '../../kernel/aipgRoot.ts'
 import { ApiService, createEnhancedErrorDetails, ErrorDetails } from './service.ts'
 import { emitServiceUpdate, getKernelEventWindow } from '../../kernel/kernelBus.ts'
 import { fetchFirstInstallArtifact } from '../install/fetchInstallArtifact.ts'
-import { buildOvmsCandidates, parseUbuntuMajor, ubuntuDistroTargets } from './ovmsDownloadUrls.ts'
+import {
+  buildOvmsCandidates,
+  ovmsPayloadIsCurrent,
+  parseUbuntuMajor,
+  ubuntuDistroTargets,
+} from './ovmsDownloadUrls.ts'
 import { promisify } from 'util'
 import { exec } from 'child_process'
 import type { LocalSettings } from '../../kernel/localSettings.ts'
@@ -1315,6 +1320,26 @@ export class OpenVINOBackendService implements ApiService {
    * downloaded. This is the authoritative source for getInstalledVersion() — it
    * also captures the releaseTag, which `ovms --version` cannot report.
    */
+  private async seededOvmsIsCurrent(): Promise<boolean> {
+    let marker: { version?: string; releaseTag?: string } | undefined
+    if (filesystem.existsSync(this.versionMarkerPath)) {
+      try {
+        marker = (await filesystem.readJson(this.versionMarkerPath)) as {
+          version?: string
+          releaseTag?: string
+        }
+      } catch {
+        marker = undefined
+      }
+    }
+    return ovmsPayloadIsCurrent({
+      exeExists: filesystem.existsSync(this.ovmsExePath),
+      marker,
+      version: this.version,
+      releaseTag: this.releaseTag,
+    })
+  }
+
   private async writeVersionMarker(): Promise<void> {
     try {
       await filesystem.writeJson(this.versionMarkerPath, {
@@ -1436,38 +1461,46 @@ export class OpenVINOBackendService implements ApiService {
       }
 
       currentStep = 'download'
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: `downloading OpenVINO Model Server`,
-      }
+      if (await this.seededOvmsIsCurrent()) {
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: 'using the OpenVINO Model Server already on disk',
+        }
+      } else {
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: `downloading OpenVINO Model Server`,
+        }
 
-      await this.downloadOvms()
+        await this.downloadOvms()
 
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'download complete',
-      }
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: 'download complete',
+        }
 
-      // Extract OVMS ZIP file
-      currentStep = 'extract'
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'extracting OpenVINO Model Server',
-      }
+        currentStep = 'extract'
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: 'extracting OpenVINO Model Server',
+        }
 
-      await this.extractOvms()
+        await this.extractOvms()
 
-      yield {
-        serviceName: this.name,
-        step: currentStep,
-        status: 'executing',
-        debugMessage: 'extraction complete',
+        yield {
+          serviceName: this.name,
+          step: currentStep,
+          status: 'executing',
+          debugMessage: 'extraction complete',
+        }
       }
 
       // Install OpenVINO Python environment for device detection

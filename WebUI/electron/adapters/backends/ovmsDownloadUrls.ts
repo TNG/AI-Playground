@@ -1,6 +1,25 @@
 const STORAGE_BASE_URL =
   'https://storage.openvinotoolkit.org/repositories/openvino_model_server/packages'
 
+export type OvmsVersionMarker = { version?: string; releaseTag?: string }
+
+/**
+ * True when a pre-seeded OVMS tree already matches the version this setup would download.
+ * A weekly build also has to match `releaseTag`; a stable build has none.
+ */
+export function ovmsPayloadIsCurrent(input: {
+  exeExists: boolean
+  marker: OvmsVersionMarker | undefined
+  version: string | undefined
+  releaseTag?: string
+}): boolean {
+  if (!input.exeExists || !input.version || !input.marker?.version) return false
+  if (input.marker.version !== input.version) return false
+  const wanted = input.releaseTag || undefined
+  const installed = input.marker.releaseTag || undefined
+  return wanted === installed
+}
+
 export type OvmsCandidateOptions = {
   platform: NodeJS.Platform
   version: string

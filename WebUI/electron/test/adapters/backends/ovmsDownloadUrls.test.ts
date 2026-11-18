@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildOvmsCandidates,
+  ovmsPayloadIsCurrent,
   parseUbuntuMajor,
   ubuntuDistroTargets,
 } from '../../../adapters/backends/ovmsDownloadUrls'
@@ -89,6 +90,50 @@ describe('parseUbuntuMajor', () => {
     ['NAME="Something"\n', ''],
   ])('reports nothing for %s', (_label, osRelease) => {
     expect(parseUbuntuMajor(osRelease as string | undefined)).toBeUndefined()
+  })
+})
+
+describe('ovmsPayloadIsCurrent', () => {
+  it('accepts a seeded server that matches the pinned stable version', () => {
+    expect(
+      ovmsPayloadIsCurrent({
+        exeExists: true,
+        marker: { version: '2026.4.0' },
+        version: '2026.4.0',
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects a missing exe, a different version, or a different weekly tag', () => {
+    expect(
+      ovmsPayloadIsCurrent({
+        exeExists: false,
+        marker: { version: '2026.4.0' },
+        version: '2026.4.0',
+      }),
+    ).toBe(false)
+    expect(
+      ovmsPayloadIsCurrent({
+        exeExists: true,
+        marker: { version: '2026.3.0' },
+        version: '2026.4.0',
+      }),
+    ).toBe(false)
+    expect(
+      ovmsPayloadIsCurrent({
+        exeExists: true,
+        marker: { version: '2026.4.0', releaseTag: 'old' },
+        version: '2026.4.0',
+        releaseTag: 'new',
+      }),
+    ).toBe(false)
+    expect(
+      ovmsPayloadIsCurrent({
+        exeExists: true,
+        marker: { version: '2026.4.0', releaseTag: '' },
+        version: '2026.4.0',
+      }),
+    ).toBe(true)
   })
 })
 

@@ -1,4 +1,4 @@
-import { Marked, Token, Tokens } from 'marked'
+import { Marked, Token, Tokens, RendererThis } from 'marked'
 import hljs from 'highlight.js'
 import { stringToBase64 } from 'uint8array-extras'
 
@@ -46,6 +46,33 @@ const htmlEscaper = {
   },
 }
 
+const externalLinkIcon =
+  ' <span class="svg-icon i-external-link external-link-icon" aria-hidden="true"></span>'
+
+const cleanUrl = (href: string): string | null => {
+  try {
+    return encodeURI(href).replace(/%25/g, '%')
+  } catch {
+    return null
+  }
+}
+
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+const linkRenderer = {
+  renderer: {
+    link(this: RendererThis, token: Tokens.Link): string {
+      const text = this.parser.parseInline(token.tokens)
+      const href = cleanUrl(token.href)
+      if (href === null) return text
+      const title = token.title ? ` title="${escapeHtml(token.title)}"` : ''
+      const isWeb = /^https?:\/\//i.test(href)
+      return `<a href="${escapeHtml(href)}"${title}>${text}${isWeb ? externalLinkIcon : ''}</a>`
+    },
+  },
+}
+
 const dataCodeFixer = (input: string) => {
   try {
     if (input.includes(startMarker) && input.includes(endMarker)) {
@@ -68,6 +95,7 @@ export const parser = new Marked({
 })
   .use(codeRenderer)
   .use(htmlEscaper)
+  .use(linkRenderer)
   .use({
     hooks: {
       postprocess: dataCodeFixer,
@@ -79,7 +107,9 @@ export const plainParser = new Marked({
   gfm: true,
   breaks: true,
   async: false,
-}).use(htmlEscaper)
+})
+  .use(htmlEscaper)
+  .use(linkRenderer)
 
 export const parse = (input: string) => {
   try {

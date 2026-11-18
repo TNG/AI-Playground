@@ -286,9 +286,11 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
     // Every interface on purpose: serving a thin client on the LAN is the feature.
     server.listen(deps.port, '0.0.0.0', () => {
       server.off('error', reject)
-      deps.log(`remote kernel host listening on 0.0.0.0:${deps.port}`)
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : deps.port
+      deps.log(`remote kernel host listening on 0.0.0.0:${port}`)
       resolve({
-        port: deps.port,
+        port,
         peerCount: remotePeerCount,
         close: () =>
           new Promise<void>((done) => {

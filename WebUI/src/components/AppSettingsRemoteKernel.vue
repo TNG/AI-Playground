@@ -141,7 +141,8 @@ const modeOptions = computed(() => [
 
 const hostToken = computed(() => status.value?.hostToken ?? '')
 const hostAddressList = computed(
-  () => status.value?.hostAddresses.map((address) => `${address}:${hostPort.value}`).join(', ') ?? '',
+  () =>
+    status.value?.hostAddresses.map((address) => `${address}:${hostPort.value}`).join(', ') ?? '',
 )
 
 const statusTone = computed(() =>
@@ -151,10 +152,10 @@ const statusLine = computed(() => {
   const s = status.value
   if (!s) return ''
   if (s.activeMode === 'host') {
-    return languages.SETTINGS_REMOTE_KERNEL_STATUS_HOST.replace('{port}', String(s.hostPort)).replace(
-      '{count}',
-      String(s.hostPeers),
-    )
+    return languages.SETTINGS_REMOTE_KERNEL_STATUS_HOST.replace(
+      '{port}',
+      String(s.hostPort),
+    ).replace('{count}', String(s.hostPeers))
   }
   if (s.activeMode !== 'client') return ''
   if (s.connection === 'connected') {
@@ -164,10 +165,7 @@ const statusLine = computed(() => {
     )
   }
   if (s.connection === 'connecting') return languages.SETTINGS_REMOTE_KERNEL_STATUS_CONNECTING
-  return languages.SETTINGS_REMOTE_KERNEL_STATUS_DISCONNECTED.replace(
-    '{error}',
-    s.lastError ?? '',
-  )
+  return languages.SETTINGS_REMOTE_KERNEL_STATUS_DISCONNECTED.replace('{error}', s.lastError ?? '')
 })
 
 const canSave = computed(() => {

@@ -88,7 +88,8 @@ export function createRemoteKernel(deps: RemoteKernelDeps) {
       activeMode,
       configuredMode: s.remoteKernelMode,
       hostPort: s.remoteKernelHostPort,
-      hostToken: s.remoteKernelMode === 'host' || activeMode === 'host' ? deps.secrets.hostToken() : '',
+      hostToken:
+        s.remoteKernelMode === 'host' || activeMode === 'host' ? deps.secrets.hostToken() : '',
       hostAddresses: lanAddresses(),
       hostPeers: host?.peerCount() ?? 0,
       clientHost: s.remoteKernelClientHost,

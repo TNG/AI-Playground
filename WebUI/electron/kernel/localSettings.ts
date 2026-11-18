@@ -92,12 +92,7 @@ export const LocalSettingsSchema = z.object({
   remoteKernelMode: z.enum(['off', 'host', 'client']).default('off'),
   remoteKernelHostPort: z.number().int().min(1024).max(65535).default(REMOTE_KERNEL_DEFAULT_PORT),
   remoteKernelClientHost: z.string().default(''),
-  remoteKernelClientPort: z
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
-    .default(REMOTE_KERNEL_DEFAULT_PORT),
+  remoteKernelClientPort: z.number().int().min(1).max(65535).default(REMOTE_KERNEL_DEFAULT_PORT),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>

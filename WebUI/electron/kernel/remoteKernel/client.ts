@@ -176,7 +176,8 @@ export async function startRemoteKernelClient(
 
   function scheduleReconnect(reason: string) {
     if (closed) return
-    if (state.connection !== 'disconnected') deps.log(`remote kernel stream lost: ${reason}`, 'warn')
+    if (state.connection !== 'disconnected')
+      deps.log(`remote kernel stream lost: ${reason}`, 'warn')
     state = { ...state, connection: 'disconnected', lastError: reason }
     setTimeout(connect, retryDelay)
     retryDelay = Math.min(retryDelay * 2, 10_000)

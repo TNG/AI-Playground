@@ -389,6 +389,14 @@ export const useSessions = defineStore('sessions', () => {
     })
   }
 
+  /** Takes messages out of a Session's timeline in its file; the open view follows. */
+  async function removeTimelineMessages(id: string, messageIds: string[]): Promise<void> {
+    const result = await call('sessions/remove-timeline-failed', () =>
+      window.electronAPI.sessions.removeTimelineMessages(id, messageIds),
+    )
+    if (result) forgetTimelineMessages(id, messageIds)
+  }
+
   /** Brings back what a premature forget removed; main never took them out of the file. */
   async function restoreForgottenTimelineMessages(id: string): Promise<void> {
     if (id !== openSessionId.value) return
@@ -443,6 +451,7 @@ export const useSessions = defineStore('sessions', () => {
     remove,
     saveTimelineMessages,
     forgetTimelineMessages,
+    removeTimelineMessages,
     restoreForgottenTimelineMessages,
     ensureOpenSession,
     isFileDeleted,

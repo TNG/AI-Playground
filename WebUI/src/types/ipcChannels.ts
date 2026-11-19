@@ -377,6 +377,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, unknown[]],
     result: null as unknown as IpcMutationResult,
   },
+  /** Take display messages out of a Session's timeline — the turn a regenerate replaces. */
+  'sessions:removeTimelineMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string[]],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Replace a Session's chat transcript (a removed or cleared message); other turns stay. */
   'sessions:saveChatTranscript': {
     kind: 'invoke',

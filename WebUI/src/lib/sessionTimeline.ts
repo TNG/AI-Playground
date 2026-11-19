@@ -45,6 +45,8 @@ import type {
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
+  AudioRerun,
+  AudioTurn,
   HarnessTurnRef,
   ArtifactKind,
   LiveAgentTurn,
@@ -268,6 +270,18 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   if (last?.kind === 'media') {
     const rerun = mediaRerun(last.media, last.prompt.text)
     if (rerun) last.footer = { actions: ['regenerate'], text: '', rerun }
+  }
+  if (last?.kind === 'audio') {
+    const rerun = audioRerunOf(last)
+    if (rerun) {
+      last.footer = {
+        ...last.footer,
+        actions: last.footer.actions.includes('regenerate')
+          ? last.footer.actions
+          : [...last.footer.actions, 'regenerate'],
+        audioRerun: rerun,
+      }
+    }
   }
   return items
 }
@@ -585,6 +599,20 @@ function audioDetails(audio: PendingAudio & Partial<AudioTurnData>): TurnDetails
   }
 }
 
+/** Regenerate re-runs the latest audio turn's input, which needs the text spoken or the source clip. */
+function audioRerunOf(turn: AudioTurn): AudioRerun | null {
+  if (!turn.promptId) return null
+  if (turn.audio.kind === 'tts' && !turn.prompt.text.trim()) return null
+  if (turn.audio.kind === 'stt' && !turn.audio.audioUrl) return null
+  return {
+    kind: turn.audio.kind,
+    preset: turn.audio.preset,
+    prompt: turn.prompt.text,
+    ...(turn.audio.audioUrl ? { audioUrl: turn.audio.audioUrl } : {}),
+    messageIds: [turn.promptId, turn.id],
+  }
+}
+
 function partsLiveStatus(
   engine: 'chat' | 'agent',
   answers: UIMessage[],
@@ -825,6 +853,7 @@ export function timelineTurns(
         createdAt: message.createdAt,
         audio,
         audioArtifacts: [],
+        promptId: message.id,
       })
       i++
       continue

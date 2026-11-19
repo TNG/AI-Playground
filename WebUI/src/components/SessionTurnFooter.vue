@@ -53,6 +53,7 @@ import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
+import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import { useErrors } from '@/assets/js/store/errors'
 import { isCancellation } from '@/assets/js/errors/appError'
 import { useTextInference } from '@/assets/js/store/textInference'
@@ -68,13 +69,14 @@ import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
 import { fillTemplate } from '@/lib/fillTemplate'
-import type { MediaRerun, TurnFooter } from '@/lib/turnTypes'
+import type { AudioRerun, MediaRerun, TurnFooter } from '@/lib/turnTypes'
 
 const props = defineProps<{ footer: TurnFooter }>()
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const imageGeneration = useImageGenerationPresets()
+const sessionAudio = useSessionAudio()
 const errors = useErrors()
 const textInference = useTextInference()
 const languages = useI18N().state
@@ -90,6 +92,7 @@ const regenerateBlocked = computed(
   () =>
     openAiCompatibleChat.processing ||
     (!!props.footer.rerun && imageGeneration.processing) ||
+    (!!props.footer.audioRerun && sessionAudio.processing) ||
     (!!props.footer.harnessTurn &&
       agentMode.isSessionProcessing(props.footer.harnessTurn.harnessSessionId)),
 )
@@ -172,8 +175,23 @@ async function rerunMedia(rerun: MediaRerun) {
   }
 }
 
+/** Re-runs the latest Speech turn, which the new result replaces. */
+async function rerunAudio(rerun: AudioRerun) {
+  try {
+    await sessionAudio.regenerate(rerun)
+  } catch (error) {
+    if (isCancellation(error)) return
+    errors.report(error, {
+      category: 'generation',
+      code: 'generation/submit-failed',
+      userMessage: languages.SESSION_AUDIO_TURN_NOT_SAVED,
+    })
+  }
+}
+
 function regenerate() {
   if (props.footer.rerun) void rerunMedia(props.footer.rerun)
+  else if (props.footer.audioRerun) void rerunAudio(props.footer.audioRerun)
   else if (props.footer.harnessTurn) void agentMode.regenerateTurn(props.footer.harnessTurn)
   else if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
 }

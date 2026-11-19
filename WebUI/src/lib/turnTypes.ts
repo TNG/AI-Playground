@@ -124,7 +124,20 @@ export type TurnFooter = {
   messageId?: string
   metrics?: TurnMetrics
   rerun?: MediaRerun
+  audioRerun?: AudioRerun
   harnessTurn?: HarnessTurnRef
+}
+
+/** Re-runs the latest Text-to-Speech / Speech-to-Text turn, which it replaces. */
+export type AudioRerun = {
+  kind: AudioTurnData['kind']
+  preset: string
+  /** TTS: the text spoken again; STT: what the source audio is called. */
+  prompt: string
+  /** TTS: the replaced clip; STT: the source clip to transcribe again. */
+  audioUrl?: string
+  /** The replaced turn's prompt and result messages, out of the Session's timeline. */
+  messageIds: string[]
 }
 
 export type MediaRerun = {
@@ -192,7 +205,14 @@ export type MediaTurn = TurnOf<
 
 export type AudioTurn = TurnOf<
   'audio',
-  { prompt: TurnPrompt; createdAt: number; audio: AudioTurnData; audioArtifacts: AudioArtifact[] }
+  {
+    prompt: TurnPrompt
+    createdAt: number
+    audio: AudioTurnData
+    audioArtifacts: AudioArtifact[]
+    /** The replaced turn's user prompt message, which Regenerate takes out with the answer. */
+    promptId?: string
+  }
 >
 
 export type MessageTurn = { kind: 'message'; id: string; message: TimelineMessage }

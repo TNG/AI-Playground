@@ -325,6 +325,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     taskRunHarness: (id: string) => invoke('sessions:taskRunHarness', id),
     saveTimelineMessages: (id: string, messages: unknown[]) =>
       invoke('sessions:saveTimelineMessages', id, cloneForIpc(messages)),
+    removeTimelineMessages: (id: string, messageIds: string[]) =>
+      invoke('sessions:removeTimelineMessages', id, messageIds),
     saveChatTranscript: (id: string, messages: unknown[]) =>
       invoke('sessions:saveChatTranscript', id, cloneForIpc(messages)),
     recordAudioTurn: (turn: AudioTurnRequest) =>

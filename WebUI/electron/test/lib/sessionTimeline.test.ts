@@ -1662,6 +1662,107 @@ describe('the footer of every Turn', () => {
     expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'hello' } })
   })
 
+  it('offers Regenerate on the last Text-to-Speech Turn, carrying what its redo needs', () => {
+    const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
+    const items = sessionTimelineItems(
+      [
+        user('u1', 'Read this'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: tts }] },
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['regenerate'],
+        audioRerun: {
+          kind: 'tts',
+          preset: 'Text to Speech',
+          prompt: 'Read this',
+          audioUrl: 'u',
+          messageIds: ['u1', 'a1'],
+        },
+      },
+    })
+  })
+
+  it('offers Regenerate on the last Speech-to-Text Turn from its source clip', () => {
+    const stt = {
+      kind: 'stt',
+      preset: 'Speech to Text',
+      status: 'completed',
+      audioUrl: 'clip',
+      transcript: 'hello',
+    }
+    const items = sessionTimelineItems(
+      [
+        user('u1', 'standup.wav'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: stt }] },
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'regenerate'],
+        audioRerun: {
+          kind: 'stt',
+          preset: 'Speech to Text',
+          prompt: 'standup.wav',
+          audioUrl: 'clip',
+          messageIds: ['u1', 'a1'],
+        },
+      },
+    })
+  })
+
+  it('offers no Regenerate on a speech Turn a later Turn followed', () => {
+    const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
+    const items = sessionTimelineItems(
+      [
+        user('u1', 'Read this'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: tts }] },
+        chatMessage('u2', 'user', 'hi'),
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual([])
+  })
+
+  it('offers no Regenerate on a speech Turn without what its redo needs', () => {
+    const silentTts = { kind: 'tts', preset: 'Text to Speech', status: 'completed' }
+    const muteStt = {
+      kind: 'stt',
+      preset: 'Speech to Text',
+      status: 'completed',
+      transcript: 'hello',
+    }
+    const items = sessionTimelineItems(
+      [
+        user('u1', ''),
+        {
+          id: 'a1',
+          role: 'assistant',
+          createdAt: 2,
+          parts: [{ type: 'data-audio', data: silentTts }],
+        },
+        user('u2', ''),
+        {
+          id: 'a2',
+          role: 'assistant',
+          createdAt: 4,
+          parts: [{ type: 'data-audio', data: muteStt }],
+        },
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual([])
+    expect(actionsOf(items[1])).toEqual(['copy'])
+    expect(items[1]).not.toHaveProperty('footer.audioRerun')
+  })
+
   it('offers nothing on ComfyUI, text-to-speech and running Turns, which have no text', () => {
     const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
     const items = sessionTimelineItems(
@@ -2880,7 +2981,16 @@ describe('one audio card', () => {
       prompt: { audio: [{ url: clipUrl }] },
       result: [{ kind: 'audio' }],
       audioArtifacts: [],
-      footer: { actions: ['copy'], text: 'hello there' },
+      footer: {
+        actions: ['copy', 'regenerate'],
+        text: 'hello there',
+        audioRerun: {
+          kind: 'stt',
+          preset: 'Speech to Text',
+          audioUrl: clipUrl,
+          messageIds: ['u1', 'a1'],
+        },
+      },
     })
   })
 })

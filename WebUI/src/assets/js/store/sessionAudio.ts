@@ -1,6 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useErrors } from '@/assets/js/store/errors'
+import { useGallery } from '@/assets/js/store/gallery'
 import { useI18N } from '@/assets/js/store/i18n'
 import { usePresets } from '@/assets/js/store/presets'
 import { useSessions } from '@/assets/js/store/sessions'
@@ -11,11 +12,12 @@ import {
   transcribe,
   type SpeechClipResult,
 } from '@/assets/js/speech/speechIO'
-import { bytesToBase64 } from '@/lib/synthesizeSpeech'
+import { base64ToBytes, bytesToBase64 } from '@/lib/synthesizeSpeech'
 import { formatTtsAudioTimestamp } from '@/lib/ttsAudioFileName'
+import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { AudioTurnRequest } from '@/types/sessionIpc'
-import type { AudioPhase } from '@/lib/turnTypes'
+import type { AudioPhase, AudioRerun } from '@/lib/turnTypes'
 
 /** A Text-to-Speech / Speech-to-Text turn still running in a Session. */
 export type PendingAudioTurn = {
@@ -38,6 +40,20 @@ function extensionOf(mediaType: string | undefined): string {
   const subtype = mediaType?.split('/')[1]?.split(';')[0]?.trim()
   if (!subtype || ['wav', 'x-wav', 'wave', 'vnd.wave'].includes(subtype)) return 'wav'
   return subtype === 'mpeg' ? 'mp3' : subtype
+}
+
+/** The MIME type of a stored clip's URL, for reading one back to transcribe again. */
+function clipMimeOf(url: string): string {
+  const ext = url.toLowerCase().split(/[?#]/)[0].split('.').at(-1) ?? ''
+  const mimes: Record<string, string> = {
+    wav: 'audio/wav',
+    mp3: 'audio/mpeg',
+    webm: 'audio/webm',
+    ogg: 'audio/ogg',
+    m4a: 'audio/mp4',
+    flac: 'audio/flac',
+  }
+  return mimes[ext] ?? 'audio/wav'
 }
 
 function messageOf(error: unknown): string {
@@ -63,6 +79,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
   const sessions = useSessions()
   const presets = usePresets()
   const errors = useErrors()
+  const gallery = useGallery()
   const i18nState = useI18N().state
 
   const pendingTurns = ref<Record<string, PendingAudioTurn>>({})
@@ -80,10 +97,12 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
   /** Opens the turn in the open Session; null when there is none or it is already busy. */
   async function begin(
     turn: Omit<PendingAudioTurn, 'preset' | 'createdAt'>,
+    presetOverride?: string,
   ): Promise<{ sessionId: string; preset: string } | null> {
     const sessionId = await sessions.ensureOpenSession()
     if (!sessionId || pendingTurns.value[sessionId]) return null
-    const preset = presets.activePresetName ?? ''
+    // A regenerate records under the preset the replaced turn ran, whichever mode is active.
+    const preset = presetOverride ?? presets.activePresetName ?? ''
     const turnId = crypto.randomUUID()
     try {
       const claimed = await window.electronAPI.sessions.beginTurn(sessionId, {
@@ -132,10 +151,11 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     }
   }
 
-  async function settle(request: AudioTurnRequest): Promise<void> {
+  async function settle(request: AudioTurnRequest): Promise<boolean> {
     try {
       const result = await window.electronAPI.sessions.recordAudioTurn(cloneForIpc(request))
       if (!result.success) throw new Error(result.error)
+      return true
     } catch (error) {
       errors.report(error, {
         category: 'backend',
@@ -143,14 +163,43 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
         userMessage: i18nState.SESSION_AUDIO_TURN_NOT_SAVED,
         surface: 'toast',
       })
+      return false
     }
   }
 
-  async function synthesize(text: string): Promise<void> {
+  /**
+   * Settles the turn — and, when it regenerates another, that turn's messages
+   * leave the Session file and its clip is deleted. A settle that failed
+   * recorded nothing new, so a turn a redo replaced returns instead of
+   * vanishing with nothing in its place.
+   */
+  async function replaceSettledTurn(
+    request: AudioTurnRequest,
+    rerun: AudioRerun | undefined,
+  ): Promise<void> {
+    if (!(await settle(request))) {
+      if (rerun) await sessions.restoreForgottenTimelineMessages(request.sessionId)
+      return
+    }
+    if (!rerun) return
+    await sessions.removeTimelineMessages(request.sessionId, rerun.messageIds)
+    if (rerun.audioUrl) await gallery.removeByUrl(rerun.audioUrl)
+  }
+
+  /**
+   * The replaced turn leaves the open timeline the moment its redo starts —
+   * renderer optimism, undone when the redo never opens (busy Session).
+   */
+  function forgetReplacedTurn(sessionId: string, rerun: AudioRerun | undefined): void {
+    if (rerun) sessions.forgetTimelineMessages(sessionId, rerun.messageIds)
+  }
+
+  async function synthesize(text: string, rerun?: AudioRerun): Promise<void> {
     const prompt = text.trim()
     if (!prompt) return
-    const started = await begin({ kind: 'tts', prompt, phase: 'loading-model' })
+    const started = await begin({ kind: 'tts', prompt, phase: 'loading-model' }, rerun?.preset)
     if (!started) return
+    forgetReplacedTurn(started.sessionId, rerun)
     const { sessionId, preset } = started
     const base = { sessionId, kind: 'tts' as const, preset, prompt }
     try {
@@ -182,7 +231,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
           request = { ...base, status: 'failed', error: messageOf(error) }
         }
       }
-      await settle(request)
+      await replaceSettledTurn(request, rerun)
     } finally {
       end(sessionId)
     }
@@ -192,9 +241,14 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
   async function transcribeAudio(
     blob: Blob,
     source: { label: string; fileName?: string },
+    rerun?: AudioRerun,
   ): Promise<void> {
-    const started = await begin({ kind: 'stt', prompt: source.label, phase: 'transcribing' })
+    const started = await begin(
+      { kind: 'stt', prompt: source.label, phase: 'transcribing' },
+      rerun?.preset,
+    )
     if (!started) return
+    forgetReplacedTurn(started.sessionId, rerun)
     const { sessionId, preset } = started
     const base = { sessionId, kind: 'stt' as const, preset, prompt: source.label }
     try {
@@ -225,13 +279,48 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
           request = { ...base, status: 'failed', error: messageOf(error), audio }
         }
       }
-      await settle(request)
+      await replaceSettledTurn(request, rerun)
     } finally {
       end(sessionId)
     }
   }
 
-  return { pendingTurns, pendingTurn, processing, synthesize, transcribeAudio, cancel }
+  /** Reads a clip the Session stores back as a Blob, to transcribe it again. */
+  async function storedClipBlob(url: string): Promise<Blob> {
+    const result = await window.electronAPI.readAipgMediaAsBase64(url)
+    if (!result.success) throw new Error(result.error)
+    // Copy into a fresh Uint8Array<ArrayBuffer> so the BlobPart type is satisfied.
+    const bytes = new Uint8Array(base64ToBytes(result.data))
+    return new Blob([bytes], { type: clipMimeOf(url) })
+  }
+
+  /**
+   * Regenerates the latest Text-to-Speech / Speech-to-Text turn: its input
+   * runs again — the same text, the same source clip — and the result
+   * replaces it in the Session, like Assistant's regenerate.
+   */
+  async function regenerate(rerun: AudioRerun): Promise<void> {
+    try {
+      if (rerun.kind === 'tts') {
+        await synthesize(rerun.prompt, rerun)
+        return
+      }
+      if (!rerun.audioUrl) return
+      const stored = sessionMediaPathOf(rerun.audioUrl)
+      const blob = await storedClipBlob(rerun.audioUrl)
+      await transcribeAudio(blob, { label: rerun.prompt, fileName: stored?.path }, rerun)
+    } catch (error) {
+      if (isCancellation(error)) return
+      errors.report(error, {
+        category: 'inference',
+        code: `inference/${rerun.kind}-failed`,
+        userMessage: `${rerun.kind === 'tts' ? 'Text To Speech' : 'Speech To Text'} failed: ${messageOf(error)}`,
+        surface: 'toast',
+      })
+    }
+  }
+
+  return { pendingTurns, pendingTurn, processing, synthesize, transcribeAudio, regenerate, cancel }
 })
 
 if (import.meta.hot) {

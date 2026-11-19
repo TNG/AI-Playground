@@ -45,6 +45,7 @@ describe('per-owner handler registries', () => {
       | 'sessions:harnessSession'
       | 'sessions:taskRunHarness'
       | 'sessions:saveTimelineMessages'
+      | 'sessions:removeTimelineMessages'
       | 'sessions:saveChatTranscript'
       | 'sessions:recordAudioTurn'
       | 'sessions:listArtifacts'

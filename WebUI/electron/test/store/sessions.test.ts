@@ -28,15 +28,25 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
-const { upsertTimelineMessages, removeTimelineMessages } =
-  await import('../../session/sessionTimeline')
+const {
+  addHiddenMessages,
+  clearAllHiddenMessages,
+  clearHiddenMessages,
+  removeTimelineMessages,
+  upsertTimelineMessages,
+} = await import('../../session/sessionTimeline')
 const { readSessionSettings } = await import('../../session/sessionSettings')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const ledger = await import('../../session/sessionTurns')
 const { buildSessionsRegistry } = await import('../../kernel/registries/sessions')
 type SessionsDeps = import('../../kernel/registries/sessions').SessionsDeps
 
-const registry = buildSessionsRegistry(sessionModule as unknown as SessionsDeps)
+const registry = buildSessionsRegistry({
+  ...(sessionModule as unknown as SessionsDeps),
+  addHiddenMessages,
+  clearHiddenMessages,
+  clearAllHiddenMessages,
+} as SessionsDeps)
 const noEvent = {} as never
 const idsOf = (timeline: unknown[]) => timeline.map((message) => (message as { id?: string }).id)
 
@@ -76,6 +86,10 @@ beforeEach(async () => {
           registry['sessions:setGroupExpanded'](noEvent, groupId, expanded),
         setShowMore: (section: 'pinned' | 'older', shown: boolean) =>
           registry['sessions:setShowMore'](noEvent, section, shown),
+        addHiddenMessages: (id: string, messageIds: string[]) =>
+          registry['sessions:addHiddenMessages'](noEvent, id, messageIds),
+        clearHiddenMessages: (id: string) => registry['sessions:clearHiddenMessages'](noEvent, id),
+        clearAllHiddenMessages: () => registry['sessions:clearAllHiddenMessages'](noEvent),
       },
     },
   })
@@ -442,5 +456,153 @@ describe('Sessions store', () => {
     await store.init()
     expect(store.openSessionId).toBe(first.id)
     expect(store.groups[0]?.expanded).toBe(false)
+  })
+})
+
+describe('Hidden messages', () => {
+  /** Two settled chat turns, `u1`/`a1` then `u2`/`a2`, in the open Session. */
+  async function seedTurns(store: ReturnType<typeof useSessions>) {
+    const id = store.openSessionId!
+    const messages = [
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first' }] },
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'one' }] },
+      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second' }] },
+      { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'two' }] },
+    ]
+    await upsertTimelineMessages(id, messages)
+    await sessionModule.renameSession(id, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2']))
+    return id
+  }
+
+  it('hides a turn of the open Session: the file keeps it, the view leaves it out', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u2', 'a2'])
+    // The messages stay in the file, and in what the model sees.
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(id)).hiddenMessageIds).toEqual(['u1', 'a1'])
+  })
+
+  it('keeps saving hidden messages, so nothing is lost or duplicated in the file', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    const updated = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'one more' }] }
+    await store.saveTimelineMessages(id, [updated])
+
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(id)).timeline).toHaveLength(4)
+  })
+
+  it('takes the hidden mark off with the messages a delete removes', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await removeTimelineMessages(id, ['a1'])
+    await sessionModule.renameSession(id, 'settled')
+
+    expect((await sessionModule.openSession(id)).hiddenMessageIds).toEqual(['u1'])
+  })
+
+  it('brings the hidden turn of the open Session back', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await store.unhideSessionMessages(id)
+
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(id)).hiddenMessageIds).toEqual([])
+  })
+
+  it('reads the hidden messages back on a later open', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await store.create()
+    await store.open(id)
+
+    expect(store.openHiddenIds).toEqual(['u1', 'a1'])
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u2', 'a2'])
+  })
+
+  it('unhides every Session at once, not just the open one', async () => {
+    const store = useSessions()
+    await store.init()
+    const open = await seedTurns(store)
+    const other = (await store.create())!
+    const elsewhere = { id: 'u3', role: 'user', parts: [{ type: 'text', text: 'elsewhere' }] }
+    const there = { id: 'a3', role: 'assistant', parts: [{ type: 'text', text: 'there' }] }
+    await upsertTimelineMessages(other, [elsewhere, there])
+    await addHiddenMessages(other, ['u3', 'a3'])
+    // The push brings the pair in with its hidden mark: the view shows nothing.
+    await vi.waitFor(() => expect(store.openVisibleTimeline).toEqual([]))
+
+    // Hiding a turn of the first Session marks it while that Session is open.
+    await store.open(open)
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2']))
+    await store.hideTimelineMessages(open, ['u2', 'a2'])
+
+    await store.unhideAllMessages()
+
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(open)).hiddenMessageIds).toEqual([])
+    expect((await sessionModule.openSession(other)).hiddenMessageIds).toEqual([])
+  })
+
+  it('hides a turn whose messages have not settled into the file yet', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    await sessionModule.renameSession(id, 'seeded')
+
+    // A live turn hides before its messages are saved; the mark waits for them.
+    await store.hideTimelineMessages(id, ['u9', 'a9'])
+    expect(store.openHiddenIds).toEqual(['u9', 'a9'])
+
+    const late = { id: 'u9', role: 'user', parts: [{ type: 'text', text: 'late' }] }
+    const settled = { id: 'a9', role: 'assistant', parts: [{ type: 'text', text: 'settled' }] }
+    await upsertTimelineMessages(id, [late, settled])
+    const document = await sessionModule.openSession(id)
+    expect(document.hiddenMessageIds).toEqual(['u9', 'a9'])
+  })
+
+  it('carries the hidden ids in the Session rows, not just the open Session', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await vi.waitFor(() => expect(store.sessions[id]?.hiddenMessageIds).toEqual(['u1', 'a1']))
+  })
+
+  it('knows hidden messages exist while another Session is the open one', async () => {
+    const store = useSessions()
+    await store.init()
+    expect(store.anyHiddenMessages).toBe(false)
+
+    const hidden = store.openSessionId!
+    await seedTurns(store)
+    await store.hideTimelineMessages(hidden, ['u1', 'a1'])
+    await store.create()
+    expect(store.openSessionId).not.toBe(hidden)
+
+    // The hidden pair sits in a Session this side never opened: the rows know it.
+    await vi.waitFor(() => expect(store.anyHiddenMessages).toBe(true))
+
+    await store.unhideAllMessages()
+    await vi.waitFor(() => expect(store.anyHiddenMessages).toBe(false))
   })
 })

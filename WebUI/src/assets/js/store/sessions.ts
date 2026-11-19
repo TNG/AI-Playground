@@ -87,9 +87,12 @@ export const useSessions = defineStore('sessions', () => {
   }
 
   function applyChanged(document: SessionDocument): void {
+    // A row keeps the hidden ids — the settings' Unhide-all needs them —
+    // while the timeline alone stays out of the Sessions map.
     const { timeline, ...summary } = document
     remember(summary)
     if (openSessionId.value !== document.id) return
+    openHiddenIds.value = summary.hiddenMessageIds
     for (const id of forgottenTimelineIds) {
       if (!timeline.some((message) => (message as { id?: string }).id === id)) {
         forgottenTimelineIds.delete(id)
@@ -152,6 +155,52 @@ export const useSessions = defineStore('sessions', () => {
     return openSessionId.value ?? (await create())
   }
 
+  /** Timeline message ids the user hid in the open Session; the view leaves them out. */
+  const openHiddenIds = ref<string[]>([])
+
+  const openVisibleTimeline = computed(() =>
+    openHiddenIds.value.length === 0
+      ? openTimeline.value
+      : openTimeline.value.filter(
+          (message) => !openHiddenIds.value.includes((message as { id?: string }).id ?? ''),
+        ),
+  )
+
+  /** True when any Session — not just the open one — has a hidden message. */
+  const anyHiddenMessages = computed(() =>
+    Object.values(sessions.value).some((session) => session.hiddenMessageIds.length > 0),
+  )
+
+  /** Hides messages of the open Session: they stay in the file, only the view leaves them out. */
+  async function hideTimelineMessages(id: string, messageIds: string[]): Promise<void> {
+    if (id !== openSessionId.value) return
+    const before = openHiddenIds.value
+    openHiddenIds.value = [...new Set([...before, ...messageIds])]
+    const result = await call('sessions/hide-failed', () =>
+      window.electronAPI.sessions.addHiddenMessages(id, messageIds),
+    )
+    if (!result) openHiddenIds.value = before
+  }
+
+  /** Brings every hidden message of one Session back into its view. */
+  async function unhideSessionMessages(id: string): Promise<void> {
+    if (id !== openSessionId.value) return
+    openHiddenIds.value = []
+    const result = await call('sessions/unhide-failed', () =>
+      window.electronAPI.sessions.clearHiddenMessages(id),
+    )
+    if (!result) await open(id, { reveal: false })
+  }
+
+  /** Brings every hidden message of every Session back into its view. */
+  async function unhideAllMessages(): Promise<void> {
+    const result = await call('sessions/unhide-all-failed', () =>
+      window.electronAPI.sessions.clearAllHiddenMessages(),
+    )
+    if (result) return
+    if (openSessionId.value) await open(openSessionId.value, { reveal: false })
+  }
+
   function isFileDeleted(url: string): boolean {
     return openDeletedFiles.value.includes(url)
   }
@@ -212,6 +261,7 @@ export const useSessions = defineStore('sessions', () => {
     remember(result.session)
     openSessionId.value = result.session.id
     openTimeline.value = []
+    openHiddenIds.value = []
     openDeletedFiles.value = []
     revealInGroup(result.session)
     return result.session.id
@@ -237,6 +287,7 @@ export const useSessions = defineStore('sessions', () => {
     openSessionId.value = id
     forgottenTimelineIds.clear()
     openTimeline.value = timeline
+    openHiddenIds.value = summary.hiddenMessageIds
     openDeletedFiles.value = result.missingFiles
     if (reveal) revealInGroup(summary)
     return result.lastPreset
@@ -415,6 +466,7 @@ export const useSessions = defineStore('sessions', () => {
     openSessionId.value = null
     forgottenTimelineIds.clear()
     openTimeline.value = []
+    openHiddenIds.value = []
     openDeletedFiles.value = []
     await openNewestOrCreate()
   }
@@ -425,6 +477,9 @@ export const useSessions = defineStore('sessions', () => {
     showMore,
     openSessionId,
     openTimeline,
+    openHiddenIds,
+    openVisibleTimeline,
+    anyHiddenMessages,
     openDeletedFiles,
     pendingTurns,
     turns,
@@ -452,6 +507,9 @@ export const useSessions = defineStore('sessions', () => {
     saveTimelineMessages,
     forgetTimelineMessages,
     removeTimelineMessages,
+    hideTimelineMessages,
+    unhideSessionMessages,
+    unhideAllMessages,
     restoreForgottenTimelineMessages,
     ensureOpenSession,
     isFileDeleted,

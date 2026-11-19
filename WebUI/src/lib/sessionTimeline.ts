@@ -59,10 +59,12 @@ import type {
   SessionTimelineItem,
   TimelineFiles,
   TimelineTurn,
+  TurnFooter,
   TurnDetailPart,
   TurnDetails,
   TurnFooterAction,
   TurnHint,
+  TurnHiding,
   TurnLiveStatus,
   TurnPrompt,
   TurnResultPart,
@@ -273,12 +275,6 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     )
   }
   if (last?.kind === 'chat') {
-    last.footer = chatAnswerFooter(last.answers, true)
-    // Only a turn with an answer to re-run and a user message to edit offers
-    // Edit; a resumed or still-empty answer has nothing to edit.
-    if (last.prompt && last.footer.actions.includes('regenerate')) {
-      last.footer.actions = withEditAction(last.footer.actions)
-    }
     // A turn whose answer settled without showing anything — a failure or an
     // interrupt before the stream wrote a word — offers nothing above, but
     // its pair is still the newest message and Delete takes it out. A turn
@@ -287,30 +283,40 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     const replayed = last.answers.some((message) =>
       isHarnessChatPreset((message.metadata as { preset?: string } | undefined)?.preset),
     )
+    let footer = chatAnswerFooter(last.answers, true)
     if (
+      footer.actions.length === 0 &&
       answer &&
       !last.details.live &&
       !live.chatStatus?.running &&
-      !replayed &&
-      last.footer.actions.length === 0
+      !replayed
     ) {
-      last.footer = { actions: ['delete'], text: '', messageId: answer.id }
+      footer = { actions: ['delete'], text: '', messageId: answer.id }
+    }
+    last.footer = withHide(footer, last)
+    // Only a turn with an answer to re-run and a user message to edit offers
+    // Edit; a resumed or still-empty answer has nothing to edit.
+    if (last.prompt && last.footer.actions.includes('regenerate')) {
+      last.footer.actions = withEditAction(last.footer.actions)
     }
   }
   if (last?.kind === 'media') {
     const rerun = mediaRerun(last)
     // Delete takes the turn out even when nothing can be rerun: a run that
     // failed before it recorded its settings still settled into the Session.
-    last.footer = {
-      actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
-      text: '',
-      ...(rerun ? { rerun } : {}),
-      deletion: {
-        owner: 'media',
-        messageIds: [last.promptId, last.id],
-        fileUrls: mediaOutputUrls(last.media.items),
+    last.footer = withHide(
+      {
+        actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
+        text: '',
+        ...(rerun ? { rerun } : {}),
+        deletion: {
+          owner: 'media',
+          messageIds: [last.promptId, last.id],
+          fileUrls: mediaOutputUrls(last.media.items),
+        },
       },
-    }
+      last,
+    )
   }
   if (last?.kind === 'audio') {
     const rerun = audioRerunOf(last)
@@ -319,11 +325,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     // rerun: a failed or interrupted speech turn still settled into the
     // Session, and its clip — spoken output or source — goes with it.
     const actions: TurnFooterAction[] = [
-      ...last.footer.actions,
+      ...last.footer.actions.filter((action) => action !== 'hide'),
       ...(rerun
         ? (['regenerate', ...(rerun.kind === 'tts' ? (['edit'] as const) : [])] as const)
         : []),
       'delete',
+      'hide',
     ]
     last.footer = {
       ...last.footer,
@@ -339,6 +346,38 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   return items
 }
 
+/**
+ * Takes the Hide action and its payload out of every footer: the turn set the
+ * renderer hands to a view that must not offer hiding — the timeline with the
+ * setting off, or a Trial Run, which is the Agent Library's, not a Session's.
+ * Already hidden messages stay hidden either way: that is the file's doing.
+ */
+export function withoutMessageHiding<M, A>(
+  items: SessionTimelineItem<M, A>[],
+): SessionTimelineItem<M, A>[] {
+  for (const item of items) {
+    if (item.kind === 'message') continue
+    if (!item.footer.actions.includes('hide') && !item.footer.hiding) continue
+    const { hiding: _hiding, ...footer } = item.footer
+    item.footer = { ...footer, actions: footer.actions.filter((action) => action !== 'hide') }
+  }
+  return items
+}
+
+/**
+ * The live conversation copy the view overlays onto the visible timeline must
+ * hide what hiding hid too: a live merge appends every live message the saved
+ * timeline no longer holds as an unsaved leftover, so a hidden pair would come
+ * straight back from the store's copy of an older Session's chat.
+ */
+export function visibleLiveMessages<M extends { id?: string }>(
+  messages: readonly M[],
+  hiddenIds: readonly string[],
+): M[] {
+  if (hiddenIds.length === 0) return [...messages]
+  return messages.filter((message) => !hiddenIds.includes(message.id ?? ''))
+}
+
 function textPrompt(
   text: string,
   preset: string,
@@ -352,6 +391,23 @@ function textPrompt(
 function withEditAction(actions: TurnFooterAction[]): TurnFooterAction[] {
   const at = actions.includes('regenerate') ? actions.indexOf('regenerate') + 1 : actions.length
   return [...actions.slice(0, at), 'edit', ...actions.slice(at)]
+}
+
+/** The turn's timeline messages, which Hide takes out of the view alone. */
+function turnHidingOf(turn: TimelineTurn): TurnHiding {
+  if (turn.kind === 'media' || turn.kind === 'audio')
+    return { messageIds: [turn.promptId, turn.id] }
+  if (turn.kind === 'message') return { messageIds: [turn.id] }
+  return {
+    messageIds: [
+      ...new Set([...(turn.prompt ? [turn.id] : []), ...turn.answers.map((answer) => answer.id)]),
+    ],
+  }
+}
+
+/** Every settled turn offers Hide: its messages stay, only the view leaves them out. */
+function withHide(footer: TurnFooter, turn: TimelineTurn): TurnFooter {
+  return { ...footer, actions: [...footer.actions, 'hide'], hiding: turnHidingOf(turn) }
 }
 
 type FilePart = { type: string; mediaType?: string; url?: string; filename?: string }
@@ -459,6 +515,8 @@ function withAnswers(
           : undefined,
       )
     }
+    // Hide is the one action every turn offers: it only changes the view.
+    if (turn.kind !== 'message') turn.footer = withHide(turn.footer, turn)
   }
   return turns
 }

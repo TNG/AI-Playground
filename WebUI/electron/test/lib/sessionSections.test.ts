@@ -11,6 +11,7 @@ function session(id: string, over: Partial<SessionSummary> = {}): SessionSummary
     renamed: false,
     pinned: false,
     reachable: false,
+    hiddenMessageIds: [],
     createdAt: 0,
     updatedAt: 0,
     presetsUsed: [],

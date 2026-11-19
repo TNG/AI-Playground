@@ -77,6 +77,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     presetsUsed,
     pickedAgentId,
     reachable,
+    hiddenMessageIds,
   } = file
   return {
     id,
@@ -84,6 +85,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     renamed,
     pinned,
     reachable,
+    hiddenMessageIds,
     ...(groupId === undefined ? {} : { groupId }),
     createdAt,
     updatedAt,
@@ -161,6 +163,7 @@ async function createSessionFile(
     taskRunHarnessSessions: [],
     updateCursors: {},
     reachable: true,
+    hiddenMessageIds: [],
   }
   const reachable = withNotify(created, options.defaultCapabilities)
   await serializeSession(reachable.id, () => createSessionFolder(reachable))
@@ -182,6 +185,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
         renamed: false,
         pinned: false,
         reachable: false,
+        hiddenMessageIds: [],
         unreadable: true,
         createdAt: time,
         updatedAt: time,

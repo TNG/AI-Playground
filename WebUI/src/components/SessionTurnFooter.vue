@@ -48,6 +48,10 @@
           <TrashIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_DELETE }}</span>
         </button>
+        <button v-else-if="action === 'hide'" class="flex items-center" @click="hideTurn">
+          <EyeSlashIcon class="size-4" aria-hidden="true" />
+          <span class="text-xs ml-1">{{ languages.COM_HIDE }}</span>
+        </button>
       </template>
     </div>
     <div v-if="metricsShown && metricLines.length" class="text-xs text-muted-foreground">
@@ -61,6 +65,7 @@ import { computed } from 'vue'
 import {
   ArrowPathIcon,
   DocumentDuplicateIcon,
+  EyeSlashIcon,
   PencilSquareIcon,
   SpeakerWaveIcon,
   StopIcon,
@@ -69,8 +74,11 @@ import {
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useDialogStore } from '@/assets/js/store/dialogs'
 import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
+import { useMessageHiding } from '@/assets/js/store/messageHiding'
+import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
 import { isCancellation } from '@/assets/js/errors/appError'
 import { useTextInference } from '@/assets/js/store/textInference'
@@ -97,6 +105,9 @@ const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const imageGeneration = useImageGenerationPresets()
 const sessionAudio = useSessionAudio()
+const sessions = useSessions()
+const messageHiding = useMessageHiding()
+const dialogs = useDialogStore()
 const errors = useErrors()
 const textInference = useTextInference()
 const languages = useI18N().state
@@ -224,12 +235,44 @@ function regenerate() {
   else if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
 }
 
+/** A failed footer action reports instead of failing silently. */
+function reportFailure(error: unknown, code: string): void {
+  if (isCancellation(error)) return
+  errors.report(error, { category: 'backend', code, surface: 'toast' })
+}
+
 function remove() {
-  if (props.footer.harnessTurn) void agentMode.deleteTurns(props.footer.harnessTurn)
-  else if (props.footer.messageId) void openAiCompatibleChat.removeMessage(props.footer.messageId)
-  else if (props.footer.deletion?.owner === 'media')
-    void imageGeneration.deleteTurn(props.footer.deletion)
-  else if (props.footer.deletion?.owner === 'audio')
-    void sessionAudio.deleteTurn(props.footer.deletion)
+  const report = (error: unknown) => reportFailure(error, 'generation/delete-turn-failed')
+  if (props.footer.harnessTurn) {
+    agentMode.deleteTurns(props.footer.harnessTurn).catch(report)
+  } else if (props.footer.messageId) {
+    void openAiCompatibleChat.removeMessage(props.footer.messageId).catch((error) => report(error))
+  } else if (props.footer.deletion?.owner === 'media') {
+    imageGeneration.deleteTurn(props.footer.deletion).catch(report)
+  } else if (props.footer.deletion?.owner === 'audio') {
+    sessionAudio.deleteTurn(props.footer.deletion).catch(report)
+  }
+}
+
+/**
+ * Hide takes the turn out of the view alone; the Ok/Cancel warning says where
+ * to bring it back, and only Ok goes ahead with it.
+ */
+async function hideTurn(): Promise<void> {
+  // The footer strip already leaves no trace; this guards any other path in.
+  if (!messageHiding.enabled) return
+  const sessionId = sessions.openSessionId
+  const hiding = props.footer.hiding
+  if (!sessionId || !hiding) return
+  const confirmed = await dialogs.requestConfirmation(languages.SESSION_TURN_HIDE_CONFIRM, {
+    confirm: languages.COM_OK,
+    cancel: languages.COM_CANCEL,
+  })
+  if (!confirmed) return
+  try {
+    await sessions.hideTimelineMessages(sessionId, hiding.messageIds)
+  } catch (error) {
+    reportFailure(error, 'sessions/hide-turn-failed')
+  }
 }
 </script>

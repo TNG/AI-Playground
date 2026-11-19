@@ -60,48 +60,54 @@ function pairingError(message: string, status: number): PairingError {
   return Object.assign(new Error(message), { status })
 }
 
-/** The workstation's paired devices; only token hashes are kept. */
+/**
+ * The workstation's paired devices; only token hashes are kept. Read on first use, not at
+ * construction: main builds this before `app.whenReady`, and safeStorage cannot decrypt until
+ * then — an eager read came back empty and forgot every device on each restart.
+ */
 export function createDeviceRegistry(file: ProtectedJsonFile<PairedDevice[]>) {
-  let devices = file.read() ?? []
-  const save = () => file.write(devices)
+  let loaded: PairedDevice[] | null = null
+  const devices = (): PairedDevice[] => (loaded ??= file.read() ?? [])
+  const replace = (next: PairedDevice[]) => {
+    loaded = next
+    file.write(next)
+  }
 
   return {
     list: (): PairedDeviceInfo[] =>
-      devices.map(({ id, name, pairedAt, lastSeenAt }) => ({ id, name, pairedAt, lastSeenAt })),
+      devices().map(({ id, name, pairedAt, lastSeenAt }) => ({ id, name, pairedAt, lastSeenAt })),
     add(id: string, name: string): string {
       const token = crypto.randomBytes(32).toString('base64url')
-      devices = [
-        ...devices.filter((device) => device.id !== id),
+      replace([
+        ...devices().filter((device) => device.id !== id),
         { id, name, tokenHash: hashToken(token), pairedAt: Date.now() },
-      ]
-      save()
+      ])
       return token
     },
     authenticate(token: string | undefined): PairedDevice | null {
       if (!token) return null
       const hash = Buffer.from(hashToken(token), 'hex')
       return (
-        devices.find((device) =>
+        devices().find((device) =>
           crypto.timingSafeEqual(Buffer.from(device.tokenHash, 'hex'), hash),
         ) ?? null
       )
     },
     touch(id: string): void {
-      const device = devices.find((entry) => entry.id === id)
+      const device = devices().find((entry) => entry.id === id)
       if (!device) return
       device.lastSeenAt = Date.now()
     },
-    persistLastSeen: save,
+    persistLastSeen: () => file.write(devices()),
     revoke(id: string): boolean {
-      const before = devices.length
-      devices = devices.filter((device) => device.id !== id)
-      if (devices.length === before) return false
-      save()
+      const before = devices()
+      const next = before.filter((device) => device.id !== id)
+      if (next.length === before.length) return false
+      replace(next)
       return true
     },
     clear(): void {
-      devices = []
-      save()
+      replace([])
     },
   }
 }

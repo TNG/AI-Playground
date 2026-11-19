@@ -13,7 +13,10 @@ import type { ProtectedJsonFile } from '../../persist/remoteKernelSecrets'
 import type { LanDiscovery } from '../../adapters/lanDiscovery'
 import { setRemoteForwarder } from './dispatch'
 import {
+  CERTIFICATE_MISMATCH,
+  NO_LONGER_PAIRED,
   pairWithHost,
+  probeRemoteKernel,
   startRemoteKernelClient,
   type PairedTarget,
   type RemoteKernelClient,
@@ -47,6 +50,30 @@ export type RemoteKernelHostWiring = {
 }
 
 const DISCOVERY_MS = 3000
+const STARTUP_ATTEMPTS = 5
+const STARTUP_RETRY_MS = 3000
+
+/**
+ * Whether the paired workstation answers this device's token. A workstation still starting is
+ * retried briefly; a revoked token or a swapped certificate will not get better by waiting.
+ */
+export async function startupProblem(
+  target: PairedTarget,
+  retryMs = STARTUP_RETRY_MS,
+): Promise<string | null> {
+  let last = ''
+  for (let attempt = 0; attempt < STARTUP_ATTEMPTS; attempt++) {
+    try {
+      await probeRemoteKernel(target)
+      return null
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error)
+      if (last === NO_LONGER_PAIRED || last === CERTIFICATE_MISMATCH) return last
+      await new Promise((resolve) => setTimeout(resolve, retryMs))
+    }
+  }
+  return last
+}
 
 function lanAddresses(): string[] {
   return Object.values(os.networkInterfaces())
@@ -64,6 +91,7 @@ export function createRemoteKernel(deps: RemoteKernelDeps) {
   let identity: TlsIdentity | null = null
   let pairing: Pairing | null = null
   let hostWiring: RemoteKernelHostWiring | null = null
+  let clientProblem: string | null = null
 
   function advertise(): void {
     if (!host || !identity) return
@@ -86,6 +114,14 @@ export function createRemoteKernel(deps: RemoteKernelDeps) {
         'remote kernel client mode set without a paired workstation; running locally',
         'warn',
       )
+      return false
+    }
+    // Forwarding to a workstation that refuses every call leaves a blank window; running
+    // locally keeps Settings usable so the device can be paired again.
+    const problem = await startupProblem(target)
+    if (problem) {
+      clientProblem = `${problem}. Running locally; pair again or restart to retry`
+      deps.log(`remote kernel client: ${problem}; running locally`, 'warn')
       return false
     }
     client = await startRemoteKernelClient({ target, ...wiring, log: deps.log })
@@ -152,9 +188,9 @@ export function createRemoteKernel(deps: RemoteKernelDeps) {
             fingerprint: paired.fingerprint,
           }
         : null,
-      connection: clientState?.connection ?? 'off',
+      connection: clientState?.connection ?? (clientProblem ? 'disconnected' : 'off'),
       remoteHostname: clientState?.remoteHostname,
-      lastError: clientState?.lastError,
+      lastError: clientState?.lastError ?? clientProblem ?? undefined,
     }
   }
 
@@ -191,6 +227,7 @@ export function createRemoteKernel(deps: RemoteKernelDeps) {
     },
     discover: (): Promise<DiscoveredHost[]> => deps.discovery.browse(DISCOVERY_MS),
     async pair(request: RemoteKernelPairRequest): Promise<string> {
+      clientProblem = null
       const previous = deps.files.pairedHost.read()
       const target = await pairWithHost({
         host: request.host.trim(),

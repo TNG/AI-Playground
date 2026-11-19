@@ -99,6 +99,29 @@ describe('remote-kernel stores', () => {
     expect(registry.authenticate(token)).toBeNull()
   })
 
+  it('reads its devices on first use, not when built (safeStorage only decrypts once ready)', () => {
+    const file = tempPath('devices.json')
+    let ready = true
+    const cipher = {
+      available: () => true,
+      encrypt: (plain: string) => Buffer.from(plain).reverse(),
+      decrypt: (data: Buffer) => {
+        if (!ready) throw new Error('safeStorage cannot be used before the app is ready')
+        return Buffer.from(data).reverse().toString()
+      },
+    }
+    const token = createDeviceRegistry(
+      createProtectedJsonFile<PairedDevice[]>(() => file, cipher),
+    ).add('device-1', 'laptop')
+
+    ready = false
+    const afterRestart = createDeviceRegistry(
+      createProtectedJsonFile<PairedDevice[]>(() => file, cipher),
+    )
+    ready = true
+    expect(afterRestart.authenticate(token)?.name).toBe('laptop')
+  })
+
   it('re-pairing a device replaces its old token', () => {
     const file = tempPath('devices.json')
     const registry = createDeviceRegistry(

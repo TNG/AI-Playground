@@ -276,7 +276,9 @@ const secondsLeft = computed(() =>
 )
 
 const statusTone = computed(() =>
-  status.value?.activeMode === 'client' && status.value.connection !== 'connected' ? 'warn' : 'ok',
+  status.value?.configuredMode === 'client' && status.value.connection !== 'connected'
+    ? 'warn'
+    : 'ok',
 )
 const statusLine = computed(() => {
   const s = status.value
@@ -287,7 +289,11 @@ const statusLine = computed(() => {
       String(s.hostPort),
     ).replace('{count}', String(s.hostPeers))
   }
-  if (s.activeMode !== 'client') return ''
+  if (s.activeMode !== 'client') {
+    return s.configuredMode === 'client' && s.lastError
+      ? languages.SETTINGS_REMOTE_KERNEL_STATUS_DISCONNECTED.replace('{error}', s.lastError)
+      : ''
+  }
   if (s.connection === 'connected') {
     return languages.SETTINGS_REMOTE_KERNEL_STATUS_CONNECTED.replace(
       '{hostname}',

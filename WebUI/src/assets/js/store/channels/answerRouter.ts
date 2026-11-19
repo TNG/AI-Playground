@@ -138,6 +138,8 @@ export type SessionPort = {
     origin: AgentAnswerOrigin,
     prompt?: string,
   ) => Promise<AgentStartResult>
+  /** Opens the Session on the desktop, the Agent picked in its prompt bar; a Library stays open. */
+  bringIntoView: (sessionRef: string, agentId: string) => Promise<void>
   /** The Session's turn in flight, or its Agent Run (its first turn or a Follow-up). */
   activity: (sessionRef: string) => SessionActivity
   /** Stops the Session's turn or Agent Run; returns what it was. */
@@ -405,6 +407,13 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   /** Sends a Channel's message into its Session or Trial Run, or queues it while that is busy. */
   async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<SubmitOutcome> {
     listen(sessions)
+    // On arrival, not at `startAgent`, which a queued start reaches only once the Session is free;
+    // not awaited, so a desktop preset switch waiting on a dialog never holds up the start.
+    if ('agent' in entry) {
+      void sessions
+        .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
+        .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
+    }
     const lane = laneOf(sessions, entry.target)
     if (lane.queue.size(lane.id) > 0 || draining.has(lane.key) || lane.activity().kind !== 'idle') {
       return enqueue(sessions, lane, entry)

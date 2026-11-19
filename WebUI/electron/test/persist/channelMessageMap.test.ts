@@ -154,6 +154,7 @@ describe('the channel message map', () => {
         listStartableAgents: async () => [],
         agentName: () => null,
         startAgent: async () => ({ ok: false, reason: 'no-task', message: '' }),
+        bringIntoView: async () => {},
         activity: () => ({ kind: 'idle' }),
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},

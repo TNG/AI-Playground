@@ -55,6 +55,15 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     })
   }
 
+  /** Opens the Session with the Agent picked; the prompt bar shows it only on Assistant. */
+  async function openWithAgent(id: string, agentId: string): Promise<void> {
+    if (!(await sessions.pickAgent(id, agentId))) return
+    await openSession(id)
+    if (sessions.openSessionId !== id || presets.activePresetName === HARNESS_CHAT_PRESET) return
+    await sessionSettings.whenLoaded()
+    await presetSwitch.switchTo(HARNESS_CHAT_PRESET, { announce: false })
+  }
+
   /** A new Session starts on the Assistant preset, or keeps the active one where it is gated. */
   async function newSession(groupId?: string): Promise<void> {
     if (!(await sessions.create(groupId))) return
@@ -120,7 +129,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     return false
   }
 
-  return { openSession, newSession, rowStatus, stopOpenTurn, stopTurnIn }
+  return { openSession, openWithAgent, newSession, rowStatus, stopOpenTurn, stopTurnIn }
 })
 
 if (import.meta.hot) {

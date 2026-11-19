@@ -157,6 +157,9 @@ function fakeSessions(
     origin: AgentAnswerOrigin
     prompt?: string
   }[] = []
+  /** Each Session the desktop brought into view, with the Agent picked in its prompt bar. */
+  const inView: { sessionRef: string; agentId: string }[] = []
+  const bringing = { fails: false }
   /** What starting an Agent does; it goes through unless set. */
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
   /** Start Prompt Requests recorded in the message map, which outlives a restart. */
@@ -291,6 +294,10 @@ function fakeSessions(
       }
       return result
     },
+    bringIntoView: async (sessionRef, agentId) => {
+      if (bringing.fails) throw new Error('window gone')
+      inView.push({ sessionRef, agentId })
+    },
     activity: (sessionRef) => activities[sessionRef] ?? { kind: 'idle' },
     stop: async (sessionRef) => {
       const was = activities[sessionRef] ?? { kind: 'idle' }
@@ -363,6 +370,8 @@ function fakeSessions(
     agentNames,
     agentStarts,
     agentStart,
+    inView,
+    bringing,
     trialRuns,
     busyTrial,
     settleTrial,
@@ -1692,6 +1701,77 @@ ${PICK}`,
       await router.route(ch.adapter, { text: '/stop' })
       await settle(NEW)
       expect(agentStarts).toEqual([])
+    })
+  })
+
+  describe('on the desktop', () => {
+    const SHOWN = [{ sessionRef: NEW, agentId: 'agent-digest' }]
+
+    it('brings the run’s Session into view with the Agent picked', async () => {
+      const { router, inView } = agents()
+      await router.route(fakeChannel('telegram').adapter, { text: '/agents Daily digest' })
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('brings it into view for a tapped Agent too', async () => {
+      const { router, inView } = agents({ 'local-web': TRIP })
+      await router.route(fakeChannel('local-web').adapter, { callback: 'runAgent:agent-digest' })
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('brings it into view when the command arrives, though the start is queued', async () => {
+      const { router, inView, agentStarts, busy, settle } = agents()
+      busy(NEW)
+      await router.route(fakeChannel('telegram').adapter, { text: '/agents Daily digest' })
+      expect(agentStarts).toEqual([])
+      expect(inView).toEqual(SHOWN)
+      await settle(NEW)
+      expect(agentStarts).toHaveLength(1)
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('starts the Agent even when the desktop cannot show it', async () => {
+      const { router, inView, bringing, agentStarts } = agents()
+      bringing.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: '/agents Daily digest' })
+      expect(inView).toEqual([])
+      expect(agentStarts).toHaveLength(1)
+    })
+
+    it('does not move for a listing or an Agent that cannot be started', async () => {
+      const { router, inView } = agents()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/agents' })
+      await router.route(ch.adapter, { text: '/agents Weekly report' })
+      expect(inView).toEqual([])
+    })
+
+    it('waits for the Start Prompt reply before bringing the Session into view', async () => {
+      const { router, inView } = agents()
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      expect(inView).toEqual([])
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(inView).toEqual(SHOWN)
+    })
+
+    it('never moves for a plain message, /new or /load', async () => {
+      const { router, inView } = channelSetup(
+        { ...trip, 'session-work': { title: 'Work' } },
+        { telegram: TRIP },
+      )
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: 'hello' })
+      await router.route(ch.adapter, { text: '/new' })
+      await router.route(ch.adapter, { callback: 'loadConv:session-work' })
+      expect(inView).toEqual([])
+    })
+
+    it('never moves for an Answer', async () => {
+      const { router, received, inView } = setup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'yes', replyTo: '1234' })
+      expect(received).toHaveLength(1)
+      expect(inView).toEqual([])
     })
   })
 

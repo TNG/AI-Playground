@@ -1,10 +1,12 @@
-import type { MediaRerun } from '@/lib/turnTypes'
+import { hasDisplayableMedia, mediaUrlOf } from '@/types/mediaItem'
+import type { MediaRerun, MediaTurn } from '@/lib/turnTypes'
 import type { MediaTurnData } from '@/types/sessionTimeline'
 
 const IMAGE_INPUT_TYPES = new Set(['image', 'inpaintMask', 'outpaintCanvas'])
 
 /** Nothing to rerun when the run recorded no settings or lost an input image it needed. */
-export function mediaRerun(media: MediaTurnData, promptText: string): MediaRerun | null {
+export function mediaRerun(turn: MediaTurn): MediaRerun | null {
+  const media: MediaTurnData = turn.media
   const item = media.items[0]
   if (!item?.settings) return null
   const settings = item.settings
@@ -36,10 +38,12 @@ export function mediaRerun(media: MediaTurnData, promptText: string): MediaRerun
     mode: media.mode,
     workflow: media.preset,
     ...(media.variant ? { variant: media.variant } : {}),
-    prompt: settings.prompt ?? promptText,
+    prompt: settings.prompt ?? turn.prompt.text,
     ...(settings.negativePrompt !== undefined ? { negativePrompt: settings.negativePrompt } : {}),
     params,
     inputs,
     ...(media.mode !== 'imageGen' && inputImageUrl ? { inputImageUrl } : {}),
+    messageIds: [turn.promptId, turn.id],
+    itemUrls: media.items.filter(hasDisplayableMedia).map(mediaUrlOf),
   }
 }

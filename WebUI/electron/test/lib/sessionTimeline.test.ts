@@ -2303,6 +2303,8 @@ describe('Regenerate on the last ComfyUI Turn', () => {
           'Load Image.image': 'aipg-media://sessions/s1/files/in.png',
         },
         inputImageUrl: 'aipg-media://sessions/s1/files/in.png',
+        messageIds: ['p-c1', 'c1'],
+        itemUrls: ['aipg-media://sessions/s1/files/out.png'],
       },
     })
   })

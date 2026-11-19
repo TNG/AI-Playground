@@ -103,3 +103,7 @@ export const hasDisplayableMedia = (item: MediaItem): boolean => {
   const url = item.imageUrl
   return !!url && url.trim() !== '' && url !== PLACEHOLDER_IMAGE_URL
 }
+
+/** The URL of an item's output file, whatever media type it holds. */
+export const mediaUrlOf = (item: MediaItem): string =>
+  isVideo(item) ? item.videoUrl : is3D(item) ? item.model3dUrl : item.imageUrl

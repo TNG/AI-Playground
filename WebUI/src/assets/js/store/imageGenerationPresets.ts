@@ -9,6 +9,7 @@ import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
 import { useSessions } from './sessions'
+import { useGallery } from './gallery'
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 import type { ArtifactPhase, ArtifactRunOwner } from '@/types/kernelEvents'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
@@ -55,6 +56,7 @@ import {
 // site.
 import {
   isInFlight,
+  mediaUrlOf,
   type GenerateState,
   type ImageMediaItem,
   type MediaItem,
@@ -119,6 +121,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const backendServices = useBackendServices()
   const errors = useErrors()
   const sessions = useSessions()
+  const gallery = useGallery()
   const i18n = useI18N()
   const i18nState = i18n.state
 
@@ -1149,14 +1152,22 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     )
   }
 
+  /** A rerun that replaces the turn it came from: its messages, and its output files. */
+  type MediaReplacement = Pick<MediaRerun, 'messageIds' | 'itemUrls'>
+
   function regenerate(rerun: MediaRerun): Promise<ArtifactResult | undefined> {
-    const { inputImageUrl: turnInputImageUrl, ...request } = rerun
-    return runPanelTurn({ kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request }, turnInputImageUrl)
+    const { inputImageUrl: turnInputImageUrl, messageIds, itemUrls, ...request } = rerun
+    return runPanelTurn(
+      { kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request },
+      turnInputImageUrl,
+      { messageIds, itemUrls },
+    )
   }
 
   async function runPanelTurn(
     request: ArtifactRequest & { mode: WorkflowModeType },
     turnInputImageUrl: string | undefined,
+    replaces?: MediaReplacement,
   ): Promise<ArtifactResult | undefined> {
     const mode = request.mode
     lastError.value = null
@@ -1181,6 +1192,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     try {
       sessionId = await sessions.ensureOpenSession()
       if (sessionId) {
+        // The replaced turn leaves the open timeline the moment its redo starts.
+        if (replaces) sessions.forgetTimelineMessages(sessionId, replaces.messageIds)
         sessions.beginMediaTurn(sessionId, {
           runId,
           mode,
@@ -1195,17 +1208,46 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
           batchSize: request.params?.batchSize,
         })
       }
-      return await runArtifact(request, {
+      const result = await runArtifact(request, {
         abortSignal: abort.signal,
         sessionId: sessionId ?? undefined,
         runId,
       })
+      // The redo's own turn is recorded by now, so the replaced one can leave
+      // the Session file for good — a failed redo keeps it out too, its own
+      // failed turn standing in the old one's place.
+      if (sessionId && replaces) await replaceTurnInSession(sessionId, replaces)
+      return result
     } finally {
       if (sessionId) sessions.endMediaTurn(sessionId, runId)
       if (panelAbort === abort) panelAbort = null
       processing.value = false
       queuedLabel.value = null
     }
+  }
+
+  /**
+   * Applies a rerun's replacement once its own turn has settled: the replaced
+   * turn's messages leave the Session's file, its output files leave the
+   * Session, and the panel's strip drops them with their files.
+   */
+  async function replaceTurnInSession(
+    sessionId: string,
+    replaces: MediaReplacement,
+  ): Promise<void> {
+    await sessions.removeTimelineMessages(sessionId, replaces.messageIds)
+    for (const url of replaces.itemUrls) await gallery.removeByUrl(url)
+    const replaced = new Set(replaces.itemUrls)
+    const removedIds = new Set(
+      generatedImages.value.filter((item) => replaced.has(mediaUrlOf(item))).map((item) => item.id),
+    )
+    if (removedIds.size === 0) return
+    generatedImages.value = generatedImages.value.filter((item) => !removedIds.has(item.id))
+    if (selectedGeneratedImageId.value && removedIds.has(selectedGeneratedImageId.value))
+      selectedGeneratedImageId.value = null
+    if (selectedEditedImageId.value && removedIds.has(selectedEditedImageId.value))
+      selectedEditedImageId.value = null
+    if (selectedVideoId.value && removedIds.has(selectedVideoId.value)) selectedVideoId.value = null
   }
 
   /** Stops the panel's own runs only — waiting or running, never another turn's media. */

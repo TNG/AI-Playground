@@ -160,6 +160,10 @@ export type MediaRerun = {
   /** Workflow input values keyed `<nodeTitle>.<nodeInput>`. */
   inputs: Record<string, unknown>
   inputImageUrl?: string
+  /** The replaced turn's prompt and result messages, out of the Session's timeline. */
+  messageIds: string[]
+  /** The replaced turn's output files, deleted once the rerun's turn settles. */
+  itemUrls: string[]
 }
 
 export type TurnOf<K extends string, Body> = {
@@ -204,7 +208,14 @@ export type AgentTurn = TurnOf<
 
 export type MediaTurn = TurnOf<
   'media',
-  { prompt: TurnPrompt; createdAt: number; media: MediaTurnData; artifacts: TurnArtifact[] }
+  {
+    prompt: TurnPrompt
+    /** The replaced turn's user prompt message, which Regenerate takes out with the answer. */
+    promptId: string
+    createdAt: number
+    media: MediaTurnData
+    artifacts: TurnArtifact[]
+  }
 >
 
 export type AudioTurn = TurnOf<

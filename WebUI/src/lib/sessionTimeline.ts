@@ -278,7 +278,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     }
   }
   if (last?.kind === 'media') {
-    const rerun = mediaRerun(last.media, last.prompt.text)
+    const rerun = mediaRerun(last)
     if (rerun) last.footer = { actions: ['regenerate', 'edit'], text: '', rerun }
   }
   if (last?.kind === 'audio') {
@@ -893,6 +893,7 @@ export function timelineTurns(
         createdAt: message.createdAt,
         media,
         artifacts: [],
+        promptId: message.id,
       })
       i++
       continue

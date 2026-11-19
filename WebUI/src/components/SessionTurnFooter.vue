@@ -38,7 +38,13 @@
           <PencilSquareIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_EDIT }}</span>
         </button>
-        <button v-else-if="action === 'delete'" class="flex items-center" @click="remove">
+        <button
+          v-else-if="action === 'delete'"
+          class="flex items-center"
+          :disabled="deleteBlocked"
+          :class="{ 'opacity-50 cursor-not-allowed': deleteBlocked }"
+          @click="remove"
+        >
           <TrashIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_DELETE }}</span>
         </button>
@@ -109,6 +115,14 @@ const regenerateBlocked = computed(
     (!!props.footer.audioRerun && sessionAudio.processing) ||
     (!!props.footer.harnessTurn &&
       agentMode.isSessionProcessing(props.footer.harnessTurn.harnessSessionId)),
+)
+// Delete waits for the same busy stores as Regenerate: a delete mid-run
+// would race the settle that records the turn it takes out.
+const deleteBlocked = computed(
+  () =>
+    regenerateBlocked.value ||
+    (props.footer.deletion?.owner === 'media' && imageGeneration.processing) ||
+    (props.footer.deletion?.owner === 'audio' && sessionAudio.processing),
 )
 const conversationEnergy = computed(() =>
   estimateConversationEnergy(openAiCompatibleChat.messages ?? []),
@@ -213,5 +227,9 @@ function regenerate() {
 function remove() {
   if (props.footer.harnessTurn) void agentMode.deleteTurns(props.footer.harnessTurn)
   else if (props.footer.messageId) void openAiCompatibleChat.removeMessage(props.footer.messageId)
+  else if (props.footer.deletion?.owner === 'media')
+    void imageGeneration.deleteTurn(props.footer.deletion)
+  else if (props.footer.deletion?.owner === 'audio')
+    void sessionAudio.deleteTurn(props.footer.deletion)
 }
 </script>

@@ -13,7 +13,8 @@ import { isTerminalPhase, type ArtifactRunsState } from '@/lib/artifactRunProjec
 import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
-import { mediaRerun } from '@/lib/mediaRerun'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
+import { mediaOutputUrls, mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
 import { runInputOf } from '@/lib/taskSteps'
@@ -263,10 +264,12 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     })
   }
   const last = items.at(-1)
+  // An earlier Agent Turn never redoes or deletes: a run in its place would
+  // rewind the turns after it, and a delete would leave them seeing a gap.
   for (const item of items) {
     if (item.kind !== 'agent' || item === last) continue
     item.footer.actions = item.footer.actions.filter(
-      (action) => action !== 'regenerate' && action !== 'edit',
+      (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
     )
   }
   if (last?.kind === 'chat') {
@@ -276,26 +279,61 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     if (last.prompt && last.footer.actions.includes('regenerate')) {
       last.footer.actions = withEditAction(last.footer.actions)
     }
+    // A turn whose answer settled without showing anything — a failure or an
+    // interrupt before the stream wrote a word — offers nothing above, but
+    // its pair is still the newest message and Delete takes it out. A turn
+    // still streaming or replayed into a Harness Session is out of reach.
+    const answer = last.answers.at(-1)
+    const replayed = last.answers.some((message) =>
+      isHarnessChatPreset((message.metadata as { preset?: string } | undefined)?.preset),
+    )
+    if (
+      answer &&
+      !last.details.live &&
+      !live.chatStatus?.running &&
+      !replayed &&
+      last.footer.actions.length === 0
+    ) {
+      last.footer = { actions: ['delete'], text: '', messageId: answer.id }
+    }
   }
   if (last?.kind === 'media') {
     const rerun = mediaRerun(last)
-    if (rerun) last.footer = { actions: ['regenerate', 'edit'], text: '', rerun }
+    // Delete takes the turn out even when nothing can be rerun: a run that
+    // failed before it recorded its settings still settled into the Session.
+    last.footer = {
+      actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
+      text: '',
+      ...(rerun ? { rerun } : {}),
+      deletion: {
+        owner: 'media',
+        messageIds: [last.promptId, last.id],
+        fileUrls: mediaOutputUrls(last.media.items),
+      },
+    }
   }
   if (last?.kind === 'audio') {
     const rerun = audioRerunOf(last)
-    if (rerun) {
-      // STT's prompt is only the source clip's label, so it re-runs but
-      // cannot be edited.
-      const actions: TurnFooterAction[] = [
-        ...last.footer.actions,
-        'regenerate',
-        ...(rerun.kind === 'tts' ? (['edit'] as const) : []),
-      ]
-      last.footer = {
-        ...last.footer,
-        actions: [...new Set(actions)],
-        audioRerun: rerun,
-      }
+    // STT's prompt is only the source clip's label, so it re-runs but
+    // cannot be edited. Delete takes the turn out even when nothing can be
+    // rerun: a failed or interrupted speech turn still settled into the
+    // Session, and its clip — spoken output or source — goes with it.
+    const actions: TurnFooterAction[] = [
+      ...last.footer.actions,
+      ...(rerun
+        ? (['regenerate', ...(rerun.kind === 'tts' ? (['edit'] as const) : [])] as const)
+        : []),
+      'delete',
+    ]
+    last.footer = {
+      ...last.footer,
+      actions: [...new Set(actions)],
+      ...(rerun ? { audioRerun: rerun } : {}),
+      deletion: {
+        owner: 'audio',
+        messageIds: [last.promptId, last.id],
+        fileUrls: last.audio.audioUrl ? [last.audio.audioUrl] : [],
+      },
     }
   }
   return items

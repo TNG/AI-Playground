@@ -122,6 +122,17 @@ export type HarnessTurnRef = {
   turnIds: string[]
 }
 
+/**
+ * What Delete takes out of the Session for a settled media or speech turn:
+ * its timeline messages, and the files only that turn produced — a media
+ * turn's outputs, a Text-to-Speech clip, a Speech-to-Text source clip.
+ */
+export type TurnDeletion = {
+  owner: 'media' | 'audio'
+  messageIds: string[]
+  fileUrls: string[]
+}
+
 export type TurnFooter = {
   actions: TurnFooterAction[]
   text: string
@@ -130,6 +141,7 @@ export type TurnFooter = {
   rerun?: MediaRerun
   audioRerun?: AudioRerun
   harnessTurn?: HarnessTurnRef
+  deletion?: TurnDeletion
 }
 
 /** Re-runs the latest Text-to-Speech / Speech-to-Text turn, which it replaces. */
@@ -226,7 +238,7 @@ export type AudioTurn = TurnOf<
     audio: AudioTurnData
     audioArtifacts: AudioArtifact[]
     /** The replaced turn's user prompt message, which Regenerate takes out with the answer. */
-    promptId?: string
+    promptId: string
   }
 >
 

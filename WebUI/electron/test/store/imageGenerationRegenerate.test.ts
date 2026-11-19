@@ -8,6 +8,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 const { errorsReport } = vi.hoisted(() => ({ errorsReport: vi.fn() }))
 const sessionsApi = vi.hoisted(() => ({
+  openSessionId: 's1' as string | null,
   ensureOpenSession: vi.fn(),
   beginMediaTurn: vi.fn(),
   endMediaTurn: vi.fn(),
@@ -240,5 +241,43 @@ describe('useImageGenerationPresets regenerate replacing the turn', () => {
       expect.objectContaining({ sessionId: 's1' }),
     )
     expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
+  })
+})
+
+describe('useImageGenerationPresets deleteTurn', () => {
+  it("takes the newest media turn's messages out of the Session and its files out of the store", async () => {
+    const store = await storeWithOldItem()
+
+    await store.deleteTurn({ owner: 'media', messageIds: ['p1', 'a1'], fileUrls: [OLD_URL] })
+
+    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
+    expect(galleryApi.removeByUrl).toHaveBeenCalledWith(OLD_URL)
+    expect(store.generatedImages).toEqual([])
+    expect(store.selectedGeneratedImageId).toBeNull()
+  })
+
+  it('takes a failed turn out without files to delete', async () => {
+    mediaItemsApi.bootstrap.mockResolvedValue({ status: 'empty' })
+    const store = useImageGenerationPresets()
+    await store.init()
+
+    await store.deleteTurn({ owner: 'media', messageIds: ['p1', 'a1'], fileUrls: [] })
+
+    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
+    expect(galleryApi.removeByUrl).not.toHaveBeenCalled()
+  })
+
+  it('takes a turn of no open Session out of nothing', async () => {
+    const store = await storeWithOldItem()
+    sessionsApi.openSessionId = null
+    try {
+      await store.deleteTurn({ owner: 'media', messageIds: ['p1', 'a1'], fileUrls: [OLD_URL] })
+
+      expect(sessionsApi.removeTimelineMessages).not.toHaveBeenCalled()
+      expect(galleryApi.removeByUrl).not.toHaveBeenCalled()
+      expect(store.generatedImages).toHaveLength(1)
+    } finally {
+      sessionsApi.openSessionId = 's1'
+    }
   })
 })

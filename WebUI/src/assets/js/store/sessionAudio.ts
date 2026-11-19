@@ -17,7 +17,7 @@ import { formatTtsAudioTimestamp } from '@/lib/ttsAudioFileName'
 import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import type { AudioTurnRequest } from '@/types/sessionIpc'
-import type { AudioPhase, AudioRerun } from '@/lib/turnTypes'
+import type { AudioPhase, AudioRerun, TurnDeletion } from '@/lib/turnTypes'
 
 /** A Text-to-Speech / Speech-to-Text turn still running in a Session. */
 export type PendingAudioTurn = {
@@ -314,13 +314,34 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
       errors.report(error, {
         category: 'inference',
         code: `inference/${rerun.kind}-failed`,
-        userMessage: `${rerun.kind === 'tts' ? 'Text To Speech' : 'Speech To Text'} failed: ${messageOf(error)}`,
+        userMessage: `${rerun.kind === 'tts' ? 'Text To Speech' : 'Speech To Speech'} failed: ${messageOf(error)}`,
         surface: 'toast',
       })
     }
   }
 
-  return { pendingTurns, pendingTurn, processing, synthesize, transcribeAudio, regenerate, cancel }
+  /**
+   * Delete takes the newest speech turn out of the Session: its messages,
+   * and the clip only that turn stored — spoken output, or a source clip
+   * that lived in the Session for that transcription alone.
+   */
+  async function deleteTurn(deletion: TurnDeletion): Promise<void> {
+    const sessionId = sessions.openSessionId
+    if (!sessionId) return
+    await sessions.removeTimelineMessages(sessionId, deletion.messageIds)
+    for (const url of deletion.fileUrls) await gallery.removeByUrl(url)
+  }
+
+  return {
+    pendingTurns,
+    pendingTurn,
+    processing,
+    synthesize,
+    transcribeAudio,
+    regenerate,
+    deleteTurn,
+    cancel,
+  }
 })
 
 if (import.meta.hot) {

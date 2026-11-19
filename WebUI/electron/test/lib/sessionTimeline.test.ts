@@ -1398,9 +1398,34 @@ describe('the footer of every Turn', () => {
     )
 
     expect(items.map(actionsOf)).toEqual([
-      ['copy', 'speak', 'delete'],
+      ['copy', 'speak'],
       ['copy', 'speak', 'regenerate', 'edit', 'delete'],
     ])
+  })
+
+  it('offers Delete on the newest Turn only', () => {
+    const offersDelete = (item: unknown) => actionsOf(item).includes('delete')
+    const chat = sessionTimelineItems(
+      [
+        chatMessage('u1', 'user', 'hi'),
+        chatMessage('a1', 'assistant', 'hello'),
+        chatMessage('u2', 'user', 'again'),
+        chatMessage('a2', 'assistant', 'hello again'),
+      ],
+      {},
+    )
+    const assistant = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue light.', { harnessTurnId: 't1' }),
+        assistantMessage('u2', 'user', 'and at sunset?'),
+        assistantMessage('a2', 'assistant', 'Red light.', { harnessTurnId: 't2' }),
+      ],
+      {},
+    )
+
+    expect(chat.map(offersDelete)).toEqual([false, true])
+    expect(assistant.map(offersDelete)).toEqual([false, true])
   })
 
   it('offers Regenerate but no Edit on a chat answer that resumed without its prompt', () => {
@@ -1415,7 +1440,7 @@ describe('the footer of every Turn', () => {
       { media: pendingMedia },
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak'])
   })
 
   it('offers nothing on a chat prompt still waiting for its answer', () => {
@@ -1428,9 +1453,19 @@ describe('the footer of every Turn', () => {
     const answer = { id: 'a1', role: 'assistant', parts: [] }
     const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {
       chat: [chatMessage('u1', 'user', 'hi'), answer],
+      chatStatus: { running: true },
     })
 
     expect(actionsOf(items[0])).toEqual([])
+  })
+
+  it('offers Delete on a chat answer that settled before it showed anything', () => {
+    const answer = { id: 'a1', role: 'assistant', parts: [] }
+    const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {
+      chat: [chatMessage('u1', 'user', 'hi'), answer],
+    })
+
+    expect(actionsOf(items[0])).toEqual(['delete'])
   })
 
   it('offers Delete without Copy on a chat answer that only called a tool', () => {
@@ -1514,7 +1549,7 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak'])
     expect(actionsOf(items[1])).toEqual(['copy', 'speak', 'regenerate', 'edit', 'delete'])
   })
 
@@ -1528,7 +1563,7 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak'])
   })
 
   it('offers no Regenerate while a media Turn runs after the Assistant Turn', () => {
@@ -1540,7 +1575,7 @@ describe('the footer of every Turn', () => {
       { media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' } },
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak'])
   })
 
   it('offers no Regenerate while the Assistant Turn is running', () => {
@@ -1655,7 +1690,7 @@ describe('the footer of every Turn', () => {
     expect(actionsOf(items[0])).toEqual([])
   })
 
-  it('offers Copy of the transcript on a speech-to-text Turn', () => {
+  it('offers Copy of the transcript, and Delete, on a speech-to-text Turn', () => {
     const stt = { kind: 'stt', preset: 'Speech to Text', status: 'completed', transcript: 'hello' }
     const items = sessionTimelineItems(
       [
@@ -1665,10 +1700,16 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'hello' } })
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'delete'],
+        text: 'hello',
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: [] },
+      },
+    })
   })
 
-  it('offers Regenerate and Edit on the last Text-to-Speech Turn, carrying what its redo needs', () => {
+  it('offers Regenerate, Edit and Delete on the last Text-to-Speech Turn, carrying what its redo needs', () => {
     const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
     const items = sessionTimelineItems(
       [
@@ -1680,7 +1721,7 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['regenerate', 'edit'],
+        actions: ['regenerate', 'edit', 'delete'],
         audioRerun: {
           kind: 'tts',
           preset: 'Text to Speech',
@@ -1688,11 +1729,12 @@ describe('the footer of every Turn', () => {
           audioUrl: 'u',
           messageIds: ['u1', 'a1'],
         },
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: ['u'] },
       },
     })
   })
 
-  it('offers Regenerate but no Edit on the last Speech-to-Text Turn, whose prompt is only its clip label', () => {
+  it('offers Regenerate, Delete but no Edit on the last Speech-to-Text Turn, whose prompt is only its clip label', () => {
     const stt = {
       kind: 'stt',
       preset: 'Speech to Text',
@@ -1710,7 +1752,7 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'regenerate'],
+        actions: ['copy', 'regenerate', 'delete'],
         audioRerun: {
           kind: 'stt',
           preset: 'Speech to Text',
@@ -1718,6 +1760,7 @@ describe('the footer of every Turn', () => {
           audioUrl: 'clip',
           messageIds: ['u1', 'a1'],
         },
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: ['clip'] },
       },
     })
   })
@@ -1765,7 +1808,7 @@ describe('the footer of every Turn', () => {
     )
 
     expect(actionsOf(items[0])).toEqual([])
-    expect(actionsOf(items[1])).toEqual(['copy'])
+    expect(actionsOf(items[1])).toEqual(['copy', 'delete'])
     expect(items[1]).not.toHaveProperty('footer.audioRerun')
   })
 
@@ -2289,7 +2332,7 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     const items = sessionTimelineItems(comfyTurn('c1', {}), {})
 
     expect(footerOf(items[0])).toEqual({
-      actions: ['regenerate', 'edit'],
+      actions: ['regenerate', 'edit', 'delete'],
       text: '',
       rerun: {
         mode: 'imageEdit',
@@ -2306,13 +2349,21 @@ describe('Regenerate on the last ComfyUI Turn', () => {
         messageIds: ['p-c1', 'c1'],
         itemUrls: ['aipg-media://sessions/s1/files/out.png'],
       },
+      deletion: {
+        owner: 'media',
+        messageIds: ['p-c1', 'c1'],
+        fileUrls: ['aipg-media://sessions/s1/files/out.png'],
+      },
     })
   })
 
   it('offers Regenerate on the last ComfyUI Turn only', () => {
     const items = sessionTimelineItems([...comfyTurn('c1', {}), ...comfyTurn('c2', {})], {})
 
-    expect(items.map((item) => footerOf(item).actions)).toEqual([[], ['regenerate', 'edit']])
+    expect(items.map((item) => footerOf(item).actions)).toEqual([
+      [],
+      ['regenerate', 'edit', 'delete'],
+    ])
   })
 
   it('offers no Regenerate on a ComfyUI Turn that another Turn followed', () => {
@@ -2336,23 +2387,34 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     expect(footerOf(items[0]).actions).toEqual([])
   })
 
-  it('offers Regenerate on a failed run that recorded its settings', () => {
+  it('offers Regenerate, Edit and Delete on a failed run that recorded its settings', () => {
     const items = sessionTimelineItems(
       comfyTurn('c1', {
         status: 'failed',
         error: 'out of memory',
-        items: [editItem('aipg-media://sessions/s1/files/in.png', { state: 'failed' })],
+        items: [
+          editItem('aipg-media://sessions/s1/files/in.png', { state: 'failed', imageUrl: '' }),
+        ],
       }),
       {},
     )
 
-    expect(footerOf(items[0]).actions).toEqual(['regenerate', 'edit'])
+    expect(footerOf(items[0])).toEqual({
+      actions: ['regenerate', 'edit', 'delete'],
+      text: '',
+      rerun: expect.objectContaining({ messageIds: ['p-c1', 'c1'] }),
+      deletion: { owner: 'media', messageIds: ['p-c1', 'c1'], fileUrls: [] },
+    })
   })
 
-  it('offers no Regenerate on a run that recorded no settings', () => {
+  it('offers Delete without Regenerate on a failed run that recorded no settings', () => {
     const items = sessionTimelineItems(comfyTurn('c1', { status: 'failed', items: [] }), {})
 
-    expect(footerOf(items[0]).actions).toEqual([])
+    expect(footerOf(items[0])).toEqual({
+      actions: ['delete'],
+      text: '',
+      deletion: { owner: 'media', messageIds: ['p-c1', 'c1'], fileUrls: [] },
+    })
   })
 
   it('reruns with the recorded source image when the Session could not keep the input', () => {
@@ -2368,10 +2430,10 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     })
   })
 
-  it('offers no Regenerate when the input image is lost', () => {
+  it('offers Delete but no Regenerate when the input image is lost', () => {
     const items = sessionTimelineItems(comfyTurn('c1', { items: [editItem('')] }), {})
 
-    expect(footerOf(items[0]).actions).toEqual([])
+    expect(footerOf(items[0]).actions).toEqual(['delete'])
   })
 
   it('keeps an optional input image left empty', () => {
@@ -2990,7 +3052,7 @@ describe('one audio card', () => {
       result: [{ kind: 'audio' }],
       audioArtifacts: [],
       footer: {
-        actions: ['copy', 'regenerate'],
+        actions: ['copy', 'regenerate', 'delete'],
         text: 'hello there',
         audioRerun: {
           kind: 'stt',
@@ -2998,6 +3060,7 @@ describe('one audio card', () => {
           audioUrl: clipUrl,
           messageIds: ['u1', 'a1'],
         },
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: [clipUrl] },
       },
     })
   })

@@ -411,3 +411,53 @@ describe('Regenerate of a speech turn', () => {
     expect(entries).toHaveLength(1)
   })
 })
+
+describe('Delete of a speech turn', () => {
+  const idsOf = (timeline: unknown[]) => timeline.map((message) => (message as { id: string }).id)
+  const clipUrlOf = (timeline: unknown[]) => {
+    const answer = timeline.find(
+      (message) => (message as { role?: string }).role === 'assistant',
+    ) as {
+      parts: { type: string; data?: { audioUrl?: string } }[]
+    }
+    return answer.parts.find((part) => part.type === 'data-audio')!.data!.audioUrl!
+  }
+
+  it('takes the latest Text-to-Speech turn and its clip out of the Session', async () => {
+    const { sessions, id } = await openSession()
+    speech.synthesizeClip.mockResolvedValue({
+      audioBase64: Buffer.from(WAV_BYTES).toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'v',
+      engine: 'kokoro',
+    })
+    const audio = useSessionAudio()
+    await audio.synthesize('Read this aloud')
+    const deletedIds = idsOf(sessions.openTimeline)
+    const deletedUrl = clipUrlOf(sessions.openTimeline)
+
+    await audio.deleteTurn({ owner: 'audio', messageIds: deletedIds, fileUrls: [deletedUrl] })
+
+    expect(sessions.openTimeline).toHaveLength(0)
+    // The clip's file left with its turn.
+    await expect(
+      fs.access(path.join(dirs.real, id, sessionMediaPathOf(deletedUrl)!.path)),
+    ).rejects.toThrow()
+  })
+
+  it('takes a failed turn out, which has no clip to delete', async () => {
+    const { sessions } = await openSession()
+    speech.synthesizeClip.mockRejectedValue(new Error('UR_RESULT_ERROR_DEVICE_LOST'))
+    const audio = useSessionAudio()
+    await audio.synthesize('Read this aloud')
+    expect(sessions.openTimeline).toHaveLength(2)
+
+    await audio.deleteTurn({
+      owner: 'audio',
+      messageIds: idsOf(sessions.openTimeline),
+      fileUrls: [],
+    })
+
+    expect(sessions.openTimeline).toHaveLength(0)
+  })
+})

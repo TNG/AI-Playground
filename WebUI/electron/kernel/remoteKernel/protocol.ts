@@ -1,6 +1,5 @@
 export const REMOTE_PATH = '/aipg/remote/v1'
 export const REMOTE_HEADER_TOKEN = 'x-aipg-remote-token'
-export const REMOTE_HEADER_PEER = 'x-aipg-peer'
 
 /** The backend port ranges `apiServiceRegistry` allocates from (and their LLM sub-servers). */
 export function isLoopbackServicePort(port: number): boolean {

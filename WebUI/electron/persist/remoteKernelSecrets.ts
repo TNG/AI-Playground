@@ -1,8 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { randomBytes } from 'node:crypto'
-
-export type RemoteKernelSecretKey = 'hostToken' | 'clientToken'
 
 export type SecretCipher = {
   available: () => boolean
@@ -10,71 +7,45 @@ export type SecretCipher = {
   decrypt: (data: Buffer) => string
 }
 
-type StoredSecret = { encoding: 'safeStorage' | 'plain'; data: string }
-type SecretsFile = Partial<Record<RemoteKernelSecretKey, StoredSecret>>
+type StoredValue = { encoding: 'safeStorage' | 'plain'; data: string }
 
-export type RemoteKernelSecrets = {
-  read: (key: RemoteKernelSecretKey) => string | null
-  write: (key: RemoteKernelSecretKey, value: string) => void
-  /** The host token, minted on first use. */
-  hostToken: () => string
-  regenerateHostToken: () => string
-}
-
-export function mintRemoteKernelToken(): string {
-  return randomBytes(24).toString('base64url')
+export type ProtectedJsonFile<T> = {
+  read: () => T | null
+  write: (value: T) => void
+  remove: () => void
 }
 
 /**
- * Remote-kernel tokens in userData. Encrypted with safeStorage when the OS offers it;
- * on a Linux box with no keyring they fall back to an owner-only plaintext file.
+ * One JSON value in userData, encrypted with safeStorage when the OS offers it; on a Linux box
+ * with no keyring it falls back to an owner-only plaintext file. Remote-kernel state uses one
+ * file per concern: the workstation's TLS key, its paired devices, the client's paired host.
  */
-export function createRemoteKernelSecrets(
+export function createProtectedJsonFile<T>(
   filePath: () => string,
   cipher: SecretCipher,
-): RemoteKernelSecrets {
-  function load(): SecretsFile {
-    try {
-      return JSON.parse(fs.readFileSync(filePath(), 'utf8')) as SecretsFile
-    } catch {
-      return {}
-    }
-  }
-
-  function read(key: RemoteKernelSecretKey): string | null {
-    const stored = load()[key]
-    if (!stored) return null
-    try {
-      return stored.encoding === 'safeStorage'
-        ? cipher.decrypt(Buffer.from(stored.data, 'base64'))
-        : stored.data
-    } catch {
-      return null
-    }
-  }
-
-  function write(key: RemoteKernelSecretKey, value: string): void {
-    const encrypted = cipher.available()
-    const next: SecretsFile = {
-      ...load(),
-      [key]: encrypted
-        ? { encoding: 'safeStorage', data: cipher.encrypt(value).toString('base64') }
-        : { encoding: 'plain', data: value },
-    }
-    fs.mkdirSync(path.dirname(filePath()), { recursive: true })
-    fs.writeFileSync(filePath(), JSON.stringify(next), { encoding: 'utf8', mode: 0o600 })
-  }
-
-  function regenerateHostToken(): string {
-    const token = mintRemoteKernelToken()
-    write('hostToken', token)
-    return token
-  }
-
+): ProtectedJsonFile<T> {
   return {
-    read,
-    write,
-    hostToken: () => read('hostToken') ?? regenerateHostToken(),
-    regenerateHostToken,
+    read: () => {
+      try {
+        const stored = JSON.parse(fs.readFileSync(filePath(), 'utf8')) as StoredValue
+        const text =
+          stored.encoding === 'safeStorage'
+            ? cipher.decrypt(Buffer.from(stored.data, 'base64'))
+            : stored.data
+        return JSON.parse(text) as T
+      } catch {
+        return null
+      }
+    },
+    write: (value) => {
+      const text = JSON.stringify(value)
+      const stored: StoredValue = cipher.available()
+        ? { encoding: 'safeStorage', data: cipher.encrypt(text).toString('base64') }
+        : { encoding: 'plain', data: text }
+      fs.mkdirSync(path.dirname(filePath()), { recursive: true })
+      fs.writeFileSync(filePath(), JSON.stringify(stored), { encoding: 'utf8', mode: 0o600 })
+      fs.chmodSync(filePath(), 0o600)
+    },
+    remove: () => fs.rmSync(filePath(), { force: true }),
   }
 }

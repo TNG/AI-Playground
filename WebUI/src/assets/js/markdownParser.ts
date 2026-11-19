@@ -2,6 +2,8 @@ import { Marked, Token, Tokens, RendererThis } from 'marked'
 import hljs from 'highlight.js'
 import { stringToBase64 } from 'uint8array-extras'
 
+import { MARKDOWN_ALLOWED_TAGS } from '@/lib/sanitize'
+
 import 'highlight.js/styles/github-dark-dimmed.css'
 
 const startMarker = '===ORIGINALCODE'
@@ -30,34 +32,54 @@ const codeRenderer = {
 }
 
 /**
- * Raw HTML the assistant may emit without being escaped, so raw links and
- * underline wrappers render like their markdown equivalents. DOMPurify still
- * sanitizes whatever passes through here.
+ * Raw HTML the assistant emits is passed through unescaped when every tag in it
+ * is on the sanitizer's allowlist, so raw formatting (bold, links, underline,
+ * …) renders like its markdown equivalent. Anything else stays escaped, and
+ * DOMPurify still sanitizes whatever passes through here.
  */
-const allowedUnderlineTag = /^<\/?(?:u|ins)\s*>$/i
-const allowedClosingAnchor = /^<\/a>\s*$/i
+const rawHtmlTagChunk = /<[^<>]*>/g
+const rawHtmlTagName = /^<\/?\s*([a-zA-Z][a-zA-Z0-9-]*)/
+
+const isAllowedRawHtml = (raw: string): boolean => {
+  const chunks = raw.match(rawHtmlTagChunk)
+  if (chunks === null) return false
+  const outside = raw.replace(rawHtmlTagChunk, '')
+  if (outside.includes('<') || outside.includes('>')) return false
+  return chunks.every((chunk) => {
+    const name = rawHtmlTagName.exec(chunk)?.[1]?.toLowerCase()
+    return name !== undefined && MARKDOWN_ALLOWED_TAGS.includes(name)
+  })
+}
+
+/** The anchor shape whose href gets normalized like a markdown link's href. */
 const allowedOpeningAnchor =
   /^<a\s+href="([^"<>]*)"((?:\s+(?:title|target|rel)="[^"<>]*")*\s*)>\s*$/i
+
+const escapeRawHtml = (raw: string) =>
+  raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 
 const htmlEscaper = {
   walkTokens: (token: Token) => {
     if (token.type !== 'html') return
     try {
-      if (allowedClosingAnchor.test(token.raw) || allowedUnderlineTag.test(token.raw)) return
-      const anchor = allowedOpeningAnchor.exec(token.raw)
-      if (anchor) {
-        const href = cleanUrl(anchor[1])
-        if (href !== null) {
-          token.text = `<a href="${escapeHtml(href)}"${anchor[2]}>`
+      if (isAllowedRawHtml(token.raw)) {
+        const anchor = allowedOpeningAnchor.exec(token.raw)
+        if (anchor) {
+          const href = cleanUrl(anchor[1])
+          if (href !== null) {
+            token.text = `<a href="${escapeHtml(href)}"${anchor[2]}>`
+            return
+          }
+        } else {
           return
         }
       }
-      token.text = token.raw
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
+      token.text = escapeRawHtml(token.raw)
     } catch (error) {
       console.error('error while html escaping', { error, token })
     }
@@ -110,12 +132,17 @@ const dataCodeFixer = (input: string) => {
  * so they look the same as markdown links. Anchors rendered by linkRenderer
  * already contain the icon, so those are left unchanged. Must run after
  * dataCodeFixer, which base64-encodes code-block content out of the way.
+ * Attribute-agnostic: any well-formed anchor with a web href gets the icon,
+ * whatever quoting or attributes the assistant used.
  */
 const rawAnchorIconFixer = (input: string) => {
   return input.replace(
-    /(<a\s+href="https?:[^"]*"(?:\s+(?:title|target|rel)="[^"]*")*\s*>)([\s\S]*?)(<\/a>)/gi,
-    (match, open: string, inner: string, close: string) =>
-      inner.includes('external-link-icon') ? match : `${open}${inner}${externalLinkIcon}${close}`,
+    /(<a\s+(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)<\/a>/gi,
+    (match, open: string, inner: string) => {
+      if (inner.includes('external-link-icon')) return match
+      if (!/href\s*=\s*(?:"https?:|'https?:|https?:)/i.test(open)) return match
+      return `${open}${inner}${externalLinkIcon}</a>`
+    },
   )
 }
 

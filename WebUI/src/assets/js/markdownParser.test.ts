@@ -55,7 +55,7 @@ describe('markdownParser link rendering', () => {
   })
 })
 
-describe('markdownParser raw HTML link rendering', () => {
+describe('markdownParser raw HTML rendering', () => {
   it('renders raw anchor tags like markdown web links with the external-link icon', () => {
     const html = render('See <a href="https://intel.com">Intel</a> now')
 
@@ -91,18 +91,63 @@ describe('markdownParser raw HTML link rendering', () => {
     expect(html).toContain('<u>this</u>')
   })
 
+  it('renders any allowlisted formatting tag the assistant writes', () => {
+    const html = render('a <b>bold</b> b <strong>strong</strong> c <em>italic</em>')
+
+    expect(html).toContain('<b>bold</b>')
+    expect(html).toContain('<strong>strong</strong>')
+    expect(html).toContain('<em>italic</em>')
+  })
+
+  it('renders allowlisted block-level raw HTML', () => {
+    const html = render('<div class="note">hello</div>')
+
+    expect(html).toContain('<div class="note">hello</div>')
+  })
+
+  it('marks raw anchors with arbitrary attributes with the external-link icon', () => {
+    const html = render(
+      '<a href="https://x.com" style="font-weight: bold" class="font-bold">Intel</a>',
+    )
+
+    expect(html).toContain(
+      '<a href="https://x.com" style="font-weight: bold" class="font-bold">Intel',
+    )
+    expect(html).toContain('i-external-link')
+  })
+
+  it('marks single-quoted and unquoted raw web anchors with the external-link icon', () => {
+    const single = render("<a href='https://x.com'>Intel</a>")
+    const unquoted = render('<a href=https://x.com>Intel</a>')
+
+    expect(single).toContain('i-external-link')
+    expect(unquoted).toContain('i-external-link')
+  })
+
+  it('adds no icon to single-quoted non-web anchors', () => {
+    const html = render("<a href='mailto:a@b.c'>contact</a>")
+
+    expect(html).toContain("<a href='mailto:a@b.c'>contact</a>")
+    expect(html).not.toContain('i-external-link')
+  })
+
   it('still escapes disallowed raw HTML', () => {
-    const html = render('x <script>alert(1)</script> y')
+    const html = render(
+      'x <script>alert(1)</script> y <iframe src="https://x.com"></iframe> z <strng>typo</strng>',
+    )
 
     expect(html).toContain('&lt;script&gt;')
     expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;iframe')
+    expect(html).toContain('&lt;strng&gt;')
   })
 
-  it('still escapes anchors with unexpected attributes', () => {
-    const html = render('<a href="https://x.com" onclick="alert(1)">x</a>')
+  it('escapes a disallowed tag inside allowlisted tags', () => {
+    const html = render('<b><script>alert(1)</script>still bold</b>')
 
-    expect(html).toContain('&lt;a')
-    expect(html).not.toContain('<a href')
+    expect(html).toContain('<b>')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('still bold</b>')
   })
 
   it('still escapes anchors with unencodable hrefs', () => {
@@ -116,5 +161,13 @@ describe('markdownParser raw HTML link rendering', () => {
 
     expect(html).not.toContain('i-external-link')
     expect(html).toContain('&lt;a href')
+  })
+
+  it('passes allowlisted tags with arbitrary attributes through to the sanitizer', () => {
+    // Dangerous attributes are the sanitizer's job (sanitizeMarkdown/), not
+    // the parser's: any tag on the allowlist goes through unescaped.
+    const html = render('<a href="https://x.com" onclick="alert(1)">x</a>')
+
+    expect(html).toContain('<a href="https://x.com" onclick="alert(1)">x')
   })
 })

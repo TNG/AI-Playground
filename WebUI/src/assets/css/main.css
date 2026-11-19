@@ -426,7 +426,7 @@ footer {
 }
 
 .markdown-content a {
-  color: var(--primary);
+  color: hsl(var(--primary));
   text-decoration: underline;
   text-underline-offset: 2px;
 }

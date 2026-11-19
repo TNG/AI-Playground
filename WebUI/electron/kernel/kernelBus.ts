@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { appLoggerInstance } from '../observability/logger'
 import type {
+  AgentTurnOrigin,
   AgentTurnSnapshot,
   AgentTurnState,
   PauseReason,
@@ -154,6 +155,7 @@ export function emitAgentTurnState(
   turnId: string,
   state: AgentTurnState,
   pauseReason?: PauseReason,
+  origin?: AgentTurnOrigin,
 ): void {
   const reason = state === 'paused' ? pauseReason : undefined
   const turn = agentTurnOf(sessionId, turnId)
@@ -169,6 +171,7 @@ export function emitAgentTurnState(
       turnId,
       state,
       ...(reason ? { pauseReason: reason } : {}),
+      ...(origin ? { origin } : {}),
     },
     { kind: 'run', runId: turnId },
   )

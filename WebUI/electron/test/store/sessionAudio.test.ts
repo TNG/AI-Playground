@@ -310,6 +310,49 @@ describe('Regenerate of a speech turn', () => {
     await expect(fs.access(path.join(dirs.real, id, filePathOf(freshUrl)))).resolves.toBeUndefined()
   })
 
+  it('re-synthesizes the latest Text-to-Speech turn from an edited prompt', async () => {
+    const { sessions, id } = await openSession()
+    speech.synthesizeClip
+      .mockResolvedValueOnce({
+        audioBase64: 'AAAA',
+        mediaType: 'audio/wav',
+        voice: 'v',
+        engine: 'qwen3',
+      })
+      .mockResolvedValueOnce({
+        audioBase64: Buffer.from(WAV_BYTES).toString('base64'),
+        mediaType: 'audio/wav',
+        voice: 'v',
+        engine: 'kokoro',
+      })
+    const audio = useSessionAudio()
+    await audio.synthesize('Read this aloud')
+    const replacedIds = idsOf(sessions.openTimeline)
+
+    // The prompt bubble's editor re-runs the turn on the text it was given.
+    await audio.regenerate({
+      kind: 'tts',
+      preset: 'Text to Speech',
+      prompt: 'Read this louder',
+      messageIds: replacedIds,
+    })
+
+    expect(sessions.openTimeline).toHaveLength(2)
+    expect(
+      (sessions.openTimeline[0] as { parts: { type: string; text?: string }[] }).parts.find(
+        (part) => part.type === 'text',
+      )!.text,
+    ).toBe('Read this louder')
+    const entries = await readHistoryEntries(id)
+    expect(entries.findLast((entry) => entry.kind === 'tts')).toEqual(
+      expect.objectContaining({
+        preset: 'Text to Speech',
+        prompt: 'Read this louder',
+        status: 'completed',
+      }),
+    )
+  })
+
   it('re-transcribes the latest Speech-to-Text turn from its kept source clip', async () => {
     activePreset.name = 'Speech to Text'
     const { sessions, id } = await openSession()

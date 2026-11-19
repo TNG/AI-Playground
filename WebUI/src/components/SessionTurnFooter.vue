@@ -28,6 +28,16 @@
           <ArrowPathIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_REGENERATE }}</span>
         </button>
+        <button
+          v-else-if="action === 'edit'"
+          class="flex items-center"
+          :disabled="regenerateBlocked"
+          :class="{ 'opacity-50 cursor-not-allowed': regenerateBlocked }"
+          @click="emit('edit')"
+        >
+          <PencilSquareIcon class="size-4" aria-hidden="true" />
+          <span class="text-xs ml-1">{{ languages.COM_EDIT }}</span>
+        </button>
         <button v-else-if="action === 'delete'" class="flex items-center" @click="remove">
           <TrashIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_DELETE }}</span>
@@ -45,6 +55,7 @@ import { computed } from 'vue'
 import {
   ArrowPathIcon,
   DocumentDuplicateIcon,
+  PencilSquareIcon,
   SpeakerWaveIcon,
   StopIcon,
   TrashIcon,
@@ -72,6 +83,9 @@ import { fillTemplate } from '@/lib/fillTemplate'
 import type { AudioRerun, MediaRerun, TurnFooter } from '@/lib/turnTypes'
 
 const props = defineProps<{ footer: TurnFooter }>()
+
+/** Edit hands the prompt bubble over to its editor; the turn block runs it. */
+const emit = defineEmits<{ edit: [] }>()
 
 const openAiCompatibleChat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()

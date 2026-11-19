@@ -248,6 +248,8 @@
   "COM_APPLY": "Uygula",
   "COM_DOWNLOAD": "İndir",
   "COM_REGENERATE": "Yeniden Oluştur",
+  "COM_EDIT": "Düzenle",
+  "COM_SEND": "Gönder",
   "COM_RESTART": "Yeniden Başlat",
   "COM_START": "Başlat",
   "COM_DELETE": "Sil",

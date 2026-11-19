@@ -105,7 +105,11 @@ export type TurnPrompt = {
   origin?: ChannelKind
 }
 
-export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'delete'
+/**
+ * A turn's footer actions. `edit` opens the prompt bubble's editor: the
+ * turn runs again from the edited prompt, replacing what it produced.
+ */
+export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'edit' | 'delete'
 
 export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
 

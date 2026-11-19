@@ -45,7 +45,7 @@ export function agentFooter(
   const actions: TurnFooterAction[] = [
     ...(answerText ? (['copy'] as const) : []),
     ...(answerText && messageId ? (['speak'] as const) : []),
-    ...(regenerate ? (['regenerate'] as const) : []),
+    ...(regenerate ? (['regenerate', 'edit'] as const) : []),
     ...(deletable ? (['delete'] as const) : []),
   ]
   const metrics = answerMetrics(assistant.answer)

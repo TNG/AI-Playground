@@ -60,6 +60,7 @@ import type {
   TimelineTurn,
   TurnDetailPart,
   TurnDetails,
+  TurnFooterAction,
   TurnHint,
   TurnLiveStatus,
   TurnPrompt,
@@ -264,21 +265,35 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   const last = items.at(-1)
   for (const item of items) {
     if (item.kind !== 'agent' || item === last) continue
-    item.footer.actions = item.footer.actions.filter((action) => action !== 'regenerate')
+    item.footer.actions = item.footer.actions.filter(
+      (action) => action !== 'regenerate' && action !== 'edit',
+    )
   }
-  if (last?.kind === 'chat') last.footer = chatAnswerFooter(last.answers, true)
+  if (last?.kind === 'chat') {
+    last.footer = chatAnswerFooter(last.answers, true)
+    // Only a turn with an answer to re-run and a user message to edit offers
+    // Edit; a resumed or still-empty answer has nothing to edit.
+    if (last.prompt && last.footer.actions.includes('regenerate')) {
+      last.footer.actions = withEditAction(last.footer.actions)
+    }
+  }
   if (last?.kind === 'media') {
     const rerun = mediaRerun(last.media, last.prompt.text)
-    if (rerun) last.footer = { actions: ['regenerate'], text: '', rerun }
+    if (rerun) last.footer = { actions: ['regenerate', 'edit'], text: '', rerun }
   }
   if (last?.kind === 'audio') {
     const rerun = audioRerunOf(last)
     if (rerun) {
+      // STT's prompt is only the source clip's label, so it re-runs but
+      // cannot be edited.
+      const actions: TurnFooterAction[] = [
+        ...last.footer.actions,
+        'regenerate',
+        ...(rerun.kind === 'tts' ? (['edit'] as const) : []),
+      ]
       last.footer = {
         ...last.footer,
-        actions: last.footer.actions.includes('regenerate')
-          ? last.footer.actions
-          : [...last.footer.actions, 'regenerate'],
+        actions: [...new Set(actions)],
         audioRerun: rerun,
       }
     }
@@ -293,6 +308,12 @@ function textPrompt(
 ): TurnPrompt {
   const defined = Object.entries(extra).filter(([, value]) => value !== undefined)
   return { text, ...(text ? {} : { placeholder: preset }), ...Object.fromEntries(defined) }
+}
+
+/** `edit` sits beside `regenerate`: both re-run the turn, one from an edited prompt. */
+function withEditAction(actions: TurnFooterAction[]): TurnFooterAction[] {
+  const at = actions.includes('regenerate') ? actions.indexOf('regenerate') + 1 : actions.length
+  return [...actions.slice(0, at), 'edit', ...actions.slice(at)]
 }
 
 type FilePart = { type: string; mediaType?: string; url?: string; filename?: string }

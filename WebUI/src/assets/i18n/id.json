@@ -248,6 +248,8 @@
   "COM_APPLY": "Terapkan",
   "COM_DOWNLOAD": "Unduh",
   "COM_REGENERATE": "Buat Ulang",
+  "COM_EDIT": "Edit",
+  "COM_SEND": "Kirim",
   "COM_RESTART": "Mulai Ulang",
   "COM_START": "Mulai",
   "COM_DELETE": "Hapus",

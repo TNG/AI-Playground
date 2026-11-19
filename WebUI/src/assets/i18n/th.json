@@ -248,6 +248,8 @@
   "COM_APPLY": "ใช้งาน",
   "COM_DOWNLOAD": "ดาวน์โหลด",
   "COM_REGENERATE": "สร้างใหม่",
+  "COM_EDIT": "แก้ไข",
+  "COM_SEND": "ส่ง",
   "COM_RESTART": "เริ่มใหม่",
   "COM_START": "เริ่ม",
   "COM_DELETE": "ลบ",

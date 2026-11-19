@@ -13,6 +13,7 @@ import {
 import { buildChatModelConfig } from '@/lib/chatModel'
 import { buildChatRagRequest } from '@/lib/chatRagRequest'
 import { createKernelChatTransport } from '@/lib/kernelChatTransport'
+import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { serializeToolSet } from '@/lib/chatToolRegistry'
 import type { ChatTurnRequest } from '@/types/chatIpc'
 import { withResponseLanguageAtStart } from '@/lib/responseLanguage'
@@ -904,6 +905,21 @@ export const useOpenAiCompatibleChat = defineStore(
       conversations.updateConversation(chat.messages, conversations.activeKey)
     }
 
+    /**
+     * Rewrites the turn's user message with the edited prompt — attached files
+     * stay — so a `regenerate` of its answer runs from the edited text. The
+     * return says whether anything changed: a no-op edit leaves the message
+     * list alone.
+     */
+    function editPrompt(userMessageId: string, edited: string): boolean {
+      const chat = chats[conversations.activeKey]
+      if (!chat) return false
+      const message = chat.messages.find((m) => m.id === userMessageId && m.role === 'user')
+      if (!message || !applyEditedPrompt(message, edited)) return false
+      conversations.updateConversation(chat.messages, conversations.activeKey)
+      return true
+    }
+
     const error = computed(() => chats[conversations.activeKey]?.error?.message)
 
     function turnErrorIn(key: string): string | undefined {
@@ -928,6 +944,7 @@ export const useOpenAiCompatibleChat = defineStore(
       reasoningStartedAt,
       removeMessage,
       regenerate,
+      editPrompt,
       error,
       turnErrorIn,
     }

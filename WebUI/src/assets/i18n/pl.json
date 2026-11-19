@@ -248,6 +248,8 @@
   "COM_APPLY": "Zastosuj",
   "COM_DOWNLOAD": "Pobierz",
   "COM_REGENERATE": "Generuj ponownie",
+  "COM_EDIT": "Edytuj",
+  "COM_SEND": "Wyślij",
   "COM_RESTART": "Uruchom ponownie",
   "COM_START": "Uruchom",
   "COM_DELETE": "Usuń",

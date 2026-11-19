@@ -248,6 +248,8 @@
   "COM_APPLY": "应用",
   "COM_DOWNLOAD": "下载",
   "COM_REGENERATE": "重新生成",
+  "COM_EDIT": "编辑",
+  "COM_SEND": "发送",
   "COM_RESTART": "重启",
   "COM_START": "启动",
   "COM_DELETE": "删除",

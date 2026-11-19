@@ -248,6 +248,8 @@
   "COM_APPLY": "Áp dụng",
   "COM_DOWNLOAD": "Tải xuống",
   "COM_REGENERATE": "Tạo lại",
+  "COM_EDIT": "Chỉnh sửa",
+  "COM_SEND": "Gửi",
   "COM_RESTART": "Khởi động lại",
   "COM_START": "Bắt đầu",
   "COM_DELETE": "Xóa",

@@ -17,6 +17,7 @@ import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
+import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import {
@@ -2287,6 +2288,20 @@ export const useAgentMode = defineStore(
     }
 
     /**
+     * Regenerate the latest Assistant Turn from an edited prompt. The turn's
+     * prompt message in the runtime chat carries the new text — attached files
+     * stay — so the transport's re-run sends it and the prompt's timeline
+     * bubble updates in place under its unchanged id.
+     */
+    async function regenerateTurnWithPrompt(ref: HarnessTurnRef, edited: string): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const chat = turns.runtimeFor(ref.harnessSessionId).chat
+      const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      if (prompt) applyEditedPrompt(prompt, edited)
+      await regenerateTurn(ref)
+    }
+
+    /**
      * A task run records its own failure. The in-flight step adopted after a reload
      * never went through `sendToSession`, so it would otherwise toast twice.
      */
@@ -2330,6 +2345,7 @@ export const useAgentMode = defineStore(
     return {
       deleteTurns,
       regenerateTurn,
+      regenerateTurnWithPrompt,
       isSessionProcessing,
       workspaceDir,
       agentPresetName,

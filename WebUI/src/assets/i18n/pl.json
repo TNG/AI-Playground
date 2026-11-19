@@ -148,6 +148,7 @@
   "SESSIONS_DELETE_GROUP_TITLE": "Usunąć grupę?",
   "SESSIONS_DELETE_GROUP_BODY": "Jej sesje nie zostaną usunięte: trafią do Ostatnich, a przypięte pozostaną w Przypiętych.",
   "SESSIONS_NEW_SESSION_HERE": "Nowa sesja tutaj",
+  "SESSIONS_NEW_WITH_THESE_SETTINGS": "Nowa sesja z tymi ustawieniami",
   "SESSIONS_RENAME_TITLE": "Zmień nazwę sesji",
   "SESSIONS_RENAME_DESCRIPTION": "Ustaw nowy tytuł tej sesji. Pozostaw puste, aby usunąć jej nazwę.",
   "SESSIONS_RENAME_PLACEHOLDER": "Wpisz tytuł",

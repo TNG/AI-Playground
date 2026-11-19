@@ -35,6 +35,8 @@ type IpcResult<T> = ({ success: true } & T) | { success: false; error: string }
 /** Why main would not take a Group name; `problem` is set when a name rule was broken. */
 export type GroupNameRefusal = { problem?: GroupNameProblem; error: string }
 
+export type NewSessionOptions = { groupId?: string; settingsFrom?: string }
+
 /** The renderer's projection of the Session module: the Sessions panel rows and the open Session. */
 export const useSessions = defineStore('sessions', () => {
   const errors = useErrors()
@@ -179,10 +181,12 @@ export const useSessions = defineStore('sessions', () => {
     readDefaultCapabilities = read
   }
 
-  async function create(groupId?: string): Promise<string | null> {
+  async function create(options: NewSessionOptions = {}): Promise<string | null> {
+    const { groupId, settingsFrom } = options
     const result = await call('sessions/create-failed', () =>
       window.electronAPI.sessions.create(groupId, {
         defaultCapabilities: readDefaultCapabilities(),
+        settingsFrom,
       }),
     )
     if (!result) return null

@@ -148,6 +148,7 @@
   "SESSIONS_DELETE_GROUP_TITLE": "Hapus grup?",
   "SESSIONS_DELETE_GROUP_BODY": "Sesinya tidak dihapus: sesi pindah ke Terbaru, dan yang disematkan tetap di Disematkan.",
   "SESSIONS_NEW_SESSION_HERE": "Sesi baru di sini",
+  "SESSIONS_NEW_WITH_THESE_SETTINGS": "Sesi baru dengan pengaturan ini",
   "SESSIONS_RENAME_TITLE": "Ganti nama sesi",
   "SESSIONS_RENAME_DESCRIPTION": "Tetapkan judul baru untuk sesi ini. Biarkan kosong untuk menghapus namanya.",
   "SESSIONS_RENAME_PLACEHOLDER": "Masukkan judul",

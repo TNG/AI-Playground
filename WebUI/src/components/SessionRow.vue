@@ -136,6 +136,9 @@
         class="min-w-28"
         :onCloseAutoFocus="(event) => event.preventDefault?.()"
       >
+        <DropdownMenuItem v-if="!session.unreadable" @select="emit('newSessionWithSettings')">
+          {{ languages.SESSIONS_NEW_WITH_THESE_SETTINGS }}
+        </DropdownMenuItem>
         <Dialog
           v-if="!session.unreadable"
           v-model:open="renameOpen"
@@ -306,6 +309,7 @@ const emit = defineEmits<{
   moveToGroup: [groupId: string | null]
   delete: []
   openSchedules: []
+  newSessionWithSettings: []
 }>()
 
 const i18n = useI18N()

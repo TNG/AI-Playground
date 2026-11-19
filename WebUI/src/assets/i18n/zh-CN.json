@@ -148,6 +148,7 @@
   "SESSIONS_DELETE_GROUP_TITLE": "删除分组?",
   "SESSIONS_DELETE_GROUP_BODY": "其中的会话不会被删除:它们会移到“最近”,已置顶的仍保留在“已置顶”中。",
   "SESSIONS_NEW_SESSION_HERE": "在此新建会话",
+  "SESSIONS_NEW_WITH_THESE_SETTINGS": "使用这些设置新建会话",
   "SESSIONS_RENAME_TITLE": "重命名会话",
   "SESSIONS_RENAME_DESCRIPTION": "为此会话设置新标题。留空即可移除其名称。",
   "SESSIONS_RENAME_PLACEHOLDER": "输入标题",

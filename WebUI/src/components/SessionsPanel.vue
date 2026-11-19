@@ -124,7 +124,7 @@
                   @toggle="(expanded) => sessions.setGroupExpanded(listing.group.id, expanded)"
                   :rename="(name) => sessions.renameGroup(listing.group.id, name)"
                   @delete="sessions.deleteGroup(listing.group.id)"
-                  @new-session="lifecycle.newSession(listing.group.id)"
+                  @new-session="lifecycle.newSession({ groupId: listing.group.id })"
                 />
                 <div
                   v-show="listing.expanded"

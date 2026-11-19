@@ -13,7 +13,10 @@ import {
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter, ReplyRequest } from '../../../src/assets/js/store/channels/adapter'
-import type { QueuedChannelMessage } from '../../../src/assets/js/store/channels/channelQueue'
+import {
+  CHANNEL_QUEUE_LIMIT,
+  type QueuedChannelMessage,
+} from '../../../src/assets/js/store/channels/channelQueue'
 import type {
   ChannelKind,
   ChannelMessageRef,
@@ -1652,7 +1655,8 @@ ${PICK}`,
     ])
   })
 
-  // The new Session is busy only when something else reached it first, as a Session /agentsin picks can be.
+  // The new Session is busy only when something else reached it first,
+  // as a Session /agentsin picks can be.
   describe('in a busy Session', () => {
     it('queues the start like a message, and starts the Agent once the turn ends', async () => {
       const { router, agentStarts, busy, settle, published } = agents()
@@ -1730,6 +1734,17 @@ ${PICK}`,
       expect(inView).toEqual(SHOWN)
     })
 
+    it('does not move for a start its full queue refused', async () => {
+      const { router, inView, busy } = agents()
+      busy(TRIP)
+      const ch = fakeChannel('telegram')
+      for (let i = 0; i <= CHANNEL_QUEUE_LIMIT; i++) {
+        await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
+      }
+      expect(ch.replies.at(-1)).toContain('⚠️ Not queued')
+      expect(inView).toHaveLength(CHANNEL_QUEUE_LIMIT)
+    })
+
     it('starts the Agent even when the desktop cannot show it', async () => {
       const { router, inView, bringing, agentStarts } = agents()
       bringing.fails = true
@@ -1795,7 +1810,7 @@ ${PICK}`,
       return fixture
     }
 
-    /** A reply holding only a document: it makes the Session and attaches there, starting nothing. */
+    /** A reply holding only a document makes the Session and attaches there, starting nothing. */
     const documentOnly = (replyTo: string) => ({
       replyTo,
       documents: [{ filename: 'notes.pdf', mime: 'application/pdf', data_base64: 'cGRm' }],
@@ -2170,6 +2185,33 @@ ${PICK}`,
       ])
     })
 
+    it('refuses a reply once its Agent is no longer startable, making no Session and staying put', async () => {
+      const { router, startable, agentStarts, created, pointers } = prompted({ 'local-web': TRIP })
+      const ch = fakeChannel('local-web')
+      await router.route(ch.adapter, { callback: 'promptAgent:agent-digest' })
+      startable.splice(0, 1)
+      await router.route(ch.adapter, { text: 'Germany', replyTo: ch.asks[0].ref })
+      expect(ch.replies).toEqual(['⚠️ No agent "Daily digest" can be started from here.'])
+      expect(agentStarts).toEqual([])
+      expect(created).toEqual([])
+      expect(pointers['local-web']).toBe(TRIP)
+      expect(ch.repaints).toEqual([])
+    })
+
+    it('answers an empty reply as it would one to a request in the Channel Session', async () => {
+      async function emptyReply(tap: string) {
+        const { router, startable } = prompted()
+        const ch = fakeChannel('telegram')
+        await router.route(ch.adapter, { callback: tap })
+        startable.splice(0, 1)
+        await router.route(ch.adapter, { text: '   ', replyTo: ch.asks[0].ref })
+        return ch.replies
+      }
+      const inNew = await emptyReply('promptAgent:agent-digest')
+      expect(inNew).toEqual(await emptyReply('promptAgentIn:agent-digest'))
+      expect(inNew).toEqual(['⚠️ No agent "Daily digest" can be started from here.'])
+    })
+
     it('refuses a reply when the Agent can no longer be started from a Channel', async () => {
       const { router, agentStart, agentStarts } = prompted()
       const ch = fakeChannel('telegram')
@@ -2219,9 +2261,9 @@ describe('/agentsin', () => {
       {
         text: 'Where should the agent run? Tap a Session, or start it in a new one.',
         buttons: [
-          [{ text: '＋ New session', callbackData: 'runAgent:' }],
-          [{ text: '✅ 1. Trip planning', callbackData: 'agentsIn:session-trip' }],
-          [{ text: '2. Refactor', callbackData: 'agentsIn:session-code' }],
+          [{ text: '＋ New Session', callbackData: 'runAgent:' }],
+          [{ text: '✅ 1. Trip planning', callbackData: 'pickSession:session-trip' }],
+          [{ text: '2. Refactor', callbackData: 'pickSession:session-code' }],
         ],
       },
     ])
@@ -2236,7 +2278,7 @@ describe('/agentsin', () => {
     const ch = fakeChannel('telegram')
     await router.route(ch.adapter, { text: '/agentsin' })
     expect(ch.keyboards[0].buttons).toEqual([
-      [{ text: '＋ New session', callbackData: 'runAgent:' }],
+      [{ text: '＋ New Session', callbackData: 'runAgent:' }],
     ])
   })
 
@@ -2267,7 +2309,7 @@ describe('/agentsin', () => {
   it('makes a tapped Session the Channel Session, then lists the Agents to run there', async () => {
     const { router, pointers, created, agentStarts, plain } = picking()
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     expect(pointers.telegram).toBe(CODE)
     expect(ch.keyboards).toEqual([{ text: IN_CODE, buttons: HERE_BUTTONS }])
     expect(created).toEqual([])
@@ -2279,7 +2321,7 @@ describe('/agentsin', () => {
   it('repaints LAN chat with the picked Session’s transcript', async () => {
     const { router } = picking({ 'local-web': TRIP })
     const ch = fakeChannel('local-web')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     expect(ch.repaints).toEqual([
       [
         { role: 'user', text: 'split the module' },
@@ -2292,7 +2334,7 @@ describe('/agentsin', () => {
     const { router, pointers, listed } = picking()
     listed[CODE].reachable = false
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     expect(pointers.telegram).toBe(TRIP)
     expect(ch.keyboards).toEqual([])
     expect(ch.replies).toEqual([`⚠️ There is no Session ${CODE}. Send /sessions to see the list.`])
@@ -2301,7 +2343,7 @@ describe('/agentsin', () => {
   it('starts an Agent tapped after the pick in the picked Session, making none', async () => {
     const { router, agentStarts, created, inView } = picking()
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy', replyTarget: '42' })
     expect(created).toEqual([])
     expect(agentStarts).toEqual([
@@ -2313,7 +2355,7 @@ describe('/agentsin', () => {
   it('asks for a Start Prompt in the picked Session, and starts there with the reply', async () => {
     const { router, agentStarts, created } = picking()
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     await router.route(ch.adapter, { callback: 'promptAgentIn:agent-digest' })
     expect(ch.asks.map(({ text }) => text)).toEqual([
       '✎ What should “Daily digest” do in "Refactor"? Reply to this message, and I\'ll start it with your reply.',
@@ -2351,7 +2393,7 @@ describe('/agentsin', () => {
     const { router, agentStarts, busy, settle, inView } = picking()
     busy(CODE)
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
     expect(agentStarts).toEqual([])
     expect(ch.replies).toEqual(['⏳ Queued (1st) for "Refactor", runs after the current turn.'])
@@ -2367,7 +2409,7 @@ describe('/agentsin', () => {
     startable.splice(1, 1)
     agentNames['agent-tidy'] = 'Tidy downloads'
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy' })
     expect(agentStarts).toEqual([])
     expect(ch.keyboards[1]).toEqual({
@@ -2379,7 +2421,7 @@ describe('/agentsin', () => {
   it('starts in a new Session when the picked one was made unreachable since, saying so', async () => {
     const { router, agentStarts, listed, pointers } = picking()
     const ch = fakeChannel('telegram')
-    await router.route(ch.adapter, { callback: `agentsIn:${CODE}` })
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
     listed[CODE].reachable = false
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
     expect(ch.replies).toEqual([
@@ -2396,7 +2438,7 @@ describe('/agentsin', () => {
     startable.push({ agentId, name: 'Daily digest' })
     const ch = fakeChannel('telegram')
     await router.route(ch.adapter, { text: '/agentsin' })
-    await router.route(ch.adapter, { callback: `agentsIn:${sessionRef}` })
+    await router.route(ch.adapter, { callback: `pickSession:${sessionRef}` })
     const data = ch.keyboards.flatMap((keyboard) =>
       keyboard.buttons.flat().map((button) => button.callbackData),
     )

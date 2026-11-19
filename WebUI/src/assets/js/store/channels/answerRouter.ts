@@ -407,19 +407,25 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   /** Sends a Channel's message into its Session or Trial Run, or queues it while that is busy. */
   async function submit(sessions: SessionPort, entry: QueuedMessage): Promise<SubmitOutcome> {
     listen(sessions)
-    // On arrival, not at `startAgent`, which a queued start reaches only once the Session is free;
-    // not awaited, so a desktop preset switch waiting on a dialog never holds up the start.
-    if ('agent' in entry) {
-      void sessions
-        .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
-        .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
-    }
     const lane = laneOf(sessions, entry.target)
     if (lane.queue.size(lane.id) > 0 || draining.has(lane.key) || lane.activity().kind !== 'idle') {
       return enqueue(sessions, lane, entry)
     }
     const outcome = await run(sessions, entry)
-    return outcome === 'busy' ? enqueue(sessions, lane, entry) : outcome
+    if (outcome === 'busy') return enqueue(sessions, lane, entry)
+    if (outcome === 'started') bringIntoView(sessions, entry)
+    return outcome
+  }
+
+  /**
+   * Once an Agent's start is accepted: a queued one on arrival, not when the Session frees up.
+   * Not awaited, so a desktop preset switch waiting on a dialog never holds up the router.
+   */
+  function bringIntoView(sessions: SessionPort, entry: QueuedMessage): void {
+    if (!('agent' in entry)) return
+    void sessions
+      .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
+      .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
   }
 
   function previewOf(entry: QueuedMessage): string {
@@ -448,6 +454,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
     }
+    bringIntoView(sessions, entry)
     const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'

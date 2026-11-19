@@ -5,6 +5,7 @@ import type { ChannelAdapter } from './adapter'
 import type { InboundChannelMessage, StartableAgent } from './answerRouter'
 import type { ChannelCallback, ChannelCommand } from './channelCommands'
 import { inboundOrigin } from './channelInbound'
+import { NEW_SESSION, type StartPromptSession } from './startPromptRequests'
 import type { InboundMeta, KeyboardButton } from './types'
 
 // Telegram and Slack turn a tap on this prefix into `/agents <value>`; LAN chat sends the callback.
@@ -12,7 +13,7 @@ export const START_AGENT_CALLBACK = 'runAgent:'
 // Every Channel sends this tap as it is (`COMMAND_CALLBACKS` maps it to no command).
 export const PROMPT_AGENT_CALLBACK = 'promptAgent:'
 // `/agentsin`'s picker and the Agent list after it; every Channel sends these taps as they are.
-export const PICK_SESSION_CALLBACK = 'agentsIn:'
+export const PICK_SESSION_CALLBACK = 'pickSession:'
 export const START_AGENT_HERE_CALLBACK = 'runAgentIn:'
 export const PROMPT_AGENT_HERE_CALLBACK = 'promptAgentIn:'
 
@@ -41,10 +42,10 @@ export type ChannelAgentDeps = {
     origin: AgentAnswerOrigin,
     meta?: InboundMeta,
   ) => Promise<unknown>
-  /** Posts a Start Prompt Request for the Agent in the Session, or in a new one when null. */
+  /** Posts a Start Prompt Request for the Agent in the Session, or in a new one. */
   askForPrompt: (
     adapter: ChannelAdapter,
-    sessionRef: string | null,
+    session: StartPromptSession,
     agent: StartableAgent,
     meta?: InboundMeta,
   ) => Promise<void>
@@ -87,6 +88,17 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
       .catch((e: unknown) => deps.log('channelAgents: listing Agents failed:', e))
   }
 
+  /** The startable Agents, or null when there are none and the Channel was told so. */
+  async function startableAgents(
+    adapter: ChannelAdapter,
+    meta?: InboundMeta,
+  ): Promise<StartableAgent[] | null> {
+    const agents = await deps.listStartable()
+    if (agents.length > 0) return agents
+    await tell(adapter, copy().agentsNone, meta)
+    return null
+  }
+
   /** Names the Agent when it is saved, else what was typed; a tapped id is never shown. */
   function unavailable(agentId: string, typed?: string): string {
     const name = deps.agentName(agentId) ?? typed
@@ -100,8 +112,8 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     meta?: InboundMeta,
     tapped = false,
   ): Promise<void> {
-    const agents = await deps.listStartable()
-    if (agents.length === 0) return tell(adapter, copy().agentsNone, meta)
+    const agents = await startableAgents(adapter, meta)
+    if (!agents) return
     if (!choice) return list(adapter, agents, inNewSession(), meta)
     const wanted = choice.toLowerCase().replace(/\s+/g, ' ')
     const agent =
@@ -126,17 +138,16 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     agentId: string,
     meta?: InboundMeta,
   ): Promise<void> {
-    const agents = await deps.listStartable()
-    if (agents.length === 0) return tell(adapter, copy().agentsNone, meta)
+    const agents = await startableAgents(adapter, meta)
+    if (!agents) return
     const agent = agents.find((entry) => entry.agentId === agentId)
     if (!agent) return list(adapter, agents, inNewSession(), meta, unavailable(agentId))
-    await deps.askForPrompt(adapter, null, agent, meta)
+    await deps.askForPrompt(adapter, NEW_SESSION, agent, meta)
   }
 
   async function pickSession(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
-    const agents = await deps.listStartable()
+    if (!(await startableAgents(adapter, meta))) return
     const wording = copy()
-    if (agents.length === 0) return tell(adapter, wording.agentsNone, meta)
     const buttons: KeyboardButton[][] = [
       // A start tap naming no Agent is a bare `/agents`: the list that starts in a new Session.
       [{ text: wording.agentsInNewSession, callbackData: START_AGENT_CALLBACK }],
@@ -154,9 +165,8 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
   ): Promise<void> {
     const sessionRef = await deps.moveTo(adapter, choice, meta)
     if (!sessionRef) return
-    const agents = await deps.listStartable()
-    if (agents.length === 0) return tell(adapter, copy().agentsNone, meta)
-    await list(adapter, agents, inSession(sessionRef), meta)
+    const agents = await startableAgents(adapter, meta)
+    if (agents) await list(adapter, agents, inSession(sessionRef), meta)
   }
 
   /** The Agent a tap in the list after `/agentsin` names; a stale one lists what is startable. */
@@ -165,11 +175,8 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     agentId: string,
     meta?: InboundMeta,
   ): Promise<StartableAgent | null> {
-    const agents = await deps.listStartable()
-    if (agents.length === 0) {
-      await tell(adapter, copy().agentsNone, meta)
-      return null
-    }
+    const agents = await startableAgents(adapter, meta)
+    if (!agents) return null
     const agent = agents.find((entry) => entry.agentId === agentId)
     if (agent) return agent
     const here = await deps.current(adapter, meta)
@@ -198,7 +205,8 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
   ): Promise<void> {
     const agent = await tappedHere(adapter, agentId, meta)
     if (!agent) return
-    await deps.askForPrompt(adapter, await deps.current(adapter, meta), agent, meta)
+    const here = await deps.current(adapter, meta)
+    await deps.askForPrompt(adapter, here ? { sessionRef: here } : NEW_SESSION, agent, meta)
   }
 
   const commands: ChannelCommand[] = [

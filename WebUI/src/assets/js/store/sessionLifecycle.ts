@@ -55,13 +55,18 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     })
   }
 
-  /** Opens the Session with the Agent picked; the prompt bar shows it only on Assistant. */
+  /**
+   * Opens the Session with the Agent picked; the prompt bar shows it only on Assistant. A Channel
+   * asked for it, so the switch there raises no warning or toast on the desktop.
+   */
   async function openWithAgent(id: string, agentId: string): Promise<void> {
     if (!(await sessions.pickAgent(id, agentId))) return
     await openSession(id)
     if (sessions.openSessionId !== id || presets.activePresetName === HARNESS_CHAT_PRESET) return
+    const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
+    if (!assistant || !presetSwitch.gateOf(assistant).enabled || presetSwitching.isSwitching) return
     await sessionSettings.whenLoaded()
-    await presetSwitch.switchTo(HARNESS_CHAT_PRESET, { announce: false })
+    await presetSwitching.switchPreset(HARNESS_CHAT_PRESET, { skipMemoryAlert: true })
   }
 
   /** A new Session starts on the Assistant preset, or keeps the active one where it is gated. */

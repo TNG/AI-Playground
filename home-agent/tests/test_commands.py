@@ -48,7 +48,7 @@ class CommandsTest(unittest.TestCase):
 
     def test_agentsin_buttons_are_forwarded_as_the_tap(self) -> None:
         for data in (
-            "agentsIn:session-1",
+            "pickSession:session-1",
             "runAgentIn:agent-digest",
             "promptAgentIn:agent-digest",
         ):

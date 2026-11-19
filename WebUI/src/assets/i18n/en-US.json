@@ -1006,7 +1006,7 @@
   "CHANNEL_UNKNOWN_COMMAND": "Unknown command {command}. Send /help to see the commands.",
   "CHANNEL_AGENTS_PICK": "Agents you can start from here. Tap one to run it in a new Session, or send /agents <name>.",
   "CHANNEL_AGENTSIN_PICK": "Where should the agent run? Tap a Session, or start it in a new one.",
-  "CHANNEL_AGENTSIN_NEW_SESSION": "＋ New session",
+  "CHANNEL_AGENTSIN_NEW_SESSION": "＋ New Session",
   "CHANNEL_AGENTSIN_AGENTS_PICK": "📂 Now in {title}. Tap an agent to run it there.",
   "CHANNEL_AGENTS_NONE": "No agent can be started from a Channel yet. Turn on \"Can be started from a Channel\" for an agent in the Agent Library on your computer.",
   "CHANNEL_AGENT_NOT_FOUND": "⚠️ No agent \"{name}\" can be started from here.",

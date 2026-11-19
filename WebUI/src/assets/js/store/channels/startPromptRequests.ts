@@ -2,11 +2,15 @@ import { isStartPromptRequest, type ChannelMessageOwner } from '@/types/notifica
 import type { StartableAgent } from './answerRouter'
 import type { ChannelKind, ChannelMessageRef } from './types'
 
-/** A posted Start Prompt Request: its first reply starts `agent` in `sessionRef`. */
+/** Where a Start Prompt Request starts its Agent: a Session, or a new one its first reply makes. */
+export type StartPromptSession = { sessionRef: string } | { newSession: true }
+
+export const NEW_SESSION: StartPromptSession = { newSession: true }
+
+/** A posted Start Prompt Request: its first reply starts `agent` in `session`. */
 export type StartPromptRequest = {
   agent: StartableAgent
-  /** Null: a new Session, made when a reply arrives. */
-  sessionRef: string | null
+  session: StartPromptSession
   /** The posted message, for marking it used. */
   message: ChannelMessageRef
 }
@@ -68,7 +72,10 @@ export function createStartPromptRequests(messageMap: StartPromptMessageMap): St
     bind: (kind, ref, sessionRef) => {
       const held = entries.get(key(kind, ref))
       if (held?.state === 'open' || held?.state === 'queued') {
-        entries.set(key(kind, ref), { ...held, request: { ...held.request, sessionRef } })
+        entries.set(key(kind, ref), {
+          ...held,
+          request: { ...held.request, session: { sessionRef } },
+        })
       }
     },
     reopen: (kind, ref) => {

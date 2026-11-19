@@ -85,7 +85,7 @@ COMMAND_CALLBACKS: dict[str, str | None] = {
     "loadConv:": "/load",
     "runAgent:": "/agents",
     "promptAgent:": None,
-    "agentsIn:": None,
+    "pickSession:": None,
     "runAgentIn:": None,
     "promptAgentIn:": None,
 }

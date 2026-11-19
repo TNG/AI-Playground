@@ -55,6 +55,9 @@ export type KernelAgentToolImageEvent = {
 
 /** The turn settled (success, error or abort); its stream can close. */
 /** The turn moved within the Turn Queue (queued → running when it takes the place). */
+/** What started a turn, so a window that did not start it can show it from its first event. */
+export type AgentTurnOrigin = { prompt: string; userMessageId: string }
+
 export type KernelAgentTurnStateEvent = {
   type: 'agent-turn-state'
   sessionId: string
@@ -62,6 +65,8 @@ export type KernelAgentTurnStateEvent = {
   state: AgentTurnState
   /** What the user is asked; only while `paused`. */
   pauseReason?: PauseReason
+  /** Only on the turn's first event, which precedes every chunk of it. */
+  origin?: AgentTurnOrigin
 }
 
 export type KernelAgentTurnDoneEvent = {

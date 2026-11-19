@@ -89,11 +89,15 @@ afterEach(async () => {
   unregisterAgentModeIpc()
 })
 
-async function freshRuntimes() {
+const onAdoptedTurnDone = vi.fn()
+
+async function freshRuntimes(initialMessages: unknown[] = []) {
   const { createAgentTurnRuntimes } = await import('@/assets/js/store/agentModeTurn')
   const runtimes = createAgentTurnRuntimes({
     errors: { report },
     buildTurnConfig: async (sessionId) => ({ sessionId }) as never,
+    initialMessages: () => initialMessages as never,
+    onAdoptedTurnDone,
   })
   return {
     runtimes,
@@ -174,7 +178,7 @@ describe('agent turn resume', () => {
     const [turnId, , config] = startTurn.mock.calls.at(-1) ?? []
     expect(turnId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     expect(turnId).not.toBe(TURN_ID)
-    expect(config).toEqual({ sessionId: SESSION_ID })
+    expect(config).toEqual({ sessionId: SESSION_ID, userMessageId: expect.any(String) })
   })
 
   it('does not resume when the snapshot has no running turn', async () => {
@@ -199,5 +203,129 @@ describe('agent turn resume', () => {
     // The turnDone flushed after install; processing settles without a hang.
     await vi.waitFor(() => expect(runtime.processing.value).toBe(false))
     expect(reported).toHaveLength(0)
+  })
+})
+
+describe('following a turn another window started', () => {
+  const OTHER_TURN = 'b2a0f9d4-1c2e-4a6b-8d3f-0e9c7a5b4d21'
+  const ORIGIN = { prompt: 'More cheese please!', userMessageId: 'user-from-the-other-window' }
+  const previous = [
+    { id: 'u0', role: 'user', parts: [{ type: 'text', text: 'Cheese?' }] },
+    { id: 'a0', role: 'assistant', parts: [{ type: 'text', text: 'Here is a cheese image.' }] },
+  ]
+  const event = (payload: Record<string, unknown>, seq: number): KernelEvent =>
+    ({
+      sessionId: SESSION_ID,
+      ...payload,
+      scope: { kind: 'run', runId: OTHER_TURN },
+      seq,
+    }) as KernelEvent
+
+  async function connected(initialMessages: unknown[] = []) {
+    const fresh = await freshRuntimes(initialMessages)
+    resolveSnapshot(snapshotWithTurn(5, null))
+    await Promise.resolve()
+    return fresh
+  }
+
+  it('streams it live as its own reply after the asking message, and leaves saving to its window', async () => {
+    const { runtimes } = await connected(previous)
+    runtimes.runtimeFor(SESSION_ID)
+    pushKernelEvent(
+      event({ type: 'agent-turn-state', turnId: OTHER_TURN, state: 'queued', origin: ORIGIN }, 6),
+    )
+    const runtime = runtimes.runtimeOf(SESSION_ID)!
+    await vi.waitFor(() => expect(runtime.processing.value).toBe(true))
+
+    pushKernelEvent(
+      event(
+        {
+          type: 'agent-chunk',
+          turnId: OTHER_TURN,
+          chunk: { type: 'start', messageId: `${OTHER_TURN}-reply` },
+        },
+        7,
+      ),
+    )
+    pushKernelEvent(
+      event(
+        { type: 'agent-chunk', turnId: OTHER_TURN, chunk: { type: 'text-start', id: 't1' } },
+        8,
+      ),
+    )
+    pushKernelEvent(
+      event(
+        {
+          type: 'agent-chunk',
+          turnId: OTHER_TURN,
+          chunk: { type: 'text-delta', id: 't1', delta: 'Brie!' },
+        },
+        9,
+      ),
+    )
+    await vi.waitFor(() =>
+      expect(runtime.chat.messages.map((message) => message.id)).toEqual([
+        'u0',
+        'a0',
+        ORIGIN.userMessageId,
+        `${OTHER_TURN}-reply`,
+      ]),
+    )
+    expect(JSON.stringify(runtime.chat.messages.at(-1))).toContain('Brie!')
+    expect(JSON.stringify(runtime.chat.messages[1])).not.toContain('Brie!')
+
+    pushKernelEvent(event({ type: 'agent-turn-done', turnId: OTHER_TURN }, 10))
+    await vi.waitFor(() => expect(runtime.processing.value).toBe(false))
+    expect(onAdoptedTurnDone).not.toHaveBeenCalled()
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('creates the runtime for a session that had none yet', async () => {
+    const { runtimes } = await connected()
+    pushKernelEvent(
+      event({ type: 'agent-turn-state', turnId: OTHER_TURN, state: 'queued', origin: ORIGIN }, 6),
+    )
+    await vi.waitFor(() => expect(runtimes.runtimeOf(SESSION_ID)?.processing.value).toBe(true))
+  })
+
+  it('does not follow its own turn a second time', async () => {
+    const { runtimes } = await connected()
+    const runtime = runtimes.runtimeFor(SESSION_ID)
+    runtime.chat.sendMessage({ text: 'mine' })
+    await vi.waitFor(() => expect(startTurn).toHaveBeenCalled())
+    const [turnId, , config] = startTurn.mock.calls.at(-1)!
+    const userMessageId = (config as { userMessageId: string }).userMessageId
+    expect(runtime.chat.messages.find((message) => message.role === 'user')?.id).toBe(userMessageId)
+
+    pushKernelEvent({
+      ...event(
+        {
+          type: 'agent-turn-state',
+          turnId,
+          state: 'queued',
+          origin: { prompt: 'mine', userMessageId },
+        },
+        6,
+      ),
+      scope: { kind: 'run', runId: turnId },
+    } as KernelEvent)
+    pushKernelEvent({
+      ...event(
+        { type: 'agent-chunk', turnId, chunk: { type: 'start', messageId: `${turnId}-reply` } },
+        7,
+      ),
+      scope: { kind: 'run', runId: turnId },
+    } as KernelEvent)
+    await vi.waitFor(() =>
+      expect(runtime.chat.messages.map((message) => message.role)).toEqual(['user', 'assistant']),
+    )
+    expect(runtime.chat.messages.at(-1)?.id).toBe(`${turnId}-reply`)
+  })
+
+  it('ignores a turn event without an origin (a turn main started itself)', async () => {
+    const { runtimes } = await connected()
+    pushKernelEvent(event({ type: 'agent-turn-state', turnId: OTHER_TURN, state: 'queued' }, 6))
+    await Promise.resolve()
+    expect(runtimes.runtimeOf(SESSION_ID)).toBeUndefined()
   })
 })

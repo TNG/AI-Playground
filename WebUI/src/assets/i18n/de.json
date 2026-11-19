@@ -149,6 +149,8 @@
   "SESSIONS_DELETE_GROUP_BODY": "Die Sitzungen der Gruppe werden nicht gelöscht: sie wandern nach „Zuletzt“, angeheftete bleiben unter „Angeheftet“.",
   "SESSIONS_NEW_SESSION_HERE": "Neue Sitzung hier",
   "SESSIONS_NEW_WITH_THESE_SETTINGS": "Neue Sitzung mit diesen Einstellungen",
+  "SESSIONS_NEW_WITH_OPEN_SETTINGS": "Neue Sitzung mit den Einstellungen der geöffneten Sitzung",
+  "SESSIONS_NEW_MORE": "Weitere Möglichkeiten, eine Sitzung zu starten",
   "SESSIONS_RENAME_TITLE": "Sitzung umbenennen",
   "SESSIONS_RENAME_DESCRIPTION": "Lege einen neuen Titel für diese Sitzung fest. Lass das Feld leer, um den Namen zu entfernen.",
   "SESSIONS_RENAME_PLACEHOLDER": "Titel eingeben",

@@ -149,6 +149,8 @@
   "SESSIONS_DELETE_GROUP_BODY": "เซสชันในกลุ่มจะไม่ถูกลบ: จะย้ายไปที่ล่าสุด และเซสชันที่ปักหมุดไว้จะยังอยู่ในปักหมุด",
   "SESSIONS_NEW_SESSION_HERE": "เซสชันใหม่ที่นี่",
   "SESSIONS_NEW_WITH_THESE_SETTINGS": "เซสชันใหม่ด้วยการตั้งค่านี้",
+  "SESSIONS_NEW_WITH_OPEN_SETTINGS": "เซสชันใหม่ด้วยการตั้งค่าของเซสชันที่เปิดอยู่",
+  "SESSIONS_NEW_MORE": "วิธีอื่นในการเริ่มเซสชัน",
   "SESSIONS_RENAME_TITLE": "เปลี่ยนชื่อเซสชัน",
   "SESSIONS_RENAME_DESCRIPTION": "ตั้งชื่อใหม่ให้เซสชันนี้ เว้นว่างไว้เพื่อลบชื่อ",
   "SESSIONS_RENAME_PLACEHOLDER": "ป้อนชื่อ",

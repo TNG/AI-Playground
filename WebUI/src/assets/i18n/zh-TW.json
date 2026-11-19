@@ -149,6 +149,8 @@
   "SESSIONS_DELETE_GROUP_BODY": "其中的工作階段不會被刪除:它們會移到「最近」,已釘選的仍保留在「已釘選」中。",
   "SESSIONS_NEW_SESSION_HERE": "在此新增工作階段",
   "SESSIONS_NEW_WITH_THESE_SETTINGS": "以這些設定新增工作階段",
+  "SESSIONS_NEW_WITH_OPEN_SETTINGS": "以目前開啟工作階段的設定新增工作階段",
+  "SESSIONS_NEW_MORE": "開始工作階段的更多方式",
   "SESSIONS_RENAME_TITLE": "重新命名工作階段",
   "SESSIONS_RENAME_DESCRIPTION": "為此工作階段設定新標題。留空即可移除其名稱。",
   "SESSIONS_RENAME_PLACEHOLDER": "輸入標題",

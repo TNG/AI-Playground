@@ -149,6 +149,8 @@
   "SESSIONS_DELETE_GROUP_BODY": "セッションは削除されません。「最近」に移動し、ピン留めしたものは「ピン留め」に残ります。",
   "SESSIONS_NEW_SESSION_HERE": "ここに新しいセッション",
   "SESSIONS_NEW_WITH_THESE_SETTINGS": "この設定で新しいセッション",
+  "SESSIONS_NEW_WITH_OPEN_SETTINGS": "開いているセッションの設定で新しいセッション",
+  "SESSIONS_NEW_MORE": "セッションを開始するその他の方法",
   "SESSIONS_RENAME_TITLE": "セッション名を変更",
   "SESSIONS_RENAME_DESCRIPTION": "このセッションの新しいタイトルを設定します。空欄にすると名前が削除されます。",
   "SESSIONS_RENAME_PLACEHOLDER": "タイトルを入力",

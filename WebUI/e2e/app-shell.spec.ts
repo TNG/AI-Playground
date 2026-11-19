@@ -28,6 +28,19 @@ test.describe('App shell', () => {
       await expect(window.getByRole('button', { name: /(hide|show) footer/i })).toHaveCount(0)
     })
 
+    await test.step("A new Session can start with another Session's settings", async () => {
+      const sessions = app.sessions
+      await sessions.startNewSession()
+      await expect(sessions.untitledRows.first()).toBeVisible()
+      const before = await sessions.untitledRows.count()
+
+      await sessions.startNewSessionWithOpenSettings()
+      await expect(sessions.untitledRows).toHaveCount(before + 1)
+
+      await sessions.startNewSessionFromUntitledRow()
+      await expect(sessions.untitledRows).toHaveCount(before + 2)
+    })
+
     await test.step('App Settings opens from the header and holds the developer console', async () => {
       const shell = app.shell
       await expect(shell.header.getByRole('button', { name: 'App Settings' })).toBeVisible()

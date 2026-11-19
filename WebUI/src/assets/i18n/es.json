@@ -149,6 +149,8 @@
   "SESSIONS_DELETE_GROUP_BODY": "Sus sesiones no se eliminan: pasan a Recientes, y las fijadas siguen en Fijadas.",
   "SESSIONS_NEW_SESSION_HERE": "Nueva sesión aquí",
   "SESSIONS_NEW_WITH_THESE_SETTINGS": "Nueva sesión con esta configuración",
+  "SESSIONS_NEW_WITH_OPEN_SETTINGS": "Nueva sesión con la configuración de la sesión abierta",
+  "SESSIONS_NEW_MORE": "Más formas de iniciar una sesión",
   "SESSIONS_RENAME_TITLE": "Cambiar nombre de la sesión",
   "SESSIONS_RENAME_DESCRIPTION": "Establece un nuevo título para esta sesión. Déjalo vacío para quitar su nombre.",
   "SESSIONS_RENAME_PLACEHOLDER": "Introduce un título",

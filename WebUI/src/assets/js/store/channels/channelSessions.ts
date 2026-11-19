@@ -129,11 +129,15 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     await tell(adapter, fillTemplate(copy().sessionLoaded, { title }), meta)
   }
 
-  async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+  /** Moves the Channel to a new Session, as `/new` does; null when the Channel was told why not. */
+  async function moveToNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<string | null> {
     const sessionRef = await startSession(adapter, meta)
-    if (!sessionRef) return
-    await repaint(adapter, sessionRef)
-    await tell(adapter, copy().sessionStarted, meta)
+    if (sessionRef) await repaint(adapter, sessionRef)
+    return sessionRef
+  }
+
+  async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+    if (await moveToNew(adapter, meta)) await tell(adapter, copy().sessionStarted, meta)
   }
 
   const commands: ChannelCommand[] = [
@@ -170,7 +174,7 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     return (await current(adapter, meta)) ?? (await startSession(adapter, meta))
   }
 
-  return { plainMessage, current, currentOrNew, commands, callbacks }
+  return { plainMessage, current, moveToNew, commands, callbacks }
 }
 
 function plainText(parts: RawPart[]): string {

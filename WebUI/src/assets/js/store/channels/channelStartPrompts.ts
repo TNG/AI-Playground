@@ -16,6 +16,8 @@ import type { InboundMeta } from './types'
 export type ChannelStartPromptDeps = {
   port: SessionPort
   requests: StartPromptRequests
+  /** A new Session the Channel now points at; null when the Channel was told why not. */
+  newSession: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<string | null>
   copy: () => AnswerRouterCopy
   tell: (adapter: ChannelAdapter, text: string, meta?: InboundMeta) => Promise<void>
   /** The reply's text with its images attached to the target, or null when no run starts. */
@@ -47,17 +49,18 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
 
   async function ask(
     adapter: ChannelAdapter,
-    sessionRef: string,
+    sessionRef: string | null,
     agent: StartableAgent,
     meta?: InboundMeta,
   ): Promise<void> {
     const wording = copy()
-    const gesture = answerGesture(adapter.kind)
-    const template = wording[gesture ? GESTURE_WORDING[gesture].request : 'startPromptRequest']
-    const text = fillTemplate(template, {
-      name: agent.name,
-      title: port.label({ sessionRef }),
-    })
+    const gesture = GESTURE_WORDING[answerGesture(adapter.kind) ?? 'reply']
+    const text = sessionRef
+      ? fillTemplate(wording[gesture.request], {
+          name: agent.name,
+          title: port.label({ sessionRef }),
+        })
+      : fillTemplate(wording[gesture.newSessionRequest], { name: agent.name })
     try {
       const sent = await adapter.askForReply(
         adapter.formatMarkdown(text),
@@ -102,12 +105,14 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
       return true
     }
     const { request } = found
-    const target = { sessionRef: request.sessionRef }
+    const ref = msg.replyTo
+    const sessionRef = request.sessionRef ?? (await sessionFor(adapter, ref, msg, replyMeta))
+    if (!sessionRef) return true
+    const target = { sessionRef }
     if (!(await replyReachable({ copy, tell }, port, adapter, target, replyMeta))) return true
     const prompt = await deps.attach(adapter, target, msg, replyMeta)
     if (prompt === null) return true
     const origin = inboundOrigin(adapter.kind, msg)
-    const ref = msg.replyTo
     requests.hold(adapter.kind, ref)
     await deps.start(
       adapter,
@@ -131,6 +136,19 @@ export function createChannelStartPrompts(deps: ChannelStartPromptDeps) {
       },
     )
     return true
+  }
+
+  /** The new Session a reply that runs or attaches something makes, bound to its request. */
+  async function sessionFor(
+    adapter: ChannelAdapter,
+    ref: string,
+    msg: InboundChannelMessage,
+    meta?: InboundMeta,
+  ): Promise<string | null> {
+    if (!msg.text?.trim() && !msg.images?.length && !msg.documents?.length) return null
+    const sessionRef = await deps.newSession(adapter, meta)
+    if (sessionRef) requests.bind(adapter.kind, ref, sessionRef)
+    return sessionRef
   }
 
   return { ask, reply }

@@ -15,6 +15,8 @@ type GestureWording = {
   hint: keyof Pick<NotificationTemplates, 'answerByReply' | 'answerInThread'> | null
   /** How a Start Prompt Request asks for its reply. */
   request: 'startPromptRequest' | 'startPromptRequestThread'
+  /** `request` for a new Session, made when the reply arrives. */
+  newSessionRequest: 'startPromptRequestNew' | 'startPromptRequestNewThread'
 }
 
 /** How each gesture is worded wherever answering is explained. */
@@ -24,14 +26,22 @@ export const GESTURE_WORDING: Record<AnswerGesture, GestureWording> = {
     notice: 'noticeReply',
     hint: 'answerByReply',
     request: 'startPromptRequest',
+    newSessionRequest: 'startPromptRequestNew',
   },
   thread: {
     help: 'helpThread',
     notice: 'noticeThread',
     hint: 'answerInThread',
     request: 'startPromptRequestThread',
+    newSessionRequest: 'startPromptRequestNewThread',
   },
-  button: { help: 'helpButton', notice: 'noticeButton', hint: null, request: 'startPromptRequest' },
+  button: {
+    help: 'helpButton',
+    notice: 'noticeButton',
+    hint: null,
+    request: 'startPromptRequest',
+    newSessionRequest: 'startPromptRequestNew',
+  },
 }
 
 /** How a channel answers an agent's message, and how a send there names the message it replies to. */

@@ -611,7 +611,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return createChannelAgents({
       listStartable: () => sessions.listStartableAgents(),
       agentName: (agentId) => sessions.agentName(agentId),
-      channelSession: (adapter, meta) => forSessions.currentOrNew(adapter, meta),
+      newSession: (adapter, meta) => forSessions.moveToNew(adapter, meta),
       start: (adapter, sessionRef, agent, origin, meta) =>
         submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta }),
       askForPrompt: (adapter, sessionRef, agent, meta) =>
@@ -626,6 +626,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return createChannelStartPrompts({
       port: sessions,
       requests: startPromptRequests,
+      newSession: (adapter, meta) => channelSessions(sessions).moveToNew(adapter, meta),
       copy,
       tell,
       attach: (adapter, target, msg, meta) =>

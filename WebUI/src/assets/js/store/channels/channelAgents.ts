@@ -16,8 +16,8 @@ export type ChannelAgentDeps = {
   listStartable: () => Promise<StartableAgent[]>
   /** A saved Agent's name, startable or not; null once it is deleted. */
   agentName: (agentId: string) => string | null
-  /** The Channel Session, made when the Channel has none; null when the Channel was told why not. */
-  channelSession: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<string | null>
+  /** A new Session the Channel now points at; null when the Channel was told why not. */
+  newSession: (adapter: ChannelAdapter, meta?: InboundMeta) => Promise<string | null>
   /** Starts the Agent in the Session, or queues the start while the Session is busy. */
   start: (
     adapter: ChannelAdapter,
@@ -26,10 +26,10 @@ export type ChannelAgentDeps = {
     origin: AgentAnswerOrigin,
     meta?: InboundMeta,
   ) => Promise<unknown>
-  /** Posts a Start Prompt Request for the Agent in the Session. */
+  /** Posts a Start Prompt Request for the Agent in the Session, or in a new one when null. */
   askForPrompt: (
     adapter: ChannelAdapter,
-    sessionRef: string,
+    sessionRef: string | null,
     agent: StartableAgent,
     meta?: InboundMeta,
   ) => Promise<void>
@@ -38,7 +38,7 @@ export type ChannelAgentDeps = {
   log: (message: string, error: unknown) => void
 }
 
-/** `/agents`: the Agents marked "Can be started from a Channel", run in the Channel Session. */
+/** `/agents`: the Agents marked "Can be started from a Channel", each run in a new Session. */
 export function createChannelAgents(deps: ChannelAgentDeps) {
   const { copy, tell } = deps
 
@@ -82,7 +82,7 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
       agents.find((entry) => entry.name.trim().toLowerCase().replace(/\s+/g, ' ') === wanted) ??
       agents.find((entry) => entry.agentId === choice)
     if (!agent) return list(adapter, agents, meta, unavailable(choice, tapped ? undefined : choice))
-    const sessionRef = await deps.channelSession(adapter, meta)
+    const sessionRef = await deps.newSession(adapter, meta)
     if (!sessionRef) return
     await deps.start(adapter, sessionRef, agent, inboundOrigin(adapter.kind, msg), meta)
   }
@@ -96,9 +96,7 @@ export function createChannelAgents(deps: ChannelAgentDeps) {
     if (agents.length === 0) return tell(adapter, copy().agentsNone, meta)
     const agent = agents.find((entry) => entry.agentId === agentId)
     if (!agent) return list(adapter, agents, meta, unavailable(agentId))
-    const sessionRef = await deps.channelSession(adapter, meta)
-    if (!sessionRef) return
-    await deps.askForPrompt(adapter, sessionRef, agent, meta)
+    await deps.askForPrompt(adapter, null, agent, meta)
   }
 
   const commands: ChannelCommand[] = [

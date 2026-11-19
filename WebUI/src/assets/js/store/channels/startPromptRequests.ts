@@ -5,7 +5,8 @@ import type { ChannelKind, ChannelMessageRef } from './types'
 /** A posted Start Prompt Request: its first reply starts `agent` in `sessionRef`. */
 export type StartPromptRequest = {
   agent: StartableAgent
-  sessionRef: string
+  /** Null: a new Session, made when a reply arrives. */
+  sessionRef: string | null
   /** The posted message, for marking it used. */
   message: ChannelMessageRef
 }
@@ -33,6 +34,8 @@ export type StartPromptRequests = {
   lookup: (kind: ChannelKind, ref: string) => Promise<StartPromptLookup | null>
   /** A reply's start is on its way; a dropped one reopens the request. */
   hold: (kind: ChannelKind, ref: string) => void
+  /** The new Session a reply made; later replies start there too. */
+  bind: (kind: ChannelKind, ref: string, sessionRef: string) => void
   reopen: (kind: ChannelKind, ref: string) => void
   markUsed: (kind: ChannelKind, ref: string) => void
 }
@@ -61,6 +64,12 @@ export function createStartPromptRequests(messageMap: StartPromptMessageMap): St
     hold: (kind, ref) => {
       const held = entries.get(key(kind, ref))
       if (held?.state === 'open') entries.set(key(kind, ref), { ...held, state: 'queued' })
+    },
+    bind: (kind, ref, sessionRef) => {
+      const held = entries.get(key(kind, ref))
+      if (held?.state === 'open' || held?.state === 'queued') {
+        entries.set(key(kind, ref), { ...held, request: { ...held.request, sessionRef } })
+      }
     },
     reopen: (kind, ref) => {
       const held = entries.get(key(kind, ref))

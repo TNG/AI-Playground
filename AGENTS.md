@@ -1374,7 +1374,9 @@ Automated coverage: `electron/test/channels/` and
 
 One AI Playground can render another's kernel over the LAN: Settings → App → **Remote inference**
 picks `off` / `host` (workstation) / `client` (thin client), stored as `remoteKernel*` keys in
-`settings.json`, tokens in `{userData}/remote-kernel-secrets.json`; a change applies on restart.
+`settings.json`; a change applies on restart. The workstation's certificate, its paired devices and
+the client's paired host are three files in userData (`remote-kernel-tls.json`, `-devices.json`,
+`-paired-host.json`), encrypted with safeStorage when a keyring exists.
 
 - **Routing is a typed table**, `src/types/ipcRouting.ts`: every invoke/send row is `local` or
   `remote` (`satisfies Record<…>`, so a new manifest row fails the build until classified), every
@@ -1386,16 +1388,36 @@ picks `off` / `host` (workstation) / `client` (thin client), stored as `remoteKe
   `kernel/rendererSinks.ts`. Pushes that make a renderer _execute_ work (`agentMode:executeTool`,
   `chat:ask`, `artifact:request`) go to the `driver` — the renderer that last started a turn or
   run — so a tool never runs twice; prompts broadcast and the first answer wins.
-- **Transport** (`kernel/remoteKernel/host.ts` / `client.ts`): HTTP + SSE on port 47800,
-  `x-aipg-remote-token` header. `/rpc` (JSON via `wireCodec.ts`, which keeps bytes and `undefined`),
+- **Pairing** (`pairing.ts`, `spake2.ts`): the workstation shows a 4-digit code for two minutes;
+  the client types it and both run SPAKE2 (RFC 9382, P-256, tested against the RFC vectors) with
+  the code hashed together with the certificate fingerprint the client sees, and that fingerprint
+  bound into the transcript. The code never crosses the wire, a device in the middle fails the key
+  confirmation, and every started session spends one of five attempts (the host's confirmation
+  already answers whether a guess was right). Success seals a per-device token under the SPAKE2
+  key; the host keeps only its hash, and Revoke ends that device's stream at once.
+- **TLS** (`tlsIdentity.ts`): the workstation serves HTTPS with a self-signed P-256 certificate and
+  the client trusts exactly that certificate (`ca` + a fingerprint `checkServerIdentity`; the LAN
+  IP is not checked). The certificate is marked `CA:TRUE` because Electron's BoringSSL refuses a
+  pinned self-signed root without it while Node's OpenSSL accepts either — so Vitest cannot catch
+  that regression; the store test asserts the flag instead.
+- **Discovery** (`adapters/lanDiscovery.ts`, `bonjour-service`): a workstation advertises
+  `_aipg-kernel._tcp` with TXT `v`, `name`, a 16-hex fingerprint hint and `pairing` (re-published
+  when a window opens or closes); the client's "Search the network" browses for 3 s. Multicast is
+  blocked on many guest/corporate networks and does not cross subnets, so manual address entry
+  stays. What is advertised is a hint; trust comes only from pairing.
+- **Transport** (`kernel/remoteKernel/host.ts` / `client.ts`): HTTPS + SSE on port 47800,
+  `x-aipg-remote-token` header carrying the device token. `/rpc` (JSON via `wireCodec.ts`, which keeps bytes and `undefined`),
   `/events` (kernel events with a replay buffer, pushes, a `bootId` so a host restart re-hydrates
   the client), `/media` (the client's `aipg-media` handler), `/svc/<port>` (the renderer's direct
   backend fetches: the client rewrites loopback service URLs onto a local tunnel).
-- **The client starts no backends and reaps no orphans** (`startBackends: false`) — on one box the
-  reap would kill the workstation's processes — and its kernel bus only relays (`setKernelRelayOnly`).
-- **Two instances on one VM:** run the workstation with `npm run dev` (host mode), write client
-  mode into the client's userData _before_ its first launch (an `off` client would start the
-  shared backends), then start it against the same dev server:
+- **A device set to client mode starts no backends and reaps no orphans**, paired or not
+  (`isThinClientDevice`) — on one box the reap would kill the workstation's processes — and once
+  connected its kernel bus only relays (`setKernelRelayOnly`).
+- **Two instances on one VM:** run the workstation with `npm run dev` (host mode), write
+  `"remoteKernelMode": "client"` into the client's userData settings _before_ its first launch (an
+  `off` client would start the shared backends), start it against the same dev server, then pair
+  in Settings. "Save and restart" relaunches an unpackaged client without its entry script, so
+  start it again by hand after that click:
 
   ```bash
   XAUTHORITY=~/.Xauthority HOME=/tmp/aipg-client-home DISPLAY=:1 \

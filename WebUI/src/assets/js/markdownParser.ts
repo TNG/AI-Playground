@@ -29,17 +29,35 @@ const codeRenderer = {
   },
 }
 
+/**
+ * Raw HTML the assistant may emit without being escaped, so raw links and
+ * underline wrappers render like their markdown equivalents. DOMPurify still
+ * sanitizes whatever passes through here.
+ */
+const allowedUnderlineTag = /^<\/?(?:u|ins)\s*>$/i
+const allowedClosingAnchor = /^<\/a>\s*$/i
+const allowedOpeningAnchor =
+  /^<a\s+href="([^"<>]*)"((?:\s+(?:title|target|rel)="[^"<>]*")*\s*)>\s*$/i
+
 const htmlEscaper = {
   walkTokens: (token: Token) => {
+    if (token.type !== 'html') return
     try {
-      if (token.type === 'html') {
-        token.text = token.raw
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;')
+      if (allowedClosingAnchor.test(token.raw) || allowedUnderlineTag.test(token.raw)) return
+      const anchor = allowedOpeningAnchor.exec(token.raw)
+      if (anchor) {
+        const href = cleanUrl(anchor[1])
+        if (href !== null) {
+          token.text = `<a href="${escapeHtml(href)}"${anchor[2]}>`
+          return
+        }
       }
+      token.text = token.raw
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
     } catch (error) {
       console.error('error while html escaping', { error, token })
     }
@@ -87,6 +105,20 @@ const dataCodeFixer = (input: string) => {
   }
 }
 
+/**
+ * Adds the external-link icon to web anchors the assistant wrote as raw HTML,
+ * so they look the same as markdown links. Anchors rendered by linkRenderer
+ * already contain the icon, so those are left unchanged. Must run after
+ * dataCodeFixer, which base64-encodes code-block content out of the way.
+ */
+const rawAnchorIconFixer = (input: string) => {
+  return input.replace(
+    /(<a\s+href="https?:[^"]*"(?:\s+(?:title|target|rel)="[^"]*")*\s*>)([\s\S]*?)(<\/a>)/gi,
+    (match, open: string, inner: string, close: string) =>
+      inner.includes('external-link-icon') ? match : `${open}${inner}${externalLinkIcon}${close}`,
+  )
+}
+
 export const parser = new Marked({
   pedantic: false,
   gfm: true,
@@ -98,7 +130,7 @@ export const parser = new Marked({
   .use(linkRenderer)
   .use({
     hooks: {
-      postprocess: dataCodeFixer,
+      postprocess: (html: string) => rawAnchorIconFixer(dataCodeFixer(html)),
     },
   })
 
@@ -110,6 +142,11 @@ export const plainParser = new Marked({
 })
   .use(htmlEscaper)
   .use(linkRenderer)
+  .use({
+    hooks: {
+      postprocess: rawAnchorIconFixer,
+    },
+  })
 
 export const parse = (input: string) => {
   try {

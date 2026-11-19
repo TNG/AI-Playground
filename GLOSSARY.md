@@ -28,8 +28,10 @@ _Avoid_: direct media preset, media gen mode
 **Session**:
 The unit of work the user sees in the sessions panel: one continuous history in which any mix of
 presets can take turns. A new Session starts only when the user asks for one, and starts on the
-Assistant preset.
-_Avoid_: user session, agent session, conversation, thread
+Assistant preset — with Default Settings, or with another Session's Session Settings when the user
+starts it from that Session. Nothing else of that Session comes along but, when started from its
+row, its Session Group.
+_Avoid_: user session, agent session, conversation, thread, clone, duplicate
 
 **Title**:
 What a Session is called in the sessions panel: its Name if it has one, otherwise its first prompt,

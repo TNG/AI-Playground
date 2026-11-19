@@ -204,6 +204,8 @@ export function createRemoteKernel(deps: RemoteKernelDeps) {
     },
     forgetHost: (): void => deps.files.pairedHost.remove(),
     isClient: () => activeMode === 'client',
+    /** A device set up as a thin client runs no backends of its own, paired yet or not. */
+    isThinClientDevice: () => deps.settings().remoteKernelMode === 'client',
     fetchMedia: (request: Request) => client?.fetchMedia(request) ?? null,
     close: async () => {
       client?.close()

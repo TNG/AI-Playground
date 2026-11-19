@@ -1355,7 +1355,7 @@ app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
 
 async function initServiceRegistry(win: BrowserWindow, settings: LocalSettings) {
   serviceRegistry = await aiplaygroundApiServiceRegistry(win, settings, {
-    startBackends: !remoteKernel.isClient(),
+    startBackends: !remoteKernel.isThinClientDevice(),
   })
   const homeAgent = serviceRegistry.getService('home-agent-backend')
   if (homeAgent instanceof HomeAgentBackendService) {
@@ -2288,7 +2288,7 @@ app.whenReady().then(async () => {
       resolveMediaPath: getLocalPathFromAipgMediaUrl,
       onKernelEvent,
     })
-    if (!settings.isDemoModeEnabled && !remoteKernel.isClient()) {
+    if (!settings.isDemoModeEnabled && !remoteKernel.isThinClientDevice()) {
       appLogger.info('startup step: migrating agent presets', 'electron-backend', true)
       await migrateAgentLibrary({
         presetsDir: getUserPresetsDir(),

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import selfsigned from 'selfsigned'
 import { createProtectedJsonFile } from '../../../persist/remoteKernelSecrets'
 import {
   certificateFingerprint,
@@ -42,7 +43,23 @@ describe('remote-kernel stores', () => {
     const rotated = await reloaded.rotate()
     expect(rotated.fingerprint).not.toBe(first.fingerprint)
     expect(new crypto.X509Certificate(rotated.certPem).publicKey.asymmetricKeyType).toBe('ec')
+    // Electron's BoringSSL rejects a pinned self-signed root without the CA flag.
+    expect(new crypto.X509Certificate(rotated.certPem).ca).toBe(true)
     expect(fs.statSync(file).mode & 0o077).toBe(0)
+  })
+
+  it('replaces a stored certificate that is not marked as a CA', async () => {
+    const file = tempPath('tls.json')
+    const store = createProtectedJsonFile<StoredIdentity>(() => file, plainCipher)
+    const legacy = await selfsigned.generate([{ name: 'commonName', value: 'old' }], {
+      keyType: 'ec',
+      curve: 'P-256',
+      algorithm: 'sha256',
+    })
+    store.write({ certPem: legacy.cert, keyPem: legacy.private })
+    const current = await createTlsIdentity(store, 'test').current()
+    expect(current.certPem).not.toBe(legacy.cert)
+    expect(new crypto.X509Certificate(current.certPem).ca).toBe(true)
   })
 
   it('fingerprints a certificate the same from PEM and from the DER a TLS peer presents', async () => {

@@ -213,6 +213,15 @@ export async function startHermesTurn(
       model: modelConfig.model,
       samplingParams: copySamplingParams(modelConfig.samplingParams, undefined),
       contextWindow,
+      onUsage: (usage) =>
+        translator.stepUsage(
+          {
+            inputTokens: usage.prompt_tokens ?? 0,
+            outputTokens: usage.completion_tokens ?? 0,
+            cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+          },
+          contextWindow,
+        ),
     })
     aipgTools = await aipgToolsFor(config, workspaceDir)
     mcp.setTurn({

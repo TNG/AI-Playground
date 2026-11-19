@@ -13,9 +13,19 @@ async function fakeServer(reply: string): Promise<Fake> {
   const server = http.createServer(async (req, res) => {
     let raw = ''
     for await (const chunk of req) raw += chunk
-    if (raw) bodies.push(JSON.parse(raw))
+    const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    if (raw) bodies.push(body)
+    const usage = { prompt_tokens: 1200, completion_tokens: 34 }
+    if (body.stream === true) {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.write('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n')
+      // split mid-line, as a real stream can be
+      res.write(`data: {"choices":[],"usa`)
+      res.end(`ge":${JSON.stringify(usage)}}\n\ndata: [DONE]\n\n`)
+      return
+    }
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ reply, path: req.url }))
+    res.end(JSON.stringify({ reply, path: req.url, usage }))
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as AddressInfo
@@ -78,7 +88,7 @@ describe('Hermes LLM proxy', () => {
     })
 
     const a = (await (await complete(p)).json()) as { reply: string; path: string }
-    expect(a).toEqual({ reply: 'first', path: '/v1/chat/completions' })
+    expect(a).toMatchObject({ reply: 'first', path: '/v1/chat/completions' })
     live = second.url
     const b = (await (await complete(p)).json()) as { reply: string }
     expect(b.reply).toBe('second')
@@ -89,5 +99,27 @@ describe('Hermes LLM proxy', () => {
       temperature: 0.2,
     })
     expect(second.bodies).toHaveLength(1)
+  })
+
+  it('asks a streaming server for usage and reports it from both reply shapes', async () => {
+    const upstream = await fakeServer('ok')
+    cleanup.push(upstream.close)
+    const seen: unknown[] = []
+    const p = await proxy()
+    p.setTarget({ baseUrl: () => upstream.url, model: 'm.gguf', onUsage: (u) => seen.push(u) })
+
+    await (await complete(p)).text()
+    const streamed = await fetch(`${p.url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'aipg-local', stream: true, messages: [] }),
+    })
+    expect(await streamed.text()).toContain('[DONE]')
+
+    expect(upstream.bodies[1]).toMatchObject({ stream_options: { include_usage: true } })
+    expect(seen).toEqual([
+      { prompt_tokens: 1200, completion_tokens: 34 },
+      { prompt_tokens: 1200, completion_tokens: 34 },
+    ])
   })
 })

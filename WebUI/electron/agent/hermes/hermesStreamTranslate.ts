@@ -1,5 +1,10 @@
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
-import { createStreamTranslator, type StreamChunk } from '../piStreamTranslate.ts'
+import {
+  createStreamTranslator,
+  type StepUsage,
+  type StreamChunk,
+  type TurnSummary,
+} from '../piStreamTranslate.ts'
 import { HERMES_AIPG_MCP_SERVER } from '../../adapters/backends/hermesConfig.ts'
 
 // Hermes Runs API events are restated as the Pi session events the Agent Mode translator already
@@ -26,6 +31,8 @@ export type HermesStreamTranslatorOptions = {
 
 export type HermesStreamTranslator = {
   handle: (event: HermesRunEvent) => void
+  /** The latest model call's token counts; its prompt plus reply is what the window holds. */
+  stepUsage: (step: StepUsage, contextWindow?: number) => void
   notice: (text: string) => void
   /** Settles the stream from a terminal event; returns whether the event was terminal. */
   isTerminal: (event: HermesRunEvent) => boolean
@@ -59,6 +66,7 @@ export function createHermesStreamTranslator(
   let streamedText = false
   let messageOpen = false
   let usage: HermesUsage | undefined
+  let occupancy: Pick<TurnSummary, 'lastStep' | 'contextUsage'> = {}
 
   const openMessage = () => {
     if (messageOpen) return
@@ -158,24 +166,36 @@ export function createHermesStreamTranslator(
     return TERMINAL.has(event.event)
   }
 
+  function stepUsage(step: StepUsage, contextWindow?: number): void {
+    const tokens = step.inputTokens + step.outputTokens
+    occupancy = {
+      lastStep: step,
+      ...(contextWindow
+        ? {
+            contextUsage: {
+              tokens,
+              contextWindow,
+              percent: Math.min(100, (tokens / contextWindow) * 100),
+            },
+          }
+        : {}),
+    }
+    pi.update(occupancy)
+  }
+
   function finish(): void {
     closeMessage()
     pi.finish({
       ...(usage
-        ? {
-            lastStep: {
-              inputTokens: usage.input_tokens ?? 0,
-              outputTokens: usage.output_tokens ?? 0,
-              cacheReadTokens: 0,
-            },
-            usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
-          }
+        ? { usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } }
         : {}),
+      ...occupancy,
     })
   }
 
   return {
     handle,
+    stepUsage,
     notice: (text) => {
       closeMessage()
       pi.notice(text)

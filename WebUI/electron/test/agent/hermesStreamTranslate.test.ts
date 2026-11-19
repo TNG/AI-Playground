@@ -114,6 +114,28 @@ describe('Hermes run events as Agent Mode chunks', () => {
   })
 })
 
+describe('context occupancy', () => {
+  it('reports the latest call as the gauge reading, live and at the finish', () => {
+    const chunks: StreamChunk[] = []
+    const translator = createHermesStreamTranslator({ emit: (chunk) => chunks.push(chunk) })
+    translator.stepUsage({ inputTokens: 900, outputTokens: 10, cacheReadTokens: 0 }, 65536)
+    translator.stepUsage({ inputTokens: 1200, outputTokens: 34, cacheReadTokens: 800 }, 65536)
+    translator.handle({ event: 'run.completed', output: 'ok', usage: { input_tokens: 2100 } })
+    translator.finish()
+
+    const live = chunks.filter((chunk) => chunk.type === 'message-metadata')
+    expect(live).toHaveLength(2)
+    const finish = chunks.find((chunk) => chunk.type === 'finish') as {
+      messageMetadata: Record<string, unknown>
+    }
+    expect(finish.messageMetadata).toMatchObject({
+      contextUsage: { tokens: 1234, contextWindow: 65536 },
+      lastStep: { inputTokens: 1200, outputTokens: 34, cacheReadTokens: 800 },
+      usage: { inputTokens: 2100 },
+    })
+  })
+})
+
 describe('aipgToolNameOf', () => {
   it('maps only the aipg server prefix, case-insensitively', () => {
     const known = ['generateImage', 'editImage']

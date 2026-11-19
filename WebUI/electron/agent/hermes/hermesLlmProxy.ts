@@ -16,6 +16,14 @@ export type HermesProxyTarget = {
   /** Recommended sampling for that model, merged over every completion body. */
   samplingParams?: Record<string, unknown>
   contextWindow?: number
+  /** Token counts of each completion the server answered, as it reported them. */
+  onUsage?: (usage: CompletionUsage) => void
+}
+
+export type CompletionUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number }
 }
 
 export type HermesLlmProxy = {
@@ -62,7 +70,56 @@ export function rewriteCompletionBody(
   body: Record<string, unknown>,
   target: HermesProxyTarget,
 ): Record<string, unknown> {
-  return { ...body, ...(target.samplingParams ?? {}), model: target.model }
+  const rewritten: Record<string, unknown> = {
+    ...body,
+    ...(target.samplingParams ?? {}),
+    model: target.model,
+  }
+  if (body.stream === true) {
+    const options = (body.stream_options ?? {}) as Record<string, unknown>
+    rewritten.stream_options = { ...options, include_usage: true }
+  }
+  return rewritten
+}
+
+function usageOf(json: string): CompletionUsage | undefined {
+  if (!json.includes('"usage"')) return undefined
+  try {
+    const usage = (JSON.parse(json) as { usage?: unknown }).usage
+    return usage && typeof usage === 'object' ? (usage as CompletionUsage) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Watches a completion response for its `usage` object without holding the whole body. */
+function usageWatcher(streaming: boolean, report: (usage: CompletionUsage) => void) {
+  const decoder = new TextDecoder()
+  let pending = ''
+  const scanLine = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const usage = usageOf(line.slice(5).trim())
+    if (usage) report(usage)
+  }
+  return {
+    write(chunk: Uint8Array) {
+      pending += decoder.decode(chunk, { stream: true })
+      if (!streaming) {
+        if (pending.length > MAX_BODY_BYTES) pending = ''
+        return
+      }
+      const lines = pending.split(/\r?\n/)
+      pending = lines.pop() ?? ''
+      lines.forEach(scanLine)
+    },
+    end() {
+      if (streaming) scanLine(pending)
+      else {
+        const usage = usageOf(pending)
+        if (usage) report(usage)
+      }
+    },
+  }
 }
 
 export async function startHermesLlmProxy(key: string): Promise<HermesLlmProxy> {
@@ -123,7 +180,25 @@ export async function startHermesLlmProxy(key: string): Promise<HermesLlmProxy> 
       })
       res.writeHead(upstream.status, outHeaders)
       if (!upstream.body) return res.end()
-      for await (const chunk of upstream.body) res.write(chunk)
+      const onUsage = target.onUsage
+      const watcher =
+        onUsage && upstream.ok && upstreamPath.startsWith('/chat/completions')
+          ? usageWatcher(
+              (upstream.headers.get('content-type') ?? '').includes('event-stream'),
+              (usage) => {
+                try {
+                  onUsage(usage)
+                } catch {
+                  // a usage reader must never break the reply it is reading
+                }
+              },
+            )
+          : undefined
+      for await (const chunk of upstream.body) {
+        res.write(chunk)
+        watcher?.write(chunk)
+      }
+      watcher?.end()
       res.end()
     } catch (error) {
       if (res.headersSent) return res.destroy()

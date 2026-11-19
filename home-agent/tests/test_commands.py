@@ -42,6 +42,21 @@ class CommandsTest(unittest.TestCase):
             {"callback": "promptAgent:agent-digest"},
         )
 
+    def test_agentsin_is_registered_and_takes_no_argument(self) -> None:
+        agentsin = next(cmd for cmd in CHANNEL_COMMANDS if cmd.name == "agentsin")
+        self.assertEqual(agentsin.build_full_text(["Daily"]), "/agentsin")
+
+    def test_agentsin_buttons_are_forwarded_as_the_tap(self) -> None:
+        for data in (
+            "agentsIn:session-1",
+            "runAgentIn:agent-digest",
+            "promptAgentIn:agent-digest",
+        ):
+            self.assertEqual(forwarded_callback(data), {"callback": data})
+
+    def test_agentsin_new_session_button_is_forwarded_as_bare_agents(self) -> None:
+        self.assertEqual(forwarded_callback("runAgent:"), {"text": "/agents"})
+
     def test_every_command_button_prefix_names_a_registered_command(self) -> None:
         names = {cmd.slash for cmd in CHANNEL_COMMANDS}
         for command in COMMAND_CALLBACKS.values():

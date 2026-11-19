@@ -100,32 +100,53 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     }
   }
 
-  async function listSessions(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+  /** The Reachable Sessions as `/sessions` lists them, the Channel Session marked; a tap sends `prefix`. */
+  async function sessionButtons(
+    adapter: ChannelAdapter,
+    prefix: string,
+  ): Promise<KeyboardButton[][]> {
     const listed = (await port.listReachable()).slice(0, LISTED_SESSIONS)
-    const wording = copy()
-    if (listed.length === 0) return tell(adapter, wording.sessionsNone, meta)
     const pointed = pointers.get(adapter.kind)
-    const buttons: KeyboardButton[][] = listed.map(({ sessionRef, title }, index) => [
+    const untitled = copy().untitled
+    return listed.map(({ sessionRef, title }, index) => [
       {
-        text: `${sessionRef === pointed ? '✅ ' : ''}${index + 1}. ${title || wording.untitled}`,
-        callbackData: `${LOAD_SESSION_CALLBACK}${sessionRef}`,
+        text: `${sessionRef === pointed ? '✅ ' : ''}${index + 1}. ${title || untitled}`,
+        callbackData: `${prefix}${sessionRef}`,
       },
     ])
+  }
+
+  async function listSessions(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+    const buttons = await sessionButtons(adapter, LOAD_SESSION_CALLBACK)
+    const wording = copy()
+    if (buttons.length === 0) return tell(adapter, wording.sessionsNone, meta)
     await adapter
       .keyboard(adapter.formatMarkdown(wording.sessionsPick), buttons, meta)
       .catch((e: unknown) => deps.log('channelSessions: listing Sessions failed:', e))
   }
 
-  async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
+  /** Points the Channel at a listed Session, as `/load` does; null when the Channel was told why not. */
+  async function moveTo(
+    adapter: ChannelAdapter,
+    choice: string,
+    meta?: InboundMeta,
+  ): Promise<string | null> {
     const reachable = await port.listReachable()
     const index = /^\d+$/.test(choice) ? Number(choice) - 1 : -1
     const picked = reachable[index] ?? reachable.find((entry) => entry.sessionRef === choice)
     if (!picked) {
-      return tell(adapter, fillTemplate(copy().sessionNotFound, { n: choice }), meta)
+      await tell(adapter, fillTemplate(copy().sessionNotFound, { n: choice }), meta)
+      return null
     }
     pointers.set(adapter.kind, picked.sessionRef)
     await repaint(adapter, picked.sessionRef)
-    const title = port.label({ sessionRef: picked.sessionRef })
+    return picked.sessionRef
+  }
+
+  async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
+    const sessionRef = await moveTo(adapter, choice, meta)
+    if (!sessionRef) return
+    const title = port.label({ sessionRef })
     await tell(adapter, fillTemplate(copy().sessionLoaded, { title }), meta)
   }
 
@@ -174,7 +195,7 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     return (await current(adapter, meta)) ?? (await startSession(adapter, meta))
   }
 
-  return { plainMessage, current, moveToNew, commands, callbacks }
+  return { plainMessage, current, moveToNew, moveTo, sessionButtons, commands, callbacks }
 }
 
 function plainText(parts: RawPart[]): string {

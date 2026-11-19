@@ -621,6 +621,10 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       listStartable: () => sessions.listStartableAgents(),
       agentName: (agentId) => sessions.agentName(agentId),
       newSession: (adapter, meta) => forSessions.moveToNew(adapter, meta),
+      current: (adapter, meta) => forSessions.current(adapter, meta),
+      moveTo: (adapter, choice, meta) => forSessions.moveTo(adapter, choice, meta),
+      sessionButtons: (adapter, prefix) => forSessions.sessionButtons(adapter, prefix),
+      label: (sessionRef) => sessions.label({ sessionRef }),
       start: (adapter, sessionRef, agent, origin, meta) =>
         submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta }),
       askForPrompt: (adapter, sessionRef, agent, meta) =>

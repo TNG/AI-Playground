@@ -279,6 +279,11 @@ const MANIFEST_JSON = JSON.stringify(
           should_escape: false,
         },
         {
+          command: '/agentsin',
+          description: 'Pick a Session first, then the agent to start in it',
+          should_escape: false,
+        },
+        {
           command: '/stop',
           description: 'Stop the running turn or Agent Run and drop queued messages',
           should_escape: false,

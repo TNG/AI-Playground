@@ -72,6 +72,7 @@ CHANNEL_COMMANDS: tuple[ChannelCommand, ...] = (
         "List the agents you can start, or start one by name",
         takes_args=True,
     ),
+    ChannelCommand("agentsin", "Pick a Session first, then the agent to start in it"),
     ChannelCommand(
         "stop", "Stop the running turn or Agent Run and drop queued messages"
     ),
@@ -84,6 +85,9 @@ COMMAND_CALLBACKS: dict[str, str | None] = {
     "loadConv:": "/load",
     "runAgent:": "/agents",
     "promptAgent:": None,
+    "agentsIn:": None,
+    "runAgentIn:": None,
+    "promptAgentIn:": None,
 }
 
 

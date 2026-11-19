@@ -39,7 +39,7 @@ const HEARTBEAT_MS = 15_000
 const MAX_FAILURES = 10
 const FAILURE_WINDOW_MS = 60_000
 
-type FailureRecord = { count: number; firstAt: number }
+type FailureRecord = { count: number; firstAt: number; tokens: Set<string> }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   const text = encodeWire(body)
@@ -97,13 +97,20 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
     return record.count >= MAX_FAILURES
   }
 
-  function noteFailure(ip: string): void {
+  /**
+   * A client fires its whole boot in parallel, so one stale token arrives as a burst of 401s;
+   * counting each would lock that address out of re-pairing. Only a new token (or a failed
+   * pairing step) counts as another guess.
+   */
+  function noteFailure(ip: string, token?: string): void {
     const record = failures.get(ip)
     if (!record || Date.now() - record.firstAt > FAILURE_WINDOW_MS) {
-      failures.set(ip, { count: 1, firstAt: Date.now() })
-    } else {
-      record.count += 1
+      failures.set(ip, { count: 1, firstAt: Date.now(), tokens: new Set(token ? [token] : []) })
+      return
     }
+    if (token && record.tokens.has(token)) return
+    if (token) record.tokens.add(token)
+    record.count += 1
   }
 
   async function handleRpc(req: http.IncomingMessage, res: http.ServerResponse, peerId: string) {
@@ -287,7 +294,7 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
       const given = req.headers[REMOTE_HEADER_TOKEN]
       const device = deps.devices.authenticate(typeof given === 'string' ? given : undefined)
       if (!device) {
-        noteFailure(ip)
+        noteFailure(ip, typeof given === 'string' ? given : '')
         refuse(res, 401, 'Unauthorized')
         return
       }

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import http from 'node:http'
+import https from 'node:https'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -34,6 +35,7 @@ import {
   type TlsIdentity,
 } from '../../../kernel/remoteKernel/tlsIdentity'
 import { deliverPush, resetRendererSinksForTest } from '../../../kernel/rendererSinks'
+import { startupProblem } from '../../../kernel/remoteKernel/remoteKernel'
 
 function memoryFile<T>(initial: T | null = null): ProtectedJsonFile<T> {
   let value = initial
@@ -193,6 +195,53 @@ describe('remote kernel pairing', () => {
       () => expect(remote.status().lastError).toBe('This device is no longer paired'),
       { timeout: 5000 },
     )
+  })
+})
+
+function helloStatus(token: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        host: '127.0.0.1',
+        port: host.port,
+        path: '/aipg/remote/v1/hello',
+        headers: { 'x-aipg-remote-token': token },
+        rejectUnauthorized: false,
+        agent: false,
+      },
+      (res) => {
+        res.resume()
+        resolve(res.statusCode ?? 0)
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+describe('remote kernel startup and rate limiting', () => {
+  it('does not lock out a client whose stale token arrives as a burst', async () => {
+    const statuses = await Promise.all(Array.from({ length: 25 }, () => helloStatus('stale')))
+    expect(new Set(statuses)).toEqual(new Set([401]))
+    const guesses = []
+    for (let i = 0; i < 12; i++) guesses.push(await helloStatus(`guess-${i}`))
+    expect(guesses.at(-1)).toBe(429)
+  })
+
+  it('tells a revoked client at startup instead of forwarding into refusals', async () => {
+    const target = await pair()
+    expect(await startupProblem(target, 1)).toBeNull()
+    devices.revoke(target.deviceId)
+    expect(await startupProblem(target, 1)).toBe('This device is no longer paired')
+  })
+
+  it('keeps retrying a workstation that is not up yet, then reports why', async () => {
+    const target = await pair()
+    const port = host.port
+    await host.close()
+    const problem = startupProblem({ ...target, port }, 1)
+    await expect(problem).resolves.toMatch(/ECONNREFUSED|connect/)
+    host = await startHost(identity, port)
   })
 })
 

@@ -53,7 +53,8 @@ export type RemoteKernelClient = {
 
 type HttpResult = { status: number; text: string }
 
-const CERTIFICATE_MISMATCH = 'The workstation certificate does not match the paired one'
+export const CERTIFICATE_MISMATCH = 'The workstation certificate does not match the paired one'
+export const NO_LONGER_PAIRED = 'This device is no longer paired'
 const VERIFY_ERRORS = new Set([
   'DEPTH_ZERO_SELF_SIGNED_CERT',
   'SELF_SIGNED_CERT_IN_CHAIN',
@@ -91,6 +92,7 @@ function requestText(
   route: string,
   body?: string,
   headers: Record<string, string> = {},
+  timeoutMs?: number,
 ): Promise<HttpResult & { fingerprint?: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -124,9 +126,29 @@ function requestText(
       },
     )
     req.on('error', (error) => reject(explainTlsError(error)))
+    if (timeoutMs) {
+      req.setTimeout(timeoutMs, () => req.destroy(new Error('Timed out reaching the workstation')))
+    }
     if (body !== undefined) req.write(body)
     req.end()
   })
+}
+
+/** Reach the paired workstation with its pinned certificate and this device's token. */
+export async function probeRemoteKernel(target: PairedTarget, timeoutMs = 5000): Promise<string> {
+  const { status, text } = await requestText(
+    target,
+    pinnedTls(target),
+    'GET',
+    '/hello',
+    undefined,
+    { [REMOTE_HEADER_TOKEN]: target.token },
+    timeoutMs,
+  )
+  if (status === 401) throw new Error(NO_LONGER_PAIRED)
+  const body = decodeWire<{ ok?: boolean; hostname?: string; error?: string }>(text)
+  if (status !== 200 || !body?.ok) throw new Error(body?.error ?? `HTTP ${status}`)
+  return body.hostname ?? target.hostname
 }
 
 /** Read the certificate a workstation presents, before anything is trusted. */
@@ -355,9 +377,7 @@ export async function startRemoteKernelClient(
       (res) => {
         if (res.statusCode !== 200) {
           res.resume()
-          onLost(
-            res.statusCode === 401 ? 'This device is no longer paired' : `HTTP ${res.statusCode}`,
-          )
+          onLost(res.statusCode === 401 ? NO_LONGER_PAIRED : `HTTP ${res.statusCode}`)
           return
         }
         res.setEncoding('utf8')

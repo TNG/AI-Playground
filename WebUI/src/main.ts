@@ -6,6 +6,7 @@ import { preserveStateAcrossHmr } from './assets/js/piniaHmrStatePreservation'
 import { useI18N } from './assets/js/store/i18n'
 import { useErrors } from './assets/js/store/errors'
 import { usePromptStore } from './assets/js/store/promptArea'
+import { useCloudMode } from './assets/js/store/cloudMode'
 import { useConversations } from './assets/js/store/conversations'
 import { useSessions } from './assets/js/store/sessions'
 import { useSessionChat } from './assets/js/store/sessionChat'
@@ -111,6 +112,10 @@ startPermissionsAdapter()
 // half-hydrated map. This is also where the one-shot localStorage migration
 // runs on a legacy boot.
 await useConversations().init()
+
+// Before anything judges a Session's or an agent's backend: Cloud Mode decides whether `cloud`
+// is available, and its section lives in the kernel's preferences file.
+await useCloudMode().init()
 
 // The Sessions panel lists what is on disk from first paint, with a Session open.
 const sessions = useSessions()

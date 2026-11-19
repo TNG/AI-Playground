@@ -21,7 +21,9 @@ const { createSession, deleteSession, onSessionDeleted, openSession } =
   await import('../../session/sessions')
 const { resetSessionsForTest, setSessionDeps } = await import('../../session/sessions')
 const { harnessSessionFor } = await import('../../session/sessionHarness')
-const { upsertTimelineMessages } = await import('../../session/sessionTimeline')
+const { removeTimelineMessages, upsertTimelineMessages } =
+  await import('../../session/sessionTimeline')
+const { onKernelEvent } = await import('../../kernel/kernelBus')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-agent-'))
@@ -93,5 +95,24 @@ describe('display timeline', () => {
     await upsertTimelineMessages(session.id, [user, settled, next])
 
     expect((await openSession(session.id)).timeline).toEqual([user, settled, next])
+  })
+
+  it('pushes the saved timeline, so a window that did not run the turn sees the reply', async () => {
+    const session = await createSession()
+    const pushed: unknown[][] = []
+    const stop = onKernelEvent((event) => {
+      if (event.type === 'session-changed' && event.session.id === session.id) {
+        pushed.push(event.session.timeline)
+      }
+    })
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const reply = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'hello' }] }
+    try {
+      await upsertTimelineMessages(session.id, [user, reply])
+      await removeTimelineMessages(session.id, ['a1'])
+    } finally {
+      stop()
+    }
+    expect(pushed).toEqual([[user, reply], [user]])
   })
 })

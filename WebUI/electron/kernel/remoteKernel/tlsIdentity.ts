@@ -28,6 +28,13 @@ async function generate(commonName: string): Promise<StoredIdentity> {
     curve: 'P-256',
     algorithm: 'sha256',
     notAfterDate: new Date(Date.now() + VALIDITY_MS),
+    // The client trusts this certificate as its own root. Electron's BoringSSL only accepts a
+    // self-signed trust anchor that is marked as a CA (Node's OpenSSL accepts either).
+    extensions: [
+      { name: 'basicConstraints', cA: true, critical: true },
+      { name: 'keyUsage', digitalSignature: true, keyCertSign: true, critical: true },
+      { name: 'extKeyUsage', serverAuth: true },
+    ],
   })
   return { certPem: result.cert, keyPem: result.private }
 }
@@ -51,7 +58,7 @@ export function createTlsIdentity(file: ProtectedJsonFile<StoredIdentity>, commo
     current: async (): Promise<TlsIdentity> => {
       if (cached) return cached
       const stored = file.read()
-      return stored ? remember(stored) : rotate()
+      return stored && new crypto.X509Certificate(stored.certPem).ca ? remember(stored) : rotate()
     },
     rotate,
   }

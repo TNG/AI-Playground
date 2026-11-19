@@ -1410,6 +1410,14 @@ the client's paired host are three files in userData (`remote-kernel-tls.json`, 
   `/events` (kernel events with a replay buffer, pushes, a `bootId` so a host restart re-hydrates
   the client), `/media` (the client's `aipg-media` handler), `/svc/<port>` (the renderer's direct
   backend fetches: the client rewrites loopback service URLs onto a local tunnel).
+- **Both windows follow an agent turn live.** The window that sends passes its user message's id
+  (`AgentModeTurnConfig.userMessageId`); main puts the prompt and that id on the turn's first
+  `agent-turn-state` event (`origin`, ahead of every chunk), and any other window with that Harness
+  Session adds the same user message and follows the stream (`observe` in `agentModeTurn.ts`, the
+  reconnect path). The reply is named by main (`<turnId>-reply` on the `start` chunk), so both
+  windows build one message; only the sending window saves it. Agent Mode's event listeners are
+  registered once per renderer, so an HMR of that store keeps the old handlers — restart the window
+  after changing them.
 - **A device set to client mode starts no backends and reaps no orphans**, paired or not
   (`isThinClientDevice`) — on one box the reap would kill the workstation's processes — and once
   connected its kernel bus only relays (`setKernelRelayOnly`).

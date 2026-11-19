@@ -88,11 +88,9 @@ export const LocalSettingsSchema = z.object({
   allowPlaintextSecretStorage: z.boolean().default(false),
   // Remote kernel: `host` serves this app's kernel to thin clients on the LAN,
   // `client` renders a workstation's kernel instead of running one. Read at
-  // startup only; the tokens live in userData (remote-kernel-secrets.json).
+  // startup only; certificate, paired devices and the paired host live in userData.
   remoteKernelMode: z.enum(['off', 'host', 'client']).default('off'),
   remoteKernelHostPort: z.number().int().min(1024).max(65535).default(REMOTE_KERNEL_DEFAULT_PORT),
-  remoteKernelClientHost: z.string().default(''),
-  remoteKernelClientPort: z.number().int().min(1).max(65535).default(REMOTE_KERNEL_DEFAULT_PORT),
 })
 export type LocalSettings = z.infer<typeof LocalSettingsSchema>
 export type ProductMode = z.infer<typeof ProductModeSchema>

@@ -260,8 +260,14 @@ export const INVOKE_ROUTES = {
   'kernel:getSnapshot': 'remote',
   'remoteKernel:getStatus': 'local',
   'remoteKernel:saveConfig': 'local',
-  'remoteKernel:regenerateToken': 'local',
-  'remoteKernel:testConnection': 'local',
+  'remoteKernel:openPairing': 'local',
+  'remoteKernel:closePairing': 'local',
+  'remoteKernel:listDevices': 'local',
+  'remoteKernel:revokeDevice': 'local',
+  'remoteKernel:resetPairing': 'local',
+  'remoteKernel:discover': 'local',
+  'remoteKernel:pair': 'local',
+  'remoteKernel:forgetHost': 'local',
 } as const satisfies Record<InvokeChannelName, IpcRoute>
 
 export const SEND_ROUTES = {

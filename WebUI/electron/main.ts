@@ -126,7 +126,8 @@ import {
   setKernelRelayOnly,
 } from './kernel/kernelBus'
 import { createRemoteKernel } from './kernel/remoteKernel/remoteKernel'
-import { createRemoteKernelSecrets } from './persist/remoteKernelSecrets'
+import { createProtectedJsonFile } from './persist/remoteKernelSecrets'
+import { createLanDiscovery } from './adapters/lanDiscovery'
 import { buildRemoteKernelRegistry } from './kernel/registries/remoteKernel'
 import type { PushChannelName } from '@/types/ipcChannels'
 import { registerInvokeHandlers, registerSendHandlers } from './kernel/ipcRegistries'
@@ -827,18 +828,25 @@ const demoModeConfig = createDemoModeConfig({
 // device chosen after install) without importing main.ts's private writer.
 registerSettingsPersist(persistLocalSettingsToDisk)
 
+const remoteKernelCipher = {
+  available: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (plain: string) => safeStorage.encryptString(plain),
+  decrypt: (data: Buffer) => safeStorage.decryptString(data),
+}
+const remoteKernelFile = <T>(name: string) =>
+  createProtectedJsonFile<T>(() => path.join(app.getPath('userData'), name), remoteKernelCipher)
+const remoteKernelLog = (message: string, level: 'info' | 'warn' | 'error' = 'info') =>
+  appLogger[level](message, 'remote-kernel', true)
 const remoteKernel = createRemoteKernel({
   settings: () => settings,
   persistSettings: persistLocalSettingsToDisk,
-  secrets: createRemoteKernelSecrets(
-    () => path.join(app.getPath('userData'), 'remote-kernel-secrets.json'),
-    {
-      available: () => safeStorage.isEncryptionAvailable(),
-      encrypt: (plain) => safeStorage.encryptString(plain),
-      decrypt: (data) => safeStorage.decryptString(data),
-    },
-  ),
-  log: (message, level = 'info') => appLogger[level](message, 'remote-kernel', true),
+  files: {
+    tls: remoteKernelFile('remote-kernel-tls.json'),
+    devices: remoteKernelFile('remote-kernel-devices.json'),
+    pairedHost: remoteKernelFile('remote-kernel-paired-host.json'),
+  },
+  discovery: createLanDiscovery(remoteKernelLog),
+  log: remoteKernelLog,
 })
 
 protocol.registerSchemesAsPrivileged([
@@ -1304,6 +1312,8 @@ appShutdown.register({
   },
 })
 appShutdown.register({ name: 'web browser', run: () => destroyWebBrowser() })
+// Withdraws the mDNS record, so clients stop listing a workstation that is gone.
+appShutdown.register({ name: 'remote kernel', run: () => remoteKernel.close() })
 // Demo conversations are session-scoped (§6.1): nothing demo-written may
 // survive the process that wrote it.
 appShutdown.register({ name: 'demo conversations', run: () => wipeDemoConversations() })

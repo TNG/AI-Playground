@@ -1,22 +1,21 @@
 import http from 'node:http'
+import https from 'node:https'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { KernelEvent } from '@/types/kernelEvents'
 import { addRemotePeer, remotePeerCount } from '../rendererSinks'
 import { dispatchErrorStatus, dispatchRemote } from './dispatch'
 import { decodeWire, encodeWire } from './wireCodec'
-import {
-  REMOTE_HEADER_PEER,
-  REMOTE_HEADER_TOKEN,
-  REMOTE_PATH,
-  isLoopbackServicePort,
-  mimeTypeFor,
-} from './protocol'
+import { REMOTE_HEADER_TOKEN, REMOTE_PATH, isLoopbackServicePort, mimeTypeFor } from './protocol'
+import type { DeviceRegistry, Pairing } from './pairing'
+import type { TlsIdentity } from './tlsIdentity'
 
 export type RemoteKernelHostDeps = {
   port: number
-  token: () => string
+  tls: TlsIdentity
+  devices: DeviceRegistry
+  pairing: Pairing
   hostname: string
   /** What remote handlers see as `event.sender` (this app's window). */
   sender: () => unknown
@@ -29,6 +28,8 @@ export type RemoteKernelHostDeps = {
 export type RemoteKernelHost = {
   port: number
   peerCount: () => number
+  /** Ends a revoked device's event stream; its next request is refused. */
+  disconnectDevice: (deviceId: string) => void
   close: () => Promise<void>
 }
 
@@ -39,15 +40,6 @@ const MAX_FAILURES = 10
 const FAILURE_WINDOW_MS = 60_000
 
 type FailureRecord = { count: number; firstAt: number }
-
-function digest(value: string): Buffer {
-  return createHash('sha256').update(value).digest()
-}
-
-function tokenMatches(given: string | undefined, expected: string): boolean {
-  if (!given || !expected) return false
-  return timingSafeEqual(digest(given), digest(expected))
-}
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   const text = encodeWire(body)
@@ -86,13 +78,13 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
   const bootId = randomUUID()
   const failures = new Map<string, FailureRecord>()
   const replay: KernelEvent[] = []
-  const streams = new Set<http.ServerResponse>()
+  const streams = new Map<http.ServerResponse, string>()
 
   const unsubscribe = deps.onKernelEvent((event) => {
     replay.push(event)
     if (replay.length > EVENT_REPLAY) replay.shift()
     const frame = `event: kernel\ndata: ${encodeWire(event)}\n\n`
-    for (const stream of streams) stream.write(frame)
+    for (const stream of streams.keys()) stream.write(frame)
   })
 
   function rateLimited(ip: string): boolean {
@@ -162,13 +154,14 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
         }
       }
     }
-    streams.add(res)
+    streams.set(res, peerId)
     const removePeer = addRemotePeer({
       id: peerId,
       push: (channel, payload) =>
         res.write(`event: push\ndata: ${encodeWire({ channel, payload })}\n\n`),
     })
     const heartbeat = setInterval(() => res.write(': ping\n\n'), HEARTBEAT_MS)
+    deps.devices.persistLastSeen()
     deps.log(`remote peer ${peerId} connected (${req.socket.remoteAddress})`)
     req.on('close', () => {
       clearInterval(heartbeat)
@@ -221,7 +214,6 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
     }
     const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${port}` }
     delete headers[REMOTE_HEADER_TOKEN]
-    delete headers[REMOTE_HEADER_PEER]
     const upstream = http.request(
       { host: '127.0.0.1', port, method: req.method, path: match[2] ?? '/', headers },
       (upstreamRes) => {
@@ -236,50 +228,95 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
     req.pipe(upstream)
   }
 
-  const server = http.createServer((req, res) => {
-    const ip = req.socket.remoteAddress ?? 'unknown'
-    const url = new URL(req.url ?? '/', 'http://host')
-    if (!url.pathname.startsWith(REMOTE_PATH)) {
-      refuse(res, 404, 'Not found')
+  async function handlePair(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    step: 'start' | 'finish',
+    ip: string,
+  ) {
+    if (!deps.pairing.isOpen()) {
+      refuse(res, 403, 'No pairing window is open')
       return
     }
-    if (rateLimited(ip)) {
-      refuse(res, 429, 'Too many failed attempts')
-      return
-    }
-    const given = req.headers[REMOTE_HEADER_TOKEN]
-    if (!tokenMatches(typeof given === 'string' ? given : undefined, deps.token())) {
+    try {
+      const body = JSON.parse(await readBody(req, 16 * 1024)) as Record<string, unknown>
+      const text = (key: string) => (typeof body[key] === 'string' ? (body[key] as string) : '')
+      if (step === 'start') {
+        const started = deps.pairing.start({
+          deviceId: text('deviceId'),
+          deviceName: text('deviceName'),
+          pA: text('pA'),
+        })
+        sendJson(res, 200, { ok: true, ...started })
+        return
+      }
+      const { device, sealed } = deps.pairing.finish({
+        sessionId: text('sessionId'),
+        confirmA: text('confirmA'),
+      })
+      deps.log(`paired device ${device.name} (${device.id}) from ${ip}`)
+      sendJson(res, 200, { ok: true, hostname: deps.hostname, sealed })
+    } catch (error) {
       noteFailure(ip)
-      refuse(res, 401, 'Unauthorized')
-      return
+      const status = dispatchErrorStatus(error)
+      sendJson(res, status === 500 ? 400 : status, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
-    failures.delete(ip)
-    const route = url.pathname.slice(REMOTE_PATH.length)
-    const peerHeader = req.headers[REMOTE_HEADER_PEER]
-    const peerId =
-      typeof peerHeader === 'string' && /^[\w-]{1,64}$/.test(peerHeader) ? peerHeader : 'anonymous'
-    if (route.startsWith('/svc/')) {
-      handleServiceProxy(req, res, route.slice('/svc'.length) + url.search)
-      return
-    }
-    if (route === '/hello' && req.method === 'GET') {
-      sendJson(res, 200, { ok: true, hostname: deps.hostname })
-      return
-    }
-    if (route === '/rpc' && req.method === 'POST') {
-      void handleRpc(req, res, peerId)
-      return
-    }
-    if (route === '/events' && req.method === 'GET') {
-      handleEvents(req, res, peerId)
-      return
-    }
-    if (route === '/media' && req.method === 'GET') {
-      handleMedia(req, res)
-      return
-    }
-    refuse(res, 404, 'Not found')
-  })
+  }
+
+  const server = https.createServer(
+    { cert: deps.tls.certPem, key: deps.tls.keyPem },
+    (req, res) => {
+      const ip = req.socket.remoteAddress ?? 'unknown'
+      const url = new URL(req.url ?? '/', 'http://host')
+      if (!url.pathname.startsWith(REMOTE_PATH)) {
+        refuse(res, 404, 'Not found')
+        return
+      }
+      if (rateLimited(ip)) {
+        refuse(res, 429, 'Too many failed attempts')
+        return
+      }
+      const route = url.pathname.slice(REMOTE_PATH.length)
+      if ((route === '/pair/start' || route === '/pair/finish') && req.method === 'POST') {
+        void handlePair(req, res, route === '/pair/start' ? 'start' : 'finish', ip)
+        return
+      }
+      const given = req.headers[REMOTE_HEADER_TOKEN]
+      const device = deps.devices.authenticate(typeof given === 'string' ? given : undefined)
+      if (!device) {
+        noteFailure(ip)
+        refuse(res, 401, 'Unauthorized')
+        return
+      }
+      failures.delete(ip)
+      deps.devices.touch(device.id)
+      const peerId = device.id
+      if (route.startsWith('/svc/')) {
+        handleServiceProxy(req, res, route.slice('/svc'.length) + url.search)
+        return
+      }
+      if (route === '/hello' && req.method === 'GET') {
+        sendJson(res, 200, { ok: true, hostname: deps.hostname })
+        return
+      }
+      if (route === '/rpc' && req.method === 'POST') {
+        void handleRpc(req, res, peerId)
+        return
+      }
+      if (route === '/events' && req.method === 'GET') {
+        handleEvents(req, res, peerId)
+        return
+      }
+      if (route === '/media' && req.method === 'GET') {
+        handleMedia(req, res)
+        return
+      }
+      refuse(res, 404, 'Not found')
+    },
+  )
 
   return new Promise((resolve, reject) => {
     server.once('error', reject)
@@ -292,10 +329,15 @@ export function startRemoteKernelHost(deps: RemoteKernelHostDeps): Promise<Remot
       resolve({
         port,
         peerCount: remotePeerCount,
+        disconnectDevice: (deviceId) => {
+          for (const [stream, owner] of streams) {
+            if (owner === deviceId) stream.destroy()
+          }
+        },
         close: () =>
           new Promise<void>((done) => {
             unsubscribe()
-            for (const stream of streams) stream.end()
+            for (const stream of streams.keys()) stream.end()
             streams.clear()
             server.close(() => done())
             server.closeAllConnections()

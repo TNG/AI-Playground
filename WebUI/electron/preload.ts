@@ -40,7 +40,7 @@ import type { CloseAnswerPayload, CloseAskPayload, InFlightWorkItem } from '@/ty
 import type { HeldComponent } from '@/types/componentChange'
 import type { MediaRequestPayload, MediaResponsePayload } from '@/types/mediaRequests'
 import type { SpeechSynthesisRequest } from '@/types/speechIpc'
-import type { RemoteKernelConfigUpdate, RemoteKernelTarget } from '@/types/remoteKernelIpc'
+import type { RemoteKernelConfigUpdate, RemoteKernelPairRequest } from '@/types/remoteKernelIpc'
 import type { NotificationConfig } from '@/types/notificationsIpc'
 import type {
   PermissionGrant,
@@ -597,8 +597,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   remoteKernel: {
     getStatus: () => invoke('remoteKernel:getStatus'),
     saveConfig: (update: RemoteKernelConfigUpdate) => invoke('remoteKernel:saveConfig', update),
-    regenerateToken: () => invoke('remoteKernel:regenerateToken'),
-    testConnection: (target: RemoteKernelTarget) => invoke('remoteKernel:testConnection', target),
+    openPairing: () => invoke('remoteKernel:openPairing'),
+    closePairing: () => invoke('remoteKernel:closePairing'),
+    listDevices: () => invoke('remoteKernel:listDevices'),
+    revokeDevice: (id: string) => invoke('remoteKernel:revokeDevice', id),
+    resetPairing: () => invoke('remoteKernel:resetPairing'),
+    discover: () => invoke('remoteKernel:discover'),
+    pair: (request: RemoteKernelPairRequest) => invoke('remoteKernel:pair', request),
+    forgetHost: () => invoke('remoteKernel:forgetHost'),
   },
   // The one whole-object exhaustiveness check: every member of this object must
   // match the manifest-derived ElectronApi exactly (path, args, result) — a

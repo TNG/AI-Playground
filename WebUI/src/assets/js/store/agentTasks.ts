@@ -1405,6 +1405,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return run ? tasks.value.find((task) => task.id === run.taskId) : undefined
   }
 
+  /** The Agent whose folders are in effect: the picked one, else the one running in the open Session. */
+  const activeAgent = computed((): AgentTask | undefined => {
+    const open = sessionsStore.openSessionId
+    return pickedAgent.value ?? (open ? agentRunIn(open) : undefined)
+  })
+
   /** Each Session's prompt waiting for its Agent Run or queued Channel messages. Memory only. */
   const queuedPrompts = ref<Record<string, HeldPrompt>>({})
   const queuedHolds: Record<string, { release: (go: boolean) => void; prompt?: string }> = {}
@@ -1770,6 +1776,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     deleteTask,
     pickedAgentIn,
     pickedAgent,
+    activeAgent,
     agentSettingsProblems,
     pickAgent,
     runPickedAgent,

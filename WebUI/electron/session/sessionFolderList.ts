@@ -105,13 +105,27 @@ export function withSessionFolderList(file: SessionFile): SessionFile {
   }
 }
 
-export function sessionFolderListOf(file: SessionFile): SessionFolderList {
-  const { folders = [], workspaceFolderId = '', detachedFolders = [] } = withSessionFolderList(file)
-  const list = { folders, workspaceId: workspaceFolderId }
-  return detachedFolders.length > 0 ? { ...list, detached: detachedFolders } : list
+/** Every slug the Session has given out, so none is given twice. */
+export function takenSlugsOf(list: SessionFolderList): string[] {
+  return artifactFoldersOf(list).map((folder) => folder.slug)
 }
 
-/** Every folder an Artifact of the Session can be in: the listed ones, then the detached ones. */
+export function sessionFolderListOf(file: SessionFile): SessionFolderList {
+  const {
+    folders = [],
+    workspaceFolderId = '',
+    detachedFolders = [],
+    agentFolders = [],
+  } = withSessionFolderList(file)
+  return {
+    folders,
+    workspaceId: workspaceFolderId,
+    ...(detachedFolders.length > 0 ? { detached: detachedFolders } : {}),
+    ...(agentFolders.length > 0 ? { agentOwned: agentFolders } : {}),
+  }
+}
+
+/** Every folder an Artifact of the Session can be in: listed, detached, then Agents' own. */
 export function artifactFoldersOf(list: SessionFolderList): SessionFolderEntry[] {
-  return [...list.folders, ...(list.detached ?? [])]
+  return [...list.folders, ...(list.detached ?? []), ...(list.agentOwned ?? [])]
 }

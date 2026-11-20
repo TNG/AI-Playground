@@ -5,18 +5,29 @@ import { emitSessionChanged } from '../kernel/kernelBus'
 import { appLoggerInstance } from '../observability/logger'
 import { ensureFolderEntry, ensureWorkspaceEntry, plannedWorkspaceEntry } from './appWorkspace'
 import { isDemoSessions } from '../persist/sessionFiles'
-import { newFolderId, sessionFolderListOf, withSessionFolderList } from './sessionFolderList'
+import {
+  newFolderId,
+  sessionFolderListOf,
+  takenSlugsOf,
+  withSessionFolderList,
+} from './sessionFolderList'
 import { listSessions, mutateSession, readSession, sessionDocumentOf } from './sessions'
 import { sessionTurnOf } from './sessionTurns'
 import {
   assignSlug,
   sameHostPath,
   sessionFolderRefusal,
+  uniqueName,
   workspaceEntryOf,
   type MountedFolderRefusal,
 } from '@/lib/mountedFolders'
-import type { MountedFolderAccess } from '@/types/agentSessionIpc'
-import type { SessionFile, SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
+import type { AgentFolderEntry, MountedFolderAccess } from '@/types/agentSessionIpc'
+import type {
+  AgentOwnedFolderEntry,
+  SessionFile,
+  SessionFolderEntry,
+  SessionFolderList,
+} from '@/types/sessionIpc'
 
 // A Session's folder list (ADR-0013): its folders, one of them starred as the Workspace.
 
@@ -70,11 +81,11 @@ export async function addSessionFolder(
   let refusal: MountedFolderRefusal | undefined
   const file = await mutateSession(id, (current) => {
     const listed = withSessionFolderList(current)
-    const { folders, detached = [] } = sessionFolderListOf(listed)
+    const { folders, detached = [], agentOwned = [] } = sessionFolderListOf(listed)
     refusal = sessionFolderRefusal(hostPath, { homeFolder: os.homedir(), folders })
     if (refusal) return current
     const previous = detached.find((folder) => sameHostPath(folder.hostPath, hostPath))
-    const taken = [...folders, ...detached]
+    const taken = [...folders, ...detached, ...agentOwned]
       .filter((folder) => folder !== previous)
       .map((folder) => folder.slug)
     const slug =
@@ -138,6 +149,44 @@ export async function setSessionFolderAccess(
     }
     return list.folders.map((folder) => (folder.id === folderId ? { ...folder, access } : folder))
   })
+}
+
+/**
+ * An Agent's own Workspace as an entry of the Session, registered at its first run there under a
+ * slug no other entry has, and kept, so its sandbox path and History references never move.
+ */
+export async function registerAgentFolder(
+  id: string,
+  owner: { agentId?: string; folder: Omit<AgentFolderEntry, 'access'> },
+): Promise<AgentOwnedFolderEntry> {
+  const { folder, agentId } = owner
+  const ownedBy = (list: SessionFolderList) =>
+    (list.agentOwned ?? []).find((entry) => entry.id === folder.id)
+  const already = ownedBy(await readSessionFolders(id))
+  if (already && sameHostPath(already.hostPath, folder.hostPath)) return already
+  let registered: AgentOwnedFolderEntry | undefined
+  const file = await mutateSession(id, (current) => {
+    const listed = withSessionFolderList(current)
+    const list = sessionFolderListOf(listed)
+    const owned = list.agentOwned ?? []
+    const known = ownedBy(list)
+    const taken = new Set(
+      takenSlugsOf(list)
+        .filter((slug) => slug !== known?.slug)
+        .map((slug) => slug.toLowerCase()),
+    )
+    registered = {
+      id: folder.id,
+      hostPath: folder.hostPath,
+      access: 'read-write',
+      slug: known?.slug ?? uniqueName(folder.slug, taken),
+      ...(agentId ? { agentId } : {}),
+    }
+    const others = owned.filter((entry) => entry.id !== folder.id)
+    return { ...listed, agentFolders: [...others, registered] }
+  })
+  emitSessionChanged(sessionDocumentOf(file))
+  return registered!
 }
 
 export const DEMO_USER_FOLDER_MESSAGE = 'Demo Sessions work only in the folder the app creates.'
@@ -235,9 +284,10 @@ export async function startNewSessionWorkspace(id: string): Promise<{ list: Sess
     const kept = next.folders ?? []
     const planned = kept.find((folder) => folder.appCreated && folder.planned)
     if (planned) return withStar(next, planned.id)
+    const owned = sessionFolderListOf(next).agentOwned ?? []
     const fresh = plannedWorkspaceEntry(
       listed,
-      kept.map((folder) => folder.slug),
+      [...kept, ...owned].map((folder) => folder.slug),
     )
     return { ...next, workspaceFolderId: fresh.id, folders: [...kept, fresh] }
   })

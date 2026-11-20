@@ -63,7 +63,7 @@
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8"
-                  :disabled="busy || demo"
+                  :disabled="busy || demo || !!agentWorkspace"
                   :aria-label="makeWorkspaceLabel(row.name)"
                   @click="star(row.folder.id, row.name)"
                 >
@@ -75,9 +75,11 @@
               {{
                 demo
                   ? languages.SESSION_FOLDER_DEMO_DISABLED
-                  : busy
-                    ? languages.SESSION_FOLDER_MAKE_WORKSPACE_BUSY
-                    : languages.SESSION_FOLDER_MAKE_WORKSPACE
+                  : agentWorkspace
+                    ? agentWorkspace
+                    : busy
+                      ? languages.SESSION_FOLDER_MAKE_WORKSPACE_BUSY
+                      : languages.SESSION_FOLDER_MAKE_WORKSPACE
               }}
             </TooltipContent>
           </Tooltip>
@@ -176,6 +178,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { StarIcon } from '@heroicons/vue/24/solid'
 import { useAgentMode } from '@/assets/js/store/agentMode'
+import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -191,6 +194,7 @@ const languages = useI18N().state
 const errors = useErrors()
 const sessions = useSessions()
 const agentMode = useAgentMode()
+const agentTasks = useAgentTasks()
 const demoMode = useDemoMode()
 const refusal = ref<MountedFolderRefusal>()
 const starredNote = ref('')
@@ -199,6 +203,13 @@ const sessionId = computed(() => sessions.openSessionId)
 const list = computed(() => sessions.openSession?.folderList)
 const busy = computed(() => sessions.openTurn !== null)
 const demo = computed(() => demoMode.enabled)
+
+/** Why the star cannot move while the active Agent works in its own folder; empty otherwise. */
+const agentWorkspace = computed(() => {
+  const agent = agentTasks.activeAgent
+  if (demo.value || !agent?.settingsTemplate.folderOverrides?.workspace) return ''
+  return languages.SESSION_FOLDER_MAKE_WORKSPACE_AGENT.replace('{agent}', agent.name)
+})
 
 const rows = computed(() =>
   (list.value?.folders ?? []).map((folder) => ({

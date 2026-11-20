@@ -24,15 +24,23 @@ vi.mock('node:os', async (importOriginal) => {
   return { ...actual, default: { ...actual, homedir }, homedir }
 })
 
-const { createSession, mutateSession, readSession, resetSessionsForTest, setSessionDeps } =
-  await import('../../session/sessions')
+const {
+  createSession,
+  mutateSession,
+  readSession,
+  renameSession,
+  resetSessionsForTest,
+  setSessionDeps,
+} = await import('../../session/sessions')
 const {
   addSessionFolder,
   migrateSessionFolderLists,
   readSessionFolders,
+  registerAgentFolder,
   removeSessionFolder,
   sessionWorkspaceEntry,
   setSessionFolderAccess,
+  starSessionFolder,
 } = await import('../../session/sessionFolders')
 
 beforeAll(async () => {
@@ -146,6 +154,60 @@ describe("a Session's folder list", () => {
       'read-write',
       'read-write',
     ])
+  })
+})
+
+describe("an Agent's own Workspace in a Session", () => {
+  const site = async () => ({
+    id: 'agent-ws-1',
+    hostPath: await pickedFolder('site'),
+    slug: 'site',
+  })
+
+  it('is registered as an entry of that Agent, hidden from the list and never starred', async () => {
+    const { id } = await createSession()
+    const folder = await site()
+
+    const entry = await registerAgentFolder(id, { agentId: 'poster', folder })
+
+    const list = await readSessionFolders(id)
+    expect(list.folders.map((f) => f.slug)).toEqual(['session'])
+    expect(list.agentOwned).toEqual([
+      {
+        id: 'agent-ws-1',
+        hostPath: folder.hostPath,
+        slug: 'site',
+        access: 'read-write',
+        agentId: 'poster',
+      },
+    ])
+    expect(entry).toEqual(list.agentOwned?.[0])
+    await expect(starSessionFolder(id, entry.id)).rejects.toThrow(/no such folder/)
+  })
+
+  it("gets a slug the Session's own folders do not have, and the Session's never take it", async () => {
+    const { id } = await createSession()
+    await addSessionFolder(id, await pickedFolder('a', 'site'))
+
+    const entry = await registerAgentFolder(id, { agentId: 'poster', folder: await site() })
+    await addSessionFolder(id, await pickedFolder('b', 'site'))
+
+    expect(entry.slug).toBe('site-2')
+    expect(await slugs(id)).toEqual(['session', 'site', 'site-3'])
+  })
+
+  it('keeps its slug across runs and after the Session is renamed', async () => {
+    const { id } = await createSession()
+    await addSessionFolder(id, await pickedFolder('a', 'site'))
+    const folder = await site()
+    const first = await registerAgentFolder(id, { agentId: 'poster', folder })
+    await removeSessionFolder(id, (await readSessionFolders(id)).folders[1].id)
+
+    await renameSession(id, 'Cat poster')
+    const again = await registerAgentFolder(id, { agentId: 'poster', folder })
+
+    expect(again).toEqual(first)
+    expect((await readSessionFolders(id)).agentOwned).toHaveLength(1)
   })
 })
 

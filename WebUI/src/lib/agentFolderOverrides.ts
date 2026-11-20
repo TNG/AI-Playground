@@ -1,4 +1,4 @@
-import { resolveMountedFolders, sameHostPath } from '@/lib/mountedFolders'
+import { assignSlug, resolveMountedFolders, sameHostPath } from '@/lib/mountedFolders'
 import type { AgentFolderEntry, AgentFolderOverrides, MountedFolder } from '@/types/agentSessionIpc'
 
 /** An Agent's other folders as the shared folder list edits them. */
@@ -28,4 +28,16 @@ export function withOtherFolders(
 ): AgentFolderOverrides {
   const { folders: _previous, ...rest } = overrides
   return folders ? { ...rest, folders } : rest
+}
+
+/** “Always work in” a folder, or undefined to use the Session's; another folder gets a new id. */
+export function withWorkspace(
+  overrides: AgentFolderOverrides,
+  hostPath: string | undefined,
+  newId: () => string,
+): AgentFolderOverrides {
+  const { workspace: previous, ...rest } = overrides
+  if (!hostPath) return rest
+  if (previous && sameHostPath(previous.hostPath, hostPath)) return { workspace: previous, ...rest }
+  return { workspace: { id: newId(), hostPath, slug: assignSlug(hostPath, []) }, ...rest }
 }

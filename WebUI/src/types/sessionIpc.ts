@@ -21,12 +21,20 @@ export const SessionFolderEntrySchema = z.object({
 })
 export type SessionFolderEntry = z.infer<typeof SessionFolderEntrySchema>
 
+/** An Agent's own Workspace, registered at its first run in the Session (ADR 0014); never starred. */
+export const AgentOwnedFolderEntrySchema = SessionFolderEntrySchema.extend({
+  agentId: z.string().min(1).optional(),
+})
+export type AgentOwnedFolderEntry = z.infer<typeof AgentOwnedFolderEntrySchema>
+
 /** A Session's folders and which of them is its Workspace (the starred entry). */
 export type SessionFolderList = {
   folders: SessionFolderEntry[]
   workspaceId: string
   /** Folders taken off the list: not mounted or shown, but their Artifacts still resolve. */
   detached?: SessionFolderEntry[]
+  /** Agents' own Workspaces: not on the Session's own list, but their Artifacts resolve. */
+  agentOwned?: AgentOwnedFolderEntry[]
 }
 
 /** A starred user folder that no longer exists: renamed, deleted, or on an unplugged drive. */
@@ -74,6 +82,7 @@ export const SessionFileSchema = z.object({
   folders: z.array(SessionFolderEntrySchema).optional(),
   workspaceFolderId: z.string().optional(),
   detachedFolders: z.array(SessionFolderEntrySchema).optional(),
+  agentFolders: z.array(AgentOwnedFolderEntrySchema).optional(),
   /** The entry an older Session's `files/` moved to; its `aipg-media://sessions/` URLs resolve there. */
   legacyFilesFolderId: z.string().optional(),
 })

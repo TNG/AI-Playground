@@ -456,6 +456,7 @@ describe('a Scheduled Run in its Session', () => {
 
     expect(sentPrompts()).toEqual([runPrompt('', ['t1 one', 't1 two'])])
     expect(sentConfig(0).taskRun).toEqual({
+      taskId: 't1',
       taskName: 'Task t1',
       notifiesResult: true,
     })

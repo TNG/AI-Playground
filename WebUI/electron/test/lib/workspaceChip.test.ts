@@ -99,6 +99,36 @@ describe('the workspace chip', () => {
     ])
   })
 
+  it("names the Agent's own Workspace while it always works there, the Session's beside it", () => {
+    const agent = {
+      id: 'agent-1',
+      name: 'Researcher',
+      overrides: { workspace: { id: 'w1', hostPath: '/Users/me/Site', slug: 'site' } },
+    }
+
+    expect(workspaceChipOf({ games: false, folderList, agent })).toEqual({
+      name: 'Site',
+      path: '/Users/me/Site',
+      folderId: 'agent-1:/Users/me/Site',
+      folders: [
+        {
+          id: 'agent-1:/Users/me/Site',
+          name: 'Site',
+          path: '/Users/me/Site',
+          workspace: true,
+          agentId: 'agent-1',
+        },
+        {
+          id: 'folder-workspace',
+          name: '2026-11-19 New session',
+          path: appFolder.hostPath,
+          workspace: false,
+        },
+        { id: 'folder-project', name: 'Poster', path: 'C:\\Users\\me\\Poster', workspace: false },
+      ],
+    })
+  })
+
   it('shows nothing under a games preset, whose game bar names its folder', () => {
     expect(workspaceChipOf({ games: true, folderList })).toBeUndefined()
   })

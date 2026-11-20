@@ -152,6 +152,8 @@ export const AgentModeTurnConfigSchema = z.object({
   /** An Agent Run's turn: no Session Update, no `session_history`, its entry tagged with the Agent. */
   taskRun: z
     .object({
+      /** The saved Agent that runs; its own Workspace is registered in the Session as its. */
+      taskId: z.string().optional(),
       taskName: z.string(),
       /** The Start Prompt, which the run's History Entry records instead of the run prompt. */
       input: z.string().optional(),

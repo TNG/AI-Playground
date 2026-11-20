@@ -3,7 +3,7 @@ import path from 'node:path'
 import { ensureFolder } from '../persist/fileOps'
 import { isDemoSessions } from '../persist/sessionFiles'
 import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
-import { readSessionFolders } from '../session/sessionFolders'
+import { readSessionFolders, registerAgentFolder } from '../session/sessionFolders'
 import {
   agentOverridesOf,
   effectiveFolders,
@@ -72,6 +72,10 @@ function mountsOf(
   }
 }
 
+function agentIdOf(config: AgentModeTurnConfig): string | undefined {
+  return config.taskRun?.taskId ?? config.followUp?.agentId
+}
+
 /** A Trial Run's scratch folder as the one entry, and Workspace, of a folder list. */
 function trialFolderList(workspaceDir: string): SessionFolderList {
   const slug = assignSlug(workspaceDir, [])
@@ -94,12 +98,22 @@ export async function turnFolders(config: AgentModeTurnConfig): Promise<TurnFold
     if (!trialAgentIdOf(config.workspaceDir)) {
       return { mounted: resolveMountedFolders(agentFolders) }
     }
-    return mountsOf(trialFolderList(config.workspaceDir), config.workspaceDir, agent)
+    const trialAgent = agent?.folders ? { folders: agent.folders } : undefined
+    return mountsOf(trialFolderList(config.workspaceDir), config.workspaceDir, trialAgent)
   }
   const list = await folderListOf(config.sessionRef)
   const entry = list && workspaceEntryOf(list)
-  if (!list || !entry || !sameFolder(entry.hostPath, config.workspaceDir)) {
+  const own = agentRun ? agent?.workspace : undefined
+  if (!list || !entry || !sameFolder(own?.hostPath ?? entry.hostPath, config.workspaceDir)) {
     return { mounted: resolveMountedFolders(agentFolders) }
+  }
+  if (own && agent) {
+    const registered = await registerAgentFolder(config.sessionRef, {
+      ...(agentIdOf(config) ? { agentId: agentIdOf(config) } : {}),
+      folder: { id: own.id ?? '', hostPath: own.hostPath, slug: own.name ?? '' },
+    })
+    const workspace = { ...own, id: registered.id, name: registered.slug }
+    return mountsOf(list, config.workspaceDir, { ...agent, workspace })
   }
   if (agentRun) return mountsOf(list, config.workspaceDir, agent)
   await remakeOwnFolders(list)

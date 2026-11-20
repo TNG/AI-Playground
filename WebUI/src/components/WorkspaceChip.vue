@@ -124,7 +124,7 @@ const chipClass =
 
 // A demo run ignores an Agent's folder overrides, so the chip shows the Session's folders.
 const agent = computed(() => {
-  const picked = agentTasks.pickedAgent
+  const picked = agentTasks.activeAgent
   if (!picked) return undefined
   const overrides = demoMode.enabled ? undefined : picked.settingsTemplate.folderOverrides
   return { id: picked.id, name: picked.name, overrides }
@@ -138,7 +138,10 @@ const chip = computed(() =>
   }),
 )
 
-const missing = computed(() => !!chip.value && !!sessions.openMissingWorkspace)
+// The Session's missing Workspace; an Agent's own one is not checked here.
+const missing = computed(
+  () => !!chip.value && !chip.value.folders[0]?.agentId && !!sessions.openMissingWorkspace,
+)
 
 const label = computed(() =>
   (missing.value

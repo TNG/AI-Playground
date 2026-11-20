@@ -1039,6 +1039,14 @@ export const useAgentMode = defineStore(
       return run ? { taskName: run.taskName, startedAt: run.startedAt } : undefined
     }
 
+    function withAgentId(
+      taskRun: NonNullable<AgentModeTurnConfig['taskRun']>,
+      record: AgentSessionRecord | undefined,
+    ): AgentModeTurnConfig['taskRun'] {
+      const taskId = record?.taskRun?.taskId
+      return taskId ? { ...taskRun, taskId } : taskRun
+    }
+
     function storedTurnConfig(sessionId: string, context: TurnContext) {
       const preset = presetsStore.presets.find((entry) => entry.name === context.presetName)
       const chatPreset = preset?.type === 'chat' ? (preset as ChatPreset) : undefined
@@ -1064,7 +1072,7 @@ export const useAgentMode = defineStore(
         cloudMode: stored.cloud,
         tools: stored.tools,
         answer: context.answer,
-        taskRun: context.taskRun,
+        taskRun: context.taskRun && withAgentId(context.taskRun, sessions.value[sessionId]),
         followUp: context.followUp,
         followedRun: context.followUp ? followedRunOf(sessions.value[sessionId]) : undefined,
       })
@@ -2209,6 +2217,11 @@ export const useAgentMode = defineStore(
       const inWorkspace = !!sessionRef && !!sessionWorkspace
       // An unattended turn never asks: main fails it and its Notification names the folder.
       const unattended = !!options.answer || !!options.taskRun?.notifiesResult
+      const ownWorkspace = agentRunOverrides({
+        ...context,
+        taskRun: options.taskRun ?? context.taskRun,
+        followUp: options.followUp ?? context.followUp,
+      })?.workspace?.hostPath
       if (inWorkspace) {
         if (!unattended && !(await sessionsStore.readyWorkspaceForTurn(sessionRef))) {
           return refuseSend(
@@ -2218,7 +2231,15 @@ export const useAgentMode = defineStore(
             ).replace('{path}', sessionWorkspace),
           )
         }
-        context.workspaceDir = sessionsStore.workspaceDirOf(sessionRef)
+        if (ownWorkspace && !(await window.electronAPI.existsPath(ownWorkspace))) {
+          return refuseSend(
+            'missing-folder',
+            (
+              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
+            ).replace('{path}', ownWorkspace),
+          )
+        }
+        context.workspaceDir = ownWorkspace ?? sessionsStore.workspaceDirOf(sessionRef)
         followSessionWorkspace(sessionId, context.workspaceDir)
         if (live && !unattended) await enterSessionHarness()
       } else if (

@@ -8,11 +8,21 @@ import type { SessionFolderList } from '@/types/sessionIpc'
 vi.mock('electron', () => ({ app: { getPath: () => os.tmpdir(), isPackaged: false } }))
 
 const folderLists = vi.hoisted(() => new Map<string, SessionFolderList>())
+const registeredSlugs = vi.hoisted(() => new Map<string, string>())
+const registered = vi.hoisted(() => [] as unknown[])
 vi.mock('../../session/sessionFolders', () => ({
   readSessionFolders: async (id: string) => {
     const list = folderLists.get(id)
     if (!list) throw new Error(`no session ${id}`)
     return list
+  },
+  registerAgentFolder: async (
+    sessionId: string,
+    owner: { agentId?: string; folder: { id: string; hostPath: string; slug: string } },
+  ) => {
+    registered.push({ sessionId, ...owner })
+    const { folder } = owner
+    return { ...folder, slug: registeredSlugs.get(folder.id) ?? folder.slug, access: 'read-write' }
   },
 }))
 
@@ -37,6 +47,8 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
   folderLists.clear()
+  registeredSlugs.clear()
+  registered.length = 0
 })
 
 const onlyData = () => ({
@@ -108,6 +120,48 @@ describe('an Agent Run in a Session', () => {
     expect(await mounts(runTurn({ folders: [] }))).toEqual({
       workspace: '/mnt/poster',
       mounted: [],
+    })
+  })
+
+  describe('whose Agent always works in its own folder', () => {
+    let site: string
+    beforeEach(() => {
+      site = path.join(root, 'site')
+      fs.mkdirSync(site)
+    })
+
+    const overrideTurn = (folders?: AgentModeTurnConfig['folderOverrides']) =>
+      ({
+        sessionRef: 's1',
+        workspaceDir: site,
+        taskRun: { taskName: 'Poster', taskId: 'agent-1' },
+        folderOverrides: { workspace: { id: 'w1', hostPath: site, slug: 'site' }, ...folders },
+      }) as AgentModeTurnConfig
+
+    it("works there, with the Session's Workspace read-write and its other folders beside", async () => {
+      const folders = await turnFolders(overrideTurn())
+
+      expect(folders.workspace).toEqual({ hostPath: site, name: 'site', access: 'read-write' })
+      expect(await mounts(overrideTurn())).toEqual({
+        workspace: '/mnt/site',
+        mounted: ['/mnt/notes read-only', '/mnt/papers read-write', '/mnt/poster read-write'],
+      })
+    })
+
+    it('registers the folder in the Session as that Agent’s, under the slug it is given there', async () => {
+      registeredSlugs.set('w1', 'site-2')
+
+      expect((await mounts(overrideTurn({ folders: [] }))).workspace).toBe('/mnt/site-2')
+      expect(registered).toEqual([
+        { sessionId: 's1', agentId: 'agent-1', folder: { id: 'w1', hostPath: site, slug: 'site' } },
+      ])
+    })
+
+    it('mounts nothing of the Session when the turn was sent for another folder', async () => {
+      const config = { ...overrideTurn(), workspaceDir: workspace }
+
+      expect((await turnFolders(config)).workspace).toBeUndefined()
+      expect(registered).toEqual([])
     })
   })
 })

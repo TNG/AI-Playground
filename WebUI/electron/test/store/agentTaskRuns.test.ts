@@ -741,6 +741,38 @@ describe('the folders a run reaches', () => {
     expect(startTurn).not.toHaveBeenCalled()
   })
 
+  it('work in its Agent’s own folder when the Agent always works there', async () => {
+    const workspace = { id: 'w1', hostPath: '/Users/ada/site', slug: 'site' }
+    const template = { ...TEMPLATE, folderOverrides: { workspace } }
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(sentConfig(0).workspaceDir).toBe('/Users/ada/site')
+    expect(sentConfig(0).folderOverrides).toEqual({ workspace })
+    expect(sentConfig(0).taskRun?.taskId).toBe('t1')
+  })
+
+  it('fail before any turn when its Agent’s own folder is missing', async () => {
+    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+      async (hostPath: string) => hostPath !== '/Users/ada/site',
+    )
+    const workspace = { id: 'w1', hostPath: '/Users/ada/site', slug: 'site' }
+    const template = { ...TEMPLATE, folderOverrides: { workspace } }
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      message: expect.stringContaining('/Users/ada/site'),
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
   it('do not include a missing Session folder its Agent replaces', async () => {
     vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
       async (hostPath: string) => hostPath !== '/Users/ada/session-notes',
@@ -1012,7 +1044,11 @@ describe('a run a Channel started', () => {
     expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed' })
     await settleMicrotasks()
     expect(sentSteps()).toEqual([['one', 'two']])
-    expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', notifiesResult: true })
+    expect(sentConfig(0).taskRun).toEqual({
+      taskId: 't1',
+      taskName: 'Task t1',
+      notifiesResult: true,
+    })
     expect(sentConfig(0).answer).toEqual(ORIGIN)
   })
 
@@ -2287,6 +2323,21 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
 
     expect(tasks.agentRunIn(SESSION)).toBeUndefined()
     expect(startTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('makes the running Agent the active one in its open Session, until it ends', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
+    expect(tasks.activeAgent).toBeUndefined()
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(tasks.activeAgent?.id).toBe('t1')
+    await tasks.pickAgent('t2')
+    expect(tasks.activeAgent?.id).toBe('t2')
+    await tasks.pickAgent(null)
+
+    await tasks.stopRunIn(SESSION)
+    expect(tasks.activeAgent).toBeUndefined()
   })
 })
 

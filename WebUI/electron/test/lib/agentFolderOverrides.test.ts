@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { agentFolderEntries, editableFolders, withOtherFolders } from '@/lib/agentFolderOverrides'
+import {
+  agentFolderEntries,
+  editableFolders,
+  withOtherFolders,
+  withWorkspace,
+} from '@/lib/agentFolderOverrides'
 import type { AgentFolderEntry } from '@/types/agentSessionIpc'
 
 const notes: AgentFolderEntry = {
@@ -48,5 +53,34 @@ describe('the “Other folders” choice', () => {
     const workspace = { id: 'w', hostPath: '/Users/me/Site', slug: 'site' }
 
     expect(withOtherFolders({ workspace }, [])).toEqual({ workspace, folders: [] })
+  })
+})
+
+describe('the “Workspace” choice', () => {
+  it('works in the chosen folder under a slug from its name, keeping the other folders', () => {
+    counter = 0
+
+    expect(withWorkspace({ folders: [notes] }, '/Users/me/My Site', newId)).toEqual({
+      workspace: { id: 'new-1', hostPath: '/Users/me/My Site', slug: 'My-Site' },
+      folders: [notes],
+    })
+  })
+
+  it('keeps its id when the same folder is chosen again, and takes a new one for another', () => {
+    const workspace = { id: 'w', hostPath: '/Users/me/Site', slug: 'site' }
+    counter = 0
+
+    expect(withWorkspace({ workspace }, '/Users/me/Site', newId)).toEqual({ workspace })
+    expect(withWorkspace({ workspace }, '/Users/me/Other', newId).workspace).toEqual({
+      id: 'new-1',
+      hostPath: '/Users/me/Other',
+      slug: 'Other',
+    })
+  })
+
+  it('uses the Session’s Workspace by leaving the folder out', () => {
+    const workspace = { id: 'w', hostPath: '/Users/me/Site', slug: 'site' }
+
+    expect(withWorkspace({ workspace, folders: [] }, undefined, newId)).toEqual({ folders: [] })
   })
 })

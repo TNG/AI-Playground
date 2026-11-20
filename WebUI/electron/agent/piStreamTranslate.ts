@@ -177,11 +177,14 @@ export function createStreamTranslator(options: StreamTranslatorOptions): Stream
       ...(options.model ? { model: options.model } : {}),
       ...(options.turnId ? { harnessTurnId: options.turnId } : {}),
     }
-    emit(
-      Object.keys(metadata).length > 0
-        ? { type: 'start', messageMetadata: metadata }
-        : { type: 'start' },
-    )
+    // Named by main, so every window following the turn builds the same message and a
+    // second window's save replaces the reply instead of adding it again.
+    const messageId = options.turnId ? `${options.turnId}-reply` : undefined
+    emit({
+      type: 'start',
+      ...(messageId ? { messageId } : {}),
+      ...(Object.keys(metadata).length > 0 ? { messageMetadata: metadata } : {}),
+    })
   }
 
   function ensureStep(): void {

@@ -462,7 +462,13 @@ export async function startAgentTurn(
     )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
-  emitAgentTurnState(sessionId, turnId, 'queued')
+  emitAgentTurnState(
+    sessionId,
+    turnId,
+    'queued',
+    undefined,
+    config.userMessageId ? { prompt, userMessageId: config.userMessageId } : undefined,
+  )
   const verbose = verboseLogging()
   const inSession = config.sessionRef
     ? trackAgentTurnInSession({

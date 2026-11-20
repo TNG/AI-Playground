@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IpcMainInvokeEvent, WebContents } from 'electron'
+import type { IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron'
 import type { ConversationSaveRequest } from '@/types/conversationIpc'
 import type { AgentToolExecuteRequest } from '@/types/agentIpc'
 
@@ -9,6 +9,8 @@ vi.mock('electron', () => ({
 
 const { typedHandle, typedOn, typedSend, ipcErrorText } = await import('../../kernel/typedIpc')
 const { ipcMain } = await import('electron')
+const { setRemoteForwarder } = await import('../../kernel/remoteKernel/dispatch')
+const { currentDriver, noteDriver } = await import('../../kernel/rendererSinks')
 
 const handle = vi.mocked(ipcMain.handle)
 const on = vi.mocked(ipcMain.on)
@@ -81,6 +83,41 @@ describe('typed IPC registration', () => {
     )
     // The refusal is type-level only — the wrapper adds no runtime validation.
     expect(send).toHaveBeenCalledWith('agentMode:executeTool', payload)
+  })
+
+  it('in thin-client mode registers forwarders for remote rows and real handlers for local ones', async () => {
+    const forwarder = { invoke: vi.fn(async () => 'from-workstation'), send: vi.fn() }
+    setRemoteForwarder(forwarder)
+    try {
+      const remoteHandler = vi.fn()
+      typedHandle('conversations:bootstrap', remoteHandler)
+      const forwarded = handle.mock.calls[0][1]
+      await expect(forwarded({} as IpcMainInvokeEvent)).resolves.toBe('from-workstation')
+      expect(forwarder.invoke).toHaveBeenCalledWith('conversations:bootstrap', [])
+      expect(remoteHandler).not.toHaveBeenCalled()
+
+      const localHandler = vi.fn()
+      typedHandle('zoomIn', localHandler)
+      expect(handle.mock.calls[1][1]).toBe(localHandler)
+
+      typedOn('permissions:awaitingUser', vi.fn())
+      on.mock.calls[0][1]({} as IpcMainEvent, { conversationKey: 'c', waiting: true })
+      expect(forwarder.send).toHaveBeenCalledWith('permissions:awaitingUser', [
+        { conversationKey: 'c', waiting: true },
+      ])
+    } finally {
+      setRemoteForwarder(null)
+    }
+  })
+
+  it('makes the window the driver when it starts a turn', async () => {
+    noteDriver('peer-1')
+    typedHandle(
+      'chat:submitTurn',
+      vi.fn(async () => ({ success: true }) as never),
+    )
+    await handle.mock.calls[0][1]({} as IpcMainInvokeEvent, {})
+    expect(currentDriver()).toBe('window')
   })
 
   it('ipcErrorText reads Error messages and stringifies anything else', () => {

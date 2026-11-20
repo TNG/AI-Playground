@@ -37,6 +37,14 @@ import type {
   PermissionsPromptResponse,
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
+import type {
+  DiscoveredHost,
+  PairedDeviceInfo,
+  PairingWindowInfo,
+  RemoteKernelConfigUpdate,
+  RemoteKernelPairRequest,
+  RemoteKernelStatus,
+} from './remoteKernelIpc'
 import type { MountedFolderRefusal } from '../lib/mountedFolders'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type {
@@ -2344,6 +2352,79 @@ export const CHANNELS = {
     // already calls `electronAPI.getKernelSnapshot()`.
     flat: true as const,
     member: 'getKernelSnapshot' as const,
+  },
+
+  // ── Remote kernel (thin client ↔ workstation over the LAN) ──
+
+  /** This launch's remote-kernel mode, the saved config, and the live connection. */
+  'remoteKernel:getStatus': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as RemoteKernelStatus,
+  },
+  /** Save the mode and host port; applies on the next start. */
+  'remoteKernel:saveConfig': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelConfigUpdate] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Workstation: open a two-minute pairing window and return its 4-digit code. */
+  'remoteKernel:openPairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcOkWith<{ pairing: PairingWindowInfo }>,
+  },
+  /** Workstation: end the pairing window early. */
+  'remoteKernel:closePairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as void,
+  },
+  /** Workstation: the paired devices, without their token hashes. */
+  'remoteKernel:listDevices': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as PairedDeviceInfo[],
+  },
+  /** Workstation: forget a device and end its connection. */
+  'remoteKernel:revokeDevice': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as string] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Workstation: new certificate, no paired devices; every client pairs again. */
+  'remoteKernel:resetPairing': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Thin client: browse mDNS for workstations for a few seconds. */
+  'remoteKernel:discover': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcDataResult<DiscoveredHost[]>,
+  },
+  /** Thin client: pair with a workstation using the code it shows (SPAKE2; the code stays local). */
+  'remoteKernel:pair': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [null as unknown as RemoteKernelPairRequest] as const,
+    result: null as unknown as IpcOkWith<{ hostname: string }>,
+  },
+  /** Thin client: drop the paired workstation, its pinned certificate and token. */
+  'remoteKernel:forgetHost': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as const,
+    result: null as unknown as IpcMutationResult,
   },
 } satisfies Record<string, IpcRow>
 

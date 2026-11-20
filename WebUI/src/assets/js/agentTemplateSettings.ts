@@ -16,7 +16,7 @@ import { templateMediaToolSettings } from '@/lib/mediaToolSettings'
 import { catalogModelToolUse, gateCapabilityCatalog } from '@/lib/modelToolUse'
 import type { SessionSettingsProblem } from '@/lib/sessionSettingsProblems'
 import { PLANNING_PHASE_CAPABILITY_IDS } from '@/types/agentCapabilities'
-import type { AgentSessionSettings, MountedFolder } from '@/types/agentSessionIpc'
+import type { AgentFolderOverrides, AgentSessionSettings } from '@/types/agentSessionIpc'
 
 export type TemplateSettingsSource = {
   template: () => AgentSessionSettings
@@ -145,10 +145,8 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
         (reason) => i18nState[reason],
       ),
     ),
-    mountedFolders: computed(
-      () => template.value.mountedFolders ?? defaults.value.mountedFolders ?? [],
-    ),
-    setMountedFolders: (mountedFolders: MountedFolder[]) => edit({ mountedFolders }),
+    folderOverrides: computed(() => template.value.folderOverrides ?? {}),
+    setFolderOverrides: (folderOverrides: AgentFolderOverrides) => edit({ folderOverrides }),
     embeddingModelName,
     embeddingModelItems,
     setEmbeddingModel: (embeddingModel: string) => edit({ embeddingModel }),

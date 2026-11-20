@@ -4,7 +4,11 @@ import { ensureFolder } from '../persist/fileOps'
 import { isDemoSessions } from '../persist/sessionFiles'
 import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
 import { readSessionFolders } from '../session/sessionFolders'
-import { effectiveFolders } from '@/lib/effectiveFolders'
+import {
+  agentOverridesOf,
+  effectiveFolders,
+  type AgentFolderOverrides,
+} from '@/lib/effectiveFolders'
 import {
   assignSlug,
   mountedFolderLocation,
@@ -13,7 +17,6 @@ import {
   type ResolvedMountedFolder,
 } from '@/lib/mountedFolders'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
-import type { MountedFolder } from '@/types/agentSessionIpc'
 import type { SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
 
 /** The folders a turn's sandbox mounts (ADR-0013). */
@@ -58,9 +61,8 @@ async function folderListOf(sessionRef: string): Promise<SessionFolderList | und
 function mountsOf(
   session: SessionFolderList,
   workspaceDir: string,
-  agentFolders?: readonly MountedFolder[],
+  agent?: AgentFolderOverrides,
 ): TurnFolders {
-  const agent = agentFolders && { folders: agentFolders }
   const resolved = effectiveFolders({ session, agent, sameFolder })
   if (!resolved) return { mounted: [] }
   const mount = ({ hostPath, name, access }: ResolvedMountedFolder) => ({ hostPath, name, access })
@@ -81,24 +83,25 @@ function trialFolderList(workspaceDir: string): SessionFolderList {
 
 /**
  * What a turn mounts: a turn in its Session's Workspace sees every folder in the Session's list,
- * an Agent Run (or Follow-up) the Workspace plus its Agent's folders, a Trial Run its scratch
- * folder plus the Agent's; a game keeps `/workspace` and the folders it was sent.
+ * an Agent Run (or Follow-up) the same with its Agent's overrides in place, a Trial Run its
+ * scratch folder plus the Agent's folders; a game keeps `/workspace` and the folders it was sent.
  */
 export async function turnFolders(config: AgentModeTurnConfig): Promise<TurnFolders> {
-  const agentFolders = isDemoSessions() ? [] : (config.mountedFolders ?? [])
+  const agent = isDemoSessions() ? undefined : agentOverridesOf(config.folderOverrides)
+  const agentFolders = agent?.folders ?? []
   const agentRun = !!config.taskRun || !!config.followUp
   if (!config.sessionRef) {
     if (!trialAgentIdOf(config.workspaceDir)) {
       return { mounted: resolveMountedFolders(agentFolders) }
     }
-    return mountsOf(trialFolderList(config.workspaceDir), config.workspaceDir, agentFolders)
+    return mountsOf(trialFolderList(config.workspaceDir), config.workspaceDir, agent)
   }
   const list = await folderListOf(config.sessionRef)
   const entry = list && workspaceEntryOf(list)
   if (!list || !entry || !sameFolder(entry.hostPath, config.workspaceDir)) {
     return { mounted: resolveMountedFolders(agentFolders) }
   }
-  if (agentRun) return mountsOf(list, config.workspaceDir, agentFolders)
+  if (agentRun) return mountsOf(list, config.workspaceDir, agent)
   await remakeOwnFolders(list)
   return mountsOf(list, config.workspaceDir)
 }

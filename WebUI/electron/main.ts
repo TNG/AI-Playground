@@ -390,6 +390,7 @@ import {
 import {
   deleteAgentDraft,
   deleteAgentTask,
+  dropAgentMountedFolders,
   readAgentDrafts,
   readAgentTasks,
   saveAgentDraft,
@@ -2287,6 +2288,9 @@ app.whenReady().then(async () => {
       )
       // After Agent Maker's, which leaves the folders it picked in the Assistant's settings.
       await migrateSessionLayout()
+      await dropAgentMountedFolders().catch((error) =>
+        appLogger.error(`agent folder migration failed: ${String(error)}`, 'electron-backend'),
+      )
     }
     // After the registry: the renderer's stores call into it as they are created.
     appLogger.info('startup step: loading app window', 'electron-backend', true)

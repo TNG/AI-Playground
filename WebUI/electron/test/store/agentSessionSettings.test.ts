@@ -168,7 +168,7 @@ const turnConfig = vi.hoisted(() => ({
   build: null as ((sessionId: string) => unknown) | null,
   lastInput: null as {
     planningThinkingOnly?: boolean
-    mountedFolders?: unknown[]
+    folderOverrides?: unknown
     instructions?: string
     userSampling?: boolean
   } | null,
@@ -589,7 +589,7 @@ describe('Agent Session Settings', () => {
       if (preset !== 'Assistant') await presetSwitchingMock.switchPreset(preset)
 
       await turnConfig.build?.(store.openSessionId)
-      expect(turnConfig.lastInput?.mountedFolders ?? []).toEqual([])
+      expect(turnConfig.lastInput?.folderOverrides).toBeUndefined()
     })
   })
 

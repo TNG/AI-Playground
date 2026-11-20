@@ -14,39 +14,52 @@
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" class="z-[40010] min-w-48 max-w-96">
-        <template v-for="group in groups" :key="group.label">
-          <DropdownMenuLabel class="text-xs">{{ group.label }}</DropdownMenuLabel>
-          <Tooltip v-for="folder in group.folders" :key="folder.id">
-            <TooltipTrigger as-child>
-              <!-- A missing folder stays focusable rather than `disabled`, so its path still shows. -->
-              <DropdownMenuItem
-                class="gap-2"
-                :aria-label="languages.SESSION_FOLDER_OPEN_NAMED.replace('{folder}', folder.name)"
-                :aria-disabled="isMissing(folder) || undefined"
-                :class="{ 'opacity-50': isMissing(folder) }"
-                @select="(event: Event) => openFolder(folder, event)"
-              >
-                <ExclamationTriangleIcon
-                  v-if="isMissing(folder)"
-                  class="size-4 flex-none text-warning"
-                  aria-hidden="true"
-                />
-                <StarIcon
-                  v-else-if="folder.workspace"
-                  class="size-4 flex-none text-primary"
-                  aria-hidden="true"
-                />
-                <FolderIcon v-else class="size-4 flex-none" aria-hidden="true" />
-                <span class="truncate">{{ folder.name }}</span>
-                <span v-if="folder.workspace" class="ml-auto pl-2 text-xs text-muted-foreground">
-                  {{ languages.SESSION_FOLDER_WORKSPACE }}
-                </span>
-              </DropdownMenuItem>
-            </TooltipTrigger>
-            <TooltipContent side="right" class="z-[40011] max-w-96 break-all">
-              {{ folder.path }}
-            </TooltipContent>
-          </Tooltip>
+        <DropdownMenuLabel class="text-xs">{{ languages.SESSION_FOLDERS }}</DropdownMenuLabel>
+        <Tooltip v-for="folder in chip.folders" :key="folder.id">
+          <TooltipTrigger as-child>
+            <!-- A missing folder stays focusable rather than `disabled`, so its path still shows. -->
+            <DropdownMenuItem
+              class="gap-2"
+              :aria-label="languages.SESSION_FOLDER_OPEN_NAMED.replace('{folder}', folder.name)"
+              :aria-disabled="isMissing(folder) || undefined"
+              :class="{ 'opacity-50': isMissing(folder) }"
+              @select="(event: Event) => openFolder(folder, event)"
+            >
+              <ExclamationTriangleIcon
+                v-if="isMissing(folder)"
+                class="size-4 flex-none text-warning"
+                aria-hidden="true"
+              />
+              <StarIcon
+                v-else-if="folder.workspace"
+                class="size-4 flex-none text-primary"
+                aria-hidden="true"
+              />
+              <FolderIcon v-else class="size-4 flex-none" aria-hidden="true" />
+              <span class="truncate">{{ folder.name }}</span>
+              <span v-if="folder.workspace" class="ml-auto pl-2 text-xs text-muted-foreground">
+                {{ languages.SESSION_FOLDER_WORKSPACE }}
+              </span>
+              <LockClosedIcon
+                v-else-if="folder.agentId"
+                class="ml-auto size-3.5 flex-none text-muted-foreground"
+                aria-hidden="true"
+              />
+            </DropdownMenuItem>
+          </TooltipTrigger>
+          <TooltipContent side="right" class="z-[40011] max-w-96 break-all">
+            {{ folder.path }}
+            <span v-if="folder.agentId && agent" class="block text-muted-foreground">
+              {{ languages.SESSION_FOLDER_SET_BY_AGENT.replace('{agent}', agent.name) }}
+            </span>
+          </TooltipContent>
+        </Tooltip>
+        <template v-if="agent && chip.folders.some((folder) => folder.agentId)">
+          <DropdownMenuSeparator />
+          <DropdownMenuItem class="gap-2" @select="manageAgents(agent.id)">
+            <PencilSquareIcon class="size-4 flex-none" aria-hidden="true" />
+            <span class="truncate">{{ languages.AGENT_LIBRARY_EDIT_AGENT }}</span>
+          </DropdownMenuItem>
         </template>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -74,6 +87,8 @@ import {
   ExclamationTriangleIcon,
   FolderIcon,
   FolderOpenIcon,
+  LockClosedIcon,
+  PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 import { StarIcon } from '@heroicons/vue/24/solid'
 import { useAgentMode } from '@/assets/js/store/agentMode'
@@ -88,9 +103,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import { workspaceChipOf, type WorkspaceChipFolder } from '@/lib/workspaceChip'
 
 const languages = useI18N().state
@@ -100,16 +117,17 @@ const agentTasks = useAgentTasks()
 const demoMode = useDemoMode()
 const errors = useErrors()
 const promptStore = usePromptStore()
+const { manageAgents } = useAgentLibraryEntry()
 
 const chipClass =
   'flex min-w-0 max-w-56 items-center gap-1 p-1 hover:text-foreground transition-colors'
 
-// A demo run mounts none of an Agent's folders, so the chip names none either.
+// A demo run ignores an Agent's folder overrides, so the chip shows the Session's folders.
 const agent = computed(() => {
   const picked = agentTasks.pickedAgent
   if (!picked) return undefined
-  const folders = demoMode.enabled ? [] : (picked.settingsTemplate.mountedFolders ?? [])
-  return { id: picked.id, name: picked.name, folders }
+  const overrides = demoMode.enabled ? undefined : picked.settingsTemplate.folderOverrides
+  return { id: picked.id, name: picked.name, overrides }
 })
 
 const chip = computed(() =>
@@ -119,23 +137,6 @@ const chip = computed(() =>
     agent: agent.value,
   }),
 )
-
-const groups = computed(() => {
-  const folders = chip.value?.folders ?? []
-  const own = folders.filter((folder) => !folder.agentId)
-  const ofAgent = folders.filter((folder) => folder.agentId)
-  return [
-    { label: languages.SESSION_FOLDERS, folders: own },
-    ...(ofAgent.length > 0 && agent.value
-      ? [
-          {
-            label: languages.SESSION_FOLDER_AGENT_GROUP.replace('{agent}', agent.value.name),
-            folders: ofAgent,
-          },
-        ]
-      : []),
-  ]
-})
 
 const missing = computed(() => !!chip.value && !!sessions.openMissingWorkspace)
 

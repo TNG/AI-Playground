@@ -19,8 +19,8 @@ import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
 import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { agentOverridesOf, effectiveFolders } from '@/lib/effectiveFolders'
 import {
-  mountedFoldersBesideWorkspace,
   resolveMountedFolders,
   workspaceEntryOf,
   type ResolvedMountedFolder,
@@ -31,18 +31,17 @@ import {
 } from '@/lib/fileBackedPreferences'
 import {
   LegacyAgentSessionStateSchema,
+  type AgentFolderOverrides,
   type AgentFollowUpTag,
   type AgentSessionBootstrap,
   type AgentSessionSettings,
   type AgentTaskStep,
-  type MountedFolder,
   type LegacyAgentSessionState,
   type AgentRunTag,
 } from '@/types/agentSessionIpc'
 import {
   type BagDerivedSetting,
   DEFAULT_CAPABILITIES_KEY,
-  DEFAULT_MOUNTED_FOLDERS_KEY,
   DEFAULT_PLANNING_THINKING_ONLY_KEY,
   fillMissingSessionSettings,
   keepUneditedSettings,
@@ -428,18 +427,6 @@ export const useAgentMode = defineStore(
       }
     }
 
-    /** The defaults an Agent's Settings Template falls back to, its Mounted Folders included. */
-    function templateDefaults(): AgentDefaults & { mountedFolders?: MountedFolder[] } {
-      const folders =
-        textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET]?.[DEFAULT_MOUNTED_FOLDERS_KEY]
-      return {
-        ...readAgentDefaults(),
-        ...(Array.isArray(folders)
-          ? { mountedFolders: (folders as MountedFolder[]).map((folder) => ({ ...folder })) }
-          : {}),
-      }
-    }
-
     /** Copy the former global defaults into the Agent preset's Default Settings once. */
     function migrateAgentDefaults(): AgentDefaults {
       const defaults = readAgentDefaults()
@@ -606,33 +593,38 @@ export const useAgentMode = defineStore(
       return capabilities.value.includes(id)
     }
 
-    /** The Agent's own folders an Agent Run (or its Follow-up) adds to its Session's Workspace. */
-    function agentRunFolders(
+    /** What an Agent Run (or its Follow-up) puts in place of its Session's folders. */
+    function agentRunOverrides(
       context: Pick<TurnContext, 'settings' | 'taskRun' | 'followUp'>,
-    ): ResolvedMountedFolder[] {
-      return context.taskRun || context.followUp
-        ? resolveMountedFolders(context.settings?.mountedFolders ?? [])
-        : []
+    ): AgentFolderOverrides | undefined {
+      return context.taskRun || context.followUp ? context.settings?.folderOverrides : undefined
     }
 
     /**
-     * The folders a turn mounts beside its Workspace, checked before it is sent: an Agent Run's
-     * are its Agent's, an Assistant turn's its Session's list (main mounts those from the list).
+     * The folders a turn mounts beside its Workspace, checked before it is sent: the folders in
+     * effect for its Session and Agent (main mounts the same, resolved from the Session's list).
      */
     function turnMountedFolders(
       sessionId: string,
       context: Pick<TurnContext, 'presetName' | 'settings' | 'taskRun' | 'followUp'>,
     ): ResolvedMountedFolder[] {
-      if (context.taskRun || context.followUp) return agentRunFolders(context)
-      if (!nameUsesSessionSettings(context.presetName)) return []
-      const sessionRef = sessionRefOf(sessionId) ?? sessionsStore.openSessionId
+      const agentRun = !!context.taskRun || !!context.followUp
+      if (!agentRun && !nameUsesSessionSettings(context.presetName)) return []
+      const agent = agentOverridesOf(agentRunOverrides(context))
+      // A Trial Run has no Session, so it never falls back to the open one.
+      const sessionRef = agentRun
+        ? sessionRefOf(sessionId)
+        : (sessionRefOf(sessionId) ?? sessionsStore.openSessionId)
       const list = sessionRef ? sessionsStore.sessions[sessionRef]?.folderList : undefined
-      if (!list) return []
+      if (!list) return resolveMountedFolders(agent?.folders ?? [])
+      const appCreated = new Set(
+        list.folders.filter((folder) => folder.appCreated).map((folder) => folder.id),
+      )
       // Main makes a deleted app-created folder again, so only the user's own can be missing.
-      return mountedFoldersBesideWorkspace({
-        ...list,
-        folders: list.folders.filter((folder) => !folder.appCreated),
-      })
+      return (effectiveFolders({ session: list, agent })?.others ?? []).filter(
+        (folder) =>
+          !folder.planned && !(folder.source === 'session' && appCreated.has(folder.id ?? '')),
+      )
     }
 
     const planningPhaseSupported = computed(() =>
@@ -1034,7 +1026,7 @@ export const useAgentMode = defineStore(
         userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
-        mountedFolders: agentRunFolders(liveTurnContext()),
+        folderOverrides: agentRunOverrides(liveTurnContext()),
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
@@ -1065,7 +1057,7 @@ export const useAgentMode = defineStore(
         userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
-        mountedFolders: agentRunFolders(context),
+        folderOverrides: agentRunOverrides(context),
         planningThinkingOnly:
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,
@@ -2479,7 +2471,7 @@ export const useAgentMode = defineStore(
       settingsProblems,
       problemsOf,
       loadMcpServersFor,
-      agentDefaults: templateDefaults,
+      agentDefaults: readAgentDefaults,
       saveAsDefault,
       resetToDefault,
       migrateAgentDefaults,

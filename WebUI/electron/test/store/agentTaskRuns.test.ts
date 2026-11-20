@@ -696,30 +696,62 @@ function giveSessionAFolder(hostPath = '/Users/ada/session-notes'): void {
   }
 }
 
-describe('the Mounted Folders a run reaches', () => {
-  const ofAgent = { hostPath: '/Users/ada/inbox', name: 'mail' }
+describe('the folders a run reaches', () => {
+  const ofAgent = {
+    id: 'a1',
+    hostPath: '/Users/ada/inbox',
+    slug: 'mail',
+    access: 'read-only' as const,
+  }
 
-  it('are its Agent’s, not the Session’s', async () => {
-    const template = { ...TEMPLATE, mountedFolders: [ofAgent] }
+  it('are only its Agent’s when it uses only these', async () => {
+    const template = { ...TEMPLATE, folderOverrides: { folders: [ofAgent] } }
     const { tasks } = await readyStores(task('t1', ['one', 'two'], { settingsTemplate: template }))
     giveSessionAFolder()
 
     await tasks.runTask('t1')
     await turnIdOf(0)
 
-    expect(sentConfig(0).mountedFolders).toEqual([
-      { hostPath: '/Users/ada/inbox', name: 'mail', access: 'read-only' },
-    ])
+    expect(sentConfig(0).folderOverrides).toEqual({ folders: [ofAgent] })
   })
 
-  it('are none when its Agent has none, whatever the Session has', async () => {
+  it('are the Session’s when its Agent inherits them, which main resolves', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
     giveSessionAFolder()
 
     await tasks.runTask('t1')
     await turnIdOf(0)
 
-    expect(sentConfig(0).mountedFolders ?? []).toEqual([])
+    expect(sentConfig(0).folderOverrides).toBeUndefined()
+  })
+
+  it('fail before any turn when an inherited Session folder is missing', async () => {
+    vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
+      async (hostPath: string) => hostPath !== '/Users/ada/session-notes',
+    )
+    const { tasks } = await readyStores(task('t1', ['one']))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      message: expect.stringContaining('/Users/ada/session-notes'),
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('do not include a missing Session folder its Agent replaces', async () => {
+    vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
+      async (hostPath: string) => hostPath !== '/Users/ada/session-notes',
+    )
+    const template = { ...TEMPLATE, folderOverrides: { folders: [ofAgent] } }
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+
+    await turnIdOf(0)
   })
 })
 
@@ -1943,9 +1975,11 @@ describe('following up on a picked Agent’s run', () => {
   })
 
   it('runs on the Agent’s saved Settings Template, as its run did', async () => {
-    const folders = [{ hostPath: '/data/news', name: 'news' }]
+    const folders = [
+      { id: 'n1', hostPath: '/data/news', slug: 'news', access: 'read-only' as const },
+    ]
     const { tasks } = await readyStores(
-      task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, mountedFolders: folders } }),
+      task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, folderOverrides: { folders } } }),
     )
     giveSessionAFolder()
     await tasks.pickAgent('t1')
@@ -1958,7 +1992,9 @@ describe('following up on a picked Agent’s run', () => {
     const config = sentConfig(1)
     expect(config.modelConfig.model).toBe('Template-27B')
     expect(config.capabilities).toEqual(['files', 'web'])
-    expect(config.mountedFolders?.map((folder) => folder.hostPath)).toEqual(['/data/news'])
+    expect(config.folderOverrides?.folders?.map((folder) => folder.hostPath)).toEqual([
+      '/data/news',
+    ])
   })
 
   it('marks its prompt in the Session timeline as a Follow-up, not a Step', async () => {

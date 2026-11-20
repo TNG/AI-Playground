@@ -696,7 +696,12 @@ describe('deleting an Agent', () => {
 describe('duplicating an Agent', () => {
   const MOUNTED: AgentSessionSettings = {
     ...SETTINGS,
-    mountedFolders: [{ hostPath: '/data/notes', access: 'read-write' }, { hostPath: '/data/in' }],
+    folderOverrides: {
+      folders: [
+        { id: 'f1', hostPath: '/data/notes', slug: 'notes', access: 'read-write' },
+        { id: 'f2', hostPath: '/data/in', slug: 'in', access: 'read-only' },
+      ],
+    },
   }
 
   it('copies the definition into a new saved Agent, without its runs, Schedules or history', async () => {
@@ -807,7 +812,7 @@ describe('duplicating an Agent', () => {
     if (!result.ok) throw new Error('not duplicated')
 
     await tasks.editDraft(result.task.id, { name: 'Other', steps: stepsOf('other step') })
-    await tasks.editDraftSettings(result.task.id, { mountedFolders: [{ hostPath: '/elsewhere' }] })
+    await tasks.editDraftSettings(result.task.id, { folderOverrides: { folders: [] } })
     expect((await tasks.saveAgentDraft(result.task.id)).ok).toBe(true)
 
     expect(tasks.tasks[0]).toEqual(savedAgent('a', { settingsTemplate: MOUNTED }))
@@ -963,21 +968,24 @@ describe('editing an Agent’s Settings Template', () => {
     expect(saveTask).not.toHaveBeenCalled()
   })
 
-  it('adds, switches and removes Mounted Folders, saved with the Agent', async () => {
+  it('adds, switches and removes the folders it uses only, saved with the Agent', async () => {
+    const notes = { id: 'f1', hostPath: '/data/notes', slug: 'notes', access: 'read-only' as const }
     storedTasks = [savedAgent('a')]
     const { tasks } = await readyStores()
 
     await tasks.editDraftSettings('a', {
-      mountedFolders: [{ hostPath: '/data/notes' }, { hostPath: '/data/out' }],
+      folderOverrides: {
+        folders: [notes, { id: 'f2', hostPath: '/data/out', slug: 'out', access: 'read-only' }],
+      },
     })
     await tasks.editDraftSettings('a', {
-      mountedFolders: [{ hostPath: '/data/notes', access: 'read-write' }],
+      folderOverrides: { folders: [{ ...notes, access: 'read-write' }] },
     })
     expect((await tasks.saveAgentDraft('a')).ok).toBe(true)
 
     expect(tasks.tasks[0].settingsTemplate).toEqual({
       ...SETTINGS,
-      mountedFolders: [{ hostPath: '/data/notes', access: 'read-write' }],
+      folderOverrides: { folders: [{ ...notes, access: 'read-write' }] },
     })
   })
 

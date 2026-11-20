@@ -204,7 +204,11 @@ function mergedSettings(
       ? sessionSettingsFromBag(assistant.bag.values)
       : (assistant.bag.values as AgentSessionSettings)
     : {}
-  const values: AgentSessionSettings = { ...fromAgent, ...definedOnly(assistantValues) }
+  // The Session layout migration moves these into the Session's folder list.
+  const values: AgentSessionSettings & { mountedFolders?: MountedFolder[] } = {
+    ...fromAgent,
+    ...definedOnly(assistantValues),
+  }
   if (picked.length > 0) {
     const mounted = values.mountedFolders ?? []
     const known = new Set(mounted.map((folder) => path.resolve(folder.hostPath)))

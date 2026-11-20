@@ -497,7 +497,28 @@ describe("the sandbox of a turn in a Session's folders", () => {
     expect(fs.existsSync(path.join(notes, 'n.md'))).toBe(false)
   }, 30000)
 
-  it("gives an Agent Run the Workspace and its Agent's folders, and none of the Session's others", async () => {
+  it("gives an Agent Run that inherits its Session's folders the Workspace and every other folder", async () => {
+    const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
+    const session = await sessions.createSession()
+    const notesSlug = await addFolder(session.id, hostFolder('notes', { 'n.md': 'NOTES' }))
+    const { harnessSessionId, workspaceDir } = await taskRunHarnessFor(session.id)
+    const config: AgentModeTurnConfig = {
+      sessionId: harnessSessionId,
+      sessionRef: session.id,
+      workspaceDir,
+      modelConfig: MODEL as AgentModeTurnConfig['modelConfig'],
+      toolSpecs: [],
+      capabilities: [],
+      taskRun: { taskName: 'Poster' },
+    }
+
+    const seen = await shell(config, `pwd; cat /mnt/${notesSlug}/n.md`)
+
+    expect(seen).toContain(`/mnt/${await workspaceSlug(session.id)}`)
+    expect(seen).toContain('NOTES')
+  }, 30000)
+
+  it("gives an Agent Run that uses only its Agent's folders the Workspace and those, none of the Session's others", async () => {
     const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
     const session = await sessions.createSession()
     const sessionOnly = await addFolder(session.id, hostFolder('session-only'))
@@ -511,7 +532,9 @@ describe("the sandbox of a turn in a Session's folders", () => {
       toolSpecs: [],
       capabilities: [],
       taskRun: { taskName: 'Poster' },
-      mountedFolders: [{ hostPath: reference, name: 'reference', access: 'read-only' }],
+      folderOverrides: {
+        folders: [{ id: 'r', hostPath: reference, slug: 'reference', access: 'read-only' }],
+      },
     }
 
     const seen = await shell(config, 'pwd; ls /mnt; cat /mnt/reference/brief.md')
@@ -534,7 +557,9 @@ describe("the sandbox of a turn in a Session's folders", () => {
       toolSpecs: [],
       capabilities: [],
       taskRun: { taskName: 'Poster' },
-      mountedFolders: [{ hostPath: workspaceDir, name: 'shared', access: 'read-only' }],
+      folderOverrides: {
+        folders: [{ id: 's', hostPath: workspaceDir, slug: 'shared', access: 'read-only' }],
+      },
     }
 
     const seen = await shell(config, `ls /mnt; echo x > /mnt/${workspace}/x.md`)
@@ -555,7 +580,9 @@ describe("the sandbox of a turn in a Session's folders", () => {
       toolSpecs: [],
       capabilities: [],
       taskRun: { taskName: 'Poster' },
-      mountedFolders: [{ hostPath: reference, name: 'reference', access: 'read-write' }],
+      folderOverrides: {
+        folders: [{ id: 'r', hostPath: reference, slug: 'reference', access: 'read-write' }],
+      },
     }
 
     const seen = await shell(config, 'pwd; ls /mnt; echo t > t.md; echo r > /mnt/reference/r.md')
@@ -1369,7 +1396,6 @@ describe('an Agent Maker Session migrated to Assistant', () => {
       modelConfig: { source: 'local', model: 'test-model', baseUrl: BACKEND, contextWindow: 32768 },
       toolSpecs: [],
       capabilities: settings.capabilities as string[],
-      mountedFolders: [mount],
     }
     return { config, mountPath: `/mnt/${mount.name}` }
   }

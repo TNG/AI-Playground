@@ -10,6 +10,13 @@ const appFolder = {
   appCreated: true,
 }
 
+const papers = {
+  id: 'agent-folder-1',
+  hostPath: '/Users/me/Papers',
+  slug: 'papers',
+  access: 'read-only' as const,
+}
+
 const folderList: SessionFolderList = {
   workspaceId: 'folder-project',
   folders: [
@@ -53,11 +60,19 @@ describe('the workspace chip', () => {
     ])
   })
 
-  it("lists a picked Agent's own folders after the Workspace, as its run sees them", () => {
+  it("lists the Session's folders while the picked Agent inherits them", () => {
+    const agent = { id: 'agent-1', name: 'Researcher' }
+
+    expect(workspaceChipOf({ games: false, folderList, agent })).toEqual(
+      workspaceChipOf({ games: false, folderList }),
+    )
+  })
+
+  it("lists only the picked Agent's folders after the Workspace when it uses only these", () => {
     const agent = {
       id: 'agent-1',
       name: 'Researcher',
-      folders: [{ hostPath: '/Users/me/Papers', access: 'read-only' as const }],
+      overrides: { folders: [papers] },
     }
 
     expect(workspaceChipOf({ games: false, folderList, agent })?.folders).toEqual([
@@ -76,7 +91,7 @@ describe('the workspace chip', () => {
     const agent = {
       id: 'agent-1',
       name: 'Researcher',
-      folders: [{ hostPath: 'C:\\Users\\me\\poster', access: 'read-only' as const }],
+      overrides: { folders: [{ ...papers, hostPath: 'C:\\Users\\me\\poster' }] },
     }
 
     expect(workspaceChipOf({ games: false, folderList, agent })?.folders).toEqual([

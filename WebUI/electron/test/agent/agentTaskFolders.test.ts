@@ -11,7 +11,13 @@ vi.mock('../../persist/agentTaskFiles', () => ({
     {
       id: 'agent-1',
       name: 'Researcher',
-      settingsTemplate: { mountedFolders: [{ hostPath: '/Users/me/Papers', access: 'read-only' }] },
+      settingsTemplate: {
+        folderOverrides: {
+          folders: [
+            { id: 'a1', hostPath: '/Users/me/Papers', slug: 'papers', access: 'read-only' },
+          ],
+        },
+      },
     },
   ],
 }))

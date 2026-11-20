@@ -1,6 +1,6 @@
-import { effectiveFolders, type EffectiveFolder } from '@/lib/effectiveFolders'
+import { agentOverridesOf, effectiveFolders, type EffectiveFolder } from '@/lib/effectiveFolders'
 import { folderBaseName } from '@/lib/mountedFolders'
-import type { MountedFolder } from '@/types/agentSessionIpc'
+import type { AgentFolderOverrides } from '@/types/agentSessionIpc'
 import type { SessionFolderList } from '@/types/sessionIpc'
 
 export type WorkspaceChipFolder = {
@@ -8,12 +8,12 @@ export type WorkspaceChipFolder = {
   name: string
   path: string
   workspace: boolean
-  /** Set on a folder of the picked Agent's own, which its runs mount beside the Workspace. */
+  /** Set on a folder the picked Agent puts in place of the Session's; changed in the Agent. */
   agentId?: string
 }
 
-/** The Agent picked in the prompt bar: its run sees the Workspace and these folders only. */
-export type WorkspaceChipAgent = { id: string; name: string; folders: readonly MountedFolder[] }
+/** The Agent picked in the prompt bar; absent overrides inherit the Session's folders. */
+export type WorkspaceChipAgent = { id: string; name: string; overrides?: AgentFolderOverrides }
 
 export type WorkspaceChip = {
   name: string
@@ -43,7 +43,7 @@ export function workspaceChipOf(input: {
   const { agent } = input
   const resolved = effectiveFolders({
     session: input.folderList,
-    agent: agent && { folders: agent.folders },
+    agent: agentOverridesOf(agent?.overrides),
   })
   if (!resolved) return undefined
   const starred = chipFolder(resolved.workspace, true, agent)

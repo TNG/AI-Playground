@@ -127,9 +127,38 @@ function withoutRunChanges(task: AgentTask, stored: AgentTask | undefined): Agen
 
 /** A demo visitor's Agent works in app-created folders only. */
 function withoutHostFolders<T extends { settingsTemplate: SettingsTemplate }>(entry: T): T {
-  if (!agentTaskFilesDeps?.isDemoMode() || !entry.settingsTemplate.mountedFolders) return entry
-  const { mountedFolders: _mountedFolders, ...settingsTemplate } = entry.settingsTemplate
+  if (!agentTaskFilesDeps?.isDemoMode() || !entry.settingsTemplate.folderOverrides) return entry
+  const { folderOverrides: _folderOverrides, ...settingsTemplate } = entry.settingsTemplate
   return { ...entry, settingsTemplate }
+}
+
+function holdsMountedFolders(raw: unknown, key: 'tasks' | 'drafts'): boolean {
+  const entries = (raw as Record<string, unknown> | null)?.[key]
+  return (
+    Array.isArray(entries) &&
+    entries.some((entry) => {
+      const template = (entry as { settingsTemplate?: unknown } | null)?.settingsTemplate
+      return typeof template === 'object' && template !== null && 'mountedFolders' in template
+    })
+  )
+}
+
+/**
+ * The upgrade to folder overrides (ADR 0014): every Agent's and Draft's additional Mounted
+ * Folders are dropped, leaving both overrides unset. A file without any is not rewritten.
+ */
+export async function dropAgentMountedFolders(): Promise<void> {
+  return serialize(FILE_CHAIN, async () => {
+    const tasks = await readJson(tasksFile(), LOG_SCOPE)
+    if (tasks.status === 'ok' && holdsMountedFolders(tasks.value, 'tasks')) {
+      const version = (await tasksFileVersion()) ?? AGENT_TASKS_SCHEMA_VERSION
+      await writeTasks(await readAgentTasks(), version)
+    }
+    const drafts = await readJson(draftsFile(), LOG_SCOPE)
+    if (drafts.status === 'ok' && holdsMountedFolders(drafts.value, 'drafts')) {
+      await writeDrafts(await readAgentDrafts())
+    }
+  })
 }
 
 /** Insert a Task, or replace the one with the same id where it stands. */

@@ -2,9 +2,9 @@ import z from 'zod'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 import {
+  AgentFolderOverridesSchema,
   AgentFollowUpTagSchema,
   AgentRunTagSchema,
-  MountedFolderAccessSchema,
 } from './agentSessionIpc'
 
 /** The error an agent turn fails with when the user declines its model's download. */
@@ -90,13 +90,6 @@ export const AgentToolSpecSchema = z.object({
   allowedWorkflows: z.array(z.string()).optional(),
 })
 
-/** A Mounted Folder with its sandbox name settled (`resolveMountedFolders`). */
-export const ResolvedMountedFolderSchema = z.object({
-  hostPath: z.string().min(1),
-  name: z.string().regex(/^[A-Za-z0-9._-]+$/),
-  access: MountedFolderAccessSchema,
-})
-
 /** Assistant turns to delete from a Harness Session, with their messages in the Session's timeline. */
 export const DeleteAgentTurnsRequestSchema = z.object({
   sessionRef: z.string().optional(),
@@ -141,8 +134,8 @@ export const AgentModeTurnConfigSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
-  /** An Agent Run's Agent folders; main mounts a Session's own folders from its list. */
-  mountedFolders: z.array(ResolvedMountedFolderSchema).optional(),
+  /** An Agent Run's folder overrides; main resolves them against its Session's list. */
+  folderOverrides: AgentFolderOverridesSchema.optional(),
   planningThinkingOnly: z.boolean().optional(),
   /** Downloaded embedding model for the `rag` capability; absent disables it. */
   embeddingModel: z.string().optional(),

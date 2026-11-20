@@ -81,16 +81,11 @@
         </p>
       </section>
 
-      <section v-if="template" class="flex flex-col gap-2">
-        <SettingsHeading>{{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS }}</SettingsHeading>
-        <p class="text-xs text-muted-foreground">
-          {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_HINT }}
-        </p>
-        <MountedFolderList
-          :model-value="binding.mountedFolders ?? []"
-          @update:model-value="(folders) => binding.setMountedFolders?.(folders)"
-        />
-      </section>
+      <AgentFolderOverrides
+        v-if="template"
+        :overrides="binding.folderOverrides ?? {}"
+        @change="(overrides) => binding.setFolderOverrides?.(overrides)"
+      />
 
       <section class="flex flex-col gap-3">
         <SettingsHeading>{{ languages.AGENT_SETTINGS_CAPABILITIES }}</SettingsHeading>
@@ -190,11 +185,11 @@ import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useSessions } from '@/assets/js/store/sessions'
+import AgentFolderOverrides from '@/components/AgentFolderOverrides.vue'
 import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
 import AgentMcpServerChecklist from '@/components/AgentMcpServerChecklist.vue'
 import AgentPresetDefaultsActions from '@/components/AgentPresetDefaultsActions.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
-import MountedFolderList from '@/components/MountedFolderList.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
 import SessionFolderList from '@/components/SessionFolderList.vue'

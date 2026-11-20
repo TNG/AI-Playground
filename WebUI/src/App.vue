@@ -296,6 +296,7 @@
   <!-- Outside the running-only main: Channels setup lives in the wizard. -->
   <warning-dialog v-show="dialogStore.warningDialogVisible"></warning-dialog>
   <close-dialog v-if="dialogStore.closeQuestion"></close-dialog>
+  <missing-workspace-dialog v-if="dialogStore.missingWorkspaceQuestion"></missing-workspace-dialog>
 </template>
 
 <script setup lang="ts">
@@ -311,6 +312,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useTheme } from './assets/js/store/theme.ts'
 import WarningDialog from '@/components/WarningDialog.vue'
 import CloseDialog from '@/components/CloseDialog.vue'
+import MissingWorkspaceDialog from '@/components/MissingWorkspaceDialog.vue'
 import PresetRequirementsDialog from '@/components/PresetRequirementsDialog.vue'
 import InstallationProgressDialog from '@/components/InstallationProgressDialog.vue'
 import MaskEditorDialog from '@/components/MaskEditorDialog.vue'

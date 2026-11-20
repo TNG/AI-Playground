@@ -22,8 +22,6 @@ export type TurnSummaryLabels = {
   audio: string
   audios: string
   seed: string
-  agentRunStep: string
-  agentRunSteps: string
 }
 
 export function formatTurnDuration(ms: number): string {
@@ -47,7 +45,6 @@ export function counted(count: number, [one, many]: [string, string]): string {
 function hasSummary(summary: TurnSummary): boolean {
   if (summary.kind !== 'activity') return !!summary.preset
   return (
-    !!summary.steps ||
     summary.reasoningMs !== undefined ||
     !!summary.tools ||
     Object.values(summary.artifacts ?? {}).some((count) => !!count)
@@ -63,9 +60,6 @@ export function turnDetailsShown(details: TurnDetails): boolean {
 export function turnDetailsSummaryText(summary: TurnSummary, labels: TurnSummaryLabels): string {
   const clauses: string[] = []
   if (summary.kind === 'activity') {
-    if (summary.steps) {
-      clauses.push(counted(summary.steps, [labels.agentRunStep, labels.agentRunSteps]))
-    }
     if (summary.reasoningMs !== undefined) {
       clauses.push(
         summary.reasoningMs > 0

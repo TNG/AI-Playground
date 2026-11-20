@@ -805,6 +805,7 @@ LOCAL_WEB_CHAT_APP_HTML = r"""<!DOCTYPE html>
       { cmd: '/load', desc: 'Continue Session n from the /sessions list', send: true },
       { cmd: '/new', desc: 'Start a new Session', send: true },
       { cmd: '/agents', desc: 'List the agents you can start, or start one by name', send: true },
+      { cmd: '/agentsin', desc: 'Pick a Session first, then the agent to start in it', send: true },
       { cmd: '/stop', desc: 'Stop the running turn or Agent Run and drop queued messages', send: true },
       { cmd: '/help', desc: 'Show available commands', send: true },
     ]

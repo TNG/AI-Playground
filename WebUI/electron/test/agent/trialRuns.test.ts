@@ -110,6 +110,20 @@ describe('Trial Run folders', () => {
     expect(await readTrialRuns()).toEqual([run])
   })
 
+  it('reads a Trial Run saved while it still tracked its Step, without the Step', async () => {
+    const harness = await trialRunHarnessFor('agent-1')
+    const run = trialRecord('agent-1', harness.harnessSessionId)
+    await fs.writeFile(
+      path.join(paths.trials, 'agent-1', 'trial.json'),
+      JSON.stringify({
+        harnessSessionId: harness.harnessSessionId,
+        run: { ...run, stepIndex: 2, stepCount: 3 },
+      }),
+    )
+
+    expect(await readTrialRuns()).toEqual([run])
+  })
+
   it('lists a Trial Run whose progress was never kept as nothing', async () => {
     await trialRunHarnessFor('agent-1')
 
@@ -143,8 +157,6 @@ function trialRecord(agentId: string, harnessSessionId: string): TrialRunRecord 
     agentId,
     harnessSessionId,
     name: 'Morning news',
-    stepIndex: 2,
-    stepCount: 3,
     startedAt: 100,
     state: 'running',
   }

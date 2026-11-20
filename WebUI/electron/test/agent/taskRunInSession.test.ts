@@ -10,6 +10,11 @@ import type { AgentModeTurnConfig } from '@/types/agentIpc'
 
 const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-task-run-')))
 
+vi.mock('../../adapters/trash', async () => {
+  const fs = await import('node:fs/promises')
+  return { moveToTrash: (target: string) => fs.rm(target, { recursive: true, force: true }) }
+})
+
 vi.mock('electron', () => ({
   app: { getPath: () => tempRoot, isPackaged: false, getAppPath: () => tempRoot },
   BrowserWindow: { getAllWindows: () => [] },
@@ -20,7 +25,11 @@ vi.mock('electron', () => ({
 vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(tempRoot, 'sessions-demo')}-workspaces`,
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -94,6 +103,7 @@ afterAll(() => {
 
 let manager: typeof import('../../agent/piAgentManager')
 let sessions: typeof import('../../session/sessions')
+let workspaces: typeof import('../../session/sessionWorkspace')
 let harness: typeof import('../../session/sessionHarness')
 let history: typeof import('../../session/sessionHistory')
 let store: typeof import('../../agent/piSessionStore')
@@ -102,6 +112,7 @@ let taskRuns: typeof import('../../session/sessionTaskRuns')
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
   sessions = await import('../../session/sessions')
+  workspaces = await import('../../session/sessionWorkspace')
   harness = await import('../../session/sessionHarness')
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
@@ -135,14 +146,22 @@ async function agentConfig(sessionId: string): Promise<AgentModeTurnConfig> {
   }
 }
 
-async function taskRunConfig(sessionId: string, stepIndex = 1): Promise<AgentModeTurnConfig> {
+/** A run turn's prompt as the window sends it: the instruction and every Step. */
+const RUN_PROMPT = 'Carry out these steps.\n1. Fetch the headlines.\n2. Summarise them.'
+
+async function taskRunConfig(sessionId: string, input?: string): Promise<AgentModeTurnConfig> {
   const { harnessSessionId, workspaceDir } = await taskRuns.taskRunHarnessFor(sessionId)
   return {
     ...(await agentConfig(sessionId)),
     sessionId: harnessSessionId,
     workspaceDir,
-    taskRun: { taskName: 'Morning digest', stepIndex },
+    taskRun: { taskName: 'Morning digest', ...(input ? { input } : {}) },
   }
+}
+
+// The conversation, without the system prompt, which names the Workspace after the Session title.
+function conversationText(body: Body | undefined): string {
+  return JSON.stringify((body?.messages ?? []).filter((message) => message.role !== 'system'))
 }
 
 function userTexts(body: Body | undefined): string[] {
@@ -182,7 +201,7 @@ describe('a Task Run in its Session', () => {
 
     expect(first.harnessSessionId).not.toBe(agent.sessionId)
     expect(second.harnessSessionId).not.toBe(first.harnessSessionId)
-    expect(first.workspaceDir).toBe(sessions.sessionPaths(session.id).filesDir)
+    expect(first.workspaceDir).toBe(workspaces.sessionWorkspaceDir(session.id))
   }, 30000)
 
   it('sends its first request with no Session Update, no session_history and no prior turns', async () => {
@@ -196,24 +215,48 @@ describe('a Task Run in its Session', () => {
     expect(users).toHaveLength(1)
     expect(users[0]).not.toContain('a castle')
     expect(users[0]).not.toContain('Session Update')
-    expect(JSON.stringify(body.messages)).not.toContain('plum')
+    expect(conversationText(body)).not.toContain('plum')
   }, 30000)
 
-  it('appends a History Entry per Step, tagged with the Task name and Step index', async () => {
+  it('appends one History Entry for the run, naming the Agent and its Start Prompt', async () => {
     const session = await sessions.createSession()
-    const step1 = await taskRunConfig(session.id, 1)
+    const run = await taskRunConfig(session.id, 'only Europe')
 
-    await manager.startAgentTurn('t1', 'first step', step1)
-    await manager.startAgentTurn('t2', 'second step', {
-      ...step1,
-      taskRun: { taskName: 'Morning digest', stepIndex: 2 },
-    })
+    await manager.startAgentTurn('t1', RUN_PROMPT, run)
 
     const entries = await history.readHistoryEntries(session.id)
     expect(entries).toEqual([
-      expect.objectContaining({ prompt: 'first step', taskName: 'Morning digest', stepIndex: 1 }),
-      expect.objectContaining({ prompt: 'second step', taskName: 'Morning digest', stepIndex: 2 }),
+      expect.objectContaining({
+        prompt: 'Run Agent Morning digest: only Europe',
+        taskName: 'Morning digest',
+      }),
     ])
+    expect(entries[0]).not.toHaveProperty('stepIndex')
+  }, 30000)
+
+  it('names only the Agent in its History Entry when it was run with no Start Prompt', async () => {
+    const session = await sessions.createSession()
+
+    await manager.startAgentTurn('t1', RUN_PROMPT, await taskRunConfig(session.id))
+
+    const [entry] = await history.readHistoryEntries(session.id)
+    expect(entry.prompt).toBe('Run Agent Morning digest')
+  }, 30000)
+
+  it('is one line of the Session Update for another preset, without its Steps', async () => {
+    const session = await sessions.createSession()
+    const assistant = await agentConfig(session.id)
+    await manager.startAgentTurn('t0', 'hello', assistant)
+    await manager.startAgentTurn('t1', RUN_PROMPT, await taskRunConfig(session.id, 'only Europe'))
+    bodies = []
+
+    await manager.startAgentTurn('t2', 'anything new', assistant)
+
+    const update = userTexts(bodies[0]).at(-1) ?? ''
+    expect(update).toContain('Session Update')
+    expect(update.match(/\[\d\d:\d\d\]/g)).toHaveLength(1)
+    expect(update).toContain('Run Agent Morning digest: only Europe')
+    expect(update).not.toContain('Fetch the headlines')
   }, 30000)
 
   it("deletes a run's Pi file with the Session", async () => {
@@ -250,7 +293,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     expect(users).toHaveLength(2)
     expect(users[0]).toContain('summarise the news')
     expect(users[1]).toContain('why that headline?')
-    expect(JSON.stringify(bodies[1].messages)).not.toContain('plum')
+    expect(conversationText(bodies[1])).not.toContain('plum')
   }, 30000)
 
   it('gets a Session Update of the turns since the run, not of its Steps or Follow-ups', async () => {
@@ -259,7 +302,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     await manager.startAgentTurn('t1', 'first step', run)
     await manager.startAgentTurn('t2', 'second step', {
       ...run,
-      taskRun: { taskName: 'Morning digest', stepIndex: 2 },
+      taskRun: { taskName: 'Morning digest' },
     })
     await manager.startAgentTurn('t3', 'assistant turn', await agentConfig(session.id))
     bodies = []
@@ -287,7 +330,6 @@ describe('a Follow-up to an Agent Run in its Session', () => {
       preset: 'Agent',
       prompt: 'legacy step',
       taskName: 'Morning digest',
-      stepIndex: 1,
     })
     await history.appendHistoryEntry(session.id, { ...legacy, preset: 'Agent', prompt: 'a tower' })
 

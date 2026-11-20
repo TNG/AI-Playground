@@ -138,6 +138,7 @@ vi.mock('../../agent/piRuntime.ts', () => ({
 }))
 
 vi.mock('../../agent/piToolOperations', () => ({
+  SANDBOX_WORKDIR: '/workspace',
   createAgentToolAccess: vi.fn(async ({ workspaceDir }: { workspaceDir: string }) => ({
     cwd: workspaceDir,
     skillsRoot: '/skills',
@@ -316,15 +317,23 @@ describe('session reuse', () => {
       name: path.basename(hostPath),
       access: 'read-only' as const,
     })
+    const withFolders = (
+      folders: { hostPath: string; name: string; access: 'read-only' | 'read-write' }[],
+    ) => ({
+      folderOverrides: {
+        folders: folders.map(({ hostPath, name, access }) => ({
+          id: name,
+          hostPath,
+          slug: name,
+          access,
+        })),
+      },
+    })
 
     it('rebuilds when the list changes, keeping the conversation', async () => {
       const manager = await loadManager()
       await manager.startAgentTurn('t1', 'first', configFor())
-      await manager.startAgentTurn(
-        't2',
-        'second',
-        configFor({ mountedFolders: [mountOf(workspaceB)] }),
-      )
+      await manager.startAgentTurn('t2', 'second', configFor(withFolders([mountOf(workspaceB)])))
 
       expect(createAgentSession).toHaveBeenCalledTimes(2)
       expect(disposed).toHaveLength(1)
@@ -333,15 +342,11 @@ describe('session reuse', () => {
 
     it('rebuilds when a folder is switched to read-write', async () => {
       const manager = await loadManager()
-      await manager.startAgentTurn(
-        't1',
-        'first',
-        configFor({ mountedFolders: [mountOf(workspaceB)] }),
-      )
+      await manager.startAgentTurn('t1', 'first', configFor(withFolders([mountOf(workspaceB)])))
       await manager.startAgentTurn(
         't2',
         'second',
-        configFor({ mountedFolders: [{ ...mountOf(workspaceB), access: 'read-write' }] }),
+        configFor(withFolders([{ ...mountOf(workspaceB), access: 'read-write' }])),
       )
 
       expect(createAgentSession).toHaveBeenCalledTimes(2)
@@ -353,28 +358,20 @@ describe('session reuse', () => {
 
     it('reuses the session while the list is unchanged', async () => {
       const manager = await loadManager()
-      const config = configFor({ mountedFolders: [mountOf(workspaceB)] })
+      const config = configFor(withFolders([mountOf(workspaceB)]))
       await manager.startAgentTurn('t1', 'first', config)
-      await manager.startAgentTurn(
-        't2',
-        'second',
-        configFor({ mountedFolders: [mountOf(workspaceB)] }),
-      )
+      await manager.startAgentTurn('t2', 'second', configFor(withFolders([mountOf(workspaceB)])))
 
       expect(createAgentSession).toHaveBeenCalledTimes(1)
     })
 
     it('rebuilds with the new name when a folder is renamed', async () => {
       const manager = await loadManager()
-      await manager.startAgentTurn(
-        't1',
-        'first',
-        configFor({ mountedFolders: [mountOf(workspaceB)] }),
-      )
+      await manager.startAgentTurn('t1', 'first', configFor(withFolders([mountOf(workspaceB)])))
       await manager.startAgentTurn(
         't2',
         'second',
-        configFor({ mountedFolders: [{ ...mountOf(workspaceB), name: 'papers' }] }),
+        configFor(withFolders([{ ...mountOf(workspaceB), name: 'papers' }])),
       )
 
       expect(createAgentSession).toHaveBeenCalledTimes(2)
@@ -391,7 +388,7 @@ describe('session reuse', () => {
       await manager.startAgentTurn(
         't1',
         'first',
-        configFor({ mountedFolders: [{ hostPath: linked, name: 'notes', access: 'read-only' }] }),
+        configFor(withFolders([{ hostPath: linked, name: 'notes', access: 'read-only' }])),
       )
 
       const expected = [{ hostPath: workspaceB, name: 'notes', access: 'read-only' }]
@@ -407,9 +404,9 @@ describe('session reuse', () => {
 
     it('fails the turn naming a missing folder, and runs again once it is back', async () => {
       const notes = path.join(path.dirname(workspaceB), 'notes')
-      const config = configFor({
-        mountedFolders: [{ hostPath: notes, name: 'my-notes', access: 'read-only' }],
-      })
+      const config = configFor(
+        withFolders([{ hostPath: notes, name: 'my-notes', access: 'read-only' }]),
+      )
       const manager = await loadManager()
 
       const failed = await manager.startAgentTurn('t1', 'first', config)
@@ -447,10 +444,10 @@ describe('session reuse', () => {
       const old = path.join(path.dirname(workspaceB), 'old')
       fs.mkdirSync(old)
       const manager = await loadManager()
-      await manager.startAgentTurn('t1', 'first', configFor({ mountedFolders: [mountOf(old)] }))
-      const changed = configFor({
-        mountedFolders: [{ hostPath: workspaceB, name: 'notes', access: 'read-write' }],
-      })
+      await manager.startAgentTurn('t1', 'first', configFor(withFolders([mountOf(old)])))
+      const changed = configFor(
+        withFolders([{ hostPath: workspaceB, name: 'notes', access: 'read-write' }]),
+      )
       await manager.startAgentTurn('t2', 'second', changed)
       await manager.startAgentTurn('t3', 'third', changed)
 
@@ -468,7 +465,7 @@ describe('session reuse', () => {
       fs.mkdirSync(old)
       await (
         await loadManager()
-      ).startAgentTurn('t1', 'first', configFor({ mountedFolders: [mountOf(old)] }))
+      ).startAgentTurn('t1', 'first', configFor(withFolders([mountOf(old)])))
       vi.resetModules()
       await (await loadManager()).startAgentTurn('t2', 'second', configFor())
 
@@ -478,9 +475,9 @@ describe('session reuse', () => {
     })
 
     it.each([
-      ['inside the Session Folder', () => ensureDir(path.join(workspaceA, 'docs'))],
-      ['containing the Session Folder', () => path.dirname(workspaceA)],
-      ['an alias of the Session Folder', () => linkTo(workspaceA, 'alias-a')],
+      ['inside the Workspace', () => ensureDir(path.join(workspaceA, 'docs'))],
+      ['containing the Workspace', () => path.dirname(workspaceA)],
+      ['an alias of the Workspace', () => linkTo(workspaceA, 'alias-a')],
     ])('refuses a turn with a Mounted Folder %s', async (_label, folderFor) => {
       const folder = folderFor()
       const manager = await loadManager()
@@ -488,11 +485,11 @@ describe('session reuse', () => {
       const failed = await manager.startAgentTurn(
         't1',
         'first',
-        configFor({ mountedFolders: [mountOf(folder)] }),
+        configFor(withFolders([mountOf(folder)])),
       )
 
       expect(failed.success).toBe(false)
-      expect(!failed.success && failed.error).toMatch(/session folder/i)
+      expect(!failed.success && failed.error).toMatch(/overlaps the Workspace/)
       expect(!failed.success && failed.error).toContain(folder)
       expect(createAgentSession).not.toHaveBeenCalled()
     })
@@ -507,9 +504,7 @@ describe('session reuse', () => {
       const failed = await manager.startAgentTurn(
         't1',
         'first',
-        configFor({
-          mountedFolders: [mountOf(workspaceB), { ...mountOf(second), name: 'second' }],
-        }),
+        configFor(withFolders([mountOf(workspaceB), { ...mountOf(second), name: 'second' }])),
       )
 
       expect(failed.success).toBe(false)
@@ -521,7 +516,7 @@ describe('session reuse', () => {
     it('keeps the change note for the next turn when the prompt fails', async () => {
       const manager = await loadManager()
       await manager.startAgentTurn('t1', 'first', configFor())
-      const changed = configFor({ mountedFolders: [mountOf(workspaceB)] })
+      const changed = configFor(withFolders([mountOf(workspaceB)]))
       createAgentSession.mockImplementationOnce(async () => {
         const made = await makeAgentSession()
         made.session.prompt.mockRejectedValueOnce(new Error('model went away'))
@@ -539,7 +534,7 @@ describe('session reuse', () => {
     it('fails a turn that would reuse the session once its folder has gone', async () => {
       const notes = path.join(path.dirname(workspaceB), 'notes')
       fs.mkdirSync(notes)
-      const config = configFor({ mountedFolders: [mountOf(notes)] })
+      const config = configFor(withFolders([mountOf(notes)]))
       const manager = await loadManager()
       await manager.startAgentTurn('t1', 'first', config)
       const { session } = (await createAgentSession.mock.results[0].value) as {

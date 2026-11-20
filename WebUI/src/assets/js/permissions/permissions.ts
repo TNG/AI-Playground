@@ -1,4 +1,8 @@
-import { useDialogStore } from '../store/dialogs'
+import {
+  useDialogStore,
+  type MissingWorkspaceAsk,
+  type MissingWorkspaceChoice,
+} from '../store/dialogs'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { REMOTE_DOWNLOAD_GRANT, vramWarningGrantKey } from '@/types/permissionsIpc'
 import { createCancellation, isCancellation } from '../errors/appError'
@@ -85,4 +89,12 @@ export async function requestVramWarning(req: {
  *  (e.g. opening the setup wizard to install what is missing). */
 export function notify(message: string, onConfirm?: () => void): void {
   useDialogStore().showWarningDialog(message, () => onConfirm?.())
+}
+
+/**
+ * Asked before an interactive turn whose Workspace folder is missing: locate it, or start a new
+ * one. Unattended turns never ask; main fails them with a Notification instead.
+ */
+export function requestMissingWorkspace(ask: MissingWorkspaceAsk): Promise<MissingWorkspaceChoice> {
+  return useDialogStore().askMissingWorkspace(ask)
 }

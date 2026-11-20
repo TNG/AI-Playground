@@ -112,20 +112,23 @@ const gamesCreate = vi.fn(async (_name: string, _options?: { scaffold?: boolean 
   gameFolders.add('/games/new-game')
   return { dir: '/games/new-game', name: 'New game' }
 })
-/** The files in each workspace's attachments folder, as main would list them. */
+type Target = { workspaceDir: string; sessionId?: string }
+const keyOf = (target: Target) => `${target.sessionId ?? ''}|${target.workspaceDir}`
+/** The files attached for each target, as main would list them. */
 const savedFiles = new Map<string, string[]>()
-const importAttachment = vi.fn(async (dir: string, name: string) => {
-  savedFiles.set(dir, [...(savedFiles.get(dir) ?? []), `attachments/${name}`])
+const importAttachment = vi.fn(async (target: Target, name: string) => {
+  const key = keyOf(target)
+  savedFiles.set(key, [...(savedFiles.get(key) ?? []), `attachments/${name}`])
   return { success: true, path: `attachments/${name}` }
 })
-const sessionDocuments = vi.fn(async (dir: string) =>
-  (savedFiles.get(dir) ?? []).filter((file) => /\.(pdf|docx?|md|txt)$/.test(file)),
+const sessionDocuments = vi.fn(async (target: Target) =>
+  (savedFiles.get(keyOf(target)) ?? []).filter((file) => /\.(pdf|docx?|md|txt)$/.test(file)),
 )
 const indexDocument = vi.fn(async (..._args: unknown[]) => ({ success: true }))
-const removeSessionDocument = vi.fn(async (dir: string, file: string) => {
+const removeSessionDocument = vi.fn(async (target: Target, file: string) => {
   savedFiles.set(
-    dir,
-    (savedFiles.get(dir) ?? []).filter((saved) => saved !== file),
+    keyOf(target),
+    (savedFiles.get(keyOf(target)) ?? []).filter((saved) => saved !== file),
   )
   return { success: true as boolean, error: undefined as string | undefined }
 })
@@ -296,7 +299,7 @@ describe('agentMode attachments', () => {
     await store.generate('use these')
 
     expect(importAttachment).toHaveBeenCalledTimes(2)
-    expect(importAttachment.mock.calls[0][0]).toBe('/code/project')
+    expect(importAttachment.mock.calls[0][0]).toMatchObject({ workspaceDir: '/code/project' })
     const sent = (store.chat.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(sent.text).toContain('use these')
     expect(sent.text).toContain('@attachments/player.png')
@@ -326,7 +329,11 @@ describe('agentMode attachments', () => {
     await store.attachFiles([file('ship.png')])
     await store.generate('a game with this ship')
 
-    expect(importAttachment).toHaveBeenCalledWith('/games/new-game', 'ship.png', expect.anything())
+    expect(importAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceDir: '/games/new-game' }),
+      'ship.png',
+      expect.anything(),
+    )
   })
 
   it('reports a failed attachment and sends the turn without it', async () => {
@@ -379,14 +386,18 @@ describe('agentMode session documents', () => {
     await store.attachFiles([document('report.pdf')])
 
     expect(importAttachment).toHaveBeenCalledWith(
-      '/sessions/s1/files',
+      expect.objectContaining({ workspaceDir: '/sessions/s1/files' }),
       'report.pdf',
       expect.anything(),
     )
-    expect(indexDocument).toHaveBeenCalledWith('/sessions/s1/files', 'attachments/report.pdf', {
-      model: 'bge-small',
-      backend: 'llamaCPP',
-    })
+    expect(indexDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceDir: '/sessions/s1/files' }),
+      'attachments/report.pdf',
+      {
+        model: 'bge-small',
+        backend: 'llamaCPP',
+      },
+    )
     expect(store.sessionDocuments).toEqual(['attachments/report.pdf'])
     expect(store.attachments).toEqual([])
   })
@@ -432,7 +443,7 @@ describe('agentMode session documents', () => {
     await store.removeSessionDocument('attachments/report.pdf')
 
     expect(removeSessionDocument).toHaveBeenCalledWith(
-      '/sessions/s1/files',
+      expect.objectContaining({ workspaceDir: '/sessions/s1/files' }),
       'attachments/report.pdf',
     )
     expect(store.sessionDocuments).toEqual(['attachments/notes.md'])

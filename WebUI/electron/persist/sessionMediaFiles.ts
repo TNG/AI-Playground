@@ -1,100 +1,69 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { SESSION_FILES_DIR, sessionFolderPaths } from './sessionFiles'
+import { dashNumbered, firstFree, freeName, moveEntry, sameContent } from './fileOps'
+import { discardPath } from './sessionFiles'
 
-const GAME_MEDIA_DIR = 'generated'
+const READER_COPIES_DIR = 'generated'
 
-/** `name`, or `name-1`, `name-2`, … — the first that is not taken in `dir`. */
-export async function freeName(dir: string, name: string): Promise<string> {
-  const { name: stem, ext } = path.parse(name)
-  for (let n = 0; ; n++) {
-    const candidate = n === 0 ? name : `${stem}-${n}${ext}`
-    try {
-      await fs.access(path.join(dir, candidate))
-    } catch {
-      return candidate
-    }
-  }
-}
-
-/** Renames, copying only across volumes, where a rename cannot. */
-export async function moveFile(from: string, to: string): Promise<void> {
-  try {
-    await fs.rename(from, to)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error
-    await fs.copyFile(from, to)
-    await fs.unlink(from)
-  }
-}
-
-/** The Session's `files/` folder, created when missing. */
-export async function ensureSessionFilesDir(sessionId: string): Promise<string> {
-  const { filesDir } = sessionFolderPaths(sessionId)
-  await fs.mkdir(filesDir, { recursive: true })
-  return filesDir
-}
-
-/** Moves a regular file into the Session's `files/` under a free name; its Session-relative path. */
-export async function moveIntoSessionFiles(
-  sessionId: string,
-  source: string,
-): Promise<string | null> {
+/** Moves a regular file into `dir` under a free name; that name, or null for a non-file. */
+export async function moveIntoFolder(dir: string, source: string): Promise<string | null> {
   if (!(await fs.stat(source)).isFile()) return null
-  const filesDir = await ensureSessionFilesDir(sessionId)
-  const name = await freeName(filesDir, path.basename(source))
-  await moveFile(source, path.join(filesDir, name))
-  return `${SESSION_FILES_DIR}/${name}`
+  const name = await freeName(dir, path.basename(source))
+  await moveEntry(source, path.join(dir, name))
+  return name
 }
 
-export async function copyIntoSessionFiles(
-  sessionId: string,
-  source: string,
-): Promise<string | null> {
+export async function copyIntoFolder(dir: string, source: string): Promise<string | null> {
   if (!(await fs.stat(source)).isFile()) return null
-  const filesDir = await ensureSessionFilesDir(sessionId)
-  const name = await freeName(filesDir, path.basename(source))
-  await fs.copyFile(source, path.join(filesDir, name))
-  return `${SESSION_FILES_DIR}/${name}`
+  const name = await freeName(dir, path.basename(source))
+  await fs.copyFile(source, path.join(dir, name))
+  return name
 }
 
-/** Writes new bytes into the Session's `files/` under a free name; its Session-relative path. */
-export async function writeNewSessionFile(
-  sessionId: string,
+/** Writes new bytes into `dir` under a free name; that name. */
+export async function writeNewFile(
+  dir: string,
   preferredName: string,
   bytes: Buffer,
 ): Promise<string> {
-  const filesDir = await ensureSessionFilesDir(sessionId)
-  const name = await freeName(filesDir, preferredName)
-  await fs.writeFile(path.join(filesDir, name), bytes, { flag: 'wx' })
-  return `${SESSION_FILES_DIR}/${name}`
+  const name = await freeName(dir, preferredName)
+  await fs.writeFile(path.join(dir, name), bytes, { flag: 'wx' })
+  return name
 }
 
-/** Removes one regular file; a missing one is already removed. */
-export async function removeRegularFile(file: string): Promise<void> {
+/** Discards one regular file (to the Trash outside demo mode); a missing one is already gone. */
+export async function discardRegularFile(file: string): Promise<void> {
   try {
     if (!(await fs.lstat(file)).isFile()) throw new Error(`not a file: ${file}`)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
     throw error
   }
-  await fs.rm(file)
+  await discardPath(file)
 }
 
-/** A game folder's copy of a Session file, made on first need; its game-relative path. */
-export async function ensureGameMediaCopy(source: string, gameDir: string): Promise<string | null> {
-  const relative = path.posix.join(GAME_MEDIA_DIR, path.basename(source))
-  const target = path.join(gameDir, GAME_MEDIA_DIR, path.basename(source))
+/**
+ * A reader's copy of a Session file in its Workspace, made on first need; its relative path.
+ * A name already holding other bytes is another file's copy, so this one takes a free name.
+ */
+export async function ensureReaderCopy(
+  source: string,
+  workspaceDir: string,
+): Promise<string | null> {
+  const dir = path.join(workspaceDir, READER_COPIES_DIR)
   try {
-    await fs.access(target)
-    return relative
-  } catch {
-    // Not copied yet.
-  }
-  try {
-    await fs.mkdir(path.dirname(target), { recursive: true })
-    await fs.copyFile(source, target)
-    return relative
+    await fs.mkdir(dir, { recursive: true })
+    const name = await firstFree(dashNumbered(path.basename(source)), async (candidate) => {
+      const target = path.join(dir, candidate)
+      try {
+        await fs.copyFile(source, target, fs.constants.COPYFILE_EXCL)
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+      return sameContent(source, target)
+    })
+    return path.posix.join(READER_COPIES_DIR, name)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error

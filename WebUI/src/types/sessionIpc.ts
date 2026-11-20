@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MountedFolderAccessSchema } from './agentSessionIpc'
 
 /**
  * A Session's `session.json` (ADR-0003). Everything the later tickets fill in
@@ -7,6 +8,44 @@ import { z } from 'zod'
  * needs a schema bump to grow into them. Timeline messages are opaque UI
  * messages, like a conversation file's.
  */
+/** One folder of a Session's list; `slug` names it in the sandbox and never changes. */
+export const SessionFolderEntrySchema = z.object({
+  id: z.string().min(1),
+  hostPath: z.string().min(1),
+  access: MountedFolderAccessSchema,
+  slug: z.string().regex(/^[A-Za-z0-9._-]+$/),
+  /** The app made this folder for the Session, rather than the user picking it. */
+  appCreated: z.boolean().optional(),
+  /** Not on disk yet: the app creates it at the Session's first turn or when it is opened. */
+  planned: z.boolean().optional(),
+})
+export type SessionFolderEntry = z.infer<typeof SessionFolderEntrySchema>
+
+/** An Agent's own Workspace, registered at its first run in a Session (ADR 0014). */
+export const AgentOwnedFolderEntrySchema = SessionFolderEntrySchema.extend({
+  agentId: z.string().min(1).optional(),
+})
+export type AgentOwnedFolderEntry = z.infer<typeof AgentOwnedFolderEntrySchema>
+
+/** A Session's folders and which of them is its Workspace (the starred entry). */
+export type SessionFolderList = {
+  folders: SessionFolderEntry[]
+  workspaceId: string
+  /** Folders taken off the list: not mounted or shown, but their Artifacts still resolve. */
+  detached?: SessionFolderEntry[]
+  /** Agents' own Workspaces: not on the Session's own list, but their Artifacts resolve. */
+  agentOwned?: AgentOwnedFolderEntry[]
+}
+
+/** A starred user folder that no longer exists: renamed, deleted, or on an unplugged drive. */
+export type MissingWorkspace = {
+  folderId: string
+  hostPath: string
+  name: string
+  /** The folder created for the Session, still on disk: what to go back to instead of a new one. */
+  fallback?: { folderId: string }
+}
+
 export const SessionFileSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
@@ -37,12 +76,23 @@ export const SessionFileSchema = z.object({
   pickedAgentId: z.string().optional(),
   /** Channels may send it messages and it may notify them (Reachable Session). */
   reachable: z.boolean().default(false),
+  /** Hidden messages stay in the file and in what the model sees; only the view drops them. */
+  hiddenMessageIds: z.array(z.string()).default([]),
+  /** Absent on a file written before the list existed; read through `sessionFolderListOf`. */
+  folders: z.array(SessionFolderEntrySchema).optional(),
+  workspaceFolderId: z.string().optional(),
+  detachedFolders: z.array(SessionFolderEntrySchema).optional(),
+  agentFolders: z.array(AgentOwnedFolderEntrySchema).optional(),
+  /** The entry an older Session's `files/` moved to; its `aipg-media://sessions/` URLs resolve there. */
+  legacyFilesFolderId: z.string().optional(),
 })
 
 export type SessionFile = z.infer<typeof SessionFileSchema>
 
 /** Assistant's default capabilities, for a Reachable Session whose Assistant settings name none. */
 export type AssistantCapabilityDefaults = { defaultCapabilities?: string[] }
+
+export type SessionCreateOptions = AssistantCapabilityDefaults & { settingsFrom?: string }
 
 /** One row of the Sessions panel. */
 export type SessionSummary = Pick<
@@ -57,7 +107,8 @@ export type SessionSummary = Pick<
   | 'presetsUsed'
   | 'pickedAgentId'
   | 'reachable'
-> & { unreadable?: boolean }
+  | 'hiddenMessageIds'
+> & { unreadable?: boolean; folderList?: SessionFolderList }
 
 /** What opening a Session hands the renderer: its row plus the display timeline. */
 export type SessionDocument = SessionSummary & { timeline: unknown[] }
@@ -92,6 +143,11 @@ export type ShowMoreSection = 'pinned' | 'older'
 
 export type ShowMore = Record<ShowMoreSection, boolean>
 
+/** What the delete dialog names: the app-created Workspace that moves to the Trash, if any. */
+export type SessionDeletePreview = {
+  trashedWorkspace: { name: string; fileCount: number } | null
+}
+
 export type SessionGroupsState = { groups: SessionGroup[]; showMore: ShowMore }
 
 export const HistoryEntryKindSchema = z.enum([
@@ -115,11 +171,16 @@ export const HistoryEntrySchema = z.object({
   kind: HistoryEntryKindSchema,
   prompt: z.string(),
   status: z.enum(['completed', 'failed', 'cancelled']),
-  /** Paths relative to the Session Folder. */
-  artifacts: z.array(z.object({ path: z.string(), mediaType: ArtifactMediaTypeSchema })),
+  /** `path` is inside folder entry `folderId`; without one (older entries), the Session Folder. */
+  artifacts: z.array(
+    z.object({
+      folderId: z.string().optional(),
+      path: z.string(),
+      mediaType: ArtifactMediaTypeSchema,
+    }),
+  ),
   response: z.string().optional(),
   taskName: z.string().optional(),
-  stepIndex: z.number().int().nonnegative().optional(),
   /** A Follow-up to a saved Agent, which `preset` (Assistant) ran; older: a chat with it. */
   agentId: z.string().optional(),
   agentName: z.string().optional(),
@@ -178,7 +239,7 @@ export type SessionArtifact = {
   preset: string
   kind: HistoryEntryKind
   prompt: string
-  /** Relative to the Session Folder. */
+  /** Relative to its folder entry, or to the Session Folder for an older Artifact. */
   path: string
   mediaType: ArtifactMediaType
   url: string

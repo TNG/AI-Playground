@@ -6,6 +6,7 @@ export type AppSettingsSectionId =
   | 'speech'
   | 'mediaModes'
   | 'permissions'
+  | 'hide'
   | 'advanced'
 
 export type AppSettingsPartId =
@@ -16,6 +17,7 @@ export type AppSettingsPartId =
   | 'speech'
   | 'mediaModes'
   | 'permissions'
+  | 'hideMessages'
   | 'backendStatus'
   | 'developer'
   | 'demoMode'
@@ -41,6 +43,9 @@ const SECTIONS: SectionSpec[] = [
   { id: 'speech', heading: false, parts: [{ id: 'speech', demo: 'block' }] },
   { id: 'mediaModes', heading: false, parts: [{ id: 'mediaModes', demo: 'block' }] },
   { id: 'permissions', heading: false, parts: [{ id: 'permissions', demo: 'block' }] },
+  // The Hide group stays open in demo mode: with the feature enabled there,
+  // both hiding and bringing messages back must work.
+  { id: 'hide', heading: true, parts: [{ id: 'hideMessages', demo: 'allow' }] },
   {
     id: 'advanced',
     heading: true,

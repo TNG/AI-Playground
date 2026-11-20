@@ -28,8 +28,10 @@ _Avoid_: direct media preset, media gen mode
 **Session**:
 The unit of work the user sees in the sessions panel: one continuous history in which any mix of
 presets can take turns. A new Session starts only when the user asks for one, and starts on the
-Assistant preset.
-_Avoid_: user session, agent session, conversation, thread
+Assistant preset — with Default Settings, or with another Session's Session Settings when the user
+starts it from that Session. Nothing else of that Session comes along but, when started from its
+row, its Session Group.
+_Avoid_: user session, agent session, conversation, thread, clone, duplicate
 
 **Title**:
 What a Session is called in the sessions panel: its Name if it has one, otherwise its first prompt,
@@ -67,18 +69,20 @@ _Avoid_: transcript, log
 **History Entry**:
 One turn's record in the Session History.
 
-**Session Folder**:
-The directory that belongs to one Session, where the artifacts its turns produce are kept.
-_Avoid_: media folder, output folder
+**Workspace**:
+The one Mounted Folder of a Session that is starred: where its turns' Artifacts land and where its
+agents work. Always read-write. An Agent may override it while it is active in the Session. Game
+Agent and Quick Coder work in their game's folder instead.
+_Avoid_: Session Folder, output folder, media folder
 
 **Artifact**:
-A file a turn produced — an image, video, 3D model or audio clip — kept in its Session's Session
-Folder.
+A file a turn produced — an image, video, 3D model or audio clip — kept in the Workspace it was
+produced in.
 _Avoid_: media item, output, generation
 
 **Attached Document**:
 A document the user attached in a Session for its turns to search. It belongs to that Session
-alone and is kept in its Session Folder.
+alone and stays with it whichever folder is its Workspace.
 _Avoid_: RAG document, knowledge base
 
 **Paused Session**:
@@ -133,11 +137,13 @@ and closing it returns to the Session.
 _Avoid_: overlay, modal, panel
 
 **Step**:
-One prompt of an Agent, sent as its own turn.
+One instruction in an Agent's ordered list. An Agent Run is given all its Steps at once and decides
+how to carry them out: in order, conditionally, repeatedly, or by asking the user.
+_Avoid_: task, stage
 
 **Start Prompt**:
-Text the user gives when starting an Agent, for that Agent Run only. It goes in with the first Step
-and applies to every Step it is relevant to; starting without one runs the Steps as written.
+Text the user gives when starting an Agent, for that Agent Run only. It goes in with the Steps and
+applies to every Step it is relevant to; starting without one runs the Steps as written.
 _Avoid_: task, run instructions, input
 
 **Settings Template**:
@@ -151,16 +157,17 @@ Library. An Agent can have Schedules in several Sessions but at most one per Ses
 ends with its Session or its Agent.
 
 **Agent Run**:
-One execution of an Agent's Steps inside the Session it was started or scheduled in, in a fresh
-Harness Session that starts with no context from the Session. Prompts sent to the Agent afterwards
-continue that Harness Session, until its Steps are run again. It works in its Session's Session
-Folder, with the Agent's own Mounted Folders instead of the Session's. Its result is its final
-answer and the Artifacts it produced.
+One conversation with an Agent inside the Session it was started or scheduled in. It starts by
+giving the Agent all its Steps at once, in a fresh Harness Session with no context from the
+Session, and its Follow-ups continue it until the Agent is run again. It works with its Session's
+Workspace and Mounted Folders, unless the Agent overrides either. Its result is the
+final answer of its first turn and the Artifacts that turn produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
 **Follow-up**:
-A prompt sent to an Agent without running its Steps. It continues the Harness Session of the
-Agent's latest Agent Run or Trial Run; an Agent that has not run yet takes none.
+A prompt sent to an Agent without running its Steps: a later turn of the Agent's latest Agent Run
+or Trial Run, and how the user answers a question the run asked. An Agent that has not run yet
+takes none.
 _Avoid_: Agent chat, chat with agent
 
 **Draft**:
@@ -175,10 +182,12 @@ starts or the app quits.
 _Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:
-A folder on the user's machine that the Assistant preset's turns or an Agent's runs can reach
-besides the Session Folder, added by the user to the Session Settings or to the Agent's Settings
-Template, and either read-only or read-write.
-_Avoid_: extra folder, attached folder, workspace
+A folder on the user's machine that the Assistant preset's turns or an Agent's runs can reach,
+listed in the Session Settings or, as an override of the Session's, in the Agent's Settings
+Template, and either read-only or read-write. Every Session has at least one, its Workspace, which the app provides until the user
+stars another, and which the user can never take off the list. Taking any other one off the list ends its access,
+never the Artifacts made in it.
+_Avoid_: extra folder, attached folder
 
 ## Channels
 
@@ -194,7 +203,10 @@ _Avoid_: remote session, Home Agent thread
 
 **Channel Session**:
 The Reachable Session that a Channel's messages go to unless they answer a Notification. Each
-Channel has its own; the Session open on the desktop never changes it.
+Channel has its own; the Session open on the desktop never changes it, but starting an Agent from
+the Channel in a new Session makes that Session its Channel Session. The other way round, each
+deliberate move of the Channel Session (`/load`, `/new`, an Agent start) brings it into view on
+the desktop; plain messages and Answers never do.
 _Avoid_: current session, active thread, focused session
 
 **Notification**:
@@ -210,9 +222,10 @@ the Notification, so answering an Agent Run's or a Trial Run's Notification is a
 _Avoid_: reply (as a noun), response
 
 **Start Prompt Request**:
-A message asking the user, in a Channel, for the Start Prompt of one Agent in one Reachable Session.
-The first reply to it starts that Agent Run there with the reply as its Start Prompt; it is not an
-Answer, and it is forgotten when the app quits.
+A message asking the user, in a Channel, for the Start Prompt of one Agent in one Reachable Session,
+or in a new Session made only once the reply arrives. The first reply to it starts that Agent Run
+there with the reply as its Start Prompt; it is not an Answer, and it is forgotten when the app
+quits.
 _Avoid_: prompt question, pending start
 
 ## Settings

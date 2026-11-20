@@ -70,13 +70,39 @@ export function sessionMediaUrl(sessionId: string, relativePath: string): string
   return `aipg-media://sessions/${encoded}`
 }
 
-/** The Session and Session-Folder path a `sessionMediaUrl` names, or null for any other URL. */
-export function sessionMediaPathOf(url: string): { sessionId: string; path: string } | null {
-  const prefix = 'aipg-media://sessions/'
-  if (!url.startsWith(prefix)) return null
-  const [sessionId, ...rest] = url.slice(prefix.length).split('/').map(decodeURIComponent)
-  if (!sessionId || rest.length === 0) return null
-  return { sessionId, path: rest.join('/') }
+/** An `aipg-media://` URL for a file in one of a Session's listed folders. */
+export function sessionFolderMediaUrl(
+  sessionId: string,
+  folderId: string,
+  relativePath: string,
+): string {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const encoded = [sessionId, folderId, ...normalized.split('/')].map(encodeURIComponent).join('/')
+  return `aipg-media://folders/${encoded}`
+}
+
+/**
+ * The Session file a `sessionMediaUrl` or `sessionFolderMediaUrl` names: a path in the listed
+ * folder `folderId`, or in the Session Folder without one. Null for any other URL.
+ */
+export function sessionMediaPathOf(
+  url: string,
+): { sessionId: string; folderId?: string; path: string } | null {
+  const [, root, rest] = /^aipg-media:\/\/(sessions|folders)\/(.*)$/.exec(url) ?? []
+  if (!root) return null
+  let segments: string[]
+  try {
+    segments = rest.split('/').map(decodeURIComponent)
+  } catch {
+    return null
+  }
+  const [sessionId, ...tail] = segments
+  if (root === 'sessions') {
+    return sessionId && tail.length > 0 ? { sessionId, path: tail.join('/') } : null
+  }
+  const [folderId, ...inside] = tail
+  if (!sessionId || !folderId || inside.length === 0) return null
+  return { sessionId, folderId, path: inside.join('/') }
 }
 
 export const settingToComfyInputsName = {

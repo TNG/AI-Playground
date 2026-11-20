@@ -7,16 +7,20 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const { createSession, resetSessionsForTest, setSessionDeps } =
+const { createSession, mutateSession, readSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
-const { appendHistoryEntry, lastTurnPreset, readHistoryEntries } =
+const { appendHistoryEntry, lastTurnPreset, readHistoryEntries, removeHistoryEntry } =
   await import('../../session/sessionHistory')
 
 beforeAll(async () => {
@@ -111,6 +115,46 @@ describe('Session History', () => {
       'a red fox',
       'after the tear',
     ])
+  })
+})
+
+describe('removing an entry', () => {
+  it('drops the entry and leaves every other line alone', async () => {
+    const { id } = await createSession()
+    const first = await appendHistoryEntry(id, imageTurn)
+    const second = await appendHistoryEntry(id, { ...imageTurn, prompt: 'make it blue' })
+    await fs.appendFile(historyFile(id), '{"id":"broken"\n')
+
+    expect(await removeHistoryEntry(id, second.id)).toBe(true)
+    expect((await readHistoryEntries(id)).map((entry) => entry.prompt)).toEqual(['a red fox'])
+    const raw = await fs.readFile(historyFile(id), 'utf8')
+    expect(raw).toContain(first.id)
+    expect(raw).toContain('"id":"broken"')
+    expect(raw).not.toContain(second.id)
+  })
+
+  it('is false when no entry matches, and nothing is written', async () => {
+    const { id } = await createSession()
+    await appendHistoryEntry(id, imageTurn)
+
+    expect(await removeHistoryEntry(id, 'entry-missing')).toBe(false)
+    expect((await readHistoryEntries(id)).map((entry) => entry.prompt)).toEqual(['a red fox'])
+  })
+
+  it('moves a cursor off the removed entry, or drops it when nothing precedes', async () => {
+    const { id } = await createSession()
+    const first = await appendHistoryEntry(id, imageTurn)
+    const second = await appendHistoryEntry(id, { ...imageTurn, prompt: 'make it blue' })
+    await mutateSession(id, (file) => ({
+      ...file,
+      updateCursors: { later: second.id, earlier: first.id },
+    }))
+
+    await removeHistoryEntry(id, second.id)
+    expect((await readSession(id)).updateCursors).toEqual({ later: first.id, earlier: first.id })
+
+    await removeHistoryEntry(id, first.id)
+    expect((await readSession(id)).updateCursors).toEqual({})
   })
 })
 

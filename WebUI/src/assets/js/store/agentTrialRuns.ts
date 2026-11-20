@@ -6,14 +6,14 @@ import type { TrialRunRecord } from '@/types/agentTaskIpc'
 import type { TrialRunView } from '@/lib/trialRunTimeline'
 import { useAgentMode, type SendToSessionResult, type TurnOutcome } from './agentMode'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
-import { useAgentTasks, type LibraryAgent, type ModelDownloadRefusal } from './agentTasks'
+import { useAgentTasks, type ModelDownloadRefusal } from './agentTasks'
 import { useErrors } from './errors'
 import { useI18N } from './i18n'
 import { useUIStore } from './ui'
 import { createAppError, extractMessage } from '@/assets/js/errors/appError'
 import { agentComposerState, type AgentComposerState } from '@/lib/agentComposer'
 import { sameAgentSetup } from '@/lib/agentSetup'
-import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
+import { afterRunTurn, sendRunTurn } from '@/lib/agentRunTurn'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import {
   agentDisplayName,
@@ -56,11 +56,8 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
 
   /** Each Agent's Trial Run, by Agent id; the last one stays until the next one starts. */
   const trialRuns = ref<Record<string, TrialRun>>({})
-  /** The Agent as its Trial Run started, and the abort that keeps an ended run from sending. */
-  const trialContexts: Record<
-    string,
-    { plan: Pick<LibraryAgent, 'steps' | 'settingsTemplate'>; abort: AbortController }
-  > = {}
+  /** The abort that keeps an ended Trial Run from sending, by Agent id. */
+  const trialAborts: Record<string, AbortController> = {}
   /** Agents whose Trial Run is still being checked, possibly waiting on a download; Stop aborts it. */
   const startingTrials = reactive(new Map<string, AbortController>())
   const sendingFollowUps = reactive(new Set<string>())
@@ -115,7 +112,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
         agentId,
         sessionId: run.harnessSessionId,
         name: run.name,
-        state: { status: 'step', index: run.stepIndex, count: run.stepCount },
+        state: { status: 'running' },
       }
     }),
   )
@@ -140,10 +137,9 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   function onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
     const run = trialRunOfSession(sessionId)
     if (run?.state !== 'running') return
-    const next = afterStepTurn(outcome, run.stepIndex, run.stepCount)
-    if (next.kind === 'step') void sendTrialStep(run.agentId, next.stepIndex)
-    else if (next.kind === 'failed') settleTrialRun(run.agentId, 'failed', next.message)
-    else settleTrialRun(run.agentId, next.kind)
+    const end = afterRunTurn(outcome)
+    if (end.kind === 'failed') settleTrialRun(run.agentId, 'failed', end.message)
+    else settleTrialRun(run.agentId, end.kind)
   }
 
   /** Main keeps it beside the run's folder, so a reloaded window can pick the run up. */
@@ -181,7 +177,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     }
   }
 
-  /** A run whose turn main or this window still holds goes on; one cut off between Steps failed. */
+  /** A run whose turn main or this window still holds goes on; one whose turn is gone failed. */
   async function restoreTrialRuns(): Promise<void> {
     let records: TrialRunRecord[]
     try {
@@ -196,20 +192,15 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     const live = running.length > 0 ? await liveAgentSessions() : new Set<string>()
     for (const run of records) {
       if (trialRuns.value[run.agentId]) continue
-      const record = agentMode.sessions[run.harnessSessionId]
       trialRuns.value = { ...trialRuns.value, [run.agentId]: run }
       if (run.state !== 'running') continue
-      if (!record?.steps || !record.settings || !turnStillHeard(run.harnessSessionId, live)) {
+      if (!turnStillHeard(run.harnessSessionId, live)) {
         settleTrialRun(
           run.agentId,
           'failed',
           i18n.state.AGENT_TASKS_OUTCOME_APP_CLOSED ?? 'The app closed during the run.',
         )
         continue
-      }
-      trialContexts[run.agentId] = {
-        plan: { steps: record.steps, settingsTemplate: record.settings },
-        abort: new AbortController(),
       }
       agentMode.quietSessionErrors(run.harnessSessionId)
     }
@@ -239,13 +230,11 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
       },
       saved: record?.messages ?? [],
       ...(live ? { live } : {}),
-      ...(run.state === 'running'
-        ? { progress: { step: run.stepIndex, count: run.stepCount } }
-        : {}),
+      ...(run.state === 'running' ? { inFlight: true } : {}),
     }
   }
 
-  /** Run the Agent's Draft (or saved Agent), `input` leading Step 1. */
+  /** Run the Agent's Draft (or saved Agent), all its Steps in one turn, `input` adjusting them. */
   async function startTrialRun(
     agentId: string,
     options: { input?: string } = {},
@@ -304,49 +293,43 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     const leading = input?.trim()
     agentMode.createSession({
       id: harness.harnessSessionId,
-      workspaceDir: harness.workspaceDir,
+      // The scratch folder is still made: main keeps the run's record and media copies there.
+      workspaceDir:
+        plan.settingsTemplate.folderOverrides?.workspace?.hostPath ?? harness.workspaceDir,
       settings: cloneForIpc(plan.settingsTemplate),
       presetName: HARNESS_CHAT_PRESET,
       title: name,
-      taskRun: { taskName: name, startedAt, trigger: 'manual' },
+      taskRun: {
+        taskName: name,
+        startedAt,
+        trigger: 'manual',
+        ...(leading ? { input: leading } : {}),
+      },
       steps: plan.steps,
     })
-    trialContexts[agentId] = {
-      plan,
-      abort: new AbortController(),
-    }
+    const abort = new AbortController()
+    trialAborts[agentId] = abort
     putTrialRun({
       agentId,
       harnessSessionId: harness.harnessSessionId,
       name,
-      stepIndex: 1,
-      stepCount: plan.steps.length,
       startedAt,
       state: 'running',
       ...(leading ? { input: leading } : {}),
     })
-    void sendTrialStep(agentId, 1)
-    return { ok: true }
-  }
-
-  async function sendTrialStep(agentId: string, stepIndex: number): Promise<void> {
-    const run = trialRuns.value[agentId]
-    const context = trialContexts[agentId]
-    if (run?.state !== 'running' || !context) return
-    putTrialRun({ ...run, stepIndex })
-    await sendRunStep(
+    void sendRunTurn(
       agentMode,
       {
-        sessionId: run.harnessSessionId,
-        stepIndex,
-        taskName: run.name,
-        steps: context.plan.steps,
-        settingsTemplate: context.plan.settingsTemplate,
-        signal: context.abort.signal,
-        ...(run.input ? { prompt: run.input } : {}),
+        sessionId: harness.harnessSessionId,
+        taskName: name,
+        steps: plan.steps,
+        settingsTemplate: plan.settingsTemplate,
+        signal: abort.signal,
+        ...(leading ? { prompt: leading } : {}),
       },
       (message) => settleTrialRun(agentId, 'failed', message),
     )
+    return { ok: true }
   }
 
   function settleTrialRun(
@@ -356,8 +339,8 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   ): void {
     const run = trialRuns.value[agentId]
     if (run?.state !== 'running') return
-    trialContexts[agentId]?.abort.abort()
-    delete trialContexts[agentId]
+    trialAborts[agentId]?.abort()
+    delete trialAborts[agentId]
     putTrialRun({ ...run, state, ...(message !== undefined ? { message } : {}) })
     if (state !== 'completed') {
       agentMode.endAgentRun(run.harnessSessionId, {
@@ -432,7 +415,7 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
   async function stopRunningTrial(agentId: string): Promise<void> {
     const run = trialRuns.value[agentId]
     if (run?.state !== 'running') return
-    // Settled first, so the stopped turn's own settle finds no run and no Step can follow.
+    // Settled first, so the stopped turn's own settle finds no run left to end.
     settleTrialRun(agentId, 'stopped')
     await agentMode.stopSession(run.harnessSessionId)
   }

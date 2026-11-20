@@ -33,6 +33,7 @@ const {
   saveAgentTask,
   setAgentTaskFilesDeps,
   wipeDemoAgentTasks,
+  dropAgentMountedFolders,
 } = await import('../../persist/agentTaskFiles')
 
 function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
@@ -108,7 +109,6 @@ describe('the kernel Tasks file', () => {
       kind: 'completed' as const,
       at: 5,
       sessionId: 'aipg-agent-1',
-      stepCount: 2,
     }
 
     await saveAgentTask(task('a', { name: 'Renamed', lastOutcome: outcome }))
@@ -121,15 +121,13 @@ describe('the kernel Tasks file', () => {
 
   it('round-trips run markers and an app-closed outcome', async () => {
     const activeRuns = [
-      { sessionId: 'aipg-agent-1', sessionRef: 'session-1', stepIndex: 2, stepCount: 3 },
-      { sessionId: 'aipg-agent-2', sessionRef: 'session-2', stepIndex: 1, stepCount: 3 },
+      { sessionId: 'aipg-agent-1', sessionRef: 'session-1' },
+      { sessionId: 'aipg-agent-2', sessionRef: 'session-2' },
     ]
     const outcome = {
       kind: 'failed' as const,
       at: 9,
       sessionId: 'aipg-agent-1',
-      stepIndex: 2,
-      stepCount: 3,
       reason: 'app-closed' as const,
     }
 
@@ -140,11 +138,28 @@ describe('the kernel Tasks file', () => {
     expect(await readAgentTasks()).toEqual([task('a', { lastOutcome: outcome })])
   })
 
+  it('reads run markers and outcomes written when runs counted Steps, without the Steps', async () => {
+    const marker = { sessionId: 'aipg-agent-1', sessionRef: 'session-1' }
+    const outcome = { kind: 'completed' as const, at: 9, sessionId: 'aipg-agent-0' }
+    const old = {
+      ...task('a'),
+      activeRuns: [{ ...marker, stepIndex: 2, stepCount: 3 }],
+      lastOutcome: { ...outcome, stepIndex: 3, stepCount: 3 },
+    }
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion: 3, tasks: [old] }), 'utf8')
+
+    expect(await readAgentTasks()).toEqual([
+      task('a', { activeRuns: [marker], lastOutcome: outcome }),
+    ])
+    await saveAgentTask(task('b'))
+    const raw = (await readRaw(files.real)) as { tasks: Record<string, unknown>[] }
+    expect(JSON.stringify(raw.tasks[0])).not.toMatch(/step(Index|Count)/)
+  })
+
   it('round-trips the outcome of a Scheduled Run that could not start, which has no session', async () => {
     const outcome = {
       kind: 'failed' as const,
       at: 9,
-      stepCount: 3,
       message: 'The workspace folder is missing: /work',
       reason: 'not-started' as const,
     }
@@ -213,7 +228,9 @@ describe('the kernel Tasks file', () => {
 
     const [read] = await readAgentTasks()
 
-    expect(read).toEqual(task('a', { activeRuns: [{ ...activeRun, sessionRef: 'session-1' }] }))
+    expect(read).toEqual(
+      task('a', { activeRuns: [{ sessionId: 'aipg-agent-1', sessionRef: 'session-1' }] }),
+    )
   })
 
   it('writes the migrated shape back on the next upsert', async () => {
@@ -243,7 +260,7 @@ describe('the kernel Tasks file', () => {
     const daily = { every: 1, unit: 'days' as const, startAt: 100, enabled: true, nextRunAt: 200 }
     const here = { sessionRef: 'session-1', ...daily }
     const there = { sessionRef: 'session-2', ...daily }
-    const outcome = { kind: 'completed' as const, at: 5, stepCount: 1 }
+    const outcome = { kind: 'completed' as const, at: 5 }
     await saveAgentTask(task('a', { schedules: [here, there], lastOutcome: outcome }))
     await saveAgentTask(task('b', { sessionRef: 'session-2', schedules: [there] }))
     await saveAgentTask({ ...legacy, schedules: [here] })
@@ -384,6 +401,24 @@ describe('the kernel Drafts file', () => {
     expect(await readRaw(files.drafts)).toBeNull()
   })
 
+  it('keeps no host folder on a demo Agent or Draft', async () => {
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    const settingsTemplate = {
+      backend: 'llamaCPP' as const,
+      folderOverrides: {
+        folders: [
+          { id: 'f1', hostPath: '/Users/host/notes', slug: 'notes', access: 'read-only' as const },
+        ],
+      },
+    }
+
+    await saveAgentTask(task('a', { settingsTemplate }))
+    await saveAgentDraft(draft('a', { settingsTemplate }))
+
+    expect((await readAgentTasks())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readAgentDrafts())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+  })
+
   it('routes Drafts through the demo file and wipes it with the demo Agents', async () => {
     await saveAgentDraft(draft('real'))
     setAgentTaskFilesDeps({ isDemoMode: () => true })
@@ -395,5 +430,68 @@ describe('the kernel Drafts file', () => {
     expect(await readRaw(files.draftsDemo)).toBeNull()
     setAgentTaskFilesDeps({ isDemoMode: () => false })
     expect(await readAgentDrafts()).toEqual([draft('real')])
+  })
+})
+
+describe("the upgrade that drops Agents' additional folders", () => {
+  const withFolders = { backend: 'llamaCPP', mountedFolders: [{ hostPath: '/Users/me/Papers' }] }
+
+  async function writeOldFiles(): Promise<void> {
+    await fs.writeFile(
+      files.real,
+      JSON.stringify({
+        schemaVersion: 3,
+        tasks: [
+          { ...task('a'), settingsTemplate: withFolders },
+          { ...task('b'), settingsTemplate: { backend: 'llamaCPP' } },
+        ],
+      }),
+    )
+    await fs.writeFile(
+      files.drafts,
+      JSON.stringify({
+        schemaVersion: 1,
+        drafts: [{ ...draft('a'), settingsTemplate: withFolders }],
+      }),
+    )
+  }
+
+  it('leaves every Agent and Draft with no additional folders and no overrides', async () => {
+    await writeOldFiles()
+
+    await dropAgentMountedFolders()
+
+    const tasks = (await readRaw(files.real)) as { tasks: { settingsTemplate: object }[] }
+    const drafts = (await readRaw(files.drafts)) as { drafts: { settingsTemplate: object }[] }
+    expect(tasks.tasks.map((entry) => entry.settingsTemplate)).toEqual([
+      { backend: 'llamaCPP' },
+      { backend: 'llamaCPP' },
+    ])
+    expect(drafts.drafts[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readRaw(files.real))?.schemaVersion).toBe(3)
+  })
+
+  it('changes nothing when run a second time', async () => {
+    await writeOldFiles()
+    await dropAgentMountedFolders()
+    const once = [await fs.readFile(files.real, 'utf8'), await fs.readFile(files.drafts, 'utf8')]
+    const stamps = [(await fs.stat(files.real)).mtimeMs, (await fs.stat(files.drafts)).mtimeMs]
+
+    await dropAgentMountedFolders()
+
+    expect([
+      await fs.readFile(files.real, 'utf8'),
+      await fs.readFile(files.drafts, 'utf8'),
+    ]).toEqual(once)
+    expect([(await fs.stat(files.real)).mtimeMs, (await fs.stat(files.drafts)).mtimeMs]).toEqual(
+      stamps,
+    )
+  })
+
+  it('writes nothing when there are no Agents', async () => {
+    await dropAgentMountedFolders()
+
+    expect(await readRaw(files.real)).toBeNull()
+    expect(await readRaw(files.drafts)).toBeNull()
   })
 })

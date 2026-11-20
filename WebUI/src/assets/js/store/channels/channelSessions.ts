@@ -2,7 +2,12 @@ import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelAdapter, RawPart } from './adapter'
-import type { ChannelSessionPointers, InboundChannelMessage, SessionPort } from './answerRouter'
+import type {
+  ChannelSessionPointers,
+  DesktopView,
+  InboundChannelMessage,
+  SessionPort,
+} from './answerRouter'
 import type { ChannelCallback, ChannelCommand } from './channelCommands'
 import type { ChannelTurnMessage } from './channelQueue'
 import { inboundOrigin } from './channelInbound'
@@ -33,6 +38,7 @@ export type ChannelSessionDeps = {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ) => Promise<string | null>
+  bringIntoView: (sessionRef: string, view: DesktopView) => void
   log: (message: string, error: unknown) => void
 }
 
@@ -100,39 +106,68 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     }
   }
 
-  async function listSessions(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+  /** The Reachable Sessions as `/sessions` lists them, the Channel Session marked; a tap sends `prefix`. */
+  async function sessionButtons(
+    adapter: ChannelAdapter,
+    prefix: string,
+  ): Promise<KeyboardButton[][]> {
     const listed = (await port.listReachable()).slice(0, LISTED_SESSIONS)
-    const wording = copy()
-    if (listed.length === 0) return tell(adapter, wording.sessionsNone, meta)
     const pointed = pointers.get(adapter.kind)
-    const buttons: KeyboardButton[][] = listed.map(({ sessionRef, title }, index) => [
+    const untitled = copy().untitled
+    return listed.map(({ sessionRef, title }, index) => [
       {
-        text: `${sessionRef === pointed ? '✅ ' : ''}${index + 1}. ${title || wording.untitled}`,
-        callbackData: `${LOAD_SESSION_CALLBACK}${sessionRef}`,
+        text: `${sessionRef === pointed ? '✅ ' : ''}${index + 1}. ${title || untitled}`,
+        callbackData: `${prefix}${sessionRef}`,
       },
     ])
+  }
+
+  async function listSessions(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+    const buttons = await sessionButtons(adapter, LOAD_SESSION_CALLBACK)
+    const wording = copy()
+    if (buttons.length === 0) return tell(adapter, wording.sessionsNone, meta)
     await adapter
       .keyboard(adapter.formatMarkdown(wording.sessionsPick), buttons, meta)
       .catch((e: unknown) => deps.log('channelSessions: listing Sessions failed:', e))
   }
 
-  async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
+  /** Points the Channel at a listed Session, as `/load` does; null when the Channel was told why not. */
+  async function moveTo(
+    adapter: ChannelAdapter,
+    choice: string,
+    meta?: InboundMeta,
+  ): Promise<string | null> {
     const reachable = await port.listReachable()
     const index = /^\d+$/.test(choice) ? Number(choice) - 1 : -1
     const picked = reachable[index] ?? reachable.find((entry) => entry.sessionRef === choice)
     if (!picked) {
-      return tell(adapter, fillTemplate(copy().sessionNotFound, { n: choice }), meta)
+      await tell(adapter, fillTemplate(copy().sessionNotFound, { n: choice }), meta)
+      return null
     }
     pointers.set(adapter.kind, picked.sessionRef)
     await repaint(adapter, picked.sessionRef)
-    const title = port.label({ sessionRef: picked.sessionRef })
+    deps.bringIntoView(picked.sessionRef, 'as-is')
+    return picked.sessionRef
+  }
+
+  async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
+    const sessionRef = await moveTo(adapter, choice, meta)
+    if (!sessionRef) return
+    const title = port.label({ sessionRef })
     await tell(adapter, fillTemplate(copy().sessionLoaded, { title }), meta)
   }
 
-  async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+  /** Moves the Channel to a new Session, as `/new` does; null when the Channel was told why not. */
+  async function moveToNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<string | null> {
     const sessionRef = await startSession(adapter, meta)
+    if (sessionRef) await repaint(adapter, sessionRef)
+    return sessionRef
+  }
+
+  async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
+    const sessionRef = await moveToNew(adapter, meta)
     if (!sessionRef) return
-    await repaint(adapter, sessionRef)
+    deps.bringIntoView(sessionRef, 'assistant')
     await tell(adapter, copy().sessionStarted, meta)
   }
 
@@ -170,7 +205,7 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     return (await current(adapter, meta)) ?? (await startSession(adapter, meta))
   }
 
-  return { plainMessage, current, currentOrNew, commands, callbacks }
+  return { plainMessage, current, moveToNew, moveTo, sessionButtons, commands, callbacks }
 }
 
 function plainText(parts: RawPart[]): string {

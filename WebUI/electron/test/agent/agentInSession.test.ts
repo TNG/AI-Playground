@@ -12,6 +12,11 @@ import { importAttachment } from '../../agent/workspaceAttachments.ts'
 
 const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-agent-session-')))
 
+vi.mock('../../adapters/trash', async () => {
+  const fs = await import('node:fs/promises')
+  return { moveToTrash: (target: string) => fs.rm(target, { recursive: true, force: true }) }
+})
+
 vi.mock('electron', () => ({
   app: { getPath: () => tempRoot, isPackaged: false, getAppPath: () => tempRoot },
   BrowserWindow: { getAllWindows: () => [] },
@@ -22,11 +27,16 @@ vi.mock('electron', () => ({
 vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(tempRoot, 'sessions-demo')}-workspaces`,
   getRagDocumentsFile: () => path.join(tempRoot, 'rag', 'documents.json'),
   getAgentSessionsDir: () => path.join(tempRoot, 'agent-sessions'),
   getAgentTasksFile: () => path.join(tempRoot, 'agent-tasks.json'),
   getAgentDraftsFile: () => path.join(tempRoot, 'agent-drafts.json'),
+  getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
 }))
 
 vi.mock('../../adapters/mcp/mcpManager.ts', () => ({
@@ -137,6 +147,15 @@ afterAll(() => {
 
 let manager: typeof import('../../agent/piAgentManager')
 let sessions: typeof import('../../session/sessions')
+let workspaces: typeof import('../../session/sessionWorkspace')
+
+/** The Session's internal attachments folder, outside its Workspace. */
+function attachmentsOf(config: AgentModeTurnConfig): { dir: string; reference: string } {
+  return {
+    dir: sessions.sessionPaths(config.sessionRef!).attachmentsDir,
+    reference: '/attachments',
+  }
+}
 let harness: typeof import('../../session/sessionHarness')
 let history: typeof import('../../session/sessionHistory')
 let store: typeof import('../../agent/piSessionStore')
@@ -145,6 +164,7 @@ let timeline: typeof import('../../session/sessionTimeline')
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
   sessions = await import('../../session/sessions')
+  workspaces = await import('../../session/sessionWorkspace')
   harness = await import('../../session/sessionHarness')
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
@@ -189,8 +209,14 @@ async function agentConfig(sessionId: string): Promise<AgentModeTurnConfig> {
   }
 }
 
+async function workspaceFolderId(sessionId: string): Promise<string> {
+  const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
+  return (await sessionWorkspaceEntry(sessionId)).id
+}
+
+// The conversation, without the system prompt, which names the Workspace after the Session title.
 function transcriptText(body: Body | undefined): string {
-  return JSON.stringify(body?.messages ?? [])
+  return JSON.stringify((body?.messages ?? []).filter((message) => message.role !== 'system'))
 }
 
 describe('the Agent preset in a Session', () => {
@@ -206,7 +232,9 @@ describe('the Agent preset in a Session', () => {
       kind: 'image',
       prompt: 'a castle',
       status: 'completed',
-      artifacts: [{ path: 'files/castle.png', mediaType: 'image' }],
+      artifacts: [
+        { folderId: await workspaceFolderId(session.id), path: 'castle.png', mediaType: 'image' },
+      ],
     })
     const second = await agentConfig(session.id)
     expect(second.sessionId).toBe(first.sessionId)
@@ -256,7 +284,7 @@ describe('the Agent preset in a Session', () => {
       artifacts: [],
     })
     const config = await agentConfig(session.id)
-    expect(config.workspaceDir).toBe(sessions.sessionPaths(session.id).filesDir)
+    expect(config.workspaceDir).toBe(workspaces.sessionWorkspaceDir(session.id))
     toolCall = { name: 'read', args: { path: '../session-history.jsonl' } }
 
     await manager.startAgentTurn('t1', 'read the history file', config)
@@ -290,6 +318,282 @@ function userTexts(body: Body | undefined): string[] {
     )
 }
 
+describe("the sandbox of a turn in a Session's folders", () => {
+  const MODEL = { source: 'local', model: 'test-model', baseUrl: BACKEND, contextWindow: 8192 }
+  let folders: typeof import('../../session/sessionFolders')
+
+  beforeAll(async () => {
+    folders = await import('../../session/sessionFolders')
+  })
+
+  function hostFolder(name: string, files: Record<string, string> = {}): string {
+    const dir = fs.mkdtempSync(path.join(tempRoot, `${name}-`))
+    for (const [file, content] of Object.entries(files)) {
+      fs.writeFileSync(path.join(dir, file), content)
+    }
+    return dir
+  }
+
+  async function addFolder(sessionId: string, hostPath: string, access?: 'read-write') {
+    const { list } = await folders.addSessionFolder(sessionId, hostPath)
+    const entry = list.folders.find((folder) => folder.hostPath === hostPath)!
+    if (access) await folders.setSessionFolderAccess(sessionId, entry.id, access)
+    return entry.slug
+  }
+
+  async function workspaceSlug(sessionId: string): Promise<string> {
+    return (await folders.sessionWorkspaceEntry(sessionId)).slug
+  }
+
+  /** Runs one `bash` call in the turn and returns what the tool answered. */
+  async function shell(config: AgentModeTurnConfig, command: string): Promise<string> {
+    toolCall = { name: 'bash', args: { command } }
+    await manager.startAgentTurn(`t-${Date.now()}`, 'look around', config)
+    const toolMessages = (bodies.at(-1)?.messages ?? []).filter((m) => m.role === 'tool')
+    return JSON.stringify(toolMessages)
+  }
+
+  it("mounts every listed folder at /mnt/<slug>, works in the Workspace's, writes only where allowed", async () => {
+    const session = await sessions.createSession()
+    const notes = hostFolder('notes', { 'todo.md': 'MILK' })
+    const project = hostFolder('project')
+    const notesSlug = await addFolder(session.id, notes)
+    const projectSlug = await addFolder(session.id, project, 'read-write')
+    const workspace = await workspaceSlug(session.id)
+    const config = await agentConfig(session.id)
+
+    const seen = await shell(
+      config,
+      `pwd; ls /mnt; cat /mnt/${notesSlug}/todo.md; echo made > made.md; ` +
+        `echo p > /mnt/${projectSlug}/p.md; ls /workspace`,
+    )
+
+    expect(seen).toContain(`/mnt/${workspace}`)
+    expect(seen).toContain(notesSlug)
+    expect(seen).toContain(projectSlug)
+    expect(seen).toContain('MILK')
+    expect(seen).toContain('/workspace: No such file or directory')
+    expect(fs.readFileSync(path.join(config.workspaceDir, 'made.md'), 'utf8')).toBe('made\n')
+    expect(fs.readFileSync(path.join(project, 'p.md'), 'utf8')).toBe('p\n')
+    const prompt = systemPrompt(bodies[0])
+    expect(prompt).toContain(`/mnt/${workspace} — the Workspace: your working`)
+    expect(prompt).toContain(`/mnt/${notesSlug} (read-only)`)
+    expect(prompt).not.toContain('/workspace')
+  }, 30000)
+
+  it("lets the agent read the Session's attachments at /attachments, and not change them", async () => {
+    const session = await sessions.createSession()
+    const config = await agentConfig(session.id)
+    const saved = importAttachment(attachmentsOf(config), 'notes.md', Buffer.from('OATS'))
+    expect(saved.path).toBe('/attachments/notes.md')
+
+    toolCall = { name: 'read', args: { path: saved.path } }
+    await manager.startAgentTurn('t-read', `summarize @${saved.path}`, config)
+    const read = JSON.stringify((bodies.at(-1)?.messages ?? []).filter((m) => m.role === 'tool'))
+    const other = await agentConfig((await sessions.createSession()).id)
+    importAttachment(attachmentsOf(other), 'notes.md', Buffer.from('OATS'))
+    const seen = await shell(other, 'ls /attachments; echo x > /attachments/notes.md; ls')
+
+    expect(read).toContain('OATS')
+    expect(seen).toContain('notes.md')
+    expect(seen).toMatch(/read-only/i)
+    expect(fs.readFileSync(path.join(attachmentsOf(other).dir, 'notes.md'), 'utf8')).toBe('OATS')
+    expect(fs.existsSync(path.join(config.workspaceDir, 'attachments'))).toBe(false)
+  }, 30000)
+
+  it('gives a real-shell turn the real path of its attachments', async () => {
+    const session = await sessions.createSession()
+    const config = { ...(await agentConfig(session.id)), unsandboxed: true }
+    const saved = importAttachment(attachmentsOf(config), 'notes.md', Buffer.from('OATS'))
+    const real = path.join(attachmentsOf(config).dir, 'notes.md')
+
+    toolCall = { name: 'read', args: { path: real } }
+    await manager.startAgentTurn('t-real', `summarize @${saved.path}`, config)
+
+    const sent = transcriptText(bodies.at(-1))
+    expect(sent).toContain(`@${path.resolve(real).split(path.sep).join('/')}`)
+    expect(sent).not.toContain('@/attachments/')
+    expect(sent).toContain('OATS')
+  }, 30000)
+
+  it('tells a conversation that worked at /workspace where its Workspace is now', async () => {
+    const session = await sessions.createSession()
+    const config = await agentConfig(session.id)
+    await manager.startAgentTurn('t1', 'first', config)
+    const pointers = store.readSessionStore()
+    const { workdir: _before, ...legacy } = pointers[config.sessionId]
+    fs.writeFileSync(
+      path.join(tempRoot, 'agent-sessions.json'),
+      JSON.stringify({ ...pointers, [config.sessionId]: { ...legacy, mountedFolders: [] } }),
+    )
+    const notesSlug = await addFolder(session.id, hostFolder('notes'))
+
+    await manager.startAgentTurn('t2', 'second', await agentConfig(session.id))
+
+    const note = userTexts(bodies.at(-1)).at(-1) ?? ''
+    const workspace = await workspaceSlug(session.id)
+    expect(note).toContain(`working directory, the Workspace, is now /mnt/${workspace}`)
+    expect(note).toContain('/workspace is no longer your working directory')
+    expect(note).toMatch(new RegExp(`Added: .*/mnt/${notesSlug} \\(read-only\\)`))
+    expect(note).toContain('second')
+  }, 30000)
+
+  it('continues the same conversation in a newly starred Workspace, with a note saying so', async () => {
+    const session = await sessions.createSession()
+    const before = await workspaceSlug(session.id)
+    const first = await agentConfig(session.id)
+    await shell(first, 'echo old > old.md')
+    const project = hostFolder('project')
+    const { list } = await folders.addSessionFolder(session.id, project)
+    const projectEntry = list.folders.find((folder) => folder.hostPath === project)!
+    await folders.starSessionFolder(session.id, projectEntry.id)
+
+    const second = await agentConfig(session.id)
+    await manager.startAgentTurn('t-star', 'carry on', second)
+
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(second.workspaceDir).toBe(project)
+    const sent = bodies.at(-1)
+    expect(transcriptText(sent)).toContain('echo old > old.md')
+    const note = userTexts(sent).at(-1) ?? ''
+    expect(note).toContain(`working directory, the Workspace, is now /mnt/${projectEntry.slug}`)
+    expect(note).toContain(`/mnt/${before} is no longer your working directory`)
+    expect(note).toContain('carry on')
+    expect(systemPrompt(sent)).toContain(`/mnt/${projectEntry.slug} — the Workspace: your working`)
+    expect(systemPrompt(sent)).toContain(`/mnt/${before} (read-write)`)
+  }, 30000)
+
+  it('keeps its conversation and its sandbox paths when the Session renames its Workspace', async () => {
+    const session = await sessions.createSession()
+    const slug = await workspaceSlug(session.id)
+    const config = await agentConfig(session.id)
+    await shell(config, 'echo old > old.md')
+    const promptBefore = systemPrompt(bodies.at(-1))
+
+    await sessions.renameSession(session.id, 'Cat poster')
+    const renamed = (await folders.sessionWorkspaceEntry(session.id)).hostPath
+    toolCall = null
+    await manager.startAgentTurn('t-renamed', 'carry on', config)
+
+    expect(path.basename(renamed)).toMatch(/ Cat poster$/)
+    expect(fs.existsSync(config.workspaceDir)).toBe(false)
+    const sent = bodies.at(-1)
+    expect(transcriptText(sent)).toContain('echo old > old.md')
+    expect(userTexts(sent).at(-1)).not.toContain('no longer your working directory')
+    expect(systemPrompt(sent)).toContain(`/mnt/${slug} — the Workspace: your working`)
+    expect(systemPrompt(sent)).toBe(promptBefore)
+    expect(systemPrompt(sent)).not.toContain('Cat poster')
+    expect(fs.readFileSync(path.join(renamed, 'old.md'), 'utf8')).toBe('old\n')
+  }, 30000)
+
+  it('refuses a write in a read-only folder of the list', async () => {
+    const session = await sessions.createSession()
+    const notes = hostFolder('notes')
+    const notesSlug = await addFolder(session.id, notes)
+
+    const refused = await shell(await agentConfig(session.id), `echo n > /mnt/${notesSlug}/n.md`)
+
+    expect(refused).toContain(`/mnt/${notesSlug} is a read-only Mounted Folder`)
+    expect(fs.existsSync(path.join(notes, 'n.md'))).toBe(false)
+  }, 30000)
+
+  it('gives an inheriting Agent Run the Workspace and every other folder', async () => {
+    const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
+    const session = await sessions.createSession()
+    const notesSlug = await addFolder(session.id, hostFolder('notes', { 'n.md': 'NOTES' }))
+    const { harnessSessionId, workspaceDir } = await taskRunHarnessFor(session.id)
+    const config: AgentModeTurnConfig = {
+      sessionId: harnessSessionId,
+      sessionRef: session.id,
+      workspaceDir,
+      modelConfig: MODEL as AgentModeTurnConfig['modelConfig'],
+      toolSpecs: [],
+      capabilities: [],
+      taskRun: { taskName: 'Poster' },
+    }
+
+    const seen = await shell(config, `pwd; cat /mnt/${notesSlug}/n.md`)
+
+    expect(seen).toContain(`/mnt/${await workspaceSlug(session.id)}`)
+    expect(seen).toContain('NOTES')
+  }, 30000)
+
+  it("gives a “Use only these” Agent Run the Workspace and its Agent's folders", async () => {
+    const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
+    const session = await sessions.createSession()
+    const sessionOnly = await addFolder(session.id, hostFolder('session-only'))
+    const reference = hostFolder('reference', { 'brief.md': 'BRIEF' })
+    const { harnessSessionId, workspaceDir } = await taskRunHarnessFor(session.id)
+    const config: AgentModeTurnConfig = {
+      sessionId: harnessSessionId,
+      sessionRef: session.id,
+      workspaceDir,
+      modelConfig: MODEL as AgentModeTurnConfig['modelConfig'],
+      toolSpecs: [],
+      capabilities: [],
+      taskRun: { taskName: 'Poster' },
+      folderOverrides: {
+        folders: [{ id: 'r', hostPath: reference, slug: 'reference', access: 'read-only' }],
+      },
+    }
+
+    const seen = await shell(config, 'pwd; ls /mnt; cat /mnt/reference/brief.md')
+
+    expect(seen).toContain(`/mnt/${await workspaceSlug(session.id)}`)
+    expect(seen).toContain('BRIEF')
+    expect(seen).not.toContain(sessionOnly)
+  }, 30000)
+
+  it('mounts a folder that is both the Workspace and an Agent folder once, read-write, at the Workspace slug', async () => {
+    const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
+    const session = await sessions.createSession()
+    const workspace = await workspaceSlug(session.id)
+    const { harnessSessionId, workspaceDir } = await taskRunHarnessFor(session.id)
+    const config: AgentModeTurnConfig = {
+      sessionId: harnessSessionId,
+      sessionRef: session.id,
+      workspaceDir,
+      modelConfig: MODEL as AgentModeTurnConfig['modelConfig'],
+      toolSpecs: [],
+      capabilities: [],
+      taskRun: { taskName: 'Poster' },
+      folderOverrides: {
+        folders: [{ id: 's', hostPath: workspaceDir, slug: 'shared', access: 'read-only' }],
+      },
+    }
+
+    const seen = await shell(config, `ls /mnt; echo x > /mnt/${workspace}/x.md`)
+
+    expect(seen).not.toContain('shared')
+    expect(seen).not.toContain('read-only')
+    expect(fs.readFileSync(path.join(workspaceDir, 'x.md'), 'utf8')).toBe('x\n')
+  }, 30000)
+
+  it("runs a Trial Run in its scratch folder plus the Agent's folders", async () => {
+    const { trialRunHarnessFor } = await import('../../agent/trialRuns')
+    const reference = hostFolder('reference')
+    const { harnessSessionId, workspaceDir } = await trialRunHarnessFor('agent-trial-1')
+    const config: AgentModeTurnConfig = {
+      sessionId: harnessSessionId,
+      workspaceDir,
+      modelConfig: MODEL as AgentModeTurnConfig['modelConfig'],
+      toolSpecs: [],
+      capabilities: [],
+      taskRun: { taskName: 'Poster' },
+      folderOverrides: {
+        folders: [{ id: 'r', hostPath: reference, slug: 'reference', access: 'read-write' }],
+      },
+    }
+
+    const seen = await shell(config, 'pwd; ls /mnt; echo t > t.md; echo r > /mnt/reference/r.md')
+
+    expect(seen).toContain('/mnt/files')
+    expect(seen).toContain('reference')
+    expect(fs.readFileSync(path.join(workspaceDir, 't.md'), 'utf8')).toBe('t\n')
+    expect(fs.readFileSync(path.join(reference, 'r.md'), 'utf8')).toBe('r\n')
+  }, 30000)
+})
+
 describe('the Session Update and session_history for an agent preset', () => {
   async function sessionWithCastle() {
     const session = await sessions.createSession()
@@ -298,7 +602,9 @@ describe('the Session Update and session_history for an agent preset', () => {
       kind: 'image',
       prompt: 'a castle',
       status: 'completed',
-      artifacts: [{ path: 'files/castle.png', mediaType: 'image' }],
+      artifacts: [
+        { folderId: await workspaceFolderId(session.id), path: 'castle.png', mediaType: 'image' },
+      ],
     })
     return session
   }
@@ -330,7 +636,6 @@ describe('the Session Update and session_history for an agent preset', () => {
       artifacts: [],
       response: 'Three new mails.',
       taskName: 'Morning digest',
-      stepIndex: 1,
     })
     bodies = []
 
@@ -414,7 +719,7 @@ describe('the Assistant preset in a Session', () => {
   it('sends its own prompt instead of the coding agent, from the Session Folder', async () => {
     const session = await sessions.createSession()
     const config = await assistantConfig(session.id, ['web'])
-    expect(config.workspaceDir).toBe(sessions.sessionPaths(session.id).filesDir)
+    expect(config.workspaceDir).toBe(workspaces.sessionWorkspaceDir(session.id))
 
     await manager.startAgentTurn('t1', 'why is the sky blue?', config)
 
@@ -455,12 +760,15 @@ describe('the Assistant preset in a Session', () => {
         },
       ],
     }
-    const clip = importAttachment(config.workspaceDir, 'note.wav', new Uint8Array([82, 73, 70, 70]))
-    expect(clip.path).toBe('attachments/note.wav')
-    const filesDir = sessions.sessionPaths(session.id).filesDir
-    expect(fs.readFileSync(path.join(filesDir, 'attachments', 'note.wav'))).toEqual(
-      Buffer.from('RIFF'),
+    const clip = importAttachment(
+      attachmentsOf(config),
+      'note.wav',
+      new Uint8Array([82, 73, 70, 70]),
     )
+    expect(clip.path).toBe('/attachments/note.wav')
+    const { attachmentsDir, filesDir } = sessions.sessionPaths(session.id)
+    expect(fs.readFileSync(path.join(attachmentsDir, 'note.wav'))).toEqual(Buffer.from('RIFF'))
+    expect(fs.existsSync(path.join(filesDir, 'attachments'))).toBe(false)
     toolCall = { name: 'transcribeAudio', args: { sourceAudioPath: '@attachments/note.wav' } }
     askedRenderer.length = 0
 
@@ -546,8 +854,8 @@ describe('the Assistant preset in a Session', () => {
     }
 
     async function attachPixel(config: AgentModeTurnConfig): Promise<string> {
-      const saved = importAttachment(config.workspaceDir, 'cat.png', new Uint8Array(PIXEL))
-      return `what is this?\n\nAttached files, saved in the workspace: @${saved.path}`
+      const saved = importAttachment(attachmentsOf(config), 'cat.png', new Uint8Array(PIXEL))
+      return `what is this?\n\nAttached files: @${saved.path}`
     }
 
     async function visionConfig(sessionId: string): Promise<AgentModeTurnConfig> {
@@ -566,15 +874,16 @@ describe('the Assistant preset in a Session', () => {
           image_url: expect.objectContaining({ url: expect.stringMatching(/^data:image\//) }),
         }),
       ])
-      expect(transcriptText(bodies[0])).toContain('@attachments/cat.png')
-      const copy = path.join(sessions.sessionPaths(session.id).filesDir, 'attachments', 'cat.png')
-      expect(fs.readFileSync(copy)).toEqual(PIXEL)
+      expect(transcriptText(bodies[0])).toContain('@/attachments/cat.png')
+      const { attachmentsDir, filesDir } = sessions.sessionPaths(session.id)
+      expect(fs.readFileSync(path.join(attachmentsDir, 'cat.png'))).toEqual(PIXEL)
+      expect(fs.existsSync(path.join(filesDir, 'attachments'))).toBe(false)
     }, 30000)
 
     it('shows an image whose name has a space in it', async () => {
       const session = await sessions.createSession()
       const config = await visionConfig(session.id)
-      importAttachment(config.workspaceDir, 'my cat.png', new Uint8Array(PIXEL))
+      importAttachment(attachmentsOf(config), 'my cat.png', new Uint8Array(PIXEL))
 
       await manager.startAgentTurn('t1', 'what is this? @"attachments/my cat.png"', config)
 
@@ -588,7 +897,7 @@ describe('the Assistant preset in a Session', () => {
       await manager.startAgentTurn('t1', await attachPixel(config), config)
 
       expect(imageParts(bodies[0])).toEqual([])
-      expect(transcriptText(bodies[0])).toContain('@attachments/cat.png')
+      expect(transcriptText(bodies[0])).toContain('@/attachments/cat.png')
     }, 30000)
 
     it('does not attach a file from outside the Session Folder', async () => {
@@ -596,12 +905,12 @@ describe('the Assistant preset in a Session', () => {
       const config = await visionConfig(session.id)
       const outside = path.join(tempRoot, 'outside.png')
       fs.writeFileSync(outside, PIXEL)
-      fs.mkdirSync(path.join(config.workspaceDir, 'attachments'), { recursive: true })
-      fs.symlinkSync(outside, path.join(config.workspaceDir, 'attachments', 'link.png'))
+      fs.mkdirSync(attachmentsOf(config).dir, { recursive: true })
+      fs.symlinkSync(outside, path.join(attachmentsOf(config).dir, 'link.png'))
 
       await manager.startAgentTurn(
         't1',
-        'look @attachments/../../../outside.png @attachments/link.png',
+        'look @/attachments/../../outside.png @/attachments/link.png',
         config,
       )
 
@@ -710,8 +1019,8 @@ describe('the Assistant preset in a Session', () => {
       const session = await sessions.createSession()
       const base = await assistantConfig(session.id)
       const config = { ...base, modelConfig: { ...base.modelConfig, supportsVision: true } }
-      importAttachment(config.workspaceDir, 'cat.png', new Uint8Array(PIXEL))
-      const prompt = 'what is this? @attachments/cat.png'
+      importAttachment(attachmentsOf(config), 'cat.png', new Uint8Array(PIXEL))
+      const prompt = 'what is this? @/attachments/cat.png'
       await manager.startAgentTurn('t1', prompt, config)
 
       await manager.startAgentTurn('t2', prompt, { ...config, rewindTurnId: 't1' })
@@ -762,7 +1071,7 @@ describe('the Assistant preset in a Session', () => {
 
     function attachReport(config: AgentModeTurnConfig): void {
       importAttachment(
-        config.workspaceDir,
+        attachmentsOf(config),
         'report.md',
         new TextEncoder().encode('# Report\n\nThe budget is $42.'),
       )
@@ -861,12 +1170,12 @@ describe('the Assistant preset in a Session', () => {
       const session = await sessions.createSession()
       const config = await documentConfig(session.id)
       const saved = importAttachment(
-        config.workspaceDir,
+        attachmentsOf(config),
         'notes.md',
         new TextEncoder().encode('the budget'),
       )
 
-      await indexSessionDocument(config.workspaceDir, saved.path, {
+      await indexSessionDocument(attachmentsOf(config), saved.path, {
         model: 'test-embedding',
         backend: 'llamaCPP',
       })
@@ -1087,7 +1396,6 @@ describe('an Agent Maker Session migrated to Assistant', () => {
       modelConfig: { source: 'local', model: 'test-model', baseUrl: BACKEND, contextWindow: 32768 },
       toolSpecs: [],
       capabilities: settings.capabilities as string[],
-      mountedFolders: [mount],
     }
     return { config, mountPath: `/mnt/${mount.name}` }
   }
@@ -1163,12 +1471,16 @@ describe('earlier chat-engine Assistant turns on the first Pi turn', () => {
       kind: 'image',
       prompt: 'a castle',
       status: 'completed',
-      artifacts: [{ path: 'files/castle.png', mediaType: 'image' }],
+      artifacts: [
+        { folderId: await workspaceFolderId(session.id), path: 'castle.png', mediaType: 'image' },
+      ],
     })
     await history.appendHistoryEntry(session.id, {
       ...chatTurn('draw her', ''),
       response: undefined,
-      artifacts: [{ path: 'files/miso.png', mediaType: 'image' }],
+      artifacts: [
+        { folderId: await workspaceFolderId(session.id), path: 'miso.png', mediaType: 'image' },
+      ],
     })
     return session
   }

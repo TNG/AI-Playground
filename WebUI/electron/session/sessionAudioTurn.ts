@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { writeNewSessionFile } from '../persist/sessionMediaFiles'
+import { writeIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
 import { appendHistoryEntry } from './sessionHistory'
 import { appendTurnToTimeline } from './sessionMediaTurn'
-import { sessionMediaUrl } from '@/lib/comfyWorkflow'
 import type { AudioTurnRequest, SessionDocument } from '@/types/sessionIpc'
 import type { TimelineMessage } from '@/types/sessionTimeline'
 
@@ -17,8 +16,8 @@ function safeAudioName(fileName: string): string {
 function saveIntoFiles(
   sessionId: string,
   audio: NonNullable<AudioTurnRequest['audio']>,
-): Promise<string> {
-  return writeNewSessionFile(
+): Promise<WorkspaceFile> {
+  return writeIntoWorkspace(
     sessionId,
     safeAudioName(audio.fileName),
     Buffer.from(audio.base64, 'base64'),
@@ -27,11 +26,11 @@ function saveIntoFiles(
 
 /**
  * Settles one Text-to-Speech or Speech-to-Text turn into its Session: the audio
- * (TTS output, STT source) is written into `files/`, one History Entry is
+ * (TTS output, STT source) is written into its Workspace, one History Entry is
  * appended, and the prompt plus an audio result join the display timeline.
  */
 export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDocument> {
-  const relativePath = turn.audio ? await saveIntoFiles(turn.sessionId, turn.audio) : undefined
+  const saved = turn.audio ? await saveIntoFiles(turn.sessionId, turn.audio) : undefined
 
   await appendHistoryEntry(turn.sessionId, {
     preset: turn.preset,
@@ -39,7 +38,7 @@ export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDo
     prompt: turn.prompt,
     status: turn.status,
     response: turn.transcript,
-    artifacts: relativePath ? [{ path: relativePath, mediaType: 'audio' }] : [],
+    artifacts: saved ? [{ ...saved.artifact, mediaType: 'audio' }] : [],
   })
 
   const now = Date.now()
@@ -62,7 +61,7 @@ export async function recordAudioTurn(turn: AudioTurnRequest): Promise<SessionDo
             preset: turn.preset,
             status: turn.status,
             error: turn.error,
-            audioUrl: relativePath ? sessionMediaUrl(turn.sessionId, relativePath) : undefined,
+            audioUrl: saved?.url,
             transcript: turn.transcript,
             engine: turn.engine,
           },

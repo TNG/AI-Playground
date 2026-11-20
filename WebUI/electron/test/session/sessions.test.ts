@@ -7,7 +7,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -90,12 +94,11 @@ afterEach(async () => {
 })
 
 describe('Session module', () => {
-  it('lays out a Session Folder on create', async () => {
+  it('lays out its internal storage on create, and no Workspace folder yet', async () => {
     const session = await createSession()
 
     const folder = path.join(dirs.real, session.id)
-    expect(await listDir(folder)).toEqual(['files', 'session-history.jsonl', 'session.json'])
-    expect((await fs.stat(path.join(folder, 'files'))).isDirectory()).toBe(true)
+    expect(await listDir(folder)).toEqual(['session-history.jsonl', 'session.json'])
     expect(await fs.readFile(path.join(folder, 'session-history.jsonl'), 'utf8')).toBe('')
     const file = JSON.parse(await fs.readFile(path.join(folder, 'session.json'), 'utf8'))
     expect(file).toMatchObject({
@@ -275,8 +278,9 @@ describe('Session module', () => {
     expect(await openSession(session.id)).not.toHaveProperty('pickedAgentId')
   })
 
-  it('deletes the whole Session Folder, artifacts included', async () => {
+  it("deletes the whole Session Folder, an older Session's files/ included", async () => {
     const session = await createSession()
+    await fs.mkdir(path.join(dirs.real, session.id, 'files'))
     await fs.writeFile(path.join(dirs.real, session.id, 'files', 'cat.png'), 'png')
 
     await deleteSession(session.id)

@@ -92,6 +92,25 @@ export class MainPage {
     }
   }
 
+  /** Deletes the newest image through its toolbar and the confirm dialog; its card then says so. */
+  async deleteNewestResult(): Promise<void> {
+    const images = this.generatedImages
+    const before = await images.count()
+    const deletedBefore = await this.page
+      .getByRole('status')
+      .filter({ hasText: 'File deleted' })
+      .count()
+    await images.last().hover()
+    await this.resultToolbar.getByRole('button', { name: 'Delete file' }).click()
+    const dialog = this.page.getByRole('alertdialog', { name: 'Delete this file?' })
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(images).toHaveCount(before - 1)
+    await expect(this.page.getByRole('status').filter({ hasText: 'File deleted' })).toHaveCount(
+      deletedBefore + 1,
+    )
+  }
+
   /** Generated video result(s), in either the chat panel or the direct Video panel. */
   get generatedVideos(): Locator {
     return this.page.locator('video')

@@ -2,13 +2,10 @@ import path from 'node:path'
 import { emitSessionChanged } from '../kernel/kernelBus'
 import { forgetSessionMessages } from '../persist/channelMessageMap'
 import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
-import {
-  mutateSession,
-  onSessionDeleted,
-  sessionDocumentOf,
-  sessionPaths,
-  withNotify,
-} from './sessions'
+import { mutateSession, onSessionDeleted, sessionDocumentOf, withNotify } from './sessions'
+import { sessionFolderListOf } from './sessionFolderList'
+import { appCreatedWorkspaceDir } from './sessionWorkspace'
+import { workspaceEntryOf } from '@/lib/mountedFolders'
 import type { AssistantCapabilityDefaults, SessionFile, SessionSummary } from '@/types/sessionIpc'
 
 // What Channels may do with a Session (Reachable Session, docs/adr/0010).
@@ -20,7 +17,10 @@ export const REAL_SHELL_REACHABLE_REFUSAL =
 let realShellFolders = new Set<string>()
 
 function usesRealShell(file: SessionFile): boolean {
-  const folders = [sessionPaths(file.id).filesDir, ...Object.values(file.harnessWorkspaces)]
+  // A planned Workspace may share its path with another Session's until it is created.
+  const workspace = workspaceEntryOf(sessionFolderListOf(file))
+  const own = workspace?.planned ? [] : [workspace?.hostPath ?? appCreatedWorkspaceDir(file.id)]
+  const folders = [...own, ...Object.values(file.harnessWorkspaces)]
   return folders.some((folder) => realShellFolders.has(path.resolve(folder)))
 }
 

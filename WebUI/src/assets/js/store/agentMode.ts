@@ -17,26 +17,32 @@ import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
+import { applyEditedPrompt } from '@/lib/editedPrompt'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { resolveMountedFolders } from '@/lib/mountedFolders'
+import { agentOverridesOf, effectiveFolders } from '@/lib/effectiveFolders'
+import {
+  resolveMountedFolders,
+  workspaceEntryOf,
+  type ResolvedMountedFolder,
+} from '@/lib/mountedFolders'
 import {
   makeFileBackedPreference,
   type FileBackedPreferencesApi,
 } from '@/lib/fileBackedPreferences'
 import {
   LegacyAgentSessionStateSchema,
+  type AgentFolderOverrides,
   type AgentFollowUpTag,
   type AgentSessionBootstrap,
   type AgentSessionSettings,
   type AgentTaskStep,
-  type MountedFolder,
   type LegacyAgentSessionState,
   type AgentRunTag,
 } from '@/types/agentSessionIpc'
 import {
   type BagDerivedSetting,
   DEFAULT_CAPABILITIES_KEY,
-  DEFAULT_MOUNTED_FOLDERS_KEY,
   DEFAULT_PLANNING_THINKING_ONLY_KEY,
   fillMissingSessionSettings,
   keepUneditedSettings,
@@ -190,6 +196,8 @@ export const useAgentMode = defineStore(
     const sessionsStore = useSessions()
     /** The Session each Harness Session of this app run belongs to. */
     const harnessSessionRefs: Record<string, string> = {}
+    /** Harness Sessions main deleted with their Session this app run; nothing saves them again. */
+    const deletedHarnessSessions = new Set<string>()
 
     const workspaceDir = ref<string>('')
 
@@ -402,7 +410,6 @@ export const useAgentMode = defineStore(
     type AgentDefaults = {
       capabilities: string[]
       planningThinkingOnly: boolean
-      mountedFolders?: MountedFolder[]
     }
 
     /**
@@ -413,11 +420,7 @@ export const useAgentMode = defineStore(
       const bag = textInference.settingsPerPreset?.[HARNESS_CHAT_PRESET] ?? {}
       const capabilities = bag[DEFAULT_CAPABILITIES_KEY]
       const planning = bag[DEFAULT_PLANNING_THINKING_ONLY_KEY]
-      const mountedFolders = bag[DEFAULT_MOUNTED_FOLDERS_KEY]
       return {
-        ...(Array.isArray(mountedFolders)
-          ? { mountedFolders: (mountedFolders as MountedFolder[]).map((folder) => ({ ...folder })) }
-          : {}),
         capabilities: Array.isArray(capabilities)
           ? [...(capabilities as string[])]
           : [...defaultCapabilities.value],
@@ -487,7 +490,6 @@ export const useAgentMode = defineStore(
           ...sessionSettingsToBag(settings, base, textInference.embeddingBackend),
           [DEFAULT_CAPABILITIES_KEY]: [...capabilities.value],
           [DEFAULT_PLANNING_THINKING_ONLY_KEY]: effectivePlanningThinkingOnly.value,
-          [DEFAULT_MOUNTED_FOLDERS_KEY]: cloneForIpc(mountedFolders.value),
         },
       }
     }
@@ -592,17 +594,38 @@ export const useAgentMode = defineStore(
       return capabilities.value.includes(id)
     }
 
-    /** Only the folder-picking Agent preset and the Agents saved from it reach folders beyond their own. */
-    const mountedFoldersSupported = computed(() => sessionScoped.value)
+    /** What an Agent Run (or its Follow-up) puts in place of its Session's folders. */
+    function agentRunOverrides(
+      context: Pick<TurnContext, 'settings' | 'taskRun' | 'followUp'>,
+    ): AgentFolderOverrides | undefined {
+      return context.taskRun || context.followUp ? context.settings?.folderOverrides : undefined
+    }
 
-    const mountedFolders = computed<MountedFolder[]>(() =>
-      sessionScoped.value
-        ? (openSettings.value?.mountedFolders ?? readAgentDefaults().mountedFolders ?? [])
-        : [],
-    )
-
-    function setMountedFolders(next: MountedFolder[]): void {
-      if (sessionScoped.value) updateOpenSettings({ mountedFolders: next })
+    /**
+     * The folders a turn mounts beside its Workspace, checked before it is sent: the folders in
+     * effect for its Session and Agent (main mounts the same, resolved from the Session's list).
+     */
+    function turnMountedFolders(
+      sessionId: string,
+      context: Pick<TurnContext, 'presetName' | 'settings' | 'taskRun' | 'followUp'>,
+    ): ResolvedMountedFolder[] {
+      const agentRun = !!context.taskRun || !!context.followUp
+      if (!agentRun && !nameUsesSessionSettings(context.presetName)) return []
+      const agent = agentOverridesOf(agentRunOverrides(context))
+      // A Trial Run has no Session, so it never falls back to the open one.
+      const sessionRef = agentRun
+        ? sessionRefOf(sessionId)
+        : (sessionRefOf(sessionId) ?? sessionsStore.openSessionId)
+      const list = sessionRef ? sessionsStore.sessions[sessionRef]?.folderList : undefined
+      if (!list) return resolveMountedFolders(agent?.folders ?? [])
+      const appCreated = new Set(
+        list.folders.filter((folder) => folder.appCreated).map((folder) => folder.id),
+      )
+      // Main makes a deleted app-created folder again, so only the user's own can be missing.
+      return (effectiveFolders({ session: list, agent })?.others ?? []).filter(
+        (folder) =>
+          !folder.planned && !(folder.source === 'session' && appCreated.has(folder.id ?? '')),
+      )
     }
 
     const planningPhaseSupported = computed(() =>
@@ -652,7 +675,7 @@ export const useAgentMode = defineStore(
       sessionCapabilities.value = null
       defaultCapabilities.value = [...DEFAULT_CAPABILITIES]
       if (sessionScoped.value) {
-        updateOpenSettings({ mountedFolders: [], ...migrateAgentDefaults() })
+        updateOpenSettings(migrateAgentDefaults())
         return
       }
       const session = sessions.value[openSessionId.value]
@@ -871,7 +894,6 @@ export const useAgentMode = defineStore(
       ...openSettings.value,
       capabilities: [...capabilities.value],
       planningThinkingOnly: effectivePlanningThinkingOnly.value,
-      ...(mountedFolders.value.length > 0 ? { mountedFolders: [...mountedFolders.value] } : {}),
     }))
 
     function setPlanningThinkingOnly(value: boolean): void {
@@ -1006,7 +1028,7 @@ export const useAgentMode = defineStore(
         userSampling: hasChatAffordances(activeAgentPreset.value),
         capabilities: [...capabilities.value],
         unsandboxed: unsandboxed.value,
-        mountedFolders: resolveMountedFolders(mountedFolders.value),
+        folderOverrides: agentRunOverrides(liveTurnContext()),
         planningThinkingOnly: effectivePlanningThinkingOnly.value,
         textInference,
         cloudMode,
@@ -1017,6 +1039,14 @@ export const useAgentMode = defineStore(
     function followedRunOf(record: AgentSessionRecord | undefined) {
       const run = record?.taskRun
       return run ? { taskName: run.taskName, startedAt: run.startedAt } : undefined
+    }
+
+    function withTaskId(
+      taskRun: NonNullable<AgentModeTurnConfig['taskRun']>,
+      record: AgentSessionRecord | undefined,
+    ): AgentModeTurnConfig['taskRun'] {
+      const taskId = record?.taskRun?.taskId
+      return taskId ? { ...taskRun, taskId } : taskRun
     }
 
     function storedTurnConfig(sessionId: string, context: TurnContext) {
@@ -1038,14 +1068,14 @@ export const useAgentMode = defineStore(
         userSampling: hasChatAffordances(chatPreset),
         capabilities: [...context.capabilities],
         unsandboxed: isUnsandboxed(context.workspaceDir),
-        mountedFolders: resolveMountedFolders(settings.mountedFolders ?? []),
+        folderOverrides: agentRunOverrides(context),
         planningThinkingOnly:
           settings.planningThinkingOnly ?? readAgentDefaults().planningThinkingOnly,
         textInference: stored.inference,
         cloudMode: stored.cloud,
         tools: stored.tools,
         answer: context.answer,
-        taskRun: context.taskRun,
+        taskRun: context.taskRun && withTaskId(context.taskRun, sessions.value[sessionId]),
         followUp: context.followUp,
         followedRun: context.followUp ? followedRunOf(sessions.value[sessionId]) : undefined,
       })
@@ -1240,6 +1270,8 @@ export const useAgentMode = defineStore(
     function inView(sessionId: string): boolean {
       const showing = libraryShowing.value
       if (showing) return showing.library === 'agent' && showing.trialRunSessionId === sessionId
+      const sessionRef = sessionRefOf(sessionId)
+      if (sessionRef) return sessionRef === sessionsStore.openSessionId
       return viewShown.value && openSessionId.value === sessionId
     }
 
@@ -1282,7 +1314,7 @@ export const useAgentMode = defineStore(
       for (const prompt of held) prompt[how]()
     }
 
-    watch([viewShown, openSessionId, libraryShowing], () => {
+    watch([viewShown, openSessionId, () => sessionsStore.openSessionId, libraryShowing], () => {
       for (const sessionId of Object.keys(heldPrompts)) {
         if (inView(sessionId)) settleHeldPrompts(sessionId, 'show')
       }
@@ -1344,6 +1376,31 @@ export const useAgentMode = defineStore(
     function rewriteSession(id: string, record: AgentSessionRecord): void {
       sessions.value = { ...sessions.value, [id]: record }
       persistSessionRecord(record)
+    }
+
+    /**
+     * The Workspace a Session's own agent works in, whatever path its record stored: the
+     * Workspace is renamed after the first turn, starred elsewhere, or moved by the upgrade.
+     * Empty for a games preset or a Harness Session of no Session.
+     */
+    function sessionWorkspaceOf(sessionRef: string | null | undefined, presetName: string): string {
+      if (!sessionRef || workspaceKindOf(presetName) === 'games') return ''
+      return sessionsStore.workspaceDirOf(sessionRef)
+    }
+
+    /** Where a stored Harness Session's next turn works. */
+    function turnWorkspaceOf(id: string): string {
+      const record = sessions.value[id]
+      if (!record) return ''
+      const presetName = record.presetName ?? HARNESS_CHAT_PRESET
+      return sessionWorkspaceOf(record.sessionRef, presetName) || record.workspaceDir
+    }
+
+    /** Keeps a Session's Harness Session on the Workspace its turns now run in. */
+    function followSessionWorkspace(id: string, dir: string): void {
+      const record = sessions.value[id]
+      if (record && record.workspaceDir !== dir)
+        rewriteSession(id, { ...record, workspaceDir: dir })
     }
 
     watch(openSessionId, (id) => {
@@ -1432,7 +1489,7 @@ export const useAgentMode = defineStore(
      */
     function snapshotSessionById(id: string, presetName?: string): void {
       const runtime = turns.runtimeOf(id)
-      if (!id || !runtime) return
+      if (!id || !runtime || deletedHarnessSessions.has(id)) return
       const existing = sessions.value[id]
       const context = turnContexts[id]
       // A session sent on its stored settings keeps them, even while open.
@@ -1593,21 +1650,47 @@ export const useAgentMode = defineStore(
       { immediate: true },
     )
 
-    // Main deletes a Session's Harness Sessions with it; their records leave the map too.
+    // A newly starred or located Workspace is where the next turn works; a games preset keeps its game.
+    watch(
+      () => {
+        const list = sessionsStore.openSession?.folderList
+        const entry = list && workspaceEntryOf(list)
+        return entry ? `${entry.id}\n${entry.hostPath}` : undefined
+      },
+      (workspace, previous) => {
+        const presetName = agentPresetName.value
+        if (!workspace || !previous || workspace === previous || movingSession) return
+        if (!agentActive.value || !presetName || workspaceKindOf(presetName) === 'games') return
+        void enterSessionHarness()
+      },
+    )
+
+    // Main deletes a Session's Harness Sessions with it; their records, runtimes and the open
+    // pointer go too, so no later snapshot writes them back into a Session that no longer exists.
     watch(
       () => sessionsStore.sessions,
       (known) => {
-        const gone = Object.values(sessions.value).filter(
-          (record) => record.sessionRef && !known[record.sessionRef],
+        const refs = [
+          ...Object.values(sessions.value).map((record) => [record.id, record.sessionRef] as const),
+          ...Object.entries(harnessSessionRefs),
+        ]
+        const gone = new Set(
+          refs.filter(([, sessionRef]) => sessionRef && !known[sessionRef]).map(([id]) => id),
         )
-        if (gone.length === 0) return
-        const next = { ...sessions.value }
-        for (const record of gone) {
-          delete next[record.id]
-          delete turnContexts[record.id]
-          if (record.id !== openSessionId.value) turns.release(record.id)
+        if (gone.size === 0) return
+        if (Object.keys(sessions.value).some((id) => gone.has(id))) {
+          sessions.value = Object.fromEntries(
+            Object.entries(sessions.value).filter(([id]) => !gone.has(id)),
+          )
         }
-        sessions.value = next
+        for (const id of gone) {
+          deletedHarnessSessions.add(id)
+          delete turnContexts[id]
+          delete harnessSessionRefs[id]
+          if (id === openSessionId.value) blankSession()
+          if (turns.runtimeOf(id)?.hasTurn()) void stopSession(id)
+          else turns.release(id)
+        }
       },
     )
 
@@ -1827,6 +1910,8 @@ export const useAgentMode = defineStore(
       removeDocument: removeSessionDocument,
     } = createSessionDocuments({
       workspaceDir,
+      sessionId: () =>
+        sessionRefOf(openSessionId.value) ?? (sessionsStore.openSessionId || undefined),
       languages: i18n.state,
       workspaceReady,
       embedding: () => {
@@ -1924,7 +2009,10 @@ export const useAgentMode = defineStore(
         if (!(await isGameFolder(workspaceDir.value))) await mintGame(prompt)
       }
       if (!(await workspaceReady())) return false
-      const attached = await importAttachments(workspaceDir.value)
+      const attached = await importAttachments({
+        workspaceDir: workspaceDir.value,
+        sessionId: sessionRefOf(openSessionId.value) ?? (sessionsStore.openSessionId || undefined),
+      })
       const sessionId = ensureSessionId(openSessionId)
       if (options.title && !sessions.value[sessionId]) pendingTitles[sessionId] = options.title
       await runTurn(sessionId, liveTurnContext(), (chat) =>
@@ -1963,6 +2051,8 @@ export const useAgentMode = defineStore(
     async function workspaceReady(): Promise<boolean> {
       if (agentWorkspaceKind.value === 'pick') {
         if (!sessionsStore.openSessionId) await sessionsStore.create()
+        const sessionRef = sessionsStore.openSessionId
+        if (sessionRef && !(await sessionsStore.readyWorkspaceForTurn(sessionRef))) return false
         await enterSessionHarness()
       }
       if (workspaceDir.value) return true
@@ -2125,7 +2215,42 @@ export const useAgentMode = defineStore(
           )
         }
       }
-      if (!context.workspaceDir || !(await window.electronAPI.existsPath(context.workspaceDir))) {
+      const sessionRef = sessionRefOf(sessionId) ?? (live ? sessionsStore.openSessionId : null)
+      const sessionWorkspace = sessionWorkspaceOf(sessionRef, context.presetName)
+      const inWorkspace = !!sessionRef && !!sessionWorkspace
+      // An unattended turn never asks: main fails it and its Notification names the folder.
+      const unattended = !!options.answer || !!options.taskRun?.notifiesResult
+      const ownWorkspace = agentRunOverrides({
+        ...context,
+        taskRun: options.taskRun ?? context.taskRun,
+        followUp: options.followUp ?? context.followUp,
+      })?.workspace?.hostPath
+      if (inWorkspace) {
+        if (!unattended && !(await sessionsStore.readyWorkspaceForTurn(sessionRef))) {
+          return refuseSend(
+            'missing-folder',
+            (
+              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
+            ).replace('{path}', sessionWorkspace),
+          )
+        }
+        if (ownWorkspace && !unattended && !(await window.electronAPI.existsPath(ownWorkspace))) {
+          return refuseSend(
+            'missing-folder',
+            fillTemplate(
+              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ??
+                'The workspace folder is missing: {path}',
+              { path: ownWorkspace },
+            ),
+          )
+        }
+        context.workspaceDir = ownWorkspace ?? sessionsStore.workspaceDirOf(sessionRef)
+        followSessionWorkspace(sessionId, context.workspaceDir)
+        if (live && !unattended) await enterSessionHarness()
+      } else if (
+        !inWorkspace &&
+        (!context.workspaceDir || !(await window.electronAPI.existsPath(context.workspaceDir)))
+      ) {
         return refuseSend(
           'missing-folder',
           (
@@ -2133,10 +2258,12 @@ export const useAgentMode = defineStore(
           ).replace('{path}', context.workspaceDir),
         )
       }
-      const folders = context.stored
-        ? (context.settings?.mountedFolders ?? [])
-        : mountedFolders.value
-      for (const folder of resolveMountedFolders(folders)) {
+      const folders = turnMountedFolders(sessionId, {
+        ...context,
+        taskRun: options.taskRun ?? context.taskRun,
+        followUp: options.followUp ?? context.followUp,
+      })
+      for (const folder of folders) {
         if (await window.electronAPI.isFolderPath(folder.hostPath)) continue
         return refuseSend(
           'missing-folder',
@@ -2196,7 +2323,10 @@ export const useAgentMode = defineStore(
       return stored.inference.modelSupportsVision
     }
 
-    /** Main rewinds before the new answer streams, so until then the old one stays. */
+    /**
+     * The replaced answers leave the view at once (undone if nothing streams); main refuses
+     * deletions while a turn is in flight, so the file-side removal runs after the turn settles.
+     */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
@@ -2204,12 +2334,17 @@ export const useAgentMode = defineStore(
     ): Promise<void> {
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
-      let forgotten: Promise<void> | undefined
+      const sessionRef = sessionRefOf(redo.harnessSessionId)
+      const answerIds = redo.messageIds.filter((messageId) => messageId !== redo.promptId)
+      if (sessionRef && answerIds.length > 0) {
+        sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
+      }
+      let replaced = false
       const stop = watch(
         () => chat.messages.at(-1),
         (last) => {
-          if (forgotten || last?.role !== 'assistant' || known.has(last.id)) return
-          forgotten = forgetAnswers(redo)
+          if (replaced || last?.role !== 'assistant' || known.has(last.id)) return
+          replaced = true
         },
         { flush: 'sync' },
       )
@@ -2220,8 +2355,13 @@ export const useAgentMode = defineStore(
         })
       } finally {
         stop()
-        if (forgotten) await forgotten
-        else chat.messages = before
+        // Main deregisters the turn before it closes the stream this await
+        // resolved on, so the deletion is no longer refused as in-flight.
+        if (replaced) void forgetAnswers(redo)
+        else {
+          if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
+          chat.messages = before
+        }
       }
     }
 
@@ -2231,9 +2371,18 @@ export const useAgentMode = defineStore(
       const sessionRef = sessionRefOf(id)
       const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
       if (!sessionRef || answerIds.length === 0) return
-      const result = await requestTurnDeletion(id, [], answerIds)
-      if (!result.success) {
-        errors.report(new Error(result.error), {
+      try {
+        const result = await requestTurnDeletion(id, [], answerIds)
+        if (!result.success) {
+          errors.report(new Error(result.error), {
+            category: 'unknown',
+            code: 'agent/regenerate-forget-failed',
+            surface: 'silent',
+          })
+          return
+        }
+      } catch (error) {
+        errors.report(error, {
           category: 'unknown',
           code: 'agent/regenerate-forget-failed',
           surface: 'silent',
@@ -2257,6 +2406,15 @@ export const useAgentMode = defineStore(
         code: 'agent/regenerate-failed',
         userMessage: result.message,
       })
+    }
+
+    /** The edit lands on the runtime chat's prompt message, so the re-run sends it under the same id. */
+    async function regenerateTurnWithPrompt(ref: HarnessTurnRef, edited: string): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const chat = turns.runtimeFor(ref.harnessSessionId).chat
+      const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      if (prompt) applyEditedPrompt(prompt, edited)
+      await regenerateTurn(ref)
     }
 
     /**
@@ -2303,6 +2461,7 @@ export const useAgentMode = defineStore(
     return {
       deleteTurns,
       regenerateTurn,
+      regenerateTurnWithPrompt,
       isSessionProcessing,
       workspaceDir,
       agentPresetName,
@@ -2317,9 +2476,6 @@ export const useAgentMode = defineStore(
       planningPhaseSupported,
       setCapabilityEnabled,
       setCapabilities,
-      mountedFoldersSupported,
-      mountedFolders,
-      setMountedFolders,
       resetPresetSettings,
       migrateMcpServerIds,
       adoptWebCapability,
@@ -2355,6 +2511,7 @@ export const useAgentMode = defineStore(
       removeSessionDocument,
       attachFiles,
       storedTurnSeesImages,
+      turnWorkspaceOf,
       removeAttachment,
       clearAttachments,
       processing,

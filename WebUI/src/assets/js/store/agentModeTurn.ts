@@ -13,7 +13,7 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import { chatTemplateKwargs } from '@/lib/samplingDefaults'
 import { openAiApiBase } from '@/lib/inferenceApiBase'
 import { HYBRID_CLOUD_NAME } from '@/lib/cloudModeName'
-import type { ResolvedMountedFolder } from '@/lib/mountedFolders'
+import type { AgentFolderOverrides } from '@/types/agentSessionIpc'
 import { catalogModelToolUse } from '@/lib/modelToolUse'
 import type { ReasoningEffort } from '@/types/shared'
 import { extractMessage } from '../errors/appError'
@@ -80,8 +80,8 @@ function embeddingConfigOf(textInference: InferenceForTurn) {
   return embeddingModel ? { embeddingModel, embeddingBackend: textInference.embeddingBackend } : {}
 }
 
-function mountedFoldersOf(folders: ResolvedMountedFolder[] | undefined) {
-  return folders && folders.length > 0 ? { mountedFolders: folders } : {}
+function folderOverridesOf(overrides: AgentFolderOverrides | undefined) {
+  return overrides ? { folderOverrides: overrides } : {}
 }
 
 export async function buildTurnConfig(options: {
@@ -100,7 +100,8 @@ export async function buildTurnConfig(options: {
   harness?: 'pi' | 'hermes'
   capabilities: string[]
   unsandboxed: boolean
-  mountedFolders?: ResolvedMountedFolder[]
+  /** An Agent Run's folder overrides; absent inherits the Session's folders. */
+  folderOverrides?: AgentFolderOverrides
   planningThinkingOnly: boolean
   textInference: InferenceForTurn
   cloudMode: CloudForTurn
@@ -157,7 +158,7 @@ export async function buildTurnConfig(options: {
       ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
       capabilities: options.capabilities,
       unsandboxed: options.unsandboxed,
-      ...mountedFoldersOf(options.mountedFolders),
+      ...folderOverridesOf(options.folderOverrides),
       keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
       ...(options.answer ? { answer: options.answer } : {}),
       ...embeddingConfigOf(textInference),
@@ -202,7 +203,7 @@ export async function buildTurnConfig(options: {
     ...(options.harness === 'hermes' ? { harness: 'hermes' as const } : {}),
     capabilities: options.capabilities,
     unsandboxed: options.unsandboxed,
-    ...mountedFoldersOf(options.mountedFolders),
+    ...folderOverridesOf(options.folderOverrides),
     keepModelsLoaded: useDeveloperSettings().keepModelsLoaded,
     ...(options.answer ? { answer: options.answer } : {}),
     planningThinkingOnly:

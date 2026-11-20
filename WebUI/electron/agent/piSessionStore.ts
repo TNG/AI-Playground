@@ -17,8 +17,10 @@ export type SessionPointer = {
   workspaceDir: string
   sessionFilePath: string
   updatedAt: number
-  /** The Mounted Folders the conversation's last turn ran with. */
+  /** The folders the conversation's last turn ran with, its Workspace included once at `/mnt`. */
   mountedFolders?: ResolvedMountedFolder[]
+  /** Pi's working directory in that turn; absent on pointers from before `/mnt` Workspaces. */
+  workdir?: string
 }
 
 function sessionStorePath(): string {
@@ -57,11 +59,16 @@ export function clearPointer(sessionId: string): void {
 
 /**
  * The stored session file for this conversation, but only when it belongs to the
- * same workspace and still exists on disk. Anything else means "start fresh".
+ * same workspace (any, with `anyWorkspace`) and still exists on disk. Anything else
+ * means "start fresh".
  */
-export function loadSessionFilePath(sessionId: string, workspaceDir: string): string | undefined {
+export function loadSessionFilePath(
+  sessionId: string,
+  workspaceDir: string,
+  { anyWorkspace = false }: { anyWorkspace?: boolean } = {},
+): string | undefined {
   const pointer = readSessionStore()[sessionId]
-  if (!pointer || pointer.workspaceDir !== workspaceDir) return undefined
+  if (!pointer || (!anyWorkspace && pointer.workspaceDir !== workspaceDir)) return undefined
   if (!pointer.sessionFilePath || !fs.existsSync(pointer.sessionFilePath)) {
     logger.warn(`stored Pi session file missing for ${sessionId}; starting fresh`, LOG_SOURCE)
     return undefined

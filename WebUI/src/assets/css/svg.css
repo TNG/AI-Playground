@@ -222,3 +222,7 @@
 .i-backend-cloud {
   --svg: url('@/assets/svg/backend-cloud.svg');
 }
+
+.i-external-link {
+  --svg: url('@/assets/svg/external-link.svg');
+}

@@ -52,8 +52,10 @@ export function isTrialRunMessage(owner: ChannelMessageOwner): owner is TrialRun
 
 /** Automatic Notification texts in the app language. */
 export type NotificationTemplates = {
-  /** First line of every agent's Notification: `{title}` (a label) */
+  /** First line of an Agent Run's, a Trial Run's or an agent preset's Notification: `{title}` */
   header: string
+  /** First line of a Notification from a Session's Assistant: `{title}` (a label) */
+  assistantHeader: string
   /** `{title}` (a label), `{reason}` */
   paused: string
   /** `{kind}`, `{summary}` */
@@ -63,10 +65,10 @@ export type NotificationTemplates = {
   failed: string
   /** The label of a session, quoted: `{title}` */
   sessionLabel: string
-  /** The label of a Task run: `{task}`, `{step}`, `{steps}` */
-  taskLabel: string
-  /** The title of a session with no title. */
+  /** The title of a session with no title, as the desktop shows it. */
   untitled: string
+  /** The name of a Trial Run's Agent with no name. */
+  untitledAgent: string
   /** Label of the 💬 Answer button under an answerable Notification. */
   answerButton: string
   /** Last line of a Notification from a session that cannot be answered remotely. */

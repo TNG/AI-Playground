@@ -8,7 +8,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -181,8 +185,8 @@ describe('takeSessionUpdate', () => {
     const followUp = { agentId: 't1', agentName: 'Digest', followUp: true }
     await appendHistoryEntry(id, imageTurn)
     await skipSessionUpdate(id, run)
-    await appendHistoryEntry(id, { ...step, stepIndex: 1, prompt: 'step one' })
-    await appendHistoryEntry(id, { ...step, stepIndex: 2, prompt: 'step two' })
+    await appendHistoryEntry(id, { ...step, prompt: 'step one' })
+    await appendHistoryEntry(id, { ...step, prompt: 'step two' })
     await appendHistoryEntry(id, { ...imageTurn, prompt: 'a blue fox' })
 
     const first = await takeSessionUpdate(id, run)
@@ -192,7 +196,7 @@ describe('takeSessionUpdate', () => {
 
     await appendHistoryEntry(id, { ...agentTurn, ...followUp, harnessSessionId: run.key })
     const otherRun = { ...agentTurn, taskName: 'Other', harnessSessionId: 'aipg-agent-other' }
-    await appendHistoryEntry(id, { ...otherRun, stepIndex: 1, prompt: 'the other agent' })
+    await appendHistoryEntry(id, { ...otherRun, prompt: 'the other agent' })
 
     const second = await takeSessionUpdate(id, run)
     expect(second).toContain('the other agent')
@@ -205,8 +209,8 @@ describe('takeSessionUpdate', () => {
     await new Promise((resolve) => setTimeout(resolve, 5))
     const startedAt = Date.now()
     const legacyStep = { ...agentTurn, taskName: 'Digest' }
-    await appendHistoryEntry(id, { ...legacyStep, stepIndex: 1, prompt: 'step one' })
-    await appendHistoryEntry(id, { ...legacyStep, stepIndex: 2, prompt: 'step two' })
+    await appendHistoryEntry(id, { ...legacyStep, prompt: 'step one' })
+    await appendHistoryEntry(id, { ...legacyStep, prompt: 'step two' })
     await appendHistoryEntry(id, { ...imageTurn, prompt: 'a blue fox' })
 
     const update = await takeSessionUpdate(id, {
@@ -255,7 +259,7 @@ describe('takeSessionUpdate', () => {
 
     const update = await takeSessionUpdate(id, {
       key: 'agent-1',
-      workspaceDir: sessionPaths(id).filesDir,
+      reader: { workspaceDir: sessionPaths(id).filesDir },
     })
     expect(update).toContain('→ fox.png')
   })
@@ -274,7 +278,10 @@ describe('a consumer working in a game folder', () => {
   it("names a Session file by a copy in the game's generated folder", async () => {
     const { id, gameDir } = await sessionWithFox()
 
-    const update = await takeSessionUpdate(id, { key: 'game-1', workspaceDir: gameDir })
+    const update = await takeSessionUpdate(id, {
+      key: 'game-1',
+      reader: { workspaceDir: gameDir, copies: 'any' },
+    })
 
     expect(update).toContain('→ generated/fox.png')
     expect(await fs.readFile(path.join(gameDir, 'generated', 'fox.png'), 'utf8')).toBe('fox-bytes')
@@ -284,7 +291,7 @@ describe('a consumer working in a game folder', () => {
     const { id, gameDir } = await sessionWithFox()
     const [row] = await listSessionHistory(id, {})
 
-    const full = await getSessionHistoryEntry(id, row.id, gameDir)
+    const full = await getSessionHistoryEntry(id, row.id, { workspaceDir: gameDir, copies: 'any' })
 
     expect(full?.artifacts).toEqual([{ path: 'generated/fox.png', mediaType: 'image' }])
     expect(await fs.readFile(path.join(gameDir, 'generated', 'fox.png'), 'utf8')).toBe('fox-bytes')
@@ -319,7 +326,9 @@ describe('session_history', () => {
     const id = await seeded()
     const [, , first] = await listSessionHistory(id, {})
 
-    const full = await getSessionHistoryEntry(id, first.id, sessionPaths(id).filesDir)
+    const full = await getSessionHistoryEntry(id, first.id, {
+      workspaceDir: sessionPaths(id).filesDir,
+    })
     expect(full).toMatchObject({
       id: first.id,
       preset: 'Image Gen',

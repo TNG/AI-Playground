@@ -40,6 +40,7 @@ import { useConfirmations } from '@/assets/js/store/confirmations'
 import { useConversations } from '@/assets/js/store/conversations'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
+import { useMessageHiding } from '@/assets/js/store/messageHiding'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import { usePromptStore } from '@/assets/js/store/promptArea'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
@@ -50,7 +51,11 @@ import GameBar from '@/components/GameBar.vue'
 import ScrollToBottomButton from '@/components/ScrollToBottomButton.vue'
 import SessionTurnBlock from '@/components/SessionTurnBlock.vue'
 import { sessionChatKey } from '@/lib/sessionChat'
-import { sessionTimelineItems } from '@/lib/sessionTimeline'
+import {
+  sessionTimelineItems,
+  visibleLiveMessages,
+  withoutMessageHiding,
+} from '@/lib/sessionTimeline'
 import type { LiveChatStatus, MediaStepStatus } from '@/lib/turnTypes'
 import { useStickToBottom } from '@/lib/useStickToBottom'
 
@@ -63,6 +68,7 @@ const chat = useOpenAiCompatibleChat()
 const agentMode = useAgentMode()
 const agentTasks = useAgentTasks()
 const sessionAudio = useSessionAudio()
+const messageHiding = useMessageHiding()
 const promptStore = usePromptStore()
 const activities = useActivities()
 const confirmations = useConfirmations()
@@ -75,12 +81,22 @@ const panel = ref<HTMLElement | null>(null)
 const chatKey = computed(() => sessionChatKey(sessions.openSessionId ?? ''))
 const chatLive = computed(() => {
   if (!sessions.openSessionId) return []
-  if (conversations.activeKey === chatKey.value) return chat.messages ?? []
-  return chat.getMessagesForKey(chatKey.value) ?? []
+  const live =
+    conversations.activeKey === chatKey.value
+      ? (chat.messages ?? [])
+      : (chat.getMessagesForKey(chatKey.value) ?? [])
+  // The store's copy still holds what hiding hid; the merge would bring it
+  // back as an unsaved leftover, so the overlay hides it the same way.
+  return visibleLiveMessages(live, sessions.openHiddenIds)
 })
-const agentLive = computed(() =>
-  sessions.openSessionId ? agentMode.liveTurnsIn(sessions.openSessionId) : [],
-)
+const agentLive = computed(() => {
+  if (!sessions.openSessionId) return []
+  const hidden = sessions.openHiddenIds
+  return agentMode.liveTurnsIn(sessions.openSessionId).map((turn) => ({
+    ...turn,
+    messages: visibleLiveMessages(turn.messages, hidden),
+  }))
+})
 
 const chatActivity = computed(() => activities.chatActivity(chatKey.value, ['generation']))
 const chatConfirmation = computed(() => confirmations.forConversation(chatKey.value) !== null)
@@ -114,22 +130,25 @@ const mediaSteps = computed(() =>
   ),
 )
 
-const items = computed(() =>
-  sessionTimelineItems(
-    sessions.openTimeline,
+const items = computed(() => {
+  const built = sessionTimelineItems(
+    sessions.openVisibleTimeline,
     {
       chat: chatLive.value,
       chatStatus: chatStatus.value,
       agents: agentLive.value,
-      agentRunsInFlight: agentTasks.runsInFlight,
+      agentRunsInFlight: agentTasks.firstTurnsInFlight,
       media: sessions.openSessionId ? sessions.pendingTurns[sessions.openSessionId] : null,
       mediaSteps: mediaSteps.value,
       audio: sessionAudio.pendingTurn,
       artifactRuns: artifactRuns.state,
     },
     { deletedUrls: sessions.openDeletedFiles },
-  ),
-)
+  )
+  // Hiding is off: no Hide button, and no trace that it exists at all.
+  // Already hidden messages stay hidden — that is the Session file's doing.
+  return messageHiding.enabled ? built : withoutMessageHiding(built)
+})
 
 const lastChatMessageId = computed(() => chatLive.value.at(-1)?.id)
 

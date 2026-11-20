@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
-import type { GameLibraryEntry } from '@/types/agentIpc'
+import type { AttachmentTarget, GameLibraryEntry } from '@/types/agentIpc'
 import { DOCUMENT_EXTENSIONS, type DocumentEmbedding } from '@/types/rag'
 import { developerMode } from './debugSettings'
 import { fillTemplate } from '@/lib/fillTemplate'
@@ -39,20 +39,17 @@ export function createWorkspaceAttachments(
   }
 
   /**
-   * Save the pending attachments into the workspace and return the sentence that
-   * tells the agent about them.
+   * Save the pending attachments and return the sentence that tells the agent about them.
    *
-   * The agent gets a path, not the bytes: it reads, references and ships
-   * workspace files with the tools it already has. Paths go into the prompt as
-   * `@`-prefixed workspace-relative paths, which is how a file is referenced in
-   * a prompt throughout Pi.
+   * The agent gets a path, not the bytes: `@attachments/<file>`, which is how a file is
+   * referenced in a prompt throughout Pi. Main resolves it wherever the copy is kept.
    */
-  async function importAttachments(workspaceDir: string): Promise<string> {
+  async function importAttachments(target: AttachmentTarget): Promise<string> {
     if (attachments.value.length === 0) return ''
     const saved: string[] = []
     for (const attachment of attachments.value) {
       const result = await window.electronAPI.agentMode.importAttachment(
-        workspaceDir,
+        target,
         attachment.name,
         new Uint8Array(attachment.bytes),
       )
@@ -86,6 +83,8 @@ export function isDocumentName(name: string): boolean {
 /** Documents are saved and indexed on attach, so the first question about one does not wait. */
 export function createSessionDocuments(options: {
   workspaceDir: Ref<string>
+  /** The Session the documents belong to; they are kept with it, not in its Workspace. */
+  sessionId: () => string | undefined
   workspaceReady: () => Promise<boolean>
   /** The embedding model `rag` searches with, or null when document search is off. */
   embedding: () => DocumentEmbedding | null
@@ -98,18 +97,26 @@ export function createSessionDocuments(options: {
   const sessionDocuments = ref<string[]>([])
   const indexingDocuments = ref<string[]>([])
 
-  async function refreshSessionDocuments(): Promise<void> {
+  function target(): AttachmentTarget | null {
+    const sessionId = options.sessionId()
     const dir = workspaceDir.value
-    const documents = dir ? await window.electronAPI.agentMode.sessionDocuments(dir) : []
-    if (workspaceDir.value === dir) sessionDocuments.value = documents
+    return dir ? { workspaceDir: dir, ...(sessionId ? { sessionId } : {}) } : null
   }
-  watch(workspaceDir, () => void refreshSessionDocuments(), { immediate: true })
 
-  async function saveDocuments(dir: string, files: File[]): Promise<string[]> {
+  async function refreshSessionDocuments(): Promise<void> {
+    const current = target()
+    const documents = current ? await window.electronAPI.agentMode.sessionDocuments(current) : []
+    if (JSON.stringify(target()) === JSON.stringify(current)) sessionDocuments.value = documents
+  }
+  watch([workspaceDir, options.sessionId], () => void refreshSessionDocuments(), {
+    immediate: true,
+  })
+
+  async function saveDocuments(to: AttachmentTarget, files: File[]): Promise<string[]> {
     const saved: string[] = []
     for (const file of files) {
       const bytes = new Uint8Array(await file.arrayBuffer())
-      const result = await window.electronAPI.agentMode.importAttachment(dir, file.name, bytes)
+      const result = await window.electronAPI.agentMode.importAttachment(to, file.name, bytes)
       if (result.success) saved.push(result.path)
       else {
         errors.report(new Error(result.error ?? `Failed to attach ${file.name}.`), {
@@ -123,14 +130,14 @@ export function createSessionDocuments(options: {
     return saved
   }
 
-  async function indexDocuments(dir: string, paths: string[]): Promise<void> {
+  async function indexDocuments(to: AttachmentTarget, paths: string[]): Promise<void> {
     const embedding = options.embedding()
     if (!embedding || paths.length === 0) return
     if (!(await options.prepareEmbedding(embedding))) return
     indexingDocuments.value = [...indexingDocuments.value, ...paths]
     try {
       for (const file of paths) {
-        const result = await window.electronAPI.agentMode.indexDocument(dir, file, embedding)
+        const result = await window.electronAPI.agentMode.indexDocument(to, file, embedding)
         if (!result.success) {
           // The `rag` tool indexes it again on the first question, so this is not fatal.
           errors.report(new Error(result.error ?? `Failed to index ${file}.`), {
@@ -148,16 +155,17 @@ export function createSessionDocuments(options: {
 
   async function attachDocuments(files: File[]): Promise<void> {
     if (!workspaceDir.value && !(await options.workspaceReady())) return
-    const dir = workspaceDir.value
-    const saved = await saveDocuments(dir, files)
+    const to = target()
+    if (!to) return
+    const saved = await saveDocuments(to, files)
     await refreshSessionDocuments()
-    await indexDocuments(dir, saved)
+    await indexDocuments(to, saved)
   }
 
   async function removeDocument(file: string): Promise<void> {
-    const dir = workspaceDir.value
-    if (!dir) return
-    const result = await window.electronAPI.agentMode.removeSessionDocument(dir, file)
+    const from = target()
+    if (!from) return
+    const result = await window.electronAPI.agentMode.removeSessionDocument(from, file)
     if (!result.success) {
       errors.report(new Error(result.error ?? `Failed to remove ${file}.`), {
         category: 'unknown',

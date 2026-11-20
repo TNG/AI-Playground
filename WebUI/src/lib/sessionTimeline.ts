@@ -13,10 +13,12 @@ import { isTerminalPhase, type ArtifactRunsState } from '@/lib/artifactRunProjec
 import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
-import { asChatTranscriptMessage } from '@/lib/sessionChat'
+import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
 import { runInputOf } from '@/lib/taskSteps'
+import { turnMessageIds, turnRemovalOf } from '@/lib/turnRemoval'
 import {
   generationFailure,
   oneLine,
@@ -45,6 +47,8 @@ import type {
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
+  AudioRerun,
+  AudioTurn,
   HarnessTurnRef,
   ArtifactKind,
   LiveAgentTurn,
@@ -56,14 +60,16 @@ import type {
   SessionTimelineItem,
   TimelineFiles,
   TimelineTurn,
+  TurnFooter,
   TurnDetailPart,
   TurnDetails,
+  TurnFooterAction,
   TurnHint,
+  TurnHiding,
   TurnLiveStatus,
   TurnPrompt,
   TurnResultPart,
   TurnSummary,
-  RunProgress,
 } from '@/lib/turnTypes'
 import type { GenerationSettings } from '@/types/mediaItem'
 import type {
@@ -76,10 +82,7 @@ import type {
   TimelinePart,
 } from '@/types/sessionTimeline'
 
-/** One Step of an Agent Run: the prompt the run sent and the answers to it. */
-type RunStep = { prompt?: UIMessage; answers: UIMessage[] }
-
-type AgentRun = { key: string; turn: AgentTurn; steps: RunStep[]; end?: AgentRunTag['end'] }
+type AgentRun = { name: string; lastTurn: AgentTurn; end?: AgentRunTag['end'] }
 
 function isMessageShaped(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -134,7 +137,7 @@ export function followUpAgentName(message: unknown): string | undefined {
   return role === 'user' && typeof name === 'string' ? name : undefined
 }
 
-/** An Agent Run fills its own Harness Session; Run steps marks each Step prompt it sends. */
+/** An Agent Run fills its own Harness Session; older Sessions mark each run prompt instead. */
 function runTagOf(tag: AgentTurnTag, message: UIMessage): { key: string; run: AgentRunTag } | null {
   if (tag.taskRun) return { key: tag.harnessSessionId, run: tag.taskRun }
   const marked = (message.metadata as { agentRun?: PromptRunTag } | undefined)?.agentRun
@@ -166,6 +169,10 @@ export function withLiveAgentTurn(
   return [...merged, ...tagged.values()]
 }
 
+/**
+ * A live list that starts where the stored transcript does is the whole chat, so a saved message
+ * it lacks was truncated by a regenerate; one that starts mid-way (a resumed turn) keeps the rest.
+ */
 function withLiveChatTurn(
   timeline: readonly unknown[],
   live: readonly { id: string }[],
@@ -177,12 +184,15 @@ function withLiveChatTurn(
       return [message.id, { ...message, metadata: { ...metadata, chatTurn: true } }]
     }),
   )
-  const merged = timeline.map((value) => {
-    const saved = asChatTranscriptMessage(value)
-    const copy = saved ? tagged.get(saved.id) : undefined
-    if (!saved || !copy) return value
-    tagged.delete(saved.id)
-    return { ...copy, metadata: { ...saved.metadata, ...copy.metadata } }
+  const saved = chatTranscriptOf(timeline)
+  const wholeHistory = saved.length === 0 || saved[0].id === live[0].id
+  const merged = timeline.flatMap((value) => {
+    const stored = asChatTranscriptMessage(value)
+    if (!stored) return [value]
+    const copy = tagged.get(stored.id)
+    if (!copy) return wholeHistory ? [] : [value]
+    tagged.delete(stored.id)
+    return [{ ...copy, metadata: { ...stored.metadata, ...copy.metadata } }]
   })
   return [...merged, ...tagged.values()]
 }
@@ -196,11 +206,10 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
   for (const agent of live.agents ?? []) {
     merged = withLiveAgentTurn(merged, agent.tag, agent.messages)
   }
-  const inFlight = new Map(Object.entries(live.agentRunsInFlight ?? {}))
-  const turns = timelineTurns(merged, files, live.artifactRuns, inFlight)
+  const turns = timelineTurns(merged, files, live.artifactRuns)
   const mediaSteps = live.mediaSteps ?? {}
   for (const agent of live.agents ?? []) markLiveAgentTurns(turns, agent, mediaSteps)
-  markRunsInFlight(turns, inFlight)
+  markRunsInFlight(turns, live.agentRunsInFlight ?? [])
   for (const turn of turns) if (turn.kind === 'agent' && turn.streaming) turn.footer = noFooter()
   markLiveChatTurn(turns, live.chatStatus, mediaSteps)
   const items: SessionTimelineItem<M, A>[] = [...turns]
@@ -253,16 +262,88 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     })
   }
   const last = items.at(-1)
+  // Redoing or deleting an earlier Agent Turn would rewind, or leave a gap under, the turns after it.
   for (const item of items) {
     if (item.kind !== 'agent' || item === last) continue
-    item.footer.actions = item.footer.actions.filter((action) => action !== 'regenerate')
+    item.footer.actions = item.footer.actions.filter(
+      (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
+    )
   }
-  if (last?.kind === 'chat') last.footer = chatAnswerFooter(last.answers, true)
+  if (last?.kind === 'chat') {
+    // An answer that settled empty (failed or interrupted) can still be deleted, unless replayed.
+    const answer = last.answers.at(-1)
+    const replayed = last.answers.some((message) =>
+      isHarnessChatPreset((message.metadata as { preset?: string } | undefined)?.preset),
+    )
+    let footer = chatAnswerFooter(last.answers, true)
+    if (
+      footer.actions.length === 0 &&
+      answer &&
+      !last.details.live &&
+      !live.chatStatus?.running &&
+      !replayed
+    ) {
+      footer = { actions: ['delete'], text: '', messageId: answer.id }
+    }
+    last.footer = withHide(footer, last)
+    if (last.prompt && last.footer.actions.includes('regenerate')) {
+      last.footer.actions = withEditAction(last.footer.actions)
+    }
+  }
   if (last?.kind === 'media') {
-    const rerun = mediaRerun(last.media, last.prompt.text)
-    if (rerun) last.footer = { actions: ['regenerate'], text: '', rerun }
+    const rerun = mediaRerun(last)
+    // A run that failed before recording its settings cannot rerun, but still deletes.
+    last.footer = withHide(
+      {
+        actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
+        text: '',
+        ...(rerun ? { rerun } : {}),
+        deletion: { owner: 'media', ...turnRemovalOf(last) },
+      },
+      last,
+    )
+  }
+  if (last?.kind === 'audio') {
+    const rerun = audioRerunOf(last)
+    // STT's prompt is only the source clip's label: it reruns but cannot be edited.
+    const actions: TurnFooterAction[] = [
+      ...last.footer.actions.filter((action) => action !== 'hide'),
+      ...(rerun
+        ? (['regenerate', ...(rerun.kind === 'tts' ? (['edit'] as const) : [])] as const)
+        : []),
+      'delete',
+      'hide',
+    ]
+    last.footer = {
+      ...last.footer,
+      actions: [...new Set(actions)],
+      ...(rerun ? { audioRerun: rerun } : {}),
+      deletion: { owner: 'audio', ...turnRemovalOf(last) },
+    }
   }
   return items
+}
+
+/** For views that must not offer Hide: hiding switched off, or a Trial Run. */
+export function withoutMessageHiding<M, A>(
+  items: SessionTimelineItem<M, A>[],
+): SessionTimelineItem<M, A>[] {
+  for (const item of items) {
+    if (item.kind === 'message') continue
+    if (!item.footer.actions.includes('hide') && !item.footer.hiding) continue
+    const { hiding: _hiding, ...footer } = item.footer
+    item.footer = { ...footer, actions: footer.actions.filter((action) => action !== 'hide') }
+  }
+  return items
+}
+
+/** A live merge appends whatever the saved timeline lacks, so hidden messages must leave the live copy too. */
+export function visibleLiveMessages<M extends { id?: string }>(
+  messages: readonly M[],
+  hiddenIds: readonly string[],
+): M[] {
+  if (hiddenIds.length === 0) return [...messages]
+  return messages.filter((message) => !hiddenIds.includes(message.id ?? ''))
 }
 
 function textPrompt(
@@ -272,6 +353,26 @@ function textPrompt(
 ): TurnPrompt {
   const defined = Object.entries(extra).filter(([, value]) => value !== undefined)
   return { text, ...(text ? {} : { placeholder: preset }), ...Object.fromEntries(defined) }
+}
+
+/** `edit` sits beside `regenerate`: both re-run the turn, one from an edited prompt. */
+function withEditAction(actions: TurnFooterAction[]): TurnFooterAction[] {
+  const at = actions.includes('regenerate') ? actions.indexOf('regenerate') + 1 : actions.length
+  return [...actions.slice(0, at), 'edit', ...actions.slice(at)]
+}
+
+function turnHidingOf(turn: TimelineTurn): TurnHiding {
+  if (turn.kind === 'media' || turn.kind === 'audio') return { messageIds: turnMessageIds(turn) }
+  if (turn.kind === 'message') return { messageIds: [turn.id] }
+  return {
+    messageIds: [
+      ...new Set([...(turn.prompt ? [turn.id] : []), ...turn.answers.map((answer) => answer.id)]),
+    ],
+  }
+}
+
+function withHide(footer: TurnFooter, turn: TimelineTurn): TurnFooter {
+  return { ...footer, actions: [...footer.actions, 'hide'], hiding: turnHidingOf(turn) }
 }
 
 type FilePart = { type: string; mediaType?: string; url?: string; filename?: string }
@@ -355,22 +456,19 @@ function withAnswers(
   turns: TimelineTurn[],
   prompts: Map<string, UIMessage>,
   runs: Map<string, AgentRun>,
-  inFlight: ReadonlyMap<string, RunProgress>,
 ): TimelineTurn[] {
   for (const turn of turns) {
     if (turn.kind === 'chat') {
       turn.hint = chatHint(prompts.get(turn.id), turn.answers)
       turn.footer = chatAnswerFooter(turn.answers)
     }
-    if (turn.kind === 'agent') {
-      turn.hint = agentHint(turn.prompt?.agentRun?.name ?? turn.presetName, turn.answers)
-    }
-    const run = turn.kind === 'agent' && turn.runKey ? runs.get(turn.runKey) : undefined
-    if (run) Object.assign(turn, runSections(run, inFlight.has(run.key)))
-    else if (turn.kind === 'chat' || turn.kind === 'agent') {
+    if (turn.kind === 'chat' || turn.kind === 'agent') {
       Object.assign(turn, answerSections(turn.kind, turn.answers))
     }
     if (turn.kind === 'agent') {
+      const run = turn.runKey ? runs.get(turn.runKey) : undefined
+      turn.hint = agentHint(run?.name ?? turn.presetName, turn.answers)
+      if (run?.lastTurn === turn) turn.result = [...turn.result, ...runEndFailure(run.end)]
       turn.footer = agentFooter(
         resultText(turn),
         agentTurnHasChatAffordances(turn.presetName)
@@ -382,11 +480,12 @@ function withAnswers(
           : undefined,
       )
     }
+    if (turn.kind !== 'message') turn.footer = withHide(turn.footer, turn)
   }
   return turns
 }
 
-/** An Agent Run's Steps live in a Harness Session of their own, which Delete leaves alone. */
+/** An Agent Run's turns live in a Harness Session of their own, which Delete leaves alone. */
 function harnessTurnOf(turn: AgentTurn): HarnessTurnRef | undefined {
   if (turn.runKey) return undefined
   return {
@@ -408,47 +507,11 @@ function resultText(turn: AgentTurn): string {
     .join('\n\n')
 }
 
-/** An Agent Run's answer is the text its last Step wrote after its last tool call. */
-function finalProse(step: RunStep | undefined): Set<string> {
-  const refs = (step?.answers ?? []).flatMap((answer) =>
-    answer.parts.map((part, index) => ({ part, key: `${answer.id}:${index}` })),
-  )
-  const lastTool = refs.findLastIndex(({ part }) => toolPartNameOf(part) !== undefined)
-  return new Set(
-    refs
-      .slice(lastTool + 1)
-      .flatMap(({ part, key }) => (shapeOf(part).type === 'text' ? [key] : [])),
-  )
-}
-
-/** Until the run ends, its newest text is a Step's progress, not its answer. */
-function runSections(
-  run: AgentRun,
-  inFlight: boolean,
-): { details: TurnDetails; result: TurnResultPart[] } {
-  const final = inFlight ? new Set<string>() : finalProse(run.steps.at(-1))
-  const prose = (ref: AnswerPartRef) => final.has(`${ref.messageId}:${ref.index}`)
-  const whole = answerSections(
-    'agent',
-    run.steps.flatMap((step) => step.answers),
-  )
-  const parts: TurnDetailPart[] = []
-  const result: TurnResultPart[] = []
-  run.steps.forEach((step, index) => {
-    if (step.prompt) {
-      parts.push({ kind: 'step-prompt', step: index + 1, prompt: messagePrompt(step.prompt) })
-    }
-    const sections = answerSections('agent', step.answers, prose)
-    parts.push(...sections.details.parts)
-    result.push(...sections.result)
-  })
-  const end = run.end
-  if (end) {
-    const state = end.kind === 'failed' ? 'failed' : 'cancelled'
-    result.push({ kind: 'failure', ...generationFailure({ state, error: end.message }) })
-  }
-  const summary = { ...whole.details.summary, steps: run.steps.length }
-  return { details: { ...whole.details, parts, summary }, result }
+/** Why a run ended early, on its last turn before any Follow-up. */
+function runEndFailure(end: AgentRunTag['end']): TurnResultPart[] {
+  if (!end) return []
+  const state = end.kind === 'failed' ? 'failed' : 'cancelled'
+  return [{ kind: 'failure', ...generationFailure({ state, error: end.message }) }]
 }
 
 const EMPTY_DETAILS: TurnDetails = { parts: [], summary: { kind: 'activity' } }
@@ -617,6 +680,20 @@ function audioDetails(audio: PendingAudio & Partial<AudioTurnData>): TurnDetails
   }
 }
 
+/** Regenerate re-runs the latest audio turn's input, which needs the text spoken or the source clip. */
+function audioRerunOf(turn: AudioTurn): AudioRerun | null {
+  if (!turn.promptId) return null
+  if (turn.audio.kind === 'tts' && !turn.prompt.text.trim()) return null
+  if (turn.audio.kind === 'stt' && !turn.audio.audioUrl) return null
+  return {
+    kind: turn.audio.kind,
+    preset: turn.audio.preset,
+    prompt: turn.prompt.text,
+    ...(turn.audio.audioUrl ? { audioUrl: turn.audio.audioUrl } : {}),
+    messageIds: turnMessageIds(turn),
+  }
+}
+
 function partsLiveStatus(
   engine: 'chat' | 'agent',
   answers: UIMessage[],
@@ -698,13 +775,15 @@ function markLiveAgentTurns(
   }
 }
 
-/** Between two Steps no turn is streaming, but the run is still going. */
-function markRunsInFlight(turns: TimelineTurn[], inFlight: ReadonlyMap<string, RunProgress>): void {
-  for (const turn of turns) {
-    const progress = turn.kind === 'agent' && turn.runKey ? inFlight.get(turn.runKey) : undefined
-    if (turn.kind !== 'agent' || !progress) continue
-    turn.streaming = true
-    turn.details = { ...turn.details, live: turn.details.live ?? { kind: 'working' }, progress }
+/** A run in flight is live on its Harness Session's newest turn, even before that one streams. */
+function markRunsInFlight(turns: TimelineTurn[], inFlight: readonly string[]): void {
+  const agentTurns = turns.filter((turn): turn is AgentTurn => turn.kind === 'agent')
+  for (const key of inFlight) {
+    const harness = agentTurns.find((turn) => turn.runKey === key)?.harnessSessionId
+    const newest = agentTurns.findLast((turn) => turn.harnessSessionId === harness)
+    if (!harness || !newest) continue
+    newest.streaming = true
+    newest.details = { ...newest.details, live: newest.details.live ?? { kind: 'working' } }
   }
 }
 
@@ -755,54 +834,25 @@ export function timelineTurns(
   timeline: readonly unknown[],
   files: TimelineFiles = {},
   artifactRuns?: ArtifactRunsState,
-  inFlight: ReadonlyMap<string, RunProgress> = new Map(),
 ): TimelineTurn[] {
   const messages = timeline.filter(isTimelineMessage)
   const turns: TimelineTurn[] = []
   const prompts = new Map<string, UIMessage>()
   const runs = new Map<string, AgentRun>()
-  const latestRun = new Map<string, AgentRun>()
-  // A Follow-up and its answers continue a run's Harness Session but are not its Steps.
+  // A Follow-up and its answers continue a run's Harness Session but are not part of the run.
   const followingUp = new Map<string, string>()
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     const tag = agentTagOf(message)
-    if (tag && isUIMessage(message) && message.role === 'user') {
-      const agentName = followUpAgentName(message)
-      if (agentName !== undefined) followingUp.set(tag.harnessSessionId, agentName)
-      else followingUp.delete(tag.harnessSessionId)
-    }
-    const followUp = tag ? followingUp.get(tag.harnessSessionId) : undefined
-    const marked =
-      tag && followUp === undefined && isUIMessage(message) ? runTagOf(tag, message) : null
-    let run = marked ? runs.get(marked.key) : undefined
-    if (tag && marked && !run) {
-      run = openRun(marked.key, message.id, tag, marked.run)
-      runs.set(marked.key, run)
-      turns.push(run.turn)
-    }
-    if (tag && !marked && (message as { role?: unknown }).role === 'assistant') {
-      run = latestRun.get(tag.harnessSessionId)
-    }
-    if (tag && (message as { role?: unknown }).role === 'user') {
-      if (run) latestRun.set(tag.harnessSessionId, run)
-      else latestRun.delete(tag.harnessSessionId)
-    }
-    if (run && isUIMessage(message)) {
-      if (marked?.run.end) run.end = marked.run.end
-      if (message.role === 'user') {
-        if (run.steps.length === 0 && run.turn.prompt && !run.turn.prompt.text) {
-          run.turn.prompt.text = runInputOf(messageText(message)) ?? ''
-        }
-        run.steps.push({ prompt: message, answers: [] })
-      } else {
-        if (run.steps.length === 0) run.steps.push({ answers: [] })
-        run.steps.at(-1)!.answers.push(message)
-        run.turn.answers.push(message)
-      }
-      continue
-    }
     if (tag && isUIMessage(message)) {
+      if (message.role === 'user') {
+        const agentName = followUpAgentName(message)
+        if (agentName !== undefined) followingUp.set(tag.harnessSessionId, agentName)
+        else followingUp.delete(tag.harnessSessionId)
+      }
+      const followUp = followingUp.get(tag.harnessSessionId)
+      const marked = followUp === undefined ? runTagOf(tag, message) : null
+      let run = marked ? runs.get(marked.key) : undefined
       const last = turns.at(-1)
       if (
         message.role === 'assistant' &&
@@ -812,7 +862,7 @@ export function timelineTurns(
         last.answers.push(message)
       } else {
         if (message.role === 'user') prompts.set(message.id, message)
-        turns.push({
+        const turn: AgentTurn = {
           kind: 'agent',
           id: message.id,
           hint: agentHint(followUp ?? tag.presetName, []),
@@ -824,10 +874,25 @@ export function timelineTurns(
           artifacts: [],
           audioArtifacts: [],
           ...(message.role === 'user'
-            ? { prompt: messagePrompt(message), answers: [] }
+            ? {
+                prompt:
+                  marked && !run ? runStartPrompt(marked.run, message) : messagePrompt(message),
+                answers: [],
+              }
             : { answers: [message] }),
-        })
+        }
+        if (marked) {
+          turn.runKey = marked.key
+          if (run) run.lastTurn = turn
+          else {
+            run = { name: marked.run.taskName, lastTurn: turn }
+            runs.set(marked.key, run)
+          }
+        }
+        turns.push(turn)
       }
+      const end = marked?.run.end
+      if (run && end) run.end = end
       continue
     }
     if (asChatTranscriptMessage(message) && isUIMessage(message)) {
@@ -869,6 +934,7 @@ export function timelineTurns(
         createdAt: message.createdAt,
         audio,
         audioArtifacts: [],
+        promptId: message.id,
       })
       i++
       continue
@@ -887,21 +953,18 @@ export function timelineTurns(
         createdAt: message.createdAt,
         media,
         artifacts: [],
+        promptId: message.id,
       })
       i++
       continue
     }
     turns.push({ kind: 'message', id: message.id, message })
   }
-  return withArtifacts(
-    withAnswers(turns, prompts, runs, inFlight),
-    files.deletedUrls ?? [],
-    artifactRuns,
-  )
+  return withArtifacts(withAnswers(turns, prompts, runs), files.deletedUrls ?? [], artifactRuns)
 }
 
 /**
- * The turn holding the timeline's last message; a run's turn sits where its first message is.
+ * The turn holding the timeline's last message.
  * `agentChatName` names the Agent of a Harness Session that was a chat with it, before Follow-ups.
  */
 export function latestTurnOf(
@@ -927,38 +990,23 @@ export function latestTurnOf(
 
 export type AgentRunControls = { agentId: string }
 
-/** A saved Agent's run opens its Agent for editing from its own Turn; Stop is the prompt bar's. */
+/** A saved Agent's run opens its Agent for editing from its start bubble; Stop is the prompt bar's. */
 export function agentRunControls<M, A>(turn: SessionTimelineItem<M, A>): AgentRunControls | null {
   if (turn.kind !== 'agent') return null
   const agentId = turn.prompt?.agentRun?.agentId
   return agentId ? { agentId } : null
 }
 
-function openRun(key: string, id: string, tag: AgentTurnTag, taskRun: AgentRunTag): AgentRun {
+/** A run's first prompt: what started it and its Start Prompt, the full prompt kept to expand. */
+function runStartPrompt(taskRun: AgentRunTag, message: UIMessage): TurnPrompt {
+  const prompt = messageText(message)
   const agentRun: AgentRunIdentity = {
     trigger: taskRun.trigger ?? 'manual',
     ...(taskRun.channel ? { channel: taskRun.channel } : {}),
     name: taskRun.taskName,
     startedAt: taskRun.startedAt,
     ...(taskRun.taskId ? { agentId: taskRun.taskId } : {}),
+    prompt,
   }
-  return {
-    key,
-    steps: [],
-    turn: {
-      kind: 'agent',
-      id,
-      hint: agentHint(agentRun.name, []),
-      details: EMPTY_DETAILS,
-      result: [],
-      footer: noFooter(),
-      presetName: tag.presetName,
-      harnessSessionId: tag.harnessSessionId,
-      runKey: key,
-      artifacts: [],
-      audioArtifacts: [],
-      prompt: { text: taskRun.input ?? '', agentRun },
-      answers: [],
-    },
-  }
+  return { text: taskRun.input || (runInputOf(prompt) ?? ''), agentRun }
 }

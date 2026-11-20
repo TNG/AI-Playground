@@ -9,6 +9,7 @@ import { useErrors } from './errors'
 import { createAppError } from '../errors/appError'
 import { useBackendServices } from './backendServices'
 import { useSessions } from './sessions'
+import { useGallery } from './gallery'
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 import type { ArtifactPhase, ArtifactRunOwner } from '@/types/kernelEvents'
 import { usePresets, presetRequiresUserPrompt, type ComfyInput } from './presets'
@@ -41,7 +42,7 @@ import {
   type ArtifactRequest,
   type ArtifactResult,
 } from '../artifact/runArtifact'
-import type { MediaRerun } from '@/lib/turnTypes'
+import type { MediaRerun, TurnDeletion, TurnRemoval } from '@/lib/turnTypes'
 import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
@@ -55,6 +56,7 @@ import {
 // site.
 import {
   isInFlight,
+  mediaUrlOf,
   type GenerateState,
   type ImageMediaItem,
   type MediaItem,
@@ -119,6 +121,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   const backendServices = useBackendServices()
   const errors = useErrors()
   const sessions = useSessions()
+  const gallery = useGallery()
   const i18n = useI18N()
   const i18nState = i18n.state
 
@@ -1150,15 +1153,22 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
   }
 
   function regenerate(rerun: MediaRerun): Promise<ArtifactResult | undefined> {
-    const { inputImageUrl: turnInputImageUrl, ...request } = rerun
-    return runPanelTurn({ kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request }, turnInputImageUrl)
+    const { inputImageUrl: turnInputImageUrl, messageIds, fileUrls, ...request } = rerun
+    return runPanelTurn(
+      { kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request },
+      turnInputImageUrl,
+      { messageIds, fileUrls },
+    )
   }
 
   async function runPanelTurn(
     request: ArtifactRequest & { mode: WorkflowModeType },
     turnInputImageUrl: string | undefined,
+    replaces?: TurnRemoval,
   ): Promise<ArtifactResult | undefined> {
     const mode = request.mode
+    const asked = await sessions.ensureOpenSession()
+    if (asked && !(await sessions.readyWorkspaceForTurn(asked))) return undefined
     lastError.value = null
     // Drop abandoned placeholders from a previous cancelled/failed run
     generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')
@@ -1181,6 +1191,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     try {
       sessionId = await sessions.ensureOpenSession()
       if (sessionId) {
+        if (replaces) sessions.forgetTimelineMessages(sessionId, replaces.messageIds)
         sessions.beginMediaTurn(sessionId, {
           runId,
           mode,
@@ -1195,17 +1206,44 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
           batchSize: request.params?.batchSize,
         })
       }
-      return await runArtifact(request, {
+      const result = await runArtifact(request, {
         abortSignal: abort.signal,
         sessionId: sessionId ?? undefined,
         runId,
       })
+      // A failed redo still replaces: its own failed turn stands in the old one's place.
+      if (sessionId && replaces) await removeTurnFromSession(sessionId, replaces)
+      return result
     } finally {
       if (sessionId) sessions.endMediaTurn(sessionId, runId)
       if (panelAbort === abort) panelAbort = null
       processing.value = false
       queuedLabel.value = null
     }
+  }
+
+  async function removeTurnFromSession(sessionId: string, removal: TurnRemoval): Promise<void> {
+    await gallery.removeTurn(sessionId, removal)
+    dropStripItems(new Set(removal.fileUrls))
+  }
+
+  function dropStripItems(urls: ReadonlySet<string>): void {
+    const removedIds = new Set(
+      generatedImages.value.filter((item) => urls.has(mediaUrlOf(item))).map((item) => item.id),
+    )
+    if (removedIds.size === 0) return
+    generatedImages.value = generatedImages.value.filter((item) => !removedIds.has(item.id))
+    if (selectedGeneratedImageId.value && removedIds.has(selectedGeneratedImageId.value))
+      selectedGeneratedImageId.value = null
+    if (selectedEditedImageId.value && removedIds.has(selectedEditedImageId.value))
+      selectedEditedImageId.value = null
+    if (selectedVideoId.value && removedIds.has(selectedVideoId.value)) selectedVideoId.value = null
+  }
+
+  async function deleteTurn(deletion: TurnDeletion): Promise<void> {
+    const sessionId = sessions.openSessionId
+    if (!sessionId) return
+    await removeTurnFromSession(sessionId, deletion)
   }
 
   /** Stops the panel's own runs only — waiting or running, never another turn's media. */
@@ -1317,6 +1355,7 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     untrackArtifactRun,
     generate,
     regenerate,
+    deleteTurn,
     stopGeneration,
     deleteImage,
     deleteAllImages,

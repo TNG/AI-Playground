@@ -23,16 +23,58 @@
         :aria-label="clip.name ?? languages.SESSION_TURN_INPUT_AUDIO"
       />
     </template>
-    <p v-if="prompt.step" class="text-xs font-medium text-muted-foreground">
-      {{ fillTemplate(languages.AGENT_TASK_STEP_LABEL, { number: String(prompt.step) }) }}
-    </p>
-    <p v-if="prompt.agentRun">{{ runLabel(prompt.agentRun) }}</p>
-    <MarkdownRenderer v-if="prompt.text" :content="prompt.text" :on-copy="copyText" />
+    <Collapsible v-if="prompt.agentRun" v-model:open="runPromptOpen" class="flex flex-col gap-2">
+      <CollapsibleTrigger
+        class="flex items-center gap-1.5 self-start rounded-sm text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <ChevronRightIcon
+          class="size-3.5 flex-none text-muted-foreground transition-transform"
+          :class="{ 'rotate-90': runPromptOpen }"
+          aria-hidden="true"
+        />
+        <span>{{ runLabel(prompt.agentRun) }}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div class="rounded-md border border-border px-3 py-2 text-sm">
+          <MarkdownRenderer :content="prompt.agentRun.prompt" :on-copy="copyText" />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+    <template v-if="editing">
+      <Textarea
+        ref="editor"
+        v-model="draft"
+        class="text-sm"
+        @keydown.enter.exact.prevent="submitEditFromKeyboard"
+        @keydown.escape.prevent="emit('cancelEdit')"
+      />
+      <div class="flex items-center gap-2 self-end">
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-6 px-2 text-xs"
+          :disabled="submitting"
+          @click="emit('cancelEdit')"
+        >
+          {{ languages.COM_CANCEL }}
+        </Button>
+        <Button
+          size="sm"
+          class="h-6 px-2 text-xs"
+          :disabled="submitting || !draft.trim()"
+          @click="emit('editPrompt', draft)"
+        >
+          <PaperAirplaneIcon class="size-3.5" aria-hidden="true" />
+          {{ languages.COM_SEND }}
+        </Button>
+      </div>
+    </template>
+    <MarkdownRenderer v-else-if="prompt.text" :content="prompt.text" :on-copy="copyText" />
     <p v-else-if="prompt.placeholder" class="text-muted-foreground italic">
       {{ prompt.placeholder }}
     </p>
     <div
-      v-if="prompt.text || prompt.origin || controls"
+      v-if="!editing && (prompt.text || prompt.origin || controls)"
       class="flex items-center gap-3 text-xs text-muted-foreground"
     >
       <button v-if="prompt.text" class="flex items-center gap-1" @click="copyText(prompt.text)">
@@ -91,12 +133,15 @@
 <script setup lang="ts">
 import {
   ArrowPathIcon,
+  ChevronRightIcon,
   ClockIcon,
   DocumentDuplicateIcon,
   DevicePhoneMobileIcon,
   ExclamationCircleIcon,
+  PaperAirplaneIcon,
   PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
+import { nextTick, ref, watch } from 'vue'
 import { getDescriptor } from '@/assets/js/store/channels/channelRegistry'
 import type { ChannelKind } from '@/assets/js/store/channels/types'
 import { useI18N } from '@/assets/js/store/i18n'
@@ -104,25 +149,51 @@ import { useSessions } from '@/assets/js/store/sessions'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import SessionUserBubble from '@/components/SessionUserBubble.vue'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Textarea } from '@/components/ui/textarea'
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentRunControls } from '@/lib/sessionTimeline'
 import { formatRunTime } from '@/lib/taskSchedule'
 import type { AgentRunIdentity, TurnPrompt } from '@/lib/turnTypes'
 
-defineProps<{
+const props = defineProps<{
   prompt: TurnPrompt
   queued?: boolean
   notRun?: boolean
   canResend?: boolean
   controls?: AgentRunControls | null
+  /** The prompt bubble as an editor: its text re-runs the turn when sent. */
+  editing?: boolean
+  submitting?: boolean
 }>()
 
-const emit = defineEmits<{ resend: []; editAgent: [] }>()
+const emit = defineEmits<{
+  resend: []
+  editAgent: []
+  cancelEdit: []
+  editPrompt: [text: string]
+}>()
 
 const sessions = useSessions()
 const i18nStore = useI18N()
 const languages = i18nStore.state
+const runPromptOpen = ref(false)
+
+const draft = ref('')
+const editor = ref<{ $el: HTMLTextAreaElement } | null>(null)
+
+watch(
+  () => props.editing,
+  async (editing) => {
+    if (!editing) return
+    draft.value = props.prompt.text
+    // The textarea arrives with the editor; put the caret where the edit starts.
+    await nextTick()
+    editor.value?.$el.focus()
+  },
+  { immediate: true },
+)
 
 function runLabel(run: AgentRunIdentity): string {
   if (run.trigger === 'manual')
@@ -137,6 +208,11 @@ function runLabel(run: AgentRunIdentity): string {
 
 function copyText(value: string) {
   copyToClipboard(value, languages.COM_COPY_SUCCESS_TIP)
+}
+
+function submitEditFromKeyboard(): void {
+  if (props.submitting || !draft.value.trim()) return
+  emit('editPrompt', draft.value)
 }
 
 function withChannel(template: string, channel: ChannelKind): string {

@@ -10,7 +10,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '', media: '' }))
 vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger.ts', () => ({
@@ -51,9 +55,12 @@ const { resetChatReadinessForTest } = await import('../../chat/chatReadiness')
 const { setKernelEventWindow, resetKernelBusForTest, onKernelEvent } =
   await import('../../kernel/kernelBus')
 const { resetOrchestratorForTest } = await import('../../kernel/orchestrator')
-const { createSession, readSession, resetSessionsForTest, setSessionDeps, sessionPaths } =
+const { createSession, readSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { appendHistoryEntry, readHistoryEntries } = await import('../../session/sessionHistory')
+const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
+const workspaceId = async (id: string) => (await sessionWorkspaceEntry(id)).id
 const { takeSessionUpdate } = await import('../../session/sessionUpdate')
 
 // ── Fake backend ──────────────────────────────────────────────────────────────
@@ -327,6 +334,67 @@ describe('a chat turn in a Session', () => {
     expect(timeline[1].parts.some((part) => part.text === 'Second.')).toBe(true)
   })
 
+  it('takes the replaced attempt out of the Session history on a regenerate', async () => {
+    const { id } = await createSession()
+    queueReplies(textReply('First.'), textReply('Second.'))
+    await runTurn({ sessionRef: id, messages: [user('u1', 'hi')] })
+
+    await runTurn({
+      sessionRef: id,
+      trigger: 'regenerate-message',
+      messages: [user('u1', 'hi')],
+    })
+
+    const entries = await readHistoryEntries(id)
+    expect(entries.filter((entry) => entry.kind === 'chat')).toEqual([
+      expect.objectContaining({
+        kind: 'chat',
+        prompt: 'hi',
+        status: 'completed',
+        response: 'Second.',
+      }),
+    ])
+  })
+
+  it('keeps a replaced attempt when the newest chat entry is another turn', async () => {
+    const { id } = await createSession()
+    queueReplies(textReply('First.'), textReply('Other.'), textReply('Again.'))
+    await runTurn({ sessionRef: id, messages: [user('u1', 'hi')] })
+    await runTurn({ sessionRef: id, messages: [user('u2', 'bye')] })
+
+    // A regenerate whose turn is not the newest chat entry must not touch the
+    // history: the entry it would replace is not the one that is there.
+    await runTurn({
+      sessionRef: id,
+      trigger: 'regenerate-message',
+      messages: [user('u1', 'hi')],
+    })
+
+    const prompts = (await readHistoryEntries(id))
+      .filter((entry) => entry.kind === 'chat')
+      .map((entry) => entry.prompt)
+    expect(prompts).toEqual(['hi', 'bye', 'hi'])
+  })
+
+  it('moves a Session Update cursor off the entry a regenerate removed', async () => {
+    const { id } = await createSession()
+    queueReplies(textReply('First.'), textReply('Second.'))
+    await runTurn({ sessionRef: id, messages: [user('u1', 'hi')] })
+    // Another consumer's cursor sits on the entry the regenerate replaces.
+    const [replaced] = await readHistoryEntries(id)
+    await takeSessionUpdate(id, { key: 'agent-1', ownPreset: 'Agent' })
+    expect((await readSession(id)).updateCursors['agent-1']).toBe(replaced.id)
+
+    await runTurn({
+      sessionRef: id,
+      trigger: 'regenerate-message',
+      messages: [user('u1', 'hi')],
+    })
+
+    const session = await readSession(id)
+    expect(Object.values(session.updateCursors)).not.toContain(replaced.id)
+  })
+
   it('moves Agentic Chat media into files/ and lists it on the History Entry', async () => {
     const { id } = await createSession()
     await fs.writeFile(path.join(dirs.media, 'cat.png'), 'png')
@@ -342,14 +410,18 @@ describe('a chat turn in a Session', () => {
     })
 
     const [entry] = await readHistoryEntries(id)
-    expect(entry.artifacts).toEqual([{ path: 'files/cat.png', mediaType: 'image' }])
-    await expect(
-      fs.readFile(path.join(sessionPaths(id).filesDir, 'cat.png'), 'utf8'),
-    ).resolves.toBe('png')
+    expect(entry.artifacts).toEqual([
+      { folderId: await workspaceId(id), path: 'cat.png', mediaType: 'image' },
+    ])
+    await expect(fs.readFile(path.join(sessionWorkspaceDir(id), 'cat.png'), 'utf8')).resolves.toBe(
+      'png',
+    )
     const toolPart = (await timelineOf(id))
       .flatMap((message) => message.parts)
       .find((part) => part.type === 'tool-comfyUI')
-    expect(JSON.stringify(toolPart?.output)).toContain(`aipg-media://sessions/${id}/files/cat.png`)
+    expect(JSON.stringify(toolPart?.output)).toContain(
+      `aipg-media://folders/${id}/${await workspaceId(id)}/cat.png`,
+    )
   })
 
   it('offers session_history only when the renderer sends it, and answers list', async () => {

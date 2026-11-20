@@ -1,10 +1,12 @@
 import fs from 'node:fs/promises'
-import path from 'node:path'
 import { serializeSession } from '../persist/sessionFiles'
-import { removeRegularFile } from '../persist/sessionMediaFiles'
+import { discardRegularFile } from '../persist/sessionMediaFiles'
+import { artifactHostPath } from './historyArtifacts'
+import { readSessionFolders } from './sessionFolders'
 import { readHistoryEntries } from './sessionHistory'
-import { listSessions, sessionPaths } from './sessions'
-import { sessionMediaUrl } from '@/lib/comfyWorkflow'
+import { listSessions } from './sessions'
+import { sessionLegacyMediaFile } from './sessionFolderMedia'
+import { sessionFolderMediaUrl, sessionMediaPathOf, sessionMediaUrl } from '@/lib/comfyWorkflow'
 import type {
   ArtifactMediaType,
   HistoryEntry,
@@ -21,11 +23,34 @@ async function isFile(file: string): Promise<boolean> {
   }
 }
 
+/** A recorded Artifact with its file and the URL its writer gave it. */
+type LocatedArtifact = { entry: HistoryEntry; file: string; path: string; url: string } & {
+  mediaType: ArtifactMediaType
+}
+
+/** Every History Artifact still in a listed folder (or the Session Folder), oldest first. */
+async function locatedArtifacts(sessionId: string): Promise<LocatedArtifact[]> {
+  const entries = await readHistoryEntries(sessionId)
+  if (entries.every((entry) => entry.artifacts.length === 0)) return []
+  const list = await readSessionFolders(sessionId)
+  return entries.flatMap((entry) =>
+    entry.artifacts.flatMap((artifact) => {
+      const file = artifactHostPath(sessionId, artifact, list)
+      if (!file) return []
+      const url = artifact.folderId
+        ? sessionFolderMediaUrl(sessionId, artifact.folderId, artifact.path)
+        : sessionMediaUrl(sessionId, artifact.path)
+      return [{ entry, file, path: artifact.path, url, mediaType: artifact.mediaType }]
+    }),
+  )
+}
+
 async function artifactsOf(session: SessionSummary): Promise<SessionArtifact[]> {
-  const root = sessionPaths(session.id).root
-  const entries = await readHistoryEntries(session.id)
-  const listed = entries.flatMap((entry: HistoryEntry) =>
-    entry.artifacts.map((artifact) => ({
+  const located = await locatedArtifacts(session.id)
+  const present = await Promise.all(located.map((artifact) => isFile(artifact.file)))
+  return located
+    .filter((_artifact, index) => present[index])
+    .map(({ entry, path: artifactPath, url, mediaType }) => ({
       sessionId: session.id,
       sessionTitle: session.title,
       entryId: entry.id,
@@ -33,15 +58,10 @@ async function artifactsOf(session: SessionSummary): Promise<SessionArtifact[]> 
       preset: entry.preset,
       kind: entry.kind,
       prompt: entry.prompt,
-      path: artifact.path,
-      mediaType: artifact.mediaType,
-      url: sessionMediaUrl(session.id, artifact.path),
-    })),
-  )
-  const present = await Promise.all(
-    listed.map((artifact) => isFile(path.join(root, artifact.path))),
-  )
-  return listed.filter((_artifact, index) => present[index])
+      path: artifactPath,
+      mediaType,
+      url,
+    }))
 }
 
 /** Every artifact of every Session whose file still exists, newest History Entry first. */
@@ -53,30 +73,31 @@ export async function listAllArtifacts(): Promise<SessionArtifact[]> {
 
 /** URLs of the Session's recorded artifacts whose file is gone; the timeline shows them as deleted. */
 export async function missingArtifactUrls(sessionId: string): Promise<string[]> {
-  const root = sessionPaths(sessionId).root
-  const artifacts = (await readHistoryEntries(sessionId)).flatMap((entry) => entry.artifacts)
-  const present = await Promise.all(
-    artifacts.map((artifact) => isFile(path.join(root, artifact.path))),
-  )
-  return artifacts
-    .filter((_artifact, index) => !present[index])
-    .map((artifact) => sessionMediaUrl(sessionId, artifact.path))
+  const located = await locatedArtifacts(sessionId)
+  const present = await Promise.all(located.map((artifact) => isFile(artifact.file)))
+  return located.filter((_artifact, index) => !present[index]).map((artifact) => artifact.url)
 }
 
-function resolveArtifactFile(sessionId: string, relativePath: string): string {
-  const filesDir = path.resolve(sessionPaths(sessionId).filesDir)
-  const target = path.resolve(sessionPaths(sessionId).root, relativePath)
-  const relative = path.relative(filesDir, target)
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`not an artifact of ${sessionId}: ${relativePath}`)
+/** The file behind an artifact URL: one the Session recorded, or one in its own `files/`. */
+async function artifactFileOf(sessionId: string, url: string): Promise<string> {
+  const target = sessionMediaPathOf(url)
+  if (!target || target.sessionId !== sessionId) {
+    throw new Error(`not an artifact of ${sessionId}: ${url}`)
   }
-  return target
+  if (!target.folderId) {
+    const legacy = sessionLegacyMediaFile(url)
+    if (!legacy) throw new Error(`not an artifact of ${sessionId}: ${url}`)
+    return legacy
+  }
+  const recorded = (await locatedArtifacts(sessionId)).find((artifact) => artifact.url === url)
+  if (!recorded) throw new Error(`not an artifact of ${sessionId}: ${url}`)
+  return recorded.file
 }
 
-/** Deletes the artifact's file only: its History Entry stays, so the Session still remembers it. */
-export async function deleteArtifact(sessionId: string, relativePath: string): Promise<void> {
-  const file = resolveArtifactFile(sessionId, relativePath)
-  await serializeSession(sessionId, () => removeRegularFile(file))
+/** Moves the artifact's file to the Trash: its History Entry stays, so the Session still remembers it. */
+export async function deleteArtifact(sessionId: string, url: string): Promise<void> {
+  const file = await artifactFileOf(sessionId, url)
+  await serializeSession(sessionId, () => discardRegularFile(file))
 }
 
 /** The Session's newest artifact of a media type, from any preset, whose file still exists. */
@@ -84,24 +105,13 @@ export async function newestArtifact(
   sessionId: string,
   mediaType: ArtifactMediaType,
 ): Promise<NewestArtifact | null> {
-  const entries = await readHistoryEntries(sessionId)
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const artifacts = entries[i].artifacts.filter((artifact) => artifact.mediaType === mediaType)
-    for (let j = artifacts.length - 1; j >= 0; j--) {
-      const relativePath = artifacts[j].path
-      let file: string
-      try {
-        file = resolveArtifactFile(sessionId, relativePath)
-      } catch {
-        continue
-      }
-      if (!(await isFile(file))) continue
-      return {
-        entryId: entries[i].id,
-        path: relativePath,
-        url: sessionMediaUrl(sessionId, relativePath),
-      }
-    }
+  const located = (await locatedArtifacts(sessionId)).filter(
+    (artifact) => artifact.mediaType === mediaType,
+  )
+  for (let i = located.length - 1; i >= 0; i--) {
+    const artifact = located[i]
+    if (!(await isFile(artifact.file))) continue
+    return { entryId: artifact.entry.id, path: artifact.path, url: artifact.url }
   }
   return null
 }

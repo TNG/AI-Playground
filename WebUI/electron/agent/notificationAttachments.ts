@@ -9,6 +9,7 @@ import {
 import type { Render3dThumbnailResult } from '@/types/chatRequests'
 import { askRenderer } from '../chat/chatAsk.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { agentFileRoot, type AgentFiles } from './workspaceAttachments.ts'
 
 export type ChannelMedia = {
   kind: Exclude<ChannelMediaKind, 'model3d'> | 'document'
@@ -76,11 +77,12 @@ async function realPath(file: string): Promise<string | null> {
 
 type Checked = { file: string } | { problem: string }
 
-async function check(workspaceDir: string, ref: string, channel: ChannelKind): Promise<Checked> {
+async function check(files: AgentFiles, ref: string, channel: ChannelKind): Promise<Checked> {
   const kind = channelMediaKind(ref)
   if (!kind) return { problem: 'unsupported file type' }
-  const root = (await realPath(workspaceDir)) ?? path.resolve(workspaceDir)
-  const file = path.resolve(root, ref)
+  const located = agentFileRoot(files, ref)
+  const root = (await realPath(located.root)) ?? path.resolve(located.root)
+  const file = path.resolve(root, located.relative)
   if (!isInside(root, file)) return { problem: 'outside the workspace' }
   const real = await realPath(file)
   if (!real) return { problem: 'file not found' }
@@ -97,11 +99,11 @@ async function check(workspaceDir: string, ref: string, channel: ChannelKind): P
 
 /** Nothing is read until every attachment passes its checks. */
 export async function readAttachments(
-  workspaceDir: string,
+  files: AgentFiles,
   refs: string[],
   channel: ChannelKind,
 ): Promise<{ media: ChannelMedia[] } | { error: string }> {
-  const checked = await Promise.all(refs.map((ref) => check(workspaceDir, ref, channel)))
+  const checked = await Promise.all(refs.map((ref) => check(files, ref, channel)))
   const problems = checked.flatMap((result, index) =>
     'problem' in result ? [`${refs[index]}: ${result.problem}`] : [],
   )

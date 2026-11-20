@@ -8,9 +8,7 @@ import {
 import type { AgentFollowUpTag, AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
-import type { SessionSummary } from '@/types/sessionIpc'
-import type { RunProgress } from '@/lib/turnTypes'
-import type { AgentRunRefusal } from './channels/answerRouter'
+import type { MissingWorkspace, SessionSummary } from '@/types/sessionIpc'
 import type {
   AgentDraft,
   AgentSessionSchedule,
@@ -39,9 +37,15 @@ import { useSessions } from './sessions'
 import { useTextInference, type LlmBackend } from './textInference'
 import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
-import { requestDownload } from '@/assets/js/permissions/permissions'
+import { requestDownload, requestMissingWorkspace } from '@/assets/js/permissions/permissions'
+import { editableFolders, withWorkspaceAt } from '@/lib/agentFolderOverrides'
+import {
+  folderBaseName,
+  mountedFolderRefusal,
+  type MountedFolderRefusal,
+} from '@/lib/mountedFolders'
 import { cloneForIpc } from '@/lib/cloneForIpc'
-import { afterStepTurn, sendRunStep } from '@/lib/agentStepRun'
+import { afterRunTurn, sendRunTurn } from '@/lib/agentRunTurn'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
 import { nextSlotAfter, scheduleProblem, type ScheduleProblem } from '@/lib/taskSchedule'
 import { fillTemplate } from '@/lib/fillTemplate'
@@ -117,8 +121,6 @@ export const SAVE_TASK_BLOCKER_KEYS = {
 /** An Agent Run in flight, in memory only; `skippedSlots` passed while it was paused. */
 export type TaskRun = {
   taskId: string
-  stepIndex: number
-  stepCount: number
   sessionId: string
   sessionRef: string
   skippedSlots?: number
@@ -143,7 +145,7 @@ export type SaveTaskResult =
 
 export type RunTaskResult =
   | { ok: true }
-  | { ok: false; reason: 'no-task' | 'running' | 'no-session' }
+  | { ok: false; reason: 'no-task' | 'running' | 'no-session' | 'missing-workspace' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
 
@@ -169,7 +171,10 @@ export type AgentScheduleEntry = {
 /** One Schedule in a Session, of any Agent, as the Session's Agent Schedules tab lists it. */
 export type SessionScheduleEntry = Omit<AgentScheduleEntry, 'sessionRef'> & { agentId: string }
 
-type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'stepIndex' | 'message'>
+type RunEnd = Pick<AgentTaskOutcome, 'kind' | 'message'>
+
+/** An Agent Run in flight in a Session: its first turn, or a Follow-up continuing it. */
+type RunInFlight = Pick<TaskRun, 'taskId' | 'sessionId' | 'sessionRef'>
 
 type OutcomeFields = Omit<AgentTaskOutcome, 'at'>
 
@@ -237,7 +242,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Runs in flight by Harness Session; at most one per Agent and Session. */
   const runs = ref<Record<string, TaskRun>>({})
-  /** The Task as its run started, and the abort that keeps an ended run from sending a Step. */
+  /** The Agent as its run started, and the abort that keeps an ended run from sending its turn. */
   const runContexts: Record<
     string,
     {
@@ -257,15 +262,31 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   const contributedWork = shallowRef<(() => InFlightWorkItem[])[]>([])
   const agentDeletedListeners = new Set<(agentId: string) => Promise<void>>()
 
+  /** Follow-ups running in a saved Agent's run Harness Session, after that run's first turn. */
+  const followUpsInFlight = computed((): RunInFlight[] =>
+    Object.values(agentMode.sessions).flatMap((record) => {
+      const taskId = record.taskRun?.taskId
+      const live = !!agentMode.sessionTurns[record.id] && !runs.value[record.id]
+      return taskId && record.sessionRef && live
+        ? [{ taskId, sessionId: record.id, sessionRef: record.sessionRef }]
+        : []
+    }),
+  )
+
+  const agentRunsInFlight = computed((): RunInFlight[] => [
+    ...Object.values(runs.value),
+    ...followUpsInFlight.value,
+  ])
+
   // Main reads Task Run markers from the tasks file; this covers what it cannot see yet.
   const inFlightWork = computed((): InFlightWorkItem[] => [
-    ...Object.values(runs.value).flatMap((run) => {
-      const task = tasks.value.find((entry) => entry.id === run.taskId)
+    ...agentRunsInFlight.value.flatMap((run) => {
+      const task = savedAgent(run.taskId)
       return task ? [taskRunWorkItem(task, run)] : []
     }),
     ...[...new Set([...starting, ...minting])].flatMap((slot) => {
       const [taskId, sessionRef] = slot.split('\n')
-      const task = tasks.value.find((entry) => entry.id === taskId)
+      const task = savedAgent(taskId)
       return task && !runIn(taskId, sessionRef) ? [taskRunWorkItem(task)] : []
     }),
     ...contributedWork.value.flatMap((work) => work()),
@@ -285,15 +306,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   let schedulesHeld = false
   /** Tasks whose delete is in flight; a tick saving one would write it back. */
   const deleting = new Set<string>()
-  /** The runs in flight, including between two Steps, by the key the timeline groups them by. */
-  const runsInFlight = computed<Record<string, RunProgress>>(() =>
-    Object.fromEntries(
-      Object.entries(runs.value).map(([id, run]) => [
-        id,
-        { step: run.stepIndex, count: run.stepCount },
-      ]),
-    ),
-  )
+  /** The Harness Sessions of the runs whose first turn is in flight. */
+  const firstTurnsInFlight = computed((): string[] => Object.keys(runs.value))
 
   function runIn(taskId: string, sessionRef: string): TaskRun | undefined {
     return Object.values(runs.value).find(
@@ -380,7 +394,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function advanceNextRun(taskId: string, schedule: AgentSessionSchedule, now: number): void {
-    const task = tasks.value.find((entry) => entry.id === taskId)
+    const task = savedAgent(taskId)
     if (!task) return
     const next = { ...schedule, nextRunAt: nextSlotAfter(schedule, now) }
     void persistTask(replaceTask(withSchedule(task, schedule.sessionRef, next)))
@@ -394,7 +408,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const live = await liveAgentSessions()
     for (const task of [...tasks.value]) {
       for (const activeRun of task.activeRuns ?? []) {
-        const { sessionId, stepIndex, stepCount } = activeRun
+        const { sessionId } = activeRun
         if (turnStillHeard(sessionId, live)) {
           reattachRun(task, activeRun)
           continue
@@ -403,13 +417,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           kind: 'failed',
           message: i18n.state.AGENT_TASKS_OUTCOME_APP_CLOSED ?? 'The app closed during the run.',
         })
-        await recordOutcome(task.id, {
-          kind: 'failed',
-          sessionId,
-          stepIndex,
-          stepCount,
-          reason: 'app-closed',
-        })
+        await recordOutcome(task.id, { kind: 'failed', sessionId, reason: 'app-closed' })
       }
     }
   }
@@ -421,8 +429,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         taskId: task.id,
         sessionId: activeRun.sessionId,
         sessionRef: activeRun.sessionRef,
-        stepIndex: activeRun.stepIndex,
-        stepCount: activeRun.stepCount,
       },
     }
     runContexts[activeRun.sessionId] = {
@@ -535,9 +541,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return states
   })
 
+  function savedAgent(id: string): AgentTask | undefined {
+    return tasks.value.find((task) => task.id === id)
+  }
+
   /** How many Sessions hold a Schedule of the Agent, paused ones included. */
   function scheduledSessionCount(id: string): number {
-    return tasks.value.find((task) => task.id === id)?.schedules?.length ?? 0
+    return savedAgent(id)?.schedules?.length ?? 0
   }
 
   /** How many Sessions the Agent has a run in flight in; deleting it is refused until none. */
@@ -547,18 +557,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   function onAgentDeleted(listener: (agentId: string) => Promise<void>): void {
     agentDeletedListeners.add(listener)
-  }
-
-  const channelRunRefusedListeners = new Set<
-    (sessionRef: string, refusal: AgentRunRefusal) => void
-  >()
-
-  /** Hear a Channel-started run's later Step refused here, which main never sees; returns the unsubscribe. */
-  function onChannelRunRefused(
-    listener: (sessionRef: string, refusal: AgentRunRefusal) => void,
-  ): () => void {
-    channelRunRefusedListeners.add(listener)
-    return () => channelRunRefusedListeners.delete(listener)
   }
 
   /** Removes its Schedules in every Session, keeping its runs; refused while it runs. */
@@ -592,7 +590,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The saved Agent picked in the Session's prompt bar, whatever preset is active there. */
   function pickedAgentIn(sessionRef: string | null | undefined): AgentTask | undefined {
     const id = sessionRef ? sessionsStore.sessions[sessionRef]?.pickedAgentId : undefined
-    return id ? tasks.value.find((task) => task.id === id) : undefined
+    return id ? savedAgent(id) : undefined
   }
 
   /** The open Session's picked Agent, in effect while Assistant is the active preset. */
@@ -621,7 +619,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return sessionsStore.pickAgent(sessionRef, agentId)
   }
 
-  /** ▶ with an Agent picked: an Agent Run of it in the open Session, the prompt leading Step 1. */
+  /** ▶ with an Agent picked: an Agent Run of it in the open Session, the prompt its Start Prompt. */
   async function runPickedAgent(prompt: string): Promise<RunTaskResult> {
     const agent = pickedAgent.value
     if (!agent) return { ok: false, reason: 'no-task' }
@@ -708,8 +706,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     const refusal = await chatModelRefusal(picked.settingsTemplate, [{ id: 'prompt', prompt }])
     if (refusal) return { ok: false, ...refusal }
+    if (!(await readyAgentWorkspaceForTurn(picked.id))) {
+      return { ok: false, reason: 'missing-workspace' }
+    }
     // The download may have taken long enough for a delete or a new run to overtake it.
-    const agent = tasks.value.find((entry) => entry.id === picked.id)
+    const agent = savedAgent(picked.id)
     if (!agent) return { ok: false, reason: 'no-task' }
     const harnessSessionId = latestRunOf(agent.id, open)?.harnessSessionId
     if (!harnessSessionId) return neverRun(agent)
@@ -863,7 +864,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Apply an edit to the Agent's Draft, starting one from the saved Agent when it has none. */
   async function editDraft(id: string, edit: AgentDraftEdit): Promise<boolean> {
-    const base = drafts.value[id] ?? tasks.value.find((task) => task.id === id)
+    const base = drafts.value[id] ?? savedAgent(id)
     if (!base) return false
     const merged = { ...editableFields(base), ...edit }
     const draft: AgentDraft = {
@@ -880,7 +881,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Change some of the Draft's Settings Template, keeping the rest. */
   async function editDraftSettings(id: string, change: AgentSessionSettings): Promise<boolean> {
-    const base = drafts.value[id] ?? tasks.value.find((task) => task.id === id)
+    const base = drafts.value[id] ?? savedAgent(id)
     if (!base) return false
     return editDraft(id, { settingsTemplate: { ...base.settingsTemplate, ...change } })
   }
@@ -907,7 +908,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!draft) return { ok: false, reason: 'no-task' }
     const blocker = draftBlocker(id)
     if (blocker) return { ok: false, reason: blocker }
-    const saved = tasks.value.find((task) => task.id === id)
+    const saved = savedAgent(id)
     const now = Date.now()
     const {
       description: _description,
@@ -951,7 +952,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** A new saved Agent from the saved definition only: no runs, Schedules, outcome or Session. */
   async function duplicateAgent(id: string): Promise<DuplicateAgentResult> {
-    const original = tasks.value.find((task) => task.id === id)
+    const original = savedAgent(id)
     if (!original) return { ok: false, reason: 'no-task' }
     const {
       id: _id,
@@ -1067,19 +1068,19 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     sessionRef: string,
     schedule: AgentSessionSchedule | undefined,
   ): Promise<SetScheduleResult> {
-    const saved = tasks.value.find((entry) => entry.id === id)
+    const saved = savedAgent(id)
     if (!saved) return { ok: false, reason: 'no-task' }
     // Applied before the write, so a run marking or settling the Task meanwhile writes it too.
     const task = replaceTask(withSchedule(saved, sessionRef, schedule))
     if (await persistTask(task)) return { ok: true, task }
-    const latest = tasks.value.find((entry) => entry.id === id)
+    const latest = savedAgent(id)
     if (latest) replaceTask(withSchedule(latest, sessionRef, scheduleIn(saved, sessionRef)))
     return { ok: false, reason: 'persist-failed' }
   }
 
   /** The Agent's Schedule in a Session. */
   function taskSchedule(id: string, sessionRef: string): TaskScheduleState {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     const entry = task ? scheduleIn(task, sessionRef) : undefined
     if (!entry) return {}
     const { every, unit, startAt, enabled, nextRunAt } = entry
@@ -1096,7 +1097,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     sessionRef: string,
     schedule: AgentTaskSchedule,
   ): Promise<AddScheduleResult> {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task) return { ok: false, reason: 'no-task' }
     if (!sessionsStore.sessions[sessionRef]) return { ok: false, reason: 'no-session' }
     if (scheduleIn(task, sessionRef)) return { ok: false, reason: 'already-scheduled' }
@@ -1104,7 +1105,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function agentSchedules(id: string): AgentScheduleEntry[] {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     return (task?.schedules ?? []).map(
       ({ sessionRef, every, unit, startAt, enabled, nextRunAt }) => ({
         sessionRef,
@@ -1116,7 +1117,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Existing Sessions a saved Agent can still be scheduled in, most recent first. */
   function schedulableSessions(id: string): SessionSummary[] {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task) return []
     return sessionsStore.orderedSessions.filter((session) => !scheduleIn(task, session.id))
   }
@@ -1157,12 +1158,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const reason = turn.pauseReason
       return { running: { ...run, paused: reason ? { reason } : {} } }
     }
-    return { idle: tasks.value.find((task) => task.id === id)?.lastOutcome }
+    return { idle: savedAgent(id)?.lastOutcome }
   }
 
   /** What in the Task's Settings Template cannot be used right now; empty when it can run. */
   function taskProblems(id: string): SessionSettingsProblem[] {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     return task ? agentMode.problemsOf(task.settingsTemplate) : []
   }
 
@@ -1179,10 +1180,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   async function startManualRun(id: string, prompt: string): Promise<RunTaskResult> {
-    const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate.capabilities
+    const capabilities = savedAgent(id)?.settingsTemplate.capabilities
     await agentMode.loadMcpServersFor(capabilities ?? [])
     // Looked up after the wait, which a delete or a second Run may have overtaken.
-    const checked = tasks.value.find((entry) => entry.id === id)
+    const checked = savedAgent(id)
     if (!checked) return { ok: false, reason: 'no-task' }
     const open = sessionsStore.openSessionId
     if (open && runsIn(id, open)) return { ok: false, reason: 'running' }
@@ -1195,8 +1196,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (refusal) return { ok: false, ...refusal }
     const sessionRef = await sessionsStore.ensureOpenSession()
     if (!sessionRef) return { ok: false, reason: 'no-session' }
+    if (!(await sessionsStore.readyWorkspaceForTurn(sessionRef))) {
+      return { ok: false, reason: 'missing-workspace' }
+    }
+    if (!(await readyAgentWorkspaceForTurn(id))) return { ok: false, reason: 'missing-workspace' }
     // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task) return { ok: false, reason: 'no-task' }
     if (runsIn(id, sessionRef)) return { ok: false, reason: 'running' }
     await startRun(task, sessionRef, false, prompt)
@@ -1220,15 +1225,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   async function recordNotStarted(task: AgentTask, message: string, scheduled: boolean) {
-    await recordOutcome(
-      task.id,
-      { kind: 'failed', reason: 'not-started', message, stepCount: task.steps.length },
-      scheduled,
-    )
+    await recordOutcome(task.id, { kind: 'failed', reason: 'not-started', message }, scheduled)
   }
 
   function stillScheduled(id: string, sessionRef: string): AgentTask | undefined {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task || scheduleIn(task, sessionRef)?.enabled !== true) return undefined
     if (runsIn(id, sessionRef) || starting.has(runSlot(id, sessionRef))) return undefined
     if (deleting.has(id)) return undefined
@@ -1262,19 +1263,19 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Lets a Channel list and start the Agent, or no longer; written at once like a Schedule. */
   async function setStartableFromChannel(id: string, startable: boolean): Promise<boolean> {
-    const saved = tasks.value.find((entry) => entry.id === id)
+    const saved = savedAgent(id)
     if (!saved) return false
     const { startableFromChannel: _was, ...rest } = saved
     const task = replaceTask(startable ? { ...rest, startableFromChannel: true } : rest)
     if (await persistTask(task)) return true
-    const latest = tasks.value.find((entry) => entry.id === id)
+    const latest = savedAgent(id)
     if (latest) replaceTask({ ...latest, startableFromChannel: saved.startableFromChannel })
     return false
   }
 
   /**
    * An Agent Run a Channel asked for, in that Channel's Session on the Agent's Settings Template.
-   * Like a Scheduled Run nobody watches, a missing model is asked for by its first Step.
+   * Like a Scheduled Run nobody watches, a missing model is asked for by its turn.
    */
   async function startFromChannel(
     id: string,
@@ -1290,7 +1291,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         'This agent can no longer be started from a Channel.',
     })
     const slot = runSlot(id, sessionRef)
-    if (!tasks.value.find((entry) => entry.id === id)?.startableFromChannel) return notStartable()
+    if (!savedAgent(id)?.startableFromChannel) return notStartable()
     const running = agentRunIn(sessionRef)
     if (running || starting.has(slot) || minting.has(slot)) {
       return { ok: false, reason: 'task-locked', message: running?.name ?? '' }
@@ -1298,10 +1299,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (sessionBusy(sessionRef)) return { ok: false, reason: 'busy', message: '' }
     starting.add(slot)
     try {
-      const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate
+      const capabilities = savedAgent(id)?.settingsTemplate
       await agentMode.loadMcpServersFor(capabilities?.capabilities ?? [])
       // A delete, an edit or another run may have overtaken the wait.
-      const task = tasks.value.find((entry) => entry.id === id)
+      const task = savedAgent(id)
       if (!task?.startableFromChannel || deleting.has(id)) return notStartable()
       if (agentRunIn(sessionRef)) return { ok: false, reason: 'task-locked', message: '' }
       const refusal = scheduledRefusal(task)
@@ -1321,7 +1322,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     harnessSessionId: string,
   ): { settings: AgentSessionSettings; followUp: AgentFollowUpTag } | undefined {
     const taskId = agentMode.sessions[harnessSessionId]?.taskRun?.taskId
-    const agent = taskId ? tasks.value.find((entry) => entry.id === taskId) : undefined
+    const agent = taskId ? savedAgent(taskId) : undefined
     if (!agent) return undefined
     return {
       settings: cloneForIpc(agent.settingsTemplate),
@@ -1357,7 +1358,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     minting.delete(slot)
     // A delete, pause or manual Run may have overtaken the wait.
-    const current = tasks.value.find((entry) => entry.id === id)
+    const current = savedAgent(id)
     if (!current || runIn(id, sessionRef) || deleting.has(id)) return null
     if (scheduled && scheduleIn(current, sessionRef)?.enabled !== true) return null
     const sessionId = agentMode.createSession({
@@ -1386,23 +1387,17 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     runs.value = {
       ...runs.value,
-      [sessionId]: {
-        taskId: id,
-        sessionId,
-        sessionRef,
-        stepIndex: 1,
-        stepCount: plan.steps.length,
-      },
+      [sessionId]: { taskId: id, sessionId, sessionRef },
     }
     if (!origin) {
-      void sendStep(sessionId, 1)
+      void sendRun(sessionId)
       return null
     }
-    // The Channel hears a refused first Step as the start's own refusal.
-    return sendStep(sessionId, 1)
+    // The Channel hears a refused run turn as the start's own refusal.
+    return sendRun(sessionId)
   }
 
-  /** A Session runs one turn at a time: a Step due while it has one in flight waits for it. */
+  /** A Session runs one turn at a time: a run due while it has one in flight waits for it. */
   function sessionBusy(sessionRef: string): boolean {
     return !!sessionsStore.turns[sessionRef]
   }
@@ -1412,26 +1407,114 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     () => {
       for (const run of Object.values(runs.value)) {
         if (run.waiting && !sessionBusy(run.sessionRef)) {
-          void sendLaterStep(run.sessionId, run.stepIndex)
+          void sendRun(run.sessionId)
         }
       }
     },
   )
 
-  /** The Agent whose run is in flight in the Session, if any. */
+  /** The Agent whose run is in flight in the Session, a running Follow-up included. */
   function agentRunIn(sessionRef: string): AgentTask | undefined {
-    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
-    return run ? tasks.value.find((task) => task.id === run.taskId) : undefined
+    const run = agentRunsInFlight.value.find((entry) => entry.sessionRef === sessionRef)
+    return run ? savedAgent(run.taskId) : undefined
   }
 
-  /** The Agent Run in flight in the Session (between Steps too): its Agent's name and Step. */
-  function agentRunStepIn(
-    sessionRef: string,
-  ): { name: string; step: number; steps: number } | undefined {
-    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
-    if (!run) return undefined
-    const name = tasks.value.find((task) => task.id === run.taskId)?.name ?? ''
-    return { name, step: run.stepIndex, steps: run.stepCount }
+  /** The Agent whose folders are in effect: the picked one, else the one running here. */
+  const activeAgent = computed((): AgentTask | undefined => {
+    const open = sessionsStore.openSessionId
+    return pickedAgent.value ?? (open ? agentRunIn(open) : undefined)
+  })
+
+  /** Agents whose own Workspace folder no longer exists, as last checked. */
+  const missingAgentWorkspaces = ref<Record<string, MissingWorkspace>>({})
+
+  function noteAgentMissing(agentId: string, missing: MissingWorkspace | null): void {
+    const { [agentId]: _was, ...rest } = missingAgentWorkspaces.value
+    missingAgentWorkspaces.value = missing ? { ...rest, [agentId]: missing } : rest
+  }
+
+  /** Checks on disk whether the Agent's own Workspace is missing; null when it has none. */
+  async function checkAgentWorkspace(agentId: string): Promise<MissingWorkspace | null> {
+    const own = savedAgent(agentId)?.settingsTemplate.folderOverrides?.workspace
+    let missing: MissingWorkspace | null = null
+    if (own) {
+      const present = await window.electronAPI.isFolderPath(own.hostPath).catch((error) => {
+        errors.report(error, { code: 'agent-tasks/check-workspace-failed', surface: 'silent' })
+        return true
+      })
+      if (!present) {
+        const name = folderBaseName(own.hostPath) || own.hostPath
+        missing = { folderId: own.id, hostPath: own.hostPath, name }
+      }
+    }
+    noteAgentMissing(agentId, missing)
+    return missing
+  }
+
+  watch(
+    () => [activeAgent.value?.id, activeAgent.value?.settingsTemplate.folderOverrides?.workspace],
+    ([id]) => {
+      if (typeof id === 'string') void checkAgentWorkspace(id)
+    },
+    { immediate: true },
+  )
+
+  /** Re-points the Agent's own Workspace at a folder the user picks, keeping its id and slug. */
+  async function locateAgentWorkspace(
+    agentId: string,
+  ): Promise<'located' | 'cancelled' | MountedFolderRefusal> {
+    let hostPath: string | undefined
+    let refusal: MountedFolderRefusal | undefined
+    try {
+      const picked = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
+      hostPath = picked.canceled ? undefined : picked.filePaths[0]
+      const agent = savedAgent(agentId)
+      if (!hostPath || !agent) return 'cancelled'
+      refusal = mountedFolderRefusal(hostPath, {
+        homeFolder: await window.electronAPI.getHomePath(),
+        mountedFolders: editableFolders(agent.settingsTemplate.folderOverrides?.folders ?? []),
+      })
+    } catch (error) {
+      errors.report(error, { code: 'agent-tasks/locate-workspace-failed', surface: 'toast' })
+      return 'cancelled'
+    }
+    if (refusal) return refusal
+    const previous = savedAgent(agentId)
+    const workspaceId = previous?.settingsTemplate.folderOverrides?.workspace?.id
+    if (!previous || !hostPath || !workspaceId) return 'cancelled'
+    if (!(await persistTask(replaceTask(withWorkspaceAt(previous, hostPath))))) {
+      replaceTask(previous)
+      return 'cancelled'
+    }
+    const draft = drafts.value[agentId]
+    if (draft?.settingsTemplate.folderOverrides?.workspace?.id === workspaceId) {
+      await writeDraft(withWorkspaceAt(cloneForIpc(draft), hostPath))
+    }
+    return (await checkAgentWorkspace(agentId)) === null ? 'located' : 'cancelled'
+  }
+
+  /** Whether an interactive run may start: a missing own Workspace is asked about first. */
+  async function readyAgentWorkspaceForTurn(agentId: string): Promise<boolean> {
+    const missing = await checkAgentWorkspace(agentId)
+    if (!missing) return true
+    let refusal: MountedFolderRefusal | undefined
+    for (;;) {
+      const agent = savedAgent(agentId)
+      if (!agent) return false
+      const choice = await requestMissingWorkspace({
+        missing,
+        refusal,
+        agent: { id: agent.id, name: agent.name },
+      })
+      if (choice === 'edit-agent') {
+        ui.openAgentLibrary({ agentId })
+        return false
+      }
+      if (choice !== 'locate') return false
+      const located = await locateAgentWorkspace(agentId)
+      if (located === 'located') return true
+      refusal = located === 'cancelled' ? undefined : located
+    }
   }
 
   /** Each Session's prompt waiting for its Agent Run or queued Channel messages. Memory only. */
@@ -1544,32 +1627,26 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     },
   )
 
-  /** Sends the Step unless it has to wait; returns why the window refused it, or null. */
-  async function sendStep(sessionId: string, stepIndex: number): Promise<string | null> {
+  /** Sends the run's turn unless it has to wait; returns why the window refused it, or null. */
+  async function sendRun(sessionId: string): Promise<string | null> {
     const run = runs.value[sessionId]
     const context = runContexts[sessionId]
     if (!run || !context) return null
     const { plan, abort } = context
     const waiting = sessionBusy(run.sessionRef)
     const { waiting: _wasWaiting, ...rest } = run
-    runs.value = {
-      ...runs.value,
-      [sessionId]: { ...rest, stepIndex, ...(waiting ? { waiting } : {}) },
-    }
+    runs.value = { ...runs.value, [sessionId]: { ...rest, ...(waiting ? { waiting } : {}) } }
     markRunInFlight(run.taskId, {
       sessionId,
       sessionRef: run.sessionRef,
-      stepIndex,
-      stepCount: run.stepCount,
       ...(context.scheduled ? { scheduled: true } : {}),
     })
     if (waiting) return null
     let refusal: string | null = null
-    await sendRunStep(
+    await sendRunTurn(
       agentMode,
       {
         sessionId,
-        stepIndex,
         taskName: plan.name,
         steps: plan.steps,
         settingsTemplate: plan.settingsTemplate,
@@ -1580,24 +1657,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       },
       (message) => {
         refusal = message
-        return settleRun(sessionId, { kind: 'failed', stepIndex, message })
+        return settleRun(sessionId, { kind: 'failed', message })
       },
     )
     return refusal
   }
 
-  /** A Step after the run's start; a Channel-started run's refusal goes to its Channel. */
-  async function sendLaterStep(sessionId: string, stepIndex: number): Promise<void> {
-    const run = runs.value[sessionId]
-    const context = runContexts[sessionId]
-    const reason = await sendStep(sessionId, stepIndex)
-    if (reason === null || !run || !context?.origin) return
-    const refusal = { origin: context.origin, name: context.plan.name, step: stepIndex, reason }
-    for (const listener of [...channelRunRefusedListeners]) listener(run.sessionRef, refusal)
-  }
-
   function markRunInFlight(taskId: string, activeRun: AgentTaskActiveRun): void {
-    const task = tasks.value.find((entry) => entry.id === taskId)
+    const task = savedAgent(taskId)
     if (!task) return
     const others = (task.activeRuns ?? []).filter((run) => run.sessionId !== activeRun.sessionId)
     void persistTask(replaceTask(withEntries(task, 'activeRuns', [...others, activeRun])))
@@ -1614,17 +1681,18 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (run) await stopRun(run.sessionId)
   }
 
-  /** Stop the Agent Run in flight in the Session, whichever Agent it is. */
+  /** Stop the Session's Agent Run, whichever Agent; stopping a Follow-up keeps the outcome. */
   async function stopRunIn(sessionRef: string): Promise<void> {
-    const run = Object.values(runs.value).find((entry) => entry.sessionRef === sessionRef)
-    if (run) await stopRun(run.sessionId)
+    const run = agentRunsInFlight.value.find((entry) => entry.sessionRef === sessionRef)
+    if (!run) return
+    if (runs.value[run.sessionId]) await stopRun(run.sessionId)
+    else await agentMode.stopSession(run.sessionId)
   }
 
   async function stopRun(sessionId: string): Promise<void> {
-    const run = runs.value[sessionId]
-    if (!run) return
-    // Settled first, so the stopped turn's own settle finds no run and no Step can follow.
-    const settled = settleRun(sessionId, { kind: 'stopped', stepIndex: run.stepIndex })
+    if (!runs.value[sessionId]) return
+    // Settled first, so the stopped turn's own settle finds no run.
+    const settled = settleRun(sessionId, { kind: 'stopped' })
     await agentMode.stopSession(sessionId)
     await settled
   }
@@ -1636,11 +1704,11 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   agentMode.setTaskLockLookup((sessionId) => {
     const run = runs.value[sessionId]
     if (!run) return undefined
-    const taskName = tasks.value.find((task) => task.id === run.taskId)?.name ?? ''
+    const taskName = savedAgent(run.taskId)?.name ?? ''
     return { taskName, signal: runContexts[sessionId]?.abort.signal }
   })
 
-  /** The open Harness Session's Steps run with its Task's Settings Template: its own are locked. */
+  /** The open Harness Session's run uses its Agent's Settings Template: its own are locked. */
   const openSessionSettingsReadOnly = computed(() => isSessionLockedByTask(agentMode.openSessionId))
 
   /** Turns that ended while `init` restored the runs, which may have been theirs. */
@@ -1667,15 +1735,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   })
 
   function onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
-    const run = runs.value[sessionId]
-    if (!run) return
-    const { stepIndex } = run
-    const next = afterStepTurn(outcome, stepIndex, run.stepCount)
-    if (next.kind === 'step') void sendLaterStep(sessionId, next.stepIndex)
-    else if (next.kind === 'completed') void settleRun(sessionId, { kind: 'completed' })
-    else if (next.kind === 'failed')
-      void settleRun(sessionId, { kind: 'failed', stepIndex, message: next.message })
-    else void settleRun(sessionId, { kind: 'stopped', stepIndex })
+    if (!runs.value[sessionId]) return
+    void settleRun(sessionId, afterRunTurn(outcome))
   }
 
   /** End the run and keep how it ended as the Task's only outcome. */
@@ -1699,7 +1760,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       {
         ...end,
         sessionId,
-        stepCount: run.stepCount,
         ...(declined ? { reason: 'download-declined' as const } : {}),
       },
       scheduled,
@@ -1712,15 +1772,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     fields: OutcomeFields,
     scheduled = false,
   ): Promise<void> {
-    const task = tasks.value.find((entry) => entry.id === taskId)
+    const task = savedAgent(taskId)
     if (!task) return
     if (fields.kind === 'failed') reportRunFailure(task, fields, scheduled)
     const lastOutcome: AgentTaskOutcome = {
       kind: fields.kind,
       at: Date.now(),
       ...(fields.sessionId !== undefined ? { sessionId: fields.sessionId } : {}),
-      stepCount: fields.stepCount,
-      ...(fields.stepIndex !== undefined ? { stepIndex: fields.stepIndex } : {}),
       ...(fields.message !== undefined ? { message: fields.message } : {}),
       ...(fields.reason !== undefined ? { reason: fields.reason } : {}),
     }
@@ -1758,8 +1816,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
           severity: 'warning',
           surface: 'toast',
           userMessage,
-          technicalMessage: `Task "${task.name}" at step ${end.stepIndex ?? '-'}: ${userMessage}`,
-          context: { taskId: task.id, stepIndex: end.stepIndex },
+          technicalMessage: `Agent "${task.name}": ${userMessage}`,
+          context: { taskId: task.id },
         }),
       )
       return
@@ -1771,14 +1829,14 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         severity: 'warning',
         surface: 'silent',
         userMessage: message,
-        technicalMessage: `Task "${task.name}" failed at step ${end.stepIndex ?? '?'}: ${message}`,
-        context: { taskId: task.id, stepIndex: end.stepIndex },
+        technicalMessage: `Agent Run of "${task.name}" failed: ${message}`,
+        context: { taskId: task.id },
       }),
     )
   }
 
   function restoreEditableFields(saved: AgentTask): void {
-    const latest = tasks.value.find((entry) => entry.id === saved.id)
+    const latest = savedAgent(saved.id)
     if (!latest) return
     const { name, description, image, steps, settingsTemplate, updatedAt } = saved
     const { description: _description, image: _image, ...rest } = latest
@@ -1814,8 +1872,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     chatModelRefusal,
     contributeInFlightWork,
     onAgentDeleted,
-    onChannelRunRefused,
-    runsInFlight,
+    firstTurnsInFlight,
     scheduledSessions,
     scheduledSessionCount,
     runningSessionCount,
@@ -1825,6 +1882,8 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     deleteTask,
     pickedAgentIn,
     pickedAgent,
+    activeAgent,
+    missingAgentWorkspaces,
     agentSettingsProblems,
     pickAgent,
     runPickedAgent,
@@ -1851,7 +1910,6 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     stopTask,
     stopRunIn,
     agentRunIn,
-    agentRunStepIn,
     isSessionLockedByTask,
     afterAgentRun,
     cancelQueuedPrompt,

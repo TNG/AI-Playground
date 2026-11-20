@@ -2,6 +2,7 @@ import { type Page, test, expect } from '@playwright/test'
 import path from 'path'
 import { SetupWizardPage } from './pages/SetupWizardPage'
 import { AppShellPage } from './pages/AppShellPage'
+import { SessionsPanelPage } from './pages/SessionsPanelPage'
 import { MainPage, type PromptBarMode } from './pages/MainPage'
 import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
@@ -72,6 +73,7 @@ export class AppDriver {
 
   readonly wizard: SetupWizardPage
   readonly shell: AppShellPage
+  readonly sessions: SessionsPanelPage
   readonly main: MainPage
   readonly agent: AgentModePage
   readonly settings: SpecificSettingsPage
@@ -83,6 +85,7 @@ export class AppDriver {
   constructor(private readonly window: Page) {
     this.wizard = new SetupWizardPage(window)
     this.shell = new AppShellPage(window)
+    this.sessions = new SessionsPanelPage(window)
     this.main = new MainPage(window)
     this.agent = new AgentModePage(window)
     this.settings = new SpecificSettingsPage(window)
@@ -520,6 +523,10 @@ export class AppDriver {
 
     await test.step('Image toolbar: hidden until hover, shown where nothing can hover', async () => {
       await this.main.expectResultToolbarRevealedOnHover()
+    })
+
+    await test.step('Image toolbar: Delete removes the file once confirmed', async () => {
+      await this.main.deleteNewestResult()
     })
 
     return true

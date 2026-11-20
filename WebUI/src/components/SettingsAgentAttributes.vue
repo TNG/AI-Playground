@@ -45,18 +45,7 @@
         </p>
       </section>
 
-      <section v-else-if="!template" class="flex flex-col gap-2">
-        <SettingsHeading>{{ languages.AGENT_SETTINGS_WORKSPACE_FOLDER }}</SettingsHeading>
-        <span v-if="agentMode.workspaceDir" class="text-sm text-muted-foreground break-all">
-          {{ agentMode.workspaceDir }}
-        </span>
-        <span v-else class="text-sm text-muted-foreground italic">
-          {{ languages.AGENT_SETTINGS_WORKSPACE_FOLDER_PENDING }}
-        </span>
-        <p class="text-xs text-muted-foreground">
-          {{ languages.AGENT_SETTINGS_WORKSPACE_FOLDER_HINT }}
-        </p>
-      </section>
+      <SessionFolderList v-else-if="!template" />
 
       <!-- Consent is stored per workspace folder, so it only ever affects the folder shown above. -->
       <section v-if="showShellOption" class="flex flex-col gap-2">
@@ -92,18 +81,11 @@
         </p>
       </section>
 
-      <section v-if="binding.mountedFoldersSupported" class="flex flex-col gap-2">
-        <SettingsHeading>{{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS }}</SettingsHeading>
-        <p class="text-xs text-muted-foreground">
-          {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_HINT }}
-        </p>
-        <MountedFolderList
-          :model-value="binding.mountedFolders"
-          :session-folder="template ? undefined : agentMode.workspaceDir"
-          :real-shell="showShellOption && agentMode.unsandboxed"
-          @update:model-value="binding.setMountedFolders"
-        />
-      </section>
+      <AgentFolderOverrides
+        v-if="template"
+        :overrides="binding.folderOverrides ?? {}"
+        @change="(overrides) => binding.setFolderOverrides?.(overrides)"
+      />
 
       <section class="flex flex-col gap-3">
         <SettingsHeading>{{ languages.AGENT_SETTINGS_CAPABILITIES }}</SettingsHeading>
@@ -203,13 +185,14 @@ import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useMcp } from '@/assets/js/store/mcp'
 import { useSessions } from '@/assets/js/store/sessions'
+import AgentFolderOverrides from '@/components/AgentFolderOverrides.vue'
 import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
 import AgentMcpServerChecklist from '@/components/AgentMcpServerChecklist.vue'
 import AgentPresetDefaultsActions from '@/components/AgentPresetDefaultsActions.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
-import MountedFolderList from '@/components/MountedFolderList.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
+import SessionFolderList from '@/components/SessionFolderList.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'

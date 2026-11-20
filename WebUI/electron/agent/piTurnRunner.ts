@@ -43,8 +43,14 @@ import {
   releaseTurnSession,
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
+import { agentWorkspaceOverride } from './turnFolders.ts'
 import { reportAgentTurnEnd, type AgentTurnEnd } from './agentTurnOutcome.ts'
 import { trackAgentTurnInSession } from '../session/sessionAgentTurns.ts'
+import {
+  assertAgentWorkspacePresent,
+  assertSessionWorkspacePresent,
+  turnWorkspaceDir,
+} from '../session/sessionWorkspace.ts'
 import {
   claimSessionTurn,
   releaseSessionTurn,
@@ -72,7 +78,7 @@ import {
   setLastChatBackendLoadActive,
   setTurnChatBackendLoad,
 } from '../chat/chatReadiness.ts'
-import { turnAttachments } from './workspaceAttachments.ts'
+import { turnAttachments, withAttachmentReferences } from './workspaceAttachments.ts'
 import { collectAgentCallTimings, turnTimings } from './piCallTiming.ts'
 import { markHarnessTurn, rewindHarnessTurn } from './harnessTurns.ts'
 import { computeWindowSince } from '../adapters/hardware/computeMetrics.ts'
@@ -386,20 +392,20 @@ const USAGE_SAMPLE_EVENTS = new Set([
 async function withSessionUpdate(
   prompt: string,
   config: AgentModeTurnConfig,
-  replayedEntryIds: readonly string[],
+  session: Pick<ActiveSession, 'replayedEntryIds' | 'historyReader'>,
 ): Promise<string> {
   if (!config.sessionRef) return prompt
   try {
-    const replayed = new Set(replayedEntryIds)
+    const replayed = new Set(session.replayedEntryIds)
     const consumer = {
       key: config.sessionId,
       harnessSessionId: config.sessionId,
       ...(config.followUp ? {} : { ownPreset: config.presetName }),
       ...(config.followedRun ? { run: config.followedRun } : {}),
-      workspaceDir: config.workspaceDir,
+      reader: session.historyReader,
       isOwn: (entry: HistoryEntry) => replayed.has(entry.id),
     }
-    // A run's Steps get none, but its Follow-ups must hear only what happened since.
+    // A run's own turn gets none, but its Follow-ups must hear only what happened since.
     if (config.taskRun) {
       await skipSessionUpdate(config.sessionRef, consumer)
       return prompt
@@ -436,6 +442,14 @@ export async function startAgentTurn(
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
+  const ownWorkspace = agentWorkspaceOverride(config)
+  // An Agent's own folder is never swapped for the Session's: missing, it fails the turn below.
+  if (sessionRef && !ownWorkspace) {
+    const workspaceDir = await turnWorkspaceDir(sessionRef, config.workspaceDir).catch(
+      () => config.workspaceDir,
+    )
+    config = { ...config, workspaceDir }
+  }
   noteTurnCapabilities(sessionId, config.capabilities)
   if (config.answer) {
     noteAnswerTurn(
@@ -444,7 +458,7 @@ export async function startAgentTurn(
       config.workspaceDir,
       config.answer,
       answerSpeaks(config),
-      config.taskRun,
+      config.taskRun?.taskName,
     )
   } else if (config.taskRun?.notifiesResult) noteResultTurn(sessionId, turnId, config.workspaceDir)
   beginAgentTurnSnapshot(sessionId, turnId)
@@ -457,7 +471,7 @@ export async function startAgentTurn(
         workspaceDir: config.workspaceDir,
         prompt,
         ...(config.taskRun
-          ? { taskRun: { taskName: config.taskRun.taskName, stepIndex: config.taskRun.stepIndex } }
+          ? { taskRun: { taskName: config.taskRun.taskName, input: config.taskRun.input } }
           : {}),
         harnessSessionId: sessionId,
         ...(config.followUp ? { followUp: config.followUp } : {}),
@@ -515,8 +529,20 @@ export async function startAgentTurn(
     }
   }
   let failedWith: string | undefined
+  let missingWorkspace = false
   let reply: string | undefined
   try {
+    // Before the queue, so an unattended turn fails at once instead of pausing on a download.
+    if (sessionRef) {
+      await (
+        ownWorkspace
+          ? assertAgentWorkspacePresent(ownWorkspace)
+          : assertSessionWorkspacePresent(sessionRef, config.workspaceDir)
+      ).catch((error) => {
+        missingWorkspace = true
+        throw error
+      })
+    }
     await submitTextRequest(
       {
         runId: turnId,
@@ -575,14 +601,13 @@ export async function startAgentTurn(
       await collectAgentCallTimings(calls, async () => {
         const note = current.mountedFoldersNote
         // A regenerated turn resends what the replaced one was sent, so its request is the same.
-        const sent = rewound?.text ?? prompt
-        const withUpdate = await withSessionUpdate(sent, config, current.replayedEntryIds)
+        const sent = rewound?.text ?? withAttachmentReferences(prompt, current.attachments)
+        const withUpdate = await withSessionUpdate(sent, config, current)
         const images =
           rewound?.images ??
-          turnAttachments(current.workspaceDir, prompt, config.modelConfig.supportsVision === true)
-            .images
+          turnAttachments(current.files, prompt, config.modelConfig.supportsVision === true).images
         const documents =
-          current.documentSearch && !rewound ? documentsLine(current.workspaceDir) : ''
+          current.documentSearch && !rewound ? documentsLine(current.attachments) : ''
         const text = [note, withUpdate, documents].filter(Boolean).join('\n\n')
         await current.session.prompt(text, { images, expandPromptTemplates: !rewound })
         if (current.mountedFoldersNote === note) current.mountedFoldersNote = undefined
@@ -620,6 +645,7 @@ export async function startAgentTurn(
       sessionFilePath: current.session.getSessionStats().sessionFile ?? '',
       updatedAt: Date.now(),
       mountedFolders: current.mountedFolders,
+      workdir: current.workdir,
     })
     return { success: true }
   } catch (error) {
@@ -642,7 +668,13 @@ export async function startAgentTurn(
     // Decided by the abort, not the thrown error: a stop or shutdown is never a failure.
     const end: AgentTurnEnd =
       failedWith !== undefined
-        ? { sessionId, turnId, outcome: 'failed', error: failedWith }
+        ? {
+            sessionId,
+            turnId,
+            outcome: 'failed',
+            error: failedWith,
+            ...(missingWorkspace ? { missingWorkspace: true as const } : {}),
+          }
         : abortController.signal.aborted
           ? { sessionId, turnId, outcome: 'cancelled' }
           : { sessionId, turnId, outcome: 'completed', reply }

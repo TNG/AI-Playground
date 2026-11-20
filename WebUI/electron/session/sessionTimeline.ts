@@ -1,4 +1,6 @@
-import { mutateSession } from './sessions'
+import { emitSessionChanged } from '../kernel/kernelBus'
+import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
+import { mutateSession, sessionDocumentOf } from './sessions'
 
 type TimelineMessage = { id: string }
 
@@ -30,6 +32,8 @@ export async function upsertTimelineMessages(
     }
     return { ...current, timeline }
   })
+  // A change announced meanwhile carried the timeline it read; the window keeps the last one.
+  emitSessionChanged(sessionDocumentOf(file))
   return file.timeline
 }
 
@@ -42,6 +46,48 @@ export async function removeTimelineMessages(
   const file = await mutateSession(sessionId, (current) => ({
     ...current,
     timeline: current.timeline.filter((message) => !removed.has(idOf(message) ?? '')),
+    // A message that leaves the timeline takes its hidden mark with it.
+    hiddenMessageIds: current.hiddenMessageIds.filter((id) => !removed.has(id)),
   }))
   return file.timeline
+}
+
+/** Ids not in the file yet are kept too, so a live turn hides once it settles. */
+export async function addHiddenMessages(sessionId: string, messageIds: string[]): Promise<void> {
+  const hidden = new Set(messageIds)
+  let changed = false
+  const file = await mutateSession(sessionId, (current) => {
+    const next = [...new Set([...current.hiddenMessageIds, ...hidden])]
+    const same =
+      next.length === current.hiddenMessageIds.length &&
+      next.every((id, index) => current.hiddenMessageIds[index] === id)
+    if (same) return current
+    changed = true
+    return { ...current, hiddenMessageIds: next }
+  })
+  if (changed) emitSessionChanged(sessionDocumentOf(file))
+}
+
+/** Brings every hidden message of one Session back into its timeline view. */
+export async function clearHiddenMessages(sessionId: string): Promise<void> {
+  let changed = false
+  const file = await mutateSession(sessionId, (current) => {
+    if (current.hiddenMessageIds.length === 0) return current
+    changed = true
+    return { ...current, hiddenMessageIds: [] }
+  })
+  if (changed) emitSessionChanged(sessionDocumentOf(file))
+}
+
+/** Brings every hidden message of every Session back into its timeline view. */
+export async function clearAllHiddenMessages(): Promise<void> {
+  const folders = await listSessionFolders()
+  await Promise.all(
+    folders.map(async ({ id }) => {
+      // A cheap skip only: clearHiddenMessages decides again under the Session's write lock.
+      const read = await readSessionFile(id)
+      if (read.status !== 'ok' || read.file.hiddenMessageIds.length === 0) return
+      await clearHiddenMessages(id)
+    }),
+  )
 }

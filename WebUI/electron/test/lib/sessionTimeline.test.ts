@@ -5,9 +5,10 @@ import {
   latestTurnOf,
   sessionTimelineItems,
   timelineTurns,
+  visibleLiveMessages,
   withLiveAgentTurn,
+  withoutMessageHiding,
 } from '@/lib/sessionTimeline'
-import { firstStepTurn, stepTurn } from '@/lib/taskSteps'
 import { turnDetailsShown, turnDetailsSummaryText, turnLiveText } from '@/lib/turnText'
 import type { SessionTimelineItem, TurnDetails, TurnResultPart } from '@/lib/turnTypes'
 import type { AudioArtifact } from '@/lib/audioArtifacts'
@@ -20,6 +21,16 @@ import {
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
 import type { MediaItem } from '@/types/mediaItem'
 import type { AgentTurnTag } from '@/types/sessionTimeline'
+
+// How runs were sent before ADR 0012: a first turn holding Step 1, then one turn per later Step.
+const firstStepTurn = (input: string, steps: string[]) =>
+  `Carry this out in ${steps.length} steps. I will send them one at a time; do only the current one, then stop.\n\n` +
+  (input
+    ? `For this run the user added: "${input}"\nApply it to every step it is relevant to. Where it conflicts with a step, follow the user.\n\n`
+    : '') +
+  `Step 1 of ${steps.length}: ${steps[0]}`
+const stepTurn = (index: number, steps: string[]) =>
+  `Step ${index} of ${steps.length}: ${steps[index - 1]}`
 
 const agentTurn = { presetName: 'Agent', harnessSessionId: 'aipg-agent-1' }
 
@@ -105,26 +116,50 @@ describe('an Agent Run in the timeline', () => {
     parts: parts ?? [{ type: 'text', text: id }],
     metadata: { agentTurn: tag },
   })
+  const runPrompt =
+    'Carry out these steps.\n\n1. Search the news\n2. Ask me which city\n3. Summarise'
 
-  it("is one Turn whose prompt says it ran the Agent by hand, apart from the Agent's own turns", () => {
+  it('starts with a bubble saying it ran the Agent by hand, then its reply as an ordinary Turn', () => {
     const turns = timelineTurns([
       agentMessage('u1', 'user', 'hello'),
       agentMessage('a1', 'assistant', 'hi'),
-      runMessage('r1', 'user'),
-      runMessage('r2', 'assistant'),
-      runMessage('r3', 'user'),
-      runMessage('r4', 'assistant'),
+      runMessage('r1', 'user', [{ type: 'text', text: runPrompt }]),
+      runMessage('r2', 'assistant', [{ type: 'text', text: 'Which city?' }]),
     ])
 
     expect(turns.map((turn) => turn.kind)).toEqual(['agent', 'agent'])
     expect(turns[1]).toMatchObject({
       id: 'r1',
-      prompt: { text: '', agentRun: { trigger: 'manual', name: 'Morning digest', startedAt: 500 } },
-      answers: [{ id: 'r2' }, { id: 'r4' }],
+      hint: { kind: 'agent', preset: 'Morning digest' },
+      prompt: {
+        text: '',
+        agentRun: { trigger: 'manual', name: 'Morning digest', startedAt: 500, prompt: runPrompt },
+      },
+      answers: [{ id: 'r2' }],
+      result: [{ kind: 'prose', messageId: 'r2', index: 0 }],
     })
   })
 
-  it("shows the user's input for the run under its header", () => {
+  it("folds the reply's reasoning and tool calls as in any Assistant reply", () => {
+    const [turn] = timelineTurns([
+      runMessage('r1', 'user'),
+      runMessage('r2', 'assistant', [
+        { type: 'reasoning', text: 'plan', state: 'done' },
+        { type: 'dynamic-tool', toolName: 'read', toolCallId: 't1', state: 'output-available' },
+        { type: 'text', text: 'Done.' },
+      ]),
+    ])
+
+    expect(turn.kind === 'agent' && turn.details.parts).toEqual([
+      { kind: 'reasoning', messageId: 'r2', index: 0 },
+      { kind: 'tool', messageId: 'r2', index: 1 },
+    ])
+    expect(turn.kind === 'agent' && turn.result).toEqual([
+      { kind: 'prose', messageId: 'r2', index: 2 },
+    ])
+  })
+
+  it("shows the user's input for the run under its label", () => {
     const withInput: AgentTurnTag = {
       ...runTag,
       taskRun: { ...runTag.taskRun!, input: 'only news from Germany' },
@@ -139,25 +174,60 @@ describe('an Agent Run in the timeline', () => {
     })
   })
 
-  it("recovers the input of a run recorded before it was kept, from Step 1's prompt", () => {
+  it('recovers the input of a run recorded before it was kept, from its first prompt', () => {
     const step1 = firstStepTurn('only "German" news', ['search', 'summarise'])
     const turns = timelineTurns([
       runMessage('r1', 'user', [{ type: 'text', text: step1 }]),
       runMessage('r2', 'assistant'),
-      runMessage('r3', 'user', [{ type: 'text', text: stepTurn(2, ['search', 'summarise']) }]),
     ])
 
-    expect(turns[0]).toMatchObject({ prompt: { text: 'only "German" news' } })
+    expect(turns[0]).toMatchObject({
+      prompt: { text: 'only "German" news', agentRun: { prompt: step1 } },
+    })
   })
 
-  it('keeps only the header for a run started without input', () => {
+  it('keeps only the label for a run started without input', () => {
     const step1 = firstStepTurn('', ['search', 'summarise'])
     const turns = timelineTurns([runMessage('r1', 'user', [{ type: 'text', text: step1 }])])
 
     expect(turns[0]).toMatchObject({ prompt: { text: '', agentRun: { name: 'Morning digest' } } })
   })
 
-  it('shows its Follow-ups as plain prompts to the Agent, apart from the run', () => {
+  it('renders a run saved with three Steps flat, every prompt and reply kept', () => {
+    const steps = ['search', 'pick one', 'summarise']
+    const turns = timelineTurns([
+      runMessage('s1', 'user', [{ type: 'text', text: firstStepTurn('', steps) }]),
+      runMessage('a1', 'assistant', [{ type: 'text', text: 'found 3' }]),
+      runMessage('s2', 'user', [{ type: 'text', text: stepTurn(2, steps) }]),
+      runMessage('a2', 'assistant', [{ type: 'text', text: 'picked' }]),
+      runMessage('s3', 'user', [{ type: 'text', text: stepTurn(3, steps) }]),
+      runMessage('a3', 'assistant', [{ type: 'text', text: 'summary' }]),
+    ])
+
+    expect(turns).toMatchObject([
+      {
+        id: 's1',
+        prompt: { agentRun: { name: 'Morning digest', prompt: firstStepTurn('', steps) } },
+        answers: [{ id: 'a1' }],
+      },
+      {
+        id: 's2',
+        hint: { preset: 'Morning digest' },
+        prompt: { text: 'Step 2 of 3: pick one' },
+        answers: [{ id: 'a2' }],
+      },
+      {
+        id: 's3',
+        hint: { preset: 'Morning digest' },
+        prompt: { text: 'Step 3 of 3: summarise' },
+        answers: [{ id: 'a3' }],
+      },
+    ])
+    expect(turns[1].kind === 'agent' && turns[1].prompt).not.toHaveProperty('agentRun')
+    expect(turns[2].kind === 'agent' && turns[2].prompt).not.toHaveProperty('agentRun')
+  })
+
+  it('shows its Follow-ups as plain prompts to the Agent', () => {
     const followUp = (id: string, text: string) => ({
       ...runMessage(id, 'user', [{ type: 'text', text }]),
       metadata: { agentTurn: runTag, followUp: { agentId: 't1', agentName: 'Morning digest' } },
@@ -165,7 +235,7 @@ describe('an Agent Run in the timeline', () => {
     const turns = timelineTurns([
       runMessage('r1', 'user'),
       runMessage('r2', 'assistant'),
-      followUp('f1', 'why that one?'),
+      followUp('f1', 'Berlin'),
       runMessage('f2', 'assistant'),
       followUp('f3', 'and the other?'),
       runMessage('f4', 'assistant'),
@@ -177,17 +247,16 @@ describe('an Agent Run in the timeline', () => {
         kind: 'agent',
         id: 'f1',
         hint: { preset: 'Morning digest' },
-        prompt: { text: 'why that one?' },
+        prompt: { text: 'Berlin' },
         answers: [{ id: 'f2' }],
       },
       { kind: 'agent', id: 'f3', prompt: { text: 'and the other?' }, answers: [{ id: 'f4' }] },
     ])
-    expect(turns[1]).not.toHaveProperty('runKey')
     expect(turns[1].kind === 'agent' && turns[1].prompt).not.toHaveProperty('agentRun')
   })
 
   describe('the latest turn, for the composer', () => {
-    it("is the run's Harness Session, named after its Agent, after a Step or a Follow-up", () => {
+    it("is the run's Harness Session, named after its Agent, after its reply or a Follow-up", () => {
       const followUp = {
         ...runMessage('f1', 'user'),
         metadata: { agentTurn: runTag, followUp: { agentId: 't1', agentName: 'Digest' } },
@@ -235,6 +304,18 @@ describe('an Agent Run in the timeline', () => {
     })
   })
 
+  it('says which Channel started a run', () => {
+    const fromChannel = {
+      ...runTag,
+      taskRun: { ...runTag.taskRun!, trigger: 'channel' as const, channel: 'telegram' as const },
+    }
+    const [turn] = timelineTurns([runMessage('r1', 'user', undefined, fromChannel)])
+
+    expect(turn).toMatchObject({
+      prompt: { agentRun: { trigger: 'channel', channel: 'telegram', name: 'Morning digest' } },
+    })
+  })
+
   const image = (toolCallId: string) => ({
     type: 'dynamic-tool',
     toolName: 'generateImage',
@@ -243,103 +324,52 @@ describe('an Agent Run in the timeline', () => {
     input: { prompt: 'sunrise' },
     output: { content: [], details: { items: [] } },
   })
-  const twoSteps = [
-    runMessage('s1', 'user', [{ type: 'text', text: 'Draw a sunrise' }]),
-    runMessage('a1', 'assistant', [
-      { type: 'reasoning', text: 'plan the image', state: 'done' },
-      image('t1'),
-      { type: 'text', text: 'Here is your sunrise.' },
-    ]),
-    runMessage('s2', 'user', [{ type: 'text', text: 'Write a caption' }]),
-    runMessage('a2', 'assistant', [
-      { type: 'text', text: 'Let me look.' },
-      { type: 'dynamic-tool', toolName: 'read', toolCallId: 't2', state: 'output-available' },
-      { type: 'text', text: 'Dawn over the hills.' },
-    ]),
-  ]
 
-  it("lists every Step's prompt followed by its details and in-between text, in order", () => {
-    const [turn] = timelineTurns(twoSteps)
-
-    expect(turn.kind === 'agent' && turn.details.parts).toEqual([
-      { kind: 'step-prompt', step: 1, prompt: { text: 'Draw a sunrise' } },
-      { kind: 'reasoning', messageId: 'a1', index: 0 },
-      { kind: 'generation', messageId: 'a1', index: 1 },
-      { kind: 'prose', messageId: 'a1', index: 2 },
-      { kind: 'step-prompt', step: 2, prompt: { text: 'Write a caption' } },
-      { kind: 'prose', messageId: 'a2', index: 0 },
-      { kind: 'tool', messageId: 'a2', index: 1 },
-    ])
-  })
-
-  it('counts its Steps beside the usual summary', () => {
-    const [turn] = timelineTurns(twoSteps)
-
-    expect(turn.kind === 'agent' && turn.details.summary).toMatchObject({
-      kind: 'activity',
-      steps: 2,
-      tools: 2,
-      reasoningMs: 0,
+  it('shows the usual live status while in flight, with no Step progress', () => {
+    const running = [
+      runMessage('r1', 'user'),
+      runMessage('r2', 'assistant', [
+        image('t1'),
+        { type: 'text', text: 'Here is', state: 'streaming' },
+      ]),
+    ]
+    const [beforeStream] = sessionTimelineItems(running, {
+      agentRunsInFlight: ['aipg-agent-run'],
     })
-  })
-
-  it("answers with the last Step's final message and the Artifacts of every Step", () => {
-    const [turn] = timelineTurns(twoSteps)
-
-    expect(turn.kind === 'agent' && turn.result).toEqual([
-      { kind: 'artifact', messageId: 'a1', index: 1 },
-      { kind: 'prose', messageId: 'a2', index: 2 },
-    ])
-  })
-
-  it('keeps every Step in its details and stays live between two Steps of a run in flight', () => {
-    const [turn] = sessionTimelineItems(twoSteps, {
-      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
-    })
-
-    expect(turn.kind === 'agent' && turn.result).toEqual([
-      { kind: 'artifact', messageId: 'a1', index: 1 },
-    ])
-    expect(turn.kind === 'agent' && turn.details.parts).toContainEqual({
-      kind: 'prose',
-      messageId: 'a2',
-      index: 2,
-    })
-    expect(turn).toMatchObject({ streaming: true, details: { live: { kind: 'working' } } })
-  })
-
-  it('keeps text streamed after a tool call in its details while the run is in flight', () => {
-    const streaming = runMessage('a1', 'assistant', [
-      image('t1'),
-      { type: 'text', text: 'Here is', state: 'streaming' },
-    ])
-    const [turn] = sessionTimelineItems([twoSteps[0], streaming], {
-      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
+    const [streaming] = sessionTimelineItems(running, {
+      agentRunsInFlight: ['aipg-agent-run'],
       agents: [{ tag: runTag, messages: [], live: true }],
     })
 
-    expect(turn.kind === 'agent' && turn.result.some((part) => part.kind === 'prose')).toBe(false)
-    expect(turn).toMatchObject({ streaming: true, details: { live: { kind: 'writing' } } })
+    expect(beforeStream).toMatchObject({ streaming: true, details: { live: { kind: 'working' } } })
+    expect(streaming).toMatchObject({ streaming: true, details: { live: { kind: 'writing' } } })
+    for (const turn of [beforeStream, streaming]) {
+      expect(turn.kind === 'agent' && turn.details).not.toHaveProperty('progress')
+      expect(turn.kind === 'agent' && turn.details.summary).not.toHaveProperty('steps')
+    }
   })
 
-  it('says which Step of how many it is on while in flight', () => {
-    const [turn] = sessionTimelineItems(twoSteps, {
-      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
-    })
+  it('stays live on its newest turn while a Follow-up runs', () => {
+    const followUp = {
+      ...runMessage('f1', 'user'),
+      metadata: { agentTurn: runTag, followUp: { agentId: 't1', agentName: 'Morning digest' } },
+    }
+    const items = sessionTimelineItems(
+      [runMessage('r1', 'user'), runMessage('r2', 'assistant'), followUp],
+      { agentRunsInFlight: ['aipg-agent-run'] },
+    )
 
-    expect(turn).toMatchObject({ details: { progress: { step: 2, count: 3 } } })
+    expect(items[0]).not.toMatchObject({ streaming: true })
+    expect(items[1]).toMatchObject({ id: 'f1', streaming: true })
   })
 
-  it('offers no Copy while in flight, and Copy and Speak of its answer alone once it ended', () => {
-    const [running] = sessionTimelineItems(twoSteps, {
-      agentRunsInFlight: { 'aipg-agent-run': { step: 2, count: 3 } },
-    })
-    const [ended] = sessionTimelineItems(twoSteps, {})
+  it('offers Copy and Speak of its reply once it ended', () => {
+    const [ended] = sessionTimelineItems(
+      [runMessage('r1', 'user'), runMessage('r2', 'assistant', [{ type: 'text', text: 'Done.' }])],
+      {},
+    )
 
-    expect(running).toMatchObject({ footer: { actions: [] } })
-    expect(ended).toMatchObject({
-      footer: { actions: ['copy', 'speak'], text: 'Dawn over the hills.' },
-    })
+    expect(ended).toMatchObject({ footer: { actions: ['copy', 'speak', 'hide'], text: 'Done.' } })
   })
 
   it('shows why a failed run ended beside the Artifacts it already made', () => {
@@ -368,31 +398,46 @@ describe('an Agent Run in the timeline', () => {
     expect(turn.kind === 'agent' && turn.result).toEqual([{ kind: 'failure', state: 'cancelled' }])
   })
 
+  it('shows the failure of an old multi-Step run on its last Step, not its first', () => {
+    const failed = {
+      ...runTag,
+      taskRun: { ...runTag.taskRun!, end: { kind: 'failed' as const, message: 'Model crashed' } },
+    }
+    const turns = timelineTurns([
+      runMessage('s1', 'user', undefined, failed),
+      runMessage('a1', 'assistant', [{ type: 'text', text: 'one' }], failed),
+      runMessage('s2', 'user', undefined, failed),
+    ])
+
+    expect(turns[0].kind === 'agent' && turns[0].result).toEqual([
+      { kind: 'prose', messageId: 'a1', index: 0 },
+    ])
+    expect(turns[1].kind === 'agent' && turns[1].result).toEqual([
+      { kind: 'failure', state: 'failed', reason: 'Model crashed' },
+    ])
+  })
+
   describe('its controls', () => {
     const ofAgent = { ...runTag, taskRun: { ...runTag.taskRun!, taskId: 't-digest' } }
     const steps = [
       runMessage('s1', 'user', undefined, ofAgent),
       runMessage('a1', 'assistant', undefined, ofAgent),
+      runMessage('s2', 'user', undefined, ofAgent),
     ]
 
-    it('offers Edit Agent for the Agent it ran once it ended', () => {
-      const [turn] = sessionTimelineItems(steps, {})
+    it('offers Edit Agent on its start bubble alone, ended or in flight', () => {
+      const ended = sessionTimelineItems(steps, {})
+      const running = sessionTimelineItems(steps, { agentRunsInFlight: ['aipg-agent-run'] })
 
-      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest' })
+      for (const items of [ended, running]) {
+        expect(items.map((turn) => agentRunControls(turn))).toEqual([{ agentId: 't-digest' }, null])
+      }
     })
 
-    it('offers Edit Agent alone while in flight, since Stop is the prompt bar’s', () => {
-      const [turn] = sessionTimelineItems(steps, {
-        agentRunsInFlight: { 'aipg-agent-run': { step: 1, count: 2 } },
-      })
-
-      expect(agentRunControls(turn)).toEqual({ agentId: 't-digest' })
-    })
-
-    it('offers neither on a turn that ran no saved Agent', () => {
+    it('offers nothing on a turn that ran no saved Agent', () => {
       const [chat] = timelineTurns([agentMessage('u1', 'user', 'hello')])
       const [trial] = sessionTimelineItems([runMessage('s1', 'user')], {
-        agentRunsInFlight: { 'aipg-agent-run': { step: 1, count: 2 } },
+        agentRunsInFlight: ['aipg-agent-run'],
       })
 
       expect(agentRunControls(chat)).toBeNull()
@@ -400,7 +445,7 @@ describe('an Agent Run in the timeline', () => {
     })
   })
 
-  it('stays one Turn, where it started, when another turn lands between two Steps', () => {
+  it('keeps every turn in the order it happened when another turn lands in between', () => {
     const turns = timelineTurns([
       runMessage('s1', 'user'),
       runMessage('a1', 'assistant'),
@@ -410,9 +455,8 @@ describe('an Agent Run in the timeline', () => {
       runMessage('a2', 'assistant'),
     ])
 
-    expect(turns.map((turn) => turn.id)).toEqual(['s1', 'u1'])
-    expect(turns[0]).toMatchObject({ answers: [{ id: 'a1' }, { id: 'a2' }] })
-    expect(turns[0].kind === 'agent' && turns[0].details.summary).toMatchObject({ steps: 2 })
+    expect(turns.map((turn) => turn.id)).toEqual(['s1', 'u1', 's2'])
+    expect(turns[2]).toMatchObject({ hint: { preset: 'Morning digest' }, answers: [{ id: 'a2' }] })
   })
 })
 
@@ -433,27 +477,16 @@ describe('Run steps in the open Assistant conversation', () => {
     agentMessage('a4', 'assistant', 'welcome'),
   ]
 
-  it('is one Turn between the conversation turns around it', () => {
+  it('renders flat between the conversation turns around it', () => {
     const turns = timelineTurns(conversation)
 
-    expect(turns.map((turn) => turn.id)).toEqual(['u1', 's1', 'u2'])
+    expect(turns.map((turn) => turn.id)).toEqual(['u1', 's1', 's2', 'u2'])
     expect(turns[1]).toMatchObject({
       prompt: { text: '', agentRun: { trigger: 'manual', name: 'Digest', startedAt: 7 } },
-      answers: [{ id: 'a2' }, { id: 'a3' }],
+      answers: [{ id: 'a2' }],
     })
-    expect(turns[1].kind === 'agent' && turns[1].result).toEqual([
-      { kind: 'prose', messageId: 'a3', index: 0 },
-    ])
-    expect(turns[2]).toMatchObject({ answers: [{ id: 'a4' }] })
-  })
-
-  it('keeps its text in the details while it is in flight', () => {
-    const items = sessionTimelineItems(conversation.slice(0, 6), {
-      agentRunsInFlight: { p1: { step: 2, count: 2 } },
-    })
-
-    expect(items[1].kind === 'agent' && items[1].result).toEqual([])
-    expect(items[1]).toMatchObject({ streaming: true, details: { live: { kind: 'working' } } })
+    expect(turns[2]).toMatchObject({ prompt: { text: 'Summarize them' }, answers: [{ id: 'a3' }] })
+    expect(turns[3]).toMatchObject({ answers: [{ id: 'a4' }] })
   })
 })
 
@@ -499,6 +532,64 @@ describe('timelineTurns', () => {
     ])
 
     expect(turns.map((turn) => turn.kind)).toEqual(['message', 'message'])
+  })
+})
+
+describe('hidden messages against the live conversation copies', () => {
+  const conversation = [
+    chatMessage('u1', 'user', 'hi'),
+    chatMessage('a1', 'assistant', 'hello'),
+    chatMessage('u2', 'user', 'again'),
+    chatMessage('a2', 'assistant', 'hello again'),
+  ]
+  const idsOf = (items: ReturnType<typeof sessionTimelineItems>) =>
+    items.flatMap((item) =>
+      item.kind === 'chat' || item.kind === 'agent'
+        ? [item.id, ...item.answers.map((answer) => answer.id)]
+        : [item.id],
+    )
+
+  it('drops only the named ids and keeps the rest in order', () => {
+    expect(visibleLiveMessages(conversation, ['u1', 'a1']).map((m) => m.id)).toEqual(['u2', 'a2'])
+    expect(visibleLiveMessages(conversation, ['a2']).map((m) => m.id)).toEqual(['u1', 'a1', 'u2'])
+    expect(visibleLiveMessages(conversation, []).map((m) => m.id)).toEqual(['u1', 'a1', 'u2', 'a2'])
+  })
+
+  it('keeps a hidden chat pair out though the store still holds its copy', () => {
+    const hidden = ['u1', 'a1']
+    const saved = conversation.filter((message) => !hidden.includes(message.id))
+
+    // What the view does: the store's full copy, filtered the way the file's
+    // hidden ids already filtered the saved timeline, overlays the view.
+    const items = sessionTimelineItems(saved, {
+      chat: visibleLiveMessages(conversation, hidden),
+    })
+
+    expect(idsOf(items)).toEqual(['u2', 'a2'])
+  })
+
+  it('keeps a hidden Agent pair out though its conversation copy still holds it', () => {
+    const agentConversation = [
+      agentMessage('u1', 'user', 'describe it'),
+      agentMessage('a1', 'assistant', 'a castle'),
+      agentMessage('u2', 'user', 'make it blue'),
+      agentMessage('a2', 'assistant', 'done'),
+    ]
+    const hidden = ['u1', 'a1']
+    const saved = agentConversation.filter((message) => !hidden.includes(message.id))
+
+    const items = sessionTimelineItems(saved, {
+      agents: [
+        { tag: agentTurn, messages: visibleLiveMessages(agentConversation, hidden), live: false },
+      ],
+    })
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      kind: 'agent',
+      id: 'u2',
+      prompt: { text: 'make it blue' },
+    })
   })
 })
 
@@ -598,6 +689,17 @@ describe('the one Session timeline with every live turn in it', () => {
       prompt: { text: 'hi' },
       answers: [{ parts: [{ type: 'text', text: 'hello there' }] }],
     })
+  })
+
+  it('drops the answer a regenerate truncates away as soon as the live copy does', () => {
+    const items = sessionTimelineItems(
+      [chatMessage('u1', 'user', 'hi'), chatMessage('a1', 'assistant', 'First.')],
+      { chat: [live('u1', 'user', 'hi'), live('a2', 'assistant', 'Second.')] },
+    )
+
+    expect(kinds(items)).toEqual(['chat'])
+    expect(items[0]).toMatchObject({ kind: 'chat', id: 'u1', answers: [{ id: 'a2' }] })
+    expect(JSON.stringify(items)).not.toContain('First.')
   })
 
   it('drops the in-flight media run once its result card is in the timeline', () => {
@@ -871,8 +973,6 @@ const labels = {
   audio: '1 audio clip',
   audios: '{count} audio clips',
   seed: 'seed {seed}',
-  agentRunStep: 'Agent Run · 1 Step',
-  agentRunSteps: 'Agent Run · {count} Steps',
 }
 
 describe('Turn Details and the Result', () => {
@@ -952,7 +1052,7 @@ describe('Turn Details and the Result', () => {
     ])
   })
 
-  it('heads an Agent Run with its Step count before the usual summary', () => {
+  it("sums up an Agent Run's turns like any Agent Preset turn, with no Step count", () => {
     const run = {
       presetName: 'Agent',
       harnessSessionId: 'run',
@@ -964,16 +1064,14 @@ describe('Turn Details and the Result', () => {
       parts,
       metadata: { agentTurn: run },
     })
-    const [one] = timelineTurns([step('s1', 'user', [text('go')])])
-    const [two] = timelineTurns([
+    const turns = timelineTurns([
       step('s1', 'user', [text('go')]),
       step('a1', 'assistant', [tool('read')]),
       step('s2', 'user', [text('again')]),
-      step('a2', 'assistant', [tool('read')]),
+      step('a2', 'assistant', [tool('read'), tool('write')]),
     ])
 
-    expect(summaryTextOf(one)).toBe('Agent Run · 1 Step')
-    expect(summaryTextOf(two)).toBe('Agent Run · 2 Steps · 2 tools')
+    expect(turns.map(summaryTextOf)).toEqual(['1 tool', '2 tools'])
   })
 
   it('gives a chat image and an Agent Preset image the same Result', () => {
@@ -1333,7 +1431,7 @@ describe('the footer of every Turn', () => {
     mode: 'imageGen' as const,
   }
 
-  it('offers Copy, Speak, Regenerate and Delete on the last chat Turn', () => {
+  it('offers Copy, Speak, Regenerate, Edit and Delete on the last chat Turn', () => {
     const items = sessionTimelineItems(
       [chatMessage('u1', 'user', 'hi'), chatMessage('a1', 'assistant', 'hello')],
       {},
@@ -1341,11 +1439,51 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'delete'],
+        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
         text: 'hello',
         messageId: 'a1',
       },
     })
+  })
+
+  it('carries what Hide needs: the whole pair of the Turn, prompt and answer together', () => {
+    const items = sessionTimelineItems(
+      [chatMessage('u1', 'user', 'hi'), chatMessage('a1', 'assistant', 'hello')],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: expect.arrayContaining(['hide']),
+        hiding: { messageIds: ['u1', 'a1'] },
+      },
+    })
+  })
+
+  it('leaves no trace of hiding when the setting is off: withoutMessageHiding takes the action and its payload out', () => {
+    const items = withoutMessageHiding(
+      sessionTimelineItems(
+        [
+          chatMessage('u1', 'user', 'hi'),
+          chatMessage('a1', 'assistant', 'hello'),
+          assistantMessage('u2', 'user', 'why?'),
+          assistantMessage('a2', 'assistant', 'Blue light.', { harnessTurnId: 't1' }),
+          mediaPrompt,
+          mediaCard,
+        ],
+        {},
+      ),
+    )
+
+    for (const item of items) {
+      if (item.kind === 'message') continue
+      expect(item.footer.actions).not.toContain('hide')
+      expect(item.footer).not.toHaveProperty('hiding')
+    }
+    // The actions that are not Hide survive untouched.
+    expect(items[0]).toMatchObject({ footer: { actions: ['copy', 'speak'] } })
+    expect(items[1]).toMatchObject({ footer: { actions: ['copy', 'speak'] } })
+    expect(items[2]).toMatchObject({ footer: { actions: ['delete'] } })
   })
 
   it('offers Regenerate on the last chat Turn only', () => {
@@ -1360,9 +1498,40 @@ describe('the footer of every Turn', () => {
     )
 
     expect(items.map(actionsOf)).toEqual([
-      ['copy', 'speak', 'delete'],
-      ['copy', 'speak', 'regenerate', 'delete'],
+      ['copy', 'speak', 'hide'],
+      ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
     ])
+  })
+
+  it('offers Delete on the newest Turn only', () => {
+    const offersDelete = (item: unknown) => actionsOf(item).includes('delete')
+    const chat = sessionTimelineItems(
+      [
+        chatMessage('u1', 'user', 'hi'),
+        chatMessage('a1', 'assistant', 'hello'),
+        chatMessage('u2', 'user', 'again'),
+        chatMessage('a2', 'assistant', 'hello again'),
+      ],
+      {},
+    )
+    const assistant = sessionTimelineItems(
+      [
+        assistantMessage('u1', 'user', 'why?'),
+        assistantMessage('a1', 'assistant', 'Blue light.', { harnessTurnId: 't1' }),
+        assistantMessage('u2', 'user', 'and at sunset?'),
+        assistantMessage('a2', 'assistant', 'Red light.', { harnessTurnId: 't2' }),
+      ],
+      {},
+    )
+
+    expect(chat.map(offersDelete)).toEqual([false, true])
+    expect(assistant.map(offersDelete)).toEqual([false, true])
+  })
+
+  it('offers Regenerate but no Edit on a chat answer that resumed without its prompt', () => {
+    const items = sessionTimelineItems([chatMessage('a1', 'assistant', 'hello')], {})
+
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'regenerate', 'delete', 'hide'])
   })
 
   it('offers no Regenerate on a chat Turn that another Turn followed', () => {
@@ -1371,22 +1540,32 @@ describe('the footer of every Turn', () => {
       { media: pendingMedia },
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
   })
 
-  it('offers nothing on a chat prompt still waiting for its answer', () => {
+  it('offers only Hide on a chat prompt still waiting for its answer', () => {
     const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {})
 
-    expect(actionsOf(items[0])).toEqual([])
+    expect(actionsOf(items[0])).toEqual(['hide'])
   })
 
-  it('offers nothing on a chat answer that has shown nothing yet', () => {
+  it('offers only Hide on a chat answer that has shown nothing yet', () => {
+    const answer = { id: 'a1', role: 'assistant', parts: [] }
+    const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {
+      chat: [chatMessage('u1', 'user', 'hi'), answer],
+      chatStatus: { running: true },
+    })
+
+    expect(actionsOf(items[0])).toEqual(['hide'])
+  })
+
+  it('offers Delete on a chat answer that settled before it showed anything', () => {
     const answer = { id: 'a1', role: 'assistant', parts: [] }
     const items = sessionTimelineItems([chatMessage('u1', 'user', 'hi')], {
       chat: [chatMessage('u1', 'user', 'hi'), answer],
     })
 
-    expect(actionsOf(items[0])).toEqual([])
+    expect(actionsOf(items[0])).toEqual(['delete', 'hide'])
   })
 
   it('offers Delete without Copy on a chat answer that only called a tool', () => {
@@ -1396,7 +1575,7 @@ describe('the footer of every Turn', () => {
       chat: [chatMessage('u1', 'user', 'hi'), answer],
     })
 
-    expect(actionsOf(items[0])).toEqual(['regenerate', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['regenerate', 'edit', 'delete', 'hide'])
   })
 
   it("carries a chat answer's metrics", () => {
@@ -1446,7 +1625,7 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'delete'],
+        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
         text: 'The sky scatters blue light.',
         messageId: 'a1',
         harnessTurn: {
@@ -1470,8 +1649,8 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
-    expect(actionsOf(items[1])).toEqual(['copy', 'speak', 'regenerate', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
+    expect(actionsOf(items[1])).toEqual(['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'])
   })
 
   it('offers no Regenerate on an Assistant Turn a later Turn followed', () => {
@@ -1484,7 +1663,7 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
   })
 
   it('offers no Regenerate while a media Turn runs after the Assistant Turn', () => {
@@ -1496,7 +1675,7 @@ describe('the footer of every Turn', () => {
       { media: { runId: 'r2', prompt: 'a dragon', preset: 'Wan', mode: 'video' } },
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'delete'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
   })
 
   it('offers no Regenerate while the Assistant Turn is running', () => {
@@ -1529,7 +1708,7 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['delete'],
+        actions: ['delete', 'hide'],
         harnessTurn: { harnessSessionId: 'aipg-agent-2', messageIds: ['u1'], turnIds: [] },
       },
     })
@@ -1541,7 +1720,7 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(actionsOf(items[0])).toEqual(['copy', 'speak'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'speak', 'hide'])
   })
 
   it('offers no Delete on an Assistant chat Turn its Harness Session replays', () => {
@@ -1567,7 +1746,7 @@ describe('the footer of every Turn', () => {
     }
     const items = sessionTimelineItems([answer], {})
 
-    expect(actionsOf(items[0])).toEqual(['copy'])
+    expect(actionsOf(items[0])).toEqual(['copy', 'hide'])
     expect(items[0]).not.toHaveProperty('footer.harnessTurn')
   })
 
@@ -1594,13 +1773,13 @@ describe('the footer of every Turn', () => {
 
     expect(items[0]).toMatchObject({
       footer: {
-        actions: ['copy', 'speak', 'regenerate', 'delete'],
+        actions: ['copy', 'speak', 'regenerate', 'edit', 'delete', 'hide'],
         text: 'Let me look.\n\nbuilt it',
       },
     })
   })
 
-  it('offers nothing on a Game Agent Turn with no text yet', () => {
+  it('offers only Hide on a Game Agent Turn with no text yet', () => {
     const gameTurn = { presetName: 'Game Agent', harnessSessionId: 'aipg-agent-3' }
     const prompt = {
       ...agentMessage('u1', 'user', 'make a game'),
@@ -1608,10 +1787,10 @@ describe('the footer of every Turn', () => {
     }
     const items = sessionTimelineItems([prompt], {})
 
-    expect(actionsOf(items[0])).toEqual([])
+    expect(actionsOf(items[0])).toEqual(['hide'])
   })
 
-  it('offers Copy of the transcript on a speech-to-text Turn', () => {
+  it('offers Copy of the transcript, and Delete, on a speech-to-text Turn', () => {
     const stt = { kind: 'stt', preset: 'Speech to Text', status: 'completed', transcript: 'hello' }
     const items = sessionTimelineItems(
       [
@@ -1621,7 +1800,116 @@ describe('the footer of every Turn', () => {
       {},
     )
 
-    expect(items[0]).toMatchObject({ footer: { actions: ['copy'], text: 'hello' } })
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'delete', 'hide'],
+        text: 'hello',
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: [] },
+      },
+    })
+  })
+
+  it('offers Regenerate, Edit and Delete on the last Text-to-Speech Turn, carrying what its redo needs', () => {
+    const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
+    const items = sessionTimelineItems(
+      [
+        user('u1', 'Read this'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: tts }] },
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['regenerate', 'edit', 'delete', 'hide'],
+        audioRerun: {
+          kind: 'tts',
+          preset: 'Text to Speech',
+          prompt: 'Read this',
+          audioUrl: 'u',
+          messageIds: ['u1', 'a1'],
+        },
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: ['u'] },
+      },
+    })
+  })
+
+  it('offers Regenerate, Delete but no Edit on the last Speech-to-Text Turn, whose prompt is only its clip label', () => {
+    const stt = {
+      kind: 'stt',
+      preset: 'Speech to Text',
+      status: 'completed',
+      audioUrl: 'clip',
+      transcript: 'hello',
+    }
+    const items = sessionTimelineItems(
+      [
+        user('u1', 'standup.wav'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: stt }] },
+      ],
+      {},
+    )
+
+    expect(items[0]).toMatchObject({
+      footer: {
+        actions: ['copy', 'regenerate', 'delete', 'hide'],
+        audioRerun: {
+          kind: 'stt',
+          preset: 'Speech to Text',
+          prompt: 'standup.wav',
+          audioUrl: 'clip',
+          messageIds: ['u1', 'a1'],
+        },
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: ['clip'] },
+      },
+    })
+  })
+
+  it('offers no Regenerate on a speech Turn a later Turn followed', () => {
+    const tts = { kind: 'tts', preset: 'Text to Speech', status: 'completed', audioUrl: 'u' }
+    const items = sessionTimelineItems(
+      [
+        user('u1', 'Read this'),
+        { id: 'a1', role: 'assistant', createdAt: 2, parts: [{ type: 'data-audio', data: tts }] },
+        chatMessage('u2', 'user', 'hi'),
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['hide'])
+  })
+
+  it('offers no Regenerate on a speech Turn without what its redo needs', () => {
+    const silentTts = { kind: 'tts', preset: 'Text to Speech', status: 'completed' }
+    const muteStt = {
+      kind: 'stt',
+      preset: 'Speech to Text',
+      status: 'completed',
+      transcript: 'hello',
+    }
+    const items = sessionTimelineItems(
+      [
+        user('u1', ''),
+        {
+          id: 'a1',
+          role: 'assistant',
+          createdAt: 2,
+          parts: [{ type: 'data-audio', data: silentTts }],
+        },
+        user('u2', ''),
+        {
+          id: 'a2',
+          role: 'assistant',
+          createdAt: 4,
+          parts: [{ type: 'data-audio', data: muteStt }],
+        },
+      ],
+      {},
+    )
+
+    expect(actionsOf(items[0])).toEqual(['hide'])
+    expect(actionsOf(items[1])).toEqual(['copy', 'delete', 'hide'])
+    expect(items[1]).not.toHaveProperty('footer.audioRerun')
   })
 
   it('offers nothing on ComfyUI, text-to-speech and running Turns, which have no text', () => {
@@ -1639,7 +1927,7 @@ describe('the footer of every Turn', () => {
       },
     )
 
-    expect(items.map(actionsOf)).toEqual([[], [], [], []])
+    expect(items.map(actionsOf)).toEqual([['hide'], ['hide'], [], []])
   })
 })
 
@@ -2144,8 +2432,9 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     const items = sessionTimelineItems(comfyTurn('c1', {}), {})
 
     expect(footerOf(items[0])).toEqual({
-      actions: ['regenerate'],
+      actions: ['regenerate', 'edit', 'delete', 'hide'],
       text: '',
+      hiding: { messageIds: ['p-c1', 'c1'] },
       rerun: {
         mode: 'imageEdit',
         workflow: 'Edit',
@@ -2158,6 +2447,13 @@ describe('Regenerate on the last ComfyUI Turn', () => {
           'Load Image.image': 'aipg-media://sessions/s1/files/in.png',
         },
         inputImageUrl: 'aipg-media://sessions/s1/files/in.png',
+        messageIds: ['p-c1', 'c1'],
+        fileUrls: ['aipg-media://sessions/s1/files/out.png'],
+      },
+      deletion: {
+        owner: 'media',
+        messageIds: ['p-c1', 'c1'],
+        fileUrls: ['aipg-media://sessions/s1/files/out.png'],
       },
     })
   })
@@ -2165,7 +2461,10 @@ describe('Regenerate on the last ComfyUI Turn', () => {
   it('offers Regenerate on the last ComfyUI Turn only', () => {
     const items = sessionTimelineItems([...comfyTurn('c1', {}), ...comfyTurn('c2', {})], {})
 
-    expect(items.map((item) => footerOf(item).actions)).toEqual([[], ['regenerate']])
+    expect(items.map((item) => footerOf(item).actions)).toEqual([
+      ['hide'],
+      ['regenerate', 'edit', 'delete', 'hide'],
+    ])
   })
 
   it('offers no Regenerate on a ComfyUI Turn that another Turn followed', () => {
@@ -2178,7 +2477,7 @@ describe('Regenerate on the last ComfyUI Turn', () => {
       {},
     )
 
-    expect(footerOf(items[0]).actions).toEqual([])
+    expect(footerOf(items[0]).actions).toEqual(['hide'])
   })
 
   it('offers no Regenerate while another ComfyUI run is in flight', () => {
@@ -2186,26 +2485,39 @@ describe('Regenerate on the last ComfyUI Turn', () => {
       media: { runId: 'r9', prompt: 'again', preset: 'Edit', mode: 'imageEdit' as const },
     })
 
-    expect(footerOf(items[0]).actions).toEqual([])
+    expect(footerOf(items[0]).actions).toEqual(['hide'])
   })
 
-  it('offers Regenerate on a failed run that recorded its settings', () => {
+  it('offers Regenerate, Edit and Delete on a failed run that recorded its settings', () => {
     const items = sessionTimelineItems(
       comfyTurn('c1', {
         status: 'failed',
         error: 'out of memory',
-        items: [editItem('aipg-media://sessions/s1/files/in.png', { state: 'failed' })],
+        items: [
+          editItem('aipg-media://sessions/s1/files/in.png', { state: 'failed', imageUrl: '' }),
+        ],
       }),
       {},
     )
 
-    expect(footerOf(items[0]).actions).toEqual(['regenerate'])
+    expect(footerOf(items[0])).toEqual({
+      actions: ['regenerate', 'edit', 'delete', 'hide'],
+      text: '',
+      hiding: { messageIds: ['p-c1', 'c1'] },
+      rerun: expect.objectContaining({ messageIds: ['p-c1', 'c1'] }),
+      deletion: { owner: 'media', messageIds: ['p-c1', 'c1'], fileUrls: [] },
+    })
   })
 
-  it('offers no Regenerate on a run that recorded no settings', () => {
+  it('offers Delete without Regenerate on a failed run that recorded no settings', () => {
     const items = sessionTimelineItems(comfyTurn('c1', { status: 'failed', items: [] }), {})
 
-    expect(footerOf(items[0]).actions).toEqual([])
+    expect(footerOf(items[0])).toEqual({
+      actions: ['delete', 'hide'],
+      text: '',
+      hiding: { messageIds: ['p-c1', 'c1'] },
+      deletion: { owner: 'media', messageIds: ['p-c1', 'c1'], fileUrls: [] },
+    })
   })
 
   it('reruns with the recorded source image when the Session could not keep the input', () => {
@@ -2221,10 +2533,10 @@ describe('Regenerate on the last ComfyUI Turn', () => {
     })
   })
 
-  it('offers no Regenerate when the input image is lost', () => {
+  it('offers Delete but no Regenerate when the input image is lost', () => {
     const items = sessionTimelineItems(comfyTurn('c1', { items: [editItem('')] }), {})
 
-    expect(footerOf(items[0]).actions).toEqual([])
+    expect(footerOf(items[0]).actions).toEqual(['delete', 'hide'])
   })
 
   it('keeps an optional input image left empty', () => {
@@ -2842,7 +3154,17 @@ describe('one audio card', () => {
       prompt: { audio: [{ url: clipUrl }] },
       result: [{ kind: 'audio' }],
       audioArtifacts: [],
-      footer: { actions: ['copy'], text: 'hello there' },
+      footer: {
+        actions: ['copy', 'regenerate', 'delete', 'hide'],
+        text: 'hello there',
+        audioRerun: {
+          kind: 'stt',
+          preset: 'Speech to Text',
+          audioUrl: clipUrl,
+          messageIds: ['u1', 'a1'],
+        },
+        deletion: { owner: 'audio', messageIds: ['u1', 'a1'], fileUrls: [clipUrl] },
+      },
     })
   })
 })

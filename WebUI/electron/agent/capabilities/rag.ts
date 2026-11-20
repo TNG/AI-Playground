@@ -21,6 +21,7 @@ import { ragAccess } from '../ragAccess.ts'
 import { documentExtension, indexedDocument } from '../documentIndex.ts'
 import { mountedFolderSandboxPath } from '@/lib/mountedFolders'
 import { realFileInside } from '../hostPathContainment.ts'
+import { ATTACHMENTS_DIR, SANDBOX_ATTACHMENTS_DIR } from '../workspaceAttachments.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 
 // ── rag capability ───────────────────────────────────────────────────────────
@@ -39,10 +40,8 @@ const RAG_TOOL_DESCRIPTION =
   'The first call on a file indexes it and can take a while; later calls are fast. ' +
   "For documents in a Mounted Folder, 'find' them there first, then pass their paths; it takes files, not folders."
 
-// Mirrors piToolOperations.SANDBOX_WORKDIR — the path Pi's sandbox mounts the
-// workspace at, so the model (which lives there) addresses files as
-// /workspace/<name>. Defined here rather than imported so the capability module
-// stays free of the Electron/service imports piToolOperations pulls in.
+// Mirrors piToolOperations.SANDBOX_WORKDIR, where a game's workspace is mounted when the host
+// names no other mount. Defined here so this module stays free of piToolOperations' imports.
 const SANDBOX_WORKDIR = '/workspace'
 
 const RAG_SKILL: SkillSource = {
@@ -52,9 +51,9 @@ const RAG_SKILL: SkillSource = {
   body: [
     '`read` loads a whole file into context — fine for code, wrong for a 300-page PDF.',
     'For questions about big documents, call `rag` with a list of file paths',
-    '(workspace-relative like "report.pdf", the "/workspace/report.pdf" form other',
-    'tools show, or a file in a Mounted Folder) and the question; it returns the',
-    'best-matching passages, each labelled with the file it came from.',
+    '(workspace-relative like "report.pdf", the absolute form other tools show, or a',
+    'file in a Mounted Folder) and the question; it returns the best-matching',
+    'passages, each labelled with the file it came from.',
     '',
     '- Pass multiple files to search across them at once; the top-k passages are',
     '  ranked over the merged document set.',
@@ -75,7 +74,7 @@ const RAG_INPUT_SCHEMA: Record<string, unknown> = {
       type: 'array',
       items: { type: 'string' },
       description:
-        'Paths of the documents to search — workspace-relative ("report.pdf"), the /workspace/report.pdf form other tools show, or a file in a Mounted Folder. Pass one or more files (not folders); they are searched as a merged set.',
+        'Paths of the documents to search — workspace-relative ("report.pdf"), the absolute form other tools show, or a file in a Mounted Folder. Pass one or more files (not folders); they are searched as a merged set.',
     },
     query: {
       type: 'string',
@@ -104,7 +103,10 @@ type DocumentRoot = { sandboxPath: string; hostPath: string }
 
 function documentRoots(host: CapabilityHost): DocumentRoot[] {
   return [
-    { sandboxPath: SANDBOX_WORKDIR, hostPath: host.workspaceDir },
+    { sandboxPath: host.workspaceMount ?? SANDBOX_WORKDIR, hostPath: host.workspaceDir },
+    ...(host.attachmentsDir
+      ? [{ sandboxPath: SANDBOX_ATTACHMENTS_DIR, hostPath: host.attachmentsDir }]
+      : []),
     ...(host.mountedFolders ?? []).map((folder) => ({
       sandboxPath: mountedFolderSandboxPath(folder),
       hostPath: folder.hostPath,
@@ -114,17 +116,35 @@ function documentRoots(host: CapabilityHost): DocumentRoot[] {
 
 /**
  * Resolve a model-provided path to a host file inside the workspace or a Mounted Folder.
- * `/workspace/…` and `/mnt/<name>/…` must stay inside that one root (by realpath);
+ * A sandbox path (the workspace mount or `/mnt/<name>/…`) must stay inside that one root (by realpath);
  * relative paths are workspace-relative; a real host path may sit in any root.
  */
 function resolveDocumentFile(roots: readonly DocumentRoot[], inputPath: string): string | null {
+  const found = resolveInRoots(roots, inputPath)
+  // A Session attachment named the way it was before it left the Workspace.
+  const legacy = inputPath.startsWith(`${ATTACHMENTS_DIR}/`)
+  if (found || !legacy || !roots.some((root) => root.sandboxPath === SANDBOX_ATTACHMENTS_DIR)) {
+    return found
+  }
+  return resolveInRoots(roots, `/${inputPath}`)
+}
+
+function resolveInRoots(roots: readonly DocumentRoot[], inputPath: string): string | null {
   if (!inputPath) return null
   const [workspace] = roots
-  const sandboxRoot = roots.find((root) => inputPath.startsWith(root.sandboxPath + '/'))
+  const sandboxPath = path.isAbsolute(inputPath)
+    ? inputPath
+    : `${workspace.sandboxPath}/${inputPath}`
+  const sandboxRoot = roots
+    .filter((root) => sandboxPath.startsWith(root.sandboxPath + '/'))
+    .sort((a, b) => b.sandboxPath.length - a.sandboxPath.length)[0]
   if (sandboxRoot) {
-    return realFileInside(sandboxRoot.hostPath, inputPath.slice(sandboxRoot.sandboxPath.length + 1))
+    return realFileInside(
+      sandboxRoot.hostPath,
+      sandboxPath.slice(sandboxRoot.sandboxPath.length + 1),
+    )
   }
-  if (!path.isAbsolute(inputPath)) return realFileInside(workspace.hostPath, inputPath)
+  if (!path.isAbsolute(inputPath)) return null
   for (const root of roots) {
     const real = realFileInside(root.hostPath, inputPath)
     if (real) return real
@@ -145,8 +165,8 @@ function chunkLocation(metadata: Document['metadata']): string | undefined {
   return where || undefined
 }
 
-function userFileLabel(input: string): string {
-  if (input.startsWith(SANDBOX_WORKDIR + '/')) return input.slice(SANDBOX_WORKDIR.length + 1)
+function userFileLabel(input: string, workspaceMount: string): string {
+  if (input.startsWith(workspaceMount + '/')) return input.slice(workspaceMount.length + 1)
   return input
 }
 
@@ -394,7 +414,7 @@ async function buildRagTool(host: CapabilityHost): Promise<ToolDefinition[]> {
               continue
             }
             ragList.push({ ...doc, isChecked: true })
-            labelForSource.set(realPath, userFileLabel(input))
+            labelForSource.set(realPath, userFileLabel(input, roots[0].sandboxPath))
           }
 
           if (ragList.length === 0) {

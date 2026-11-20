@@ -3,42 +3,26 @@ import { fillTemplate } from './fillTemplate'
 
 export type LabelTask = {
   name: string
-  activeRuns?: { sessionId: string; stepIndex: number; stepCount: number }[]
+  activeRuns?: { sessionId: string }[]
 }
 
-type LabelTemplates = Pick<NotificationTemplates, 'sessionLabel' | 'taskLabel' | 'untitled'>
+type LabelTemplates = Pick<NotificationTemplates, 'sessionLabel' | 'untitled'>
 
-/** A Task run reads "Task" (step 2/3); any other session its quoted title. */
+/** An Agent Run reads as its Agent's quoted name; any other session its quoted title. */
 export function notificationSessionLabel(
   templates: LabelTemplates,
   sessionId: string,
   title: string,
   tasks: readonly LabelTask[],
 ): string {
-  const task = tasks.find((entry) => runOf(entry, sessionId))
-  const run = task && runOf(task, sessionId)
-  if (task && run) {
-    const { stepIndex, stepCount } = run
-    if (!Number.isInteger(stepIndex) || stepIndex < 1 || stepIndex > stepCount) {
-      return fillTemplate(templates.sessionLabel, { title: task.name })
-    }
-    return fillTemplate(templates.taskLabel, {
-      task: task.name,
-      step: String(stepIndex),
-      steps: String(stepCount),
-    })
-  }
-  return fillTemplate(templates.sessionLabel, { title: title || templates.untitled })
+  const task = tasks.find((entry) => entry.activeRuns?.some((run) => run.sessionId === sessionId))
+  return fillTemplate(templates.sessionLabel, { title: task?.name || title || templates.untitled })
 }
 
 /** `agent` is the Agent's name the run started with, else its Harness Session's title. */
 export function trialRunLabel(
-  templates: Pick<NotificationTemplates, 'trialRunLabel' | 'untitled'>,
+  templates: Pick<NotificationTemplates, 'trialRunLabel' | 'untitledAgent'>,
   agent: string | undefined,
 ): string {
-  return fillTemplate(templates.trialRunLabel, { agent: agent || templates.untitled })
-}
-
-function runOf(task: LabelTask, sessionId: string) {
-  return task.activeRuns?.find((run) => run.sessionId === sessionId)
+  return fillTemplate(templates.trialRunLabel, { agent: agent || templates.untitledAgent })
 }

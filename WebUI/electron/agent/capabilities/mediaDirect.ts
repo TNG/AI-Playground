@@ -72,10 +72,7 @@ export async function buildDirectMediaTools(
             for (const key of spec.workspacePathInputs ?? []) {
               const value = args[key as keyof DirectArgs]
               if (typeof value === 'string' && value !== '') {
-                ;(args as Record<string, unknown>)[key] = workspaceFileToDataUri(
-                  workspaceDir,
-                  value,
-                )
+                ;(args as Record<string, unknown>)[key] = workspaceFileToDataUri(host, value)
               }
             }
             const result = await runDirectTool(

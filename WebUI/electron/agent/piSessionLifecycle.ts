@@ -6,7 +6,6 @@ import type {
   ExtensionUIContext,
 } from '@earendil-works/pi-coding-agent'
 import { appLoggerInstance } from '../observability/logger.ts'
-import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
 import { isDeveloperMode } from '../kernel/developerMode.ts'
 import { loadPi } from './piRuntime.ts'
 import {
@@ -17,9 +16,11 @@ import {
 } from './piCustomTools.ts'
 import { resolveCapabilities, type CapabilityHost } from './capabilities/index.ts'
 import { enabledCapabilityIds, FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
-import { resolveMountedFolders } from '@/lib/mountedFolders'
+import { mountedFolderSandboxPath, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 import { turnModelToolUse } from '@/lib/modelToolUse'
-import { createAgentToolAccess } from './piToolOperations.ts'
+import { createAgentToolAccess, SANDBOX_WORKDIR } from './piToolOperations.ts'
+import { trialAgentIdOf, trialAgentOf, turnFolders, type TurnFolders } from './turnFolders.ts'
+import { trialFilesDir } from '../persist/trialRunFiles.ts'
 import {
   assertMountedFoldersApart,
   assertMountedFoldersPresent,
@@ -44,10 +45,17 @@ import {
   loadSessionFilePath,
   readSessionStore,
   savePointer,
+  type SessionPointer,
 } from './piSessionStore.ts'
 import { compactionSettingsForWindow } from './piCompaction.ts'
-import { sessionPaths } from '../session/sessions.ts'
-import { buildSessionHistoryTool } from './sessionHistoryTool.ts'
+import {
+  currentWorkspaceEntry,
+  ensureSessionWorkspace,
+  workspaceEntryAt,
+} from '../session/sessionWorkspace'
+import { attachmentsFolderFor } from '../session/sessionAttachments'
+import { attachmentsSeenBy, SANDBOX_ATTACHMENTS_DIR } from './workspaceAttachments.ts'
+import { agentHistoryReader, buildSessionHistoryTool } from './sessionHistoryTool.ts'
 import { replayChatEngineTurns } from './piHistoryReplay.ts'
 import {
   copySamplingParams,
@@ -69,7 +77,7 @@ const logger = appLoggerInstance
 
 const FALLBACK_OWN_PROMPT = 'You are a helpful assistant.'
 
-function configKeyOf(config: AgentModeTurnConfig): string {
+function configKeyOf(config: AgentModeTurnConfig, folders: TurnFolders): string {
   // The tool set is fixed at session construction, so a changed tool set needs a
   // rebuild — including the enabled capabilities, which decide what tools,
   // skills and extensions the session gets. The session id is part of the key
@@ -86,7 +94,7 @@ function configKeyOf(config: AgentModeTurnConfig): string {
     config.ownsPrompt ?? false,
     enabledCapabilityIds(config),
     config.unsandboxed ?? false,
-    config.mountedFolders ?? [],
+    folders,
     config.planningThinkingOnly ?? false,
     // The rag tool is frozen on the host at session build, so a different
     // embedding model or backend has to rebuild.
@@ -148,35 +156,43 @@ async function shutdownSessionExtensions(session: AgentSession): Promise<void> {
   }
 }
 
-/** A Session's turn works in its `files/` folder or in a game folder; media follows suit. */
+/** A Session's turn works in its Workspace, an Agent's override or a game folder; media follows. */
 export function sessionMediaOf(
   sessionRef: string | undefined,
   workspaceDir: string,
 ): SessionMediaTarget | undefined {
-  if (!sessionRef) return trialMediaOf(workspaceDir)
-  const { filesDir } = sessionPaths(sessionRef)
-  try {
-    if (fs.realpathSync(filesDir) === workspaceDir) return { sessionRef, workspace: 'files' }
-  } catch {
-    // Not created yet, so not the workspace either.
+  if (!sessionRef) {
+    const agentId = trialAgentIdOf(workspaceDir)
+    return agentId ? trialMediaOf(agentId, workspaceDir) : undefined
   }
-  return { sessionRef, workspace: 'game', filesDir }
+  const workspace = currentWorkspaceEntry(sessionRef)
+  if (!workspace) return undefined
+  const own = workspaceEntryAt(sessionRef, workspaceDir)
+  if (own) return { sessionRef, workspace: 'files', folderId: own.id }
+  return {
+    sessionRef,
+    workspace: 'game',
+    filesDir: () => ensureSessionWorkspace(sessionRef),
+    folderId: workspace.id,
+  }
 }
 
-/** A Trial Run works in `agent-trials/<agentId>/files`; its media stays there. */
-function trialMediaOf(workspaceDir: string): SessionMediaTarget | undefined {
-  let root: string
-  try {
-    root = fs.realpathSync(getAgentTrialsDir())
-  } catch {
-    return undefined
-  }
-  const [agentId, files, ...rest] = path.relative(root, workspaceDir).split(path.sep)
-  if (!agentId || agentId.startsWith('.') || files !== 'files' || rest.length > 0) return undefined
-  return { workspace: 'trial', agentId }
+/** A Trial Run's media is always served from a copy in its scratch folder. */
+export function trialMediaOf(agentId: string, workspaceDir: string): SessionMediaTarget {
+  if (trialAgentIdOf(workspaceDir) === agentId) return { workspace: 'trial', agentId }
+  const filesDir = trialFilesDir(agentId)
+  return { workspace: 'trial', agentId, filesDir: async () => filesDir }
 }
 
-async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession> {
+const realpathed = (folder: ResolvedMountedFolder): ResolvedMountedFolder => ({
+  ...folder,
+  hostPath: fs.realpathSync(path.resolve(folder.hostPath)),
+})
+
+async function createSession(
+  config: AgentModeTurnConfig,
+  turnMounts: TurnFolders,
+): Promise<ActiveSession> {
   if (!fs.existsSync(config.workspaceDir) || !fs.statSync(config.workspaceDir).isDirectory()) {
     throw new Error(`Workspace folder does not exist: ${config.workspaceDir}`)
   }
@@ -185,10 +201,32 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
   const workspaceDir = fs.realpathSync(path.resolve(config.workspaceDir))
   const sessionId = config.sessionId
   const unsandboxed = config.unsandboxed === true
-  const mountedFolders = resolveMountedFolders(config.mountedFolders ?? []).map((folder) => ({
-    ...folder,
-    hostPath: fs.realpathSync(path.resolve(folder.hostPath)),
-  }))
+  const folders: TurnFolders = {
+    ...(turnMounts.workspace
+      ? { workspace: { ...turnMounts.workspace, hostPath: workspaceDir } }
+      : {}),
+    mounted: turnMounts.mounted.map(realpathed),
+  }
+  const mountedFolders = folders.mounted
+  const workspaceMount = folders.workspace && mountedFolderSandboxPath(folders.workspace)
+  const sandboxFolders = [...(folders.workspace ? [folders.workspace] : []), ...mountedFolders]
+  const trialAgent = await trialAgentOf(config)
+  const stored = attachmentsFolderFor({
+    sessionId: config.sessionRef,
+    workspaceDir,
+    ...(trialAgent && trialAgentIdOf(workspaceDir) !== trialAgent
+      ? { trialAgentId: trialAgent }
+      : {}),
+  })
+  const attachmentsDir = stored.reference === SANDBOX_ATTACHMENTS_DIR ? stored.dir : undefined
+  const attachments = attachmentsSeenBy(stored, unsandboxed)
+  const sessionMedia = trialAgent
+    ? trialMediaOf(trialAgent, workspaceDir)
+    : sessionMediaOf(config.sessionRef, workspaceDir)
+  const historyReader = agentHistoryReader(workspaceDir, folders, {
+    unsandboxed,
+    games: sessionMedia?.workspace === 'game',
+  })
   setLastSessionId(sessionId)
 
   const pi = await loadPi()
@@ -230,7 +268,9 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     sessionId,
     modelToolUse,
     workspaceDir,
+    ...(attachmentsDir ? { attachmentsDir } : {}),
     mountedFolders,
+    ...(workspaceMount ? { workspaceMount } : {}),
     toolSpecs: config.toolSpecs ?? [],
     mediaAgent: config.mediaAgent,
     chatModel: chatModelFromAgentConfig(config.modelConfig),
@@ -238,7 +278,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     contextWindow: config.modelConfig.contextWindow,
     supportsVision: config.modelConfig.supportsVision === true,
     keepModelsLoaded: config.keepModelsLoaded ?? false,
-    sessionMedia: sessionMediaOf(config.sessionRef, workspaceDir),
+    sessionMedia,
     ...(config.embeddingModel
       ? {
           embeddingModel: config.embeddingModel,
@@ -273,6 +313,8 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     skillsDir,
     skills,
     mountedFolders,
+    ...(workspaceMount ? { workspaceMount } : {}),
+    ...(attachmentsDir ? { attachmentsDir } : {}),
     ...(capabilities.ownSession
       ? {
           baseTools: capabilities.ownSession.baseTools,
@@ -292,13 +334,18 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
 
   const instructions = buildWorkspaceInstructions({
     cwd: access.cwd,
-    workspaceDir,
+    ...(unsandboxed || !workspaceMount ? { workspaceDir } : {}),
     baseUrl: runtime.baseUrl,
     unsandboxed,
     mountedFolders,
+    ...(folders.workspace ? { workspace: folders.workspace } : {}),
+    ...(attachmentsDir ? { attachments: attachments.reference } : {}),
   })
 
-  const sessionFilePath = loadSessionFilePath(sessionId, workspaceDir)
+  // A Session's conversation follows its starred Workspace; a game's stays with its folder.
+  const sessionFilePath = loadSessionFilePath(sessionId, workspaceDir, {
+    anyWorkspace: sessionMedia?.workspace === 'files',
+  })
   const sessionManager = sessionFilePath
     ? pi.SessionManager.open(sessionFilePath, piSessionDir(), access.cwd)
     : pi.SessionManager.create(access.cwd, piSessionDir())
@@ -310,18 +357,22 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
       ? await replayChatEngineTurns(sessionManager, {
           sessionRef: config.sessionRef,
           presetName: config.presetName ?? '',
-          workspaceDir,
+          reader: historyReader,
           model,
         })
       : []
   // Only a resumed conversation has a last turn; a new one learns its folders from the prompt.
-  const previousMountedFolders = sessionFilePath
-    ? (readSessionStore()[sessionId]?.mountedFolders ?? [])
-    : mountedFolders
+  const pointer = sessionFilePath ? readSessionStore()[sessionId] : undefined
+  const previousMountedFolders = pointer ? (pointer.mountedFolders ?? []) : sandboxFolders
   const mountedFoldersNote = mountedFoldersChangeNote(
     previousMountedFolders,
-    mountedFolders,
+    sandboxFolders,
     unsandboxed,
+    {
+      before: pointer ? previousWorkdir(pointer, unsandboxed, workspaceDir) : access.cwd,
+      after: access.cwd,
+    },
+    turnMounts.leftOut,
   )
 
   const announcedSkills = skills.filter((skill) =>
@@ -421,7 +472,7 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     customTools: [
       ...access.definitions,
       ...(config.sessionRef && !config.taskRun && modelToolUse.toolCalling
-        ? [await buildSessionHistoryTool(config.sessionRef, workspaceDir)]
+        ? [await buildSessionHistoryTool(config.sessionRef, historyReader)]
         : []),
     ],
     resourceLoader,
@@ -440,12 +491,19 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     sessionFilePath: session.getSessionStats().sessionFile ?? '',
     updatedAt: Date.now(),
     mountedFolders: previousMountedFolders,
+    workdir: pointer ? previousWorkdir(pointer, unsandboxed, workspaceDir) : access.cwd,
   })
 
   return {
-    configKey: configKeyOf(config),
+    configKey: configKeyOf(config, turnMounts),
     sessionId,
     workspaceDir,
+    files: {
+      workspaceDir,
+      ...(workspaceMount ? { workspaceMount } : {}),
+      ...(attachmentsDir ? { attachmentsDir } : {}),
+    },
+    attachments,
     session,
     access,
     instructedBaseUrl: runtime.baseUrl,
@@ -462,10 +520,22 @@ async function createSession(config: AgentModeTurnConfig): Promise<ActiveSession
     // wanted, and the request it reopens with is a change to a finished game.
     planPending: Boolean(capabilities.planHandoff) && !sessionFilePath,
     documentSearch: capabilities.resolved.some(({ capability }) => capability.id === 'rag'),
-    mountedFolders,
+    folders,
+    mountedFolders: sandboxFolders,
+    workdir: access.cwd,
     ...(mountedFoldersNote ? { mountedFoldersNote } : {}),
     replayedEntryIds,
+    historyReader,
   }
+}
+
+/** Where the conversation's last turn worked; pointers from before `/mnt` Workspaces lack it. */
+function previousWorkdir(
+  pointer: SessionPointer,
+  unsandboxed: boolean,
+  workspaceDir: string,
+): string {
+  return pointer.workdir ?? (unsandboxed ? workspaceDir : SANDBOX_WORKDIR)
 }
 
 /**
@@ -582,9 +652,10 @@ function withShellPolicy(config: AgentModeTurnConfig): AgentModeTurnConfig {
 
 export async function ensureSession(requested: AgentModeTurnConfig): Promise<ActiveSession> {
   const config = withShellPolicy(requested)
-  assertMountedFoldersPresent(config.mountedFolders ?? [])
-  assertMountedFoldersApart(config.workspaceDir, config.mountedFolders ?? [])
-  const configKey = configKeyOf(config)
+  const folders = await turnFolders(config)
+  assertMountedFoldersPresent(folders.mounted)
+  assertMountedFoldersApart(config.workspaceDir, folders.mounted)
+  const configKey = configKeyOf(config, folders)
   if (active && active.configKey === configKey) {
     applyMediaSpecialistTurn(config)
     await reassertPreviewUrl(active)
@@ -594,7 +665,7 @@ export async function ensureSession(requested: AgentModeTurnConfig): Promise<Act
   // which disposes it when it ends (`releaseTurnSession`).
   if (active && agentTurns.get(active.sessionId)?.live === active) setActive(null)
   await endActiveSession()
-  const next = await createSession(config)
+  const next = await createSession(config, folders)
   applyMediaSpecialistTurn(config)
   setActive(next)
   return next

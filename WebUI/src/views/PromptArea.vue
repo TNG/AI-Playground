@@ -418,7 +418,10 @@ const downloadGroup = computed(() => {
       : mode === 'chat' || mode === 'audio'
         ? conversations.activeKey
         : ''
-  return key && modelDownloads().snapshot(key) ? key : ''
+  const harnesses = sessions.openSessionId
+    ? agentMode.liveTurnsIn(sessions.openSessionId).map((turn) => turn.tag.harnessSessionId)
+    : []
+  return [key, ...harnesses].find((group) => group && modelDownloads().snapshot(group)) ?? ''
 })
 
 const shouldShowImageUploadButton = computed(() => {
@@ -496,7 +499,7 @@ const queuedBehindRunNote = computed(() => {
   return agentRunQueuedLabel(languages ?? {}, held?.name ?? '')
 })
 
-// Between two Steps no turn is in flight, yet the run still holds the Session.
+// An Agent Run turn or its Follow-up runs in its own Harness Session yet holds the whole Session.
 const openSessionRunning = computed(
   () => !!sessions.openSessionId && !!agentTasks.agentRunIn(sessions.openSessionId),
 )

@@ -7,7 +7,7 @@ import { z } from 'zod'
  */
 export const SessionSettingsBagSchema = z.object({
   values: z.record(z.string(), z.unknown()),
-  /** True until the user changes a setting in this Session; such a bag is repaired silently. */
+  /** True until a turn is sent with this bag; such a bag is repaired silently. */
   fromDefaults: z.boolean(),
 })
 export type SessionSettingsBag = z.infer<typeof SessionSettingsBagSchema>

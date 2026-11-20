@@ -8,7 +8,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '', media: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -17,7 +21,10 @@ vi.mock('../../observability/logger', () => ({
 
 const { createSession, openSession, renameSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { readHistoryEntries } = await import('../../session/sessionHistory')
+const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
+const workspaceId = async (id: string) => (await sessionWorkspaceEntry(id)).id
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
 
 beforeAll(async () => {
@@ -83,10 +90,10 @@ describe('a media turn in a Session', () => {
 
     const [item] = await recordMediaTurn(turn(id, [doneImage(url)]))
 
-    expect(await fs.readdir(path.join(dirs.real, id, 'files'))).toEqual(['ComfyUI_00001_.png'])
+    expect(await fs.readdir(sessionWorkspaceDir(id))).toEqual(['ComfyUI_00001_.png'])
     expect(await fs.readdir(dirs.media)).toEqual([])
     expect(item.type === 'image' && item.imageUrl).toBe(
-      `aipg-media://sessions/${id}/files/ComfyUI_00001_.png`,
+      `aipg-media://folders/${id}/${await workspaceId(id)}/ComfyUI_00001_.png`,
     )
   })
 
@@ -103,10 +110,10 @@ describe('a media turn in a Session', () => {
     const [item] = await recordMediaTurn(turn(id, [video], { mode: 'video' }))
 
     expect(item.type === 'video' && item.videoUrl).toBe(
-      `aipg-media://sessions/${id}/files/clip.mp4`,
+      `aipg-media://folders/${id}/${await workspaceId(id)}/clip.mp4`,
     )
     expect((await fs.stat(dirs.media)).isDirectory()).toBe(true)
-    expect(await fs.readdir(path.join(dirs.real, id, 'files'))).toEqual(['clip.mp4'])
+    expect(await fs.readdir(sessionWorkspaceDir(id))).toEqual(['clip.mp4'])
   })
 
   it('appends one History Entry describing the run', async () => {
@@ -122,7 +129,7 @@ describe('a media turn in a Session', () => {
         kind: 'image',
         prompt: 'a red fox',
         status: 'completed',
-        artifacts: [{ path: 'files/fox.png', mediaType: 'image' }],
+        artifacts: [{ folderId: await workspaceId(id), path: 'fox.png', mediaType: 'image' }],
       }),
     ])
   })
@@ -172,7 +179,7 @@ describe('a media turn in a Session', () => {
     await recordMediaTurn(turn(id, [doneImage(await comfyOutput('out.png'))]))
     await recordMediaTurn(turn(id, [doneImage(await comfyOutput('out.png'))], { runId: 'run-2' }))
 
-    const files = (await fs.readdir(path.join(dirs.real, id, 'files'))).sort()
+    const files = (await fs.readdir(sessionWorkspaceDir(id))).sort()
     expect(files).toHaveLength(2)
     const entries = await readHistoryEntries(id)
     expect(new Set(entries.map((entry) => entry.artifacts[0].path)).size).toBe(2)
@@ -199,7 +206,7 @@ describe('a media turn in a Session', () => {
               status: 'completed',
               items: [
                 expect.objectContaining({
-                  imageUrl: `aipg-media://sessions/${id}/files/fox.png`,
+                  imageUrl: `aipg-media://folders/${id}/${await workspaceId(id)}/fox.png`,
                 }),
               ],
             }),

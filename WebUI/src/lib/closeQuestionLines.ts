@@ -39,8 +39,6 @@ function stateLabel(item: InFlightWorkItem, t: Strings): string {
       return item.state.count === undefined
         ? t.CLOSE_STATE_QUEUED
         : fillTemplate(t.CLOSE_STATE_QUEUED_COUNT, { count: item.state.count })
-    case 'step':
-      return fillTemplate(t.CLOSE_STATE_STEP, { index: item.state.index, count: item.state.count })
   }
 }
 

@@ -1,6 +1,11 @@
 import type { SessionManager } from '@earendil-works/pi-coding-agent'
 import { readHistoryEntries } from '../session/sessionHistory.ts'
-import { historyAsSeenFrom, isPresetTurn } from '../session/sessionUpdate.ts'
+import {
+  historyAsSeenBy,
+  type HistoryReader,
+  type SeenHistoryEntry,
+} from '../session/historyArtifacts.ts'
+import { isPresetTurn, seenArtifactText } from '../session/sessionUpdate.ts'
 import type { HistoryEntry } from '@/types/sessionIpc'
 
 type AssistantMessage = Extract<
@@ -11,7 +16,7 @@ type AssistantMessage = Extract<
 type ReplayTarget = {
   sessionRef: string
   presetName: string
-  workspaceDir: string
+  reader: HistoryReader
   model: { api: AssistantMessage['api']; provider: AssistantMessage['provider']; id: string }
 }
 
@@ -25,8 +30,8 @@ function isChatEngineTurn(entry: HistoryEntry, presetName: string): boolean {
   )
 }
 
-function replyText(entry: HistoryEntry): string {
-  const files = entry.artifacts.map((artifact) => artifact.path)
+function replyText(entry: SeenHistoryEntry): string {
+  const files = entry.artifacts.map((artifact) => seenArtifactText(artifact))
   return [entry.response?.trim() ?? '', files.length > 0 ? `Files: ${files.join(', ')}` : '']
     .filter((part) => part !== '')
     .join('\n\n')
@@ -41,7 +46,7 @@ export async function replayChatEngineTurns(
     isChatEngineTurn(entry, target.presetName),
   )
   if (entries.length === 0) return []
-  const seen = await historyAsSeenFrom(target.sessionRef, entries, target.workspaceDir)
+  const seen = await historyAsSeenBy(target.sessionRef, entries, target.reader)
   for (const entry of seen) {
     sessionManager.appendMessage({
       role: 'user',

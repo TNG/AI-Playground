@@ -111,9 +111,6 @@ export function useAgentSettingsPanel() {
     capabilities: computed(() => agentMode.capabilities),
     setCapabilities: agentMode.setCapabilities,
     capabilityCatalog: gatedCatalog,
-    mountedFoldersSupported: computed(() => agentMode.mountedFoldersSupported),
-    mountedFolders: computed(() => agentMode.mountedFolders),
-    setMountedFolders: agentMode.setMountedFolders,
     embeddingModelName,
     embeddingModelItems,
     setEmbeddingModel: (modelName: string) =>

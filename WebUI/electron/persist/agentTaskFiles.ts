@@ -125,11 +125,47 @@ function withoutRunChanges(task: AgentTask, stored: AgentTask | undefined): Agen
   }
 }
 
+/** A demo visitor's Agent works in app-created folders only. */
+function withoutHostFolders<T extends { settingsTemplate: SettingsTemplate }>(entry: T): T {
+  if (!agentTaskFilesDeps?.isDemoMode() || !entry.settingsTemplate.folderOverrides) return entry
+  const { folderOverrides: _folderOverrides, ...settingsTemplate } = entry.settingsTemplate
+  return { ...entry, settingsTemplate }
+}
+
+function holdsMountedFolders(raw: unknown, key: 'tasks' | 'drafts'): boolean {
+  const entries = (raw as Record<string, unknown> | null)?.[key]
+  return (
+    Array.isArray(entries) &&
+    entries.some((entry) => {
+      const template = (entry as { settingsTemplate?: unknown } | null)?.settingsTemplate
+      return typeof template === 'object' && template !== null && 'mountedFolders' in template
+    })
+  )
+}
+
+/**
+ * The upgrade to folder overrides (ADR 0014): every Agent's and Draft's additional Mounted
+ * Folders are dropped, leaving both overrides unset. A file without any is not rewritten.
+ */
+export async function dropAgentMountedFolders(): Promise<void> {
+  return serialize(FILE_CHAIN, async () => {
+    const tasks = await readJson(tasksFile(), LOG_SCOPE)
+    if (tasks.status === 'ok' && holdsMountedFolders(tasks.value, 'tasks')) {
+      const version = (await tasksFileVersion()) ?? AGENT_TASKS_SCHEMA_VERSION
+      await writeTasks(await readAgentTasks(), version)
+    }
+    const drafts = await readJson(draftsFile(), LOG_SCOPE)
+    if (drafts.status === 'ok' && holdsMountedFolders(drafts.value, 'drafts')) {
+      await writeDrafts(await readAgentDrafts())
+    }
+  })
+}
+
 /** Insert a Task, or replace the one with the same id where it stands. */
 export async function saveAgentTask(payload: unknown): Promise<void> {
   const parsed = AgentTaskSchema.safeParse(payload)
   if (!parsed.success) throw new Error(`invalid task: ${parsed.error.message}`)
-  const task = parsed.data
+  const task = withoutHostFolders(parsed.data)
   return serialize(FILE_CHAIN, async () => {
     const tasks = await readAgentTasks()
     const index = tasks.findIndex((entry) => entry.id === task.id)
@@ -175,7 +211,7 @@ async function writeDrafts(drafts: AgentDraft[]): Promise<void> {
 export async function saveAgentDraft(payload: unknown): Promise<void> {
   const parsed = AgentDraftSchema.safeParse(payload)
   if (!parsed.success) throw new Error(`invalid draft: ${parsed.error.message}`)
-  const draft = parsed.data
+  const draft = withoutHostFolders(parsed.data)
   return serialize(FILE_CHAIN, async () => {
     const drafts = await readAgentDrafts()
     const index = drafts.findIndex((entry) => entry.agentId === draft.agentId)
@@ -215,13 +251,7 @@ export async function settleTaskRunsOnQuit(cause: ShutdownCause): Promise<void> 
       const { activeRuns: _runs, ...rest } = task
       return {
         ...rest,
-        lastOutcome: {
-          kind: 'stopped',
-          at,
-          sessionId: activeRun.sessionId,
-          stepIndex: activeRun.stepIndex,
-          stepCount: activeRun.stepCount,
-        },
+        lastOutcome: { kind: 'stopped', at, sessionId: activeRun.sessionId },
       }
     })
     if (settled > 0) await writeTasks(next)

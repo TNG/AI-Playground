@@ -51,6 +51,7 @@ export function startNotificationConfigPush(): void {
         .map((session) => session.id),
       templates: {
         header: text.AGENT_NOTIFY_HEADER ?? '',
+        assistantHeader: text.AGENT_NOTIFY_ASSISTANT_HEADER ?? '',
         paused: text.AGENT_NOTIFY_PAUSED ?? '',
         pauseReason: text.AGENT_NOTIFY_PAUSE_REASON ?? '',
         pauseKinds: {
@@ -61,8 +62,8 @@ export function startNotificationConfigPush(): void {
         },
         failed: text.AGENT_NOTIFY_FAILED ?? '',
         sessionLabel: text.AGENT_NOTIFY_SESSION_LABEL ?? '',
-        taskLabel: text.AGENT_NOTIFY_TASK_LABEL ?? '',
-        untitled: text.AGENT_NOTIFY_UNTITLED ?? '',
+        untitled: text.SESSIONS_UNTITLED ?? '',
+        untitledAgent: text.AGENT_LIBRARY_UNNAMED ?? '',
         answerButton: text.AGENT_NOTIFY_ANSWER_BUTTON ?? '',
         answerOnComputer: text.AGENT_NOTIFY_ANSWER_ON_COMPUTER ?? '',
         answerInThread: text.AGENT_NOTIFY_ANSWER_IN_THREAD ?? '',

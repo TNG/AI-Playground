@@ -6,6 +6,7 @@ import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { notificationSessionLabel, trialRunLabel } from '@/lib/notificationLabel'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
@@ -24,6 +25,7 @@ import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
 import { readReachableSession } from '../session/sessionChannels.ts'
 import { liveTrialRunOf } from './trialRuns.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
+import { agentFileRoot, type AgentFiles } from './workspaceAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { tellDroppedQueues } from './queueQuitNotice.ts'
 import {
@@ -84,8 +86,8 @@ export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping; dr
 export type NotificationOptions = {
   /** The sending Harness Session; its Session must be reachable and is named in the header. */
   sessionId: string
-  /** Workspace-relative files to send with the text, validated against the session's workspace. */
-  attachments?: { workspaceDir: string; paths: string[] }
+  /** Files to send with the text, from the session's Workspace or its attachments. */
+  attachments?: { files: AgentFiles; paths: string[] }
 }
 
 const OFF_CONFIG: NotificationConfig = {
@@ -95,13 +97,14 @@ const OFF_CONFIG: NotificationConfig = {
   realShellSessions: [],
   templates: {
     header: '',
+    assistantHeader: '',
     paused: '',
     pauseReason: '',
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
     failed: '',
     sessionLabel: '',
-    taskLabel: '',
     untitled: '',
+    untitledAgent: '',
     answerButton: '',
     answerOnComputer: '',
     answerInThread: '',
@@ -118,13 +121,11 @@ let windowShown: () => boolean = () => false
 
 /**
  * A turn whose result is sent when it ends: the turn an Answer started, which replies on
- * the Answer's Channel alone, or a Scheduled Run's last Step, which reports to every Channel.
+ * the Answer's Channel alone, or a Scheduled Run's turn, which reports to every Channel.
  */
 type ReportedTurn = {
   turnId: string
   workspaceDir: string
-  /** Sent after the turn's text: what earlier Steps of its run generated. */
-  media: string[]
   /** Files already on the Channel, sent as made or by `notify_user`; not sent again. */
   attached: Set<string>
   /** Media sent as it is made, in order. */
@@ -141,17 +142,9 @@ type ReportedTurn = {
   answer?: AgentAnswerOrigin
   /** The reply is spoken too, after its text, unless the turn already sent a voice clip. */
   speaks?: boolean
-  /** A Step of an Agent Run before its last: its result is kept for the run's. */
-  quiet?: boolean
   /** The "Started" message, sent before anything else of the run. */
   started?: Promise<unknown>
 }
-
-/** A Channel-started Agent Run's Step, as its turn config names it. */
-export type ReportedStep = { taskName: string; stepIndex: number; notifiesResult?: boolean }
-
-/** What a Channel-started run's earlier Steps generated, for its last Step to send. */
-const runMedia = new Map<string, string[]>()
 
 /** Per Harness Session. */
 const reportedTurns = new Map<string, ReportedTurn>()
@@ -179,11 +172,10 @@ function replaceReportedTurn(sessionId: string, turn: ReportedTurn): void {
   reportedTurns.set(sessionId, turn)
 }
 
-function newReportedTurn(turnId: string, workspaceDir: string, media: string[]): ReportedTurn {
+function newReportedTurn(turnId: string, workspaceDir: string): ReportedTurn {
   return {
     turnId,
     workspaceDir,
-    media,
     attached: new Set(),
     sending: Promise.resolve(),
     streamed: new Map(),
@@ -196,25 +188,18 @@ export function answerSpeaks(config: Pick<AgentModeTurnConfig, 'answer' | 'toolS
   return !!config.toolSpecs?.some((spec) => spec.name === 'synthesizeTextToSpeech')
 }
 
-/** A turn a Channel caused; each Step of an Agent Run it started reports only the run's result. */
+/** A turn a Channel caused; an Agent Run it started says "Started" before anything else. */
 export function noteAnswerTurn(
   sessionId: string,
   turnId: string,
   workspaceDir: string,
   origin: AgentAnswerOrigin,
   speaks = false,
-  step?: ReportedStep,
+  runName?: string,
 ): void {
-  const media = step && step.stepIndex > 1 ? (runMedia.get(sessionId) ?? []) : []
-  runMedia.delete(sessionId)
-  const turn: ReportedTurn = {
-    ...newReportedTurn(turnId, workspaceDir, media),
-    answer: origin,
-    speaks,
-    ...(step && !step.notifiesResult ? { quiet: true } : {}),
-  }
+  const turn: ReportedTurn = { ...newReportedTurn(turnId, workspaceDir), answer: origin, speaks }
   replaceReportedTurn(sessionId, turn)
-  if (step?.stepIndex === 1) turn.started = sendStarted(sessionId, step.taskName)
+  if (runName) turn.started = sendStarted(sessionId, runName)
 }
 
 async function sendStarted(sessionId: string, name: string): Promise<void> {
@@ -228,14 +213,14 @@ async function sendStarted(sessionId: string, name: string): Promise<void> {
   await deliverOrWarn({ text, bare: true, plain: true }, sessionId, 'agent start')
 }
 
-/** A Scheduled Run's last Step: its result goes to every Channel when it completes. */
+/** A Scheduled Run's turn: its result and its media go to every Channel. */
 export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: string): void {
-  replaceReportedTurn(sessionId, newReportedTurn(turnId, workspaceDir, []))
+  replaceReportedTurn(sessionId, newReportedTurn(turnId, workspaceDir))
 }
 
 type Owner = AnswerTarget | TrialRunOwner
 type Heading = { header: string; owner: Owner }
-type Sender = { owner: Owner; title: string }
+type Sender = { owner: Owner; title: string; header: string }
 
 /** Harness Sessions whose latest turn started with the `notify` capability. */
 const notifyingHarnessSessions = new Set<string>()
@@ -268,15 +253,23 @@ async function senderOf(sessionId: string): Promise<Sender | null> {
     const session = await readReachableSession(sessionRef)
     if (!session) return null
     const title = await sessionLabel(sessionId, session.title)
-    return { owner: { sessionRef, harnessSessionId: sessionId }, title }
+    const assistant = session.harnessSessions[HARNESS_CHAT_PRESET] === sessionId
+    const header = assistant ? config.templates.assistantHeader : config.templates.header
+    return {
+      owner: { sessionRef, harnessSessionId: sessionId },
+      title,
+      header: fillTemplate(header, { title }),
+    }
   }
   if (!notifyingHarnessSessions.has(sessionId)) return null
   const trial = await liveTrialRunOf(sessionId)
   if (!trial) return null
   const agent = trial.name || (await readAgentSessionTitle(sessionId))
+  const title = trialRunLabel(config.templates, agent)
   return {
     owner: { trialRun: true, harnessSessionId: sessionId, agentId: trial.agentId },
-    title: trialRunLabel(config.templates, agent),
+    title,
+    header: fillTemplate(config.templates.header, { title }),
   }
 }
 
@@ -284,7 +277,7 @@ async function headingOf(sessionId: string): Promise<Heading | null> {
   const sender = await senderOf(sessionId)
   if (!sender) return null
   return {
-    header: fillTemplate(config.templates.header, { title: sender.title }),
+    header: sender.header,
     owner: sender.owner,
   }
 }
@@ -311,7 +304,7 @@ function streamedText(turn: ReportedTurn): string {
 function streamReply(sessionId: string, turn: ReportedTurn): void {
   const kind = turn.answer?.channel
   const port = channel
-  if (!kind || turn.quiet || !port || !config.channels.includes(kind)) return
+  if (!kind || !port || !config.channels.includes(kind)) return
   turn.heading ??= headingOf(sessionId).catch(() => null)
   void turn.heading.then((heading) => {
     if (!heading || turn.ended) return
@@ -334,6 +327,7 @@ async function closeReply(turn: ReportedTurn): Promise<ChannelDraft | null> {
 
 /** A turn that ended without its result still settles what it streamed. */
 async function settleStreamed(sessionId: string, turn: ReportedTurn): Promise<void> {
+  await turn.started
   await turn.sending
   const draft = await closeReply(turn)
   if (!draft) return
@@ -343,12 +337,8 @@ async function settleStreamed(sessionId: string, turn: ReportedTurn): Promise<vo
   }
 }
 
-/** Media a reported turn made, sent at once unless its run's result keeps it. */
+/** Media a reported turn made, sent as it is made. */
 function noteTurnMedia(sessionId: string, turn: ReportedTurn, files: string[]): void {
-  if (turn.quiet) {
-    turn.media.push(...files)
-    return
-  }
   const fresh = files.filter((file) => !turn.attached.has(file))
   for (const file of fresh) turn.attached.add(file)
   if (fresh.length === 0) return
@@ -415,10 +405,15 @@ export async function sendNotification(
   const delivery = await deliverOrWarn({ text, attachments }, sessionId)
   if (delivery.delivered && attachments) {
     for (const file of attachments.paths) {
-      turn?.attached.add(path.resolve(attachments.workspaceDir, file))
+      turn?.attached.add(attachmentKey(attachments.files, file))
     }
   }
   return delivery
+}
+
+function attachmentKey(files: AgentFiles, file: string): string {
+  const { root, relative } = agentFileRoot(files, file)
+  return path.resolve(root, relative)
 }
 
 /** The attachments the turn has not already put on the Channel; undefined when none are left. */
@@ -427,7 +422,7 @@ function notSentYet(
   turn: ReportedTurn | undefined,
 ): NotificationOptions['attachments'] {
   const paths = attachments.paths.filter(
-    (file) => !turn?.attached.has(path.resolve(attachments.workspaceDir, file)),
+    (file) => !turn?.attached.has(attachmentKey(attachments.files, file)),
   )
   return paths.length > 0 ? { ...attachments, paths } : undefined
 }
@@ -475,7 +470,7 @@ async function deliver(body: Body, sessionId: string): Promise<NotificationDeliv
     if (!sender) return { delivered: false, reason: 'the Session is not reachable from Channels' }
     const outcomes: NotificationDelivery[] = []
     for (const kind of kinds) {
-      outcomes.push(await deliverOn(kind, channel, body, sender.owner, sender.title))
+      outcomes.push(await deliverOn(kind, channel, body, sender))
     }
     const delivered = outcomes.flatMap((outcome) => (outcome.delivered ? [outcome] : []))
     if (delivered.length === 0) {
@@ -495,17 +490,15 @@ async function deliverOn(
   kind: ChannelKind,
   port: NotificationChannel,
   body: Body,
-  owner: Owner,
-  title: string,
+  { owner, title, header: senderHeader }: Sender,
 ): Promise<NotificationDelivery> {
   const sessionId = owner.harnessSessionId
   const answer = reportedTurnOf(sessionId)?.answer
   const attached = body.attachments
-    ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
+    ? await readAttachments(body.attachments.files, body.attachments.paths, kind)
     : { media: [] }
   if ('error' in attached) return { delivered: false, reason: attached.error }
-  const header =
-    takesCaption(body.media) && !body.bare ? fillTemplate(config.templates.header, { title }) : ''
+  const header = takesCaption(body.media) && !body.bare ? senderHeader : ''
   const message: ChannelMessage = {
     ...(header ? { header } : {}),
     text: body.text,
@@ -566,7 +559,7 @@ function laidOut(
 
 const REPLY_MAX_CHARS = 3800
 
-/** A reported turn's result: its last text, settling its draft, then what earlier Steps made. */
+/** A reported turn's result: its last text, settling its draft. */
 async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: string | undefined) {
   await turn.started
   await turn.sending
@@ -576,10 +569,6 @@ async function sendTurnResult(sessionId: string, turn: ReportedTurn, reply: stri
     await deliverOrWarn({ text: clipped(text), ...(draft ? { draft } : {}) }, sessionId)
   }
   if (reply && turn.answer && turn.speaks) await speakReply(sessionId, turn.answer, reply)
-  await sendMedia(
-    sessionId,
-    turn.media.filter((file) => !turn.attached.has(file)),
-  )
 }
 
 const CLIP_EXTENSIONS: Record<string, string> = {
@@ -643,7 +632,7 @@ function pauseReasonText(reason: PauseReason | undefined): string {
   return reason?.summary ? fillTemplate(pauseReason, { kind, summary: reason.summary }) : kind
 }
 
-/** The Session's quoted title, then the Agent Run's name and Step while one runs in it. */
+/** The Session's quoted title, then the Agent Run's name while one runs in it. */
 async function sessionLabel(sessionId: string, sessionTitle: string): Promise<string> {
   const { templates } = config
   const tasks = await readAgentTasks().catch(() => [])
@@ -653,9 +642,17 @@ async function sessionLabel(sessionId: string, sessionTitle: string): Promise<st
   return inRun ? `${named} · ${notificationSessionLabel(templates, sessionId, '', tasks)}` : named
 }
 
-/** Paused and failed: always for the turn an Answer started, else only off screen. */
-async function notifiesAutomatically(sessionId: string, turnId: string): Promise<boolean> {
-  if (reportedTurnOf(sessionId, turnId)?.answer) return true
+/**
+ * Paused and failed: always for an Answer, else only off screen; an unattended run that cannot
+ * start because its Workspace is missing has nobody to ask, so it always reaches Channels.
+ */
+async function notifiesAutomatically(
+  sessionId: string,
+  turnId: string,
+  missingWorkspace = false,
+): Promise<boolean> {
+  const turn = reportedTurnOf(sessionId, turnId)
+  if (turn?.answer || (turn && missingWorkspace)) return true
   return offScreen(sessionId)
 }
 
@@ -676,8 +673,13 @@ async function notifyPaused(
   )
 }
 
-async function notifyFailed(sessionId: string, turnId: string, error: string): Promise<void> {
-  if (!(await notifiesAutomatically(sessionId, turnId))) return
+async function notifyFailed(
+  sessionId: string,
+  turnId: string,
+  error: string,
+  missingWorkspace = false,
+): Promise<void> {
+  if (!(await notifiesAutomatically(sessionId, turnId, missingWorkspace))) return
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
   await deliverOrWarn(
@@ -698,18 +700,12 @@ export function startAutoNotifications(): () => void {
   const stopFailures = onAgentTurnEnd((end) => {
     const reported = reportedTurnOf(end.sessionId, end.turnId)
     if (reported) typing.stop(end.turnId)
-    if (reported?.quiet && end.outcome === 'completed') {
-      runMedia.set(
-        end.sessionId,
-        reported.media.filter((file) => !reported.attached.has(file)),
-      )
-    }
     const sending =
-      end.outcome === 'completed' && reported && !reported.quiet
+      end.outcome === 'completed' && reported
         ? sendTurnResult(end.sessionId, reported, end.reply)
         : (reported ? settleStreamed(end.sessionId, reported) : Promise.resolve()).then(() =>
             end.outcome === 'failed'
-              ? notifyFailed(end.sessionId, end.turnId, end.error)
+              ? notifyFailed(end.sessionId, end.turnId, end.error, end.missingWorkspace)
               : undefined,
           )
     void sending

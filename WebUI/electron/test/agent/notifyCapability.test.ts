@@ -29,6 +29,8 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getChannelMessageMapFile: () => path.join(tempRoot, 'channel-messages.json'),
   getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -36,7 +38,7 @@ const SUMMARY = 'Top story: the bridge reopened.'
 
 type RequestBody = {
   messages?: Array<{ role: string; content?: unknown }>
-  tools?: Array<{ function?: { name?: string } }>
+  tools?: Array<{ function?: { name?: string; description?: string } }>
 }
 
 let requests: RequestBody[] = []
@@ -129,13 +131,14 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
     realShellSessions,
     templates: {
       header: '🤖 Agent · {title}',
+      assistantHeader: '💬 Assistant · {title}',
       paused: '',
       pauseReason: '',
       pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
       failed: '',
       sessionLabel: '"{title}"',
-      taskLabel: '',
-      untitled: 'An agent run',
+      untitled: 'Untitled Session',
+      untitledAgent: 'Untitled agent',
       answerButton: '💬 Answer',
       answerOnComputer: 'Answer on your computer',
       answerInThread: 'Reply in thread to answer.',
@@ -256,7 +259,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'telegram',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\n↩️ Reply to this message to answer.`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\n↩️ Reply to this message to answer.`,
       },
     ])
     expect(toolResultText()).toBe('delivered')
@@ -268,9 +271,9 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'local-web',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}`,
         buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
-        answerTitle: '"An agent run"',
+        answerTitle: '"Untitled Session"',
       },
     ])
   }, 30000)
@@ -281,7 +284,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'telegram',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\nAnswer on your computer`,
       },
     ])
   }, 30000)
@@ -292,7 +295,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'slack',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nReply in thread to answer.`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\nReply in thread to answer.`,
       },
     ])
   }, 30000)
@@ -303,7 +306,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'slack',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\nAnswer on your computer`,
       },
     ])
   }, 30000)
@@ -352,6 +355,13 @@ describe('notify_user', () => {
     expect(toolResultText()).toContain('not delivered: Telegram not configured')
   }, 30000)
 
+  it('tells the model to notify when a Step of an Agent says so', async () => {
+    await runTurn('aipg-agent-notify-described')
+    const tool = requests[0].tools?.find((entry) => entry.function?.name === 'notify_user')
+    expect(tool?.function?.description).toContain('when a Step says so')
+    expect(tool?.function?.description).not.toContain('Task step')
+  }, 30000)
+
   it('is absent from a session without the notify capability', async () => {
     await runTurn('aipg-agent-notify-unticked', [])
     expect(requests.length).toBeGreaterThan(0)
@@ -368,8 +378,6 @@ describe('notify_user in a Trial Run', () => {
       agentId,
       harnessSessionId,
       name,
-      stepIndex: 1,
-      stepCount: 1,
       startedAt: 1,
       state: 'running',
     })
@@ -435,13 +443,44 @@ describe('notify_user in a Trial Run', () => {
 })
 
 describe('notify_user attachments', () => {
-  const caption = `🤖 Agent · "An agent run"\n${SUMMARY}\n↩️ Reply to this message to answer.`
+  const caption = `💬 Assistant · "Untitled Session"\n${SUMMARY}\n↩️ Reply to this message to answer.`
 
   function attach(relativePath: string, bytes: Buffer | string = 'media bytes'): void {
     const file = path.join(workspace, relativePath)
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, bytes)
   }
+
+  it('forwards a file the user attached to the Session, kept outside its Workspace', async () => {
+    const harnessSessionId = 'aipg-agent-notify-session-attachment'
+    const sessionRef = await sessionHolding(harnessSessionId)
+    const { sessionPaths } = await import('../../session/sessions')
+    const { ensureSessionWorkspace } = await import('../../session/sessionWorkspace')
+    const { importAttachment } = await import('../../agent/workspaceAttachments')
+    const saved = importAttachment(
+      { dir: sessionPaths(sessionRef).attachmentsDir, reference: '/attachments' },
+      'cat.png',
+      Buffer.from('cat bytes'),
+    )
+    notifyArgs = { message: SUMMARY, attachments: [saved.path] }
+
+    await manager.startAgentTurn(crypto.randomUUID(), 'send me the cat', {
+      ...configFor(harnessSessionId, ['notify']),
+      sessionRef,
+      workspaceDir: await ensureSessionWorkspace(sessionRef),
+    })
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        media: {
+          kind: 'photo',
+          base64: Buffer.from('cat bytes').toString('base64'),
+          filename: 'cat.png',
+        },
+      }),
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
 
   it('sends an attached image as a photo captioned with the Notification text', async () => {
     attach('generated/cover.png', 'png bytes')
@@ -669,7 +708,10 @@ describe('notify_user attachments', () => {
     notifyArgs = { message: long, attachments: ['generated/cover.png', 'generated/clip.mp4'] }
     await runTurn('aipg-agent-notify-long')
     expect(sent.map(({ text, media }) => [text, media?.filename])).toEqual([
-      [`🤖 Agent · "An agent run"\n${long}\n↩️ Reply to this message to answer.`, undefined],
+      [
+        `💬 Assistant · "Untitled Session"\n${long}\n↩️ Reply to this message to answer.`,
+        undefined,
+      ],
       ['', 'cover.png'],
       ['', 'clip.mp4'],
     ])
@@ -706,7 +748,7 @@ describe('notify_user attachments', () => {
     await runTurn('aipg-agent-notify-lan-media')
     expect(sent.map(({ text, media, buttons }) => [text, media?.filename, buttons])).toEqual([
       [
-        `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        `💬 Assistant · "Untitled Session"\n${SUMMARY}`,
         'a.png',
         [[{ text: '💬 Answer', callbackData: 'answer' }]],
       ],

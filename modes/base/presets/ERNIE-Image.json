@@ -1,10 +1,10 @@
 {
   "type": "comfy",
-  "name": "Pro 3 Image",
-  "displayPriority": 250,
+  "name": "ERNIE Image",
+  "displayPriority": 275,
   "tags": ["ERNIE-Image", "high-vram"],
   "description": "Using ERNIE-Image Turbo from Baidu this preset produces high quality images with strong prompt adherence and accurate text in only 8 steps.",
-  "extendedDescription": "Using Pro 3 with long, detailed, and descriptive prompts that describe specifics of what's in the foreground, background, lighting, aesthetic, and style of image. Use this preset especially when wanting to accurately generate text or full sentences in an image, chart or poster-like image.",
+  "extendedDescription": "Use ERNIE Image with long, detailed, and descriptive prompts that describe specifics of what's in the foreground, background, lighting, aesthetic, and style of image. Use this preset especially when wanting to accurately generate text or full sentences in an image, chart or poster-like image.",
   "backend": "comfyui",
   "category": "create-images",
   "mediaType": "image",

@@ -30,6 +30,7 @@ vi.mock('../../observability/logger.ts', () => ({
 const { discardTrialRun, setTrialRunDeps, trialRunHarnessFor, wipeTrialRuns } =
   await import('../../agent/trialRuns')
 const { trialMediaOf } = await import('../../agent/piSessionLifecycle')
+const { attachmentsFolderFor } = await import('../../session/sessionAttachments')
 const { saveGeneratedMediaToWorkspace, setAppMediaPathResolver } =
   await import('../../agent/piCustomTools')
 
@@ -70,15 +71,29 @@ async function generate(workspaceDir: string, agentId: string, name: string) {
 }
 
 describe("a Trial Run working in its Agent's own folder", () => {
-  it('saves its media there, and shows it from its scratch folder', async () => {
+  it("saves its media at that folder's root under a free name, shown from its scratch folder", async () => {
     const trial = await trialRunHarnessFor('agent-1')
+    await fs.writeFile(path.join(site, 'cat.png'), 'mine')
 
     const result = await generate(site, 'agent-1', 'cat.png')
 
-    expect(result.savedFiles).toEqual(['generated/cat.png'])
-    expect(await fs.readFile(path.join(site, 'generated', 'cat.png'), 'utf8')).toBe('png')
+    expect(result.savedFiles).toEqual(['cat-1.png'])
+    expect(await fs.readFile(path.join(site, 'cat-1.png'), 'utf8')).toBe('png')
+    expect(await fs.readFile(path.join(site, 'cat.png'), 'utf8')).toBe('mine')
+    expect(await exists(path.join(site, 'generated'))).toBe(false)
     expect(await exists(path.join(trial.workspaceDir, 'cat.png'))).toBe(true)
     expect(result.images[0].imageUrl).toBe('aipg-media://trials/agent-1/files/cat.png')
+  })
+
+  it('keeps its attachments in its scratch folder, never in that folder', async () => {
+    const trial = await trialRunHarnessFor('agent-1')
+
+    const folder = attachmentsFolderFor({ workspaceDir: site, trialAgentId: 'agent-1' })
+
+    expect(folder).toEqual({
+      dir: path.join(path.dirname(trial.workspaceDir), 'attachments'),
+      reference: '/attachments',
+    })
   })
 
   it('leaves the files it wrote there when the next Trial Run, a discard or a quit throws it away', async () => {
@@ -93,7 +108,7 @@ describe("a Trial Run working in its Agent's own folder", () => {
     await wipeTrialRuns()
 
     expect(await fs.readFile(path.join(site, 'notes.md'), 'utf8')).toBe('kept')
-    expect(await fs.readFile(path.join(site, 'generated', 'cat.png'), 'utf8')).toBe('png')
+    expect(await fs.readFile(path.join(site, 'cat.png'), 'utf8')).toBe('png')
     expect(await exists(paths.trials)).toBe(false)
   })
 })

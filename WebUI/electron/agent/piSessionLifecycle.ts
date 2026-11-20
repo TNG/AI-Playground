@@ -177,10 +177,7 @@ export function sessionMediaOf(
   }
 }
 
-/**
- * A Trial Run's media is shown from its scratch folder, `agent-trials/<agentId>/files`; working
- * in its Agent's own folder it lands in that folder's `generated/` too, which outlives the run.
- */
+/** A Trial Run's media is always served from a copy in its scratch folder. */
 export function trialMediaOf(agentId: string, workspaceDir: string): SessionMediaTarget {
   if (trialAgentIdOf(workspaceDir) === agentId) return { workspace: 'trial', agentId }
   const filesDir = trialFilesDir(agentId)
@@ -213,10 +210,16 @@ async function createSession(
   const mountedFolders = folders.mounted
   const workspaceMount = folders.workspace && mountedFolderSandboxPath(folders.workspace)
   const sandboxFolders = [...(folders.workspace ? [folders.workspace] : []), ...mountedFolders]
-  const stored = attachmentsFolderFor({ sessionId: config.sessionRef, workspaceDir })
+  const trialAgent = await trialAgentOf(config)
+  const stored = attachmentsFolderFor({
+    sessionId: config.sessionRef,
+    workspaceDir,
+    ...(trialAgent && trialAgentIdOf(workspaceDir) !== trialAgent
+      ? { trialAgentId: trialAgent }
+      : {}),
+  })
   const attachmentsDir = stored.reference === SANDBOX_ATTACHMENTS_DIR ? stored.dir : undefined
   const attachments = attachmentsSeenBy(stored, unsandboxed)
-  const trialAgent = await trialAgentOf(config)
   const sessionMedia = trialAgent
     ? trialMediaOf(trialAgent, workspaceDir)
     : sessionMediaOf(config.sessionRef, workspaceDir)
@@ -369,6 +372,7 @@ async function createSession(
       before: pointer ? previousWorkdir(pointer, unsandboxed, workspaceDir) : access.cwd,
       after: access.cwd,
     },
+    turnMounts.leftOut,
   )
 
   const announcedSkills = skills.filter((skill) =>

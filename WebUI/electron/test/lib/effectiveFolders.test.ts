@@ -57,14 +57,14 @@ describe('the folders in effect', () => {
     })
   })
 
-  it("override both parts independently: the Agent's Workspace and only its folders", () => {
+  it("override both parts independently, leaving nothing of the Session's", () => {
     const agent = {
       workspace: { hostPath: '/Users/me/Site', name: 'site' },
       folders: [{ hostPath: '/Users/me/Data' }],
     }
     expect(mounts(effectiveFolders({ session, agent }))).toEqual({
       workspace: 'site=/Users/me/Site',
-      others: ['Data=/Users/me/Data read-only', 'project=/Users/me/Project read-write'],
+      others: ['Data=/Users/me/Data read-only'],
     })
   })
 
@@ -122,26 +122,6 @@ describe('a folder in both the Agent and the Session lists', () => {
     })
   })
 
-  it('is mounted once, read-write winning, when both are other folders', () => {
-    const agent = {
-      workspace: { hostPath: '/Users/me/Site', name: 'site' },
-      folders: [{ hostPath: '/Users/me/Project', name: 'mine', access: 'read-only' as const }],
-    }
-    expect(mounts(effectiveFolders({ session, agent }))?.others).toEqual([
-      'project=/Users/me/Project read-write',
-    ])
-  })
-
-  it("is mounted once as the Agent's entry when both have the same access", () => {
-    const agent = {
-      workspace: { hostPath: '/Users/me/Site', name: 'site' },
-      folders: [{ hostPath: '/Users/me/Project', name: 'mine', access: 'read-write' as const }],
-    }
-    expect(effectiveFolders({ session, agent })?.others).toMatchObject([
-      { name: 'mine', source: 'agent' },
-    ])
-  })
-
   it('is matched by the comparison the caller gives, such as one through symlinks', () => {
     const agent = { folders: [{ hostPath: '/alias/Project' }] }
     const sameFolder = (a: string, b: string) =>
@@ -151,16 +131,16 @@ describe('a folder in both the Agent and the Session lists', () => {
 })
 
 describe('an Agent folder nested with a Session folder', () => {
-  it("keeps the Agent's folder and drops a Session folder inside it", () => {
+  it('drops a read-only Session folder inside it and keeps a read-write one', () => {
     const agent = { workspace: { hostPath: '/Users/me', name: 'home' } }
     const nested = { workspaceId: project.id, folders: [project, notes] }
     expect(mounts(effectiveFolders({ session: nested, agent }))).toEqual({
       workspace: 'home=/Users/me',
-      others: [],
+      others: ['project=/Users/me/Project read-write'],
     })
   })
 
-  it("keeps the Agent's folder and drops a Session folder around it", () => {
+  it('drops a read-only Session folder around it', () => {
     const agent = {
       workspace: { hostPath: '/Users/me/Notes/2026', name: 'year' },
     }
@@ -170,13 +150,19 @@ describe('an Agent folder nested with a Session folder', () => {
     })
   })
 
-  it("keeps an Agent's other folder over a Session folder it nests with", () => {
-    const agent = {
-      workspace: { hostPath: '/Users/me/Site', name: 'site' },
-      folders: [{ hostPath: '/Users/me/Project/assets' }],
-    }
+  it("keeps the Session's Workspace around it, both being read-write", () => {
+    const agent = { workspace: { hostPath: '/Users/me/Project/site', name: 'site' } }
     expect(mounts(effectiveFolders({ session, agent }))?.others).toEqual([
-      'assets=/Users/me/Project/assets read-only',
+      'notes=/Users/me/Notes read-only',
+      'papers=/Users/me/Papers read-write',
+      'project=/Users/me/Project read-write',
+    ])
+  })
+
+  it('names the Session folders it drops, and the folder each gave way to', () => {
+    const agent = { workspace: { hostPath: '/Users/me/Notes/2026', name: 'year' } }
+    expect(effectiveFolders({ session, agent })?.leftOut).toMatchObject([
+      { hostPath: '/Users/me/Notes', overlaps: '/Users/me/Notes/2026' },
     ])
   })
 

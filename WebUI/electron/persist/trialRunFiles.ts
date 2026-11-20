@@ -81,6 +81,10 @@ export function trialFilesDir(agentId: string): string {
   return path.join(folderOf(agentId), 'files')
 }
 
+export function trialAttachmentsDir(agentId: string): string {
+  return path.join(folderOf(agentId), 'attachments')
+}
+
 export async function removeTrialFoldersRoot(): Promise<void> {
   await fs.rm(getAgentTrialsDir(), { recursive: true, force: true })
 }

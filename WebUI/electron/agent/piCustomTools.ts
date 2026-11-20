@@ -295,13 +295,7 @@ export function workspaceFileToDataUri(files: AgentFiles, relativePath: string):
   return `data:${mime};base64,${fs.readFileSync(fullPath).toString('base64')}`
 }
 
-/**
- * A turn in a Session: when the workspace is the Session's Workspace media lands at its root;
- * when it is a game folder media lands in the game's `generated/` and in the Session's
- * Workspace (`filesDir`) too, served from the Session's copy. A Trial Run's media is served from
- * its scratch folder, so that copy goes when the Trial Run is thrown away; working in its Agent's
- * own folder (`filesDir` is then the scratch folder) it lands in that folder's `generated/` too.
- */
+/** Where a turn's media is saved, and the folder it is served from when that is elsewhere. */
 export type SessionMediaTarget =
   | { sessionRef: string; workspace: 'files'; folderId: string }
   | { sessionRef: string; workspace: 'game'; filesDir: () => Promise<string>; folderId: string }
@@ -361,6 +355,15 @@ async function saveOne(
   const apart = mediaFilesDirOf(sessionMedia)
   const filesDir = apart ? await apart() : workspaceDir
   fs.mkdirSync(filesDir, { recursive: true })
+  const key = MEDIA_URL_KEYS.find((candidate) => entry[candidate] === url) ?? 'imageUrl'
+  if (apart && sessionMedia.workspace === 'trial') {
+    const saved = await freeName(workspaceDir, name)
+    await moveIntoSession(url, path.join(workspaceDir, saved))
+    const served = await freeName(filesDir, name)
+    fs.copyFileSync(path.join(workspaceDir, saved), path.join(filesDir, served))
+    const servedUrl = trialMediaUrl(sessionMedia.agentId, `files/${served}`)
+    return { saved, entry: { ...entry, [key]: servedUrl } }
+  }
   const filesName = await freeName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
   await moveIntoSession(url, sessionCopy)
@@ -370,7 +373,6 @@ async function saveOne(
     saved = path.posix.join('generated', await freeName(generatedDir, name))
     fs.copyFileSync(sessionCopy, path.join(workspaceDir, saved))
   }
-  const key = MEDIA_URL_KEYS.find((candidate) => entry[candidate] === url) ?? 'imageUrl'
   return {
     saved,
     sessionCopy,

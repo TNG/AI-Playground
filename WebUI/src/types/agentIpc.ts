@@ -177,8 +177,8 @@ export type AgentModeTurnConfig = z.infer<typeof AgentModeTurnConfigSchema>
  * An `agentMode:executeTool` dispatch: main hands a renderer-implemented tool
  * call to the window to run, and the renderer answers over `agentMode:toolResult`.
  */
-/** Who a file is attached for: the folder a turn works in, and the Session it runs in if any. */
-export type AttachmentTarget = { workspaceDir: string; sessionId?: string }
+/** Who a file is attached for: the folder a turn works in, and its Session or Trial Run. */
+export type AttachmentTarget = { workspaceDir: string; sessionId?: string; trialAgentId?: string }
 
 export type AgentToolExecuteRequest = {
   requestId: string

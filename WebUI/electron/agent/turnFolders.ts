@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { containedIn } from './hostPathContainment.ts'
 import { ensureFolder } from '../persist/fileOps'
 import { isDemoSessions } from '../persist/sessionFiles'
 import { trialFolderAgentIdOf } from '../persist/trialRunFiles'
@@ -13,6 +14,7 @@ import {
 import {
   assignSlug,
   mountedFolderLocation,
+  mountedFolderSandboxPath,
   resolveMountedFolders,
   workspaceEntryOf,
   type ResolvedMountedFolder,
@@ -26,6 +28,8 @@ export type TurnFolders = {
   workspace?: ResolvedMountedFolder
   /** Every other folder, at `/mnt/<name>`. */
   mounted: ResolvedMountedFolder[]
+  /** Session folders not mounted because an Agent folder they nest with has other access. */
+  leftOut?: { hostPath: string; name: string; overlaps: string }[]
 }
 
 function realOrResolved(hostPath: string): string {
@@ -67,9 +71,13 @@ function mountsOf(
   const resolved = effectiveFolders({ session, agent, sameFolder })
   if (!resolved) return { mounted: [] }
   const mount = ({ hostPath, name, access }: ResolvedMountedFolder) => ({ hostPath, name, access })
+  const leftOut = resolved.leftOut
+    .filter((folder) => !folder.planned)
+    .map(({ hostPath, name, overlaps }) => ({ hostPath, name, overlaps }))
   return {
     workspace: { ...mount(resolved.workspace), hostPath: workspaceDir },
     mounted: resolved.others.filter((folder) => !folder.planned).map(mount),
+    ...(leftOut.length > 0 ? { leftOut } : {}),
   }
 }
 
@@ -172,6 +180,16 @@ export function folderEntryLocation(
   unsandboxed: boolean,
 ): string | undefined {
   const mounted = [...(folders.workspace ? [folders.workspace] : []), ...folders.mounted]
-  const found = mounted.find((folder) => sameFolder(folder.hostPath, entry.hostPath))
-  return found && mountedFolderLocation(found, unsandboxed)
+  const exact = mounted.find((folder) => sameFolder(folder.hostPath, entry.hostPath))
+  if (exact) return mountedFolderLocation(exact, unsandboxed)
+  const real = realOrResolved(entry.hostPath)
+  for (const folder of mounted) {
+    const root = realOrResolved(folder.hostPath)
+    if (!containedIn(root, real)) continue
+    const inside = path.relative(root, real).split(path.sep)
+    return unsandboxed
+      ? path.join(folder.hostPath, ...inside)
+      : path.posix.join(mountedFolderSandboxPath(folder), ...inside)
+  }
+  return undefined
 }

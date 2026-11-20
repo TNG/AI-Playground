@@ -2,6 +2,7 @@ import path from 'node:path'
 import { appLoggerInstance } from '../observability/logger'
 import { sessionFolderPaths } from '../persist/sessionFiles'
 import { moveLegacyAttachments } from '../persist/sessionLegacyFiles'
+import { trialAttachmentsDir } from '../persist/trialRunFiles'
 import {
   ATTACHMENTS_DIR,
   SANDBOX_ATTACHMENTS_DIR,
@@ -13,9 +14,11 @@ import { isSessionWorkspace } from './sessionWorkspace'
 
 export type { AttachmentTarget }
 
-/** A Session's attachments stay in its internal storage whichever folder is its Workspace. */
+/** A Session's or Trial Run's attachments stay in app storage whichever folder it works in. */
 export function attachmentsFolderFor(target: AttachmentTarget): AttachmentsFolder {
-  const { sessionId, workspaceDir } = target
+  const { sessionId, workspaceDir, trialAgentId } = target
+  if (trialAgentId)
+    return { dir: trialAttachmentsDir(trialAgentId), reference: SANDBOX_ATTACHMENTS_DIR }
   if (sessionId && isSessionWorkspace(sessionId, workspaceDir)) {
     return { dir: sessionFolderPaths(sessionId).attachmentsDir, reference: SANDBOX_ATTACHMENTS_DIR }
   }

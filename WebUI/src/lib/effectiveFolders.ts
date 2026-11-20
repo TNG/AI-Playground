@@ -34,7 +34,14 @@ export type EffectiveFolder = ResolvedMountedFolder & {
   planned?: boolean
 }
 
-export type EffectiveFolders = { workspace: EffectiveFolder; others: EffectiveFolder[] }
+/** A Session folder not mounted because an Agent folder with other access nests with it. */
+export type LeftOutFolder = EffectiveFolder & { overlaps: string }
+
+export type EffectiveFolders = {
+  workspace: EffectiveFolder
+  others: EffectiveFolder[]
+  leftOut: LeftOutFolder[]
+}
 
 export type EffectiveFoldersInput = {
   session: SessionFolderList
@@ -94,10 +101,7 @@ function fromAgent(agent: AgentFolderOverrides): {
   return { workspace, folders: agent.folders && resolved.slice(workspace ? 1 : 0) }
 }
 
-/**
- * Which Workspace and folders are in effect: the Agent's overrides, else the Session's star and
- * other folders; the Session's Workspace stays mounted read-write beside an overriding one.
- */
+/** Which Workspace and folders are in effect: the Agent's overrides, else the Session's. */
 export function effectiveFolders(input: EffectiveFoldersInput): EffectiveFolders | undefined {
   const star = workspaceEntryOf(input.session)
   if (!star) return undefined
@@ -106,11 +110,24 @@ export function effectiveFolders(input: EffectiveFoldersInput): EffectiveFolders
   const others = [
     ...(agent.folders ??
       input.session.folders.filter((entry) => entry.id !== star.id).map((e) => fromEntry(e))),
-    ...(agent.workspace ? [fromEntry(star, 'read-write')] : []),
+    ...(agent.workspace && !agent.folders ? [fromEntry(star, 'read-write')] : []),
   ]
-  const kept = withoutOverlaps(workspace, others, input.sameFolder ?? sameHostPath)
+  const sameFolder = input.sameFolder ?? sameHostPath
+  const kept: EffectiveFolder[] = []
+  const leftOut: LeftOutFolder[] = []
+  others.forEach((folder, i) => {
+    if (sameFolder(folder.hostPath, workspace.hostPath)) return
+    const rivals = [workspace, ...others.filter((_, j) => j !== i)]
+    const winner = rivals.find((rival) =>
+      givesWay(folder, rival, rival === workspace || others.indexOf(rival) < i, sameFolder),
+    )
+    if (!winner) kept.push(folder)
+    else if (!sameFolder(folder.hostPath, winner.hostPath)) {
+      leftOut.push({ ...folder, overlaps: winner.hostPath })
+    }
+  })
   const [named, ...rest] = withUniqueNames([workspace, ...kept])
-  return { workspace: named, others: rest }
+  return { workspace: named, others: rest, leftOut }
 }
 
 /** Whether `folder` gives way to `rival`, which comes first when `rivalFirst`. */
@@ -128,20 +145,8 @@ function givesWay(
   return (
     folder.source === 'session' &&
     rival.source === 'agent' &&
+    isWritable(folder) !== isWritable(rival) &&
     hostPathsNest(folder.hostPath, rival.hostPath)
-  )
-}
-
-function withoutOverlaps(
-  workspace: EffectiveFolder,
-  others: readonly EffectiveFolder[],
-  sameFolder: (a: string, b: string) => boolean,
-): EffectiveFolder[] {
-  return others.filter(
-    (folder, i) =>
-      !sameFolder(folder.hostPath, workspace.hostPath) &&
-      !givesWay(folder, workspace, true, sameFolder) &&
-      !others.some((rival, j) => j !== i && givesWay(folder, rival, j < i, sameFolder)),
   )
 }
 

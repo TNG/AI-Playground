@@ -165,6 +165,35 @@ describe('an Agent Run in a Session', () => {
       ])
     })
 
+    it("keeps the Session's Workspace mounted around a folder inside it", async () => {
+      const inner = path.join(workspace, 'site')
+      fs.mkdirSync(inner)
+      const config = {
+        ...overrideTurn(),
+        workspaceDir: inner,
+        folderOverrides: { workspace: { id: 'w1', hostPath: inner, slug: 'site' } },
+      }
+
+      expect(await mounts(config)).toEqual({
+        workspace: '/mnt/site',
+        mounted: ['/mnt/notes read-only', '/mnt/papers read-write', '/mnt/poster read-write'],
+      })
+    })
+
+    it('names a read-only Session folder it leaves out for a folder inside it', async () => {
+      const inner = path.join(notes, '2026')
+      fs.mkdirSync(inner)
+      const config = {
+        ...overrideTurn(),
+        workspaceDir: inner,
+        folderOverrides: { workspace: { id: 'w1', hostPath: inner, slug: 'year' } },
+      }
+
+      expect((await turnFolders(config)).leftOut).toEqual([
+        { hostPath: notes, name: 'notes', overlaps: inner },
+      ])
+    })
+
     it('mounts nothing of the Session when the turn was sent for another folder', async () => {
       const config = { ...overrideTurn(), workspaceDir: workspace }
 
@@ -243,5 +272,15 @@ describe('where a turn finds a Session folder', () => {
 
     expect(folderEntryLocation(foldersOf(), { hostPath: alias }, false)).toBe('/mnt/notes')
     expect(folderEntryLocation(foldersOf(), { hostPath: other }, false)).toBeUndefined()
+  })
+
+  it('is its path inside a mounted folder that holds it', () => {
+    const inner = path.join(notes, 'drafts', 'old')
+    fs.mkdirSync(inner, { recursive: true })
+
+    expect(folderEntryLocation(foldersOf(), { hostPath: inner }, false)).toBe(
+      '/mnt/notes/drafts/old',
+    )
+    expect(folderEntryLocation(foldersOf(), { hostPath: inner }, true)).toBe(inner)
   })
 })

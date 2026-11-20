@@ -1,6 +1,8 @@
-import { Marked, Token, Tokens } from 'marked'
+import { Marked, Token, Tokens, RendererThis } from 'marked'
 import hljs from 'highlight.js'
 import { stringToBase64 } from 'uint8array-extras'
+
+import { MARKDOWN_ALLOWED_TAGS } from '@/lib/sanitize'
 
 import 'highlight.js/styles/github-dark-dimmed.css'
 
@@ -29,20 +31,85 @@ const codeRenderer = {
   },
 }
 
+/**
+ * Raw HTML the assistant emits is passed through unescaped when every tag in it
+ * is on the sanitizer's allowlist, so raw formatting (bold, links, underline,
+ * …) renders like its markdown equivalent. Anything else stays escaped, and
+ * DOMPurify still sanitizes whatever passes through here.
+ */
+const rawHtmlTagChunk = /<[^<>]*>/g
+const rawHtmlTagName = /^<\/?\s*([a-zA-Z][a-zA-Z0-9-]*)/
+
+const isAllowedRawHtml = (raw: string): boolean => {
+  const chunks = raw.match(rawHtmlTagChunk)
+  if (chunks === null) return false
+  const outside = raw.replace(rawHtmlTagChunk, '')
+  if (outside.includes('<') || outside.includes('>')) return false
+  return chunks.every((chunk) => {
+    const name = rawHtmlTagName.exec(chunk)?.[1]?.toLowerCase()
+    return name !== undefined && MARKDOWN_ALLOWED_TAGS.includes(name)
+  })
+}
+
+/** The anchor shape whose href gets normalized like a markdown link's href. */
+const allowedOpeningAnchor =
+  /^<a\s+href="([^"<>]*)"((?:\s+(?:title|target|rel)="[^"<>]*")*\s*)>\s*$/i
+
+const escapeRawHtml = (raw: string) =>
+  raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
 const htmlEscaper = {
   walkTokens: (token: Token) => {
+    if (token.type !== 'html') return
     try {
-      if (token.type === 'html') {
-        token.text = token.raw
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;')
+      if (isAllowedRawHtml(token.raw)) {
+        const anchor = allowedOpeningAnchor.exec(token.raw)
+        if (anchor) {
+          const href = cleanUrl(anchor[1])
+          if (href !== null) {
+            token.text = `<a href="${escapeHtml(href)}"${anchor[2]}>`
+            return
+          }
+        } else {
+          return
+        }
       }
+      token.text = escapeRawHtml(token.raw)
     } catch (error) {
       console.error('error while html escaping', { error, token })
     }
+  },
+}
+
+const externalLinkIcon =
+  ' <span class="svg-icon i-external-link external-link-icon" aria-hidden="true"></span>'
+
+const cleanUrl = (href: string): string | null => {
+  try {
+    return encodeURI(href).replace(/%25/g, '%')
+  } catch {
+    return null
+  }
+}
+
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+const linkRenderer = {
+  renderer: {
+    link(this: RendererThis, token: Tokens.Link): string {
+      const text = this.parser.parseInline(token.tokens)
+      const href = cleanUrl(token.href)
+      if (href === null) return text
+      const title = token.title ? ` title="${escapeHtml(token.title)}"` : ''
+      const isWeb = /^https?:\/\//i.test(href)
+      return `<a href="${escapeHtml(href)}"${title}>${text}${isWeb ? externalLinkIcon : ''}</a>`
+    },
   },
 }
 
@@ -60,6 +127,25 @@ const dataCodeFixer = (input: string) => {
   }
 }
 
+/**
+ * Adds the external-link icon to web anchors the assistant wrote as raw HTML,
+ * so they look the same as markdown links. Anchors rendered by linkRenderer
+ * already contain the icon, so those are left unchanged. Must run after
+ * dataCodeFixer, which base64-encodes code-block content out of the way.
+ * Attribute-agnostic: any well-formed anchor with a web href gets the icon,
+ * whatever quoting or attributes the assistant used.
+ */
+const rawAnchorIconFixer = (input: string) => {
+  return input.replace(
+    /(<a\s+(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)<\/a>/gi,
+    (match, open: string, inner: string) => {
+      if (inner.includes('external-link-icon')) return match
+      if (!/href\s*=\s*(?:"https?:|'https?:|https?:)/i.test(open)) return match
+      return `${open}${inner}${externalLinkIcon}</a>`
+    },
+  )
+}
+
 export const parser = new Marked({
   pedantic: false,
   gfm: true,
@@ -68,9 +154,10 @@ export const parser = new Marked({
 })
   .use(codeRenderer)
   .use(htmlEscaper)
+  .use(linkRenderer)
   .use({
     hooks: {
-      postprocess: dataCodeFixer,
+      postprocess: (html: string) => rawAnchorIconFixer(dataCodeFixer(html)),
     },
   })
 
@@ -79,7 +166,14 @@ export const plainParser = new Marked({
   gfm: true,
   breaks: true,
   async: false,
-}).use(htmlEscaper)
+})
+  .use(htmlEscaper)
+  .use(linkRenderer)
+  .use({
+    hooks: {
+      postprocess: rawAnchorIconFixer,
+    },
+  })
 
 export const parse = (input: string) => {
   try {

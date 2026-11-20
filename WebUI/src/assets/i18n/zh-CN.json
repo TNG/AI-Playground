@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace:{folder}(文件夹缺失)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Workspace 文件夹缺失",
   "SESSION_WORKSPACE_MISSING_TEXT": "Workspace 文件夹“{folder}”已不在 {path}。它可能已被重命名、删除,或位于未连接的驱动器上。在你选择结果的保存位置之前,不会保存任何内容。",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "{agent} 始终使用的文件夹“{folder}”已不在 {path}。它可能已被重命名、删除,或位于未连接的驱动器上。请找到它,或在智能体中更改该文件夹。",
   "SESSION_WORKSPACE_LOCATE": "查找文件夹…",
   "SESSION_WORKSPACE_START_NEW": "新建 Workspace",
   "SESSION_WORKSPACE_USE_OWN": "重新使用初始 Workspace",

@@ -77,6 +77,15 @@ function agentIdOf(config: AgentModeTurnConfig): string | undefined {
   return config.taskRun?.taskId ?? config.followUp?.agentId
 }
 
+/** The folder an Agent Run (or Follow-up) in a Session always works in, when its Agent sets one. */
+export function agentWorkspaceOverride(
+  config: AgentModeTurnConfig,
+): { id?: string; hostPath: string } | undefined {
+  if (!config.sessionRef || isDemoSessions() || !(config.taskRun || config.followUp)) return
+  const own = config.folderOverrides?.workspace
+  return own && { id: own.id, hostPath: own.hostPath }
+}
+
 /**
  * The Agent a turn is a Trial Run of: by its scratch folder, or by the Harness Session a Trial
  * Run holds when it works in its Agent's own folder.

@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder} (klasör eksik)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Workspace klasörü eksik",
   "SESSION_WORKSPACE_MISSING_TEXT": "“{folder}” Workspace klasörü artık {path} konumunda yok. Yeniden adlandırılmış, silinmiş veya bağlı olmayan bir sürücüde olabilir. Sonuçların nereye gideceğini seçene kadar hiçbir şey kaydedilmez.",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "{agent} ajanının her zaman çalıştığı “{folder}” klasörü artık {path} konumunda yok. Yeniden adlandırılmış, silinmiş veya bağlı olmayan bir sürücüde olabilir. Klasörü bulun veya ajanda klasörü değiştirin.",
   "SESSION_WORKSPACE_LOCATE": "Klasörü bul…",
   "SESSION_WORKSPACE_START_NEW": "Yeni bir Workspace başlat",
   "SESSION_WORKSPACE_USE_OWN": "İlk Workspace’i yeniden kullan",

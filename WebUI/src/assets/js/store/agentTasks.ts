@@ -8,7 +8,7 @@ import {
 import type { AgentFollowUpTag, AgentSessionSettings } from '@/types/agentSessionIpc'
 import type { PauseReason } from '@/types/kernelEvents'
 import type { InFlightWorkItem } from '@/types/lifecycleIpc'
-import type { SessionSummary } from '@/types/sessionIpc'
+import type { MissingWorkspace, SessionSummary } from '@/types/sessionIpc'
 import type {
   AgentDraft,
   AgentSessionSchedule,
@@ -37,7 +37,13 @@ import { useSessions } from './sessions'
 import { useTextInference, type LlmBackend } from './textInference'
 import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
-import { requestDownload } from '@/assets/js/permissions/permissions'
+import { requestDownload, requestMissingWorkspace } from '@/assets/js/permissions/permissions'
+import { editableFolders } from '@/lib/agentFolderOverrides'
+import {
+  folderBaseName,
+  mountedFolderRefusal,
+  type MountedFolderRefusal,
+} from '@/lib/mountedFolders'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { afterRunTurn, sendRunTurn } from '@/lib/agentRunTurn'
 import { liveAgentSessions } from '@/lib/liveAgentSessions'
@@ -696,6 +702,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     const refusal = await chatModelRefusal(picked.settingsTemplate, [{ id: 'prompt', prompt }])
     if (refusal) return { ok: false, ...refusal }
+    if (!(await readyAgentWorkspaceForTurn(picked.id))) {
+      return { ok: false, reason: 'missing-workspace' }
+    }
     // The download may have taken long enough for a delete or a new run to overtake it.
     const agent = tasks.value.find((entry) => entry.id === picked.id)
     if (!agent) return { ok: false, reason: 'no-task' }
@@ -1186,6 +1195,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!(await sessionsStore.readyWorkspaceForTurn(sessionRef))) {
       return { ok: false, reason: 'missing-workspace' }
     }
+    if (!(await readyAgentWorkspaceForTurn(id))) return { ok: false, reason: 'missing-workspace' }
     // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
     const task = tasks.value.find((entry) => entry.id === id)
     if (!task) return { ok: false, reason: 'no-task' }
@@ -1410,6 +1420,119 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     const open = sessionsStore.openSessionId
     return pickedAgent.value ?? (open ? agentRunIn(open) : undefined)
   })
+
+  /** Agents whose own Workspace folder no longer exists, as last checked. */
+  const missingAgentWorkspaces = ref<Record<string, MissingWorkspace>>({})
+
+  function noteAgentMissing(agentId: string, missing: MissingWorkspace | null): void {
+    const { [agentId]: _was, ...rest } = missingAgentWorkspaces.value
+    missingAgentWorkspaces.value = missing ? { ...rest, [agentId]: missing } : rest
+  }
+
+  /** Checks on disk whether the Agent's own Workspace is missing; null when it has none. */
+  async function checkAgentWorkspace(agentId: string): Promise<MissingWorkspace | null> {
+    const own = tasks.value.find((task) => task.id === agentId)?.settingsTemplate.folderOverrides
+      ?.workspace
+    let missing: MissingWorkspace | null = null
+    if (own) {
+      const present = await window.electronAPI.isFolderPath(own.hostPath).catch((error) => {
+        errors.report(error, { code: 'agent-tasks/check-workspace-failed', surface: 'silent' })
+        return true
+      })
+      if (!present) {
+        const name = folderBaseName(own.hostPath) || own.hostPath
+        missing = { folderId: own.id, hostPath: own.hostPath, name }
+      }
+    }
+    noteAgentMissing(agentId, missing)
+    return missing
+  }
+
+  watch(
+    () => [activeAgent.value?.id, activeAgent.value?.settingsTemplate.folderOverrides?.workspace],
+    ([id]) => {
+      if (typeof id === 'string') void checkAgentWorkspace(id)
+    },
+    { immediate: true },
+  )
+
+  /**
+   * Lets the user pick where the Agent's own Workspace went and re-points the Agent there, keeping
+   * the folder's id and slug: 'located', 'cancelled', or why the picked folder is refused.
+   */
+  async function locateAgentWorkspace(
+    agentId: string,
+  ): Promise<'located' | 'cancelled' | MountedFolderRefusal> {
+    let hostPath: string | undefined
+    let refusal: MountedFolderRefusal | undefined
+    try {
+      const picked = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
+      hostPath = picked.canceled ? undefined : picked.filePaths[0]
+      const agent = tasks.value.find((task) => task.id === agentId)
+      if (!hostPath || !agent) return 'cancelled'
+      refusal = mountedFolderRefusal(hostPath, {
+        homeFolder: await window.electronAPI.getHomePath(),
+        mountedFolders: editableFolders(agent.settingsTemplate.folderOverrides?.folders ?? []),
+      })
+    } catch (error) {
+      errors.report(error, { code: 'agent-tasks/locate-workspace-failed', surface: 'toast' })
+      return 'cancelled'
+    }
+    if (refusal) return refusal
+    const agent = tasks.value.find((task) => task.id === agentId)
+    const overrides = agent?.settingsTemplate.folderOverrides
+    if (!agent || !overrides?.workspace) return 'cancelled'
+    const workspace = { ...overrides.workspace, hostPath }
+    const relocated = { ...overrides, workspace }
+    const previous = agent
+    replaceTask({
+      ...agent,
+      settingsTemplate: { ...agent.settingsTemplate, folderOverrides: relocated },
+    })
+    if (!(await persistTask(tasks.value.find((task) => task.id === agentId) ?? previous))) {
+      replaceTask(previous)
+      return 'cancelled'
+    }
+    const draft = drafts.value[agentId]
+    const drafted = draft?.settingsTemplate.folderOverrides
+    if (draft && drafted?.workspace?.id === workspace.id) {
+      await writeDraft({
+        ...cloneForIpc(draft),
+        settingsTemplate: {
+          ...draft.settingsTemplate,
+          folderOverrides: { ...drafted, workspace: { ...drafted.workspace, hostPath } },
+        },
+      })
+    }
+    return (await checkAgentWorkspace(agentId)) === null ? 'located' : 'cancelled'
+  }
+
+  /**
+   * Before an interactive run or Follow-up: a missing own Workspace is asked about, and the turn
+   * goes ahead only once the user located it; Edit Agent opens the Agent in the Agent Library.
+   */
+  async function readyAgentWorkspaceForTurn(agentId: string): Promise<boolean> {
+    const missing = await checkAgentWorkspace(agentId)
+    if (!missing) return true
+    let refusal: MountedFolderRefusal | undefined
+    for (;;) {
+      const agent = tasks.value.find((task) => task.id === agentId)
+      if (!agent) return false
+      const choice = await requestMissingWorkspace({
+        missing,
+        refusal,
+        agent: { id: agent.id, name: agent.name },
+      })
+      if (choice === 'edit-agent') {
+        ui.openAgentLibrary({ agentId })
+        return false
+      }
+      if (choice !== 'locate') return false
+      const located = await locateAgentWorkspace(agentId)
+      if (located === 'located') return true
+      refusal = located === 'cancelled' ? undefined : located
+    }
+  }
 
   /** Each Session's prompt waiting for its Agent Run or queued Channel messages. Memory only. */
   const queuedPrompts = ref<Record<string, HeldPrompt>>({})
@@ -1777,6 +1900,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     pickedAgentIn,
     pickedAgent,
     activeAgent,
+    missingAgentWorkspaces,
     agentSettingsProblems,
     pickAgent,
     runPickedAgent,

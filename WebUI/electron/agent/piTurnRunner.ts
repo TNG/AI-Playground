@@ -43,9 +43,14 @@ import {
   releaseTurnSession,
 } from './piSessionLifecycle.ts'
 import { agentRunIdentity } from './agentRunIdentity.ts'
+import { agentWorkspaceOverride } from './turnFolders.ts'
 import { reportAgentTurnEnd, type AgentTurnEnd } from './agentTurnOutcome.ts'
 import { trackAgentTurnInSession } from '../session/sessionAgentTurns.ts'
-import { assertSessionWorkspacePresent, turnWorkspaceDir } from '../session/sessionWorkspace.ts'
+import {
+  assertAgentWorkspacePresent,
+  assertSessionWorkspacePresent,
+  turnWorkspaceDir,
+} from '../session/sessionWorkspace.ts'
 import {
   claimSessionTurn,
   releaseSessionTurn,
@@ -437,7 +442,9 @@ export async function startAgentTurn(
   const abortController = new AbortController()
   const turn: AgentTurn = { sessionId, turnId, abort: abortController, live: null }
   agentTurns.set(sessionId, turn)
-  if (sessionRef) {
+  const ownWorkspace = agentWorkspaceOverride(config)
+  // An Agent's own folder is never swapped for the Session's: missing, it fails the turn below.
+  if (sessionRef && !ownWorkspace) {
     const workspaceDir = await turnWorkspaceDir(sessionRef, config.workspaceDir).catch(
       () => config.workspaceDir,
     )
@@ -527,7 +534,11 @@ export async function startAgentTurn(
   try {
     // Before the queue, so an unattended turn fails at once instead of pausing on a download.
     if (sessionRef) {
-      await assertSessionWorkspacePresent(sessionRef, config.workspaceDir).catch((error) => {
+      await (
+        ownWorkspace
+          ? assertAgentWorkspacePresent(ownWorkspace)
+          : assertSessionWorkspacePresent(sessionRef, config.workspaceDir)
+      ).catch((error) => {
         missingWorkspace = true
         throw error
       })

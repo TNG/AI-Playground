@@ -6,9 +6,14 @@ import type { CloseAskPayload } from '@/types/lifecycleIpc'
 import type { MissingWorkspace } from '@/types/sessionIpc'
 import type { MountedFolderRefusal } from '@/lib/mountedFolders'
 
-export type MissingWorkspaceChoice = 'locate' | 'start-new' | null
+export type MissingWorkspaceChoice = 'locate' | 'start-new' | 'edit-agent' | null
 
-export type MissingWorkspaceAsk = { missing: MissingWorkspace; refusal?: MountedFolderRefusal }
+/** With `agent`, the missing folder is that Agent's own Workspace, changed in the Agent. */
+export type MissingWorkspaceAsk = {
+  missing: MissingWorkspace
+  refusal?: MountedFolderRefusal
+  agent?: { id: string; name: string }
+}
 
 // todo: Consider adding "add-l-l-m-dialog" as well
 export type PresetRequirementsData = {

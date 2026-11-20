@@ -138,10 +138,12 @@ const chip = computed(() =>
   }),
 )
 
-// The Session's missing Workspace; an Agent's own one is not checked here.
-const missing = computed(
-  () => !!chip.value && !chip.value.folders[0]?.agentId && !!sessions.openMissingWorkspace,
-)
+// The Workspace in effect: the Agent's own folder while it sets one, else the Session's.
+const missing = computed(() => {
+  const agentId = chip.value?.folders[0]?.agentId
+  if (!chip.value) return false
+  return agentId ? !!agentTasks.missingAgentWorkspaces[agentId] : !!sessions.openMissingWorkspace
+})
 
 const label = computed(() =>
   (missing.value

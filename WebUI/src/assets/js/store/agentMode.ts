@@ -2231,7 +2231,7 @@ export const useAgentMode = defineStore(
             ).replace('{path}', sessionWorkspace),
           )
         }
-        if (ownWorkspace && !(await window.electronAPI.existsPath(ownWorkspace))) {
+        if (ownWorkspace && !unattended && !(await window.electronAPI.existsPath(ownWorkspace))) {
           return refuseSend(
             'missing-folder',
             (

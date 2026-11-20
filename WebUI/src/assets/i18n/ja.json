@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder}(フォルダーが見つかりません)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Workspace フォルダーが見つかりません",
   "SESSION_WORKSPACE_MISSING_TEXT": "Workspace フォルダー「{folder}」は {path} にもうありません。名前が変更されたか、削除されたか、接続されていないドライブ上にある可能性があります。結果の保存先を選ぶまで何も保存されません。",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "{agent} が常に作業するフォルダー「{folder}」は {path} にもうありません。名前が変更されたか、削除されたか、接続されていないドライブ上にある可能性があります。フォルダーの場所を指定するか、エージェントでフォルダーを変更してください。",
   "SESSION_WORKSPACE_LOCATE": "フォルダーを指定…",
   "SESSION_WORKSPACE_START_NEW": "新しい Workspace を開始",
   "SESSION_WORKSPACE_USE_OWN": "最初の Workspace に戻す",

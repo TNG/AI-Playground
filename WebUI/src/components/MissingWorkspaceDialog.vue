@@ -19,7 +19,18 @@
           <button @click="answer(null)" class="bg-muted text-foreground py-1 px-4 rounded">
             {{ i18nState.COM_CANCEL }}
           </button>
-          <button @click="answer('start-new')" class="bg-muted text-foreground py-1 px-4 rounded">
+          <button
+            v-if="agent"
+            @click="answer('edit-agent')"
+            class="bg-muted text-foreground py-1 px-4 rounded"
+          >
+            {{ i18nState.AGENT_LIBRARY_EDIT_AGENT }}
+          </button>
+          <button
+            v-else
+            @click="answer('start-new')"
+            class="bg-muted text-foreground py-1 px-4 rounded"
+          >
             {{ replaceLabel }}
           </button>
           <button @click="answer('locate')" class="bg-primary text-foreground py-1 px-4 rounded">
@@ -36,17 +47,22 @@ import { computed } from 'vue'
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { useDialogStore, type MissingWorkspaceChoice } from '@/assets/js/store/dialogs'
 import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { mountedFolderRefusalText } from '@/lib/mountedFolderRefusalText'
 
 const dialogStore = useDialogStore()
 const i18nState = useI18N().state
 
+const agent = computed(() => dialogStore.missingWorkspaceQuestion?.agent)
+
 const text = computed(() => {
   const missing = dialogStore.missingWorkspaceQuestion?.missing
   if (!missing) return ''
-  return i18nState.SESSION_WORKSPACE_MISSING_TEXT.replace('{folder}', missing.name).replace(
-    '{path}',
-    missing.hostPath,
+  return fillTemplate(
+    agent.value
+      ? i18nState.SESSION_WORKSPACE_AGENT_MISSING_TEXT
+      : i18nState.SESSION_WORKSPACE_MISSING_TEXT,
+    { folder: missing.name, path: missing.hostPath, agent: agent.value?.name ?? '' },
   )
 })
 

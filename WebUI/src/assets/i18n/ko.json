@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder} (폴더 없음)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Workspace 폴더 없음",
   "SESSION_WORKSPACE_MISSING_TEXT": "Workspace 폴더 “{folder}”이(가) 더 이상 {path}에 없습니다. 이름이 바뀌었거나 삭제되었거나 연결되지 않은 드라이브에 있을 수 있습니다. 결과를 저장할 위치를 선택할 때까지 아무것도 저장되지 않습니다.",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "{agent}이(가) 항상 작업하는 폴더 “{folder}”이(가) 더 이상 {path}에 없습니다. 이름이 바뀌었거나 삭제되었거나 연결되지 않은 드라이브에 있을 수 있습니다. 폴더를 찾거나 에이전트에서 폴더를 변경하세요.",
   "SESSION_WORKSPACE_LOCATE": "폴더 찾기…",
   "SESSION_WORKSPACE_START_NEW": "새 Workspace 시작",
   "SESSION_WORKSPACE_USE_OWN": "처음 Workspace 다시 사용",

@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder} (falta la carpeta)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Falta la carpeta del Workspace",
   "SESSION_WORKSPACE_MISSING_TEXT": "La carpeta del Workspace «{folder}» ya no existe en {path}. Puede que se haya renombrado, eliminado o que esté en una unidad no conectada. No se guarda nada hasta que elijas dónde van los resultados.",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "La carpeta «{folder}» en la que {agent} trabaja siempre ya no existe en {path}. Puede que se haya renombrado, eliminado o que esté en una unidad no conectada. Búscala o cambia la carpeta en el agente.",
   "SESSION_WORKSPACE_LOCATE": "Buscar carpeta…",
   "SESSION_WORKSPACE_START_NEW": "Empezar un Workspace nuevo",
   "SESSION_WORKSPACE_USE_OWN": "Volver a usar el Workspace inicial",

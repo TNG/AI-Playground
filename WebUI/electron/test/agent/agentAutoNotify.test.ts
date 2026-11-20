@@ -726,6 +726,39 @@ describe('a Scheduled Run', () => {
       await folders.startNewSessionWorkspace(sessionRef)
     }
   }, 30000)
+
+  it("fails at once when its Agent's own Workspace is missing, naming that folder", async () => {
+    const workspaces = await import('../../session/sessionWorkspace')
+    const sessionRef = (await sessionOfHarnessSession(TASK_SESSION))!
+    const own = path.join(tempRoot, 'Agent Project')
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY, sessionOnScreen: sessionRef })
+    const states: string[] = []
+    const bus = await import('../../kernel/kernelBus')
+    const stop = bus.onKernelEvent((event) => {
+      if (event.type === 'agent-turn-state') states.push(event.state)
+    })
+    try {
+      const result = await manager.startAgentTurn(crypto.randomUUID(), 'hi', {
+        ...run(true),
+        sessionRef,
+        workspaceDir: own,
+        folderOverrides: { workspace: { id: 'own', hostPath: own, slug: 'agent-project' } },
+      })
+      expect(result).toMatchObject({ success: false, error: expect.stringContaining(own) })
+      await vi.waitFor(() =>
+        expect(sent.map((s) => [s.kind, s.text.split('\n')[1]])).toEqual([
+          ['telegram', expect.stringMatching(/^❌ Failed: .*"Agent Project" is missing/)],
+          ['slack', expect.stringMatching(/^❌ Failed: .*"Agent Project" is missing/)],
+        ]),
+      )
+      expect(states).not.toContain('paused')
+      expect(asks).toEqual([])
+      expect(fs.existsSync(own)).toBe(false)
+      expect(fs.readdirSync(workspaces.sessionWorkspaceDir(sessionRef))).toEqual([])
+    } finally {
+      stop()
+    }
+  }, 30000)
 })
 
 describe('an Agent Run started from a Channel', () => {

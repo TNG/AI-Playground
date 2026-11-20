@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace:{folder}(資料夾遺失)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Workspace 資料夾遺失",
   "SESSION_WORKSPACE_MISSING_TEXT": "Workspace 資料夾「{folder}」已不在 {path}。它可能已被重新命名、刪除,或位於未連接的磁碟機上。在你選擇結果的儲存位置之前,不會儲存任何內容。",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "{agent} 一律使用的資料夾「{folder}」已不在 {path}。它可能已被重新命名、刪除,或位於未連接的磁碟機上。請找到它,或在代理程式中變更該資料夾。",
   "SESSION_WORKSPACE_LOCATE": "尋找資料夾…",
   "SESSION_WORKSPACE_START_NEW": "開始新的 Workspace",
   "SESSION_WORKSPACE_USE_OWN": "重新使用初始 Workspace",

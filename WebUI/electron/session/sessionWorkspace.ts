@@ -125,6 +125,25 @@ export function missingWorkspaceMessage(missing: MissingWorkspace): string {
   )
 }
 
+export function missingAgentWorkspaceMessage(missing: MissingWorkspace): string {
+  return (
+    `The Agent's Workspace folder "${missing.name}" is missing: ${missing.hostPath} no longer ` +
+    'exists or is not a folder. Locate it or edit the Agent.'
+  )
+}
+
+/** Refuses a turn whose Agent's own Workspace is missing. */
+export async function assertAgentWorkspacePresent(own: {
+  id?: string
+  hostPath: string
+}): Promise<void> {
+  if (await isFolder(own.hostPath)) return
+  const name = path.basename(own.hostPath)
+  throw new Error(
+    missingAgentWorkspaceMessage({ folderId: own.id ?? '', hostPath: own.hostPath, name }),
+  )
+}
+
 /**
  * Refuses a turn whose Workspace is missing. A turn working in another folder (`workingIn`,
  * a game's) does not use the Workspace and is let through.

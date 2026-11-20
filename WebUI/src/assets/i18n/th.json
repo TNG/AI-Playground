@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder} (ไม่พบโฟลเดอร์)",
   "SESSION_WORKSPACE_MISSING_TITLE": "ไม่พบโฟลเดอร์ Workspace",
   "SESSION_WORKSPACE_MISSING_TEXT": "โฟลเดอร์ Workspace “{folder}” ไม่มีอยู่ที่ {path} แล้ว อาจถูกเปลี่ยนชื่อ ถูกลบ หรืออยู่บนไดรฟ์ที่ไม่ได้เชื่อมต่อ จะไม่มีการบันทึกใดๆ จนกว่าคุณจะเลือกตำแหน่งเก็บผลลัพธ์",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "โฟลเดอร์ “{folder}” ที่ {agent} ทำงานอยู่เสมอไม่มีอยู่ที่ {path} แล้ว อาจถูกเปลี่ยนชื่อ ถูกลบ หรืออยู่บนไดรฟ์ที่ไม่ได้เชื่อมต่อ ค้นหาโฟลเดอร์นั้น หรือเปลี่ยนโฟลเดอร์ในเอเจนต์",
   "SESSION_WORKSPACE_LOCATE": "ค้นหาโฟลเดอร์…",
   "SESSION_WORKSPACE_START_NEW": "เริ่ม Workspace ใหม่",
   "SESSION_WORKSPACE_USE_OWN": "กลับไปใช้ Workspace เริ่มต้น",

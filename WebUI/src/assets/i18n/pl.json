@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder} (brak folderu)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Brak folderu Workspace",
   "SESSION_WORKSPACE_MISSING_TEXT": "Folder Workspace „{folder}” nie istnieje już w {path}. Mógł zostać przemianowany, usunięty lub znajduje się na niepodłączonym dysku. Nic nie zostanie zapisane, dopóki nie wybierzesz, gdzie trafią wyniki.",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "Folder „{folder}”, w którym {agent} zawsze pracuje, nie istnieje już w {path}. Mógł zostać przemianowany, usunięty lub znajduje się na niepodłączonym dysku. Wskaż go lub zmień folder w agencie.",
   "SESSION_WORKSPACE_LOCATE": "Wskaż folder…",
   "SESSION_WORKSPACE_START_NEW": "Rozpocznij nowy Workspace",
   "SESSION_WORKSPACE_USE_OWN": "Użyj ponownie początkowego Workspace",

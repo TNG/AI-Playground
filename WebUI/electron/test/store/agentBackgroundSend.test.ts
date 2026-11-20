@@ -752,6 +752,22 @@ describe('a stored Harness Session of a Session whose Workspace moved', () => {
     expect(sentConfig(0).workspaceDir).toBe('/work/2026-11-20 Trip')
   })
 
+  it("hands an unattended run whose Agent's own Workspace is missing to main, which fails it", async () => {
+    inference.catalog = [{ name: 'Stored-27B', type: 'llamaCPP' }]
+    const store = await readyStore()
+    seedSession('/work/2026-11-20 Trip', true)
+    const id = sessionRecord(store)
+    const own = { id: 'own', hostPath: '/missing', slug: 'missing' }
+
+    const result = await store.sendToSession(id, 'go', {
+      settings: { ...STORED, folderOverrides: { workspace: own } },
+      taskRun: { taskName: 'Digest', notifiesResult: true },
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(sentConfig(0).workspaceDir).toBe('/missing')
+  })
+
   it('names the current Workspace as where its next turn works, for a channel attachment', async () => {
     const store = await readyStore()
     seedSession('/work/2026-11-20 Trip', true)

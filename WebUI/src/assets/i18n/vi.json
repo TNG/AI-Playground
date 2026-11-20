@@ -1348,6 +1348,7 @@
   "SESSION_WORKSPACE_CHIP_MISSING": "Workspace: {folder} (thiếu thư mục)",
   "SESSION_WORKSPACE_MISSING_TITLE": "Thiếu thư mục Workspace",
   "SESSION_WORKSPACE_MISSING_TEXT": "Thư mục Workspace “{folder}” không còn ở {path}. Có thể thư mục đã được đổi tên, bị xóa hoặc nằm trên ổ chưa kết nối. Sẽ không có gì được lưu cho đến khi bạn chọn nơi lưu kết quả.",
+  "SESSION_WORKSPACE_AGENT_MISSING_TEXT": "Thư mục “{folder}” mà {agent} luôn làm việc trong đó không còn ở {path}. Có thể thư mục đã được đổi tên, bị xóa hoặc nằm trên ổ chưa kết nối. Hãy tìm thư mục đó hoặc đổi thư mục trong tác tử.",
   "SESSION_WORKSPACE_LOCATE": "Tìm thư mục…",
   "SESSION_WORKSPACE_START_NEW": "Bắt đầu Workspace mới",
   "SESSION_WORKSPACE_USE_OWN": "Dùng lại Workspace ban đầu",

@@ -26,15 +26,41 @@ export function sessionWorkspaceDir(sessionId: string): string {
   return currentWorkspaceEntry(sessionId)?.hostPath ?? appCreatedWorkspaceDir(sessionId)
 }
 
-/** Whether `workspaceDir` is the Session's Workspace, as opposed to a game folder. */
-export function isSessionWorkspace(sessionId: string, workspaceDir: string): boolean {
-  const workspace = sessionWorkspaceDir(sessionId)
-  if (path.resolve(workspace) === path.resolve(workspaceDir)) return true
+function sameDir(a: string, b: string): boolean {
+  if (path.resolve(a) === path.resolve(b)) return true
   try {
-    return fs.realpathSync(workspace) === fs.realpathSync(workspaceDir)
+    return fs.realpathSync(a) === fs.realpathSync(b)
   } catch {
     return false
   }
+}
+
+/** The Agent's Workspace override registered in the Session that `workspaceDir` is, if any. */
+function agentWorkspaceEntry(sessionId: string, workspaceDir: string) {
+  const file = readSessionFileSync(sessionId)
+  const owned = file ? (sessionFolderListOf(file).agentOwned ?? []) : []
+  return owned.find((entry) => sameDir(entry.hostPath, workspaceDir))
+}
+
+/**
+ * Whether `workspaceDir` is a Workspace of the Session — its ★, or an Agent's override
+ * registered in it — as opposed to a game folder.
+ */
+export function isSessionWorkspace(sessionId: string, workspaceDir: string): boolean {
+  return (
+    sameDir(sessionWorkspaceDir(sessionId), workspaceDir) ||
+    !!agentWorkspaceEntry(sessionId, workspaceDir)
+  )
+}
+
+/** The entry of the Session's Workspace that `workspaceDir` is: its ★, else an Agent's override. */
+export function workspaceEntryAt(
+  sessionId: string,
+  workspaceDir: string,
+): SessionFolderEntry | undefined {
+  const star = currentWorkspaceEntry(sessionId)
+  if (star && sameDir(star.hostPath, workspaceDir)) return star
+  return agentWorkspaceEntry(sessionId, workspaceDir)
 }
 
 /** The Session's current Workspace; the app-created one is created at first use. */

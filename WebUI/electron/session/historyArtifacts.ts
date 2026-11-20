@@ -68,6 +68,7 @@ export function artifactReferenceOf(
 ): { folderId: string; path: string } | null {
   const ordered = [
     ...list.folders.filter((folder) => folder.id === list.workspaceId),
+    ...(list.agentOwned ?? []),
     ...list.folders.filter((folder) => folder.id !== list.workspaceId),
   ]
   for (const folder of ordered.filter((entry) => !entry.planned)) {

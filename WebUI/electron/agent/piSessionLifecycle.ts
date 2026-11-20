@@ -51,7 +51,7 @@ import { compactionSettingsForWindow } from './piCompaction.ts'
 import {
   currentWorkspaceEntry,
   ensureSessionWorkspace,
-  isSessionWorkspace,
+  workspaceEntryAt,
 } from '../session/sessionWorkspace'
 import { attachmentsFolderFor } from '../session/sessionAttachments'
 import { attachmentsSeenBy, SANDBOX_ATTACHMENTS_DIR } from './workspaceAttachments.ts'
@@ -156,7 +156,7 @@ async function shutdownSessionExtensions(session: AgentSession): Promise<void> {
   }
 }
 
-/** A Session's turn works in its Workspace or in a game folder; media follows suit. */
+/** A Session's turn works in its Workspace, an Agent's override or a game folder; media follows. */
 export function sessionMediaOf(
   sessionRef: string | undefined,
   workspaceDir: string,
@@ -167,9 +167,8 @@ export function sessionMediaOf(
   }
   const workspace = currentWorkspaceEntry(sessionRef)
   if (!workspace) return undefined
-  if (isSessionWorkspace(sessionRef, workspaceDir)) {
-    return { sessionRef, workspace: 'files', folderId: workspace.id }
-  }
+  const own = workspaceEntryAt(sessionRef, workspaceDir)
+  if (own) return { sessionRef, workspace: 'files', folderId: own.id }
   return {
     sessionRef,
     workspace: 'game',

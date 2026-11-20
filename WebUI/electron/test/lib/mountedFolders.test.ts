@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   assignSlug,
-  foldersBesideWorkspace,
   mountedFolderRefusal,
   resolveMountedFolders,
   sameHostPath,
@@ -136,37 +135,6 @@ describe('A sandbox slug', () => {
 
   it('falls back to "folder" for a name with nothing usable in it', () => {
     expect(assignSlug('/', [])).toBe('folder')
-  })
-})
-
-describe('Folders beside a Workspace', () => {
-  const workspace = { hostPath: '/Users/ada/poster', name: 'files', access: 'read-write' as const }
-  const isWorkspace = (folder: { hostPath: string }) => folder.hostPath === workspace.hostPath
-
-  it('drop the Workspace itself, so it is mounted once, read-write, at its own slug', () => {
-    const beside = foldersBesideWorkspace(
-      workspace,
-      [
-        { hostPath: '/Users/ada/poster', name: 'poster', access: 'read-only' },
-        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
-      ],
-      isWorkspace,
-    )
-
-    expect(beside).toEqual([{ hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' }])
-  })
-
-  it("rename a folder that would take the Workspace's slug, and nothing else", () => {
-    const beside = foldersBesideWorkspace(
-      workspace,
-      [
-        { hostPath: '/Users/ada/other/files', name: 'files', access: 'read-only' },
-        { hostPath: '/Users/ada/notes', name: 'files-2', access: 'read-write' },
-      ],
-      isWorkspace,
-    )
-
-    expect(beside.map((folder) => folder.name)).toEqual(['files-3', 'files-2'])
   })
 })
 

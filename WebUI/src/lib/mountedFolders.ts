@@ -37,7 +37,8 @@ function sanitizedName(raw: string): string {
   return name || 'folder'
 }
 
-function uniqueName(raw: string, taken: ReadonlySet<string>): string {
+/** `raw` sanitised and suffixed until no name in `taken` (lower-cased) holds it. */
+export function uniqueName(raw: string, taken: ReadonlySet<string>): string {
   const base = sanitizedName(raw)
   let name = base
   for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) name = `${base}-${suffix}`
@@ -68,22 +69,6 @@ export function mountedFoldersBesideWorkspace(list: SessionFolderList): Resolved
   return list.folders
     .filter((folder) => folder.id !== list.workspaceId && !folder.planned)
     .map(({ hostPath, slug, access }) => ({ hostPath, name: slug, access }))
-}
-
-/** A turn's folders beside its Workspace: the Workspace itself dropped, a name it holds suffixed. */
-export function foldersBesideWorkspace(
-  workspace: ResolvedMountedFolder,
-  folders: readonly ResolvedMountedFolder[],
-  isWorkspace: (folder: ResolvedMountedFolder) => boolean,
-): ResolvedMountedFolder[] {
-  const beside = folders.filter((folder) => !isWorkspace(folder))
-  const taken = new Set([workspace, ...beside].map((folder) => folder.name.toLowerCase()))
-  return beside.map((folder) => {
-    if (folder.name.toLowerCase() !== workspace.name.toLowerCase()) return folder
-    const name = uniqueName(folder.name, taken)
-    taken.add(name.toLowerCase())
-    return { ...folder, name }
-  })
 }
 
 export type MountedFolderRefusal =
@@ -122,6 +107,13 @@ export function sameHostPath(a: string, b: string): boolean {
   const left = comparablePathSegments(a)
   const right = comparablePathSegments(b)
   return left.length === right.length && isSameOrAncestor(left, right)
+}
+
+/** Whether two host paths are the same folder or one lies inside the other. */
+export function hostPathsNest(a: string, b: string): boolean {
+  const left = comparablePathSegments(a)
+  const right = comparablePathSegments(b)
+  return isSameOrAncestor(left, right) || isSameOrAncestor(right, left)
 }
 
 function isSameOrAncestor(outer: string[], inner: string[]): boolean {

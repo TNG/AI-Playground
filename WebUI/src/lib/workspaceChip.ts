@@ -1,6 +1,7 @@
-import { folderBaseName, workspaceEntryOf } from '@/lib/mountedFolders'
+import { effectiveFolders, type EffectiveFolder } from '@/lib/effectiveFolders'
+import { folderBaseName } from '@/lib/mountedFolders'
 import type { MountedFolder } from '@/types/agentSessionIpc'
-import type { SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
+import type { SessionFolderList } from '@/types/sessionIpc'
 
 export type WorkspaceChipFolder = {
   id: string
@@ -21,40 +22,35 @@ export type WorkspaceChip = {
   folders: WorkspaceChipFolder[]
 }
 
-function chipFolder(entry: SessionFolderEntry, workspace: boolean): WorkspaceChipFolder {
-  const name = folderBaseName(entry.hostPath) || entry.hostPath
-  return { id: entry.id, name, path: entry.hostPath, workspace }
+function chipFolder(
+  folder: EffectiveFolder,
+  workspace: boolean,
+  agent: WorkspaceChipAgent | undefined,
+): WorkspaceChipFolder {
+  const name = folderBaseName(folder.hostPath) || folder.hostPath
+  const shown = { name, path: folder.hostPath, workspace }
+  if (folder.source === 'session' || !agent) return { id: folder.id ?? folder.hostPath, ...shown }
+  return { id: `${agent.id}:${folder.hostPath}`, ...shown, agentId: agent.id }
 }
 
-/** The Session's starred folder for the chip above the prompt bar; games presets have their game bar. */
+/** The folders in effect for the chip above the prompt bar; games presets have their game bar. */
 export function workspaceChipOf(input: {
   games: boolean
   folderList: SessionFolderList | undefined
   agent?: WorkspaceChipAgent
 }): WorkspaceChip | undefined {
   if (input.games || !input.folderList) return undefined
-  const workspace = workspaceEntryOf(input.folderList)
-  if (!workspace) return undefined
-  const starred = chipFolder(workspace, true)
-  const beside = input.agent
-    ? agentFolders(input.agent)
-    : input.folderList.folders
-        .filter((entry) => entry.id !== workspace.id)
-        .map((entry) => chipFolder(entry, false))
+  const { agent } = input
+  const resolved = effectiveFolders({
+    session: input.folderList,
+    agent: agent && { folders: agent.folders },
+  })
+  if (!resolved) return undefined
+  const starred = chipFolder(resolved.workspace, true, agent)
   return {
     name: starred.name,
     path: starred.path,
-    folderId: workspace.id,
-    folders: [starred, ...beside],
+    folderId: starred.id,
+    folders: [starred, ...resolved.others.map((folder) => chipFolder(folder, false, agent))],
   }
-}
-
-function agentFolders(agent: WorkspaceChipAgent): WorkspaceChipFolder[] {
-  return agent.folders.map((folder) => ({
-    id: `${agent.id}:${folder.hostPath}`,
-    name: folderBaseName(folder.hostPath) || folder.hostPath,
-    path: folder.hostPath,
-    workspace: false,
-    agentId: agent.id,
-  }))
 }

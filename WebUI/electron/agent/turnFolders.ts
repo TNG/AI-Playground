@@ -4,16 +4,16 @@ import { ensureFolder } from '../persist/fileOps'
 import { isDemoSessions } from '../persist/sessionFiles'
 import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
 import { readSessionFolders } from '../session/sessionFolders'
+import { effectiveFolders } from '@/lib/effectiveFolders'
 import {
   assignSlug,
-  foldersBesideWorkspace,
   mountedFolderLocation,
-  mountedFoldersBesideWorkspace,
   resolveMountedFolders,
   workspaceEntryOf,
   type ResolvedMountedFolder,
 } from '@/lib/mountedFolders'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { MountedFolder } from '@/types/agentSessionIpc'
 import type { SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
 
 /** The folders a turn's sandbox mounts (ADR-0013). */
@@ -54,14 +54,29 @@ async function folderListOf(sessionRef: string): Promise<SessionFolderList | und
   }
 }
 
-function besideWorkspace(
-  workspace: ResolvedMountedFolder,
-  folders: ResolvedMountedFolder[],
+/** The folders in effect as the sandbox mounts them, the Workspace at the turn's own path. */
+function mountsOf(
+  session: SessionFolderList,
+  workspaceDir: string,
+  agentFolders?: readonly MountedFolder[],
 ): TurnFolders {
-  const mounted = foldersBesideWorkspace(workspace, folders, (folder) =>
-    sameFolder(folder.hostPath, workspace.hostPath),
-  )
-  return { workspace, mounted }
+  const agent = agentFolders && { folders: agentFolders }
+  const resolved = effectiveFolders({ session, agent, sameFolder })
+  if (!resolved) return { mounted: [] }
+  const mount = ({ hostPath, name, access }: ResolvedMountedFolder) => ({ hostPath, name, access })
+  return {
+    workspace: { ...mount(resolved.workspace), hostPath: workspaceDir },
+    mounted: resolved.others.filter((folder) => !folder.planned).map(mount),
+  }
+}
+
+/** A Trial Run's scratch folder as the one entry, and Workspace, of a folder list. */
+function trialFolderList(workspaceDir: string): SessionFolderList {
+  const slug = assignSlug(workspaceDir, [])
+  return {
+    workspaceId: 'trial',
+    folders: [{ id: 'trial', hostPath: workspaceDir, slug, access: 'read-write' }],
+  }
 }
 
 /**
@@ -70,25 +85,22 @@ function besideWorkspace(
  * folder plus the Agent's; a game keeps `/workspace` and the folders it was sent.
  */
 export async function turnFolders(config: AgentModeTurnConfig): Promise<TurnFolders> {
-  const agentFolders = isDemoSessions() ? [] : resolveMountedFolders(config.mountedFolders ?? [])
+  const agentFolders = isDemoSessions() ? [] : (config.mountedFolders ?? [])
   const agentRun = !!config.taskRun || !!config.followUp
   if (!config.sessionRef) {
-    if (!trialAgentIdOf(config.workspaceDir)) return { mounted: agentFolders }
-    const name = assignSlug(config.workspaceDir, [])
-    return besideWorkspace(
-      { hostPath: config.workspaceDir, name, access: 'read-write' },
-      agentFolders,
-    )
+    if (!trialAgentIdOf(config.workspaceDir)) {
+      return { mounted: resolveMountedFolders(agentFolders) }
+    }
+    return mountsOf(trialFolderList(config.workspaceDir), config.workspaceDir, agentFolders)
   }
   const list = await folderListOf(config.sessionRef)
   const entry = list && workspaceEntryOf(list)
   if (!list || !entry || !sameFolder(entry.hostPath, config.workspaceDir)) {
-    return { mounted: agentFolders }
+    return { mounted: resolveMountedFolders(agentFolders) }
   }
-  const workspace = workspaceMountOf(entry, config.workspaceDir)
-  if (agentRun) return besideWorkspace(workspace, agentFolders)
+  if (agentRun) return mountsOf(list, config.workspaceDir, agentFolders)
   await remakeOwnFolders(list)
-  return besideWorkspace(workspace, mountedFoldersBesideWorkspace(list))
+  return mountsOf(list, config.workspaceDir)
 }
 
 /** The folders the app created for the Session, made again if deleted, so no turn fails on one. */
@@ -96,10 +108,6 @@ async function remakeOwnFolders(list: SessionFolderList): Promise<void> {
   for (const folder of list.folders) {
     if (folder.appCreated && !folder.planned) await ensureFolder(folder.hostPath)
   }
-}
-
-function workspaceMountOf(entry: SessionFolderEntry, workspaceDir: string): ResolvedMountedFolder {
-  return { hostPath: workspaceDir, name: entry.slug, access: 'read-write' }
 }
 
 /**

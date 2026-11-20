@@ -72,6 +72,18 @@ describe('the workspace chip', () => {
     ])
   })
 
+  it('lists an Agent folder that is the Workspace once, as the Workspace, as its run mounts it', () => {
+    const agent = {
+      id: 'agent-1',
+      name: 'Researcher',
+      folders: [{ hostPath: 'C:\\Users\\me\\poster', access: 'read-only' as const }],
+    }
+
+    expect(workspaceChipOf({ games: false, folderList, agent })?.folders).toEqual([
+      { id: 'folder-project', name: 'Poster', path: 'C:\\Users\\me\\Poster', workspace: true },
+    ])
+  })
+
   it('shows nothing under a games preset, whose game bar names its folder', () => {
     expect(workspaceChipOf({ games: true, folderList })).toBeUndefined()
   })

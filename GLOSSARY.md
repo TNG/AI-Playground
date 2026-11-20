@@ -71,7 +71,8 @@ One turn's record in the Session History.
 
 **Workspace**:
 The one Mounted Folder of a Session that is starred: where its turns' Artifacts land and where its
-agents work. Always read-write. Game Agent and Quick Coder work in their game's folder instead.
+agents work. Always read-write. An Agent may override it while it is active in the Session. Game
+Agent and Quick Coder work in their game's folder instead.
 _Avoid_: Session Folder, output folder, media folder
 
 **Artifact**:
@@ -158,8 +159,8 @@ ends with its Session or its Agent.
 **Agent Run**:
 One conversation with an Agent inside the Session it was started or scheduled in. It starts by
 giving the Agent all its Steps at once, in a fresh Harness Session with no context from the
-Session, and its Follow-ups continue it until the Agent is run again. It works in its Session's
-Workspace, with the Agent's own Mounted Folders instead of the Session's other ones. Its result is the
+Session, and its Follow-ups continue it until the Agent is run again. It works with its Session's
+Workspace and Mounted Folders, unless the Agent overrides either. Its result is the
 final answer of its first turn and the Artifacts that turn produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
@@ -182,8 +183,8 @@ _Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:
 A folder on the user's machine that the Assistant preset's turns or an Agent's runs can reach,
-listed in the Session Settings or in the Agent's Settings Template, and either read-only or
-read-write. Every Session has at least one, its Workspace, which the app provides until the user
+listed in the Session Settings or, as an override of the Session's, in the Agent's Settings
+Template, and either read-only or read-write. Every Session has at least one, its Workspace, which the app provides until the user
 stars another, and which the user can never take off the list. Taking any other one off the list ends its access,
 never the Artifacts made in it.
 _Avoid_: extra folder, attached folder

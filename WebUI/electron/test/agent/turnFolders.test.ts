@@ -26,7 +26,14 @@ vi.mock('../../session/sessionFolders', () => ({
   },
 }))
 
+const trials = vi.hoisted(() => ({ dir: '' }))
+vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
+  getAgentTrialsDir: () => trials.dir,
+}))
+
 const { folderEntryLocation, turnFolders } = await import('../../agent/turnFolders')
+const { createTrialFolder } = await import('../../persist/trialRunFiles')
 const { resetSessionFilesForTest, setSessionFileDeps } = await import('../../persist/sessionFiles')
 
 let root: string
@@ -42,6 +49,7 @@ beforeEach(() => {
   papers = path.join(root, 'papers')
   data = path.join(root, 'data')
   for (const dir of [workspace, notes, papers, data]) fs.mkdirSync(dir)
+  trials.dir = path.join(root, 'agent-trials')
 })
 
 afterEach(() => {
@@ -163,6 +171,52 @@ describe('an Agent Run in a Session', () => {
       expect((await turnFolders(config)).workspace).toBeUndefined()
       expect(registered).toEqual([])
     })
+  })
+})
+
+describe('a Trial Run', () => {
+  let site: string
+  beforeEach(() => {
+    site = path.join(root, 'site')
+    fs.mkdirSync(site)
+  })
+
+  const trialTurn = (
+    sessionId: string,
+    workspaceDir: string,
+    folderOverrides?: AgentModeTurnConfig['folderOverrides'],
+  ) =>
+    ({
+      sessionId,
+      workspaceDir,
+      taskRun: { taskName: 'Poster' },
+      ...(folderOverrides ? { folderOverrides } : {}),
+    }) as AgentModeTurnConfig
+
+  it('works in its scratch folder when its Agent has no Workspace override', async () => {
+    const scratch = await createTrialFolder('agent-1', 'h1')
+
+    const folders = await turnFolders(trialTurn('h1', scratch, onlyData()))
+
+    expect(folders.workspace?.hostPath).toBe(scratch)
+    expect(folders.mounted.map((folder) => folder.hostPath)).toEqual([data])
+  })
+
+  it("works in its Agent's own folder, beside the Agent's other folders", async () => {
+    await createTrialFolder('agent-1', 'h1')
+    const overrides = { workspace: { id: 'w1', hostPath: site, slug: 'site' }, ...onlyData() }
+
+    const folders = await turnFolders(trialTurn('h1', site, overrides))
+
+    expect(folders.workspace).toEqual({ hostPath: site, name: 'site', access: 'read-write' })
+    expect(folders.mounted.map((folder) => folder.hostPath)).toEqual([data])
+    expect(registered).toEqual([])
+  })
+
+  it('is not taken for one when no Trial Run holds its Harness Session', async () => {
+    const overrides = { workspace: { id: 'w1', hostPath: site, slug: 'site' } }
+
+    expect((await turnFolders(trialTurn('h1', site, overrides))).workspace).toBeUndefined()
   })
 })
 

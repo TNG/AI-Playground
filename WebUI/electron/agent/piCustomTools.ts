@@ -298,13 +298,19 @@ export function workspaceFileToDataUri(files: AgentFiles, relativePath: string):
 /**
  * A turn in a Session: when the workspace is the Session's Workspace media lands at its root;
  * when it is a game folder media lands in the game's `generated/` and in the Session's
- * Workspace (`filesDir`) too, served from the Session's copy. A Trial Run's media lands in its
- * scratch folder, so it goes when the Trial Run is thrown away.
+ * Workspace (`filesDir`) too, served from the Session's copy. A Trial Run's media is served from
+ * its scratch folder, so that copy goes when the Trial Run is thrown away; working in its Agent's
+ * own folder (`filesDir` is then the scratch folder) it lands in that folder's `generated/` too.
  */
 export type SessionMediaTarget =
   | { sessionRef: string; workspace: 'files'; folderId: string }
   | { sessionRef: string; workspace: 'game'; filesDir: () => Promise<string>; folderId: string }
-  | { workspace: 'trial'; agentId: string }
+  | { workspace: 'trial'; agentId: string; filesDir?: () => Promise<string> }
+
+/** Where a turn's media is kept apart from its workspace, if it is. */
+export function mediaFilesDirOf(target: SessionMediaTarget): (() => Promise<string>) | undefined {
+  return 'filesDir' in target ? target.filesDir : undefined
+}
 
 let appMediaPath: ((url: string) => string | null) | null = null
 
@@ -352,13 +358,14 @@ async function saveOne(
     fs.writeFileSync(path.join(workspaceDir, saved), bytes)
     return { saved, entry }
   }
-  const filesDir = sessionMedia.workspace === 'game' ? await sessionMedia.filesDir() : workspaceDir
+  const apart = mediaFilesDirOf(sessionMedia)
+  const filesDir = apart ? await apart() : workspaceDir
   fs.mkdirSync(filesDir, { recursive: true })
   const filesName = await freeName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
   await moveIntoSession(url, sessionCopy)
   let saved = filesName
-  if (sessionMedia.workspace === 'game') {
+  if (apart) {
     fs.mkdirSync(generatedDir, { recursive: true })
     saved = path.posix.join('generated', await freeName(generatedDir, name))
     fs.copyFileSync(sessionCopy, path.join(workspaceDir, saved))

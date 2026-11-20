@@ -48,7 +48,7 @@ export async function createTrialFolder(
   harnessSessionId: string,
 ): Promise<string> {
   const folder = folderOf(agentId)
-  const workspaceDir = path.join(folder, 'files')
+  const workspaceDir = trialFilesDir(agentId)
   await fs.mkdir(workspaceDir, { recursive: true })
   await fs.writeFile(path.join(folder, RECORD), JSON.stringify({ harnessSessionId }))
   return fs.realpath(workspaceDir)
@@ -65,6 +65,20 @@ export async function trialFolderAgentIds(): Promise<string[]> {
   } catch {
     return []
   }
+}
+
+/** The Agent whose Trial Run folder holds `harnessSessionId`. */
+export async function trialFolderAgentIdOf(harnessSessionId: string): Promise<string | undefined> {
+  for (const agentId of await trialFolderAgentIds()) {
+    if ((await readTrialFolderRecord(agentId))?.harnessSessionId === harnessSessionId)
+      return agentId
+  }
+  return undefined
+}
+
+/** Where a Trial Run's scratch workspace is, whether or not it works there. */
+export function trialFilesDir(agentId: string): string {
+  return path.join(folderOf(agentId), 'files')
 }
 
 export async function removeTrialFoldersRoot(): Promise<void> {

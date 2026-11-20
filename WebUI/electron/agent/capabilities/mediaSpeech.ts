@@ -4,6 +4,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import {
   jsonResult,
   jsonSchemaParameters,
+  mediaFilesDirOf,
   resolveWorkspaceFile,
   trialMediaUrl,
 } from '../piCustomTools.ts'
@@ -87,20 +88,24 @@ function sessionClipUrl(
 ): string | undefined {
   const target = host.sessionMedia
   if (!target) return undefined
-  if (target.workspace === 'trial') return trialMediaUrl(target.agentId, `files/${relativePath}`)
+  const copy = sessionCopies[0]
+  if (target.workspace === 'trial') {
+    if (!mediaFilesDirOf(target)) return trialMediaUrl(target.agentId, `files/${relativePath}`)
+    return copy ? trialMediaUrl(target.agentId, `files/${path.basename(copy)}`) : undefined
+  }
   if (target.workspace === 'files') {
     return sessionFolderMediaUrl(target.sessionRef, target.folderId, relativePath)
   }
-  const copy = sessionCopies[0]
   return copy
     ? sessionFolderMediaUrl(target.sessionRef, target.folderId, path.basename(copy))
     : undefined
 }
 
-/** A game's clip also lands in its Session's Workspace, which is what the Session shows. */
+/** A clip kept apart from the workspace (a game's, say) also lands where it is shown from. */
 async function copyIntoSession(host: CapabilityHost, fullPath: string): Promise<string[]> {
-  if (host.sessionMedia?.workspace !== 'game') return []
-  const filesDir = await host.sessionMedia.filesDir()
+  const apart = host.sessionMedia && mediaFilesDirOf(host.sessionMedia)
+  if (!apart) return []
+  const filesDir = await apart()
   await fs.promises.mkdir(filesDir, { recursive: true })
   const target = path.join(filesDir, await freeName(filesDir, path.basename(fullPath)))
   await fs.promises.copyFile(fullPath, target)

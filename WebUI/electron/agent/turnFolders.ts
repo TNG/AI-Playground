@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ensureFolder } from '../persist/fileOps'
 import { isDemoSessions } from '../persist/sessionFiles'
+import { trialFolderAgentIdOf } from '../persist/trialRunFiles'
 import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
 import { readSessionFolders, registerAgentFolder } from '../session/sessionFolders'
 import {
@@ -76,9 +77,32 @@ function agentIdOf(config: AgentModeTurnConfig): string | undefined {
   return config.taskRun?.taskId ?? config.followUp?.agentId
 }
 
-/** A Trial Run's scratch folder as the one entry, and Workspace, of a folder list. */
-function trialFolderList(workspaceDir: string): SessionFolderList {
-  const slug = assignSlug(workspaceDir, [])
+/**
+ * The Agent a turn is a Trial Run of: by its scratch folder, or by the Harness Session a Trial
+ * Run holds when it works in its Agent's own folder.
+ */
+export async function trialAgentOf(
+  config: Pick<AgentModeTurnConfig, 'sessionRef' | 'sessionId' | 'workspaceDir'>,
+): Promise<string | undefined> {
+  if (config.sessionRef) return undefined
+  return trialAgentIdOf(config.workspaceDir) ?? (await trialFolderAgentIdOf(config.sessionId))
+}
+
+/** The Agent's own Workspace, when the turn is a Trial Run working in it. */
+async function trialWorkspaceOverride(
+  config: AgentModeTurnConfig,
+  agent: AgentFolderOverrides | undefined,
+): Promise<AgentFolderOverrides['workspace']> {
+  const own = agent?.workspace
+  if (!own || !sameFolder(own.hostPath, config.workspaceDir)) return undefined
+  return (await trialFolderAgentIdOf(config.sessionId)) ? own : undefined
+}
+
+/** A Trial Run's Workspace as the one entry of a folder list. */
+function trialFolderList(
+  workspaceDir: string,
+  slug = assignSlug(workspaceDir, []),
+): SessionFolderList {
   return {
     workspaceId: 'trial',
     folders: [{ id: 'trial', hostPath: workspaceDir, slug, access: 'read-write' }],
@@ -88,18 +112,20 @@ function trialFolderList(workspaceDir: string): SessionFolderList {
 /**
  * What a turn mounts: a turn in its Session's Workspace sees every folder in the Session's list,
  * an Agent Run (or Follow-up) the same with its Agent's overrides in place, a Trial Run its
- * scratch folder plus the Agent's folders; a game keeps `/workspace` and the folders it was sent.
+ * Agent's own Workspace or else its scratch folder, plus the Agent's folders; a game keeps `/workspace` and the folders it was sent.
  */
 export async function turnFolders(config: AgentModeTurnConfig): Promise<TurnFolders> {
   const agent = isDemoSessions() ? undefined : agentOverridesOf(config.folderOverrides)
   const agentFolders = agent?.folders ?? []
   const agentRun = !!config.taskRun || !!config.followUp
   if (!config.sessionRef) {
-    if (!trialAgentIdOf(config.workspaceDir)) {
+    const own = await trialWorkspaceOverride(config, agent)
+    if (!own && !trialAgentIdOf(config.workspaceDir)) {
       return { mounted: resolveMountedFolders(agentFolders) }
     }
     const trialAgent = agent?.folders ? { folders: agent.folders } : undefined
-    return mountsOf(trialFolderList(config.workspaceDir), config.workspaceDir, trialAgent)
+    const list = trialFolderList(config.workspaceDir, own?.name)
+    return mountsOf(list, config.workspaceDir, trialAgent)
   }
   const list = await folderListOf(config.sessionRef)
   const entry = list && workspaceEntryOf(list)

@@ -19,7 +19,8 @@ import { enabledCapabilityIds, FILES_CAPABILITY_ID } from '@/types/agentCapabili
 import { mountedFolderSandboxPath, type ResolvedMountedFolder } from '@/lib/mountedFolders'
 import { turnModelToolUse } from '@/lib/modelToolUse'
 import { createAgentToolAccess, SANDBOX_WORKDIR } from './piToolOperations.ts'
-import { trialAgentIdOf, turnFolders, type TurnFolders } from './turnFolders.ts'
+import { trialAgentIdOf, trialAgentOf, turnFolders, type TurnFolders } from './turnFolders.ts'
+import { trialFilesDir } from '../persist/trialRunFiles.ts'
 import {
   assertMountedFoldersApart,
   assertMountedFoldersPresent,
@@ -160,7 +161,10 @@ export function sessionMediaOf(
   sessionRef: string | undefined,
   workspaceDir: string,
 ): SessionMediaTarget | undefined {
-  if (!sessionRef) return trialMediaOf(workspaceDir)
+  if (!sessionRef) {
+    const agentId = trialAgentIdOf(workspaceDir)
+    return agentId ? trialMediaOf(agentId, workspaceDir) : undefined
+  }
   const workspace = currentWorkspaceEntry(sessionRef)
   if (!workspace) return undefined
   if (isSessionWorkspace(sessionRef, workspaceDir)) {
@@ -174,10 +178,14 @@ export function sessionMediaOf(
   }
 }
 
-/** A Trial Run works in `agent-trials/<agentId>/files`; its media stays there. */
-function trialMediaOf(workspaceDir: string): SessionMediaTarget | undefined {
-  const agentId = trialAgentIdOf(workspaceDir)
-  return agentId ? { workspace: 'trial', agentId } : undefined
+/**
+ * A Trial Run's media is shown from its scratch folder, `agent-trials/<agentId>/files`; working
+ * in its Agent's own folder it lands in that folder's `generated/` too, which outlives the run.
+ */
+export function trialMediaOf(agentId: string, workspaceDir: string): SessionMediaTarget {
+  if (trialAgentIdOf(workspaceDir) === agentId) return { workspace: 'trial', agentId }
+  const filesDir = trialFilesDir(agentId)
+  return { workspace: 'trial', agentId, filesDir: async () => filesDir }
 }
 
 const realpathed = (folder: ResolvedMountedFolder): ResolvedMountedFolder => ({
@@ -209,7 +217,10 @@ async function createSession(
   const stored = attachmentsFolderFor({ sessionId: config.sessionRef, workspaceDir })
   const attachmentsDir = stored.reference === SANDBOX_ATTACHMENTS_DIR ? stored.dir : undefined
   const attachments = attachmentsSeenBy(stored, unsandboxed)
-  const sessionMedia = sessionMediaOf(config.sessionRef, workspaceDir)
+  const trialAgent = await trialAgentOf(config)
+  const sessionMedia = trialAgent
+    ? trialMediaOf(trialAgent, workspaceDir)
+    : sessionMediaOf(config.sessionRef, workspaceDir)
   const historyReader = agentHistoryReader(workspaceDir, folders, {
     unsandboxed,
     games: sessionMedia?.workspace === 'game',

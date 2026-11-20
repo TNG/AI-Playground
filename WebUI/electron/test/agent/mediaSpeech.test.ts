@@ -192,6 +192,24 @@ describe('mediaSpeech (agent speech tools)', () => {
     )
   })
 
+  it("serves a Trial Run's clip from its scratch folder when it works in its Agent's own", async () => {
+    askRendererMock.mockResolvedValue({
+      audioBase64: Buffer.from('riff').toString('base64'),
+      mediaType: 'audio/wav',
+      voice: 'Ryan',
+      engine: 'kokoro',
+    })
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-trial-'))
+    const tool = await buildTool(SYNTHESIZE_SPEC, {
+      sessionMedia: { workspace: 'trial', agentId: 'agent-1', filesDir: async () => scratch },
+    })
+
+    const output = await tool.execute('c1', { text: 'hi' }, new AbortController().signal)
+
+    expect(detailsOf(output)?.audio?.url).toBe('aipg-media://trials/agent-1/files/speech.wav')
+    expect(fs.readFileSync(path.join(scratch, 'speech.wav'), 'utf8')).toBe('riff')
+  })
+
   it('gives a failed synthesis no details', async () => {
     askRendererMock.mockRejectedValueOnce(new Error('no voice model'))
     const tool = await buildTool(SYNTHESIZE_SPEC)

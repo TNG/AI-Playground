@@ -191,6 +191,8 @@ export const useAgentMode = defineStore(
     const sessionsStore = useSessions()
     /** The Session each Harness Session of this app run belongs to. */
     const harnessSessionRefs: Record<string, string> = {}
+    /** Harness Sessions main deleted with their Session this app run; nothing saves them again. */
+    const deletedHarnessSessions = new Set<string>()
 
     const workspaceDir = ref<string>('')
 
@@ -1433,7 +1435,7 @@ export const useAgentMode = defineStore(
      */
     function snapshotSessionById(id: string, presetName?: string): void {
       const runtime = turns.runtimeOf(id)
-      if (!id || !runtime) return
+      if (!id || !runtime || deletedHarnessSessions.has(id)) return
       const existing = sessions.value[id]
       const context = turnContexts[id]
       // A session sent on its stored settings keeps them, even while open.
@@ -1594,21 +1596,32 @@ export const useAgentMode = defineStore(
       { immediate: true },
     )
 
-    // Main deletes a Session's Harness Sessions with it; their records leave the map too.
+    // Main deletes a Session's Harness Sessions with it; their records, runtimes and the open
+    // pointer go too, so no later snapshot writes them back into a Session that no longer exists.
     watch(
       () => sessionsStore.sessions,
       (known) => {
-        const gone = Object.values(sessions.value).filter(
-          (record) => record.sessionRef && !known[record.sessionRef],
+        const refs = [
+          ...Object.values(sessions.value).map((record) => [record.id, record.sessionRef] as const),
+          ...Object.entries(harnessSessionRefs),
+        ]
+        const gone = new Set(
+          refs.filter(([, sessionRef]) => sessionRef && !known[sessionRef]).map(([id]) => id),
         )
-        if (gone.length === 0) return
-        const next = { ...sessions.value }
-        for (const record of gone) {
-          delete next[record.id]
-          delete turnContexts[record.id]
-          if (record.id !== openSessionId.value) turns.release(record.id)
+        if (gone.size === 0) return
+        if (Object.keys(sessions.value).some((id) => gone.has(id))) {
+          sessions.value = Object.fromEntries(
+            Object.entries(sessions.value).filter(([id]) => !gone.has(id)),
+          )
         }
-        sessions.value = next
+        for (const id of gone) {
+          deletedHarnessSessions.add(id)
+          delete turnContexts[id]
+          delete harnessSessionRefs[id]
+          if (id === openSessionId.value) blankSession()
+          if (turns.runtimeOf(id)?.hasTurn()) void stopSession(id)
+          else turns.release(id)
+        }
       },
     )
 

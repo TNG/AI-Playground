@@ -11,7 +11,10 @@ describe('dropComfyUiParameters', () => {
 
   it('drops a flag together with its separate value', () => {
     expect(
-      dropComfyUiParameters(['--lowvram', '--reserve-vram', '6.0', '--fp16-vae'], ['--reserve-vram']),
+      dropComfyUiParameters(
+        ['--lowvram', '--reserve-vram', '6.0', '--fp16-vae'],
+        ['--reserve-vram'],
+      ),
     ).toEqual(['--lowvram', '--fp16-vae'])
   })
 

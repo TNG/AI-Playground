@@ -138,6 +138,8 @@ export type SessionPort = {
     origin: AgentAnswerOrigin,
     prompt?: string,
   ) => Promise<AgentStartResult>
+  /** Opens the Session on the desktop, the Agent picked in its prompt bar; a Library stays open. */
+  bringIntoView: (sessionRef: string, agentId: string) => Promise<void>
   /** The Session's turn in flight, or its Agent Run (its first turn or a Follow-up). */
   activity: (sessionRef: string) => SessionActivity
   /** Stops the Session's turn or Agent Run; returns what it was. */
@@ -410,7 +412,20 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       return enqueue(sessions, lane, entry)
     }
     const outcome = await run(sessions, entry)
-    return outcome === 'busy' ? enqueue(sessions, lane, entry) : outcome
+    if (outcome === 'busy') return enqueue(sessions, lane, entry)
+    if (outcome === 'started') bringIntoView(sessions, entry)
+    return outcome
+  }
+
+  /**
+   * Once an Agent's start is accepted: a queued one on arrival, not when the Session frees up.
+   * Not awaited, so a desktop preset switch waiting on a dialog never holds up the router.
+   */
+  function bringIntoView(sessions: SessionPort, entry: QueuedMessage): void {
+    if (!('agent' in entry)) return
+    void sessions
+      .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
+      .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
   }
 
   function previewOf(entry: QueuedMessage): string {
@@ -439,6 +454,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
     }
+    bringIntoView(sessions, entry)
     const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'
@@ -611,7 +627,11 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return createChannelAgents({
       listStartable: () => sessions.listStartableAgents(),
       agentName: (agentId) => sessions.agentName(agentId),
-      channelSession: (adapter, meta) => forSessions.currentOrNew(adapter, meta),
+      newSession: (adapter, meta) => forSessions.moveToNew(adapter, meta),
+      current: (adapter, meta) => forSessions.current(adapter, meta),
+      moveTo: (adapter, choice, meta) => forSessions.moveTo(adapter, choice, meta),
+      sessionButtons: (adapter, prefix) => forSessions.sessionButtons(adapter, prefix),
+      label: (sessionRef) => sessions.label({ sessionRef }),
       start: (adapter, sessionRef, agent, origin, meta) =>
         submit(sessions, { adapter, target: { sessionRef }, agent, origin, meta }),
       askForPrompt: (adapter, sessionRef, agent, meta) =>
@@ -626,6 +646,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     return createChannelStartPrompts({
       port: sessions,
       requests: startPromptRequests,
+      newSession: (adapter, meta) => channelSessions(sessions).moveToNew(adapter, meta),
       copy,
       tell,
       attach: (adapter, target, msg, meta) =>

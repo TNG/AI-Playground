@@ -199,7 +199,8 @@ _Avoid_: remote session, Home Agent thread
 
 **Channel Session**:
 The Reachable Session that a Channel's messages go to unless they answer a Notification. Each
-Channel has its own; the Session open on the desktop never changes it.
+Channel has its own; the Session open on the desktop never changes it, but starting an Agent from
+the Channel in a new Session makes that Session its Channel Session.
 _Avoid_: current session, active thread, focused session
 
 **Notification**:
@@ -215,9 +216,10 @@ the Notification, so answering an Agent Run's or a Trial Run's Notification is a
 _Avoid_: reply (as a noun), response
 
 **Start Prompt Request**:
-A message asking the user, in a Channel, for the Start Prompt of one Agent in one Reachable Session.
-The first reply to it starts that Agent Run there with the reply as its Start Prompt; it is not an
-Answer, and it is forgotten when the app quits.
+A message asking the user, in a Channel, for the Start Prompt of one Agent in one Reachable Session,
+or in a new Session made only once the reply arrives. The first reply to it starts that Agent Run
+there with the reply as its Start Prompt; it is not an Answer, and it is forgotten when the app
+quits.
 _Avoid_: prompt question, pending start
 
 ## Settings

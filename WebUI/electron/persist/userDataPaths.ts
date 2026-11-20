@@ -131,6 +131,15 @@ export const getPreferencesFile = () => path.join(aipgUserDataRoot(), 'preferenc
 export const getPreferencesDemoFile = () => getPreferencesFile().replace(/\.json$/, '-demo.json')
 
 /**
+ * The user's MCP server config (architecture-target §6.1, step 8): configured
+ * servers must survive app updates and reinstalls, so the file lives in the
+ * user-data root — the resources root is re-seeded from the bundle on update
+ * and the NSIS uninstaller deletes it. The previous resources-root copy
+ * migrates in on first use (persist/mcpConfigFile.ts).
+ */
+export const getMcpConfigFile = () => path.join(aipgUserDataRoot(), 'mcp.json')
+
+/**
  * The RAG document list (architecture-target §6.1, step 8): the indexed
  * document set, full split text included — its own file, not a preference.
  */

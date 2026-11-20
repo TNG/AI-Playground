@@ -41,13 +41,38 @@
           <Label for="args">Args</Label>
           <Input id="args" v-model="args" placeholder="mcp-server-time" />
           <span class="text-xs text-muted-foreground">
-            Space-separated arguments (e.g. "--port 8080 --verbose")
+            Space-separated arguments, quotes group a sentence (e.g. --port 8080 --message "two
+            words")
           </span>
+        </div>
+
+        <div v-if="transport === 'stdio'" class="flex flex-col gap-2">
+          <Label for="env">Environment variables (optional)</Label>
+          <Textarea
+            id="env"
+            v-model="env"
+            rows="3"
+            placeholder="API_TOKEN=abc123"
+            class="font-mono text-xs"
+          />
+          <span class="text-xs text-muted-foreground">One NAME=value per line.</span>
         </div>
 
         <div v-if="transport === 'http'" class="flex flex-col gap-2">
           <Label for="url">URL *</Label>
           <Input id="url" v-model="url" placeholder="https://example.com/mcp" />
+        </div>
+
+        <div v-if="transport === 'http'" class="flex flex-col gap-2">
+          <Label for="headers">Headers (optional)</Label>
+          <Textarea
+            id="headers"
+            v-model="headers"
+            rows="3"
+            placeholder="Authorization: Bearer token"
+            class="font-mono text-xs"
+          />
+          <span class="text-xs text-muted-foreground">One Name: value per line.</span>
         </div>
 
         <div class="flex flex-col gap-2">
@@ -104,6 +129,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useMcp } from '@/assets/js/store/mcp'
+import { splitParameterString } from '@/lib/parameterString'
 import { useErrors } from '@/assets/js/store/errors'
 import * as toast from '@/assets/js/toast'
 import type { McpServerConfig } from '@/types/mcpIpc'
@@ -128,17 +154,37 @@ const displayName = ref('')
 const command = ref('')
 const args = ref('')
 const url = ref('')
+const env = ref('')
+const headers = ref('')
 const instructions = ref('')
 const errorMessage = ref('')
 const isSubmitting = ref(false)
 
+function stringifyEnv(envVars: Record<string, string> | undefined): string {
+  return Object.entries(envVars ?? {})
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+}
+
+function stringifyHeaders(headersMap: Record<string, string> | undefined): string {
+  return Object.entries(headersMap ?? {})
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\n')
+}
+
+function stringifyArgs(list: string[]): string {
+  return list.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(' ')
+}
+
 function populateFormFromConfig(config: McpServerConfig) {
   displayName.value = config.displayName ?? ''
   instructions.value = config.instructions ?? ''
+  env.value = config.type !== 'http' ? stringifyEnv(config.env) : ''
+  headers.value = config.type === 'http' ? stringifyHeaders(config.headers) : ''
   if (config.type !== 'http') {
     transport.value = 'stdio'
     command.value = config.command
-    args.value = config.args?.join(' ') ?? ''
+    args.value = stringifyArgs(config.args ?? [])
     url.value = ''
   } else {
     transport.value = 'http'
@@ -172,15 +218,48 @@ function resetForm() {
   command.value = ''
   args.value = ''
   url.value = ''
+  env.value = ''
+  headers.value = ''
   instructions.value = ''
   errorMessage.value = ''
 }
 
 function parseArgs(argsInput: string): string[] {
-  return argsInput
-    .split(' ')
-    .map((s) => s.trim())
-    .filter((s) => s)
+  return splitParameterString(argsInput)
+}
+
+/** One NAME=value per line; a line that is not is reported, not silently dropped. */
+function parseEnvLines(input: string): Record<string, string> | null {
+  const envVars: Record<string, string> = {}
+  for (const line of input.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const separator = trimmed.indexOf('=')
+    const key = separator > 0 ? trimmed.slice(0, separator).trim() : ''
+    if (!key) {
+      errorMessage.value = `Environment variables must look like NAME=value (got: ${trimmed})`
+      return null
+    }
+    envVars[key] = trimmed.slice(separator + 1).trim()
+  }
+  return envVars
+}
+
+/** One Name: value per line; a line that is not is reported, not silently dropped. */
+function parseHeaderLines(input: string): Record<string, string> | null {
+  const headerMap: Record<string, string> = {}
+  for (const line of input.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const separator = trimmed.indexOf(':')
+    const key = separator > 0 ? trimmed.slice(0, separator).trim() : ''
+    if (!key) {
+      errorMessage.value = `Headers must look like Name: value (got: ${trimmed})`
+      return null
+    }
+    headerMap[key] = trimmed.slice(separator + 1).trim()
+  }
+  return headerMap
 }
 
 function generateUniqueId(baseName: string): string {
@@ -208,23 +287,36 @@ function getServerId(): string {
   return editServer.id
 }
 
-function buildStdioConfig(name: string, cmd: string): McpServerConfig {
+function buildStdioConfig(name: string, cmd: string): McpServerConfig | null {
+  const envVars = parseEnvLines(env.value)
+  if (envVars === null) return null
   const trimmedInstructions = instructions.value.trim()
+  // `description` (auto-detect, hand-edit) has no editor here — preserve it.
+  const existing = props.editServer?.config
+  const description = existing?.description
   return {
     command: cmd,
     args: parseArgs(args.value),
     displayName: name,
+    ...(description !== undefined ? { description } : {}),
     ...(trimmedInstructions ? { instructions: trimmedInstructions } : {}),
+    ...(Object.keys(envVars).length > 0 ? { env: envVars } : {}),
   }
 }
 
-function buildHttpConfig(name: string, httpUrl: string): McpServerConfig {
+function buildHttpConfig(name: string, httpUrl: string): McpServerConfig | null {
+  const headerMap = parseHeaderLines(headers.value)
+  if (headerMap === null) return null
   const trimmedInstructions = instructions.value.trim()
+  const existing = props.editServer?.config
+  const description = existing?.description
   return {
     type: 'http',
     url: httpUrl,
     displayName: name,
+    ...(description !== undefined ? { description } : {}),
     ...(trimmedInstructions ? { instructions: trimmedInstructions } : {}),
+    ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
   }
 }
 
@@ -253,6 +345,7 @@ async function handleSubmit() {
   const id = getServerId()
   const config =
     transport.value === 'http' ? buildHttpConfig(name, httpUrl) : buildStdioConfig(name, cmd)
+  if (!config) return
 
   isSubmitting.value = true
 
@@ -282,7 +375,7 @@ async function handleSubmit() {
 
 async function handleAdd(id: string, config: McpServerConfig, name: string) {
   await window.electronAPI.mcp.addServer(id, config)
-  await mcp.reloadConfig()
+  await mcp.refreshAvailableServers()
   toast.success(`MCP server "${name}" added`)
   resetForm()
   emits('update:open', false)
@@ -291,7 +384,7 @@ async function handleAdd(id: string, config: McpServerConfig, name: string) {
 
 async function handleUpdate(id: string, config: McpServerConfig, name: string) {
   await window.electronAPI.mcp.updateServer(id, config)
-  await mcp.reloadConfig()
+  await mcp.refreshAvailableServers()
   toast.success(`MCP server "${name}" updated`)
   resetForm()
   emits('update:open', false)
@@ -304,7 +397,7 @@ async function handleRemove() {
   isSubmitting.value = true
   try {
     await window.electronAPI.mcp.removeServer(editServer.id)
-    await mcp.reloadConfig()
+    mcp.forgetServer(editServer.id)
     toast.success('MCP server removed')
     emits('update:open', false)
     resetForm()

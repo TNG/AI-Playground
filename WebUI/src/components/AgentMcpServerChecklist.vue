@@ -21,7 +21,7 @@
     </label>
   </div>
   <p v-else class="text-xs text-muted-foreground italic">
-    No MCP servers configured. Add one under App Settings → MCP.
+    {{ i18n.SETTINGS_MCP_NO_SERVERS }} {{ i18n.SETTINGS_MCP_CONFIGURE_HINT }}
   </p>
 </template>
 

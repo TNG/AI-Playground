@@ -152,6 +152,8 @@ export const ChatTurnRequestSchema = z.object({
     .optional(),
   /** MCP tools are exposed: append running servers' instructions to the prompt. */
   includeMcpInstructions: z.boolean().optional(),
+  /** The session's selected MCP servers; instructions follow the selection when set. */
+  mcpServerIds: z.array(z.string()).optional(),
   /**
    * Inner specialist catalog, shipped when the turn has the NL `media` tool.
    * Main runs that tool in-process; the renderer only resolves enabled workflows.

@@ -105,10 +105,6 @@ export type TurnPrompt = {
   origin?: ChannelKind
 }
 
-/**
- * A turn's footer actions. `edit` opens the prompt bubble's editor: the
- * turn runs again from the edited prompt, replacing what it produced.
- */
 export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'edit' | 'delete' | 'hide'
 
 export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
@@ -122,21 +118,15 @@ export type HarnessTurnRef = {
   turnIds: string[]
 }
 
-/**
- * What Delete takes out of the Session for a settled media or speech turn:
- * its timeline messages, and the files only that turn produced — a media
- * turn's outputs, a Text-to-Speech clip, a Speech-to-Text source clip.
- */
-export type TurnDeletion = {
-  owner: 'media' | 'audio'
+/** A settled media or speech turn's timeline messages, and the files only it produced. */
+export type TurnRemoval = {
   messageIds: string[]
   fileUrls: string[]
 }
 
-/**
- * What Hide takes out of the timeline view: the turn's messages, which
- * stay in the Session's file and in what the model sees.
- */
+export type TurnDeletion = { owner: 'media' | 'audio' } & TurnRemoval
+
+/** Hidden messages stay in the Session's file and in what the model sees. */
 export type TurnHiding = {
   messageIds: string[]
 }
@@ -161,8 +151,7 @@ export type AudioRerun = {
   prompt: string
   /** TTS: the replaced clip; STT: the source clip to transcribe again. */
   audioUrl?: string
-  /** The replaced turn's prompt and result messages, out of the Session's timeline. */
-  messageIds: string[]
+  messageIds: TurnRemoval['messageIds']
 }
 
 export type MediaRerun = {
@@ -181,11 +170,7 @@ export type MediaRerun = {
   /** Workflow input values keyed `<nodeTitle>.<nodeInput>`. */
   inputs: Record<string, unknown>
   inputImageUrl?: string
-  /** The replaced turn's prompt and result messages, out of the Session's timeline. */
-  messageIds: string[]
-  /** The replaced turn's output files, deleted once the rerun's turn settles. */
-  itemUrls: string[]
-}
+} & TurnRemoval
 
 export type TurnOf<K extends string, Body> = {
   kind: K
@@ -231,7 +216,7 @@ export type MediaTurn = TurnOf<
   'media',
   {
     prompt: TurnPrompt
-    /** The replaced turn's user prompt message, which Regenerate takes out with the answer. */
+    /** The turn's own user prompt message; `id` is its answer. */
     promptId: string
     createdAt: number
     media: MediaTurnData
@@ -246,7 +231,7 @@ export type AudioTurn = TurnOf<
     createdAt: number
     audio: AudioTurnData
     audioArtifacts: AudioArtifact[]
-    /** The replaced turn's user prompt message, which Regenerate takes out with the answer. */
+    /** The turn's own user prompt message; `id` is its answer. */
     promptId: string
   }
 >

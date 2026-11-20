@@ -1,25 +1,15 @@
-/**
- * Prompt editing for a turn's re-run: the user rewords the prompt of the
- * last turn and the turn runs again from the edited text. What reaches the
- * model is the message list as it stands by the time the turn is sent, so
- * editing is a splice of the message's text parts — a single edited text
- * part in place of the old ones, with every attached file kept as it is.
- */
-
 type PartWithText = { type: string; text?: string }
 
 export type EditablePromptMessage = { parts: PartWithText[] }
 
 /**
- * The message's parts with its text replaced by `edited`: the first text
- * part's slot carries the new text and the remaining text parts drop out,
- * while non-text parts (images, audio, files) stay where they were.
+ * The first text part carries the edited text and the other text parts drop out; files stay put.
+ * Null when the edit would change nothing.
  */
 export function editedPromptParts(
-  message: EditablePromptMessage | undefined,
+  message: EditablePromptMessage,
   edited: string,
 ): PartWithText[] | null {
-  if (!message) return null
   const parts = message.parts
   if (!parts || parts.length === 0) return null
   const firstText = parts.findIndex((part) => part.type === 'text')
@@ -33,11 +23,7 @@ export function editedPromptParts(
 }
 
 /** Splices the edited text into the message itself; false when it would change nothing. */
-export function applyEditedPrompt(
-  message: EditablePromptMessage | undefined,
-  edited: string,
-): boolean {
-  if (!message) return false
+export function applyEditedPrompt(message: EditablePromptMessage, edited: string): boolean {
   const parts = editedPromptParts(message, edited)
   if (!parts) return false
   message.parts = parts

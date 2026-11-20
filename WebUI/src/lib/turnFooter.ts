@@ -58,10 +58,7 @@ export function agentFooter(
   }
 }
 
-/**
- * Regenerate redoes only the newest answer of a conversation, and Delete takes
- * the turn out of what the model sees next, so only `last` offers either.
- */
+/** Regenerate and Delete only reach the newest answer of a conversation, so only `last` offers them. */
 export function chatAnswerFooter(answers: UIMessage[], last = false): TurnFooter {
   const answer = answers.at(-1)
   if (!answer || !answers.some(messageHasVisibleContent)) return noFooter()

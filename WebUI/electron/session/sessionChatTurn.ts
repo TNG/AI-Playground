@@ -156,8 +156,7 @@ const URL_KEYS: Array<{
 /**
  * Follows one chat turn of a Session: media its tools generated moves into
  * `files/` (the tool output then names it there), and settling appends the
- * turn's History Entry. A regenerate's new entry takes the place of the
- * attempt it replaces, which leaves the history first.
+ * turn's History Entry, replacing the attempt a regenerate redoes.
  */
 export function trackChatTurnInSession(
   sessionId: string,
@@ -202,12 +201,7 @@ export function trackChatTurnInSession(
     return { ...(output as object), images: adopted }
   }
 
-  /**
-   * The entry a regenerate replaces leaves the history, so it, the Session
-   * Update and `session_history` tell of one attempt per turn. Only the
-   * newest chat entry goes, and only when it is the replaced attempt — the
-   * same prompt the turn re-sends.
-   */
+  /** Only the newest chat entry goes, and only when it holds the prompt the regenerate re-sends. */
   async function forgetReplacedAttempt(prompt: string): Promise<void> {
     const last = (await readHistoryEntries(sessionId))
       .filter((entry) => entry.kind === 'chat')

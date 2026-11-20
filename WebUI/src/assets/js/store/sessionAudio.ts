@@ -167,12 +167,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     }
   }
 
-  /**
-   * Settles the turn — and, when it regenerates another, that turn's messages
-   * leave the Session file and its clip is deleted. A settle that failed
-   * recorded nothing new, so a turn a redo replaced returns instead of
-   * vanishing with nothing in its place.
-   */
+  /** A failed settle recorded nothing, so the turn a redo replaced comes back instead of vanishing. */
   async function replaceSettledTurn(
     request: AudioTurnRequest,
     rerun: AudioRerun | undefined,
@@ -182,14 +177,12 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
       return
     }
     if (!rerun) return
-    await sessions.removeTimelineMessages(request.sessionId, rerun.messageIds)
-    if (rerun.audioUrl) await gallery.removeByUrl(rerun.audioUrl)
+    await gallery.removeTurn(request.sessionId, {
+      messageIds: rerun.messageIds,
+      fileUrls: rerun.audioUrl ? [rerun.audioUrl] : [],
+    })
   }
 
-  /**
-   * The replaced turn leaves the open timeline the moment its redo starts —
-   * renderer optimism, undone when the redo never opens (busy Session).
-   */
   function forgetReplacedTurn(sessionId: string, rerun: AudioRerun | undefined): void {
     if (rerun) sessions.forgetTimelineMessages(sessionId, rerun.messageIds)
   }
@@ -294,11 +287,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
     return new Blob([bytes], { type: clipMimeOf(url) })
   }
 
-  /**
-   * Regenerates the latest Text-to-Speech / Speech-to-Text turn: its input
-   * runs again — the same text, the same source clip — and the result
-   * replaces it in the Session, like Assistant's regenerate.
-   */
+  /** Runs the latest speech turn's input again; the result replaces it in the Session. */
   async function regenerate(rerun: AudioRerun): Promise<void> {
     try {
       if (rerun.kind === 'tts') {
@@ -314,22 +303,16 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
       errors.report(error, {
         category: 'inference',
         code: `inference/${rerun.kind}-failed`,
-        userMessage: `${rerun.kind === 'tts' ? 'Text To Speech' : 'Speech To Speech'} failed: ${messageOf(error)}`,
+        userMessage: `${rerun.kind === 'tts' ? i18nState.SESSION_AUDIO_TTS_FAILED : i18nState.SESSION_AUDIO_STT_FAILED}: ${messageOf(error)}`,
         surface: 'toast',
       })
     }
   }
 
-  /**
-   * Delete takes the newest speech turn out of the Session: its messages,
-   * and the clip only that turn stored — spoken output, or a source clip
-   * that lived in the Session for that transcription alone.
-   */
   async function deleteTurn(deletion: TurnDeletion): Promise<void> {
     const sessionId = sessions.openSessionId
     if (!sessionId) return
-    await sessions.removeTimelineMessages(sessionId, deletion.messageIds)
-    for (const url of deletion.fileUrls) await gallery.removeByUrl(url)
+    await gallery.removeTurn(sessionId, deletion)
   }
 
   return {

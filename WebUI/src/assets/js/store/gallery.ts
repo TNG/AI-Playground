@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useErrors } from '@/assets/js/store/errors'
 import { useSessions } from '@/assets/js/store/sessions'
 import { sessionMediaPathOf } from '@/lib/comfyWorkflow'
+import type { TurnRemoval } from '@/lib/turnTypes'
 import type { SessionArtifact } from '@/types/sessionIpc'
 
 /** Everything the user made, read from the History Entries of every Session. */
@@ -57,7 +58,13 @@ export const useGallery = defineStore('gallery', () => {
     return deleteFile(target.sessionId, target.path, url)
   }
 
-  return { artifacts, loading, refresh, remove, removeByUrl }
+  /** Takes a settled media or speech turn out of the Session: its messages, then its files. */
+  async function removeTurn(sessionId: string, removal: TurnRemoval): Promise<void> {
+    await sessions.removeTimelineMessages(sessionId, removal.messageIds)
+    for (const url of removal.fileUrls) await removeByUrl(url)
+  }
+
+  return { artifacts, loading, refresh, remove, removeByUrl, removeTurn }
 })
 
 if (import.meta.hot) {

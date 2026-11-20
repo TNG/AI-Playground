@@ -50,11 +50,7 @@ export async function removeTimelineMessages(
   return file.timeline
 }
 
-/**
- * Marks timeline messages hidden: they stay in the file and in what the model
- * sees, only the timeline view leaves them out. Ids that are not in the file
- * yet are kept too, so a live turn hides once it settles into the file.
- */
+/** Ids not in the file yet are kept too, so a live turn hides once it settles. */
 export async function addHiddenMessages(sessionId: string, messageIds: string[]): Promise<void> {
   const hidden = new Set(messageIds)
   let changed = false
@@ -86,10 +82,10 @@ export async function clearAllHiddenMessages(): Promise<void> {
   const folders = await listSessionFolders()
   await Promise.all(
     folders.map(async ({ id }) => {
+      // A cheap skip only: clearHiddenMessages decides again under the Session's write lock.
       const read = await readSessionFile(id)
       if (read.status !== 'ok' || read.file.hiddenMessageIds.length === 0) return
-      const file = await mutateSession(id, (current) => ({ ...current, hiddenMessageIds: [] }))
-      emitSessionChanged(sessionDocumentOf(file))
+      await clearHiddenMessages(id)
     }),
   )
 }

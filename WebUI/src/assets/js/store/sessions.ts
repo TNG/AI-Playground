@@ -32,6 +32,14 @@ export type PendingMediaTurn = {
 
 type IpcResult<T> = ({ success: true } & T) | { success: false; error: string }
 
+function timelineIdOf(message: unknown): string {
+  return (message as { id?: string }).id ?? ''
+}
+
+function timelineWithout(timeline: unknown[], ids: ReadonlySet<string>): unknown[] {
+  return timeline.filter((message) => !ids.has(timelineIdOf(message)))
+}
+
 /** Why main would not take a Group name; `problem` is set when a name rule was broken. */
 export type GroupNameRefusal = { problem?: GroupNameProblem; error: string }
 
@@ -46,13 +54,7 @@ export const useSessions = defineStore('sessions', () => {
   const showMore = ref<ShowMore>({ pinned: false, older: false })
   const openSessionId = ref<string | null>(null)
   const openTimeline = ref<unknown[]>([])
-  /**
-   * Open-Session message ids removed from the timeline before main's file
-   * dropped them (a regenerate forgets the answers it replaces the moment it
-   * starts, while main can only delete them once the turn settles). A
-   * `session-changed` whose document still holds one must not bring it back;
-   * one whose document dropped it dissolves the entry.
-   */
+  // Ids a regenerate dropped from the view before main's file did; a stale `session-changed` must not restore them.
   const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
   const openDeletedFiles = ref<string[]>([])
@@ -87,22 +89,16 @@ export const useSessions = defineStore('sessions', () => {
   }
 
   function applyChanged(document: SessionDocument): void {
-    // A row keeps the hidden ids — the settings' Unhide-all needs them —
-    // while the timeline alone stays out of the Sessions map.
     const { timeline, ...summary } = document
     remember(summary)
     if (openSessionId.value !== document.id) return
     openHiddenIds.value = summary.hiddenMessageIds
+    const stored = new Set(timeline.map(timelineIdOf))
     for (const id of forgottenTimelineIds) {
-      if (!timeline.some((message) => (message as { id?: string }).id === id)) {
-        forgottenTimelineIds.delete(id)
-      }
+      if (!stored.has(id)) forgottenTimelineIds.delete(id)
     }
     openTimeline.value = forgottenTimelineIds.size
-      ? timeline.filter((message) => {
-          const messageId = (message as { id?: string }).id ?? ''
-          return !forgottenTimelineIds.has(messageId)
-        })
+      ? timelineWithout(timeline, forgottenTimelineIds)
       : timeline
   }
 
@@ -161,9 +157,7 @@ export const useSessions = defineStore('sessions', () => {
   const openVisibleTimeline = computed(() =>
     openHiddenIds.value.length === 0
       ? openTimeline.value
-      : openTimeline.value.filter(
-          (message) => !openHiddenIds.value.includes((message as { id?: string }).id ?? ''),
-        ),
+      : timelineWithout(openTimeline.value, new Set(openHiddenIds.value)),
   )
 
   /** True when any Session — not just the open one — has a hidden message. */
@@ -417,7 +411,7 @@ export const useSessions = defineStore('sessions', () => {
   async function saveTimelineMessages(id: string, messages: { id: string }[]): Promise<void> {
     if (id === openSessionId.value) {
       const timeline = [...openTimeline.value]
-      const at = new Map(timeline.map((message, index) => [(message as { id?: string }).id, index]))
+      const at = new Map(timeline.map((message, index) => [timelineIdOf(message), index]))
       for (const message of messages) {
         const index = at.get(message.id)
         if (index === undefined) timeline.push(message)
@@ -434,10 +428,7 @@ export const useSessions = defineStore('sessions', () => {
   function forgetTimelineMessages(id: string, messageIds: string[]): void {
     if (id !== openSessionId.value) return
     for (const messageId of messageIds) forgottenTimelineIds.add(messageId)
-    openTimeline.value = openTimeline.value.filter((message) => {
-      const messageId = (message as { id?: string }).id ?? ''
-      return !forgottenTimelineIds.has(messageId)
-    })
+    openTimeline.value = timelineWithout(openTimeline.value, forgottenTimelineIds)
   }
 
   /** Takes messages out of a Session's timeline in its file; the open view follows. */

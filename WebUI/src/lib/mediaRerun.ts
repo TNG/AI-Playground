@@ -1,13 +1,8 @@
-import { hasDisplayableMedia, mediaUrlOf, type MediaItem } from '@/types/mediaItem'
+import { turnRemovalOf } from '@/lib/turnRemoval'
 import type { MediaRerun, MediaTurn } from '@/lib/turnTypes'
 import type { MediaTurnData } from '@/types/sessionTimeline'
 
 const IMAGE_INPUT_TYPES = new Set(['image', 'inpaintMask', 'outpaintCanvas'])
-
-/** A turn's output files — its items' real media, never a failed or placeholder slot. */
-export function mediaOutputUrls(items: MediaItem[]): string[] {
-  return items.filter(hasDisplayableMedia).map(mediaUrlOf)
-}
 
 /** Nothing to rerun when the run recorded no settings or lost an input image it needed. */
 export function mediaRerun(turn: MediaTurn): MediaRerun | null {
@@ -48,7 +43,6 @@ export function mediaRerun(turn: MediaTurn): MediaRerun | null {
     params,
     inputs,
     ...(media.mode !== 'imageGen' && inputImageUrl ? { inputImageUrl } : {}),
-    messageIds: [turn.promptId, turn.id],
-    itemUrls: mediaOutputUrls(media.items),
+    ...turnRemovalOf(turn),
   }
 }

@@ -114,18 +114,13 @@
 import { computed, ref } from 'vue'
 import type { UIMessage } from 'ai'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
-import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useConfirmations } from '@/assets/js/store/confirmations'
-import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
-import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
-import { useSessionAudio } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
-import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
-import { isCancellation } from '@/assets/js/errors/appError'
-import type { AudioRerun, MediaRerun } from '@/lib/turnTypes'
+import { noFooter } from '@/lib/turnFooter'
+import { useTurnActions } from '@/lib/useTurnActions'
 import AgentMessageParts from '@/components/AgentMessageParts.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
@@ -159,66 +154,18 @@ const agentTasks = useAgentTasks()
 const { manageAgents } = useAgentLibraryEntry()
 const confirmations = useConfirmations()
 const languages = useI18N().state
-const agentMode = useAgentMode()
-const openAiCompatibleChat = useOpenAiCompatibleChat()
-const imageGeneration = useImageGenerationPresets()
-const sessionAudio = useSessionAudio()
-const errors = useErrors()
 
-/** The prompt bubble's editor state; the footer's Edit opens it. */
 const editing = ref(false)
 
-// The turn's own store being mid-run, the same gate that holds Regenerate.
-const turnBusy = computed(() => {
-  if (props.item.kind === 'message') return false
-  const footer = props.item.footer
-  if (footer.rerun) return imageGeneration.processing
-  if (footer.audioRerun) return sessionAudio.processing
-  if (footer.harnessTurn) return agentMode.isSessionProcessing(footer.harnessTurn.harnessSessionId)
-  return openAiCompatibleChat.processing
-})
+const turnActions = useTurnActions(() =>
+  props.item.kind === 'message' ? noFooter() : props.item.footer,
+)
+const turnBusy = computed(() => props.item.kind !== 'message' && turnActions.busy.value)
 
-/** Re-runs the turn from the edited prompt, each kind through its regenerate. */
 async function submitEdit(text: string): Promise<void> {
-  const item = props.item
   editing.value = false
-  if (item.kind === 'message') return
-  const footer = item.footer
-  if (footer.rerun) await rerunMedia({ ...footer.rerun, prompt: text })
-  else if (footer.audioRerun) await rerunAudio({ ...footer.audioRerun, prompt: text })
-  else if (footer.harnessTurn) await agentMode.regenerateTurnWithPrompt(footer.harnessTurn, text)
-  else if (item.kind === 'chat') {
-    // A no-op splice (text unchanged) still re-runs: Send says re-run.
-    openAiCompatibleChat.editPrompt(item.id, text)
-    if (footer.messageId) await openAiCompatibleChat.regenerate(footer.messageId)
-  }
-}
-
-async function rerunMedia(rerun: MediaRerun): Promise<void> {
-  try {
-    await imageGeneration.regenerate(rerun)
-  } catch (error) {
-    if (isCancellation(error)) return
-    errors.report(error, {
-      category: 'generation',
-      code: 'generation/submit-failed',
-      userMessage: languages.SESSION_IMAGE_GENERATION_FAILED,
-    })
-  }
-}
-
-/** Re-runs the latest Speech turn from the edited prompt, which its result replaces. */
-async function rerunAudio(rerun: AudioRerun): Promise<void> {
-  try {
-    await sessionAudio.regenerate(rerun)
-  } catch (error) {
-    if (isCancellation(error)) return
-    errors.report(error, {
-      category: 'generation',
-      code: 'generation/submit-failed',
-      userMessage: languages.SESSION_AUDIO_TURN_NOT_SAVED,
-    })
-  }
+  if (props.item.kind === 'message') return
+  await turnActions.regenerate({ text, promptMessageId: props.item.id })
 }
 
 // A deleted Agent has nothing left to edit; it cannot be running either.

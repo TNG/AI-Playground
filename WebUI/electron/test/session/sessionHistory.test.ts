@@ -121,8 +121,7 @@ describe('removing an entry', () => {
     const second = await appendHistoryEntry(id, { ...imageTurn, prompt: 'make it blue' })
     await fs.appendFile(historyFile(id), '{"id":"broken"\n')
 
-    const removed = await removeHistoryEntry(id, second.id)
-    expect(removed?.prompt).toBe('make it blue')
+    expect(await removeHistoryEntry(id, second.id)).toBe(true)
     expect((await readHistoryEntries(id)).map((entry) => entry.prompt)).toEqual(['a red fox'])
     const raw = await fs.readFile(historyFile(id), 'utf8')
     expect(raw).toContain(first.id)
@@ -130,11 +129,11 @@ describe('removing an entry', () => {
     expect(raw).not.toContain(second.id)
   })
 
-  it('is null when no entry matches, and nothing is written', async () => {
+  it('is false when no entry matches, and nothing is written', async () => {
     const { id } = await createSession()
     await appendHistoryEntry(id, imageTurn)
 
-    expect(await removeHistoryEntry(id, 'entry-missing')).toBeNull()
+    expect(await removeHistoryEntry(id, 'entry-missing')).toBe(false)
     expect((await readHistoryEntries(id)).map((entry) => entry.prompt)).toEqual(['a red fox'])
   })
 

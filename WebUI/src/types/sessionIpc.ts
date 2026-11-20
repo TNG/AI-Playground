@@ -37,10 +37,7 @@ export const SessionFileSchema = z.object({
   pickedAgentId: z.string().optional(),
   /** Channels may send it messages and it may notify them (Reachable Session). */
   reachable: z.boolean().default(false),
-  /**
-   * Timeline message ids the user hid: the messages stay in the file and in
-   * what the model sees, only the timeline view leaves them out.
-   */
+  /** Hidden messages stay in the file and in what the model sees; only the view drops them. */
   hiddenMessageIds: z.array(z.string()).default([]),
 })
 

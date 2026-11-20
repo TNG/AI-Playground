@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedPrompt, editedPromptParts } from './editedPrompt'
+import { applyEditedPrompt, editedPromptParts } from '@/lib/editedPrompt'
 
 const message = (parts: unknown[]) => ({ parts: parts as { type: string; text?: string }[] })
 
@@ -45,7 +45,6 @@ describe('editedPromptParts', () => {
 
   it('refuses a message without text parts', () => {
     expect(editedPromptParts(message([{ type: 'file', url: 'file://a.png' }]), 'new')).toBeNull()
-    expect(editedPromptParts(undefined, 'new')).toBeNull()
   })
 })
 

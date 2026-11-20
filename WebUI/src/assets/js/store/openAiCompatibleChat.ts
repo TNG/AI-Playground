@@ -905,12 +905,7 @@ export const useOpenAiCompatibleChat = defineStore(
       conversations.updateConversation(chat.messages, conversations.activeKey)
     }
 
-    /**
-     * Rewrites the turn's user message with the edited prompt — attached files
-     * stay — so a `regenerate` of its answer runs from the edited text. The
-     * return says whether anything changed: a no-op edit leaves the message
-     * list alone.
-     */
+    /** False when the edit changes nothing; a following `regenerate` runs from the edited text. */
     function editPrompt(userMessageId: string, edited: string): boolean {
       const chat = chats[conversations.activeKey]
       if (!chat) return false

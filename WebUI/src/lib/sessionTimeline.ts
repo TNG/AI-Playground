@@ -14,10 +14,11 @@ import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/l
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
 import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
-import { mediaOutputUrls, mediaRerun } from '@/lib/mediaRerun'
+import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
 import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
 import { runInputOf } from '@/lib/taskSteps'
+import { turnMessageIds, turnRemovalOf } from '@/lib/turnRemoval'
 import {
   generationFailure,
   oneLine,
@@ -169,13 +170,8 @@ export function withLiveAgentTurn(
 }
 
 /**
- * A live copy replaces its saved message in place; unsaved live messages
- * follow at the end. A live list that starts where the stored transcript
- * does is the chat's whole history, so a saved message it no longer holds
- * was dropped by a regenerate's truncation and leaves now — the timeline must
- * not keep showing the answer the new one replaces. A live list that starts
- * mid-way (a resumed turn carries the running turn alone) keeps the stored
- * transcript ahead of it.
+ * A live list that starts where the stored transcript does is the whole chat, so a saved message
+ * it lacks was truncated by a regenerate; one that starts mid-way (a resumed turn) keeps the rest.
  */
 function withLiveChatTurn(
   timeline: readonly unknown[],
@@ -266,8 +262,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     })
   }
   const last = items.at(-1)
-  // An earlier Agent Turn never redoes or deletes: a run in its place would
-  // rewind the turns after it, and a delete would leave them seeing a gap.
+  // Redoing or deleting an earlier Agent Turn would rewind, or leave a gap under, the turns after it.
   for (const item of items) {
     if (item.kind !== 'agent' || item === last) continue
     item.footer.actions = item.footer.actions.filter(
@@ -275,10 +270,7 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     )
   }
   if (last?.kind === 'chat') {
-    // A turn whose answer settled without showing anything — a failure or an
-    // interrupt before the stream wrote a word — offers nothing above, but
-    // its pair is still the newest message and Delete takes it out. A turn
-    // still streaming or replayed into a Harness Session is out of reach.
+    // An answer that settled empty (failed or interrupted) can still be deleted, unless replayed.
     const answer = last.answers.at(-1)
     const replayed = last.answers.some((message) =>
       isHarnessChatPreset((message.metadata as { preset?: string } | undefined)?.preset),
@@ -294,36 +286,26 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       footer = { actions: ['delete'], text: '', messageId: answer.id }
     }
     last.footer = withHide(footer, last)
-    // Only a turn with an answer to re-run and a user message to edit offers
-    // Edit; a resumed or still-empty answer has nothing to edit.
     if (last.prompt && last.footer.actions.includes('regenerate')) {
       last.footer.actions = withEditAction(last.footer.actions)
     }
   }
   if (last?.kind === 'media') {
     const rerun = mediaRerun(last)
-    // Delete takes the turn out even when nothing can be rerun: a run that
-    // failed before it recorded its settings still settled into the Session.
+    // A run that failed before recording its settings cannot rerun, but still deletes.
     last.footer = withHide(
       {
         actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
         text: '',
         ...(rerun ? { rerun } : {}),
-        deletion: {
-          owner: 'media',
-          messageIds: [last.promptId, last.id],
-          fileUrls: mediaOutputUrls(last.media.items),
-        },
+        deletion: { owner: 'media', ...turnRemovalOf(last) },
       },
       last,
     )
   }
   if (last?.kind === 'audio') {
     const rerun = audioRerunOf(last)
-    // STT's prompt is only the source clip's label, so it re-runs but
-    // cannot be edited. Delete takes the turn out even when nothing can be
-    // rerun: a failed or interrupted speech turn still settled into the
-    // Session, and its clip — spoken output or source — goes with it.
+    // STT's prompt is only the source clip's label: it reruns but cannot be edited.
     const actions: TurnFooterAction[] = [
       ...last.footer.actions.filter((action) => action !== 'hide'),
       ...(rerun
@@ -336,22 +318,13 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
       ...last.footer,
       actions: [...new Set(actions)],
       ...(rerun ? { audioRerun: rerun } : {}),
-      deletion: {
-        owner: 'audio',
-        messageIds: [last.promptId, last.id],
-        fileUrls: last.audio.audioUrl ? [last.audio.audioUrl] : [],
-      },
+      deletion: { owner: 'audio', ...turnRemovalOf(last) },
     }
   }
   return items
 }
 
-/**
- * Takes the Hide action and its payload out of every footer: the turn set the
- * renderer hands to a view that must not offer hiding — the timeline with the
- * setting off, or a Trial Run, which is the Agent Library's, not a Session's.
- * Already hidden messages stay hidden either way: that is the file's doing.
- */
+/** For views that must not offer Hide: hiding switched off, or a Trial Run. */
 export function withoutMessageHiding<M, A>(
   items: SessionTimelineItem<M, A>[],
 ): SessionTimelineItem<M, A>[] {
@@ -364,12 +337,7 @@ export function withoutMessageHiding<M, A>(
   return items
 }
 
-/**
- * The live conversation copy the view overlays onto the visible timeline must
- * hide what hiding hid too: a live merge appends every live message the saved
- * timeline no longer holds as an unsaved leftover, so a hidden pair would come
- * straight back from the store's copy of an older Session's chat.
- */
+/** A live merge appends whatever the saved timeline lacks, so hidden messages must leave the live copy too. */
 export function visibleLiveMessages<M extends { id?: string }>(
   messages: readonly M[],
   hiddenIds: readonly string[],
@@ -393,10 +361,8 @@ function withEditAction(actions: TurnFooterAction[]): TurnFooterAction[] {
   return [...actions.slice(0, at), 'edit', ...actions.slice(at)]
 }
 
-/** The turn's timeline messages, which Hide takes out of the view alone. */
 function turnHidingOf(turn: TimelineTurn): TurnHiding {
-  if (turn.kind === 'media' || turn.kind === 'audio')
-    return { messageIds: [turn.promptId, turn.id] }
+  if (turn.kind === 'media' || turn.kind === 'audio') return { messageIds: turnMessageIds(turn) }
   if (turn.kind === 'message') return { messageIds: [turn.id] }
   return {
     messageIds: [
@@ -405,7 +371,6 @@ function turnHidingOf(turn: TimelineTurn): TurnHiding {
   }
 }
 
-/** Every settled turn offers Hide: its messages stay, only the view leaves them out. */
 function withHide(footer: TurnFooter, turn: TimelineTurn): TurnFooter {
   return { ...footer, actions: [...footer.actions, 'hide'], hiding: turnHidingOf(turn) }
 }
@@ -515,7 +480,6 @@ function withAnswers(
           : undefined,
       )
     }
-    // Hide is the one action every turn offers: it only changes the view.
     if (turn.kind !== 'message') turn.footer = withHide(turn.footer, turn)
   }
   return turns
@@ -726,7 +690,7 @@ function audioRerunOf(turn: AudioTurn): AudioRerun | null {
     preset: turn.audio.preset,
     prompt: turn.prompt.text,
     ...(turn.audio.audioUrl ? { audioUrl: turn.audio.audioUrl } : {}),
-    messageIds: [turn.promptId, turn.id],
+    messageIds: turnMessageIds(turn),
   }
 }
 

@@ -2448,7 +2448,7 @@ describe('Regenerate on the last ComfyUI Turn', () => {
         },
         inputImageUrl: 'aipg-media://sessions/s1/files/in.png',
         messageIds: ['p-c1', 'c1'],
-        itemUrls: ['aipg-media://sessions/s1/files/out.png'],
+        fileUrls: ['aipg-media://sessions/s1/files/out.png'],
       },
       deletion: {
         owner: 'media',

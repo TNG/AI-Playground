@@ -42,7 +42,7 @@ import {
   type ArtifactRequest,
   type ArtifactResult,
 } from '../artifact/runArtifact'
-import type { MediaRerun, TurnDeletion } from '@/lib/turnTypes'
+import type { MediaRerun, TurnDeletion, TurnRemoval } from '@/lib/turnTypes'
 import type { Preset } from './presets'
 import {
   getDemoModeInputImage,
@@ -1152,22 +1152,19 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     )
   }
 
-  /** A rerun that replaces the turn it came from: its messages, and its output files. */
-  type MediaReplacement = Pick<MediaRerun, 'messageIds' | 'itemUrls'>
-
   function regenerate(rerun: MediaRerun): Promise<ArtifactResult | undefined> {
-    const { inputImageUrl: turnInputImageUrl, messageIds, itemUrls, ...request } = rerun
+    const { inputImageUrl: turnInputImageUrl, messageIds, fileUrls, ...request } = rerun
     return runPanelTurn(
       { kind: MODE_TO_ARTIFACT_KIND[rerun.mode], ...request },
       turnInputImageUrl,
-      { messageIds, itemUrls },
+      { messageIds, fileUrls },
     )
   }
 
   async function runPanelTurn(
     request: ArtifactRequest & { mode: WorkflowModeType },
     turnInputImageUrl: string | undefined,
-    replaces?: MediaReplacement,
+    replaces?: TurnRemoval,
   ): Promise<ArtifactResult | undefined> {
     const mode = request.mode
     lastError.value = null
@@ -1192,7 +1189,6 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     try {
       sessionId = await sessions.ensureOpenSession()
       if (sessionId) {
-        // The replaced turn leaves the open timeline the moment its redo starts.
         if (replaces) sessions.forgetTimelineMessages(sessionId, replaces.messageIds)
         sessions.beginMediaTurn(sessionId, {
           runId,
@@ -1213,11 +1209,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
         sessionId: sessionId ?? undefined,
         runId,
       })
-      // The redo's own turn is recorded by now, so the replaced one can leave
-      // the Session file for good — a failed redo keeps it out too, its own
-      // failed turn standing in the old one's place.
-      if (sessionId && replaces)
-        await deleteTurnFromSession(sessionId, replaces.messageIds, replaces.itemUrls)
+      // A failed redo still replaces: its own failed turn stands in the old one's place.
+      if (sessionId && replaces) await removeTurnFromSession(sessionId, replaces)
       return result
     } finally {
       if (sessionId) sessions.endMediaTurn(sessionId, runId)
@@ -1227,21 +1220,14 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     }
   }
 
-  /**
-   * Takes a settled media turn out of the Session: its messages leave the
-   * Session's file, its output files leave the Session, and the panel's
-   * strip drops them with their files.
-   */
-  async function deleteTurnFromSession(
-    sessionId: string,
-    messageIds: string[],
-    outputUrls: string[],
-  ): Promise<void> {
-    await sessions.removeTimelineMessages(sessionId, messageIds)
-    for (const url of outputUrls) await gallery.removeByUrl(url)
-    const replaced = new Set(outputUrls)
+  async function removeTurnFromSession(sessionId: string, removal: TurnRemoval): Promise<void> {
+    await gallery.removeTurn(sessionId, removal)
+    dropStripItems(new Set(removal.fileUrls))
+  }
+
+  function dropStripItems(urls: ReadonlySet<string>): void {
     const removedIds = new Set(
-      generatedImages.value.filter((item) => replaced.has(mediaUrlOf(item))).map((item) => item.id),
+      generatedImages.value.filter((item) => urls.has(mediaUrlOf(item))).map((item) => item.id),
     )
     if (removedIds.size === 0) return
     generatedImages.value = generatedImages.value.filter((item) => !removedIds.has(item.id))
@@ -1252,14 +1238,10 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     if (selectedVideoId.value && removedIds.has(selectedVideoId.value)) selectedVideoId.value = null
   }
 
-  /**
-   * Delete takes the newest media turn out of the Session — its messages,
-   * and the files only that turn produced — leaving the turns before it.
-   */
   async function deleteTurn(deletion: TurnDeletion): Promise<void> {
     const sessionId = sessions.openSessionId
     if (!sessionId) return
-    await deleteTurnFromSession(sessionId, deletion.messageIds, deletion.fileUrls)
+    await removeTurnFromSession(sessionId, deletion)
   }
 
   /** Stops the panel's own runs only — waiting or running, never another turn's media. */

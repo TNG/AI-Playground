@@ -2198,13 +2198,8 @@ export const useAgentMode = defineStore(
     }
 
     /**
-     * The answers Regenerate replaces leave the open timeline the moment it
-     * starts, with the truncation that takes them out of the runtime chat —
-     * renderer optimism, undone if nothing streams. Main can only delete them
-     * from the Session file once the regenerated turn settles (it refuses
-     * deletions for a session with a turn in flight), so that file-side forget
-     * runs after the turn without holding the turn's settlement hostage to the
-     * deletion round trip.
+     * The replaced answers leave the view at once (undone if nothing streams); main refuses
+     * deletions while a turn is in flight, so the file-side removal runs after the turn settles.
      */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
@@ -2287,12 +2282,7 @@ export const useAgentMode = defineStore(
       })
     }
 
-    /**
-     * Regenerate the latest Assistant Turn from an edited prompt. The turn's
-     * prompt message in the runtime chat carries the new text — attached files
-     * stay — so the transport's re-run sends it and the prompt's timeline
-     * bubble updates in place under its unchanged id.
-     */
+    /** The edit lands on the runtime chat's prompt message, so the re-run sends it under the same id. */
     async function regenerateTurnWithPrompt(ref: HarnessTurnRef, edited: string): Promise<void> {
       if (!ref.promptId || ref.turnIds.length === 0) return
       const chat = turns.runtimeFor(ref.harnessSessionId).chat

@@ -50,15 +50,10 @@ export async function readHistoryEntries(sessionId: string): Promise<HistoryEntr
 }
 
 /**
- * Removes one History Entry — the one a Regenerate replaces — rewriting the
- * file without its line. A Session Update cursor that pointed at it is moved
- * back to the entry before it (dropped when there is none), so the consumer is
- * not reset to seeing the whole history again. Null when no entry matched.
+ * A Session Update cursor on the removed entry moves back one entry (or is dropped), so its
+ * consumer is not reset to the whole history. False when no entry matched.
  */
-export async function removeHistoryEntry(
-  sessionId: string,
-  entryId: string,
-): Promise<HistoryEntry | null> {
+export async function removeHistoryEntry(sessionId: string, entryId: string): Promise<boolean> {
   assertSessionId(sessionId)
   return serializeSession(sessionId, async () => {
     const lines = (await readHistoryFile(sessionId))
@@ -79,7 +74,7 @@ export async function removeHistoryEntry(
         appLoggerInstance.warn(`unreadable history line (${sessionId})`, LOG_SCOPE)
       }
     }
-    if (lineAt < 0) return null
+    if (lineAt < 0) return false
     await writeHistoryLines(
       sessionId,
       lines.filter((_, index) => index !== lineAt),
@@ -87,16 +82,16 @@ export async function removeHistoryEntry(
     const at = entries.findIndex((entry) => entry.id === entryId)
     const previous = at > 0 ? entries[at - 1].id : undefined
     const read = await readSessionFile(sessionId)
-    if (read.status !== 'ok') return entries[at]
+    if (read.status !== 'ok') return true
     const stale = Object.entries(read.file.updateCursors).filter(([, id]) => id === entryId)
-    if (stale.length === 0) return entries[at]
+    if (stale.length === 0) return true
     const cursors = { ...read.file.updateCursors }
     for (const [key] of stale) {
       if (previous) cursors[key] = previous
       else delete cursors[key]
     }
     await writeSessionFile({ ...read.file, updateCursors: cursors })
-    return entries[at]
+    return true
   })
 }
 

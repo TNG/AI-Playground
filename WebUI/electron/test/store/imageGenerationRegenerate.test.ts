@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-// The panel store's Regenerate: an edited or re-rolled media turn replaces
-// the turn it came from — its messages leave the Session's timeline and its
-// output files leave the Session — exactly like Assistant's regenerate and
-// the speech turn redo. Only the store's collaborators are faked here.
+// Only the store's collaborators are faked here.
 
 const { errorsReport } = vi.hoisted(() => ({ errorsReport: vi.fn() }))
 const sessionsApi = vi.hoisted(() => ({
@@ -13,9 +10,8 @@ const sessionsApi = vi.hoisted(() => ({
   beginMediaTurn: vi.fn(),
   endMediaTurn: vi.fn(),
   forgetTimelineMessages: vi.fn(),
-  removeTimelineMessages: vi.fn(),
 }))
-const galleryApi = vi.hoisted(() => ({ removeByUrl: vi.fn() }))
+const galleryApi = vi.hoisted(() => ({ removeTurn: vi.fn() }))
 const runArtifactMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/assets/js/store/comfyUiPresets', () => ({
@@ -169,7 +165,7 @@ const rerunOf = (overrides: Record<string, unknown> = {}) =>
     params: { seed: -1 },
     inputs: {},
     messageIds: ['p1', 'a1'],
-    itemUrls: [OLD_URL],
+    fileUrls: [OLD_URL],
     ...overrides,
   }) as never
 
@@ -189,7 +185,7 @@ describe('useImageGenerationPresets regenerate replacing the turn', () => {
     // The old pair leaves the open timeline first; the file copy follows the settle.
     expect(sessionsApi.forgetTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
     expect(sessionsApi.forgetTimelineMessages.mock.invocationCallOrder[0]).toBeLessThan(
-      sessionsApi.removeTimelineMessages.mock.invocationCallOrder[0],
+      galleryApi.removeTurn.mock.invocationCallOrder[0],
     )
   })
 
@@ -202,8 +198,10 @@ describe('useImageGenerationPresets regenerate replacing the turn', () => {
       's1',
       expect.objectContaining({ preset: 'Pro Image', prompt: 'a castle', mode: 'imageGen' }),
     )
-    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
-    expect(galleryApi.removeByUrl).toHaveBeenCalledWith(OLD_URL)
+    expect(galleryApi.removeTurn).toHaveBeenCalledWith('s1', {
+      messageIds: ['p1', 'a1'],
+      fileUrls: [OLD_URL],
+    })
     // The panel's strip drops the deleted output, selection included.
     expect(store.generatedImages).toEqual([])
     expect(sessionsApi.endMediaTurn).toHaveBeenCalledWith('s1', expect.any(String))
@@ -215,8 +213,10 @@ describe('useImageGenerationPresets regenerate replacing the turn', () => {
 
     await store.regenerate(rerunOf())
 
-    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
-    expect(galleryApi.removeByUrl).toHaveBeenCalledWith(OLD_URL)
+    expect(galleryApi.removeTurn).toHaveBeenCalledWith('s1', {
+      messageIds: ['p1', 'a1'],
+      fileUrls: [OLD_URL],
+    })
     expect(store.generatedImages).toEqual([])
   })
 
@@ -240,7 +240,10 @@ describe('useImageGenerationPresets regenerate replacing the turn', () => {
       expect.objectContaining({ prompt: 'a brighter castle' }),
       expect.objectContaining({ sessionId: 's1' }),
     )
-    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
+    expect(galleryApi.removeTurn).toHaveBeenCalledWith(
+      's1',
+      expect.objectContaining({ messageIds: ['p1', 'a1'] }),
+    )
   })
 })
 
@@ -250,8 +253,10 @@ describe('useImageGenerationPresets deleteTurn', () => {
 
     await store.deleteTurn({ owner: 'media', messageIds: ['p1', 'a1'], fileUrls: [OLD_URL] })
 
-    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
-    expect(galleryApi.removeByUrl).toHaveBeenCalledWith(OLD_URL)
+    expect(galleryApi.removeTurn).toHaveBeenCalledWith(
+      's1',
+      expect.objectContaining({ messageIds: ['p1', 'a1'], fileUrls: [OLD_URL] }),
+    )
     expect(store.generatedImages).toEqual([])
     expect(store.selectedGeneratedImageId).toBeNull()
   })
@@ -263,8 +268,10 @@ describe('useImageGenerationPresets deleteTurn', () => {
 
     await store.deleteTurn({ owner: 'media', messageIds: ['p1', 'a1'], fileUrls: [] })
 
-    expect(sessionsApi.removeTimelineMessages).toHaveBeenCalledWith('s1', ['p1', 'a1'])
-    expect(galleryApi.removeByUrl).not.toHaveBeenCalled()
+    expect(galleryApi.removeTurn).toHaveBeenCalledWith(
+      's1',
+      expect.objectContaining({ messageIds: ['p1', 'a1'], fileUrls: [] }),
+    )
   })
 
   it('takes a turn of no open Session out of nothing', async () => {
@@ -273,8 +280,7 @@ describe('useImageGenerationPresets deleteTurn', () => {
     try {
       await store.deleteTurn({ owner: 'media', messageIds: ['p1', 'a1'], fileUrls: [OLD_URL] })
 
-      expect(sessionsApi.removeTimelineMessages).not.toHaveBeenCalled()
-      expect(galleryApi.removeByUrl).not.toHaveBeenCalled()
+      expect(galleryApi.removeTurn).not.toHaveBeenCalled()
       expect(store.generatedImages).toHaveLength(1)
     } finally {
       sessionsApi.openSessionId = 's1'

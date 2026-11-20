@@ -1,0 +1,280 @@
+{
+  "type": "comfy",
+  "name": "Edit by Prompt 3",
+  "displayPriority": 725,
+  "tags": ["MiniMax H3", "maskless", "16MP", "high-vram"],
+  "backend": "comfyui",
+  "category": "edit-images",
+  "toolCategory": "edit-images",
+  "mediaType": "image",
+  "description": "Add, remove, change or restyle elements of a photo by describing the result. Uses MiniMax H3 Image and outputs up to 16 megapixels (4K).",
+  "extendedDescription": "Edit images by describing a change. Load a reference image, then describe the finished image you want; refer to the loaded image as <Picture 1> in the prompt. The image is rescaled to the chosen output megapixels before editing, keeping its aspect ratio. MiniMax H3 Image works best between 4 and 16 megapixels.",
+  "toolInstructions": "Use this workflow for high resolution prompt-driven image editing: adding, removing, changing, or restyling elements in an existing image. Write the prompt as a description of the desired finished image and refer to the input image as <Picture 1>, for example 'Replace the yellow taxi in <Picture 1> with a pastel pink ice-cream truck in the same side profile at the curb, keeping the street, lighting and camera angle unchanged.' Use several full sentences, not a terse command: describe the change in detail (materials, colors, lighting on the new element, how it sits in the scene) and name what must stay the same, such as faces and identity, pose, framing, background and lighting, so they do not drift. Short prompts give flat, glossy results with doll-like faces. Output is up to 16 megapixels, so generation is slow and resource-intensive; prefer it when the user wants a large, highly detailed edit.",
+  "droppedComfyUiParameters": ["--lowvram"],
+  "requiredCustomNodes": [
+    "evanspearman/ComfyMath@939bb813f1c0ace959b62f20bb2da47190c4e211"
+  ],
+  "requiredPythonPackages": [],
+  "requiredModels": [
+    {
+      "type": "unet",
+      "model": "Comfy-Org/MiniMax-H3-Image/diffusion_models/minimax_h3_image_pruned_w4a8.safetensors"
+    },
+    {
+      "type": "clip",
+      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    },
+    {
+      "type": "vae",
+      "model": "Comfy-Org/MiniMax-H3-Image/vae/minimax_h3_image_vae_fp16.safetensors"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/config.json"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/model.safetensors"
+    },
+    {
+      "type": "nsfwdetector",
+      "model": "AdamCodd/vit-base-nsfw-detector/preprocessor_config.json"
+    }
+  ],
+  "settings": [
+    {
+      "type": "string",
+      "label": "Prompt",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "",
+      "settingName": "prompt"
+    },
+    {
+      "type": "number",
+      "label": "Seed",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": -1,
+      "settingName": "seed"
+    },
+    {
+      "type": "number",
+      "label": "Inference Steps",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": 6,
+      "settingName": "inferenceSteps"
+    },
+    {
+      "type": "number",
+      "label": "Width",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 4096,
+      "settingName": "width"
+    },
+    {
+      "type": "number",
+      "label": "Height",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 4096,
+      "settingName": "height"
+    },
+    {
+      "type": "string",
+      "label": "Resolution",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "4096x4096",
+      "settingName": "resolution"
+    },
+    {
+      "type": "number",
+      "label": "Batch Size",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 1,
+      "settingName": "batchSize"
+    },
+    {
+      "type": "number",
+      "label": "Safety Check",
+      "nodeTitle": "SafetyCheckerStrength",
+      "nodeInput": "b",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "defaultValue": 0.5,
+      "displayed": true,
+      "modifiable": true
+    },
+    {
+      "type": "number",
+      "label": "Output Megapixels",
+      "nodeTitle": "Output Megapixels",
+      "nodeInput": "megapixels",
+      "min": 1,
+      "max": 16,
+      "step": 1,
+      "defaultValue": 16,
+      "displayed": true,
+      "modifiable": true
+    },
+    {
+      "type": "image",
+      "label": "Reference Image",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": "",
+      "nodeTitle": "Load Image",
+      "nodeInput": "image"
+    }
+  ],
+  "comfyUiApiWorkflow": {
+    "1": {
+      "inputs": {
+        "unet_name": "Comfy-Org---MiniMax-H3-Image\\diffusion_models\\minimax_h3_image_pruned_w4a8.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "Load Diffusion Model"
+      }
+    },
+    "2": {
+      "inputs": {
+        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      },
+      "class_type": "CLIPLoader",
+      "_meta": {
+        "title": "Load CLIP"
+      }
+    },
+    "3": {
+      "inputs": {
+        "vae_name": "Comfy-Org---MiniMax-H3-Image\\vae\\minimax_h3_image_vae_fp16.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "5": {
+      "inputs": {
+        "prompt": "Replace the vintage yellow taxi in <Picture 1> with a pastel pink ice-cream truck with a scalloped awning and a glowing service window, sitting in the same side profile at the curb.",
+        "width": ["12", 0],
+        "height": ["12", 1],
+        "clip": ["2", 0],
+        "vae": ["3", 0],
+        "images.image_1": ["11", 0]
+      },
+      "class_type": "MiniMaxH3ImageConditioning",
+      "_meta": {
+        "title": "prompt"
+      }
+    },
+    "6": {
+      "inputs": {
+        "conditioning": ["5", 0]
+      },
+      "class_type": "ConditioningZeroOut",
+      "_meta": {
+        "title": "ConditioningZeroOut"
+      }
+    },
+    "7": {
+      "inputs": {
+        "seed": 0,
+        "steps": 6,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": ["1", 0],
+        "positive": ["5", 0],
+        "negative": ["6", 0],
+        "latent_image": ["5", 1]
+      },
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "KSampler"
+      }
+    },
+    "8": {
+      "inputs": {
+        "samples": ["7", 0],
+        "vae": ["3", 0]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "9": {
+      "inputs": {
+        "filename_prefix": "AIPG_Image",
+        "images": ["98", 0]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    },
+    "10": {
+      "inputs": {
+        "image": "input.png"
+      },
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Load Image"
+      }
+    },
+    "11": {
+      "inputs": {
+        "upscale_method": "lanczos",
+        "megapixels": 16,
+        "resolution_steps": 32,
+        "image": ["10", 0]
+      },
+      "class_type": "ImageScaleToTotalPixels",
+      "_meta": {
+        "title": "Output Megapixels"
+      }
+    },
+    "12": {
+      "inputs": {
+        "image": ["11", 0]
+      },
+      "class_type": "GetImageSize",
+      "_meta": {
+        "title": "Get Image Size"
+      }
+    },
+    "98": {
+      "inputs": {
+        "threshold": ["99", 0],
+        "cuda": false,
+        "image": ["8", 0]
+      },
+      "class_type": "SafetyChecker",
+      "_meta": {
+        "title": "Intercept NSFW Outputs"
+      }
+    },
+    "99": {
+      "inputs": {
+        "op": "Sub",
+        "a": 1,
+        "b": 0.5
+      },
+      "class_type": "CM_FloatBinaryOperation",
+      "_meta": {
+        "title": "SafetyCheckerStrength"
+      }
+    }
+  }
+}

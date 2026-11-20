@@ -10,7 +10,7 @@
 Welcome to AI Playground open source project and AI PC generative AI application suite. This application provides a full suite of generative AI features for chat, image generation, video generation, code assistance, document search, image analysis, and more. Features can run offline on your PC’s Intel® Core™ Ultra with built-in Intel Arc GPU, Intel Arc™ dGPU Series A or B with 8GB+ of vRAM, or NVIDIA RTX GPUs—or you can optionally use Hybrid Cloud mode to run frontier models from providers such as ChatGPT, Claude, Gemini, and Grok while you manage models, cost, and control of your data.
 
 AI Playground is intended to act as an offline alternative to cloud tools such as Gemini, ChatGPT, and Grok.  AI Playground leverages libraries from GitHub and Huggingface including:
-- Image Diffusion (PyTorch): Stable Diffusion 1.5, SDXL, Flux.1-Schnell, Flux.1 Kontext[dev], Flux.2 Klein, Z-Image, ERNIE-Image, Wan 2.1/2.2, LTX-Video, LTX-2.3
+- Image Diffusion (PyTorch): Stable Diffusion 1.5, SDXL, Flux.1-Schnell, Flux.1 Kontext[dev], Flux.2 Klein, Z-Image, ERNIE-Image, MiniMax H3 Image, Wan 2.1/2.2, LTX-Video, LTX-2.3, MiniMax H3
 - LLM: GGUF (Llama.cpp Vulkan) - Gemma 4, Qwen3.5, Qwen3.6, Qwen3 VL, GPT-OSS 20B, DeepSeek R1 Distilled, Phi3, Mistral 7B, Llama 3.2: OpenVINO - TinyLlama, Mistral 7B, Phi3 mini, Phi3.5 mini, DeepSeek R1 Distill (1.5B, 7B). Optional Hybrid Cloud backends connect to hosted models via your API keys.
 <img width="1539" height="462" alt="AI Playground 3.2 Chat Assistant with mode bar and agent presets" src="docs/readme/chat-assistant-ui.png" />
 
@@ -25,9 +25,9 @@ As a local alternative to cloud AI services, AI Playground is intended to give c
 Image generation presets	Image editing presets	Video generation presets
 - Agentic chat & MCP: Tool calling connects chat to built-in media tools and external apps (for example Blender via MCP)
 <img width="1779" height="1049" alt="Agentic chat with MCP tool calling in AI Playground" src="docs/readme/agentic-mcp-blender.png" />
-- Image Generation: From Stable Diffusion 1.5, SDXL, Flux.1, Z-Image, and ERNIE-Image—draft through Pro-quality presets with strong prompt adherence
+- Image Generation: From Stable Diffusion 1.5, SDXL, Flux.1, Z-Image, ERNIE-Image, and MiniMax H3 Image—draft through Pro-quality presets with strong prompt adherence
 - Image Editing: Subscription free and private control for upscaling, inpainting, outpainting, 2D to 3D mesh or editing images in a variety of ways.  Good for editing personal photos to taking sketches and generated images to the next level with greater control.
-- Video Generation: Text- and image-guided clips (LTX, WAN, and related presets; best on discrete GPUs or high-memory Core Ultra systems)
+- Video Generation: Text- and image-guided clips (LTX, WAN, MiniMax H3, and related presets; best on discrete GPUs or high-memory Core Ultra systems)
 - Remote access — Channels: Mark a Session reachable and continue it from Telegram, Slack, or a LAN web chat on your phone. Get its notifications, answer them, and start Agents while your home PC does the work
 - Help mode: Toggle contextual guidance in the UI (? icon) for presets, settings, and core areas
 

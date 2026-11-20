@@ -42,7 +42,27 @@ function resolveVariant(preset: Preset, requested: unknown): string | undefined 
   return findFastVariant(preset) ?? preset.variants?.[0]?.name
 }
 
-function getDefaultMegapixelLabel(config: ResolutionConfig): string {
+function settingDefault(preset: ComfyUiPreset, name: string): number | undefined {
+  const setting = preset.settings.find((s) => 'settingName' in s && s.settingName === name)
+  const value = setting && 'defaultValue' in setting ? setting.defaultValue : undefined
+  return typeof value === 'number' && value > 0 ? value : undefined
+}
+
+function presetDefaultPixels(preset: ComfyUiPreset): number | null {
+  const width = settingDefault(preset, 'width')
+  const height = settingDefault(preset, 'height')
+  return width && height ? width * height : null
+}
+
+function getDefaultMegapixelLabel(config: ResolutionConfig, preset: ComfyUiPreset): string {
+  const defaultPixels = presetDefaultPixels(preset)
+  if (defaultPixels !== null && config.megapixels.length > 0) {
+    return config.megapixels.reduce((prev, curr) =>
+      Math.abs(curr.totalPixels - defaultPixels) < Math.abs(prev.totalPixels - defaultPixels)
+        ? curr
+        : prev,
+    ).label
+  }
   const labels = config.megapixels.map((m: MegapixelOption) => m.label)
   if (labels.includes('1.0')) return '1.0'
   return labels[Math.floor(labels.length / 2)] ?? '0.5'
@@ -59,7 +79,7 @@ function resolveSize(
 
   if (aspectRatio || megapixels) {
     const ar = aspectRatio ?? '1/1'
-    const mp = megapixels ?? getDefaultMegapixelLabel(config)
+    const mp = megapixels ?? getDefaultMegapixelLabel(config, preset)
     const exact = getResolutionForConfig(config, mp, ar)
     if (exact) return { width: exact.width, height: exact.height }
     const matchingAR = getResolutionsFromConfig(config).filter((r) => r.aspectRatio === ar)
@@ -253,9 +273,11 @@ export async function runInProcessComfyTool(
         typeof request.args.negativePrompt === 'string' ? request.args.negativePrompt : 'nsfw',
       seed: typeof request.args.seed === 'number' ? request.args.seed : -1,
       inferenceSteps:
-        typeof request.args.inferenceSteps === 'number' ? request.args.inferenceSteps : 6,
-      width: width ?? 512,
-      height: height ?? 512,
+        typeof request.args.inferenceSteps === 'number'
+          ? request.args.inferenceSteps
+          : (settingDefault(preset, 'inferenceSteps') ?? 6),
+      width: width ?? settingDefault(preset, 'width') ?? 512,
+      height: height ?? settingDefault(preset, 'height') ?? 512,
       batchSize: isEdit
         ? 1
         : typeof request.args.batchSize === 'number'

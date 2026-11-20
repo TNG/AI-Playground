@@ -16,6 +16,8 @@ const VIDEO_PRESETS: { preset: string; needsImage?: boolean }[] = [
   // reference-image input — so it takes no input image, like LTX-2.3.
   { preset: 'LTX-Video' },
   { preset: 'Wan2.2-14B-i2v', needsImage: true },
+  { preset: 'MiniMax H3 Video' },
+  { preset: 'MiniMax H3 Image to Video', needsImage: true },
 ]
 
 test.describe('Video presets', () => {

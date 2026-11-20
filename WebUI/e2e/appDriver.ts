@@ -525,6 +525,10 @@ export class AppDriver {
       await this.main.expectResultToolbarRevealedOnHover()
     })
 
+    await test.step('Image toolbar: Delete removes the file once confirmed', async () => {
+      await this.main.deleteNewestResult()
+    })
+
     return true
   }
 

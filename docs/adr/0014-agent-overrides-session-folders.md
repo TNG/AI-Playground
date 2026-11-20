@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 amends: the Agent Run folders and the rejected "Letting an Agent override the Workspace" in ADR-0013
 ---
 
@@ -29,8 +29,8 @@ only what is in effect, so an overridden Workspace is the one the chip names.
 
 ## Consequences
 
-Folders an Agent brings are registered in the Session as entries owned by that Agent, so Artifacts
-made in them keep a folder reference and stay in the History when the Agent is not active. A
+An Agent's Workspace override is registered in the Session as an entry owned by that Agent, so
+Artifacts made in it keep a folder reference and stay in the History when the Agent is not active. A
 Workspace override that inherits the Session's other folders also mounts the Session's own
 Workspace read-write, so History paths into it keep working. A Trial Run with a Workspace override
 writes into that real folder; only the scratch folder is thrown away. Existing Agents' additional

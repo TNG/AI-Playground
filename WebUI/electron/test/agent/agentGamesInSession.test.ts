@@ -21,7 +21,11 @@ vi.mock('electron', () => ({
 vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(tempRoot, 'sessions-demo')}-workspaces`,
   getGamesDir: () => path.join(tempRoot, 'games'),
 }))
 

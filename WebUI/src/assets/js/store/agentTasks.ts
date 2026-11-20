@@ -139,7 +139,7 @@ export type SaveTaskResult =
 
 export type RunTaskResult =
   | { ok: true }
-  | { ok: false; reason: 'no-task' | 'running' | 'no-session' }
+  | { ok: false; reason: 'no-task' | 'running' | 'no-session' | 'missing-workspace' }
   | { ok: false; reason: 'settings-problems'; problems: SessionSettingsProblem[]; message: string }
   | ({ ok: false; message: string } & ModelDownloadRefusal)
 
@@ -1183,6 +1183,9 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (refusal) return { ok: false, ...refusal }
     const sessionRef = await sessionsStore.ensureOpenSession()
     if (!sessionRef) return { ok: false, reason: 'no-session' }
+    if (!(await sessionsStore.readyWorkspaceForTurn(sessionRef))) {
+      return { ok: false, reason: 'missing-workspace' }
+    }
     // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
     const task = tasks.value.find((entry) => entry.id === id)
     if (!task) return { ok: false, reason: 'no-task' }

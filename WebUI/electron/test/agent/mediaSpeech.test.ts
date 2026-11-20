@@ -172,18 +172,23 @@ describe('mediaSpeech (agent speech tools)', () => {
     })
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-speech-files-'))
     const game = await buildTool(SYNTHESIZE_SPEC, {
-      sessionMedia: { sessionRef: 's1', workspace: 'game', filesDir },
+      sessionMedia: {
+        sessionRef: 's1',
+        workspace: 'game',
+        filesDir: async () => filesDir,
+        folderId: 'folder-ws',
+      },
     })
     const folder = await buildTool(SYNTHESIZE_SPEC, {
-      sessionMedia: { sessionRef: 's2', workspace: 'files' },
+      sessionMedia: { sessionRef: 's2', workspace: 'files', folderId: 'folder-ws' },
     })
 
     const fromGame = await game.execute('c1', { text: 'hi' }, new AbortController().signal)
     const fromFolder = await folder.execute('c2', { text: 'hi' }, new AbortController().signal)
 
-    expect(detailsOf(fromGame)?.audio?.url).toBe('aipg-media://sessions/s1/files/speech.wav')
+    expect(detailsOf(fromGame)?.audio?.url).toBe('aipg-media://folders/s1/folder-ws/speech.wav')
     expect(detailsOf(fromFolder)?.audio?.url).toBe(
-      'aipg-media://sessions/s2/files/generated/speech_1.wav',
+      'aipg-media://folders/s2/folder-ws/generated/speech_1.wav',
     )
   })
 
@@ -222,7 +227,12 @@ describe('mediaSpeech (agent speech tools)', () => {
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-files-'))
     fs.writeFileSync(path.join(filesDir, 'speech.wav'), 'earlier')
     const tool = await buildTool(SYNTHESIZE_SPEC, {
-      sessionMedia: { sessionRef: 'session-1', workspace: 'game', filesDir },
+      sessionMedia: {
+        sessionRef: 'session-1',
+        workspace: 'game',
+        filesDir: async () => filesDir,
+        folderId: 'folder-ws',
+      },
     })
 
     await run(tool, { text: 'one' })

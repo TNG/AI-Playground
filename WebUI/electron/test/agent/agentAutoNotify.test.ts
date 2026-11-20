@@ -36,6 +36,8 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getChannelMessageMapFile: () => messageMapFile,
   getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
   getAudioDir: () => path.join(tempRoot, 'audio'),
 }))
 
@@ -675,6 +677,54 @@ describe('a Scheduled Run', () => {
     await withWaitingTurn(TASK_SESSION, async () => {}, run(true))
     await settle()
     expect(sent).toEqual([])
+  }, 30000)
+
+  it('leaves any other failure to the window while its Session is on screen', async () => {
+    const sessionRef = await sessionOfHarnessSession(TASK_SESSION)
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY, sessionOnScreen: sessionRef })
+    modelRetired = true
+    await manager.startAgentTurn(crypto.randomUUID(), 'hi', run(true))
+    await settle()
+    expect(sent).toEqual([])
+  }, 30000)
+
+  it('fails at once when its Workspace is missing, naming the folder on every Channel', async () => {
+    const folders = await import('../../session/sessionFolders')
+    const sessionRef = (await sessionOfHarnessSession(TASK_SESSION))!
+    const project = path.join(tempRoot, 'Project')
+    fs.mkdirSync(project)
+    const { list } = await folders.addSessionFolder(sessionRef, project)
+    const entry = list.folders.find((folder) => folder.hostPath === project)!
+    await folders.starSessionFolder(sessionRef, entry.id)
+    fs.rmSync(project, { recursive: true })
+    notifier.setNotificationConfig({ ...CONFIG, channels: EVERY, sessionOnScreen: sessionRef })
+    const states: string[] = []
+    const bus = await import('../../kernel/kernelBus')
+    const stop = bus.onKernelEvent((event) => {
+      if (event.type === 'agent-turn-state') states.push(event.state)
+    })
+    try {
+      const result = await manager.startAgentTurn(crypto.randomUUID(), 'hi', {
+        ...run(true),
+        sessionRef,
+        workspaceDir: project,
+      })
+      expect(result).toMatchObject({ success: false, error: expect.stringContaining(project) })
+      await vi.waitFor(() =>
+        expect(sent.map((s) => [s.kind, s.text.split('\n')[1]])).toEqual([
+          [
+            'telegram',
+            expect.stringMatching(/^❌ Failed: The Workspace folder "Project" is missing/),
+          ],
+          ['slack', expect.stringMatching(/^❌ Failed: The Workspace folder "Project" is missing/)],
+        ]),
+      )
+      expect(states).not.toContain('paused')
+      expect(asks).toEqual([])
+    } finally {
+      stop()
+      await folders.startNewSessionWorkspace(sessionRef)
+    }
   }, 30000)
 })
 

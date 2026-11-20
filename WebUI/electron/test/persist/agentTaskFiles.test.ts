@@ -400,6 +400,20 @@ describe('the kernel Drafts file', () => {
     expect(await readRaw(files.drafts)).toBeNull()
   })
 
+  it('keeps no host folder on a demo Agent or Draft', async () => {
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    const settingsTemplate = {
+      backend: 'llamaCPP' as const,
+      mountedFolders: [{ hostPath: '/Users/host/notes', access: 'read-only' as const }],
+    }
+
+    await saveAgentTask(task('a', { settingsTemplate }))
+    await saveAgentDraft(draft('a', { settingsTemplate }))
+
+    expect((await readAgentTasks())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readAgentDrafts())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+  })
+
   it('routes Drafts through the demo file and wipes it with the demo Agents', async () => {
     await saveAgentDraft(draft('real'))
     setAgentTaskFilesDeps({ isDemoMode: () => true })

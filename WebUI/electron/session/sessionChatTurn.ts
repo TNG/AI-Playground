@@ -3,7 +3,7 @@ import { emitSessionChanged } from '../kernel/kernelBus'
 import { appendHistoryEntry, readHistoryEntries, removeHistoryEntry } from './sessionHistory'
 import path from 'node:path'
 import { adoptMediaFile } from './sessionMediaTurn'
-import { copyIntoSessionFiles } from '../persist/sessionMediaFiles'
+import { copyIntoWorkspace } from './sessionWorkspace'
 import { takeSessionUpdate } from './sessionUpdate'
 import { mutateSession, readSession, sessionDocumentOf } from './sessions'
 import { afterTurn } from './sessionTitle'
@@ -12,7 +12,6 @@ import {
   chatTranscriptOf,
   type ChatTranscriptMessage,
 } from '@/lib/sessionChat'
-import { sessionMediaUrl } from '@/lib/comfyWorkflow'
 import type {
   ArtifactMediaType,
   HistoryArtifact,
@@ -168,10 +167,10 @@ export function trackChatTurnInSession(
   // The clip stays in the audio folder too: the model was told that path.
   async function adoptSpeechClip(output: { savedFilePath: string }): Promise<unknown> {
     try {
-      const relativePath = await copyIntoSessionFiles(sessionId, output.savedFilePath)
-      if (!relativePath) return output
-      artifacts.push({ path: relativePath, mediaType: 'audio' })
-      return { ...output, audioUrl: sessionMediaUrl(sessionId, relativePath) }
+      const copied = await copyIntoWorkspace(sessionId, output.savedFilePath)
+      if (!copied) return output
+      artifacts.push({ ...copied.artifact, mediaType: 'audio' })
+      return { ...output, audioUrl: copied.url }
     } catch (error) {
       appLoggerInstance.warn(`speech clip not copied into its Session: ${error}`, LOG_SCOPE)
       return output
@@ -194,7 +193,7 @@ export function trackChatTurnInSession(
         const moved = await adoptMediaFile(sessionId, url, localPathOf)
         if (!moved) continue
         next[key] = moved.url
-        artifacts.push({ path: moved.relativePath, mediaType })
+        artifacts.push({ ...moved.artifact, mediaType })
       }
       adopted.push(next)
     }

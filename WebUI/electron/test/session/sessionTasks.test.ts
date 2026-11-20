@@ -11,7 +11,11 @@ const dirs = vi.hoisted(() => ({ root: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => path.join(dirs.root, 'sessions'),
+  getLegacySessionsDir: () => path.join(dirs.root, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(dirs.root, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(dirs.root, 'sessions-demo')}-workspaces`,
   getAgentTasksFile: () => path.join(dirs.root, 'agent-tasks.json'),
   getAgentTasksDemoFile: () => path.join(dirs.root, 'agent-tasks-demo.json'),
   getGamesDir: () => path.join(dirs.root, 'games'),

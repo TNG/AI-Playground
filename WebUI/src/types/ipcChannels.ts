@@ -5,10 +5,15 @@ import type {
   AgentToolExecuteRequest,
   AgentToolSpec,
   ArcadeCatalogEntry,
+  AttachmentTarget,
   GameLibraryEntry,
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
-import type { AgentSessionBootstrap, AgentSessionRecordWire } from './agentSessionIpc'
+import type {
+  AgentSessionBootstrap,
+  AgentSessionRecordWire,
+  MountedFolderAccess,
+} from './agentSessionIpc'
 import type { AgentDraft, AgentTask, TrialRunRecord } from './agentTaskIpc'
 import type { AgentWorkspaceState } from './agentWorkspaceIpc'
 import type { ArtifactRunRequest, ArtifactRunResult } from './artifactIpc'
@@ -32,6 +37,7 @@ import type {
   PermissionsPromptResponse,
 } from './permissionsIpc'
 import type { RagDocumentSection } from './ragDocumentIpc'
+import type { MountedFolderRefusal } from '../lib/mountedFolders'
 import type { BackendLaunchSettings, BackendVersionWire } from './preferencesIpc'
 import type {
   ArtifactMediaType,
@@ -41,8 +47,11 @@ import type {
   HarnessSessionRef,
   NewestArtifact,
   SessionArtifact,
+  MissingWorkspace,
   SessionCreateOptions,
+  SessionDeletePreview,
   SessionDocument,
+  SessionFolderList,
   SessionGroup,
   SessionLastPreset,
   SessionSummary,
@@ -294,6 +303,80 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, boolean],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
+  /**
+   * Add a host folder to a Session's folder list, read-only; `refusal` says why it was not added
+   * (too broad, the home folder, or overlapping an entry). Pushes `session-changed`.
+   */
+  'sessions:addFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{
+      list: SessionFolderList
+      refusal?: MountedFolderRefusal
+    }>,
+  },
+  /** Take a folder off a Session's list, never the Workspace; its files stay. Pushes `session-changed`. */
+  'sessions:removeFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList }>,
+  },
+  /** Make a listed folder read-only or read-write; the Workspace stays read-write. Pushes `session-changed`. */
+  'sessions:setFolderAccess': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, MountedFolderAccess],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList }>,
+  },
+  /**
+   * Star a listed folder as the Workspace (made read-write if it was not); refused while the
+   * Session has a turn in flight. Nothing already written moves. Pushes `session-changed`.
+   */
+  'sessions:starFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList; madeReadWrite: boolean }>,
+  },
+  /** The Session's Workspace when it is a user folder that no longer exists; null otherwise. */
+  'sessions:missingWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ missing: MissingWorkspace | null }>,
+  },
+  /**
+   * Point a missing Workspace at the folder the user located, keeping its id and slug; a refused
+   * folder leaves the list as it was. Pushes `session-changed`.
+   */
+  'sessions:locateWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcOkWith<{
+      list: SessionFolderList
+      refusal?: MountedFolderRefusal
+    }>,
+  },
+  /** Star a fresh app-created Workspace in place of a missing one. Pushes `session-changed`. */
+  'sessions:startNewWorkspace': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ list: SessionFolderList }>,
+  },
+  /**
+   * Show a listed folder in the OS file manager, the Workspace when no folder id is given; the
+   * app-created Workspace is created first, so this works before the first turn.
+   */
+  'sessions:openFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string | undefined],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Pick an Agent in a Session's prompt bar, or `null` for Assistant; pushes `session-changed`. */
   'sessions:pickAgent': {
     kind: 'invoke',
@@ -346,12 +429,19 @@ export const CHANNELS = {
     args: [] as unknown as readonly [ShowMoreSection, boolean],
     result: null as unknown as IpcMutationResult,
   },
-  /** Delete a Session and its whole Session Folder. */
+  /** Delete a Session: its listed app-created Workspace to the Trash, its internal storage gone. */
   'sessions:delete': {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
+  },
+  /** What deleting the Session would move to the Trash, for its delete dialog. */
+  'sessions:deletePreview': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcOkWith<{ preview: SessionDeletePreview }>,
   },
   /**
    * The Session's Harness Session for an agent preset (minted on first use) and its workspace;
@@ -426,7 +516,7 @@ export const CHANNELS = {
     args: [] as const,
     result: null as unknown as IpcOkWith<{ artifacts: SessionArtifact[] }>,
   },
-  /** Delete one artifact's file (session id, path in the Session Folder); its History Entry stays. */
+  /** Move one artifact's file to the Trash (session id, its media URL); its History Entry stays. */
   'sessions:deleteArtifact': {
     kind: 'invoke',
     owner: 'main',
@@ -664,32 +754,32 @@ export const CHANNELS = {
     args: [] as unknown as readonly [TrialRunRecord],
     result: null as unknown as IpcMutationResult,
   },
-  /** Copy an attached file into the workspace; the answer carries its relative path. */
+  /** Keep a copy of an attached file (`attachmentsFolderFor`); the answer is how a prompt names it. */
   'agentMode:importAttachment': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string, Uint8Array],
+    args: [] as unknown as readonly [AttachmentTarget, string, Uint8Array],
     result: null as unknown as { success: true; path: string } | IpcFail,
   },
-  /** The documents attached to a Session's workspace, as workspace-relative paths. */
+  /** The Attached Documents of a Session (or a game folder), as `attachments/<file>` paths. */
   'agentMode:sessionDocuments': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string],
+    args: [] as unknown as readonly [AttachmentTarget],
     result: null as unknown as string[],
   },
   /** Split and embed an attached document now, so the first `rag` call on it is fast. */
   'agentMode:indexDocument': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string, DocumentEmbedding],
+    args: [] as unknown as readonly [AttachmentTarget, string, DocumentEmbedding],
     result: null as unknown as IpcMutationResult,
   },
   /** Delete an attached document's Session copy, so later turns no longer see it. */
   'agentMode:removeSessionDocument': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [string, string],
+    args: [] as unknown as readonly [AttachmentTarget, string],
     result: null as unknown as IpcMutationResult,
   },
   /** Open, reveal, drag or save a session's generated file: the workspace copy, else the app copy. */

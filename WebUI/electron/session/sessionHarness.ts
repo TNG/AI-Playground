@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { ensureSessionFilesDir } from '../persist/sessionMediaFiles'
+import { ensureSessionWorkspace } from './sessionWorkspace'
 import { getGamesDir } from '../persist/userDataPaths'
 import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
 import { mutateSession, onSessionDeleted } from './sessions'
@@ -73,7 +73,7 @@ export async function harnessSessionFor(
           },
         },
   )
-  const workspaceDir = await ensureSessionFilesDir(sessionId)
+  const workspaceDir = await ensureSessionWorkspace(sessionId)
   return { harnessSessionId: file.harnessSessions[presetName], workspaceDir }
 }
 

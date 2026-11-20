@@ -11,10 +11,10 @@ import { loadPi } from '../piRuntime.ts'
 import { askRenderer } from '../../chat/chatAsk.ts'
 import { speechFailure } from '../../chat/chatSpeechTools.ts'
 import { saveGeneratedAudioFile } from '../../persist/audioFiles.ts'
-import { freeName } from '../../persist/sessionMediaFiles.ts'
+import { freeName } from '../../persist/fileOps.ts'
 import { noteGeneratedMedia } from '../generatedMedia.ts'
 import { buildTtsAudioFileName } from '@/lib/ttsAudioFileName'
-import { sessionMediaUrl } from '@/lib/comfyWorkflow'
+import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import type { AgentMediaDetails } from '@/types/agentMediaDetails'
 import type { SpeechClipPayload, SpeechVoiceSelection } from '@/types/chatRequests'
 import { NOTIFY_USER_TOOL } from './notify.ts'
@@ -88,16 +88,19 @@ function sessionClipUrl(
   const target = host.sessionMedia
   if (!target) return undefined
   if (target.workspace === 'trial') return trialMediaUrl(target.agentId, `files/${relativePath}`)
-  if (target.workspace === 'files')
-    return sessionMediaUrl(target.sessionRef, `files/${relativePath}`)
+  if (target.workspace === 'files') {
+    return sessionFolderMediaUrl(target.sessionRef, target.folderId, relativePath)
+  }
   const copy = sessionCopies[0]
-  return copy ? sessionMediaUrl(target.sessionRef, `files/${path.basename(copy)}`) : undefined
+  return copy
+    ? sessionFolderMediaUrl(target.sessionRef, target.folderId, path.basename(copy))
+    : undefined
 }
 
-/** A game's clip also lands in its Session's `files/`, which is what the Session shows. */
+/** A game's clip also lands in its Session's Workspace, which is what the Session shows. */
 async function copyIntoSession(host: CapabilityHost, fullPath: string): Promise<string[]> {
   if (host.sessionMedia?.workspace !== 'game') return []
-  const { filesDir } = host.sessionMedia
+  const filesDir = await host.sessionMedia.filesDir()
   await fs.promises.mkdir(filesDir, { recursive: true })
   const target = path.join(filesDir, await freeName(filesDir, path.basename(fullPath)))
   await fs.promises.copyFile(fullPath, target)
@@ -207,7 +210,7 @@ async function transcribeWorkspaceAudio(
     }
   }
   try {
-    const fullPath = resolveWorkspaceFile(host.workspaceDir, relativePath)
+    const fullPath = resolveWorkspaceFile(host, relativePath)
     const mediaType = AUDIO_MIME_BY_EXT[path.extname(fullPath).toLowerCase()]
     if (!mediaType) throw new Error(`Unsupported audio file type: ${relativePath}`)
     const { text } = await askRenderer<{ text: string }>(

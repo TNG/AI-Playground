@@ -29,6 +29,8 @@ vi.mock('../../persist/userDataPaths', async (importOriginal) => ({
   getChannelMessageMapFile: () => path.join(tempRoot, 'channel-messages.json'),
   getAgentTrialsDir: () => path.join(tempRoot, 'agent-trials'),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -448,6 +450,37 @@ describe('notify_user attachments', () => {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, bytes)
   }
+
+  it('forwards a file the user attached to the Session, kept outside its Workspace', async () => {
+    const harnessSessionId = 'aipg-agent-notify-session-attachment'
+    const sessionRef = await sessionHolding(harnessSessionId)
+    const { sessionPaths } = await import('../../session/sessions')
+    const { ensureSessionWorkspace } = await import('../../session/sessionWorkspace')
+    const { importAttachment } = await import('../../agent/workspaceAttachments')
+    const saved = importAttachment(
+      { dir: sessionPaths(sessionRef).attachmentsDir, reference: '/attachments' },
+      'cat.png',
+      Buffer.from('cat bytes'),
+    )
+    notifyArgs = { message: SUMMARY, attachments: [saved.path] }
+
+    await manager.startAgentTurn(crypto.randomUUID(), 'send me the cat', {
+      ...configFor(harnessSessionId, ['notify']),
+      sessionRef,
+      workspaceDir: await ensureSessionWorkspace(sessionRef),
+    })
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        media: {
+          kind: 'photo',
+          base64: Buffer.from('cat bytes').toString('base64'),
+          filename: 'cat.png',
+        },
+      }),
+    ])
+    expect(toolResultText()).toBe('delivered')
+  }, 30000)
 
   it('sends an attached image as a photo captioned with the Notification text', async () => {
     attach('generated/cover.png', 'png bytes')

@@ -10,10 +10,10 @@ import {
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 
-// Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).
-const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
+// Attachments reach the prompt as `@/attachments/<file>` in a Session, `@attachments/<file>` in a game.
+const IMAGE_ATTACHMENT = /@"?\/?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
 const IMAGE_ATTACHMENTS =
-  /@(?:"(attachments\/[^"\n]+?\.(?:png|jpe?g|webp|gif|bmp))"|(attachments\/\S+?\.(?:png|jpe?g|webp|gif|bmp)))(?![\w.])/gi
+  /@(?:"(\/?attachments\/[^"\n]+?\.(?:png|jpe?g|webp|gif|bmp))"|(\/?attachments\/\S+?\.(?:png|jpe?g|webp|gif|bmp)))(?![\w.])/gi
 
 /** Whether an agent prompt hands the model an image, so a vision model needs its projector. */
 export function promptHasImageAttachment(prompt: string): boolean {
@@ -141,6 +141,7 @@ export const AgentModeTurnConfigSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
+  /** An Agent Run's Agent folders; main mounts a Session's own folders from its list. */
   mountedFolders: z.array(ResolvedMountedFolderSchema).optional(),
   planningThinkingOnly: z.boolean().optional(),
   /** Downloaded embedding model for the `rag` capability; absent disables it. */
@@ -181,6 +182,9 @@ export type AgentModeTurnConfig = z.infer<typeof AgentModeTurnConfigSchema>
  * An `agentMode:executeTool` dispatch: main hands a renderer-implemented tool
  * call to the window to run, and the renderer answers over `agentMode:toolResult`.
  */
+/** Who a file is attached for: the folder a turn works in, and the Session it runs in if any. */
+export type AttachmentTarget = { workspaceDir: string; sessionId?: string }
+
 export type AgentToolExecuteRequest = {
   requestId: string
   /** The Agent Session whose turn called the tool. */

@@ -7,10 +7,11 @@ import type { AgentMediaDetails, AgentMediaItem } from '@/types/agentMediaDetail
 import { appLoggerInstance } from '../observability/logger.ts'
 import { emitAgentToolImage } from '../kernel/kernelBus.ts'
 import { typedSend } from '../kernel/typedIpc.ts'
-import { freeName, moveFile } from '../persist/sessionMediaFiles.ts'
+import { freeName, moveEntry } from '../persist/fileOps.ts'
 import { noteGeneratedMedia } from './generatedMedia.ts'
-import { sessionMediaUrl } from '@/lib/comfyWorkflow'
+import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import { agentTurns } from './piAgentState.ts'
+import { resolveWorkspaceFile, type AgentFiles } from './workspaceAttachments.ts'
 import { isWaitingOnUser, onUserWaitChange, whileRendererAnswers } from '../kernel/userWait.ts'
 
 // ── Agent Mode tool plumbing ─────────────────────────────────────────────────
@@ -284,25 +285,9 @@ const DATA_URI_MIME_BY_EXT: Record<string, string> = {
   '.gif': 'image/gif',
 }
 
-/**
- * Resolve a model-provided workspace-relative path against the workspace dir,
- * rejecting escapes and anything that is not an existing file.
- */
-export function resolveWorkspaceFile(workspaceDir: string, relativePath: string): string {
-  const fullPath = path.resolve(workspaceDir, relativePath)
-  const relative = path.relative(workspaceDir, fullPath)
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Path escapes the workspace folder: ${relativePath}`)
-  }
-  if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
-    throw new Error(`File not found in workspace: ${relativePath}`)
-  }
-  return fullPath
-}
-
 /** Inline a workspace image file as a data URI. */
-export function workspaceFileToDataUri(workspaceDir: string, relativePath: string): string {
-  const fullPath = resolveWorkspaceFile(workspaceDir, relativePath)
+export function workspaceFileToDataUri(files: AgentFiles, relativePath: string): string {
+  const fullPath = resolveWorkspaceFile(files, relativePath)
   const mime = DATA_URI_MIME_BY_EXT[path.extname(fullPath).toLowerCase()]
   if (!mime) {
     throw new Error(`Unsupported image file type: ${relativePath}`)
@@ -311,14 +296,14 @@ export function workspaceFileToDataUri(workspaceDir: string, relativePath: strin
 }
 
 /**
- * A turn in a Session: when the workspace is its `files/` folder media lands at its root;
- * when it is a game folder media lands in the game's `generated/` and in `filesDir` too,
- * served from the Session's copy. A Trial Run's media lands in its scratch folder, so it goes
- * when the Trial Run is thrown away.
+ * A turn in a Session: when the workspace is the Session's Workspace media lands at its root;
+ * when it is a game folder media lands in the game's `generated/` and in the Session's
+ * Workspace (`filesDir`) too, served from the Session's copy. A Trial Run's media lands in its
+ * scratch folder, so it goes when the Trial Run is thrown away.
  */
 export type SessionMediaTarget =
-  | { sessionRef: string; workspace: 'files' }
-  | { sessionRef: string; workspace: 'game'; filesDir: string }
+  | { sessionRef: string; workspace: 'files'; folderId: string }
+  | { sessionRef: string; workspace: 'game'; filesDir: () => Promise<string>; folderId: string }
   | { workspace: 'trial'; agentId: string }
 
 let appMediaPath: ((url: string) => string | null) | null = null
@@ -346,7 +331,7 @@ async function mediaBytes(url: string): Promise<Buffer> {
 async function moveIntoSession(url: string, target: string): Promise<void> {
   const source = appMediaPath?.(url)
   if (source && fs.existsSync(source)) {
-    await moveFile(source, target)
+    await moveEntry(source, target)
     return
   }
   fs.writeFileSync(target, await mediaBytes(url))
@@ -367,7 +352,7 @@ async function saveOne(
     fs.writeFileSync(path.join(workspaceDir, saved), bytes)
     return { saved, entry }
   }
-  const filesDir = sessionMedia.workspace === 'game' ? sessionMedia.filesDir : workspaceDir
+  const filesDir = sessionMedia.workspace === 'game' ? await sessionMedia.filesDir() : workspaceDir
   fs.mkdirSync(filesDir, { recursive: true })
   const filesName = await freeName(filesDir, name)
   const sessionCopy = path.join(filesDir, filesName)
@@ -387,7 +372,7 @@ async function saveOne(
       [key]:
         sessionMedia.workspace === 'trial'
           ? trialMediaUrl(sessionMedia.agentId, `files/${filesName}`)
-          : sessionMediaUrl(sessionMedia.sessionRef, `files/${filesName}`),
+          : sessionFolderMediaUrl(sessionMedia.sessionRef, sessionMedia.folderId, filesName),
     },
   }
 }
@@ -520,5 +505,7 @@ function joinSkillLocation(skillsRoot: string, relativePath: string): string {
     ? path.posix.join(skillsRoot, relativePath)
     : path.join(skillsRoot, relativePath)
 }
+
+export { resolveWorkspaceFile }
 
 export const testables = { workspaceFileToDataUri }

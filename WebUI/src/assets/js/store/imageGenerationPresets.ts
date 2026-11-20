@@ -1167,6 +1167,8 @@ export const useImageGenerationPresets = defineStore('imageGenerationPresets', (
     replaces?: TurnRemoval,
   ): Promise<ArtifactResult | undefined> {
     const mode = request.mode
+    const asked = await sessions.ensureOpenSession()
+    if (asked && !(await sessions.readyWorkspaceForTurn(asked))) return undefined
     lastError.value = null
     // Drop abandoned placeholders from a previous cancelled/failed run
     generatedImages.value = generatedImages.value.filter((item) => item.state === 'done')

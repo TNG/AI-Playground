@@ -249,6 +249,7 @@ function fakeWindow(): void {
 }
 
 const { useAgentMode } = await import('@/assets/js/store/agentMode')
+const { useSessions } = await import('@/assets/js/store/sessions')
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -554,60 +555,40 @@ describe('Agent Session Settings', () => {
     expect(turnConfig.lastInput?.userSampling).toBe(false)
   })
 
-  describe('Mounted Folders', () => {
-    const notes = { hostPath: '/Users/ada/notes', access: 'read-only' as const }
-
-    it('keeps a Mounted Folder in the session it was added to', async () => {
-      const store = await startedStore()
-      store.setMountedFolders([notes])
-      await store.generate('first')
-      const first = store.openSessionId
-
-      await store.newSession()
-      expect(store.mountedFolders).toEqual([])
-
-      await store.switchSession(first)
-      expect(store.mountedFolders).toEqual([notes])
-      expect(savedSettings(first)?.mountedFolders).toEqual([notes])
-    })
-
-    it('sends each folder with its sandbox name on a turn', async () => {
-      const store = await startedStore()
-      store.setMountedFolders([notes, { hostPath: '/Volumes/usb/notes' }])
-
-      turnConfig.build?.(store.openSessionId)
-      expect(turnConfig.lastInput?.mountedFolders).toEqual([
-        { hostPath: '/Users/ada/notes', name: 'notes', access: 'read-only' },
-        { hostPath: '/Volumes/usb/notes', name: 'notes-2', access: 'read-only' },
-      ])
-    })
-
-    it('starts a Draft Session with the Default Settings’ folders', async () => {
-      chat.state.settingsPerPreset.Assistant = {
-        ...chat.state.settingsPerPreset.Assistant,
-        agentMountedFolders: [notes],
+  describe("the Session's folders", () => {
+    function openSessionWithFolders(): void {
+      const sessions = useSessions()
+      sessions.sessions = {
+        s1: {
+          id: 's1',
+          title: '',
+          renamed: false,
+          pinned: false,
+          reachable: false,
+          createdAt: 1,
+          updatedAt: 1,
+          presetsUsed: [],
+          hiddenMessageIds: [],
+          folderList: {
+            workspaceId: 'ws',
+            folders: [
+              { id: 'ws', hostPath: '/sessions/s1/files', access: 'read-write', slug: 'files' },
+              { id: 'a', hostPath: '/Users/ada/notes', access: 'read-only', slug: 'notes' },
+              { id: 'b', hostPath: '/Volumes/usb/notes', access: 'read-write', slug: 'notes-2' },
+            ],
+          },
+        },
       }
+      sessions.openSessionId = 's1'
+    }
+
+    // Main mounts them from the Session's list, which the turn names by its Session.
+    it.each(['Assistant', 'Game Agent'])('are not sent with a %s turn', async (preset) => {
       const store = await startedStore()
+      openSessionWithFolders()
+      if (preset !== 'Assistant') await presetSwitchingMock.switchPreset(preset)
 
-      expect(store.mountedFolders).toEqual([notes])
-    })
-
-    it('saves the folders as the defaults', async () => {
-      const store = await startedStore()
-      store.setMountedFolders([notes])
-      store.saveAsDefault()
-
-      expect(chat.state.settingsPerPreset.Assistant.agentMountedFolders).toEqual([notes])
-    })
-
-    it('offers none to Game Agent', async () => {
-      const store = await startedStore()
-      store.setMountedFolders([notes])
-      await presetSwitchingMock.switchPreset('Game Agent')
-
-      expect(store.mountedFoldersSupported).toBe(false)
-      expect(store.mountedFolders).toEqual([])
-      turnConfig.build?.(store.openSessionId)
+      await turnConfig.build?.(store.openSessionId)
       expect(turnConfig.lastInput?.mountedFolders ?? []).toEqual([])
     })
   })

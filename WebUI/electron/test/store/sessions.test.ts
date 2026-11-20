@@ -11,7 +11,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -41,12 +45,20 @@ const ledger = await import('../../session/sessionTurns')
 const { buildSessionsRegistry } = await import('../../kernel/registries/sessions')
 type SessionsDeps = import('../../kernel/registries/sessions').SessionsDeps
 
+const sessionFolders = await import('../../session/sessionFolders')
+const sessionWorkspace = await import('../../session/sessionWorkspace')
+const { useDialogStore } = await import('@/assets/js/store/dialogs')
+
 const registry = buildSessionsRegistry({
-  ...(sessionModule as unknown as SessionsDeps),
+  ...sessionModule,
+  ...sessionFolders,
+  ...sessionWorkspace,
   addHiddenMessages,
   clearHiddenMessages,
   clearAllHiddenMessages,
-} as SessionsDeps)
+} as unknown as SessionsDeps)
+/** The folder the next "Locate folder…" picker returns; undefined cancels it. */
+let pickedFolder: string | undefined
 const noEvent = {} as never
 const idsOf = (timeline: unknown[]) => timeline.map((message) => (message as { id?: string }).id)
 
@@ -90,7 +102,15 @@ beforeEach(async () => {
           registry['sessions:addHiddenMessages'](noEvent, id, messageIds),
         clearHiddenMessages: (id: string) => registry['sessions:clearHiddenMessages'](noEvent, id),
         clearAllHiddenMessages: () => registry['sessions:clearAllHiddenMessages'](noEvent),
+        missingWorkspace: (id: string) => registry['sessions:missingWorkspace'](noEvent, id),
+        locateWorkspace: (id: string, hostPath: string) =>
+          registry['sessions:locateWorkspace'](noEvent, id, hostPath),
+        startNewWorkspace: (id: string) => registry['sessions:startNewWorkspace'](noEvent, id),
       },
+      showOpenDialog: async () =>
+        pickedFolder
+          ? { canceled: false, filePaths: [pickedFolder] }
+          : { canceled: true, filePaths: [] },
     },
   })
   setActivePinia(createPinia())
@@ -618,5 +638,74 @@ describe('Hidden messages', () => {
     expect((await sessionModule.openSession(hidden)).hiddenMessageIds).toEqual([])
     await vi.waitFor(() => expect(store.sessions[hidden]?.hiddenMessageIds).toEqual([]))
     expect(store.openHiddenIds).toEqual([])
+  })
+})
+
+describe('a turn in a Session whose Workspace is missing', () => {
+  async function missingProject(store: ReturnType<typeof useSessions>) {
+    await store.init()
+    const id = store.openSessionId!
+    const project = path.join(path.dirname(dirs.real), 'Project')
+    await fs.mkdir(project)
+    const { list } = await sessionFolders.addSessionFolder(id, project)
+    await sessionFolders.starSessionFolder(id, list.folders.find((f) => f.hostPath === project)!.id)
+    await fs.rm(project, { recursive: true })
+    return { id, project }
+  }
+
+  async function answerQuestion(choice: 'locate' | 'start-new' | null): Promise<string> {
+    const dialogs = useDialogStore()
+    await vi.waitFor(() => expect(dialogs.missingWorkspaceQuestion).not.toBeNull())
+    const name = dialogs.missingWorkspaceQuestion!.missing.name
+    dialogs.missingWorkspaceQuestion!.answer(choice)
+    return name
+  }
+
+  it('is asked about, and runs in the folder the user located', async () => {
+    const store = useSessions()
+    const { id, project } = await missingProject(store)
+    const moved = path.join(path.dirname(dirs.real), 'Moved')
+    await fs.mkdir(moved)
+    pickedFolder = moved
+
+    const ready = store.readyWorkspaceForTurn(id)
+    expect(await answerQuestion('locate')).toBe('Project')
+
+    expect(await ready).toBe(true)
+    expect(store.workspaceDirOf(id)).toBe(moved)
+    expect(store.missingWorkspaces[id]).toBeUndefined()
+    expect(project).not.toBe(moved)
+  })
+
+  it('runs in a fresh app-created Workspace when the user starts a new one', async () => {
+    const store = useSessions()
+    const { id, project } = await missingProject(store)
+
+    const ready = store.readyWorkspaceForTurn(id)
+    await answerQuestion('start-new')
+
+    expect(await ready).toBe(true)
+    const dir = store.workspaceDirOf(id)
+    expect(dir).not.toBe(project)
+    expect((await fs.stat(dir)).isDirectory()).toBe(true)
+  })
+
+  it('does not run when the user cancels, and the warning stays', async () => {
+    const store = useSessions()
+    const { id, project } = await missingProject(store)
+
+    const ready = store.readyWorkspaceForTurn(id)
+    await answerQuestion(null)
+
+    expect(await ready).toBe(false)
+    expect(store.missingWorkspaces[id]?.hostPath).toBe(project)
+  })
+
+  it('is not asked about while the Workspace is there', async () => {
+    const store = useSessions()
+    await store.init()
+
+    expect(await store.readyWorkspaceForTurn(store.openSessionId!)).toBe(true)
+    expect(useDialogStore().missingWorkspaceQuestion).toBeNull()
   })
 })

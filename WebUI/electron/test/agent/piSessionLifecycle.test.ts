@@ -138,6 +138,7 @@ vi.mock('../../agent/piRuntime.ts', () => ({
 }))
 
 vi.mock('../../agent/piToolOperations', () => ({
+  SANDBOX_WORKDIR: '/workspace',
   createAgentToolAccess: vi.fn(async ({ workspaceDir }: { workspaceDir: string }) => ({
     cwd: workspaceDir,
     skillsRoot: '/skills',
@@ -478,9 +479,9 @@ describe('session reuse', () => {
     })
 
     it.each([
-      ['inside the Session Folder', () => ensureDir(path.join(workspaceA, 'docs'))],
-      ['containing the Session Folder', () => path.dirname(workspaceA)],
-      ['an alias of the Session Folder', () => linkTo(workspaceA, 'alias-a')],
+      ['inside the Workspace', () => ensureDir(path.join(workspaceA, 'docs'))],
+      ['containing the Workspace', () => path.dirname(workspaceA)],
+      ['an alias of the Workspace', () => linkTo(workspaceA, 'alias-a')],
     ])('refuses a turn with a Mounted Folder %s', async (_label, folderFor) => {
       const folder = folderFor()
       const manager = await loadManager()
@@ -492,7 +493,7 @@ describe('session reuse', () => {
       )
 
       expect(failed.success).toBe(false)
-      expect(!failed.success && failed.error).toMatch(/session folder/i)
+      expect(!failed.success && failed.error).toMatch(/overlaps the Workspace/)
       expect(!failed.success && failed.error).toContain(folder)
       expect(createAgentSession).not.toHaveBeenCalled()
     })

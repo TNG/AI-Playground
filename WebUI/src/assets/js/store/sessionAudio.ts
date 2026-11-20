@@ -101,6 +101,7 @@ export const useSessionAudio = defineStore('sessionAudio', () => {
   ): Promise<{ sessionId: string; preset: string } | null> {
     const sessionId = await sessions.ensureOpenSession()
     if (!sessionId || pendingTurns.value[sessionId]) return null
+    if (!(await sessions.readyWorkspaceForTurn(sessionId))) return null
     // A regenerate records under the preset the replaced turn ran, whichever mode is active.
     const preset = presetOverride ?? presets.activePresetName ?? ''
     const turnId = crypto.randomUUID()

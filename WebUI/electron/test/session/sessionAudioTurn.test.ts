@@ -8,7 +8,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -17,7 +21,10 @@ vi.mock('../../observability/logger', () => ({
 
 const { createSession, openSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { readHistoryEntries } = await import('../../session/sessionHistory')
+const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
+const workspaceId = async (id: string) => (await sessionWorkspaceEntry(id)).id
 const { recordAudioTurn } = await import('../../session/sessionAudioTurn')
 
 beforeAll(async () => {
@@ -64,7 +71,7 @@ function stt(sessionId: string, overrides: Partial<AudioTurnRequest> = {}): Audi
   }
 }
 
-const filesOf = (id: string) => fs.readdir(path.join(dirs.real, id, 'files'))
+const filesOf = (id: string) => fs.readdir(sessionWorkspaceDir(id))
 
 describe('an audio turn in a Session', () => {
   it('saves the synthesized clip into files/ and records a tts History Entry', async () => {
@@ -73,7 +80,7 @@ describe('an audio turn in a Session', () => {
     await recordAudioTurn(tts(id))
 
     expect(await filesOf(id)).toEqual(['tts-hello.wav'])
-    expect(await fs.readFile(path.join(dirs.real, id, 'files', 'tts-hello.wav'))).toEqual(
+    expect(await fs.readFile(path.join(sessionWorkspaceDir(id), 'tts-hello.wav'))).toEqual(
       Buffer.from(WAV, 'base64'),
     )
     expect(await readHistoryEntries(id)).toEqual([
@@ -82,7 +89,7 @@ describe('an audio turn in a Session', () => {
         kind: 'tts',
         prompt: 'Hello there, general Kenobi',
         status: 'completed',
-        artifacts: [{ path: 'files/tts-hello.wav', mediaType: 'audio' }],
+        artifacts: [{ folderId: await workspaceId(id), path: 'tts-hello.wav', mediaType: 'audio' }],
       }),
     ])
   })
@@ -99,7 +106,7 @@ describe('an audio turn in a Session', () => {
         kind: 'stt',
         prompt: '🎤 meeting.wav',
         response: 'Let us begin the meeting.',
-        artifacts: [{ path: 'files/meeting.wav', mediaType: 'audio' }],
+        artifacts: [{ folderId: await workspaceId(id), path: 'meeting.wav', mediaType: 'audio' }],
       }),
     )
   })
@@ -151,7 +158,7 @@ describe('an audio turn in a Session', () => {
               kind: 'tts',
               status: 'completed',
               engine: 'Kokoro',
-              audioUrl: `aipg-media://sessions/${id}/files/tts-hello.wav`,
+              audioUrl: `aipg-media://folders/${id}/${await workspaceId(id)}/tts-hello.wav`,
             }),
           },
         ],
@@ -165,7 +172,7 @@ describe('an audio turn in a Session', () => {
             data: expect.objectContaining({
               kind: 'stt',
               transcript: 'Let us begin the meeting.',
-              audioUrl: `aipg-media://sessions/${id}/files/meeting.wav`,
+              audioUrl: `aipg-media://folders/${id}/${await workspaceId(id)}/meeting.wav`,
             }),
           },
         ],

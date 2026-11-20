@@ -12,7 +12,11 @@ const dirs = vi.hoisted(() => ({ root: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => path.join(dirs.root, 'sessions'),
+  getLegacySessionsDir: () => path.join(dirs.root, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(dirs.root, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(dirs.root, 'sessions-demo')}-workspaces`,
   getAgentSessionsDir: () => path.join(dirs.root, 'agent-sessions'),
   getAgentSessionsDemoDir: () => path.join(dirs.root, 'agent-sessions-demo'),
   getAgentTasksFile: () => path.join(dirs.root, 'agent-tasks.json'),
@@ -26,6 +30,7 @@ vi.mock('../../observability/logger', () => ({
 }))
 
 const sessions = await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { harnessSessionFor } = await import('../../session/sessionHarness')
 const { readSessionSettings, writePresetSettings } = await import('../../session/sessionSettings')
 const taskFiles = await import('../../persist/agentTaskFiles')
@@ -175,9 +180,7 @@ describe('an Agent Maker Session on upgrade', () => {
       },
       fromDefaults: false,
     })
-    expect((await record(harnessSessionId))?.workspaceDir).toBe(
-      sessions.sessionPaths(session.id).filesDir,
-    )
+    expect((await record(harnessSessionId))?.workspaceDir).toBe(sessionWorkspaceDir(session.id))
   })
 
   it('mounts no folder it cannot: one that is gone, or the home folder', async () => {
@@ -313,7 +316,7 @@ describe('an Agent Maker Session on upgrade', () => {
     await agentSessionFiles.saveAgentSession(
       harnessRecord('aipg-agent-run', {
         sessionRef: session.id,
-        workspaceDir: sessions.sessionPaths(session.id).filesDir,
+        workspaceDir: sessionWorkspaceDir(session.id),
         settings: { capabilities: ['media'] },
         taskRun: { taskId: 't-news', taskName: 'News', startedAt: 3 },
       }),

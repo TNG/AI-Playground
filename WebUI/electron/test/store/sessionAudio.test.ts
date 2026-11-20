@@ -17,7 +17,15 @@ const activePreset = vi.hoisted(() => ({ name: 'Text to Speech' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
+}))
+
+vi.mock('../../adapters/trash', () => ({
+  moveToTrash: (target: string) => fs.rm(target, { recursive: true }),
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -46,13 +54,16 @@ vi.mock('@/assets/js/store/presets', () => ({
 }))
 
 const sessionModule = await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
+const { settleWorkspaceRenames } = await import('../../session/appWorkspace')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordAudioTurn } = await import('../../session/sessionAudioTurn')
 const { readHistoryEntries } = await import('../../session/sessionHistory')
 const { removeTimelineMessages } = await import('../../session/sessionTimeline')
 const { deleteArtifact } = await import('../../session/sessionArtifacts')
+const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
 const ledger = await import('../../session/sessionTurns')
-const { sessionMediaPathOf } = await import('@/lib/comfyWorkflow')
+const { sessionFolderMediaFile } = await import('../../session/sessionFolderMedia')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const { useSessionAudio } = await import('@/assets/js/store/sessionAudio')
 
@@ -107,10 +118,10 @@ beforeEach(async () => {
         },
       },
       readAipgMediaAsBase64: async (url: string) => {
-        const target = sessionMediaPathOf(url)
-        if (!target) return { success: false as const, error: `not a session url: ${url}` }
+        const file = sessionFolderMediaFile(url)
+        if (!file) return { success: false as const, error: `not a session url: ${url}` }
         try {
-          const data = await fs.readFile(path.join(dirs.real, target.sessionId, target.path))
+          const data = await fs.readFile(file)
           return { success: true as const, data: data.toString('base64') }
         } catch (error) {
           return { success: false as const, error: String(error) }
@@ -123,6 +134,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals()
+  await settleWorkspaceRenames()
   sessionModule.resetSessionsForTest()
   await fs.rm(path.dirname(dirs.real), { recursive: true, force: true })
 })
@@ -149,7 +161,8 @@ describe('Text-to-Speech in a Session', () => {
     expect(entry).toEqual(
       expect.objectContaining({ kind: 'tts', prompt: 'Read this aloud', status: 'completed' }),
     )
-    const saved = path.join(dirs.real, id, entry.artifacts[0].path)
+    await settleWorkspaceRenames()
+    const saved = path.join(sessionWorkspaceDir(id), entry.artifacts[0].path)
     expect(new Uint8Array(await fs.readFile(saved))).toEqual(WAV_BYTES)
     expect(sessions.openTimeline).toHaveLength(2)
     expect(sessions.openSession?.title).toBe('Read this aloud')
@@ -221,7 +234,8 @@ describe('Speech-to-Text in a Session', () => {
         artifacts: [expect.objectContaining({ mediaType: 'audio' })],
       }),
     )
-    const saved = path.join(dirs.real, id, entry.artifacts[0].path)
+    await settleWorkspaceRenames()
+    const saved = path.join(sessionWorkspaceDir(id), entry.artifacts[0].path)
     expect(new Uint8Array(await fs.readFile(saved))).toEqual(WAV_BYTES)
     expect(sessions.openSession?.title).toBe('Hello from the microphone')
   })
@@ -237,7 +251,8 @@ describe('Speech-to-Text in a Session', () => {
     })
 
     const [entry] = await readHistoryEntries(id)
-    expect(entry.artifacts).toEqual([{ path: 'files/standup.wav', mediaType: 'audio' }])
+    const { id: folderId } = await sessionWorkspaceEntry(id)
+    expect(entry.artifacts).toEqual([{ folderId, path: 'standup.wav', mediaType: 'audio' }])
   })
 
   it('settles silence as a failed turn that still keeps the source audio', async () => {
@@ -262,7 +277,7 @@ describe('Regenerate of a speech turn', () => {
     return answer.parts.find((part) => part.type === 'data-audio')!.data!
   }
   const idsOf = (timeline: unknown[]) => timeline.map((message) => (message as { id: string }).id)
-  const filePathOf = (url: string) => sessionMediaPathOf(url)!.path
+  const fileOf = (url: string) => sessionFolderMediaFile(url)!
 
   it('re-synthesizes the latest Text-to-Speech turn and replaces it', async () => {
     const { sessions, id } = await openSession()
@@ -286,6 +301,8 @@ describe('Regenerate of a speech turn', () => {
 
     // The user may have left the Audio preset; the redo records under the turn's own.
     activePreset.name = 'Assistant'
+    await settleWorkspaceRenames()
+    await expect(fs.access(fileOf(replacedUrl))).resolves.toBeUndefined()
     await audio.regenerate({
       kind: 'tts',
       preset: 'Text to Speech',
@@ -305,9 +322,10 @@ describe('Regenerate of a speech turn', () => {
       }),
     )
     // The replaced clip's file left with its turn; the new one stayed.
-    await expect(fs.access(path.join(dirs.real, id, filePathOf(replacedUrl)))).rejects.toThrow()
+    await settleWorkspaceRenames()
+    await expect(fs.access(fileOf(replacedUrl))).rejects.toThrow()
     const freshUrl = audioDataOf(sessions.openTimeline).audioUrl!
-    await expect(fs.access(path.join(dirs.real, id, filePathOf(freshUrl)))).resolves.toBeUndefined()
+    await expect(fs.access(fileOf(freshUrl))).resolves.toBeUndefined()
   })
 
   it('re-synthesizes the latest Text-to-Speech turn from an edited prompt', async () => {
@@ -367,6 +385,7 @@ describe('Regenerate of a speech turn', () => {
     const replacedIds = idsOf(sessions.openTimeline)
     const replacedUrl = audioDataOf(sessions.openTimeline).audioUrl!
 
+    await settleWorkspaceRenames()
     await audio.regenerate({
       kind: 'stt',
       preset: 'Speech to Text',
@@ -381,7 +400,8 @@ describe('Regenerate of a speech turn', () => {
     const entries = await readHistoryEntries(id)
     expect(entries.findLast((entry) => entry.kind === 'stt')!.response).toBe('second pass')
     // The source clip was saved again for the new turn; the replaced copy left with it.
-    expect(await fs.readdir(path.join(dirs.real, id, 'files'))).toEqual(['standup-1.wav'])
+    await settleWorkspaceRenames()
+    expect(await fs.readdir((await sessionWorkspaceEntry(id)).hostPath)).toEqual(['standup-1.wav'])
   })
 
   it('leaves the old turn when the redo could not even start (busy Session)', async () => {
@@ -424,7 +444,7 @@ describe('Delete of a speech turn', () => {
   }
 
   it('takes the latest Text-to-Speech turn and its clip out of the Session', async () => {
-    const { sessions, id } = await openSession()
+    const { sessions } = await openSession()
     speech.synthesizeClip.mockResolvedValue({
       audioBase64: Buffer.from(WAV_BYTES).toString('base64'),
       mediaType: 'audio/wav',
@@ -436,13 +456,13 @@ describe('Delete of a speech turn', () => {
     const deletedIds = idsOf(sessions.openTimeline)
     const deletedUrl = clipUrlOf(sessions.openTimeline)
 
+    await settleWorkspaceRenames()
+    await expect(fs.access(sessionFolderMediaFile(deletedUrl)!)).resolves.toBeUndefined()
     await audio.deleteTurn({ owner: 'audio', messageIds: deletedIds, fileUrls: [deletedUrl] })
 
     expect(sessions.openTimeline).toHaveLength(0)
     // The clip's file left with its turn.
-    await expect(
-      fs.access(path.join(dirs.real, id, sessionMediaPathOf(deletedUrl)!.path)),
-    ).rejects.toThrow()
+    await expect(fs.access(sessionFolderMediaFile(deletedUrl)!)).rejects.toThrow()
   })
 
   it('takes a failed turn out, which has no clip to delete', async () => {

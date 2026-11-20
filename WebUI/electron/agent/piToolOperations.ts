@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { nativeImage } from 'electron'
@@ -21,6 +22,7 @@ import {
   type ResolvedMountedFolder,
 } from '@/lib/mountedFolders'
 import { containedIn, realDestination } from './hostPathContainment.ts'
+import { SANDBOX_ATTACHMENTS_DIR } from './workspaceAttachments.ts'
 
 // ── Agent Mode file/shell access ─────────────────────────────────────────────
 //
@@ -29,9 +31,9 @@ import { containedIn, realDestination } from './hostPathContainment.ts'
 // shell" mean without Pi knowing. Two modes:
 //
 //  - sandboxed (default): every operation is served by a just-bash sandbox
-//    whose virtual filesystem mounts ONLY the user-selected workspace folder
-//    (real files, read-write) at `/workspace`, plus the user's Mounted Folders
-//    at `/mnt/<name>`. The emulated shell has no
+//    whose virtual filesystem mounts ONLY the workspace folder (real files,
+//    read-write) at its mount point, plus the user's Mounted Folders at
+//    `/mnt/<name>`. The emulated shell has no
 //    script interpreters (python3, js-exec) and no host process ever spawns,
 //    so nothing outside the workspace is reachable — by construction, not by
 //    path checking.
@@ -48,7 +50,7 @@ import { containedIn, realDestination } from './hostPathContainment.ts'
 const logger = appLoggerInstance
 const LOG_SOURCE = 'piToolOperations'
 
-/** Mount point (and Pi's cwd) of the workspace inside the sandbox. */
+/** Mount point (and Pi's cwd) of a game's workspace in the sandbox; a Session's is `/mnt/<slug>`. */
 export const SANDBOX_WORKDIR = '/workspace'
 
 /**
@@ -94,6 +96,10 @@ export type AgentToolAccessOptions = {
   writableFiles?: string[]
   /** Folders beside the workspace, each realpathed, seen at `/mnt/<name>` in the sandbox. */
   mountedFolders?: ResolvedMountedFolder[]
+  /** Where the sandbox mounts the workspace, its working directory; SANDBOX_WORKDIR when absent. */
+  workspaceMount?: string
+  /** A Session's attachments, mounted read-only at SANDBOX_ATTACHMENTS_DIR. */
+  attachmentsDir?: string
 }
 
 /** Reject a path that leaves `root`, so host-shell mode can't write anywhere. */
@@ -172,8 +178,8 @@ function assertWritableFile(relativePath: string, writableFiles: string[], actio
  *
  * Pi resolves every path a tool is called with through `node:path` before
  * handing it to these operations. On Windows that is the win32 resolver, which
- * turns the POSIX sandbox path `/workspace/index.html` into
- * `C:\workspace\index.html` — a drive letter the virtual filesystem has never
+ * turns the POSIX sandbox path `/mnt/files/index.html` into
+ * `C:\mnt\files\index.html` — a drive letter the virtual filesystem has never
  * heard of and separators it does not split on, so every read, write, list and
  * search misses. Stripping the drive and restoring `/` puts the path back in
  * the namespace the mounts are keyed by. On a POSIX host nothing is rewritten
@@ -186,8 +192,8 @@ function toSandboxPath(candidate: string): string {
     .join('/')
 }
 
-function insideSandboxRoot(root: string, candidate: string): boolean {
-  const relative = path.posix.relative(root, path.posix.resolve(SANDBOX_WORKDIR, candidate))
+function insideSandboxRoot(root: string, candidate: string, workdir = SANDBOX_WORKDIR): boolean {
+  const relative = path.posix.relative(root, path.posix.resolve(workdir, candidate))
   return relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative))
 }
 
@@ -195,13 +201,18 @@ function insideSandboxRoot(root: string, candidate: string): boolean {
  * Same check for sandbox paths, which are always POSIX-style regardless of the
  * host platform (on Windows `path.relative` would mangle them).
  */
-function assertInsideSandboxRoots(roots: string[], candidate: string, action: string): void {
-  if (roots.some((root) => insideSandboxRoot(root, candidate))) return
+function assertInsideSandboxRoots(
+  roots: string[],
+  candidate: string,
+  action: string,
+  workdir = SANDBOX_WORKDIR,
+): void {
+  if (roots.some((root) => insideSandboxRoot(root, candidate, workdir))) return
   // Without this the write would land in the sandbox's throwaway in-memory root
   // instead of the mounted workspace, and the model would be told it succeeded.
   throw new Error(
     `Refusing to ${action} outside the workspace: ${candidate}. Everything must stay under ` +
-      `${roots.join(' or ')}; ${SANDBOX_WORKDIR} is the workspace folder.`,
+      `${roots.join(' or ')}; ${workdir} is the workspace folder.`,
   )
 }
 
@@ -219,16 +230,17 @@ function readOnlyRefusal(
 }
 
 function assertSandboxWritable(roots: WriteRoots, candidate: string, action: string): void {
-  const readOnlyRoot = roots.readOnly.find((root) => insideSandboxRoot(root, candidate))
-  if (readOnlyRoot) throw readOnlyRefusal(action, candidate, readOnlyRoot)
-  assertInsideSandboxRoots(roots.writable, candidate, action)
+  const [workdir] = roots.writable
+  const readOnlyRoot = roots.readOnly.find((root) => insideSandboxRoot(root, candidate, workdir))
+  if (readOnlyRoot) throw readOnlyRefusal(action, candidate, readOnlyRoot, workdir)
+  assertInsideSandboxRoots(roots.writable, candidate, action, workdir)
 }
 
 /**
  * The read-only overlay names only the mount-relative path in its EROFS, which the shell
  * passes on; restate it with the mount point so the model knows which folder refused.
  */
-function namingReadOnlyMount(fs: IFileSystem, mountPoint: string): IFileSystem {
+function namingReadOnlyMount(fs: IFileSystem, mountPoint: string, workdir: string): IFileSystem {
   return new Proxy(fs, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver)
@@ -238,7 +250,12 @@ function namingReadOnlyMount(fs: IFileSystem, mountPoint: string): IFileSystem {
           const message = error instanceof Error ? error.message : String(error)
           const refused = /^EROFS\b.*?'([^']*)'/.exec(message)
           if (!refused) throw error
-          throw readOnlyRefusal('change', path.posix.join(mountPoint, refused[1]), mountPoint)
+          throw readOnlyRefusal(
+            'change',
+            path.posix.join(mountPoint, refused[1]),
+            mountPoint,
+            workdir,
+          )
         }
         try {
           const result = value.apply(target, args)
@@ -276,7 +293,7 @@ function withoutTreeEnumeration(vfs: IFileSystem, mountPoints: readonly string[]
  * Restate a host filesystem refusal in terms the model can act on.
  *
  * The virtual filesystem reports these with the mount-relative path — a write
- * to `/workspace/index.html` that the operating system refuses comes back as
+ * to `/mnt/files/index.html` that the operating system refuses comes back as
  * `EPERM: write '/index.html'`. That reads like a bad argument, so the model
  * "fixes" the path and writes somewhere else entirely instead of reporting that
  * the folder is unusable. macOS produces exactly this for folders under
@@ -417,7 +434,7 @@ function imageAwareReadOperations(
 
 /**
  * Operations backed by the sandbox's virtual filesystem. Pi hands these
- * absolute sandbox paths (rooted at SANDBOX_WORKDIR), which is exactly the
+ * absolute sandbox paths (rooted at the workspace mount), which is exactly the
  * namespace the MountableFs understands, so no translation is needed.
  */
 function sandboxFsOperations(
@@ -426,10 +443,11 @@ function sandboxFsOperations(
   roots: WriteRoots,
   writableFiles?: string[],
 ) {
+  const [workdir] = roots.writable
   /** Guard a sandbox write against the session's fixed file list, if it has one. */
   const assertWritable = (absolutePath: string, action: string): void => {
     if (!writableFiles) return
-    assertWritableFile(path.posix.relative(SANDBOX_WORKDIR, absolutePath), writableFiles, action)
+    assertWritableFile(path.posix.relative(workdir, absolutePath), writableFiles, action)
   }
 
   const readFile = async (hostPath: string): Promise<Buffer> => {
@@ -492,11 +510,10 @@ function sandboxFsOperations(
   const find: FindOperations = {
     exists: (hostPath) => vfs.exists(toSandboxPath(hostPath)),
     glob: async (pattern, hostCwd, options) => {
-      const matcher = globToRegExp(pattern)
+      const ignored = options.ignore.map(globToRegExp)
       const matches: string[] = []
-      for await (const { relative } of walkSandbox(vfs, toSandboxPath(hostCwd))) {
-        if (!matcher.test(relative)) continue
-        if (options.ignore.some((ignored) => globToRegExp(ignored).test(relative))) continue
+      for await (const { relative } of globSandbox(vfs, toSandboxPath(hostCwd), pattern)) {
+        if (ignored.some((ignore) => ignore.test(relative))) continue
         matches.push(relative)
         if (matches.length >= options.limit) break
       }
@@ -544,6 +561,17 @@ async function* walkSandbox(
   }
 }
 
+async function* globSandbox(
+  vfs: IFileSystem,
+  root: string,
+  pattern: string,
+): AsyncGenerator<WalkedEntry> {
+  const matcher = globToRegExp(pattern)
+  for await (const entry of walkSandbox(vfs, root)) {
+    if (matcher.test(entry.relative)) yield entry
+  }
+}
+
 async function* grepCandidates(
   vfs: IFileSystem,
   searchRoot: string,
@@ -561,22 +589,160 @@ async function* grepCandidates(
 /** Cap on grep hits, mirroring the order of magnitude of Pi's own grep tool. */
 const SANDBOX_GREP_LIMIT = 100
 
-const sandboxGrepSchema = Type.Object({
-  pattern: Type.String({ description: 'Regular expression to search for.' }),
-  path: Type.Optional(
-    Type.String({ description: `File or directory to search. Defaults to ${SANDBOX_WORKDIR}.` }),
-  ),
-  glob: Type.Optional(
-    Type.String({ description: "Only search files matching this glob, e.g. '**/*.ts'." }),
-  ),
-  ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search.' })),
-  literal: Type.Optional(
-    Type.Boolean({ description: 'Treat the pattern as literal text instead of a regex.' }),
-  ),
-  limit: Type.Optional(
-    Type.Number({ description: `Maximum number of matches (default ${SANDBOX_GREP_LIMIT}).` }),
-  ),
-})
+/**
+ * The folders beside the Workspace are not inside it, so a model listing its working directory
+ * by habit never sees them: the description and a note after that listing name them.
+ */
+function withFoldersBeside(
+  ls: ToolDefinition,
+  workdir: string,
+  beside: readonly string[],
+): ToolDefinition {
+  if (beside.length === 0) return ls
+  const named = beside.join(', ')
+  return {
+    ...ls,
+    description:
+      `${ls.description} The working directory is the Workspace; the Session's other folders` +
+      ` are not inside it: ${named}. List them by path.`,
+    execute: async (toolCallId, params, ...rest) => {
+      const result = await ls.execute(toolCallId, params, ...rest)
+      const requested = (params as { path?: string }).path ?? '.'
+      if (path.posix.resolve(workdir, toSandboxPath(requested)) !== workdir) return result
+      const note = `[Not in this folder: this Session also has ${named}. List them with ls <path>.]`
+      return { ...result, content: [...result.content, { type: 'text', text: `\n${note}` }] }
+    },
+  } as ToolDefinition
+}
+
+/** Cap on find results, as Pi's own find tool. */
+const SANDBOX_FIND_LIMIT = 1000
+
+const defaultSearchDescription = (searchRoots: readonly string[]) =>
+  searchRoots.length > 1
+    ? `Defaults to every folder: ${searchRoots.join(', ')}.`
+    : `Defaults to ${searchRoots[0]}.`
+
+/** A path names one root to search; none means every root, the working directory first. */
+function searchRootsFor(
+  searchRoots: readonly string[],
+  requested: string | undefined,
+  action: string,
+): string[] {
+  const [workdir] = searchRoots
+  if (!requested) return [...searchRoots]
+  const searchRoot = path.posix.resolve(workdir, toSandboxPath(requested))
+  assertInsideSandboxRoots([...searchRoots], searchRoot, action, workdir)
+  return [searchRoot]
+}
+
+/** A hit under the working directory relative to it, as the model writes paths; others absolute. */
+function shownPath(workdir: string, filePath: string): string {
+  return insideSandboxRoot(workdir, filePath, workdir)
+    ? path.posix.relative(workdir, filePath) || filePath
+    : filePath
+}
+
+type FindParams = { pattern: string; path?: string; limit?: number }
+
+/** Pi's find given a path; with none, every folder of the turn, the others by their /mnt path. */
+function createSandboxFindTool(
+  pi: PiModule,
+  vfs: IFileSystem,
+  searchRoots: string[],
+  operations: FindOperations,
+): ToolDefinition {
+  const piFind = pi.createFindToolDefinition(searchRoots[0], { operations })
+  if (searchRoots.length === 1) return piFind as ToolDefinition
+  return {
+    ...piFind,
+    description: `${piFind.description} ${defaultSearchDescription(searchRoots)}`,
+    parameters: Type.Object({
+      pattern: Type.String({
+        description: "Glob pattern to match files, e.g. '*.ts', '**/*.json' or 'src/**/*.spec.ts'.",
+      }),
+      path: Type.Optional(
+        Type.String({
+          description: `Directory to search in. ${defaultSearchDescription(searchRoots)}`,
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({ description: `Maximum number of results (default ${SANDBOX_FIND_LIMIT}).` }),
+      ),
+    }),
+    execute: (toolCallId, params: FindParams, signal, onUpdate, ctx) =>
+      params.path
+        ? piFind.execute(toolCallId, params, signal, onUpdate, ctx)
+        : findEverywhere(pi, vfs, searchRoots, params, signal),
+  } as ToolDefinition
+}
+
+/** Pi's own fd branch, which a custom glob does not reach, finishes its output this way. */
+async function findEverywhere(
+  pi: PiModule,
+  vfs: IFileSystem,
+  searchRoots: readonly string[],
+  params: FindParams,
+  signal: AbortSignal | undefined,
+) {
+  const [workdir] = searchRoots
+  const limit = params.limit ?? SANDBOX_FIND_LIMIT
+  const found: string[] = []
+  search: for (const root of searchRoots) {
+    for await (const { filePath } of globSandbox(vfs, root, params.pattern)) {
+      if (signal?.aborted) throw new Error('Operation aborted')
+      found.push(shownPath(workdir, filePath))
+      if (found.length >= limit) break search
+    }
+  }
+  if (signal?.aborted) throw new Error('Operation aborted')
+  if (found.length === 0) {
+    return {
+      content: [{ type: 'text' as const, text: 'No files found matching pattern' }],
+      details: undefined,
+    }
+  }
+  const truncation = pi.truncateHead(found.join('\n'), { maxLines: Number.MAX_SAFE_INTEGER })
+  const notices: string[] = []
+  const details: { resultLimitReached?: number; truncation?: typeof truncation } = {}
+  if (found.length >= limit) {
+    notices.push(
+      `${limit} results limit reached. Use limit=${limit * 2} for more, or refine pattern`,
+    )
+    details.resultLimitReached = limit
+  }
+  if (truncation.truncated) {
+    notices.push(`${pi.formatSize(pi.DEFAULT_MAX_BYTES)} limit reached`)
+    details.truncation = truncation
+  }
+  const text = notices.length
+    ? `${truncation.content}\n\n[${notices.join('. ')}]`
+    : truncation.content
+  return {
+    content: [{ type: 'text' as const, text }],
+    details: Object.keys(details).length > 0 ? details : undefined,
+  }
+}
+
+const sandboxGrepSchema = (searchRoots: readonly string[]) =>
+  Type.Object({
+    pattern: Type.String({ description: 'Regular expression to search for.' }),
+    path: Type.Optional(
+      Type.String({
+        description: `File or directory to search. ${defaultSearchDescription(searchRoots)}`,
+      }),
+    ),
+    glob: Type.Optional(
+      Type.String({ description: "Only search files matching this glob, e.g. '**/*.ts'." }),
+    ),
+    ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search.' })),
+    literal: Type.Optional(
+      Type.Boolean({ description: 'Treat the pattern as literal text instead of a regex.' }),
+    ),
+    limit: Type.Optional(
+      Type.Number({ description: `Maximum number of matches (default ${SANDBOX_GREP_LIMIT}).` }),
+    ),
+  })
 
 /**
  * A grep tool that searches the sandbox's virtual filesystem.
@@ -592,6 +758,7 @@ function createSandboxGrepTool(
   vfs: IFileSystem,
   searchRoots: string[],
 ): ToolDefinition {
+  const [workdir] = searchRoots
   return pi.defineTool({
     name: 'grep',
     label: 'grep',
@@ -599,13 +766,9 @@ function createSandboxGrepTool(
       'Search file contents for a pattern. Returns matching lines with file paths and line ' +
       `numbers. Searches ${searchRoots.join(' and ')} only.`,
     promptSnippet: 'Search file contents by regex',
-    parameters: sandboxGrepSchema,
+    parameters: sandboxGrepSchema(searchRoots),
     execute: async (_toolCallId, params) => {
-      const searchRoot = path.posix.resolve(
-        SANDBOX_WORKDIR,
-        toSandboxPath(params.path ?? SANDBOX_WORKDIR),
-      )
-      assertInsideSandboxRoots(searchRoots, searchRoot, 'search')
+      const roots = searchRootsFor(searchRoots, params.path, 'search')
       const limit = params.limit ?? SANDBOX_GREP_LIMIT
       const expression = new RegExp(
         params.literal ? params.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : params.pattern,
@@ -615,26 +778,25 @@ function createSandboxGrepTool(
 
       const lines: string[] = []
       let truncated = false
-      for await (const { filePath, relative: underRoot } of grepCandidates(vfs, searchRoot)) {
-        if (globMatcher && !globMatcher.test(underRoot)) continue
-        let content: string
-        try {
-          content = await vfs.readFile(filePath)
-        } catch {
-          continue
-        }
-        const relative = insideSandboxRoot(SANDBOX_WORKDIR, filePath)
-          ? path.posix.relative(SANDBOX_WORKDIR, filePath) || filePath
-          : filePath
-        for (const [index, line] of content.split('\n').entries()) {
-          if (!expression.test(line)) continue
-          if (lines.length >= limit) {
-            truncated = true
-            break
+      search: for (const searchRoot of roots) {
+        for await (const { filePath, relative: underRoot } of grepCandidates(vfs, searchRoot)) {
+          if (globMatcher && !globMatcher.test(underRoot)) continue
+          let content: string
+          try {
+            content = await vfs.readFile(filePath)
+          } catch {
+            continue
           }
-          lines.push(`${relative}:${index + 1}:${line}`)
+          const shown = shownPath(workdir, filePath)
+          for (const [index, line] of content.split('\n').entries()) {
+            if (!expression.test(line)) continue
+            if (lines.length >= limit) {
+              truncated = true
+              break search
+            }
+            lines.push(`${shown}:${index + 1}:${line}`)
+          }
         }
-        if (truncated) break
       }
 
       const text = lines.length
@@ -684,14 +846,15 @@ function createSandboxAccess(
   options: AgentToolAccessOptions,
 ): AgentToolAccess {
   const { workspaceDir, skills } = options
+  const workdir = options.workspaceMount ?? SANDBOX_WORKDIR
   const vfs = new justBash.MountableFs()
-  vfs.mount(SANDBOX_WORKDIR, new justBash.ReadWriteFs({ root: workspaceDir }))
+  vfs.mount(workdir, new justBash.ReadWriteFs({ root: workspaceDir }))
   vfs.mount(
     SANDBOX_SKILLS_DIR,
     new justBash.InMemoryFs(Object.fromEntries(skills.map((s) => [s.relativePath, s.content]))),
   )
   const mountedFolders = options.mountedFolders ?? []
-  const roots = writeRoots(SANDBOX_WORKDIR, mountedFolders, mountedFolderSandboxPath)
+  const roots = writeRoots(workdir, mountedFolders, mountedFolderSandboxPath)
   const mountPoints = mountedFolders.map((folder) => {
     const mountPoint = mountedFolderSandboxPath(folder)
     if (isWritable(folder)) {
@@ -703,15 +866,30 @@ function createSandboxAccess(
         namingReadOnlyMount(
           new justBash.OverlayFs({ root: folder.hostPath, mountPoint: '/', readOnly: true }),
           mountPoint,
+          workdir,
         ),
       )
     }
     return mountPoint
   })
+  if (options.attachmentsDir) {
+    fs.mkdirSync(options.attachmentsDir, { recursive: true })
+    const root = fs.realpathSync(options.attachmentsDir)
+    vfs.mount(
+      SANDBOX_ATTACHMENTS_DIR,
+      namingReadOnlyMount(
+        new justBash.OverlayFs({ root, mountPoint: '/', readOnly: true }),
+        SANDBOX_ATTACHMENTS_DIR,
+        workdir,
+      ),
+    )
+    mountPoints.push(SANDBOX_ATTACHMENTS_DIR)
+    roots.readOnly.push(SANDBOX_ATTACHMENTS_DIR)
+  }
   const bashEnv = new justBash.Bash({
-    fs: withoutTreeEnumeration(vfs, [SANDBOX_WORKDIR, SANDBOX_SKILLS_DIR, ...mountPoints]),
-    cwd: SANDBOX_WORKDIR,
-    env: { HOME: SANDBOX_HOME, PWD: SANDBOX_WORKDIR },
+    fs: withoutTreeEnumeration(vfs, [workdir, SANDBOX_SKILLS_DIR, ...mountPoints]),
+    cwd: workdir,
+    env: { HOME: SANDBOX_HOME, PWD: workdir },
     // just-bash's secondary hardening layer patches Module._load while a script
     // runs; the Electron main bundle is CJS with externalized dependencies, so
     // lazy require() calls inside the execution context (ReadWriteFs reaching
@@ -736,19 +914,29 @@ function createSandboxAccess(
   }
 
   return {
-    cwd: SANDBOX_WORKDIR,
+    cwd: workdir,
     skillsRoot: SANDBOX_SKILLS_DIR,
     definitions: [
-      pi.createReadToolDefinition(SANDBOX_WORKDIR, {
+      pi.createReadToolDefinition(workdir, {
         operations: operations.read,
         autoResizeImages: false,
       }),
-      pi.createWriteToolDefinition(SANDBOX_WORKDIR, { operations: operations.write }),
-      pi.createEditToolDefinition(SANDBOX_WORKDIR, { operations: operations.edit }),
-      pi.createBashToolDefinition(SANDBOX_WORKDIR, { operations: bash }),
-      createSandboxGrepTool(pi, vfs, [SANDBOX_WORKDIR, ...mountPoints]),
-      pi.createFindToolDefinition(SANDBOX_WORKDIR, { operations: operations.find }),
-      pi.createLsToolDefinition(SANDBOX_WORKDIR, { operations: operations.ls }),
+      pi.createWriteToolDefinition(workdir, { operations: operations.write }),
+      pi.createEditToolDefinition(workdir, { operations: operations.edit }),
+      pi.createBashToolDefinition(workdir, { operations: bash }),
+      createSandboxGrepTool(pi, vfs, [workdir, ...mountPoints]),
+      createSandboxFindTool(pi, vfs, [workdir, ...mountPoints], operations.find),
+      withFoldersBeside(
+        pi.createLsToolDefinition(workdir, { operations: operations.ls }) as ToolDefinition,
+        workdir,
+        [
+          ...mountedFolders.map(
+            (folder) =>
+              `${mountedFolderSandboxPath(folder)} (${isWritable(folder) ? 'read-write' : 'read-only'})`,
+          ),
+          ...(options.attachmentsDir ? [`${SANDBOX_ATTACHMENTS_DIR} (read-only)`] : []),
+        ],
+      ),
     ] as ToolDefinition[],
     dispose: async () => {},
   }

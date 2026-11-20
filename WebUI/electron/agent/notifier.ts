@@ -25,6 +25,7 @@ import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
 import { readReachableSession } from '../session/sessionChannels.ts'
 import { liveTrialRunOf } from './trialRuns.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
+import { agentFileRoot, type AgentFiles } from './workspaceAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { tellDroppedQueues } from './queueQuitNotice.ts'
 import {
@@ -85,8 +86,8 @@ export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping; dr
 export type NotificationOptions = {
   /** The sending Harness Session; its Session must be reachable and is named in the header. */
   sessionId: string
-  /** Workspace-relative files to send with the text, validated against the session's workspace. */
-  attachments?: { workspaceDir: string; paths: string[] }
+  /** Files to send with the text, from the session's Workspace or its attachments. */
+  attachments?: { files: AgentFiles; paths: string[] }
 }
 
 const OFF_CONFIG: NotificationConfig = {
@@ -404,10 +405,15 @@ export async function sendNotification(
   const delivery = await deliverOrWarn({ text, attachments }, sessionId)
   if (delivery.delivered && attachments) {
     for (const file of attachments.paths) {
-      turn?.attached.add(path.resolve(attachments.workspaceDir, file))
+      turn?.attached.add(attachmentKey(attachments.files, file))
     }
   }
   return delivery
+}
+
+function attachmentKey(files: AgentFiles, file: string): string {
+  const { root, relative } = agentFileRoot(files, file)
+  return path.resolve(root, relative)
 }
 
 /** The attachments the turn has not already put on the Channel; undefined when none are left. */
@@ -416,7 +422,7 @@ function notSentYet(
   turn: ReportedTurn | undefined,
 ): NotificationOptions['attachments'] {
   const paths = attachments.paths.filter(
-    (file) => !turn?.attached.has(path.resolve(attachments.workspaceDir, file)),
+    (file) => !turn?.attached.has(attachmentKey(attachments.files, file)),
   )
   return paths.length > 0 ? { ...attachments, paths } : undefined
 }
@@ -489,7 +495,7 @@ async function deliverOn(
   const sessionId = owner.harnessSessionId
   const answer = reportedTurnOf(sessionId)?.answer
   const attached = body.attachments
-    ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
+    ? await readAttachments(body.attachments.files, body.attachments.paths, kind)
     : { media: [] }
   if ('error' in attached) return { delivered: false, reason: attached.error }
   const header = takesCaption(body.media) && !body.bare ? senderHeader : ''
@@ -636,9 +642,17 @@ async function sessionLabel(sessionId: string, sessionTitle: string): Promise<st
   return inRun ? `${named} · ${notificationSessionLabel(templates, sessionId, '', tasks)}` : named
 }
 
-/** Paused and failed: always for the turn an Answer started, else only off screen. */
-async function notifiesAutomatically(sessionId: string, turnId: string): Promise<boolean> {
-  if (reportedTurnOf(sessionId, turnId)?.answer) return true
+/**
+ * Paused and failed: always for an Answer, else only off screen; an unattended run that cannot
+ * start because its Workspace is missing has nobody to ask, so it always reaches Channels.
+ */
+async function notifiesAutomatically(
+  sessionId: string,
+  turnId: string,
+  missingWorkspace = false,
+): Promise<boolean> {
+  const turn = reportedTurnOf(sessionId, turnId)
+  if (turn?.answer || (turn && missingWorkspace)) return true
   return offScreen(sessionId)
 }
 
@@ -659,8 +673,13 @@ async function notifyPaused(
   )
 }
 
-async function notifyFailed(sessionId: string, turnId: string, error: string): Promise<void> {
-  if (!(await notifiesAutomatically(sessionId, turnId))) return
+async function notifyFailed(
+  sessionId: string,
+  turnId: string,
+  error: string,
+  missingWorkspace = false,
+): Promise<void> {
+  if (!(await notifiesAutomatically(sessionId, turnId, missingWorkspace))) return
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
   await deliverOrWarn(
@@ -686,7 +705,7 @@ export function startAutoNotifications(): () => void {
         ? sendTurnResult(end.sessionId, reported, end.reply)
         : (reported ? settleStreamed(end.sessionId, reported) : Promise.resolve()).then(() =>
             end.outcome === 'failed'
-              ? notifyFailed(end.sessionId, end.turnId, end.error)
+              ? notifyFailed(end.sessionId, end.turnId, end.error, end.missingWorkspace)
               : undefined,
           )
     void sending

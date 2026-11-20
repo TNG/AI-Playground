@@ -300,7 +300,7 @@ describe('an agent turn whose chat model is not downloaded', () => {
     const turnA = crypto.randomUUID()
     const run = manager.startAgentTurn(
       turnA,
-      'what is this?\n\nAttached files, saved in the workspace: @attachments/cat.png',
+      'what is this?\n\nAttached files: @attachments/cat.png',
       configFor('aipg-agent-a', 'model-a', { supportsVision: true }),
     )
     expect(await run).toEqual({ success: true })

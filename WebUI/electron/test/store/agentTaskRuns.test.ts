@@ -677,17 +677,32 @@ describe('the settings a run uses', () => {
   })
 })
 
+/** Lists one folder beside the Workspace in the Session's folder list. */
+function giveSessionAFolder(hostPath = '/Users/ada/session-notes'): void {
+  const sessions = useSessions(pinia)
+  const session = sessions.sessions[SESSION]
+  sessions.sessions = {
+    ...sessions.sessions,
+    [SESSION]: {
+      ...session,
+      folderList: {
+        workspaceId: 'ws',
+        folders: [
+          { id: 'ws', hostPath: '/sessions/s/files', access: 'read-write', slug: 'files' },
+          { id: 'f1', hostPath, access: 'read-write', slug: 'session-notes' },
+        ],
+      },
+    },
+  }
+}
+
 describe('the Mounted Folders a run reaches', () => {
-  const inSession = { hostPath: '/Users/ada/session-notes', access: 'read-write' as const }
   const ofAgent = { hostPath: '/Users/ada/inbox', name: 'mail' }
 
   it('are its Agent’s, not the Session’s', async () => {
     const template = { ...TEMPLATE, mountedFolders: [ofAgent] }
-    const { agentMode, tasks } = await readyStores(
-      task('t1', ['one', 'two'], { settingsTemplate: template }),
-    )
-    agentMode.setMountedFolders([inSession])
-    expect(agentMode.mountedFolders).toEqual([inSession])
+    const { tasks } = await readyStores(task('t1', ['one', 'two'], { settingsTemplate: template }))
+    giveSessionAFolder()
 
     await tasks.runTask('t1')
     await turnIdOf(0)
@@ -698,8 +713,8 @@ describe('the Mounted Folders a run reaches', () => {
   })
 
   it('are none when its Agent has none, whatever the Session has', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
-    agentMode.setMountedFolders([inSession])
+    const { tasks } = await readyStores(task('t1', ['one']))
+    giveSessionAFolder()
 
     await tasks.runTask('t1')
     await turnIdOf(0)
@@ -1929,10 +1944,10 @@ describe('following up on a picked Agent’s run', () => {
 
   it('runs on the Agent’s saved Settings Template, as its run did', async () => {
     const folders = [{ hostPath: '/data/news', name: 'news' }]
-    const { agentMode, tasks } = await readyStores(
+    const { tasks } = await readyStores(
       task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, mountedFolders: folders } }),
     )
-    agentMode.setMountedFolders([{ hostPath: '/Users/ada/session-notes' }])
+    giveSessionAFolder()
     await tasks.pickAgent('t1')
     await tasks.runPickedAgent('')
     await runToEnd(0)

@@ -352,7 +352,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       GENERATE_SPEC,
       hostWith({
         workspaceDir: filesDir,
-        sessionMedia: { sessionRef: 'session-7', workspace: 'files' },
+        sessionMedia: { sessionRef: 'session-7', workspace: 'files', folderId: 'folder-ws' },
       }),
     )
     const output = (await tool.execute(
@@ -364,7 +364,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
     expect(output.details.items).toMatchObject([
       {
         workspacePath: 'castle gate.png',
-        imageUrl: 'aipg-media://sessions/session-7/files/castle%20gate.png',
+        imageUrl: 'aipg-media://folders/session-7/folder-ws/castle%20gate.png',
       },
     ])
     expect(parseOutput(output).savedFiles).toEqual(['castle gate.png'])
@@ -436,7 +436,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       GENERATE_SPEC,
       hostWith({
         workspaceDir: filesDir,
-        sessionMedia: { sessionRef: 'session-7', workspace: 'files' },
+        sessionMedia: { sessionRef: 'session-7', workspace: 'files', folderId: 'folder-ws' },
       }),
     )
     const output = (await tool.execute(
@@ -447,7 +447,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
 
     expect(fs.readFileSync(path.join(filesDir, 'ComfyUI_00001_.png'), 'utf8')).toBe('chat-bytes')
     expect(output.details.items[0].imageUrl).not.toBe(
-      'aipg-media://sessions/session-7/files/ComfyUI_00001_.png',
+      'aipg-media://folders/session-7/folder-ws/ComfyUI_00001_.png',
     )
     setAppMediaPathResolver(null)
   })
@@ -475,7 +475,12 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
       GENERATE_SPEC,
       hostWith({
         workspaceDir: gameDir,
-        sessionMedia: { sessionRef: 'session-8', workspace: 'game', filesDir },
+        sessionMedia: {
+          sessionRef: 'session-8',
+          workspace: 'game',
+          filesDir: async () => filesDir,
+          folderId: 'folder-ws',
+        },
       }),
     )
     const output = (await tool.execute(
@@ -486,7 +491,7 @@ describe('mediaDirect (in-process generateImage / editImage)', () => {
 
     expect(parseOutput(output).savedFiles).toEqual(['generated/ship.png'])
     expect(output.details.items).toMatchObject([
-      { imageUrl: 'aipg-media://sessions/session-8/files/ship.png' },
+      { imageUrl: 'aipg-media://folders/session-8/folder-ws/ship.png' },
     ])
     expect(fs.readFileSync(path.join(gameDir, 'generated', 'ship.png'), 'utf8')).toBe('png-bytes')
     expect(fs.readFileSync(path.join(filesDir, 'ship.png'), 'utf8')).toBe('png-bytes')

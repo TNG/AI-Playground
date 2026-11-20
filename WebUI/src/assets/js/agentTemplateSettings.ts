@@ -145,7 +145,6 @@ export function useTemplateSettingsBinding(source: TemplateSettingsSource) {
         (reason) => i18nState[reason],
       ),
     ),
-    mountedFoldersSupported: true,
     mountedFolders: computed(
       () => template.value.mountedFolders ?? defaults.value.mountedFolders ?? [],
     ),

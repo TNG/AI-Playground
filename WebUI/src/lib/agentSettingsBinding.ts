@@ -45,9 +45,9 @@ export type AgentSettingsBinding = {
   capabilities: string[]
   setCapabilities: (ids: string[]) => void
   capabilityCatalog: AgentCapabilityInfo[]
-  mountedFoldersSupported: boolean
-  mountedFolders: MountedFolder[]
-  setMountedFolders: (folders: MountedFolder[]) => void
+  /** A Settings Template's own Mounted Folders; a Session's folders are the Session's list. */
+  mountedFolders?: MountedFolder[]
+  setMountedFolders?: (folders: MountedFolder[]) => void
   embeddingModelName: string
   embeddingModelItems: AgentSettingsChoice[]
   setEmbeddingModel: (modelName: string) => void

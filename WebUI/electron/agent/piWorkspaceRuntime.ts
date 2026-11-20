@@ -81,11 +81,13 @@ let workspaceRuntime: WorkspaceRuntime | null = null
 
 /**
  * Start a read-only static file server bound to 127.0.0.1 on an ephemeral port,
- * serving files under `root` (containment-checked; directories fall back to
+ * serving files under `rootOf()` (containment-checked; directories fall back to
  * index.html). Localhost-only, GET/HEAD only, no caching — a dev preview
  * surface for the agent, not a public server.
  */
-function startWorkspaceServer(root: string): Promise<{ server: http.Server; baseUrl: string }> {
+function startWorkspaceServer(
+  rootOf: () => string,
+): Promise<{ server: http.Server; baseUrl: string }> {
   const server = http.createServer((req, res) => {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -100,6 +102,7 @@ function startWorkspaceServer(root: string): Promise<{ server: http.Server; base
         sendBuffer(req, res, Buffer.from(PROBE_SCRIPT, 'utf-8'), WORKSPACE_CONTENT_TYPES['.js'])
         return
       }
+      const root = rootOf()
       let fullPath = path.resolve(root, '.' + urlPath)
       const relative = path.relative(root, fullPath)
       if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -201,25 +204,25 @@ export async function ensureWorkspaceRuntime(
   sessionId: string,
   workspaceDir: string,
 ): Promise<WorkspaceRuntime> {
-  if (
-    workspaceRuntime &&
-    workspaceRuntime.sessionId === sessionId &&
-    workspaceRuntime.workspaceDir === workspaceDir
-  ) {
+  if (workspaceRuntime?.sessionId === sessionId && workspaceRuntime.server) {
+    // Same port for a renamed or re-starred Workspace: the URL is in the system prompt.
+    workspaceRuntime.workspaceDir = workspaceDir
+    return workspaceRuntime
+  }
+  if (workspaceRuntime?.sessionId === sessionId && workspaceRuntime.workspaceDir === workspaceDir) {
     return workspaceRuntime
   }
   closeWorkspaceRuntime()
-  let server: http.Server | null = null
-  let baseUrl: string | null = null
+  const runtime: WorkspaceRuntime = { sessionId, workspaceDir, server: null, baseUrl: null }
   try {
-    const started = await startWorkspaceServer(workspaceDir)
-    server = started.server
-    baseUrl = started.baseUrl
-    logger.info(`workspace served at ${baseUrl} (root ${workspaceDir})`, LOG_SOURCE)
+    const started = await startWorkspaceServer(() => runtime.workspaceDir)
+    runtime.server = started.server
+    runtime.baseUrl = started.baseUrl
+    logger.info(`workspace served at ${runtime.baseUrl} (root ${workspaceDir})`, LOG_SOURCE)
   } catch (error) {
     logger.warn(`failed to start workspace server: ${error}`, LOG_SOURCE)
   }
-  workspaceRuntime = { sessionId, workspaceDir, server, baseUrl }
+  workspaceRuntime = runtime
   return workspaceRuntime
 }
 
@@ -249,12 +252,53 @@ export function resolvePreviewUrl(url: string | undefined): string | undefined {
 export type WorkspaceInstructionsOptions = {
   /** Pi's working directory — the sandbox mount point or the real folder. */
   cwd: string
-  /** Real host folder the user sees, for orientation. */
-  workspaceDir: string
+  /** Host folder to name; left out for a sandboxed Session Workspace, whose name follows its title. */
+  workspaceDir?: string
   baseUrl: string | null
   /** Whether the shell is the real host shell rather than the emulated one. */
   unsandboxed: boolean
   mountedFolders?: ResolvedMountedFolder[]
+  /** A Session turn's Workspace, mounted beside its other folders; absent for games. */
+  workspace?: ResolvedMountedFolder
+  /** Where the Session's Attached Documents are, read-only. */
+  attachments?: string
+}
+
+function sessionFolderLines(options: WorkspaceInstructionsOptions): string[] {
+  const { unsandboxed, mountedFolders = [], attachments } = options
+  const workspace = options.workspace as ResolvedMountedFolder
+  const lines = [
+    unsandboxed
+      ? '- Your folders, each one a real folder on the user’s machine:'
+      : '- Your folders are all under /mnt, each one a real folder on the user’s machine:',
+    `  - ${mountedFolderLocation(workspace, unsandboxed)} — the Workspace: your working` +
+      ' directory, where the user sees results (read-write)',
+  ]
+  for (const folder of mountedFolders) {
+    const where = `  - ${mountedFolderLocation(folder, unsandboxed)} (${folder.access})`
+    lines.push(unsandboxed ? where : `${where} is ${folder.hostPath} on the host`)
+  }
+  if (attachments) {
+    lines.push(`- Files the user attached are in ${attachments} (read-only).`)
+  }
+  lines.push(
+    '- Relative paths resolve against the Workspace, so a bare `ls` shows only the Workspace.' +
+      (unsandboxed
+        ? ' List a folder by its path above to see what is in it.'
+        : ' Run `ls /mnt` to see every folder, and `ls /mnt/<name>` for one of them.'),
+    unsandboxed
+      ? '- Do not change files in a read-only folder, from bash either.'
+      : '- You can write in the Workspace and in read-write folders; writes anywhere else are' +
+          ' refused.',
+    '- New files belong in the Workspace unless the user asks for them elsewhere.',
+  )
+  if (mountedFolders.length > 0) {
+    lines.push(
+      '- When you finish, tell the user which files you created, changed or deleted in a' +
+        ' folder other than the Workspace, by path, so they know what happened to their own files.',
+    )
+  }
+  return lines
 }
 
 /**
@@ -266,15 +310,19 @@ export type WorkspaceInstructionsOptions = {
 export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions): string {
   const { cwd, workspaceDir, baseUrl, unsandboxed, mountedFolders = [] } = options
   const lines = ['You are working inside a project workspace.']
-  lines.push(
-    unsandboxed
-      ? `- Your working directory is ${workspaceDir} on the host — the folder the user sees.`
-      : `- Your working directory is ${cwd}; it maps to ${workspaceDir} on the host, which is` +
-          ' where the user sees the files.',
-    '- Your file tools (read, edit, write, ls, grep, find, bash) operate RELATIVE to this' +
-      ' workspace. Prefer workspace-relative paths like "index.html" or "src/app.js"; writes' +
-      ' outside the workspace are rejected.',
-  )
+  if (options.workspace) lines.push(...sessionFolderLines(options))
+  else
+    lines.push(
+      unsandboxed
+        ? `- Your working directory is ${workspaceDir ?? cwd} on the host — the folder the user sees.`
+        : workspaceDir
+          ? `- Your working directory is ${cwd}; it maps to ${workspaceDir} on the host, which is` +
+            ' where the user sees the files.'
+          : `- Your working directory is ${cwd}, the Workspace, which is where the user sees the files.`,
+      '- Your file tools (read, edit, write, ls, grep, find, bash) operate RELATIVE to this' +
+        ' workspace. Prefer workspace-relative paths like "index.html" or "src/app.js"; writes' +
+        ' outside the workspace are rejected.',
+    )
   lines.push(
     unsandboxed
       ? '- Your bash tool is a real shell in that folder: node, npm/npx, python3, git and curl' +
@@ -291,7 +339,7 @@ export function buildWorkspaceInstructions(options: WorkspaceInstructionsOptions
         ' with the browser tool instead.',
     )
   }
-  if (mountedFolders.length > 0) {
+  if (!options.workspace && mountedFolders.length > 0) {
     lines.push('- The user also gave you these Mounted Folders:')
     for (const folder of mountedFolders) {
       const where = `  - ${mountedFolderLocation(folder, unsandboxed)} (${folder.access})`

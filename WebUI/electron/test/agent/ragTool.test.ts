@@ -172,6 +172,25 @@ afterAll(() => {
 })
 
 describe('the rag tool', () => {
+  it("finds a Session's Attached Documents outside the Workspace at /attachments, and by their old name", async () => {
+    const attachmentsDir = path.join(agentDir, 'internal', 'attachments')
+    fs.mkdirSync(attachmentsDir, { recursive: true })
+    fs.writeFileSync(path.join(attachmentsDir, 'report.pdf'), 'some text')
+    const host = hostWith({ attachmentsDir })
+    const { inquiry } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    for (const file of ['/attachments/report.pdf', 'attachments/report.pdf']) {
+      const text = await resultOf(tool, { files: [file], query: 'the budget' })
+      expect(text).toContain('The budget is $42.')
+      expect(text).toContain('attachments/report.pdf')
+      expect((inquiry().ragList as { filepath: string }[])[0].filepath).toBe(
+        fs.realpathSync(path.join(attachmentsDir, 'report.pdf')),
+      )
+    }
+    expect(fs.existsSync(path.join(host.workspaceDir, 'attachments'))).toBe(false)
+  })
+
   it('asks for files and a query', async () => {
     const tool = await buildRagTool(hostWith())
     expect(tool.parameters?.required).toEqual(['files', 'query'])
@@ -272,6 +291,21 @@ describe('the rag tool', () => {
     expect(calls.ingest).toBe(1)
     expect(inquiry()).toMatchObject({ prompt: 'budget' })
     expect(text).toContain('report.pdf')
+  })
+
+  it('accepts the /mnt/<slug> form of a Workspace mounted there, and not /workspace', async () => {
+    const host = hostWith({ workspaceMount: '/mnt/poster' })
+    workspaceFile(host, 'report.pdf')
+    const { calls } = fakeAccess()
+    const tool = await buildRagTool(host)
+
+    const text = await resultOf(tool, { files: ['/mnt/poster/report.pdf'], query: 'budget' })
+    expect(calls.ingest).toBe(1)
+    expect(text).toContain('report.pdf')
+    expect(text).not.toContain('/mnt/poster/report.pdf')
+    expect(await resultOf(tool, { files: ['/workspace/report.pdf'], query: 'q' })).toMatch(
+      /not a file in the workspace/,
+    )
   })
 
   it('accepts the real absolute workspace path host-shell mode uses', async () => {

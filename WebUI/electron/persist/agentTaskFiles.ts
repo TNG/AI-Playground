@@ -125,11 +125,18 @@ function withoutRunChanges(task: AgentTask, stored: AgentTask | undefined): Agen
   }
 }
 
+/** A demo visitor's Agent works in app-created folders only. */
+function withoutHostFolders<T extends { settingsTemplate: SettingsTemplate }>(entry: T): T {
+  if (!agentTaskFilesDeps?.isDemoMode() || !entry.settingsTemplate.mountedFolders) return entry
+  const { mountedFolders: _mountedFolders, ...settingsTemplate } = entry.settingsTemplate
+  return { ...entry, settingsTemplate }
+}
+
 /** Insert a Task, or replace the one with the same id where it stands. */
 export async function saveAgentTask(payload: unknown): Promise<void> {
   const parsed = AgentTaskSchema.safeParse(payload)
   if (!parsed.success) throw new Error(`invalid task: ${parsed.error.message}`)
-  const task = parsed.data
+  const task = withoutHostFolders(parsed.data)
   return serialize(FILE_CHAIN, async () => {
     const tasks = await readAgentTasks()
     const index = tasks.findIndex((entry) => entry.id === task.id)
@@ -175,7 +182,7 @@ async function writeDrafts(drafts: AgentDraft[]): Promise<void> {
 export async function saveAgentDraft(payload: unknown): Promise<void> {
   const parsed = AgentDraftSchema.safeParse(payload)
   if (!parsed.success) throw new Error(`invalid draft: ${parsed.error.message}`)
-  const draft = parsed.data
+  const draft = withoutHostFolders(parsed.data)
   return serialize(FILE_CHAIN, async () => {
     const drafts = await readAgentDrafts()
     const index = drafts.findIndex((entry) => entry.agentId === draft.agentId)

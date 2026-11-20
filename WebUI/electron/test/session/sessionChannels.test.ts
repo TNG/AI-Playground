@@ -9,7 +9,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '', messageMap: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
   getChannelMessageMapFile: () => dirs.messageMap,
   getChannelMessageMapDemoFile: () => dirs.messageMap.replace(/\.json$/, '-demo.json'),
 }))
@@ -25,6 +29,7 @@ vi.mock('../../kernel/kernelBus', () => ({
 
 const { createSession, deleteSession, listSessions, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
+const { ensureSessionWorkspace } = await import('../../session/sessionWorkspace')
 const {
   forgetChannelMessagesOnDelete,
   isSessionReachable,
@@ -60,7 +65,7 @@ afterEach(async () => {
   await fs.rm(dirs.messageMap, { force: true })
 })
 
-const filesDir = (id: string) => path.join(dirs.real, id, 'files')
+const filesDir = (id: string) => ensureSessionWorkspace(id)
 
 async function assistantCapabilities(id: string): Promise<unknown> {
   const settings = await readSessionSettings(id)
@@ -173,7 +178,7 @@ describe('the real system shell', () => {
   it('keeps a Session using it from being made reachable', async () => {
     const session = await createSession()
     const other = await createSession()
-    await setRealShellFolders([filesDir(session.id)])
+    await setRealShellFolders([await filesDir(session.id)])
 
     await expect(
       setSessionReachable(session.id, true, { defaultCapabilities: [] }),
@@ -190,7 +195,7 @@ describe('the real system shell', () => {
     const bystander = await createSession()
     vi.mocked(emitSessionChanged).mockClear()
 
-    await setRealShellFolders([filesDir(session.id)])
+    await setRealShellFolders([await filesDir(session.id)])
 
     expect(await isSessionReachable(session.id)).toBe(false)
     expect(await isSessionReachable(bystander.id)).toBe(true)
@@ -201,7 +206,7 @@ describe('the real system shell', () => {
 
   it('turned off again lets the Session be made reachable', async () => {
     const session = await createSession()
-    await setRealShellFolders([filesDir(session.id)])
+    await setRealShellFolders([await filesDir(session.id)])
     await setRealShellFolders([])
 
     await setSessionReachable(session.id, true)

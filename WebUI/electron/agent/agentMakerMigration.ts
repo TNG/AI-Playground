@@ -2,9 +2,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { appLoggerInstance } from '../observability/logger'
+import { containedIn } from './hostPathContainment'
 import { bootstrapAgentSessions, saveAgentSession } from '../persist/agentSessionFiles'
 import { agentMakerMerged, markAgentMakerMerged } from '../persist/agentTaskFiles'
 import { listSessions, mutateSession, readSession, sessionPaths } from '../session/sessions'
+import { sessionWorkspaceDir } from '../session/sessionWorkspace'
 import { sessionSettingsFromBag } from '@/lib/agentSessionSettings'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { mountedFolderRefusal } from '@/lib/mountedFolders'
@@ -75,18 +77,18 @@ async function pickedFolders(
   records: AgentSessionRecordWire[],
 ): Promise<MountedFolder[]> {
   const paths = sessionPaths(file.id)
+  const workspace = sessionWorkspaceDir(file.id)
   const candidates = [
     ...records.filter((record) => !record.taskRun).map((record) => record.workspaceDir),
     file.harnessWorkspaces[AGENT_MAKER_PRESET] ?? '',
   ]
   const picked: MountedFolder[] = []
   for (const dir of candidates) {
-    if (!dir || path.resolve(dir) === path.resolve(paths.filesDir)) continue
-    const refusal = mountedFolderRefusal(dir, {
-      homeFolder: os.homedir(),
-      sessionFolder: paths.root,
-      mountedFolders: picked,
-    })
+    if (!dir || path.resolve(dir) === path.resolve(workspace)) continue
+    const refusal =
+      overlaps(dir, paths.artifactRoot) || overlaps(dir, paths.root)
+        ? { reason: 'session-folder' }
+        : mountedFolderRefusal(dir, { homeFolder: os.homedir(), mountedFolders: picked })
     if (refusal) {
       appLoggerInstance.warn(`not mounting ${dir} (${refusal.reason})`, LOG_SCOPE)
       continue
@@ -95,6 +97,12 @@ async function pickedFolders(
     picked.push({ hostPath: dir, access: 'read-write' })
   }
   return picked
+}
+
+function overlaps(a: string, b: string): boolean {
+  return (
+    containedIn(path.resolve(a), path.resolve(b)) || containedIn(path.resolve(b), path.resolve(a))
+  )
 }
 
 async function isDirectory(dir: string): Promise<boolean> {
@@ -244,7 +252,7 @@ export function refiledRecord(record: AgentSessionRecordWire): AgentSessionRecor
   return {
     ...record,
     presetName: HARNESS_CHAT_PRESET,
-    ...(record.sessionRef ? { workspaceDir: sessionPaths(record.sessionRef).filesDir } : {}),
+    ...(record.sessionRef ? { workspaceDir: sessionWorkspaceDir(record.sessionRef) } : {}),
     ...(record.capabilities ? { capabilities: withFiles(record.capabilities) } : {}),
     ...(record.settings ? { settings: withFilesCapability(record.settings) } : {}),
   }

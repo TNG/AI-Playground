@@ -12,6 +12,7 @@ import type {
   submitAgentToolResult,
 } from '../../agent/piAgentManager'
 import type { importAttachment } from '../../agent/workspaceAttachments'
+import type { attachmentsFolderFor } from '../../session/sessionAttachments'
 import type {
   indexSessionDocument,
   removeSessionDocument,
@@ -57,6 +58,7 @@ export type AgentModeDeps = {
   submitAgentToolResult: typeof submitAgentToolResult
   listAgentCapabilities: typeof listAgentCapabilities
   importAttachment: typeof importAttachment
+  attachmentsFolderFor: typeof attachmentsFolderFor
   sessionDocuments: typeof sessionDocuments
   indexSessionDocument: typeof indexSessionDocument
   removeSessionDocument: typeof removeSessionDocument
@@ -272,27 +274,27 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
         return ipcFail(e)
       }
     },
-    // Copy a file the user attached into the agent's workspace, so the agent can
-    // reach it with its own file tools (see agent/workspaceAttachments.ts).
-    'agentMode:importAttachment': (_event, workspaceDir, name, bytes) => {
+    'agentMode:importAttachment': (_event, target, name, bytes) => {
       try {
-        return { success: true as const, ...deps.importAttachment(workspaceDir, name, bytes) }
+        const folder = deps.attachmentsFolderFor(target)
+        return { success: true as const, ...deps.importAttachment(folder, name, bytes) }
       } catch (error) {
         return ipcFail(error)
       }
     },
-    'agentMode:sessionDocuments': (_event, workspaceDir) => deps.sessionDocuments(workspaceDir),
-    'agentMode:indexDocument': async (_event, workspaceDir, relativePath, embedding) => {
+    'agentMode:sessionDocuments': (_event, target) =>
+      deps.sessionDocuments(deps.attachmentsFolderFor(target)),
+    'agentMode:indexDocument': async (_event, target, relativePath, embedding) => {
       try {
-        await deps.indexSessionDocument(workspaceDir, relativePath, embedding)
+        await deps.indexSessionDocument(deps.attachmentsFolderFor(target), relativePath, embedding)
         return { success: true as const }
       } catch (error) {
         return ipcFail(error)
       }
     },
-    'agentMode:removeSessionDocument': async (_event, workspaceDir, relativePath) => {
+    'agentMode:removeSessionDocument': async (_event, target, relativePath) => {
       try {
-        await deps.removeSessionDocument(workspaceDir, relativePath)
+        await deps.removeSessionDocument(deps.attachmentsFolderFor(target), relativePath)
         return { success: true as const }
       } catch (error) {
         return ipcFail(error)

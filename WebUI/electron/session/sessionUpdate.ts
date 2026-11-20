@@ -1,7 +1,11 @@
-import path from 'node:path'
-import { ensureGameMediaCopy } from '../persist/sessionMediaFiles'
+import {
+  historyAsSeenBy,
+  type HistoryReader,
+  type SeenArtifact,
+  type SeenHistoryEntry,
+} from './historyArtifacts'
 import { readHistoryEntries } from './sessionHistory'
-import { mutateSession, readSession, sessionPaths } from './sessions'
+import { mutateSession, readSession } from './sessions'
 import type { HistoryEntry } from '@/types/sessionIpc'
 
 const UPDATE_CAP = 1500
@@ -20,8 +24,8 @@ export type SessionUpdateConsumer = {
   /** A Follow-up's run, whose Steps may predate `harnessSessionId` and Session Update cursors. */
   run?: { taskName: string; startedAt: number }
   isOwn?: (entry: HistoryEntry) => boolean
-  /** Where the consumer opens files from; Session Folder paths inside it are shown relative to it. */
-  workspaceDir?: string
+  /** The folders the consumer opens files from; without one, Session Folder paths. */
+  reader?: HistoryReader
 }
 
 export type SessionUpdateOptions = {
@@ -39,13 +43,20 @@ function clock(timestamp: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function outcomeOf(entry: HistoryEntry, artifactPath: (p: string) => string): string {
-  if (entry.artifacts.length > 0) return entry.artifacts.map((a) => artifactPath(a.path)).join(', ')
+/** How a line names an Artifact: its path, or that the reader cannot open it. */
+export function seenArtifactText(artifact: SeenArtifact, artifactPath = (p: string) => p): string {
+  return 'path' in artifact ? artifactPath(artifact.path) : `(${artifact.mediaType} not accessible)`
+}
+
+function outcomeOf(entry: SeenHistoryEntry, artifactPath: (p: string) => string): string {
+  if (entry.artifacts.length > 0) {
+    return entry.artifacts.map((artifact) => seenArtifactText(artifact, artifactPath)).join(', ')
+  }
   if (entry.response) return `"${excerpt(entry.response, EXCERPT_CHARS)}"`
   return `(${entry.status})`
 }
 
-function updateLine(entry: HistoryEntry, artifactPath: (p: string) => string): string {
+function updateLine(entry: SeenHistoryEntry, artifactPath: (p: string) => string): string {
   const prompt = excerpt(entry.prompt, EXCERPT_CHARS)
   return `[${clock(entry.timestamp)}] ${entry.agentName ?? entry.preset}: "${prompt}" → ${outcomeOf(entry, artifactPath)}`
 }
@@ -54,7 +65,7 @@ const omittedLine = (count: number) => `${count} earlier entries omitted — use
 
 /** The templated digest of `entries` (oldest first), capped keeping the newest; null when empty. */
 export function buildSessionUpdate(
-  entries: HistoryEntry[],
+  entries: SeenHistoryEntry[],
   options: SessionUpdateOptions = {},
 ): string | null {
   if (entries.length === 0) return null
@@ -70,42 +81,6 @@ export function buildSessionUpdate(
   }
   const omitted = entries.length - kept.length
   return [HEADER, ...kept, ...(omitted > 0 ? [omittedLine(omitted)] : [])].join('\n')
-}
-
-function isInside(root: string, candidate: string): boolean {
-  const relative = path.relative(root, candidate)
-  return !relative.startsWith('..') && !path.isAbsolute(relative)
-}
-
-/** A games preset works outside the Session Folder, so its files reach it as game-folder copies. */
-function workspacePathView(sessionId: string, workspaceDir: string | undefined) {
-  if (!workspaceDir) return async (p: string) => p
-  const { root, filesDir } = sessionPaths(sessionId)
-  return async (sessionRelative: string) => {
-    const absolute = path.resolve(root, sessionRelative)
-    if (isInside(workspaceDir, absolute)) {
-      return path.relative(workspaceDir, absolute).split(path.sep).join('/')
-    }
-    if (!isInside(filesDir, absolute)) return sessionRelative
-    return (await ensureGameMediaCopy(absolute, workspaceDir)) ?? sessionRelative
-  }
-}
-
-/** `entries` with their artifact paths as a consumer working in `workspaceDir` sees them. */
-export async function historyAsSeenFrom(
-  sessionId: string,
-  entries: HistoryEntry[],
-  workspaceDir: string | undefined,
-): Promise<HistoryEntry[]> {
-  const view = workspacePathView(sessionId, workspaceDir)
-  return Promise.all(
-    entries.map(async (entry) => ({
-      ...entry,
-      artifacts: await Promise.all(
-        entry.artifacts.map(async (artifact) => ({ ...artifact, path: await view(artifact.path) })),
-      ),
-    })),
-  )
 }
 
 /** A turn the user ran with this preset, not an Agent Run's. */
@@ -174,7 +149,7 @@ export async function takeSessionUpdate(
     .slice(firstUnseen(entries, consumer, cursor))
     .filter((entry) => !isOwnTurn(entry, consumer))
   await advanceCursor(sessionId, consumer.key, entries, cursor)
-  return buildSessionUpdate(await historyAsSeenFrom(sessionId, missed, consumer.workspaceDir))
+  return buildSessionUpdate(await historyAsSeenBy(sessionId, missed, consumer.reader))
 }
 
 export type SessionHistoryRow = { id: string; time: string; preset: string; prompt: string }
@@ -198,14 +173,14 @@ export async function listSessionHistory(
     }))
 }
 
-/** `session_history get`: one entry in full, artifact paths as `workspaceDir` sees them. */
+/** `session_history get`: one entry in full, Artifacts as `reader` sees them. */
 export async function getSessionHistoryEntry(
   sessionId: string,
   id: string,
-  workspaceDir?: string,
-): Promise<HistoryEntry | null> {
+  reader?: HistoryReader,
+): Promise<SeenHistoryEntry | null> {
   const entry = (await readHistoryEntries(sessionId)).find((candidate) => candidate.id === id)
   if (!entry) return null
-  const [seen] = await historyAsSeenFrom(sessionId, [entry], workspaceDir)
+  const [seen] = await historyAsSeenBy(sessionId, [entry], reader)
   return seen
 }

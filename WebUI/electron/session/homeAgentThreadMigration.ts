@@ -12,7 +12,9 @@ import { getConversationsDemoDir, getConversationsDir } from '../persist/userDat
 import { setSessionReachable } from './sessionChannels'
 import { textOfMessage, type ChatTranscriptMessage } from './sessionChatTurn'
 import { autoTitle } from './sessionTitle'
-import { createSession, mutateSession, sessionPaths } from './sessions'
+import { createSession, mutateSession } from './sessions'
+import { attachmentsFolderFor } from './sessionAttachments'
+import { sessionWorkspaceDir } from './sessionWorkspace'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { titleFromMessages } from '@/lib/conversationTitle'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
@@ -140,10 +142,10 @@ async function ragDocumentPaths(hashes: string[]): Promise<string[]> {
 }
 
 async function attachDocuments(sessionId: string, thread: Thread): Promise<void> {
-  const filesDir = sessionPaths(sessionId).filesDir
+  const folder = attachmentsFolderFor({ sessionId, workspaceDir: sessionWorkspaceDir(sessionId) })
   for (const filepath of await ragDocumentPaths(thread.ragHashes)) {
     try {
-      importAttachment(filesDir, path.basename(filepath), await fs.readFile(filepath))
+      importAttachment(folder, path.basename(filepath), await fs.readFile(filepath))
     } catch (error) {
       appLoggerInstance.warn(`document ${filepath} not attached: ${String(error)}`, LOG_SCOPE)
     }

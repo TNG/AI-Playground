@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { agentDisplayName } from '@/lib/agentNames'
 import { fillTemplate } from '@/lib/fillTemplate'
+import { agentOverridesOf } from '@/lib/effectiveFolders'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import { trialRunItems } from '@/lib/trialRunTimeline'
 import { useStickToBottom } from '@/lib/useStickToBottom'
@@ -48,7 +49,9 @@ const downloadGroup = computed(() => {
 })
 
 const folders = computed(() =>
-  resolveMountedFolders(props.agent.settingsTemplate.mountedFolders ?? []),
+  resolveMountedFolders(
+    agentOverridesOf(props.agent.settingsTemplate.folderOverrides)?.folders ?? [],
+  ),
 )
 
 const items = computed(() => {

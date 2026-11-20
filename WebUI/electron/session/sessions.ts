@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { emitSessionChanged, emitSessionGroupsChanged } from '../kernel/kernelBus'
+import { appLoggerInstance } from '../observability/logger'
 import {
   assertSessionId,
   createSessionFolder,
+  discardPath,
   listSessionFolders,
   readSessionFile,
   removeSessionFolder,
   resetSessionFilesForTest,
   serializeSession,
   sessionFolderPaths,
-  sessionsRoot,
   setSessionFileDeps,
   wipeDemoSessionFolders,
   writeSessionFile,
@@ -22,6 +24,9 @@ import {
   serializeSessionGroups,
   writeSessionGroupsFile,
 } from '../persist/sessionGroupsFile'
+import { followSessionTitle, plannedWorkspaceEntry } from './appWorkspace'
+import { countFiles, ownedWorkspaceDirs } from './ownedWorkspaces'
+import { sessionFolderListOf } from './sessionFolderList'
 import { readHistoryEntries } from './sessionHistory'
 import { autoTitle } from './sessionTitle'
 import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
@@ -30,6 +35,7 @@ import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 import {
   SessionTitleSchema,
   type SessionCreateOptions,
+  type SessionDeletePreview,
   type SessionDocument,
   type SessionFile,
   type SessionGroup,
@@ -54,11 +60,6 @@ const UNAVAILABLE_TITLE = 'Unavailable session'
 
 export function setSessionDeps(deps: SessionFileDeps): void {
   setSessionFileDeps(deps)
-}
-
-/** The folder every Session Folder lives in (the demo root in demo mode). */
-export function sessionsRootDir(): string {
-  return sessionsRoot()
 }
 
 export function sessionPaths(id: string): SessionFolderPaths {
@@ -91,6 +92,7 @@ function summaryOf(file: SessionFile): SessionSummary {
     updatedAt,
     presetsUsed,
     ...(pickedAgentId === undefined ? {} : { pickedAgentId }),
+    folderList: sessionFolderListOf(file),
   }
 }
 
@@ -145,9 +147,11 @@ async function createSessionFile(
           (await serializeSession(settingsFrom, () => readSession(settingsFrom))).settings,
         )
   const now = Date.now()
+  const id = `session-${randomUUID()}`
+  const workspace = plannedWorkspaceEntry({ createdAt: now, title: '' }, [])
   const created: SessionFile = {
     schemaVersion: 1,
-    id: `session-${randomUUID()}`,
+    id,
     title: '',
     renamed: false,
     pinned: false,
@@ -164,6 +168,8 @@ async function createSessionFile(
     updateCursors: {},
     reachable: true,
     hiddenMessageIds: [],
+    folders: [workspace],
+    workspaceFolderId: workspace.id,
   }
   const reachable = withNotify(created, options.defaultCapabilities)
   await serializeSession(reachable.id, () => createSessionFolder(reachable))
@@ -235,7 +241,10 @@ export async function renameSession(id: string, title: string): Promise<SessionS
     return { ...current, title: nextTitle, renamed }
   })
   emitSessionChanged(sessionDocumentOf(file))
-  return summaryOf(file)
+  await followSessionTitle(id).catch((error) =>
+    appLoggerInstance.warn(`could not rename the Workspace of ${id}: ${String(error)}`, 'sessions'),
+  )
+  return summaryOf(await readSession(id))
 }
 
 export async function pinSession(id: string, pinned: boolean): Promise<SessionSummary> {
@@ -397,15 +406,34 @@ export async function setShowMore(section: ShowMoreSection, shown: boolean): Pro
   })
 }
 
-/** Removes the Session Folder, then lets owners of Session-bound data (Tasks, Harness Sessions) clean up. */
+/**
+ * Moves the listed app-created Workspace to the Trash, removes internal storage, then lets owners
+ * of Session-bound data (Tasks, Harness Sessions) clean up. Folders the user chose stay.
+ */
 export async function deleteSession(id: string): Promise<void> {
   assertSessionId(id)
   const deleted = await serializeSession(id, async () => {
     const read = await readSessionFile(id)
+    const file = read.status === 'ok' ? read.file : null
+    for (const dir of file ? await ownedWorkspaceDirs(file) : []) await discardPath(dir)
     await removeSessionFolder(id)
-    return read.status === 'ok' ? read.file : null
+    return file
   })
   for (const listener of deletedListeners) await listener(id, deleted)
+}
+
+export async function sessionDeletePreview(id: string): Promise<SessionDeletePreview> {
+  assertSessionId(id)
+  const read = await readSessionFile(id)
+  const dirs = read.status === 'ok' ? await ownedWorkspaceDirs(read.file) : []
+  if (dirs.length === 0) return { trashedWorkspace: null }
+  const counts = await Promise.all(dirs.map(countFiles))
+  return {
+    trashedWorkspace: {
+      name: dirs.map((dir) => path.basename(dir)).join(', '),
+      fileCount: counts.reduce((sum, count) => sum + count, 0),
+    },
+  }
 }
 
 export function onSessionDeleted(listener: SessionDeletedListener): () => void {

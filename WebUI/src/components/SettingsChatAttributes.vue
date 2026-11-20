@@ -82,6 +82,8 @@
         </div>
       </SettingsRow>
 
+      <SessionFolderList />
+
       <template v-if="showTools">
         <SettingsBuiltinTools />
         <SettingsMcp />
@@ -113,6 +115,7 @@ import PresetVariantPicker from '@/components/PresetVariantPicker.vue'
 import Rag from '@/components/Rag.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
 import SettingsMcp from '@/components/SettingsMcp.vue'
+import SessionFolderList from '@/components/SessionFolderList.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useActiveChatPreset } from '@/assets/js/activeChatPreset'

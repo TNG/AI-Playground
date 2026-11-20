@@ -1,5 +1,6 @@
 ---
 status: accepted
+superseded-in-part-by: ADR-0013 (the Session Folder at /workspace)
 ---
 
 # Mounted Folders are per Session, appear at /mnt/<name>, and are advisory under the real shell

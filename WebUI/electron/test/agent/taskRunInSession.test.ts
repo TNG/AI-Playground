@@ -10,6 +10,11 @@ import type { AgentModeTurnConfig } from '@/types/agentIpc'
 
 const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-task-run-')))
 
+vi.mock('../../adapters/trash', async () => {
+  const fs = await import('node:fs/promises')
+  return { moveToTrash: (target: string) => fs.rm(target, { recursive: true, force: true }) }
+})
+
 vi.mock('electron', () => ({
   app: { getPath: () => tempRoot, isPackaged: false, getAppPath: () => tempRoot },
   BrowserWindow: { getAllWindows: () => [] },
@@ -20,7 +25,11 @@ vi.mock('electron', () => ({
 vi.mock('../../persist/userDataPaths.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../persist/userDataPaths.ts')>()),
   getSessionsDir: () => path.join(tempRoot, 'sessions'),
+  getLegacySessionsDir: () => path.join(tempRoot, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(tempRoot, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(tempRoot, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(tempRoot, 'sessions-demo')}-workspaces`,
 }))
 
 const BACKEND = 'http://fake-llm.test/v1'
@@ -94,6 +103,7 @@ afterAll(() => {
 
 let manager: typeof import('../../agent/piAgentManager')
 let sessions: typeof import('../../session/sessions')
+let workspaces: typeof import('../../session/sessionWorkspace')
 let harness: typeof import('../../session/sessionHarness')
 let history: typeof import('../../session/sessionHistory')
 let store: typeof import('../../agent/piSessionStore')
@@ -102,6 +112,7 @@ let taskRuns: typeof import('../../session/sessionTaskRuns')
 beforeAll(async () => {
   manager = await import('../../agent/piAgentManager')
   sessions = await import('../../session/sessions')
+  workspaces = await import('../../session/sessionWorkspace')
   harness = await import('../../session/sessionHarness')
   history = await import('../../session/sessionHistory')
   store = await import('../../agent/piSessionStore')
@@ -148,6 +159,11 @@ async function taskRunConfig(sessionId: string, input?: string): Promise<AgentMo
   }
 }
 
+// The conversation, without the system prompt, which names the Workspace after the Session title.
+function conversationText(body: Body | undefined): string {
+  return JSON.stringify((body?.messages ?? []).filter((message) => message.role !== 'system'))
+}
+
 function userTexts(body: Body | undefined): string[] {
   return (body?.messages ?? [])
     .filter((message) => message.role === 'user')
@@ -185,7 +201,7 @@ describe('a Task Run in its Session', () => {
 
     expect(first.harnessSessionId).not.toBe(agent.sessionId)
     expect(second.harnessSessionId).not.toBe(first.harnessSessionId)
-    expect(first.workspaceDir).toBe(sessions.sessionPaths(session.id).filesDir)
+    expect(first.workspaceDir).toBe(workspaces.sessionWorkspaceDir(session.id))
   }, 30000)
 
   it('sends its first request with no Session Update, no session_history and no prior turns', async () => {
@@ -199,7 +215,7 @@ describe('a Task Run in its Session', () => {
     expect(users).toHaveLength(1)
     expect(users[0]).not.toContain('a castle')
     expect(users[0]).not.toContain('Session Update')
-    expect(JSON.stringify(body.messages)).not.toContain('plum')
+    expect(conversationText(body)).not.toContain('plum')
   }, 30000)
 
   it('appends one History Entry for the run, naming the Agent and its Start Prompt', async () => {
@@ -277,7 +293,7 @@ describe('a Follow-up to an Agent Run in its Session', () => {
     expect(users).toHaveLength(2)
     expect(users[0]).toContain('summarise the news')
     expect(users[1]).toContain('why that headline?')
-    expect(JSON.stringify(bodies[1].messages)).not.toContain('plum')
+    expect(conversationText(bodies[1])).not.toContain('plum')
   }, 30000)
 
   it('gets a Session Update of the turns since the run, not of its Steps or Follow-ups', async () => {

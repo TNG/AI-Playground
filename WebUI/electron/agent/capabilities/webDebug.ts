@@ -104,7 +104,7 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
             sendToolImage(
               host.sessionId,
               toolCallId,
-              workspaceFileToDataUri(host.workspaceDir, result.screenshotPath),
+              workspaceFileToDataUri(host, result.screenshotPath),
               result.screenshotPath,
             )
           } catch (error) {

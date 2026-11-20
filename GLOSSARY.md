@@ -69,18 +69,20 @@ _Avoid_: transcript, log
 **History Entry**:
 One turn's record in the Session History.
 
-**Session Folder**:
-The directory that belongs to one Session, where the artifacts its turns produce are kept.
-_Avoid_: media folder, output folder
+**Workspace**:
+The one Mounted Folder of a Session that is starred: where its turns' Artifacts land and where its
+agents work. Always read-write. An Agent may override it while it is active in the Session. Game
+Agent and Quick Coder work in their game's folder instead.
+_Avoid_: Session Folder, output folder, media folder
 
 **Artifact**:
-A file a turn produced — an image, video, 3D model or audio clip — kept in its Session's Session
-Folder.
+A file a turn produced — an image, video, 3D model or audio clip — kept in the Workspace it was
+produced in.
 _Avoid_: media item, output, generation
 
 **Attached Document**:
 A document the user attached in a Session for its turns to search. It belongs to that Session
-alone and is kept in its Session Folder.
+alone and stays with it whichever folder is its Workspace.
 _Avoid_: RAG document, knowledge base
 
 **Paused Session**:
@@ -157,8 +159,8 @@ ends with its Session or its Agent.
 **Agent Run**:
 One conversation with an Agent inside the Session it was started or scheduled in. It starts by
 giving the Agent all its Steps at once, in a fresh Harness Session with no context from the
-Session, and its Follow-ups continue it until the Agent is run again. It works in its Session's
-Session Folder, with the Agent's own Mounted Folders instead of the Session's. Its result is the
+Session, and its Follow-ups continue it until the Agent is run again. It works with its Session's
+Workspace and Mounted Folders, unless the Agent overrides either. Its result is the
 final answer of its first turn and the Artifacts that turn produced.
 _Avoid_: Task Run, Task Session, scheduled session
 
@@ -180,10 +182,12 @@ starts or the app quits.
 _Avoid_: test run, try-out, throwaway session
 
 **Mounted Folder**:
-A folder on the user's machine that the Assistant preset's turns or an Agent's runs can reach
-besides the Session Folder, added by the user to the Session Settings or to the Agent's Settings
-Template, and either read-only or read-write.
-_Avoid_: extra folder, attached folder, workspace
+A folder on the user's machine that the Assistant preset's turns or an Agent's runs can reach,
+listed in the Session Settings or, as an override of the Session's, in the Agent's Settings
+Template, and either read-only or read-write. Every Session has at least one, its Workspace, which the app provides until the user
+stars another, and which the user can never take off the list. Taking any other one off the list ends its access,
+never the Artifacts made in it.
+_Avoid_: extra folder, attached folder
 
 ## Channels
 

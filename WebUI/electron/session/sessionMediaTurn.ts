@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
-import { moveIntoSessionFiles } from '../persist/sessionMediaFiles'
+import { followSessionTitle } from './appWorkspace'
+import { moveIntoWorkspace, type WorkspaceFile } from './sessionWorkspace'
 import { appendHistoryEntry } from './sessionHistory'
 import { mutateSession, sessionDocumentOf } from './sessions'
 import { afterTurn, type TitleSource } from './sessionTitle'
-import { sessionMediaUrl } from '@/lib/comfyWorkflow'
 import type { MediaItem } from '@/types/mediaItem'
-import type { ArtifactMediaType, HistoryEntryKind, SessionDocument } from '@/types/sessionIpc'
+import type { HistoryArtifact, HistoryEntryKind, SessionDocument } from '@/types/sessionIpc'
 import type { MediaTurnData, MediaTurnStatus, TimelineMessage } from '@/types/sessionTimeline'
 
 const LOG_SCOPE = 'sessions'
@@ -36,21 +36,17 @@ const KIND_OF_MODE: Record<MediaTurn['mode'], HistoryEntryKind> = {
   video: 'video',
 }
 
-export type AdoptedFile = { url: string; relativePath: string }
-
-/** Moves the media-folder file behind `url` into the Session's `files/`; null leaves it there. */
+/** Moves the media-folder file behind `url` into the Session's Workspace; null leaves it there. */
 export async function adoptMediaFile(
   sessionId: string,
   url: string | undefined,
   localPathOf: (url: string) => string | null,
-): Promise<AdoptedFile | null> {
+): Promise<WorkspaceFile | null> {
   if (!url?.startsWith('aipg-media://media/')) return null
   const source = localPathOf(url)
   if (!source) return null
   try {
-    const relativePath = await moveIntoSessionFiles(sessionId, source)
-    if (!relativePath) return null
-    return { url: sessionMediaUrl(sessionId, relativePath), relativePath }
+    return await moveIntoWorkspace(sessionId, source)
   } catch (error) {
     appLoggerInstance.warn(`could not move ${source} into its Session: ${error}`, LOG_SCOPE)
     return null
@@ -68,7 +64,7 @@ function withoutInlineImages(item: MediaItem): MediaItem {
   } as MediaItem
 }
 
-type AdoptedItem = { item: MediaItem; artifact?: { path: string; mediaType: ArtifactMediaType } }
+type AdoptedItem = { item: MediaItem; artifact?: HistoryArtifact }
 
 async function adoptItem(turn: MediaTurn, item: MediaItem): Promise<AdoptedItem> {
   const mainUrl =
@@ -87,7 +83,7 @@ async function adoptItem(turn: MediaTurn, item: MediaItem): Promise<AdoptedItem>
   if (thumbnail) Object.assign(patch, { thumbnailUrl: thumbnail.url })
   return {
     item: withoutInlineImages({ ...item, ...patch } as MediaItem),
-    artifact: main ? { path: main.relativePath, mediaType: item.type } : undefined,
+    artifact: main ? { ...main.artifact, mediaType: item.type } : undefined,
   }
 }
 
@@ -159,5 +155,8 @@ export async function appendTurnToTimeline(
   }))
   const document = sessionDocumentOf(file)
   emitSessionChanged(document)
+  await followSessionTitle(sessionId).catch((error) =>
+    appLoggerInstance.warn(`could not rename the Workspace: ${String(error)}`, LOG_SCOPE),
+  )
   return document
 }

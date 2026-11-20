@@ -88,10 +88,14 @@ const getMissingLlmModels = vi.hoisted(() =>
 )
 
 const requestDownload = vi.hoisted(() => vi.fn(async (_models: unknown[]) => {}))
+const requestMissingWorkspace = vi.hoisted(() =>
+  vi.fn(async (_ask: unknown): Promise<string | null> => null),
+)
 
 vi.mock('@/assets/js/permissions/permissions', () => ({
   requestDownload: (models: unknown[]) => requestDownload(models),
   requestVramWarning: vi.fn(async () => true),
+  requestMissingWorkspace: (ask: unknown) => requestMissingWorkspace(ask),
   notify: vi.fn(),
 }))
 
@@ -268,6 +272,8 @@ beforeEach(() => {
       })),
       existsPath: vi.fn(async () => true),
       isFolderPath: vi.fn(async () => true),
+      getHomePath: vi.fn(async () => '/Users/ada'),
+      showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })),
       sessions: {
         taskRunHarness: vi.fn(async () => ({
           success: true,
@@ -388,6 +394,7 @@ const { useQueuedChannelMessages } = await import('@/assets/js/store/queuedChann
 const { registerChannelSessionPort } = await import('@/lib/channelSessionPort')
 const { sessionPort } = await import('@/assets/js/store/channels/sessionPort')
 const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
+const { useUIStore } = await import('@/assets/js/store/ui')
 
 async function readyStores(...saved: AgentTask[]) {
   return readyStoresIn({ session: true }, ...saved)
@@ -677,34 +684,183 @@ describe('the settings a run uses', () => {
   })
 })
 
-describe('the Mounted Folders a run reaches', () => {
-  const inSession = { hostPath: '/Users/ada/session-notes', access: 'read-write' as const }
-  const ofAgent = { hostPath: '/Users/ada/inbox', name: 'mail' }
+/** Lists one folder beside the Workspace in the Session's folder list. */
+function giveSessionAFolder(hostPath = '/Users/ada/session-notes'): void {
+  const sessions = useSessions(pinia)
+  const session = sessions.sessions[SESSION]
+  sessions.sessions = {
+    ...sessions.sessions,
+    [SESSION]: {
+      ...session,
+      folderList: {
+        workspaceId: 'ws',
+        folders: [
+          { id: 'ws', hostPath: '/sessions/s/files', access: 'read-write', slug: 'files' },
+          { id: 'f1', hostPath, access: 'read-write', slug: 'session-notes' },
+        ],
+      },
+    },
+  }
+}
 
-  it('are its Agent’s, not the Session’s', async () => {
-    const template = { ...TEMPLATE, mountedFolders: [ofAgent] }
-    const { agentMode, tasks } = await readyStores(
-      task('t1', ['one', 'two'], { settingsTemplate: template }),
-    )
-    agentMode.setMountedFolders([inSession])
-    expect(agentMode.mountedFolders).toEqual([inSession])
+describe('the folders a run reaches', () => {
+  const ofAgent = {
+    id: 'a1',
+    hostPath: '/Users/ada/inbox',
+    slug: 'mail',
+    access: 'read-only' as const,
+  }
+
+  it('are only its Agent’s when it uses only these', async () => {
+    const template = { ...TEMPLATE, folderOverrides: { folders: [ofAgent] } }
+    const { tasks } = await readyStores(task('t1', ['one', 'two'], { settingsTemplate: template }))
+    giveSessionAFolder()
 
     await tasks.runTask('t1')
     await turnIdOf(0)
 
-    expect(sentConfig(0).mountedFolders).toEqual([
-      { hostPath: '/Users/ada/inbox', name: 'mail', access: 'read-only' },
-    ])
+    expect(sentConfig(0).folderOverrides).toEqual({ folders: [ofAgent] })
   })
 
-  it('are none when its Agent has none, whatever the Session has', async () => {
-    const { agentMode, tasks } = await readyStores(task('t1', ['one']))
-    agentMode.setMountedFolders([inSession])
+  it('are the Session’s when its Agent inherits them, which main resolves', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']))
+    giveSessionAFolder()
 
     await tasks.runTask('t1')
     await turnIdOf(0)
 
-    expect(sentConfig(0).mountedFolders ?? []).toEqual([])
+    expect(sentConfig(0).folderOverrides).toBeUndefined()
+  })
+
+  it('fail before any turn when an inherited Session folder is missing', async () => {
+    vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
+      async (hostPath: string) => hostPath !== '/Users/ada/session-notes',
+    )
+    const { tasks } = await readyStores(task('t1', ['one']))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+
+    expect(await settledOutcome(tasks, 't1')).toMatchObject({
+      kind: 'failed',
+      message: expect.stringContaining('/Users/ada/session-notes'),
+    })
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
+  it('work in its Agent’s own folder when the Agent always works there', async () => {
+    const workspace = { id: 'w1', hostPath: '/Users/ada/site', slug: 'site' }
+    const template = { ...TEMPLATE, folderOverrides: { workspace } }
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(sentConfig(0).workspaceDir).toBe('/Users/ada/site')
+    expect(sentConfig(0).folderOverrides).toEqual({ workspace })
+    expect(sentConfig(0).taskRun?.taskId).toBe('t1')
+  })
+
+  describe('when its Agent’s own folder is missing', () => {
+    const workspace = { id: 'w1', hostPath: '/Users/ada/site', slug: 'site' }
+    const template = { ...TEMPLATE, folderOverrides: { workspace } }
+
+    beforeEach(() => {
+      vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
+        async (hostPath: string) => hostPath !== '/Users/ada/site',
+      )
+      vi.mocked(window.electronAPI.existsPath).mockImplementation(
+        async (hostPath: string) => hostPath !== '/Users/ada/site',
+      )
+    })
+
+    it('asks before any turn, naming folder and Agent, and runs nothing on cancel', async () => {
+      const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+
+      expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'missing-workspace' })
+
+      expect(requestMissingWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          missing: expect.objectContaining({ hostPath: '/Users/ada/site', name: 'site' }),
+          agent: { id: 't1', name: 'Task t1' },
+        }),
+      )
+      expect(startTurn).not.toHaveBeenCalled()
+    })
+
+    it('re-points the Agent at the located folder and runs there', async () => {
+      requestMissingWorkspace.mockImplementationOnce(async () => 'locate')
+      vi.mocked(window.electronAPI.showOpenDialog).mockResolvedValueOnce({
+        canceled: false,
+        filePaths: ['/Users/ada/site-moved'],
+      })
+      const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+      giveSessionAFolder()
+
+      expect(await tasks.runTask('t1')).toEqual({ ok: true })
+      await turnIdOf(0)
+
+      const moved = { id: 'w1', hostPath: '/Users/ada/site-moved', slug: 'site' }
+      expect(lastSavedTask('t1')?.settingsTemplate.folderOverrides).toEqual({ workspace: moved })
+      expect(sentConfig(0).workspaceDir).toBe('/Users/ada/site-moved')
+      expect(sentConfig(0).folderOverrides).toEqual({ workspace: moved })
+      expect(tasks.missingAgentWorkspaces.t1).toBeUndefined()
+    })
+
+    it('asks again with the reason when the located folder is refused', async () => {
+      requestMissingWorkspace
+        .mockImplementationOnce(async () => 'locate')
+        .mockImplementationOnce(async () => null)
+      vi.mocked(window.electronAPI.showOpenDialog).mockResolvedValueOnce({
+        canceled: false,
+        filePaths: ['/Users/ada'],
+      })
+      const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+
+      await tasks.runTask('t1')
+
+      expect(requestMissingWorkspace).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refusal: expect.anything() }),
+      )
+      expect(lastSavedTask('t1')).toBeUndefined()
+      expect(startTurn).not.toHaveBeenCalled()
+    })
+
+    it('opens the Agent in the Agent Library on Edit Agent, and runs nothing', async () => {
+      requestMissingWorkspace.mockImplementationOnce(async () => 'edit-agent')
+      const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+
+      await tasks.runTask('t1')
+
+      expect(useUIStore(pinia).agentLibrary?.agentId).toBe('t1')
+      expect(startTurn).not.toHaveBeenCalled()
+    })
+
+    it('is warned about while the Agent is active', async () => {
+      const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+
+      expect(tasks.missingAgentWorkspaces.t1).toBeUndefined()
+
+      await tasks.pickAgent('t1')
+
+      await vi.waitFor(() =>
+        expect(tasks.missingAgentWorkspaces.t1?.hostPath).toBe('/Users/ada/site'),
+      )
+    })
+  })
+
+  it('do not include a missing Session folder its Agent replaces', async () => {
+    vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
+      async (hostPath: string) => hostPath !== '/Users/ada/session-notes',
+    )
+    const template = { ...TEMPLATE, folderOverrides: { folders: [ofAgent] } }
+    const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
+    giveSessionAFolder()
+
+    await tasks.runTask('t1')
+
+    await turnIdOf(0)
   })
 })
 
@@ -965,7 +1121,11 @@ describe('a run a Channel started', () => {
     expect(await settledOutcome(tasks, 't1')).toMatchObject({ kind: 'completed' })
     await settleMicrotasks()
     expect(sentSteps()).toEqual([['one', 'two']])
-    expect(sentConfig(0).taskRun).toEqual({ taskName: 'Task t1', notifiesResult: true })
+    expect(sentConfig(0).taskRun).toEqual({
+      taskId: 't1',
+      taskName: 'Task t1',
+      notifiesResult: true,
+    })
     expect(sentConfig(0).answer).toEqual(ORIGIN)
   })
 
@@ -1928,11 +2088,13 @@ describe('following up on a picked Agent’s run', () => {
   })
 
   it('runs on the Agent’s saved Settings Template, as its run did', async () => {
-    const folders = [{ hostPath: '/data/news', name: 'news' }]
-    const { agentMode, tasks } = await readyStores(
-      task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, mountedFolders: folders } }),
+    const folders = [
+      { id: 'n1', hostPath: '/data/news', slug: 'news', access: 'read-only' as const },
+    ]
+    const { tasks } = await readyStores(
+      task('t1', ['one'], { settingsTemplate: { ...TEMPLATE, folderOverrides: { folders } } }),
     )
-    agentMode.setMountedFolders([{ hostPath: '/Users/ada/session-notes' }])
+    giveSessionAFolder()
     await tasks.pickAgent('t1')
     await tasks.runPickedAgent('')
     await runToEnd(0)
@@ -1943,7 +2105,9 @@ describe('following up on a picked Agent’s run', () => {
     const config = sentConfig(1)
     expect(config.modelConfig.model).toBe('Template-27B')
     expect(config.capabilities).toEqual(['files', 'web'])
-    expect(config.mountedFolders?.map((folder) => folder.hostPath)).toEqual(['/data/news'])
+    expect(config.folderOverrides?.folders?.map((folder) => folder.hostPath)).toEqual([
+      '/data/news',
+    ])
   })
 
   it('marks its prompt in the Session timeline as a Follow-up, not a Step', async () => {
@@ -2236,6 +2400,21 @@ describe('a prompt sent while an Agent Run is in flight in its Session', () => {
 
     expect(tasks.agentRunIn(SESSION)).toBeUndefined()
     expect(startTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('makes the running Agent the active one in its open Session, until it ends', async () => {
+    const { tasks } = await readyStores(task('t1', ['one']), task('t2', ['two']))
+    expect(tasks.activeAgent).toBeUndefined()
+    await tasks.runTask('t1')
+    await turnIdOf(0)
+
+    expect(tasks.activeAgent?.id).toBe('t1')
+    await tasks.pickAgent('t2')
+    expect(tasks.activeAgent?.id).toBe('t2')
+    await tasks.pickAgent(null)
+
+    await tasks.stopRunIn(SESSION)
+    expect(tasks.activeAgent).toBeUndefined()
   })
 })
 

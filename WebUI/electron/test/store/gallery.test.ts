@@ -9,9 +9,18 @@ import { createPinia, setActivePinia } from 'pinia'
 
 const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
+vi.mock('../../adapters/trash', async () => {
+  const fs = await import('node:fs/promises')
+  return { moveToTrash: (target: string) => fs.rm(target, { recursive: true, force: true }) }
+})
+
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -60,8 +69,8 @@ beforeEach(async () => {
           }))(),
         delete: (id: string) => ok(async () => sessionModule.deleteSession(id).then(() => ({})))(),
         listArtifacts: ok(async () => ({ artifacts: await artifactModule.listAllArtifacts() })),
-        deleteArtifact: (id: string, relativePath: string) =>
-          ok(async () => artifactModule.deleteArtifact(id, relativePath).then(() => ({})))(),
+        deleteArtifact: (id: string, url: string) =>
+          ok(async () => artifactModule.deleteArtifact(id, url).then(() => ({})))(),
       },
     },
   })

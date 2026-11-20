@@ -23,8 +23,12 @@ export type CapabilityHost = {
   sessionId: string
   /** Resolved workspace folder (host path). */
   workspaceDir: string
+  /** Where `attachments/…` references point when not inside the workspace: a Session's internal storage. */
+  attachmentsDir?: string
   /** The session's Mounted Folders, host paths realpathed. */
   mountedFolders?: ResolvedMountedFolder[]
+  /** Where the sandbox mounts the workspace (`/mnt/<slug>`); `/workspace` when absent. */
+  workspaceMount?: string
   /** Bridged renderer tool contracts shipped with the turn. */
   toolSpecs: AgentToolSpec[]
   /**

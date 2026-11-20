@@ -11,7 +11,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '', games: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
   getGamesDir: () => dirs.games,
 }))
 
@@ -23,12 +27,14 @@ vi.mock('../../kernel/kernelBus', () => ({ emitSessionChanged: vi.fn() }))
 
 const { createSession, deleteSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
+const { ensureSessionWorkspace } = await import('../../session/sessionWorkspace')
 const { cleanUpHarnessSessionsOnDelete, harnessSessionFor } =
   await import('../../session/sessionHarness')
 const { trackAgentTurnInSession } = await import('../../session/sessionAgentTurns')
 const { readHistoryEntries } = await import('../../session/sessionHistory')
+const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
+const workspaceId = async (id: string) => (await sessionWorkspaceEntry(id)).id
 const { noteGeneratedMedia } = await import('../../agent/generatedMedia')
-const { sessionPaths } = await import('../../session/sessions')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-games-'))
@@ -158,14 +164,16 @@ describe("a game turn's History Entry", () => {
     noteGeneratedMedia(
       game,
       ['generated/ship.png'],
-      [path.join(sessionPaths(session.id).filesDir, 'ship.png')],
+      [path.join(await ensureSessionWorkspace(session.id), 'ship.png')],
     )
     await turn.settle({ sessionId: 'h1', turnId: 't1', outcome: 'completed', reply: 'done' })
 
     expect(await readHistoryEntries(session.id)).toEqual([
       expect.objectContaining({
         preset: 'Game Agent',
-        artifacts: [{ path: 'files/ship.png', mediaType: 'image' }],
+        artifacts: [
+          { folderId: await workspaceId(session.id), path: 'ship.png', mediaType: 'image' },
+        ],
       }),
     ])
   })

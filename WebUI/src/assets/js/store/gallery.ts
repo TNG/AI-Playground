@@ -31,9 +31,9 @@ export const useGallery = defineStore('gallery', () => {
     }
   }
 
-  async function deleteFile(sessionId: string, path: string, url: string): Promise<boolean> {
+  async function deleteFile(sessionId: string, url: string): Promise<boolean> {
     try {
-      const result = await window.electronAPI.sessions.deleteArtifact(sessionId, path)
+      const result = await window.electronAPI.sessions.deleteArtifact(sessionId, url)
       if (!result.success) {
         report(new Error(result.error), 'gallery/delete-failed')
         return false
@@ -48,14 +48,14 @@ export const useGallery = defineStore('gallery', () => {
   }
 
   async function remove(artifact: SessionArtifact): Promise<boolean> {
-    return deleteFile(artifact.sessionId, artifact.path, artifact.url)
+    return deleteFile(artifact.sessionId, artifact.url)
   }
 
   /** Deletes the file behind a timeline card; a URL outside every Session names no artifact. */
   async function removeByUrl(url: string): Promise<boolean> {
     const target = sessionMediaPathOf(url)
     if (!target) return false
-    return deleteFile(target.sessionId, target.path, url)
+    return deleteFile(target.sessionId, url)
   }
 
   /** Takes a settled media or speech turn out of the Session: its messages, then its files. */

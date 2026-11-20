@@ -2781,7 +2781,7 @@ describe('a file', () => {
       { to: 'session-trip', kind: 'image', filename: 'telegram-image.jpg' },
     ])
     expect(plain.map((p) => p.text)).toEqual([
-      'where is this?\n\nAttached files, saved in the workspace: @attachments/telegram-image.jpg',
+      'where is this?\n\nAttached files: @attachments/telegram-image.jpg',
     ])
     expect(ch.replies).toEqual([])
   })
@@ -2789,9 +2789,7 @@ describe('a file', () => {
   it('sends an image without a caption on its own', async () => {
     const { router, plain } = trip()
     await router.route(fakeChannel().adapter, photo)
-    expect(plain.map((p) => p.text)).toEqual([
-      'Attached files, saved in the workspace: @attachments/telegram-image.jpg',
-    ])
+    expect(plain.map((p) => p.text)).toEqual(['Attached files: @attachments/telegram-image.jpg'])
   })
 
   it('says so when the Session’s model cannot see images, and sends nothing', async () => {
@@ -2841,7 +2839,7 @@ describe('a file', () => {
     expect(received).toEqual([
       {
         sessionId: 'asteroids',
-        text: 'use this sprite\n\nAttached files, saved in the workspace: @attachments/telegram-image.jpg',
+        text: 'use this sprite\n\nAttached files: @attachments/telegram-image.jpg',
       },
     ])
   })
@@ -2963,7 +2961,7 @@ describe('an Answer to a Trial Run', () => {
     expect(received).toEqual([
       {
         sessionId: TRIAL,
-        text: 'this one\n\nAttached files, saved in the workspace: @attachments/telegram-image.png',
+        text: 'this one\n\nAttached files: @attachments/telegram-image.png',
       },
     ])
   })

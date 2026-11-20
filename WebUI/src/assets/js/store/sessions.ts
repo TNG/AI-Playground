@@ -2,8 +2,12 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { connectKernelEventStream } from '@/assets/js/projection/kernelProjection'
 import { useErrors } from '@/assets/js/store/errors'
+import { requestMissingWorkspace } from '@/assets/js/permissions/permissions'
 import type {
+  MissingWorkspace,
+  SessionDeletePreview,
   SessionDocument,
+  SessionFolderList,
   SessionGroup,
   SessionGroupsState,
   SessionLastPreset,
@@ -14,6 +18,8 @@ import type {
   ShowMoreSection,
 } from '@/types/sessionIpc'
 import { cloneForIpc } from '@/lib/cloneForIpc'
+import { workspaceEntryOf, type MountedFolderRefusal } from '@/lib/mountedFolders'
+import type { MountedFolderAccess } from '@/types/agentSessionIpc'
 import { groupToRevealOnOpen } from '@/lib/sessionSections'
 import type { GroupNameProblem } from '@/lib/sessionGroupName'
 import type { MediaTurnData } from '@/types/sessionTimeline'
@@ -229,6 +235,13 @@ export const useSessions = defineStore('sessions', () => {
   /** Hydrates the list and opens the newest Session, creating one when there is none. */
   async function init(): Promise<void> {
     if (await hydrate()) await ensureOpenSession()
+    // A folder renamed or unplugged while the app was in the background shows up on return.
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', () => {
+        const id = openSessionId.value
+        if (id && mayGoMissing(id)) void checkWorkspace(id)
+      })
+    }
   }
 
   async function openNewestOrCreate(): Promise<void> {
@@ -324,6 +337,163 @@ export const useSessions = defineStore('sessions', () => {
       window.electronAPI.sessions.pin(id, pinned),
     )
     if (result) remember(result.session)
+  }
+
+  function rememberFolders(id: string, folderList: SessionFolderList): void {
+    const session = sessions.value[id]
+    if (session) remember({ ...session, folderList })
+  }
+
+  /** Adds a folder to the Session's list; the refusal is the caller's to show. */
+  async function addFolder(
+    id: string,
+    hostPath: string,
+  ): Promise<MountedFolderRefusal | undefined> {
+    const result = await call('sessions/add-folder-failed', () =>
+      window.electronAPI.sessions.addFolder(id, hostPath),
+    )
+    if (!result) return undefined
+    rememberFolders(id, result.list)
+    return result.refusal
+  }
+
+  async function removeFolder(id: string, folderId: string): Promise<void> {
+    const result = await call('sessions/remove-folder-failed', () =>
+      window.electronAPI.sessions.removeFolder(id, folderId),
+    )
+    if (result) rememberFolders(id, result.list)
+  }
+
+  async function setFolderAccess(
+    id: string,
+    folderId: string,
+    access: MountedFolderAccess,
+  ): Promise<void> {
+    const result = await call('sessions/folder-access-failed', () =>
+      window.electronAPI.sessions.setFolderAccess(id, folderId, access),
+    )
+    if (result) rememberFolders(id, result.list)
+  }
+
+  /** Stars a listed folder as the Workspace; whether it had to become read-write, null on failure. */
+  async function starFolder(
+    id: string,
+    folderId: string,
+  ): Promise<{ madeReadWrite: boolean } | null> {
+    const result = await call('sessions/star-folder-failed', () =>
+      window.electronAPI.sessions.starFolder(id, folderId),
+    )
+    if (!result) return null
+    rememberFolders(id, result.list)
+    return { madeReadWrite: result.madeReadWrite }
+  }
+
+  /** Sessions whose Workspace is a user folder that no longer exists, as last checked. */
+  const missingWorkspaces = ref<Record<string, MissingWorkspace>>({})
+
+  const openMissingWorkspace = computed(() =>
+    openSessionId.value ? (missingWorkspaces.value[openSessionId.value] ?? null) : null,
+  )
+
+  function noteMissing(id: string, missing: MissingWorkspace | null): void {
+    const { [id]: _was, ...rest } = missingWorkspaces.value
+    missingWorkspaces.value = missing ? { ...rest, [id]: missing } : rest
+  }
+
+  /** Checks on disk whether the Session's Workspace is missing. */
+  async function checkWorkspace(id: string): Promise<MissingWorkspace | null> {
+    const result = await call('sessions/check-workspace-failed', () =>
+      window.electronAPI.sessions.missingWorkspace(id),
+    )
+    const missing = result?.missing ?? null
+    noteMissing(id, missing)
+    return missing
+  }
+
+  /**
+   * Lets the user pick the moved folder: 'located', 'cancelled' (no folder picked, or the call
+   * failed and was reported), or why the picked folder cannot be the Workspace.
+   */
+  async function locateWorkspace(
+    id: string,
+  ): Promise<'located' | 'cancelled' | MountedFolderRefusal> {
+    let hostPath: string | undefined
+    try {
+      const picked = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
+      hostPath = picked.canceled ? undefined : picked.filePaths[0]
+    } catch (error) {
+      errors.report(error, { code: 'sessions/locate-workspace-failed', surface: 'toast' })
+    }
+    if (!hostPath) return 'cancelled'
+    const result = await call('sessions/locate-workspace-failed', () =>
+      window.electronAPI.sessions.locateWorkspace(id, hostPath),
+    )
+    if (!result) return 'cancelled'
+    rememberFolders(id, result.list)
+    if (result.refusal) return result.refusal
+    return (await checkWorkspace(id)) === null ? 'located' : 'cancelled'
+  }
+
+  async function startNewWorkspace(id: string): Promise<boolean> {
+    const result = await call('sessions/start-new-workspace-failed', () =>
+      window.electronAPI.sessions.startNewWorkspace(id),
+    )
+    if (!result) return false
+    rememberFolders(id, result.list)
+    noteMissing(id, null)
+    return true
+  }
+
+  /**
+   * Before an interactive turn that writes: a missing Workspace is asked about, and the turn
+   * goes ahead only once the user located it or started a new one. A refused folder is asked
+   * about again, with the reason.
+   */
+  async function readyWorkspaceForTurn(id: string): Promise<boolean> {
+    if (!mayGoMissing(id)) return true
+    const missing = await checkWorkspace(id)
+    if (!missing) return true
+    let refusal: MountedFolderRefusal | undefined
+    for (;;) {
+      const choice = await requestMissingWorkspace({ missing, refusal })
+      if (choice === 'start-new') return startNewWorkspace(id)
+      if (choice !== 'locate') return false
+      const located = await locateWorkspace(id)
+      if (located === 'located') return true
+      refusal = located === 'cancelled' ? undefined : located
+    }
+  }
+
+  /** Only a user folder can go missing: the app makes its own Workspace when it is not there. */
+  function mayGoMissing(id: string): boolean {
+    const list = sessions.value[id]?.folderList
+    const entry = list && workspaceEntryOf(list)
+    return !!entry && !entry.appCreated
+  }
+
+  /** The Session's Workspace folder as last projected; empty when unknown. */
+  function workspaceDirOf(id: string): string {
+    const list = sessions.value[id]?.folderList
+    return (list && workspaceEntryOf(list)?.hostPath) ?? ''
+  }
+
+  watch(
+    () => {
+      const list = openSession.value?.folderList
+      return [openSessionId.value, list && workspaceEntryOf(list)?.hostPath] as const
+    },
+    ([id]) => {
+      if (!id) return
+      if (mayGoMissing(id)) void checkWorkspace(id)
+      else noteMissing(id, null)
+    },
+  )
+
+  /** Shows a listed folder in the OS file manager, the Workspace when none is named. */
+  async function openFolder(id: string, folderId?: string): Promise<void> {
+    await call('sessions/open-folder-failed', () =>
+      window.electronAPI.sessions.openFolder(id, folderId),
+    )
   }
 
   /** A refused name is the caller's to show, so it is reported but not toasted. */
@@ -449,6 +619,14 @@ export const useSessions = defineStore('sessions', () => {
     await open(id, { reveal: false })
   }
 
+  /** What the delete dialog names; null when it cannot be read, and the dialog says less. */
+  async function deletePreview(id: string): Promise<SessionDeletePreview | null> {
+    const result = await call('sessions/delete-preview-failed', () =>
+      window.electronAPI.sessions.deletePreview(id),
+    )
+    return result?.preview ?? null
+  }
+
   async function remove(id: string): Promise<void> {
     const result = await call('sessions/delete-failed', () =>
       window.electronAPI.sessions.delete(id),
@@ -489,6 +667,18 @@ export const useSessions = defineStore('sessions', () => {
     open,
     rename,
     setPinned,
+    addFolder,
+    removeFolder,
+    setFolderAccess,
+    starFolder,
+    openFolder,
+    missingWorkspaces,
+    openMissingWorkspace,
+    checkWorkspace,
+    locateWorkspace,
+    startNewWorkspace,
+    readyWorkspaceForTurn,
+    workspaceDirOf,
     pickAgent,
     setReachable,
     createGroup,
@@ -498,6 +688,7 @@ export const useSessions = defineStore('sessions', () => {
     setGroupExpanded,
     setShowMore,
     remove,
+    deletePreview,
     saveTimelineMessages,
     forgetTimelineMessages,
     removeTimelineMessages,

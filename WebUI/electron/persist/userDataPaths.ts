@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { app } from 'electron'
 import { externalResourcesDir } from '../kernel/aipgRoot.ts'
 
 export const getMediaDir = () => {
@@ -181,8 +182,23 @@ export const getChannelMessageMapFile = () => path.join(aipgUserDataRoot(), 'cha
 export const getChannelMessageMapDemoFile = () =>
   getChannelMessageMapFile().replace(/\.json$/, '-demo.json')
 
-/** One Session Folder per Session (ADR-0003): `session.json`, the Session History and `files/`. */
-export const getSessionsDir = () => path.join(aipgUserDataRoot(), 'sessions')
+/**
+ * Each Session's internal storage (ADR-0013): `session.json`, the Session History and
+ * `attachments/`. In the app's own data folder, since `AI-Playground/Sessions/` holds the
+ * readable Workspaces and is the same folder as `sessions/` on case-insensitive file systems.
+ */
+export const getSessionsDir = () => path.join(app.getPath('userData'), 'sessions')
 
 /** Demo-mode Sessions, wiped on startup and exit like demo conversations (§6.1). */
-export const getSessionsDemoDir = () => path.join(aipgUserDataRoot(), 'sessions-demo')
+export const getSessionsDemoDir = () => path.join(app.getPath('userData'), 'sessions-demo')
+
+/** Where Sessions were kept before ADR-0013; older Sessions' `files/` still live here. */
+export const getLegacySessionsDir = () => path.join(aipgUserDataRoot(), 'sessions')
+
+export const getLegacySessionsDemoDir = () => path.join(aipgUserDataRoot(), 'sessions-demo')
+
+/** The Workspaces the app creates for Sessions, one readable folder each. */
+export const getAppWorkspacesDir = () => path.join(aipgUserDataRoot(), 'Sessions')
+
+/** Demo Sessions' Workspaces, wiped with the demo Sessions. */
+export const getAppWorkspacesDemoDir = () => path.join(aipgUserDataRoot(), 'Sessions-demo')

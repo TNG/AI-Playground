@@ -10,7 +10,11 @@ const dirs = vi.hoisted(() => ({ root: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => path.join(dirs.root, 'sessions'),
+  getLegacySessionsDir: () => path.join(dirs.root, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(dirs.root, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(dirs.root, 'sessions-demo')}-workspaces`,
   getConversationsDir: () => path.join(dirs.root, 'conversations'),
   getConversationsDemoDir: () => path.join(dirs.root, 'conversations-demo'),
   getPreferencesFile: () => path.join(dirs.root, 'preferences.json'),
@@ -168,7 +172,7 @@ describe('Home Agent threads on upgrade', () => {
       {
         sessionRef: session.id,
         presetName: 'Assistant',
-        workspaceDir: sessions.sessionPaths(session.id).filesDir,
+        reader: { workspaceDir: sessions.sessionPaths(session.id).filesDir },
         model: { api: 'openai-completions', provider: 'local', id: 'qwen' },
       },
     )
@@ -220,11 +224,12 @@ describe('Home Agent threads on upgrade', () => {
     await migrateHomeAgentThreads({ routingKey: 'ha-1' })
 
     const [session] = await migratedSessions()
-    const filesDir = sessions.sessionPaths(session.id).filesDir
-    expect(sessionDocuments(filesDir)).toEqual(['attachments/notes.md'])
-    expect(await fs.readFile(path.join(filesDir, 'attachments', 'notes.md'), 'utf8')).toBe(
-      '# my notes',
-    )
+    const { attachmentsDir, filesDir } = sessions.sessionPaths(session.id)
+    expect(sessionDocuments({ dir: attachmentsDir, reference: '/attachments' })).toEqual([
+      '/attachments/notes.md',
+    ])
+    expect(await fs.readFile(path.join(attachmentsDir, 'notes.md'), 'utf8')).toBe('# my notes')
+    await expect(fs.stat(path.join(filesDir, 'attachments'))).rejects.toThrow()
   })
 
   it("makes the routing target every Channel's Channel Session, keeping other preferences", async () => {

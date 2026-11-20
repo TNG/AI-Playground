@@ -9,13 +9,18 @@ import {
   writeHistoryLines,
   writeSessionFile,
 } from '../persist/sessionFiles'
-import { HistoryEntrySchema, type HistoryEntry, type SessionLastPreset } from '@/types/sessionIpc'
+import {
+  HistoryEntrySchema,
+  type HistoryArtifact,
+  type HistoryEntry,
+  type SessionLastPreset,
+} from '@/types/sessionIpc'
 
 const LOG_SCOPE = 'sessions'
 
 export type NewHistoryEntry = Omit<HistoryEntry, 'id' | 'timestamp'>
 
-/** Appends one History Entry on the Session's write chain; earlier lines are never touched. */
+/** Appends one History Entry on the Session's write chain. */
 export async function appendHistoryEntry(
   sessionId: string,
   entry: NewHistoryEntry,
@@ -93,6 +98,39 @@ export async function removeHistoryEntry(sessionId: string, entryId: string): Pr
     await writeSessionFile({ ...read.file, updateCursors: cursors })
     return true
   })
+}
+
+/**
+ * Rewrites every Artifact reference through `change`, in one write; a line that does not parse
+ * stays as it was. Call it on the Session's write chain: it does not take the chain itself.
+ */
+export async function rewriteHistoryArtifacts(
+  sessionId: string,
+  change: (artifact: HistoryArtifact) => HistoryArtifact,
+): Promise<void> {
+  const raw = await readHistoryFile(sessionId)
+  let changed = false
+  const lines = raw.split('\n').map((line) => {
+    if (!line.trim()) return line
+    try {
+      const parsed = HistoryEntrySchema.safeParse(JSON.parse(line))
+      if (!parsed.success) return line
+      const artifacts = parsed.data.artifacts.map(change)
+      if (artifacts.every((artifact, index) => artifact === parsed.data.artifacts[index])) {
+        return line
+      }
+      changed = true
+      return JSON.stringify({ ...parsed.data, artifacts })
+    } catch {
+      return line
+    }
+  })
+  if (changed) {
+    await writeHistoryLines(
+      sessionId,
+      lines.filter((line) => line.trim() !== ''),
+    )
+  }
 }
 
 /** The preset and variant of the newest entry, which opening the Session switches back to. */

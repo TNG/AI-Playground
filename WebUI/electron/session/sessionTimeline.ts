@@ -32,6 +32,8 @@ export async function upsertTimelineMessages(
     }
     return { ...current, timeline }
   })
+  // A change announced meanwhile carried the timeline it read; the window keeps the last one.
+  emitSessionChanged(sessionDocumentOf(file))
   return file.timeline
 }
 

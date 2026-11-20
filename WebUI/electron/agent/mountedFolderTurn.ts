@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  isWritable,
   mountedFolderLocation,
   resolveMountedFolders,
   type ResolvedMountedFolder,
@@ -26,45 +27,73 @@ function realOrResolved(hostPath: string): string {
   }
 }
 
+/** Nested folders may share a sandbox when both are read-write; the same folder twice never. */
+function conflicts(a: string, b: string, bothWritable: boolean): boolean {
+  if (a === b) return true
+  return !bothWritable && overlaps(a, b)
+}
+
 function overlaps(a: string, b: string): boolean {
   return containedIn(a, b) || containedIn(b, a)
 }
 
 /**
- * Refuses a turn whose Mounted Folders, by real path, overlap the Session Folder or each
- * other. The picker refuses these too, but cannot see symlinked aliases or folders that
- * reached the Session another way (an Agent's Default Settings, a run in another Session).
+ * Refuses a turn whose Mounted Folders, by real path, repeat the Workspace or each other, or nest
+ * with them at other access. The picker refuses these too, but cannot see symlinked aliases or
+ * folders that reached the turn another way (an Agent's Settings Template, a run in another
+ * Session).
  */
 export function assertMountedFoldersApart(
-  sessionFolder: string,
+  workspace: string,
   folders: readonly MountedFolder[],
 ): void {
-  const realSessionFolder = realOrResolved(sessionFolder)
-  const seen: { name: string; hostPath: string; real: string }[] = []
+  const realWorkspace = realOrResolved(workspace)
+  const seen: { name: string; hostPath: string; real: string; writable: boolean }[] = []
   for (const folder of resolveMountedFolders(folders)) {
     const real = realOrResolved(folder.hostPath)
-    if (overlaps(real, realSessionFolder)) {
+    const writable = isWritable(folder)
+    if (conflicts(real, realWorkspace, writable)) {
       throw new Error(
-        `Mounted Folder "${folder.name}" (${folder.hostPath}) overlaps the Session Folder ` +
-          `${sessionFolder}. Remove it from the agent settings, or mount a folder beside it.`,
+        `Mounted Folder "${folder.name}" (${folder.hostPath}) overlaps the Workspace ` +
+          `${workspace}. Remove it from the agent settings, or mount a folder beside it.`,
       )
     }
-    const clash = seen.find((other) => overlaps(real, other.real))
+    const clash = seen.find((other) => conflicts(real, other.real, writable && other.writable))
     if (clash) {
       throw new Error(
         `Mounted Folder "${folder.name}" (${folder.hostPath}) overlaps Mounted Folder ` +
           `"${clash.name}" (${clash.hostPath}). Keep only one of them in the agent settings.`,
       )
     }
-    seen.push({ ...folder, real })
+    seen.push({ ...folder, real, writable })
   }
 }
 
-/** One line for the turn after the Mounted Folders changed; undefined when they did not. */
+/** The note a turn starts with when its folders changed or a Session folder was left out. */
 export function mountedFoldersChangeNote(
   previous: readonly ResolvedMountedFolder[],
   current: readonly ResolvedMountedFolder[],
   unsandboxed: boolean,
+  workdir?: { before: string; after: string },
+  leftOut: readonly { hostPath: string; overlaps: string }[] = [],
+): string | undefined {
+  const notes = [changedFolders(previous, current, unsandboxed, workdir), leftOutNote(leftOut)]
+  return notes.filter(Boolean).join(' ') || undefined
+}
+
+function leftOutNote(leftOut: readonly { hostPath: string; overlaps: string }[]): string {
+  if (leftOut.length === 0) return ''
+  const each = leftOut.map(
+    (folder) => `${folder.hostPath}, the Session's folder, overlaps ${folder.overlaps}`,
+  )
+  return `[Not mounted for this run: ${each.join('; ')}.]`
+}
+
+function changedFolders(
+  previous: readonly ResolvedMountedFolder[],
+  current: readonly ResolvedMountedFolder[],
+  unsandboxed: boolean,
+  workdir?: { before: string; after: string },
 ): string | undefined {
   const where = (folder: ResolvedMountedFolder) => mountedFolderLocation(folder, unsandboxed)
   const before = new Map(previous.map((folder) => [folder.name, folder]))
@@ -78,11 +107,16 @@ export function mountedFoldersChangeNote(
     else if (was.hostPath !== folder.hostPath || was.access !== folder.access) changed.push(label)
   }
   const removed = previous.filter((folder) => !now.has(folder.name)).map(where)
-  if (added.length + changed.length + removed.length === 0) return undefined
+  const moved = workdir && workdir.before !== workdir.after
+  if (added.length + changed.length + removed.length === 0 && !moved) return undefined
   const parts = [
+    moved
+      ? `Your working directory, the Workspace, is now ${workdir.after}; save new files there. ` +
+        `${workdir.before} is no longer your working directory.`
+      : '',
     added.length > 0 ? `Added: ${added.join(', ')}.` : '',
     changed.length > 0 ? `Changed: ${changed.join(', ')}.` : '',
     removed.length > 0 ? `Removed, no longer available: ${removed.join(', ')}.` : '',
   ].filter(Boolean)
-  return `[The user changed your Mounted Folders since your last turn. ${parts.join(' ')}]`
+  return `[The user changed your folders since your last turn. ${parts.join(' ')}]`
 }

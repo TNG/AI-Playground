@@ -129,6 +129,7 @@ import {
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
 import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -251,6 +252,7 @@ import {
   createSession,
   createSessionGroup,
   deleteSession,
+  sessionDeletePreview,
   listSessionGroups,
   listSessions,
   moveSessionToGroup,
@@ -263,10 +265,23 @@ import {
   renameSession,
   pinSession,
   pickSessionAgent,
-  sessionsRootDir,
   setSessionDeps,
   wipeDemoSessions,
 } from './session/sessions'
+import { attachmentsFolderFor } from './session/sessionAttachments'
+import { migrateSessionLayout } from './session/sessionLayoutMigration'
+import { moveSessionBookkeeping } from './persist/sessionBookkeepingMove'
+import { sessionFolderMediaFile, sessionLegacyMediaFile } from './session/sessionFolderMedia'
+import { assertSessionWorkspacePresent, missingSessionWorkspace } from './session/sessionWorkspace'
+import {
+  addSessionFolder,
+  locateSessionWorkspace,
+  openSessionFolder,
+  removeSessionFolder,
+  setSessionFolderAccess,
+  starSessionFolder,
+  startNewSessionWorkspace,
+} from './session/sessionFolders'
 import {
   deleteArtifact,
   listAllArtifacts,
@@ -375,6 +390,7 @@ import {
 import {
   deleteAgentDraft,
   deleteAgentTask,
+  dropAgentMountedFolders,
   readAgentDrafts,
   readAgentTasks,
   saveAgentDraft,
@@ -623,13 +639,13 @@ fs.mkdirSync(audioDir, { recursive: true })
 /**
  * Roots the `aipg-media` scheme serves, keyed by URL authority: generated media,
  * the game library (a game's icon lives next to its HTML, not in the media
- * folder — see gameLibrary.ts) and the Session Folders.
+ * folder — see gameLibrary.ts) and the Session Folders. A Session's listed folders are served
+ * under `folders`, resolved through its folder list.
  */
 function aipgMediaRoots(): Record<string, string> {
   return {
     media: mediaDir,
     games: getGamesDir(),
-    sessions: sessionsRootDir(),
     trials: getAgentTrialsDir(),
   }
 }
@@ -654,6 +670,8 @@ function getLocalPathFromAipgMediaUrl(url: string): string | null {
   } catch {
     return null
   }
+  if (parsed.host === 'folders') return sessionFolderMediaFile(url)
+  if (parsed.host === 'sessions') return sessionLegacyMediaFile(url)
   const roots = aipgMediaRoots()
   const root = roots[parsed.host] ?? mediaDir
   const relativeRaw = roots[parsed.host] ? parsed.pathname : parsed.host + parsed.pathname
@@ -1823,6 +1841,7 @@ function initEventHandle() {
       cancelActiveArtifactRun,
       handleMediaResponse,
       inSessionTurn,
+      assertSessionWorkspacePresent,
     }),
   )
 
@@ -1870,6 +1889,15 @@ function initEventHandle() {
       openSession,
       renameSession,
       pinSession,
+      addSessionFolder,
+      removeSessionFolder,
+      setSessionFolderAccess,
+      starSessionFolder,
+      missingSessionWorkspace,
+      locateSessionWorkspace,
+      startNewSessionWorkspace,
+      assertSessionWorkspacePresent,
+      openSessionFolder,
       setSessionReachable,
       setRealShellFolders,
       migrateHomeAgentThreads,
@@ -1883,6 +1911,7 @@ function initEventHandle() {
       readShowMore,
       setShowMore,
       deleteSession,
+      sessionDeletePreview,
       harnessSessionFor,
       taskRunHarnessFor,
       upsertTimelineMessages,
@@ -1924,6 +1953,7 @@ function initEventHandle() {
       submitAgentToolResult,
       listAgentCapabilities,
       importAttachment,
+      attachmentsFolderFor,
       sessionDocuments,
       indexSessionDocument,
       removeSessionDocument,
@@ -1949,6 +1979,7 @@ function initEventHandle() {
       readAgentTasks,
       saveAgentTask,
       deleteAgentTask,
+      openAgentTaskFolder,
       readAgentDrafts,
       saveAgentDraft,
       deleteAgentDraft,
@@ -2235,6 +2266,12 @@ app.whenReady().then(async () => {
       if (!window.isDestroyed()) typedSend(window.webContents, 'computeMetricsUpdate', snapshot)
     })
     startComputeMetricsSampler({ xpuSmiPath: getXpuSmiExePath() })
+    if (!settings.isDemoModeEnabled) {
+      // Before anything reads a Session: their records now live in the app's internal storage.
+      await moveSessionBookkeeping().catch((error) =>
+        appLogger.error(`session bookkeeping move failed: ${String(error)}`, 'electron-backend'),
+      )
+    }
     appLogger.info('startup step: initializing service registry', 'electron-backend', true)
     await initServiceRegistry(window, settings)
     if (!settings.isDemoModeEnabled) {
@@ -2248,6 +2285,11 @@ app.whenReady().then(async () => {
       // After the Agent Library migration, whose Drafts take Agent Maker's settings as they were.
       await migrateAgentMakerSessions().catch((error) =>
         appLogger.error(`agent maker migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After Agent Maker's, which leaves the folders it picked in the Assistant's settings.
+      await migrateSessionLayout()
+      await dropAgentMountedFolders().catch((error) =>
+        appLogger.error(`agent folder migration failed: ${String(error)}`, 'electron-backend'),
       )
     }
     // After the registry: the renderer's stores call into it as they are created.

@@ -2,18 +2,18 @@ import z from 'zod'
 import { ChannelKindSchema } from '@/assets/js/store/channels/types'
 import { ChatModelConfigSchema, MediaAgentCatalogSchema } from './chatIpc'
 import {
+  AgentFolderOverridesSchema,
   AgentFollowUpTagSchema,
   AgentRunTagSchema,
-  MountedFolderAccessSchema,
 } from './agentSessionIpc'
 
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 
-// Attachments reach the prompt as `@attachments/<file>` (agentModeWorkspace.ts).
-const IMAGE_ATTACHMENT = /@"?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
+// Attachments reach the prompt as `@/attachments/<file>` in a Session, `@attachments/<file>` in a game.
+const IMAGE_ATTACHMENT = /@"?\/?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
 const IMAGE_ATTACHMENTS =
-  /@(?:"(attachments\/[^"\n]+?\.(?:png|jpe?g|webp|gif|bmp))"|(attachments\/\S+?\.(?:png|jpe?g|webp|gif|bmp)))(?![\w.])/gi
+  /@(?:"(\/?attachments\/[^"\n]+?\.(?:png|jpe?g|webp|gif|bmp))"|(\/?attachments\/\S+?\.(?:png|jpe?g|webp|gif|bmp)))(?![\w.])/gi
 
 /** Whether an agent prompt hands the model an image, so a vision model needs its projector. */
 export function promptHasImageAttachment(prompt: string): boolean {
@@ -90,13 +90,6 @@ export const AgentToolSpecSchema = z.object({
   allowedWorkflows: z.array(z.string()).optional(),
 })
 
-/** A Mounted Folder with its sandbox name settled (`resolveMountedFolders`). */
-export const ResolvedMountedFolderSchema = z.object({
-  hostPath: z.string().min(1),
-  name: z.string().regex(/^[A-Za-z0-9._-]+$/),
-  access: MountedFolderAccessSchema,
-})
-
 /** Assistant turns to delete from a Harness Session, with their messages in the Session's timeline. */
 export const DeleteAgentTurnsRequestSchema = z.object({
   sessionRef: z.string().optional(),
@@ -141,7 +134,8 @@ export const AgentModeTurnConfigSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   mcpServerIds: z.array(z.string()).optional(),
   unsandboxed: z.boolean().optional(),
-  mountedFolders: z.array(ResolvedMountedFolderSchema).optional(),
+  /** An Agent Run's folder overrides; main resolves them against its Session's list. */
+  folderOverrides: AgentFolderOverridesSchema.optional(),
   planningThinkingOnly: z.boolean().optional(),
   /** Downloaded embedding model for the `rag` capability; absent disables it. */
   embeddingModel: z.string().optional(),
@@ -158,6 +152,8 @@ export const AgentModeTurnConfigSchema = z.object({
   /** An Agent Run's turn: no Session Update, no `session_history`, its entry tagged with the Agent. */
   taskRun: z
     .object({
+      /** The saved Agent that runs; its own Workspace is registered in the Session as its. */
+      taskId: z.string().optional(),
       taskName: z.string(),
       /** The Start Prompt, which the run's History Entry records instead of the run prompt. */
       input: z.string().optional(),
@@ -181,6 +177,9 @@ export type AgentModeTurnConfig = z.infer<typeof AgentModeTurnConfigSchema>
  * An `agentMode:executeTool` dispatch: main hands a renderer-implemented tool
  * call to the window to run, and the renderer answers over `agentMode:toolResult`.
  */
+/** Who a file is attached for: the folder a turn works in, and its Session or Trial Run. */
+export type AttachmentTarget = { workspaceDir: string; sessionId?: string; trialAgentId?: string }
+
 export type AgentToolExecuteRequest = {
   requestId: string
   /** The Agent Session whose turn called the tool. */

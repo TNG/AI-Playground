@@ -20,6 +20,7 @@ import type {
   createSessionGroup,
   deleteSession,
   deleteSessionGroup,
+  sessionDeletePreview,
   listSessionGroups,
   listSessions,
   moveSessionToGroup,
@@ -49,6 +50,18 @@ import type {
   removeTimelineMessages,
   upsertTimelineMessages,
 } from '../../session/sessionTimeline'
+import type {
+  addSessionFolder,
+  locateSessionWorkspace,
+  removeSessionFolder,
+  setSessionFolderAccess,
+  starSessionFolder,
+  startNewSessionWorkspace,
+} from '../../session/sessionFolders'
+import type {
+  assertSessionWorkspacePresent,
+  missingSessionWorkspace,
+} from '../../session/sessionWorkspace'
 import type { ChatTranscriptMessage, saveChatTranscript } from '../../session/sessionChatTurn'
 import type { readSessionSettings, writePresetSettings } from '../../session/sessionSettings'
 import { groupNameProblemOf } from '@/lib/sessionGroupName'
@@ -64,6 +77,16 @@ export type SessionsDeps = {
   setRealShellFolders: typeof setRealShellFolders
   migrateHomeAgentThreads: typeof migrateHomeAgentThreads
   pickSessionAgent: typeof pickSessionAgent
+  addSessionFolder: typeof addSessionFolder
+  removeSessionFolder: typeof removeSessionFolder
+  setSessionFolderAccess: typeof setSessionFolderAccess
+  starSessionFolder: typeof starSessionFolder
+  missingSessionWorkspace: typeof missingSessionWorkspace
+  locateSessionWorkspace: typeof locateSessionWorkspace
+  startNewSessionWorkspace: typeof startNewSessionWorkspace
+  assertSessionWorkspacePresent: typeof assertSessionWorkspacePresent
+  /** Shows a listed folder in the OS file manager; the app-created Workspace is created first. */
+  openSessionFolder: (id: string, folderId?: string) => Promise<void>
   listSessionGroups: typeof listSessionGroups
   createSessionGroup: typeof createSessionGroup
   moveSessionToGroup: typeof moveSessionToGroup
@@ -73,6 +96,7 @@ export type SessionsDeps = {
   readShowMore: typeof readShowMore
   setShowMore: typeof setShowMore
   deleteSession: typeof deleteSession
+  sessionDeletePreview: typeof sessionDeletePreview
   recordAudioTurn: typeof recordAudioTurn
   listAllArtifacts: typeof listAllArtifacts
   missingArtifactUrls: typeof missingArtifactUrls
@@ -217,6 +241,94 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
+    'sessions:addFolder': async (_event, id, hostPath) => {
+      try {
+        const added = await deps.addSessionFolder(
+          requireString(id, 'session id'),
+          requireString(hostPath, 'folder'),
+        )
+        return { success: true as const, ...added }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:removeFolder': async (_event, id, folderId) => {
+      try {
+        const list = await deps.removeSessionFolder(
+          requireString(id, 'session id'),
+          requireString(folderId, 'folder id'),
+        )
+        return { success: true as const, list }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:setFolderAccess': async (_event, id, folderId, access) => {
+      try {
+        if (access !== 'read-only' && access !== 'read-write') {
+          throw new Error('access must be read-only or read-write')
+        }
+        const list = await deps.setSessionFolderAccess(
+          requireString(id, 'session id'),
+          requireString(folderId, 'folder id'),
+          access,
+        )
+        return { success: true as const, list }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:starFolder': async (_event, id, folderId) => {
+      try {
+        const starred = await deps.starSessionFolder(
+          requireString(id, 'session id'),
+          requireString(folderId, 'folder id'),
+        )
+        return { success: true as const, ...starred }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:missingWorkspace': async (_event, id) => {
+      try {
+        const missing = await deps.missingSessionWorkspace(requireString(id, 'session id'))
+        return { success: true as const, missing }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:locateWorkspace': async (_event, id, hostPath) => {
+      try {
+        const located = await deps.locateSessionWorkspace(
+          requireString(id, 'session id'),
+          requireString(hostPath, 'folder'),
+        )
+        return { success: true as const, ...located }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:startNewWorkspace': async (_event, id) => {
+      try {
+        return {
+          success: true as const,
+          ...(await deps.startNewSessionWorkspace(requireString(id, 'session id'))),
+        }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:openFolder': async (_event, id, folderId) => {
+      try {
+        await deps.openSessionFolder(
+          requireString(id, 'session id'),
+          folderId === undefined ? undefined : requireString(folderId, 'folder id'),
+        )
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
     'sessions:pin': async (_event, id, pinned) => {
       try {
         if (typeof pinned !== 'boolean') throw new Error('pinned must be a boolean')
@@ -304,6 +416,16 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         await deps.deleteSession(requireString(id, 'session id'))
         return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:deletePreview': async (_event, id) => {
+      try {
+        return {
+          success: true as const,
+          preview: await deps.sessionDeletePreview(requireString(id, 'session id')),
+        }
       } catch (e) {
         return ipcFail(e)
       }
@@ -399,11 +521,11 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
         return ipcFail(e)
       }
     },
-    'sessions:deleteArtifact': async (_event, id, relativePath) => {
+    'sessions:deleteArtifact': async (_event, id, url) => {
       try {
         await deps.deleteArtifact(
           requireString(id, 'session id'),
-          requireString(relativePath, 'artifact path'),
+          requireString(url, 'artifact url'),
         )
         return { success: true as const }
       } catch (e) {
@@ -434,6 +556,7 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
     },
     'sessions:beginTurn': async (_event, id, turn) => {
       try {
+        await deps.assertSessionWorkspacePresent(requireString(id, 'session id'))
         const claimed = deps.claimSessionTurn(
           requireString(id, 'session id'),
           SessionTurnSchema.parse(turn),

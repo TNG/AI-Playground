@@ -70,7 +70,7 @@ export async function buildDelegatedMediaTool(
       for (const key of spec.workspacePathInputs ?? []) {
         const value = dispatchInput[key]
         if (typeof value === 'string' && value !== '') {
-          dispatchInput[key] = workspaceFileToDataUri(workspaceDir, value)
+          dispatchInput[key] = workspaceFileToDataUri(host, value)
         }
       }
       const specialist = resolveSpecialist(host)

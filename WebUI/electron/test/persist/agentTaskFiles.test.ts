@@ -33,6 +33,7 @@ const {
   saveAgentTask,
   setAgentTaskFilesDeps,
   wipeDemoAgentTasks,
+  dropAgentMountedFolders,
 } = await import('../../persist/agentTaskFiles')
 
 function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
@@ -400,6 +401,24 @@ describe('the kernel Drafts file', () => {
     expect(await readRaw(files.drafts)).toBeNull()
   })
 
+  it('keeps no host folder on a demo Agent or Draft', async () => {
+    setAgentTaskFilesDeps({ isDemoMode: () => true })
+    const settingsTemplate = {
+      backend: 'llamaCPP' as const,
+      folderOverrides: {
+        folders: [
+          { id: 'f1', hostPath: '/Users/host/notes', slug: 'notes', access: 'read-only' as const },
+        ],
+      },
+    }
+
+    await saveAgentTask(task('a', { settingsTemplate }))
+    await saveAgentDraft(draft('a', { settingsTemplate }))
+
+    expect((await readAgentTasks())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readAgentDrafts())[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+  })
+
   it('routes Drafts through the demo file and wipes it with the demo Agents', async () => {
     await saveAgentDraft(draft('real'))
     setAgentTaskFilesDeps({ isDemoMode: () => true })
@@ -411,5 +430,68 @@ describe('the kernel Drafts file', () => {
     expect(await readRaw(files.draftsDemo)).toBeNull()
     setAgentTaskFilesDeps({ isDemoMode: () => false })
     expect(await readAgentDrafts()).toEqual([draft('real')])
+  })
+})
+
+describe("the upgrade that drops Agents' additional folders", () => {
+  const withFolders = { backend: 'llamaCPP', mountedFolders: [{ hostPath: '/Users/me/Papers' }] }
+
+  async function writeOldFiles(): Promise<void> {
+    await fs.writeFile(
+      files.real,
+      JSON.stringify({
+        schemaVersion: 3,
+        tasks: [
+          { ...task('a'), settingsTemplate: withFolders },
+          { ...task('b'), settingsTemplate: { backend: 'llamaCPP' } },
+        ],
+      }),
+    )
+    await fs.writeFile(
+      files.drafts,
+      JSON.stringify({
+        schemaVersion: 1,
+        drafts: [{ ...draft('a'), settingsTemplate: withFolders }],
+      }),
+    )
+  }
+
+  it('leaves every Agent and Draft with no additional folders and no overrides', async () => {
+    await writeOldFiles()
+
+    await dropAgentMountedFolders()
+
+    const tasks = (await readRaw(files.real)) as { tasks: { settingsTemplate: object }[] }
+    const drafts = (await readRaw(files.drafts)) as { drafts: { settingsTemplate: object }[] }
+    expect(tasks.tasks.map((entry) => entry.settingsTemplate)).toEqual([
+      { backend: 'llamaCPP' },
+      { backend: 'llamaCPP' },
+    ])
+    expect(drafts.drafts[0].settingsTemplate).toEqual({ backend: 'llamaCPP' })
+    expect((await readRaw(files.real))?.schemaVersion).toBe(3)
+  })
+
+  it('changes nothing when run a second time', async () => {
+    await writeOldFiles()
+    await dropAgentMountedFolders()
+    const once = [await fs.readFile(files.real, 'utf8'), await fs.readFile(files.drafts, 'utf8')]
+    const stamps = [(await fs.stat(files.real)).mtimeMs, (await fs.stat(files.drafts)).mtimeMs]
+
+    await dropAgentMountedFolders()
+
+    expect([
+      await fs.readFile(files.real, 'utf8'),
+      await fs.readFile(files.drafts, 'utf8'),
+    ]).toEqual(once)
+    expect([(await fs.stat(files.real)).mtimeMs, (await fs.stat(files.drafts)).mtimeMs]).toEqual(
+      stamps,
+    )
+  })
+
+  it('writes nothing when there are no Agents', async () => {
+    await dropAgentMountedFolders()
+
+    expect(await readRaw(files.real)).toBeNull()
+    expect(await readRaw(files.drafts)).toBeNull()
   })
 })

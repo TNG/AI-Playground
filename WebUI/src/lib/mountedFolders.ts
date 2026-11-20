@@ -1,4 +1,5 @@
 import type { MountedFolder, MountedFolderAccess } from '@/types/agentSessionIpc'
+import type { SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
 
 /** A Mounted Folder as a turn uses it: its host folder, seen at `/mnt/<name>`. */
 export type ResolvedMountedFolder = {
@@ -36,25 +37,45 @@ function sanitizedName(raw: string): string {
   return name || 'folder'
 }
 
+/** `raw` sanitised and suffixed until no name in `taken` (lower-cased) holds it. */
+export function uniqueName(raw: string, taken: ReadonlySet<string>): string {
+  const base = sanitizedName(raw)
+  let name = base
+  for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) name = `${base}-${suffix}`
+  return name
+}
+
 /** Give each folder its sandbox name: the user's name or the folder name, made unique. */
 export function resolveMountedFolders(folders: readonly MountedFolder[]): ResolvedMountedFolder[] {
   const taken = new Set<string>()
   return folders.map((folder) => {
-    const base = sanitizedName(folder.name?.trim() || folderBaseName(folder.hostPath))
-    let name = base
-    for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) name = `${base}-${suffix}`
+    const name = uniqueName(folder.name?.trim() || folderBaseName(folder.hostPath), taken)
     taken.add(name.toLowerCase())
     return { hostPath: folder.hostPath, name, access: folder.access ?? 'read-only' }
   })
 }
 
+/** The slug a folder added to a Session gets: its sanitised name, unique among `taken`. */
+export function assignSlug(hostPath: string, taken: readonly string[]): string {
+  return uniqueName(folderBaseName(hostPath), new Set(taken.map((slug) => slug.toLowerCase())))
+}
+
+export function workspaceEntryOf(list: SessionFolderList): SessionFolderEntry | undefined {
+  return list.folders.find((folder) => folder.id === list.workspaceId)
+}
+
+/** The Session's folders other than its Workspace, as a turn mounts them at `/mnt/<slug>`. */
+export function mountedFoldersBesideWorkspace(list: SessionFolderList): ResolvedMountedFolder[] {
+  return list.folders
+    .filter((folder) => folder.id !== list.workspaceId && !folder.planned)
+    .map(({ hostPath, slug, access }) => ({ hostPath, name: slug, access }))
+}
+
 export type MountedFolderRefusal =
-  | { reason: 'too-broad' | 'home' | 'session-folder' }
-  | { reason: 'mounted' | 'contains-mounted'; folder: string }
+  { reason: 'too-broad' | 'home' } | { reason: 'mounted' | 'contains-mounted'; folder: string }
 
 export type MountedFolderContext = {
   homeFolder?: string
-  sessionFolder?: string
   mountedFolders: readonly MountedFolder[]
 }
 
@@ -81,8 +102,46 @@ function comparablePathSegments(hostPath: string): string[] {
   return windows ? segments.map((segment) => segment.toLowerCase()) : segments
 }
 
+/** Whether two host paths name the same folder, case-insensitively on Windows. */
+export function sameHostPath(a: string, b: string): boolean {
+  const left = comparablePathSegments(a)
+  const right = comparablePathSegments(b)
+  return left.length === right.length && isSameOrAncestor(left, right)
+}
+
+/** Whether two host paths are the same folder or one lies inside the other. */
+export function hostPathsNest(a: string, b: string): boolean {
+  const left = comparablePathSegments(a)
+  const right = comparablePathSegments(b)
+  return isSameOrAncestor(left, right) || isSameOrAncestor(right, left)
+}
+
 function isSameOrAncestor(outer: string[], inner: string[]): boolean {
   return outer.length <= inner.length && outer.every((segment, i) => segment === inner[i])
+}
+
+function tooBroad(
+  folder: string[],
+  homeFolder: string | undefined,
+): MountedFolderRefusal | undefined {
+  if (isDriveRoot(folder)) return { reason: 'too-broad' }
+  if (homeFolder && isSameOrAncestor(folder, comparablePathSegments(homeFolder)))
+    return { reason: 'home' }
+  return undefined
+}
+
+function overlapRefusal(
+  folder: string[],
+  others: readonly { hostPath: string; name: string }[],
+): MountedFolderRefusal | undefined {
+  for (const other of others) {
+    const otherPath = comparablePathSegments(other.hostPath)
+    const sandboxPath = mountedFolderSandboxPath(other)
+    if (isSameOrAncestor(otherPath, folder)) return { reason: 'mounted', folder: sandboxPath }
+    if (isSameOrAncestor(folder, otherPath))
+      return { reason: 'contains-mounted', folder: sandboxPath }
+  }
+  return undefined
 }
 
 /** Why a folder cannot be added as a Mounted Folder, or undefined when it can. */
@@ -91,21 +150,18 @@ export function mountedFolderRefusal(
   context: MountedFolderContext,
 ): MountedFolderRefusal | undefined {
   const folder = comparablePathSegments(candidate)
-  if (isDriveRoot(folder)) return { reason: 'too-broad' }
-  if (context.homeFolder && isSameOrAncestor(folder, comparablePathSegments(context.homeFolder)))
-    return { reason: 'home' }
-  if (context.sessionFolder) {
-    const sessionFolder = comparablePathSegments(context.sessionFolder)
-    if (isSameOrAncestor(folder, sessionFolder) || isSameOrAncestor(sessionFolder, folder)) {
-      return { reason: 'session-folder' }
-    }
-  }
-  for (const mounted of resolveMountedFolders(context.mountedFolders)) {
-    const mountedPath = comparablePathSegments(mounted.hostPath)
-    const sandboxPath = mountedFolderSandboxPath(mounted)
-    if (isSameOrAncestor(mountedPath, folder)) return { reason: 'mounted', folder: sandboxPath }
-    if (isSameOrAncestor(folder, mountedPath))
-      return { reason: 'contains-mounted', folder: sandboxPath }
-  }
-  return undefined
+  return (
+    tooBroad(folder, context.homeFolder) ??
+    overlapRefusal(folder, resolveMountedFolders(context.mountedFolders))
+  )
+}
+
+/** Why a folder cannot join a Session's list, whose Workspace counts like any other entry. */
+export function sessionFolderRefusal(
+  candidate: string,
+  context: { homeFolder?: string; folders: readonly SessionFolderEntry[] },
+): MountedFolderRefusal | undefined {
+  const folder = comparablePathSegments(candidate)
+  const others = context.folders.map((entry) => ({ hostPath: entry.hostPath, name: entry.slug }))
+  return tooBroad(folder, context.homeFolder) ?? overlapRefusal(folder, others)
 }

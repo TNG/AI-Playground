@@ -7,7 +7,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '', audio: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -16,7 +20,10 @@ vi.mock('../../observability/logger', () => ({
 
 const { createSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { readHistoryEntries } = await import('../../session/sessionHistory')
+const { sessionWorkspaceEntry } = await import('../../session/sessionFolders')
+const workspaceId = async (id: string) => (await sessionWorkspaceEntry(id)).id
 const { trackChatTurnInSession } = await import('../../session/sessionChatTurn')
 
 beforeAll(async () => {
@@ -51,14 +58,16 @@ describe('a chat turn in a Session', () => {
       ok: true,
       message: 'Saved.',
       savedFilePath,
-      audioUrl: `aipg-media://sessions/${id}/files/hello.wav`,
+      audioUrl: `aipg-media://folders/${id}/${await workspaceId(id)}/hello.wav`,
     })
-    expect(await fs.readFile(path.join(dirs.real, id, 'files', 'hello.wav'), 'utf8')).toBe(
+    expect(await fs.readFile(path.join(sessionWorkspaceDir(id), 'hello.wav'), 'utf8')).toBe(
       'wav bytes',
     )
     expect(await fs.readdir(dirs.audio)).toEqual(['hello.wav'])
     expect(await readHistoryEntries(id)).toEqual([
-      expect.objectContaining({ artifacts: [{ path: 'files/hello.wav', mediaType: 'audio' }] }),
+      expect.objectContaining({
+        artifacts: [{ folderId: await workspaceId(id), path: 'hello.wav', mediaType: 'audio' }],
+      }),
     ])
   })
 })

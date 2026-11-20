@@ -7,6 +7,7 @@ const { errorsReport } = vi.hoisted(() => ({ errorsReport: vi.fn() }))
 const sessionsApi = vi.hoisted(() => ({
   openSessionId: 's1' as string | null,
   ensureOpenSession: vi.fn(),
+  readyWorkspaceForTurn: vi.fn(async () => true),
   beginMediaTurn: vi.fn(),
   endMediaTurn: vi.fn(),
   forgetTimelineMessages: vi.fn(),

@@ -9,7 +9,7 @@
   "category": "create-images",
   "mediaType": "image",
   "toolCategory": "create-images",
-  "toolInstructions": "Generate a detailed, descriptive prompt that specifies subjects, composition, style, lighting, colors, mood, and any literal text to render in the image. MiniMax H3 Image produces very high resolution (up to 16 megapixels) photorealistic and illustrated images and renders text accurately. When the user requests text in the image, quote the exact text in the prompt. Even if the user requests something simple, expand it to include composition, lighting, materials and style. Generation is slow and resource-intensive, so prefer it when the user wants maximum detail or a large print-quality image.",
+  "toolInstructions": "Write the prompt as a long caption in full sentences that reads like a description of a real photograph or a finished design, not as a list of keywords or quality tags. Cover the subject's identity, pose, expression and clothing, the materials and surfaces, the setting, the camera (shot size, lens, angle), the light and the color palette. Short or tag-style prompts give flat, glossy results with doll-like faces, so expand even a one-word request into several sentences. When the user requests text in the image, quote the exact text and say where it sits; for posters, infographics, UI or packaging, describe the layout, every label and the visual hierarchy. Pick aspectRatio from the main subject: vertical for full-body or tall subjects, horizontal for wide scenes, 1/1 when neutral. This workflow's megapixels tiers are \"4.0\", \"8.0\", \"12.0\" and \"16.0\" (default); use \"4.0\" for quick drafts or when the user wants a fast result. Generation is slow and resource-intensive, so prefer it when the user wants maximum detail or a large print-quality image.",
   "droppedComfyUiParameters": ["--lowvram"],
   "resolutionConfig": {
     "megapixels": [
@@ -37,11 +37,11 @@
   "requiredModels": [
     {
       "type": "unet",
-      "model": "Comfy-Org/MiniMax-H3-Image/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors"
+      "model": "Comfy-Org/MiniMax-H3-Image/diffusion_models/minimax_h3_image_pruned_w4a8.safetensors"
     },
     {
       "type": "clip",
-      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
     },
     {
       "type": "vae",
@@ -149,7 +149,7 @@
   "comfyUiApiWorkflow": {
     "1": {
       "inputs": {
-        "unet_name": "Comfy-Org---MiniMax-H3-Image\\diffusion_models\\minimax_h3_image_pruned_int8_convrot.safetensors",
+        "unet_name": "Comfy-Org---MiniMax-H3-Image\\diffusion_models\\minimax_h3_image_pruned_w4a8.safetensors",
         "weight_dtype": "default"
       },
       "class_type": "UNETLoader",
@@ -159,7 +159,7 @@
     },
     "2": {
       "inputs": {
-        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
         "type": "minimax",
         "device": "default"
       },

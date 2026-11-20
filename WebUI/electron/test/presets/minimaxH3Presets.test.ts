@@ -77,6 +77,24 @@ describe('MiniMax H3 presets', () => {
     },
   )
 
+  it.each(Object.entries(presets))('%s uses the smaller quantized checkpoints', (name, preset) => {
+    const unet = name === 'image' || name === 'edit' ? 'image_pruned_w4a8' : 'fl2va_pruned_w6a8'
+    for (const resolved of resolvedPresets(preset)) {
+      const models = (resolved.requiredModels ?? []).map(({ model }) => model)
+      expect(models).toContain(
+        'Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
+      )
+      expect(models.some((model) => model.endsWith(`minimax_h3_${unet}.safetensors`))).toBe(true)
+      expect(models.filter((model) => /diffusion_models|text_encoders/.test(model))).toHaveLength(2)
+    }
+  })
+
+  it('lists the image megapixel tiers in its tool instructions', () => {
+    for (const { label } of presets.image.resolutionConfig?.megapixels ?? []) {
+      expect(presets.image.toolInstructions).toContain(`"${label}"`)
+    }
+  })
+
   it.each(Object.entries(presets))(
     '%s writes the prompt into the H3 conditioning node',
     (_, preset) => {

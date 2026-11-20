@@ -50,11 +50,11 @@
   "requiredModels": [
     {
       "type": "unet",
-      "model": "Comfy-Org/MiniMax-H3/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+      "model": "Comfy-Org/MiniMax-H3/diffusion_models/minimax_h3_fl2va_pruned_w6a8.safetensors"
     },
     {
       "type": "clip",
-      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
     },
     {
       "type": "vae",
@@ -152,11 +152,11 @@
         "requiredModels": [
           {
             "type": "unet",
-            "model": "Comfy-Org/MiniMax-H3/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+            "model": "Comfy-Org/MiniMax-H3/diffusion_models/minimax_h3_fl2va_pruned_w6a8.safetensors"
           },
           {
             "type": "clip",
-            "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+            "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
           },
           {
             "type": "vae",
@@ -223,7 +223,7 @@
   "comfyUiApiWorkflow": {
     "1": {
       "inputs": {
-        "unet_name": "Comfy-Org---MiniMax-H3\\diffusion_models\\minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "unet_name": "Comfy-Org---MiniMax-H3\\diffusion_models\\minimax_h3_fl2va_pruned_w6a8.safetensors",
         "weight_dtype": "default"
       },
       "class_type": "UNETLoader",
@@ -233,7 +233,7 @@
     },
     "2": {
       "inputs": {
-        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
         "type": "minimax",
         "device": "default"
       },

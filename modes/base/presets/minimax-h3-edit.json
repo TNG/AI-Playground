@@ -9,7 +9,7 @@
   "mediaType": "image",
   "description": "Add, remove, change or restyle elements of a photo by describing the result. Uses MiniMax H3 Image and outputs up to 16 megapixels (4K).",
   "extendedDescription": "Edit images by describing a change. Load a reference image, then describe the finished image you want; refer to the loaded image as <Picture 1> in the prompt. The image is rescaled to the chosen output megapixels before editing, keeping its aspect ratio. MiniMax H3 Image works best between 4 and 16 megapixels.",
-  "toolInstructions": "Use this workflow for high resolution prompt-driven image editing: adding, removing, changing, or restyling elements in an existing image. Write the prompt as a description of the desired finished image and refer to the input image as <Picture 1>, for example 'Replace the yellow taxi in <Picture 1> with a pastel pink ice-cream truck in the same side profile at the curb, keeping the street, lighting and camera angle unchanged.' Describe what must stay the same as well as what changes. Output is up to 16 megapixels, so generation is slow and resource-intensive; prefer it when the user wants a large, highly detailed edit.",
+  "toolInstructions": "Use this workflow for high resolution prompt-driven image editing: adding, removing, changing, or restyling elements in an existing image. Write the prompt as a description of the desired finished image and refer to the input image as <Picture 1>, for example 'Replace the yellow taxi in <Picture 1> with a pastel pink ice-cream truck in the same side profile at the curb, keeping the street, lighting and camera angle unchanged.' Use several full sentences, not a terse command: describe the change in detail (materials, colors, lighting on the new element, how it sits in the scene) and name what must stay the same, such as faces and identity, pose, framing, background and lighting, so they do not drift. Short prompts give flat, glossy results with doll-like faces. Output is up to 16 megapixels, so generation is slow and resource-intensive; prefer it when the user wants a large, highly detailed edit.",
   "droppedComfyUiParameters": ["--lowvram"],
   "requiredCustomNodes": [
     "evanspearman/ComfyMath@939bb813f1c0ace959b62f20bb2da47190c4e211"
@@ -18,11 +18,11 @@
   "requiredModels": [
     {
       "type": "unet",
-      "model": "Comfy-Org/MiniMax-H3-Image/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors"
+      "model": "Comfy-Org/MiniMax-H3-Image/diffusion_models/minimax_h3_image_pruned_w4a8.safetensors"
     },
     {
       "type": "clip",
-      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
     },
     {
       "type": "vae",
@@ -135,7 +135,7 @@
   "comfyUiApiWorkflow": {
     "1": {
       "inputs": {
-        "unet_name": "Comfy-Org---MiniMax-H3-Image\\diffusion_models\\minimax_h3_image_pruned_int8_convrot.safetensors",
+        "unet_name": "Comfy-Org---MiniMax-H3-Image\\diffusion_models\\minimax_h3_image_pruned_w4a8.safetensors",
         "weight_dtype": "default"
       },
       "class_type": "UNETLoader",
@@ -145,7 +145,7 @@
     },
     "2": {
       "inputs": {
-        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
         "type": "minimax",
         "device": "default"
       },

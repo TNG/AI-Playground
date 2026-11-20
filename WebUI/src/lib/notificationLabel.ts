@@ -21,8 +21,8 @@ export function notificationSessionLabel(
 
 /** `agent` is the Agent's name the run started with, else its Harness Session's title. */
 export function trialRunLabel(
-  templates: Pick<NotificationTemplates, 'trialRunLabel' | 'untitled'>,
+  templates: Pick<NotificationTemplates, 'trialRunLabel' | 'untitledAgent'>,
   agent: string | undefined,
 ): string {
-  return fillTemplate(templates.trialRunLabel, { agent: agent || templates.untitled })
+  return fillTemplate(templates.trialRunLabel, { agent: agent || templates.untitledAgent })
 }

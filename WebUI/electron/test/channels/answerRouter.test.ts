@@ -221,7 +221,7 @@ function fakeSessions(
       'trialRunSessionId' in target
         ? `Trial Run · ${trialRuns[target.trialRunSessionId]?.label ?? 'Untitled'}`
         : 'harnessSessionId' in target
-          ? `"${sessions[target.harnessSessionId]?.label ?? 'An agent run'}"`
+          ? `"${sessions[target.harnessSessionId]?.label ?? 'Untitled Session'}"`
           : `"${channelSessions[target.sessionRef]?.title || 'Untitled Session'}"`,
     usesRealShell: ({ harnessSessionId }) => !!sessions[harnessSessionId]?.realShell,
     turnTarget: (target) =>

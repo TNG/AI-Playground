@@ -568,6 +568,10 @@ export const useTextInference = defineStore(
     // Off until the user turns it on; see `speakRepliesAllowed`.
     const speakReplies = ref(false)
     const mcpToolsEnabled = ref(true)
+    // Per-preset MCP servers a chat turn may use (session activation, opt-in:
+    // empty until the user ticks servers in the Attributes tab). Configured
+    // servers live under App Settings → MCP Servers.
+    const mcpServerIds = ref<string[]>([])
     // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
     // nested media specialist agent: the parent model sees one thin `media`
     // tool instead of the full workflow catalog/schemas. In Agent Mode,
@@ -1618,6 +1622,9 @@ export const useTextInference = defineStore(
         (savedSettings.aipgToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
       mcpToolsEnabled.value =
         (savedSettings.mcpToolsEnabled as boolean | undefined) ?? defaultToolsEnabled
+      mcpServerIds.value = ((savedSettings.mcpServerIds as unknown[] | undefined) ?? []).filter(
+        (id): id is string => typeof id === 'string',
+      )
       toolDelegationEnabled.value =
         (savedSettings.toolDelegationEnabled as boolean | undefined) ?? true
 
@@ -1833,6 +1840,16 @@ export const useTextInference = defineStore(
     // Track if we're currently loading settings to prevent watcher from saving during load
     let isLoadingSettings = false
 
+    /** Ticks/unticks one MCP server for the active chat preset (Attributes tab). */
+    function setMcpServerSelected(serverId: string, selected: boolean) {
+      const current = mcpServerIds.value
+      mcpServerIds.value = selected
+        ? current.includes(serverId)
+          ? current
+          : [...current, serverId]
+        : current.filter((id) => id !== serverId)
+    }
+
     /** The live settings in the shape `settingsPerPreset` stores them. */
     function currentSettingsBag(): SettingsBag {
       return {
@@ -1851,6 +1868,7 @@ export const useTextInference = defineStore(
         metricsEnabled: metricsEnabled.value,
         aipgToolsEnabled: aipgToolsEnabled.value,
         mcpToolsEnabled: mcpToolsEnabled.value,
+        mcpServerIds: [...mcpServerIds.value],
         toolDelegationEnabled: toolDelegationEnabled.value,
         builtinToolEnablement: { ...builtinToolEnablement.value },
         speakReplies: speakReplies.value,
@@ -2003,6 +2021,7 @@ export const useTextInference = defineStore(
         metricsEnabled,
         aipgToolsEnabled,
         mcpToolsEnabled,
+        mcpServerIds,
         toolDelegationEnabled,
         builtinToolEnablement,
         speakReplies,
@@ -2158,6 +2177,8 @@ export const useTextInference = defineStore(
       metricsEnabled,
       aipgToolsEnabled,
       mcpToolsEnabled,
+      mcpServerIds,
+      setMcpServerSelected,
       toolDelegationEnabled,
       builtinToolEnablement,
       isBuiltinToolEnabled,

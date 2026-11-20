@@ -1039,7 +1039,7 @@ describe('the Assistant preset in a Session', () => {
       )
 
       const offered = offeredToolNames(bodies[0])
-      expect(offered).toContain('alpha_lookup')
+      expect(offered).toContain('mcp__alpha__alpha_lookup')
       expect(offered).not.toContain('beta_lookup')
     }, 30000)
   })

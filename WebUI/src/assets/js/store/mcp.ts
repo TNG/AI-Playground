@@ -165,6 +165,12 @@ export const useMcp = defineStore('mcp', () => {
     }
   }
 
+  /** Drops one server's cached state after the server was removed from the config. */
+  function forgetServer(serverId: string) {
+    servers.value.delete(serverId)
+    availableServers.value = availableServers.value.filter((s) => s.id !== serverId)
+  }
+
   return {
     servers,
     availableServers,
@@ -183,6 +189,7 @@ export const useMcp = defineStore('mcp', () => {
     stopServer,
     toggleServer,
     reloadConfig,
+    forgetServer,
   }
 })
 

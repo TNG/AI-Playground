@@ -5,6 +5,7 @@ export type AppSettingsSectionId =
   | 'huggingFace'
   | 'speech'
   | 'mediaModes'
+  | 'mcp'
   | 'permissions'
   | 'hide'
   | 'advanced'
@@ -16,6 +17,7 @@ export type AppSettingsPartId =
   | 'huggingFace'
   | 'speech'
   | 'mediaModes'
+  | 'mcp'
   | 'permissions'
   | 'hideMessages'
   | 'backendStatus'
@@ -42,6 +44,7 @@ const SECTIONS: SectionSpec[] = [
   { id: 'huggingFace', heading: false, parts: [{ id: 'huggingFace', demo: 'block' }] },
   { id: 'speech', heading: false, parts: [{ id: 'speech', demo: 'block' }] },
   { id: 'mediaModes', heading: false, parts: [{ id: 'mediaModes', demo: 'block' }] },
+  { id: 'mcp', heading: false, parts: [{ id: 'mcp', demo: 'block' }] },
   { id: 'permissions', heading: false, parts: [{ id: 'permissions', demo: 'block' }] },
   // The Hide group stays open in demo mode: with the feature enabled there,
   // both hiding and bringing messages back must work.

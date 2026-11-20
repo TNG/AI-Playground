@@ -138,8 +138,8 @@ export type SessionPort = {
     origin: AgentAnswerOrigin,
     prompt?: string,
   ) => Promise<AgentStartResult>
-  /** Opens the Session on the desktop, the Agent picked in its prompt bar; a Library stays open. */
-  bringIntoView: (sessionRef: string, agentId: string) => Promise<void>
+  /** Opens the Session on the desktop, the Agent picked in its prompt bar if given; a Library stays open. */
+  bringIntoView: (sessionRef: string, agentId?: string) => Promise<void>
   /** The Session's turn in flight, or its Agent Run (its first turn or a Follow-up). */
   activity: (sessionRef: string) => SessionActivity
   /** Stops the Session's turn or Agent Run; returns what it was. */

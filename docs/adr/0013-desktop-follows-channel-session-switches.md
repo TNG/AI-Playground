@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 amends: the Channel-never-moves-the-desktop rule in the channel-agents-new-session spec (story 30)
 ---
 

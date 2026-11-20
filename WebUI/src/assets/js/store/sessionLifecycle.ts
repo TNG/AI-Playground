@@ -56,13 +56,19 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   }
 
   /**
-   * Opens the Session with the Agent picked; the prompt bar shows it only on Assistant. A Channel
-   * asked for it, so the switch there raises no warning or toast on the desktop.
+   * Opens the Session a Channel switched to: with the Agent picked when given, as it is otherwise.
+   * The Channel asked for it, so a switch to Assistant raises no warning or toast on the desktop.
    */
-  async function openWithAgent(id: string, agentId: string): Promise<void> {
-    if (!(await sessions.pickAgent(id, agentId))) return
+  async function openFromChannel(id: string, agentId?: string): Promise<void> {
+    if (agentId && !(await sessions.pickAgent(id, agentId))) return
     await openSession(id)
-    if (sessions.openSessionId !== id || presets.activePresetName === HARNESS_CHAT_PRESET) return
+    if (sessions.openSessionId !== id) return
+    // The prompt bar shows a picked Agent only on Assistant, and a new Session starts there.
+    if (agentId || sessions.openTimeline.length === 0) await switchToAssistant()
+  }
+
+  async function switchToAssistant(): Promise<void> {
+    if (presets.activePresetName === HARNESS_CHAT_PRESET) return
     const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
     if (!assistant || !presetSwitch.gateOf(assistant).enabled || presetSwitching.isSwitching) return
     await sessionSettings.whenLoaded()
@@ -134,7 +140,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     return false
   }
 
-  return { openSession, openWithAgent, newSession, rowStatus, stopOpenTurn, stopTurnIn }
+  return { openSession, openFromChannel, newSession, rowStatus, stopOpenTurn, stopTurnIn }
 })
 
 if (import.meta.hot) {

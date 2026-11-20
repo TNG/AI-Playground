@@ -200,7 +200,9 @@ _Avoid_: remote session, Home Agent thread
 **Channel Session**:
 The Reachable Session that a Channel's messages go to unless they answer a Notification. Each
 Channel has its own; the Session open on the desktop never changes it, but starting an Agent from
-the Channel in a new Session makes that Session its Channel Session.
+the Channel in a new Session makes that Session its Channel Session. The other way round, each
+deliberate move of the Channel Session (`/load`, `/new`, an Agent start) brings it into view on
+the desktop; plain messages and Answers never do.
 _Avoid_: current session, active thread, focused session
 
 **Notification**:

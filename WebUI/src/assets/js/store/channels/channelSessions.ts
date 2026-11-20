@@ -140,7 +140,15 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     }
     pointers.set(adapter.kind, picked.sessionRef)
     await repaint(adapter, picked.sessionRef)
+    bringIntoView(picked.sessionRef)
     return picked.sessionRef
+  }
+
+  /** Not awaited, so a desktop preset switch waiting on a dialog never holds up the Channel. */
+  function bringIntoView(sessionRef: string): void {
+    void port
+      .bringIntoView(sessionRef)
+      .catch((e: unknown) => deps.log('channelSessions: bringing the Session into view failed:', e))
   }
 
   async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
@@ -158,7 +166,10 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
   }
 
   async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
-    if (await moveToNew(adapter, meta)) await tell(adapter, copy().sessionStarted, meta)
+    const sessionRef = await moveToNew(adapter, meta)
+    if (!sessionRef) return
+    bringIntoView(sessionRef)
+    await tell(adapter, copy().sessionStarted, meta)
   }
 
   const commands: ChannelCommand[] = [

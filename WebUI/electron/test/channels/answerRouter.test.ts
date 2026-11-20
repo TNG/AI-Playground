@@ -160,8 +160,8 @@ function fakeSessions(
     origin: AgentAnswerOrigin
     prompt?: string
   }[] = []
-  /** Each Session the desktop brought into view, with the Agent picked in its prompt bar. */
-  const inView: { sessionRef: string; agentId: string }[] = []
+  /** Each Session the desktop brought into view, with the Agent picked in its prompt bar if any. */
+  const inView: { sessionRef: string; agentId?: string }[] = []
   const bringing = { fails: false }
   /** What starting an Agent does; it goes through unless set. */
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
@@ -299,7 +299,7 @@ function fakeSessions(
     },
     bringIntoView: async (sessionRef, agentId) => {
       if (bringing.fails) throw new Error('window gone')
-      inView.push({ sessionRef, agentId })
+      inView.push(agentId === undefined ? { sessionRef } : { sessionRef, agentId })
     },
     activity: (sessionRef) => activities[sessionRef] ?? { kind: 'idle' },
     stop: async (sessionRef) => {
@@ -1452,6 +1452,65 @@ describe('Channel commands', () => {
     expect(ch.replies).toEqual(['🆕 Started a new Session. Your next message goes to it.'])
   })
 
+  describe('on the desktop', () => {
+    it('brings a Session loaded with /load <n> into view, picking no Agent', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip, 'session-code': code },
+        { telegram: 'session-trip' },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: '/load 2' })
+      expect(inView).toEqual([{ sessionRef: 'session-code' }])
+    })
+
+    it('brings a tapped Session into view', async () => {
+      const { router, inView } = channelSetup({ 'session-trip': trip, 'session-code': code })
+      await router.route(fakeChannel('local-web').adapter, { callback: 'loadConv:session-code' })
+      expect(inView).toEqual([{ sessionRef: 'session-code' }])
+    })
+
+    it('brings the Session /new made into view', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip },
+        { telegram: 'session-trip' },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: '/new' })
+      expect(inView).toEqual([{ sessionRef: 'session-new-1' }])
+    })
+
+    it('does not move for a listing or a Session it could not load', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip, 'session-private': { title: 'Taxes', reachable: false } },
+        { telegram: 'session-trip' },
+      )
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/sessions' })
+      await router.route(ch.adapter, { text: '/load' })
+      await router.route(ch.adapter, { text: '/load 3' })
+      await router.route(ch.adapter, { text: '/load session-private' })
+      expect(inView).toEqual([])
+    })
+
+    it('does not move when /new could not make a Session', async () => {
+      const { router, inView, creation } = channelSetup({ 'session-trip': trip })
+      creation.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: '/new' })
+      expect(inView).toEqual([])
+    })
+
+    it('still loads the Session when the desktop cannot show it', async () => {
+      const { router, inView, bringing, pointers } = channelSetup({
+        'session-trip': trip,
+        'session-code': code,
+      })
+      bringing.fails = true
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/load 2' })
+      expect(inView).toEqual([])
+      expect(pointers.telegram).toBe('session-code')
+      expect(ch.replies).toEqual(['📂 Now in "Refactor". Your messages go there.'])
+    })
+  })
+
   it('clears LAN chat on /new', async () => {
     const { router } = channelSetup({ 'session-trip': trip }, { 'local-web': 'session-trip' })
     const ch = fakeChannel('local-web')
@@ -1770,15 +1829,12 @@ ${PICK}`,
       expect(inView).toEqual(SHOWN)
     })
 
-    it('never moves for a plain message, /new or /load', async () => {
-      const { router, inView } = channelSetup(
-        { ...trip, 'session-work': { title: 'Work' } },
-        { telegram: TRIP },
-      )
+    it('never moves for a plain message, even to a Session it had to make', async () => {
+      const { router, inView, plain } = channelSetup(trip)
       const ch = fakeChannel('telegram')
       await router.route(ch.adapter, { text: 'hello' })
-      await router.route(ch.adapter, { text: '/new' })
-      await router.route(ch.adapter, { callback: 'loadConv:session-work' })
+      await router.route(ch.adapter, { text: 'and again' })
+      expect(plain).toHaveLength(2)
       expect(inView).toEqual([])
     })
 
@@ -2318,6 +2374,18 @@ describe('/agentsin', () => {
     expect(plain.map((message) => message.sessionRef)).toEqual([CODE])
   })
 
+  it('brings a tapped Session into view before any Agent is tapped', async () => {
+    const { router, inView } = picking()
+    await router.route(fakeChannel('telegram').adapter, { callback: `pickSession:${CODE}` })
+    expect(inView).toEqual([{ sessionRef: CODE }])
+  })
+
+  it('does not move for the picker itself', async () => {
+    const { router, inView } = picking()
+    await router.route(fakeChannel('telegram').adapter, { text: '/agentsin' })
+    expect(inView).toEqual([])
+  })
+
   it('repaints LAN chat with the picked Session’s transcript', async () => {
     const { router } = picking({ 'local-web': TRIP })
     const ch = fakeChannel('local-web')
@@ -2349,7 +2417,7 @@ describe('/agentsin', () => {
     expect(agentStarts).toEqual([
       { sessionRef: CODE, agentId: 'agent-tidy', origin: { channel: 'telegram', replyTo: '42' } },
     ])
-    expect(inView).toEqual([{ sessionRef: CODE, agentId: 'agent-tidy' }])
+    expect(inView).toEqual([{ sessionRef: CODE }, { sessionRef: CODE, agentId: 'agent-tidy' }])
   })
 
   it('asks for a Start Prompt in the picked Session, and starts there with the reply', async () => {
@@ -2397,7 +2465,7 @@ describe('/agentsin', () => {
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
     expect(agentStarts).toEqual([])
     expect(ch.replies).toEqual(['⏳ Queued (1st) for "Refactor", runs after the current turn.'])
-    expect(inView).toEqual([{ sessionRef: CODE, agentId: 'agent-digest' }])
+    expect(inView).toEqual([{ sessionRef: CODE }, { sessionRef: CODE, agentId: 'agent-digest' }])
     await settle(CODE)
     expect(agentStarts.map((start) => [start.sessionRef, start.agentId])).toEqual([
       [CODE, 'agent-digest'],

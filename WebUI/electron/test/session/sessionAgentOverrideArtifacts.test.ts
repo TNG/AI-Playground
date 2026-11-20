@@ -96,7 +96,7 @@ async function generate(name: string, bytes: string) {
 }
 
 describe('an Agent Run working in its override folder', () => {
-  it('saves its media into the override folder under free names, not the Session Workspace', async () => {
+  it('saves its media in the override folder under free names, not the Session’s', async () => {
     const { id, workspace, override } = await sessionWithOverride()
     await fs.writeFile(path.join(override, 'chart.png'), 'earlier chart')
     const target = sessionMediaOf(id, override)
@@ -148,7 +148,7 @@ describe('an Agent Run working in its override folder', () => {
     )
   })
 
-  it('keeps its attachments in the Session’s internal storage, out of the override folder', async () => {
+  it('keeps its attachments in the Session’s storage, out of the override folder', async () => {
     const { id, override } = await sessionWithOverride()
 
     const folder = attachmentsFolderFor({ sessionId: id, workspaceDir: override })
@@ -189,7 +189,7 @@ describe('session_history read by the Assistant after an overriding Agent Run', 
     expect(seen.artifacts).toEqual([{ path: '/mnt/reports/chart.png', mediaType: 'image' }])
   })
 
-  it('copies small media into the Assistant’s Workspace when it cannot reach the folder', async () => {
+  it('copies small media into the Assistant’s Workspace when it cannot reach it', async () => {
     const { id, workspace, entries } = await recorded({ 'chart.png': 'chart' })
 
     const [seen] = await historyAsSeenBy(id, entries, { workspaceDir: workspace, folders: [] })

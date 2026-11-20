@@ -45,7 +45,7 @@ describe('the folders in effect', () => {
     expect(effectiveFolders({ session, agent: { folders: [] } })?.others).toEqual([])
   })
 
-  it("work in the Agent's Workspace, with the Session's Workspace joining the others read-write", () => {
+  it("work in the Agent's Workspace, the Session's joining the others read-write", () => {
     const agent = { workspace: { hostPath: '/Users/me/Site', name: 'site' } }
     expect(mounts(effectiveFolders({ session, agent }))).toEqual({
       workspace: 'site=/Users/me/Site',

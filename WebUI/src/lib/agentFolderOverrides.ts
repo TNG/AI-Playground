@@ -1,12 +1,27 @@
 import { assignSlug, resolveMountedFolders, sameHostPath } from '@/lib/mountedFolders'
-import type { AgentFolderEntry, AgentFolderOverrides, MountedFolder } from '@/types/agentSessionIpc'
+import type {
+  AgentFolderEntry,
+  AgentFolderOverrides,
+  AgentSessionSettings,
+  MountedFolder,
+} from '@/types/agentSessionIpc'
+
+/** An Agent folder entry as a Mounted Folder named by its slug. */
+export function namedFolder(entry: {
+  hostPath: string
+  slug: string
+  access?: AgentFolderEntry['access']
+}): MountedFolder {
+  const { hostPath, slug, access } = entry
+  return { hostPath, name: slug, ...(access ? { access } : {}) }
+}
 
 /** An Agent's other folders as the shared folder list edits them. */
 export function editableFolders(entries: readonly AgentFolderEntry[]): MountedFolder[] {
-  return entries.map(({ hostPath, slug, access }) => ({ hostPath, name: slug, access }))
+  return entries.map(namedFolder)
 }
 
-/** The edited list back as entries: each keeps its id, and a new folder gets an id and slug once. */
+/** The edited list back as entries: each keeps its id; a new folder gets an id and slug once. */
 export function agentFolderEntries(
   folders: readonly MountedFolder[],
   previous: readonly AgentFolderEntry[],
@@ -40,4 +55,16 @@ export function withWorkspace(
   if (!hostPath) return rest
   if (previous && sameHostPath(previous.hostPath, hostPath)) return { workspace: previous, ...rest }
   return { workspace: { id: newId(), hostPath, slug: assignSlug(hostPath, []) }, ...rest }
+}
+
+/** The Agent with its own Workspace moved to `hostPath`, keeping its id and slug. */
+export function withWorkspaceAt<T extends { settingsTemplate: AgentSessionSettings }>(
+  agent: T,
+  hostPath: string,
+): T {
+  const overrides = agent.settingsTemplate.folderOverrides
+  if (!overrides?.workspace) return agent
+  const workspace = { ...overrides.workspace, hostPath }
+  const folderOverrides = { ...overrides, workspace }
+  return { ...agent, settingsTemplate: { ...agent.settingsTemplate, folderOverrides } }
 }

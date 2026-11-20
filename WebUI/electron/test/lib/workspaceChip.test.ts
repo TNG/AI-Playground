@@ -87,7 +87,7 @@ describe('the workspace chip', () => {
     ])
   })
 
-  it('lists an Agent folder that is the Workspace once, as the Workspace, as its run mounts it', () => {
+  it('lists an Agent folder that is the Workspace once, as its run mounts it', () => {
     const agent = {
       id: 'agent-1',
       name: 'Researcher',

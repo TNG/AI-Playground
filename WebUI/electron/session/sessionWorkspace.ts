@@ -8,6 +8,7 @@ import { sessionFolderListOf } from './sessionFolderList'
 import { ensureWorkspaceEntry } from './appWorkspace'
 import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
 import { workspaceEntryOf } from '@/lib/mountedFolders'
+import type { AgentWorkspaceEntry } from '@/types/agentSessionIpc'
 import type { MissingWorkspace, SessionFolderEntry } from '@/types/sessionIpc'
 
 /** An older Session's app-created Workspace, its `files/` folder. */
@@ -42,10 +43,7 @@ function agentWorkspaceEntry(sessionId: string, workspaceDir: string) {
   return owned.find((entry) => sameDir(entry.hostPath, workspaceDir))
 }
 
-/**
- * Whether `workspaceDir` is a Workspace of the Session — its ★, or an Agent's override
- * registered in it — as opposed to a game folder.
- */
+/** Whether `workspaceDir` is the Session's ★ or an Agent's override registered in it. */
 export function isSessionWorkspace(sessionId: string, workspaceDir: string): boolean {
   return (
     sameDir(sessionWorkspaceDir(sessionId), workspaceDir) ||
@@ -133,15 +131,10 @@ export function missingAgentWorkspaceMessage(missing: MissingWorkspace): string 
 }
 
 /** Refuses a turn whose Agent's own Workspace is missing. */
-export async function assertAgentWorkspacePresent(own: {
-  id?: string
-  hostPath: string
-}): Promise<void> {
+export async function assertAgentWorkspacePresent(own: AgentWorkspaceEntry): Promise<void> {
   if (await isFolder(own.hostPath)) return
   const name = path.basename(own.hostPath)
-  throw new Error(
-    missingAgentWorkspaceMessage({ folderId: own.id ?? '', hostPath: own.hostPath, name }),
-  )
+  throw new Error(missingAgentWorkspaceMessage({ folderId: own.id, hostPath: own.hostPath, name }))
 }
 
 /**

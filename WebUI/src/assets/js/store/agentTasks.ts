@@ -38,7 +38,7 @@ import { useTextInference, type LlmBackend } from './textInference'
 import { useUIStore } from './ui'
 import { createAppError, extractMessage, isCancellation } from '@/assets/js/errors/appError'
 import { requestDownload, requestMissingWorkspace } from '@/assets/js/permissions/permissions'
-import { editableFolders } from '@/lib/agentFolderOverrides'
+import { editableFolders, withWorkspaceAt } from '@/lib/agentFolderOverrides'
 import {
   folderBaseName,
   mountedFolderRefusal,
@@ -281,12 +281,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   // Main reads Task Run markers from the tasks file; this covers what it cannot see yet.
   const inFlightWork = computed((): InFlightWorkItem[] => [
     ...agentRunsInFlight.value.flatMap((run) => {
-      const task = tasks.value.find((entry) => entry.id === run.taskId)
+      const task = savedAgent(run.taskId)
       return task ? [taskRunWorkItem(task, run)] : []
     }),
     ...[...new Set([...starting, ...minting])].flatMap((slot) => {
       const [taskId, sessionRef] = slot.split('\n')
-      const task = tasks.value.find((entry) => entry.id === taskId)
+      const task = savedAgent(taskId)
       return task && !runIn(taskId, sessionRef) ? [taskRunWorkItem(task)] : []
     }),
     ...contributedWork.value.flatMap((work) => work()),
@@ -394,7 +394,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function advanceNextRun(taskId: string, schedule: AgentSessionSchedule, now: number): void {
-    const task = tasks.value.find((entry) => entry.id === taskId)
+    const task = savedAgent(taskId)
     if (!task) return
     const next = { ...schedule, nextRunAt: nextSlotAfter(schedule, now) }
     void persistTask(replaceTask(withSchedule(task, schedule.sessionRef, next)))
@@ -541,9 +541,13 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     return states
   })
 
+  function savedAgent(id: string): AgentTask | undefined {
+    return tasks.value.find((task) => task.id === id)
+  }
+
   /** How many Sessions hold a Schedule of the Agent, paused ones included. */
   function scheduledSessionCount(id: string): number {
-    return tasks.value.find((task) => task.id === id)?.schedules?.length ?? 0
+    return savedAgent(id)?.schedules?.length ?? 0
   }
 
   /** How many Sessions the Agent has a run in flight in; deleting it is refused until none. */
@@ -586,7 +590,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The saved Agent picked in the Session's prompt bar, whatever preset is active there. */
   function pickedAgentIn(sessionRef: string | null | undefined): AgentTask | undefined {
     const id = sessionRef ? sessionsStore.sessions[sessionRef]?.pickedAgentId : undefined
-    return id ? tasks.value.find((task) => task.id === id) : undefined
+    return id ? savedAgent(id) : undefined
   }
 
   /** The open Session's picked Agent, in effect while Assistant is the active preset. */
@@ -706,7 +710,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return { ok: false, reason: 'missing-workspace' }
     }
     // The download may have taken long enough for a delete or a new run to overtake it.
-    const agent = tasks.value.find((entry) => entry.id === picked.id)
+    const agent = savedAgent(picked.id)
     if (!agent) return { ok: false, reason: 'no-task' }
     const harnessSessionId = latestRunOf(agent.id, open)?.harnessSessionId
     if (!harnessSessionId) return neverRun(agent)
@@ -860,7 +864,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Apply an edit to the Agent's Draft, starting one from the saved Agent when it has none. */
   async function editDraft(id: string, edit: AgentDraftEdit): Promise<boolean> {
-    const base = drafts.value[id] ?? tasks.value.find((task) => task.id === id)
+    const base = drafts.value[id] ?? savedAgent(id)
     if (!base) return false
     const merged = { ...editableFields(base), ...edit }
     const draft: AgentDraft = {
@@ -877,7 +881,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Change some of the Draft's Settings Template, keeping the rest. */
   async function editDraftSettings(id: string, change: AgentSessionSettings): Promise<boolean> {
-    const base = drafts.value[id] ?? tasks.value.find((task) => task.id === id)
+    const base = drafts.value[id] ?? savedAgent(id)
     if (!base) return false
     return editDraft(id, { settingsTemplate: { ...base.settingsTemplate, ...change } })
   }
@@ -904,7 +908,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (!draft) return { ok: false, reason: 'no-task' }
     const blocker = draftBlocker(id)
     if (blocker) return { ok: false, reason: blocker }
-    const saved = tasks.value.find((task) => task.id === id)
+    const saved = savedAgent(id)
     const now = Date.now()
     const {
       description: _description,
@@ -948,7 +952,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** A new saved Agent from the saved definition only: no runs, Schedules, outcome or Session. */
   async function duplicateAgent(id: string): Promise<DuplicateAgentResult> {
-    const original = tasks.value.find((task) => task.id === id)
+    const original = savedAgent(id)
     if (!original) return { ok: false, reason: 'no-task' }
     const {
       id: _id,
@@ -1064,19 +1068,19 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     sessionRef: string,
     schedule: AgentSessionSchedule | undefined,
   ): Promise<SetScheduleResult> {
-    const saved = tasks.value.find((entry) => entry.id === id)
+    const saved = savedAgent(id)
     if (!saved) return { ok: false, reason: 'no-task' }
     // Applied before the write, so a run marking or settling the Task meanwhile writes it too.
     const task = replaceTask(withSchedule(saved, sessionRef, schedule))
     if (await persistTask(task)) return { ok: true, task }
-    const latest = tasks.value.find((entry) => entry.id === id)
+    const latest = savedAgent(id)
     if (latest) replaceTask(withSchedule(latest, sessionRef, scheduleIn(saved, sessionRef)))
     return { ok: false, reason: 'persist-failed' }
   }
 
   /** The Agent's Schedule in a Session. */
   function taskSchedule(id: string, sessionRef: string): TaskScheduleState {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     const entry = task ? scheduleIn(task, sessionRef) : undefined
     if (!entry) return {}
     const { every, unit, startAt, enabled, nextRunAt } = entry
@@ -1093,7 +1097,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     sessionRef: string,
     schedule: AgentTaskSchedule,
   ): Promise<AddScheduleResult> {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task) return { ok: false, reason: 'no-task' }
     if (!sessionsStore.sessions[sessionRef]) return { ok: false, reason: 'no-session' }
     if (scheduleIn(task, sessionRef)) return { ok: false, reason: 'already-scheduled' }
@@ -1101,7 +1105,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function agentSchedules(id: string): AgentScheduleEntry[] {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     return (task?.schedules ?? []).map(
       ({ sessionRef, every, unit, startAt, enabled, nextRunAt }) => ({
         sessionRef,
@@ -1113,7 +1117,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Existing Sessions a saved Agent can still be scheduled in, most recent first. */
   function schedulableSessions(id: string): SessionSummary[] {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task) return []
     return sessionsStore.orderedSessions.filter((session) => !scheduleIn(task, session.id))
   }
@@ -1154,12 +1158,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       const reason = turn.pauseReason
       return { running: { ...run, paused: reason ? { reason } : {} } }
     }
-    return { idle: tasks.value.find((task) => task.id === id)?.lastOutcome }
+    return { idle: savedAgent(id)?.lastOutcome }
   }
 
   /** What in the Task's Settings Template cannot be used right now; empty when it can run. */
   function taskProblems(id: string): SessionSettingsProblem[] {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     return task ? agentMode.problemsOf(task.settingsTemplate) : []
   }
 
@@ -1176,10 +1180,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   async function startManualRun(id: string, prompt: string): Promise<RunTaskResult> {
-    const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate.capabilities
+    const capabilities = savedAgent(id)?.settingsTemplate.capabilities
     await agentMode.loadMcpServersFor(capabilities ?? [])
     // Looked up after the wait, which a delete or a second Run may have overtaken.
-    const checked = tasks.value.find((entry) => entry.id === id)
+    const checked = savedAgent(id)
     if (!checked) return { ok: false, reason: 'no-task' }
     const open = sessionsStore.openSessionId
     if (open && runsIn(id, open)) return { ok: false, reason: 'running' }
@@ -1197,7 +1201,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     if (!(await readyAgentWorkspaceForTurn(id))) return { ok: false, reason: 'missing-workspace' }
     // The download may have taken long enough for a delete or a Scheduled Run to overtake it.
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task) return { ok: false, reason: 'no-task' }
     if (runsIn(id, sessionRef)) return { ok: false, reason: 'running' }
     await startRun(task, sessionRef, false, prompt)
@@ -1225,7 +1229,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function stillScheduled(id: string, sessionRef: string): AgentTask | undefined {
-    const task = tasks.value.find((entry) => entry.id === id)
+    const task = savedAgent(id)
     if (!task || scheduleIn(task, sessionRef)?.enabled !== true) return undefined
     if (runsIn(id, sessionRef) || starting.has(runSlot(id, sessionRef))) return undefined
     if (deleting.has(id)) return undefined
@@ -1259,12 +1263,12 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Lets a Channel list and start the Agent, or no longer; written at once like a Schedule. */
   async function setStartableFromChannel(id: string, startable: boolean): Promise<boolean> {
-    const saved = tasks.value.find((entry) => entry.id === id)
+    const saved = savedAgent(id)
     if (!saved) return false
     const { startableFromChannel: _was, ...rest } = saved
     const task = replaceTask(startable ? { ...rest, startableFromChannel: true } : rest)
     if (await persistTask(task)) return true
-    const latest = tasks.value.find((entry) => entry.id === id)
+    const latest = savedAgent(id)
     if (latest) replaceTask({ ...latest, startableFromChannel: saved.startableFromChannel })
     return false
   }
@@ -1287,7 +1291,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
         'This agent can no longer be started from a Channel.',
     })
     const slot = runSlot(id, sessionRef)
-    if (!tasks.value.find((entry) => entry.id === id)?.startableFromChannel) return notStartable()
+    if (!savedAgent(id)?.startableFromChannel) return notStartable()
     const running = agentRunIn(sessionRef)
     if (running || starting.has(slot) || minting.has(slot)) {
       return { ok: false, reason: 'task-locked', message: running?.name ?? '' }
@@ -1295,10 +1299,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     if (sessionBusy(sessionRef)) return { ok: false, reason: 'busy', message: '' }
     starting.add(slot)
     try {
-      const capabilities = tasks.value.find((entry) => entry.id === id)?.settingsTemplate
+      const capabilities = savedAgent(id)?.settingsTemplate
       await agentMode.loadMcpServersFor(capabilities?.capabilities ?? [])
       // A delete, an edit or another run may have overtaken the wait.
-      const task = tasks.value.find((entry) => entry.id === id)
+      const task = savedAgent(id)
       if (!task?.startableFromChannel || deleting.has(id)) return notStartable()
       if (agentRunIn(sessionRef)) return { ok: false, reason: 'task-locked', message: '' }
       const refusal = scheduledRefusal(task)
@@ -1318,7 +1322,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     harnessSessionId: string,
   ): { settings: AgentSessionSettings; followUp: AgentFollowUpTag } | undefined {
     const taskId = agentMode.sessions[harnessSessionId]?.taskRun?.taskId
-    const agent = taskId ? tasks.value.find((entry) => entry.id === taskId) : undefined
+    const agent = taskId ? savedAgent(taskId) : undefined
     if (!agent) return undefined
     return {
       settings: cloneForIpc(agent.settingsTemplate),
@@ -1354,7 +1358,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     }
     minting.delete(slot)
     // A delete, pause or manual Run may have overtaken the wait.
-    const current = tasks.value.find((entry) => entry.id === id)
+    const current = savedAgent(id)
     if (!current || runIn(id, sessionRef) || deleting.has(id)) return null
     if (scheduled && scheduleIn(current, sessionRef)?.enabled !== true) return null
     const sessionId = agentMode.createSession({
@@ -1412,10 +1416,10 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   /** The Agent whose run is in flight in the Session, a running Follow-up included. */
   function agentRunIn(sessionRef: string): AgentTask | undefined {
     const run = agentRunsInFlight.value.find((entry) => entry.sessionRef === sessionRef)
-    return run ? tasks.value.find((task) => task.id === run.taskId) : undefined
+    return run ? savedAgent(run.taskId) : undefined
   }
 
-  /** The Agent whose folders are in effect: the picked one, else the one running in the open Session. */
+  /** The Agent whose folders are in effect: the picked one, else the one running here. */
   const activeAgent = computed((): AgentTask | undefined => {
     const open = sessionsStore.openSessionId
     return pickedAgent.value ?? (open ? agentRunIn(open) : undefined)
@@ -1431,8 +1435,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
 
   /** Checks on disk whether the Agent's own Workspace is missing; null when it has none. */
   async function checkAgentWorkspace(agentId: string): Promise<MissingWorkspace | null> {
-    const own = tasks.value.find((task) => task.id === agentId)?.settingsTemplate.folderOverrides
-      ?.workspace
+    const own = savedAgent(agentId)?.settingsTemplate.folderOverrides?.workspace
     let missing: MissingWorkspace | null = null
     if (own) {
       const present = await window.electronAPI.isFolderPath(own.hostPath).catch((error) => {
@@ -1456,10 +1459,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     { immediate: true },
   )
 
-  /**
-   * Lets the user pick where the Agent's own Workspace went and re-points the Agent there, keeping
-   * the folder's id and slug: 'located', 'cancelled', or why the picked folder is refused.
-   */
+  /** Re-points the Agent's own Workspace at a folder the user picks, keeping its id and slug. */
   async function locateAgentWorkspace(
     agentId: string,
   ): Promise<'located' | 'cancelled' | MountedFolderRefusal> {
@@ -1468,7 +1468,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     try {
       const picked = await window.electronAPI.showOpenDialog({ properties: ['openDirectory'] })
       hostPath = picked.canceled ? undefined : picked.filePaths[0]
-      const agent = tasks.value.find((task) => task.id === agentId)
+      const agent = savedAgent(agentId)
       if (!hostPath || !agent) return 'cancelled'
       refusal = mountedFolderRefusal(hostPath, {
         homeFolder: await window.electronAPI.getHomePath(),
@@ -1479,44 +1479,27 @@ export const useAgentTasks = defineStore('agentTasks', () => {
       return 'cancelled'
     }
     if (refusal) return refusal
-    const agent = tasks.value.find((task) => task.id === agentId)
-    const overrides = agent?.settingsTemplate.folderOverrides
-    if (!agent || !overrides?.workspace) return 'cancelled'
-    const workspace = { ...overrides.workspace, hostPath }
-    const relocated = { ...overrides, workspace }
-    const previous = agent
-    replaceTask({
-      ...agent,
-      settingsTemplate: { ...agent.settingsTemplate, folderOverrides: relocated },
-    })
-    if (!(await persistTask(tasks.value.find((task) => task.id === agentId) ?? previous))) {
+    const previous = savedAgent(agentId)
+    const workspaceId = previous?.settingsTemplate.folderOverrides?.workspace?.id
+    if (!previous || !hostPath || !workspaceId) return 'cancelled'
+    if (!(await persistTask(replaceTask(withWorkspaceAt(previous, hostPath))))) {
       replaceTask(previous)
       return 'cancelled'
     }
     const draft = drafts.value[agentId]
-    const drafted = draft?.settingsTemplate.folderOverrides
-    if (draft && drafted?.workspace?.id === workspace.id) {
-      await writeDraft({
-        ...cloneForIpc(draft),
-        settingsTemplate: {
-          ...draft.settingsTemplate,
-          folderOverrides: { ...drafted, workspace: { ...drafted.workspace, hostPath } },
-        },
-      })
+    if (draft?.settingsTemplate.folderOverrides?.workspace?.id === workspaceId) {
+      await writeDraft(withWorkspaceAt(cloneForIpc(draft), hostPath))
     }
     return (await checkAgentWorkspace(agentId)) === null ? 'located' : 'cancelled'
   }
 
-  /**
-   * Before an interactive run or Follow-up: a missing own Workspace is asked about, and the turn
-   * goes ahead only once the user located it; Edit Agent opens the Agent in the Agent Library.
-   */
+  /** Whether an interactive run may start: a missing own Workspace is asked about first. */
   async function readyAgentWorkspaceForTurn(agentId: string): Promise<boolean> {
     const missing = await checkAgentWorkspace(agentId)
     if (!missing) return true
     let refusal: MountedFolderRefusal | undefined
     for (;;) {
-      const agent = tasks.value.find((task) => task.id === agentId)
+      const agent = savedAgent(agentId)
       if (!agent) return false
       const choice = await requestMissingWorkspace({
         missing,
@@ -1681,7 +1664,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function markRunInFlight(taskId: string, activeRun: AgentTaskActiveRun): void {
-    const task = tasks.value.find((entry) => entry.id === taskId)
+    const task = savedAgent(taskId)
     if (!task) return
     const others = (task.activeRuns ?? []).filter((run) => run.sessionId !== activeRun.sessionId)
     void persistTask(replaceTask(withEntries(task, 'activeRuns', [...others, activeRun])))
@@ -1721,7 +1704,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   agentMode.setTaskLockLookup((sessionId) => {
     const run = runs.value[sessionId]
     if (!run) return undefined
-    const taskName = tasks.value.find((task) => task.id === run.taskId)?.name ?? ''
+    const taskName = savedAgent(run.taskId)?.name ?? ''
     return { taskName, signal: runContexts[sessionId]?.abort.signal }
   })
 
@@ -1789,7 +1772,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
     fields: OutcomeFields,
     scheduled = false,
   ): Promise<void> {
-    const task = tasks.value.find((entry) => entry.id === taskId)
+    const task = savedAgent(taskId)
     if (!task) return
     if (fields.kind === 'failed') reportRunFailure(task, fields, scheduled)
     const lastOutcome: AgentTaskOutcome = {
@@ -1853,7 +1836,7 @@ export const useAgentTasks = defineStore('agentTasks', () => {
   }
 
   function restoreEditableFields(saved: AgentTask): void {
-    const latest = tasks.value.find((entry) => entry.id === saved.id)
+    const latest = savedAgent(saved.id)
     if (!latest) return
     const { name, description, image, steps, settingsTemplate, updatedAt } = saved
     const { description: _description, image: _image, ...rest } = latest

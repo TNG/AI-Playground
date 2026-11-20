@@ -7,10 +7,8 @@ import {
   workspaceEntryOf,
   type ResolvedMountedFolder,
 } from '@/lib/mountedFolders'
-import type {
-  AgentFolderOverrides as StoredFolderOverrides,
-  MountedFolderAccess,
-} from '@/types/agentSessionIpc'
+import { namedFolder } from '@/lib/agentFolderOverrides'
+import type { AgentFolderOverrides, MountedFolderAccess } from '@/types/agentSessionIpc'
 import type { SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
 
 /** A folder of an Agent's overrides; `name` is its slug, else the folder name. */
@@ -22,7 +20,7 @@ export type AgentFolder = {
 }
 
 /** What an Agent puts in place of its Session's folders; an absent part is inherited. */
-export type AgentFolderOverrides = {
+export type ResolverOverrides = {
   workspace?: Omit<AgentFolder, 'access'>
   folders?: readonly AgentFolder[]
 }
@@ -45,30 +43,21 @@ export type EffectiveFolders = {
 
 export type EffectiveFoldersInput = {
   session: SessionFolderList
-  agent?: AgentFolderOverrides
+  agent?: ResolverOverrides
   /** How two host paths are matched as one folder; main passes one that follows symlinks. */
   sameFolder?: (a: string, b: string) => boolean
 }
 
 /** A Settings Template's overrides as the resolver reads them; undefined inherits everything. */
 export function agentOverridesOf(
-  stored: StoredFolderOverrides | undefined,
-): AgentFolderOverrides | undefined {
+  stored: AgentFolderOverrides | undefined,
+): ResolverOverrides | undefined {
   if (!stored) return undefined
   const { workspace, folders } = stored
   return {
-    ...(workspace
-      ? { workspace: { id: workspace.id, hostPath: workspace.hostPath, name: workspace.slug } }
-      : {}),
+    ...(workspace ? { workspace: { id: workspace.id, ...namedFolder(workspace) } } : {}),
     ...(folders
-      ? {
-          folders: folders.map(({ id, hostPath, slug, access }) => ({
-            id,
-            hostPath,
-            name: slug,
-            access,
-          })),
-        }
+      ? { folders: folders.map((entry) => ({ id: entry.id, ...namedFolder(entry) })) }
       : {}),
   }
 }
@@ -84,7 +73,7 @@ function fromEntry(entry: SessionFolderEntry, access = entry.access): EffectiveF
   }
 }
 
-function fromAgent(agent: AgentFolderOverrides): {
+function fromAgent(agent: ResolverOverrides): {
   workspace?: EffectiveFolder
   folders?: EffectiveFolder[]
 } {

@@ -775,7 +775,7 @@ describe('the folders a run reaches', () => {
       )
     })
 
-    it('asks before any turn, naming the folder and the Agent, and runs nothing on cancel', async () => {
+    it('asks before any turn, naming folder and Agent, and runs nothing on cancel', async () => {
       const { tasks } = await readyStores(task('t1', ['one'], { settingsTemplate: template }))
 
       expect(await tasks.runTask('t1')).toMatchObject({ ok: false, reason: 'missing-workspace' })

@@ -6,11 +6,7 @@ import { isDemoSessions } from '../persist/sessionFiles'
 import { trialFolderAgentIdOf } from '../persist/trialRunFiles'
 import { getAgentTrialsDir } from '../persist/userDataPaths.ts'
 import { readSessionFolders, registerAgentFolder } from '../session/sessionFolders'
-import {
-  agentOverridesOf,
-  effectiveFolders,
-  type AgentFolderOverrides,
-} from '@/lib/effectiveFolders'
+import { agentOverridesOf, effectiveFolders, type ResolverOverrides } from '@/lib/effectiveFolders'
 import {
   assignSlug,
   mountedFolderLocation,
@@ -20,6 +16,7 @@ import {
   type ResolvedMountedFolder,
 } from '@/lib/mountedFolders'
 import type { AgentModeTurnConfig } from '@/types/agentIpc'
+import type { AgentWorkspaceEntry } from '@/types/agentSessionIpc'
 import type { SessionFolderEntry, SessionFolderList } from '@/types/sessionIpc'
 
 /** The folders a turn's sandbox mounts (ADR-0013). */
@@ -66,7 +63,7 @@ async function folderListOf(sessionRef: string): Promise<SessionFolderList | und
 function mountsOf(
   session: SessionFolderList,
   workspaceDir: string,
-  agent?: AgentFolderOverrides,
+  agent?: ResolverOverrides,
 ): TurnFolders {
   const resolved = effectiveFolders({ session, agent, sameFolder })
   if (!resolved) return { mounted: [] }
@@ -88,10 +85,9 @@ function agentIdOf(config: AgentModeTurnConfig): string | undefined {
 /** The folder an Agent Run (or Follow-up) in a Session always works in, when its Agent sets one. */
 export function agentWorkspaceOverride(
   config: AgentModeTurnConfig,
-): { id?: string; hostPath: string } | undefined {
+): AgentWorkspaceEntry | undefined {
   if (!config.sessionRef || isDemoSessions() || !(config.taskRun || config.followUp)) return
-  const own = config.folderOverrides?.workspace
-  return own && { id: own.id, hostPath: own.hostPath }
+  return config.folderOverrides?.workspace
 }
 
 /**
@@ -108,8 +104,8 @@ export async function trialAgentOf(
 /** The Agent's own Workspace, when the turn is a Trial Run working in it. */
 async function trialWorkspaceOverride(
   config: AgentModeTurnConfig,
-  agent: AgentFolderOverrides | undefined,
-): Promise<AgentFolderOverrides['workspace']> {
+  agent: ResolverOverrides | undefined,
+): Promise<ResolverOverrides['workspace']> {
   const own = agent?.workspace
   if (!own || !sameFolder(own.hostPath, config.workspaceDir)) return undefined
   return (await trialFolderAgentIdOf(config.sessionId)) ? own : undefined
@@ -127,9 +123,8 @@ function trialFolderList(
 }
 
 /**
- * What a turn mounts: a turn in its Session's Workspace sees every folder in the Session's list,
- * an Agent Run (or Follow-up) the same with its Agent's overrides in place, a Trial Run its
- * Agent's own Workspace or else its scratch folder, plus the Agent's folders; a game keeps `/workspace` and the folders it was sent.
+ * What a turn mounts: the folders in effect for a Session turn or Agent Run, a Trial Run's
+ * Workspace plus its Agent's folders, or a game's `/workspace` plus the folders it was sent.
  */
 export async function turnFolders(config: AgentModeTurnConfig): Promise<TurnFolders> {
   const agent = isDemoSessions() ? undefined : agentOverridesOf(config.folderOverrides)

@@ -21,7 +21,7 @@ import {
   workspaceEntryOf,
   type MountedFolderRefusal,
 } from '@/lib/mountedFolders'
-import type { AgentFolderEntry, MountedFolderAccess } from '@/types/agentSessionIpc'
+import type { AgentWorkspaceEntry, MountedFolderAccess } from '@/types/agentSessionIpc'
 import type {
   AgentOwnedFolderEntry,
   SessionFile,
@@ -157,14 +157,13 @@ export async function setSessionFolderAccess(
  */
 export async function registerAgentFolder(
   id: string,
-  owner: { agentId?: string; folder: Omit<AgentFolderEntry, 'access'> },
+  owner: { agentId?: string; folder: AgentWorkspaceEntry },
 ): Promise<AgentOwnedFolderEntry> {
   const { folder, agentId } = owner
   const ownedBy = (list: SessionFolderList) =>
     (list.agentOwned ?? []).find((entry) => entry.id === folder.id)
   const already = ownedBy(await readSessionFolders(id))
   if (already && sameHostPath(already.hostPath, folder.hostPath)) return already
-  let registered: AgentOwnedFolderEntry | undefined
   const file = await mutateSession(id, (current) => {
     const listed = withSessionFolderList(current)
     const list = sessionFolderListOf(listed)
@@ -175,7 +174,7 @@ export async function registerAgentFolder(
         .filter((slug) => slug !== known?.slug)
         .map((slug) => slug.toLowerCase()),
     )
-    registered = {
+    const entry: AgentOwnedFolderEntry = {
       id: folder.id,
       hostPath: folder.hostPath,
       access: 'read-write',
@@ -183,10 +182,12 @@ export async function registerAgentFolder(
       ...(agentId ? { agentId } : {}),
     }
     const others = owned.filter((entry) => entry.id !== folder.id)
-    return { ...listed, agentFolders: [...others, registered] }
+    return { ...listed, agentFolders: [...others, entry] }
   })
   emitSessionChanged(sessionDocumentOf(file))
-  return registered!
+  const registered = ownedBy(sessionFolderListOf(file))
+  if (!registered) throw new Error(`Agent folder ${folder.id} was not registered in ${id}.`)
+  return registered
 }
 
 export const DEMO_USER_FOLDER_MESSAGE = 'Demo Sessions work only in the folder the app creates.'

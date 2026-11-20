@@ -110,14 +110,14 @@ describe('an Agent Run in a Session', () => {
     }
   }
 
-  it("sees the Session's Workspace and all its other folders when its Agent inherits them", async () => {
+  it("sees the Session's Workspace and other folders when its Agent inherits them", async () => {
     expect(await mounts(runTurn())).toEqual({
       workspace: '/mnt/poster',
       mounted: ['/mnt/notes read-only', '/mnt/papers read-write'],
     })
   })
 
-  it("sees the Session's Workspace and only its Agent's folders with “Use only these”", async () => {
+  it("sees the Session's Workspace and only its Agent's folders on “Use only these”", async () => {
     expect(await mounts(runTurn(onlyData()))).toEqual({
       workspace: '/mnt/poster',
       mounted: ['/mnt/data read-only'],
@@ -146,7 +146,7 @@ describe('an Agent Run in a Session', () => {
         folderOverrides: { workspace: { id: 'w1', hostPath: site, slug: 'site' }, ...folders },
       }) as AgentModeTurnConfig
 
-    it("works there, with the Session's Workspace read-write and its other folders beside", async () => {
+    it("works there, the Session's Workspace read-write and its other folders beside", async () => {
       const folders = await turnFolders(overrideTurn())
 
       expect(folders.workspace).toEqual({ hostPath: site, name: 'site', access: 'read-write' })
@@ -156,7 +156,7 @@ describe('an Agent Run in a Session', () => {
       })
     })
 
-    it('registers the folder in the Session as that Agent’s, under the slug it is given there', async () => {
+    it('registers the folder as that Agent’s in the Session, under its slug there', async () => {
       registeredSlugs.set('w1', 'site-2')
 
       expect((await mounts(overrideTurn({ folders: [] }))).workspace).toBe('/mnt/site-2')

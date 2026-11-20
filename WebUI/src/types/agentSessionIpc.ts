@@ -30,9 +30,13 @@ export const AgentFolderEntrySchema = z.object({
 })
 export type AgentFolderEntry = z.infer<typeof AgentFolderEntrySchema>
 
+/** An Agent's own Workspace: always read-write. */
+export const AgentWorkspaceEntrySchema = AgentFolderEntrySchema.omit({ access: true })
+export type AgentWorkspaceEntry = z.infer<typeof AgentWorkspaceEntrySchema>
+
 /** What an Agent puts in place of its Session's folders (ADR 0014); an absent part is inherited. */
 export const AgentFolderOverridesSchema = z.object({
-  workspace: AgentFolderEntrySchema.omit({ access: true }).optional(),
+  workspace: AgentWorkspaceEntrySchema.optional(),
   folders: z.array(AgentFolderEntrySchema).optional(),
 })
 export type AgentFolderOverrides = z.infer<typeof AgentFolderOverridesSchema>

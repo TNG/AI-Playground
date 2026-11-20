@@ -164,7 +164,7 @@ describe("an Agent's own Workspace in a Session", () => {
     slug: 'site',
   })
 
-  it('is registered as an entry of that Agent, hidden from the list and never starred', async () => {
+  it('is registered as that Agent’s entry, hidden from the list and never starred', async () => {
     const { id } = await createSession()
     const folder = await site()
 
@@ -185,7 +185,7 @@ describe("an Agent's own Workspace in a Session", () => {
     await expect(starSessionFolder(id, entry.id)).rejects.toThrow(/no such folder/)
   })
 
-  it("gets a slug the Session's own folders do not have, and the Session's never take it", async () => {
+  it("gets a slug the Session's folders do not have, and they never take it", async () => {
     const { id } = await createSession()
     await addSessionFolder(id, await pickedFolder('a', 'site'))
 

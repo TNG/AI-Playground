@@ -18,6 +18,7 @@ import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
 import { applyEditedPrompt } from '@/lib/editedPrompt'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { agentOverridesOf, effectiveFolders } from '@/lib/effectiveFolders'
 import {
@@ -1039,7 +1040,7 @@ export const useAgentMode = defineStore(
       return run ? { taskName: run.taskName, startedAt: run.startedAt } : undefined
     }
 
-    function withAgentId(
+    function withTaskId(
       taskRun: NonNullable<AgentModeTurnConfig['taskRun']>,
       record: AgentSessionRecord | undefined,
     ): AgentModeTurnConfig['taskRun'] {
@@ -1072,7 +1073,7 @@ export const useAgentMode = defineStore(
         cloudMode: stored.cloud,
         tools: stored.tools,
         answer: context.answer,
-        taskRun: context.taskRun && withAgentId(context.taskRun, sessions.value[sessionId]),
+        taskRun: context.taskRun && withTaskId(context.taskRun, sessions.value[sessionId]),
         followUp: context.followUp,
         followedRun: context.followUp ? followedRunOf(sessions.value[sessionId]) : undefined,
       })
@@ -2234,9 +2235,11 @@ export const useAgentMode = defineStore(
         if (ownWorkspace && !unattended && !(await window.electronAPI.existsPath(ownWorkspace))) {
           return refuseSend(
             'missing-folder',
-            (
-              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ?? 'The workspace folder is missing: {path}'
-            ).replace('{path}', ownWorkspace),
+            fillTemplate(
+              i18n.state.AGENT_WORKSPACE_FOLDER_MISSING ??
+                'The workspace folder is missing: {path}',
+              { path: ownWorkspace },
+            ),
           )
         }
         context.workspaceDir = ownWorkspace ?? sessionsStore.workspaceDirOf(sessionRef)

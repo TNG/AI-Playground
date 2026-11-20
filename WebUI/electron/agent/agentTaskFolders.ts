@@ -2,7 +2,7 @@ import { openDirectory } from '../adapters/osFileActions'
 import { readAgentTasks } from '../persist/agentTaskFiles'
 import { sameHostPath } from '@/lib/mountedFolders'
 
-/** Opens one of the folders a saved Agent overrides with in the file manager, never any other path. */
+/** Opens one of a saved Agent's override folders in the file manager, never any other path. */
 export async function openAgentTaskFolder(taskId: string, hostPath: string): Promise<void> {
   const task = (await readAgentTasks()).find((entry) => entry.id === taskId)
   const overrides = task?.settingsTemplate.folderOverrides

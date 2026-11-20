@@ -497,7 +497,7 @@ describe("the sandbox of a turn in a Session's folders", () => {
     expect(fs.existsSync(path.join(notes, 'n.md'))).toBe(false)
   }, 30000)
 
-  it("gives an Agent Run that inherits its Session's folders the Workspace and every other folder", async () => {
+  it('gives an inheriting Agent Run the Workspace and every other folder', async () => {
     const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
     const session = await sessions.createSession()
     const notesSlug = await addFolder(session.id, hostFolder('notes', { 'n.md': 'NOTES' }))
@@ -518,7 +518,7 @@ describe("the sandbox of a turn in a Session's folders", () => {
     expect(seen).toContain('NOTES')
   }, 30000)
 
-  it("gives an Agent Run that uses only its Agent's folders the Workspace and those, none of the Session's others", async () => {
+  it("gives a “Use only these” Agent Run the Workspace and its Agent's folders", async () => {
     const { taskRunHarnessFor } = await import('../../session/sessionTaskRuns')
     const session = await sessions.createSession()
     const sessionOnly = await addFolder(session.id, hostFolder('session-only'))

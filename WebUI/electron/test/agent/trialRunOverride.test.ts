@@ -71,7 +71,7 @@ async function generate(workspaceDir: string, agentId: string, name: string) {
 }
 
 describe("a Trial Run working in its Agent's own folder", () => {
-  it("saves its media at that folder's root under a free name, shown from its scratch folder", async () => {
+  it("saves its media at that folder's root under a free name, shown from scratch", async () => {
     const trial = await trialRunHarnessFor('agent-1')
     await fs.writeFile(path.join(site, 'cat.png'), 'mine')
 
@@ -96,7 +96,7 @@ describe("a Trial Run working in its Agent's own folder", () => {
     })
   })
 
-  it('leaves the files it wrote there when the next Trial Run, a discard or a quit throws it away', async () => {
+  it('leaves its files there when a later Trial Run, discard or quit clears it', async () => {
     const first = await trialRunHarnessFor('agent-1')
     await fs.writeFile(path.join(site, 'notes.md'), 'kept')
     await generate(site, 'agent-1', 'cat.png')

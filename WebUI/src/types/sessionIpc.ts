@@ -21,7 +21,7 @@ export const SessionFolderEntrySchema = z.object({
 })
 export type SessionFolderEntry = z.infer<typeof SessionFolderEntrySchema>
 
-/** An Agent's own Workspace, registered at its first run in the Session (ADR 0014); never starred. */
+/** An Agent's own Workspace, registered at its first run in a Session (ADR 0014). */
 export const AgentOwnedFolderEntrySchema = SessionFolderEntrySchema.extend({
   agentId: z.string().min(1).optional(),
 })

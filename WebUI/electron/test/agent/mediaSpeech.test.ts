@@ -192,7 +192,7 @@ describe('mediaSpeech (agent speech tools)', () => {
     )
   })
 
-  it("serves a Trial Run's clip from its scratch folder when it works in its Agent's own", async () => {
+  it("serves a Trial Run's clip from scratch when it works in its Agent's own folder", async () => {
     askRendererMock.mockResolvedValue({
       audioBase64: Buffer.from('riff').toString('base64'),
       mediaType: 'audio/wav',

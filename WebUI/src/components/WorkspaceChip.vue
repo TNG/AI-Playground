@@ -17,10 +17,12 @@
         <DropdownMenuLabel class="text-xs">{{ languages.SESSION_FOLDERS }}</DropdownMenuLabel>
         <Tooltip v-for="folder in chip.folders" :key="folder.id">
           <TooltipTrigger as-child>
-            <!-- A missing folder stays focusable rather than `disabled`, so its path still shows. -->
+            <!-- Focusable rather than `disabled`, so a missing folder's path still shows. -->
             <DropdownMenuItem
               class="gap-2"
-              :aria-label="languages.SESSION_FOLDER_OPEN_NAMED.replace('{folder}', folder.name)"
+              :aria-label="
+                fillTemplate(languages.SESSION_FOLDER_OPEN_NAMED, { folder: folder.name })
+              "
               :aria-disabled="isMissing(folder) || undefined"
               :class="{ 'opacity-50': isMissing(folder) }"
               @select="(event: Event) => openFolder(folder, event)"
@@ -50,7 +52,7 @@
           <TooltipContent side="right" class="z-[40011] max-w-96 break-all">
             {{ folder.path }}
             <span v-if="folder.agentId && agent" class="block text-muted-foreground">
-              {{ languages.SESSION_FOLDER_SET_BY_AGENT.replace('{agent}', agent.name) }}
+              {{ fillTemplate(languages.SESSION_FOLDER_SET_BY_AGENT, { agent: agent.name }) }}
             </span>
           </TooltipContent>
         </Tooltip>
@@ -107,6 +109,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { useAgentLibraryEntry } from '@/lib/useAgentLibraryEntry'
 import { workspaceChipOf, type WorkspaceChipFolder } from '@/lib/workspaceChip'
 

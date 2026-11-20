@@ -10,7 +10,7 @@
         :model-value="overrides.workspace ? 'own' : 'inherit'"
         aria-labelledby="agent-workspace-label"
         class="flex flex-col gap-2"
-        @update:model-value="(choice) => chooseWorkspace(String(choice))"
+        @update:model-value="(choice) => chooseWorkspace(choice as WorkspaceChoice)"
       >
         <div class="flex items-center gap-2">
           <RadioGroupItem id="agent-workspace-inherit" value="inherit" />
@@ -51,7 +51,7 @@
         :model-value="overridesFolders ? 'only' : 'inherit'"
         aria-labelledby="agent-other-folders-label"
         class="flex flex-col gap-2"
-        @update:model-value="(choice) => chooseOtherFolders(String(choice))"
+        @update:model-value="(choice) => chooseOtherFolders(choice as OtherFoldersChoice)"
       >
         <div class="flex items-center gap-2">
           <RadioGroupItem id="agent-other-folders-inherit" value="inherit" />
@@ -96,6 +96,9 @@ import { mountedFolderRefusalText } from '@/lib/mountedFolderRefusalText'
 import { mountedFolderRefusal, type MountedFolderRefusal } from '@/lib/mountedFolders'
 import type { AgentFolderOverrides, MountedFolder } from '@/types/agentSessionIpc'
 
+type WorkspaceChoice = 'inherit' | 'own'
+type OtherFoldersChoice = 'inherit' | 'only'
+
 const props = defineProps<{ overrides: AgentFolderOverrides }>()
 const emit = defineEmits<{ change: [overrides: AgentFolderOverrides] }>()
 
@@ -106,7 +109,7 @@ const demo = computed(() => demoMode.enabled)
 const refusal = ref<MountedFolderRefusal>()
 const refusalText = computed(() => mountedFolderRefusalText(refusal.value, languages))
 
-function chooseWorkspace(choice: string): void {
+function chooseWorkspace(choice: WorkspaceChoice): void {
   refusal.value = undefined
   if (choice === 'own') void pickWorkspace()
   else emit('change', withWorkspace(props.overrides, undefined, newId))
@@ -139,7 +142,7 @@ function newId(): string {
 
 const overridesFolders = computed(() => props.overrides.folders !== undefined)
 
-function chooseOtherFolders(choice: string): void {
+function chooseOtherFolders(choice: OtherFoldersChoice): void {
   emit('change', withOtherFolders(props.overrides, choice === 'only' ? [] : undefined))
 }
 

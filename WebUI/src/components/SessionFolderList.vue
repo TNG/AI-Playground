@@ -187,6 +187,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import SettingsHeading from '@/components/SettingsHeading.vue'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { mountedFolderRefusalText } from '@/lib/mountedFolderRefusalText'
 import { folderBaseName, isWritable, type MountedFolderRefusal } from '@/lib/mountedFolders'
 
@@ -208,7 +209,7 @@ const demo = computed(() => demoMode.enabled)
 const agentWorkspace = computed(() => {
   const agent = agentTasks.activeAgent
   if (demo.value || !agent?.settingsTemplate.folderOverrides?.workspace) return ''
-  return languages.SESSION_FOLDER_MAKE_WORKSPACE_AGENT.replace('{agent}', agent.name)
+  return fillTemplate(languages.SESSION_FOLDER_MAKE_WORKSPACE_AGENT, { agent: agent.name })
 })
 
 const rows = computed(() =>

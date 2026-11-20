@@ -143,7 +143,7 @@ export type RunnerComfyService = {
   serviceDir: string
   getTorchBackendEnv(): Record<string, string>
   comfyUiVariantName: string
-  setPresetParameters(parameters: string[]): Promise<void>
+  setPresetParameters(parameters: string[], dropped?: string[]): Promise<void>
 }
 
 export type ArtifactRunnerDeps = {
@@ -854,7 +854,10 @@ async function driveRun(run: ActiveRun, deps: ArtifactRunnerDeps): Promise<void>
   const comfyService = deps.getComfyService()
   if (!comfyService) throw new Error('ComfyUI backend service not found')
   // Launch flags must be in place before the install phase can restart the backend.
-  await comfyService.setPresetParameters(run.payload.preset.requiredComfyUiParameters ?? [])
+  await comfyService.setPresetParameters(
+    run.payload.preset.requiredComfyUiParameters ?? [],
+    run.payload.preset.droppedComfyUiParameters ?? [],
+  )
   await installMissingRequirements(run, run.payload.preset, comfyService)
   if (run.settled) return
 

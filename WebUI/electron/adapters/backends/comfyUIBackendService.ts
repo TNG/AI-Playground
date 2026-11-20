@@ -13,6 +13,7 @@ import {
   createEnhancedErrorDetails,
 } from './service.ts'
 import { withApplicationControlHint } from './applicationControl.ts'
+import { dropComfyUiParameters } from './comfyUiLaunchArgs.ts'
 import {
   aipgBaseDir,
   checkBackend,
@@ -230,6 +231,7 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
 
   private comfyUiParametersString: string = COMFYUI_DEFAULT_PARAMETERS
   private presetParameters: string[] = []
+  private droppedPresetParameters: string[] = []
   private comfyUiVariant: ComfyUiVariant = 'xpu'
   private variantMismatchToastSent = false
 
@@ -653,14 +655,22 @@ export class ComfyUiBackendService extends LongLivedPythonApiService {
   isSetUp = false
 
   /**
-   * Launch flags a preset requires (e.g. `--use-quad-cross-attention`). A
-   * running backend is stopped so the next start picks them up; without this a
-   * workflow that needs a different attention path inherits the previous run's.
+   * Launch flags a preset requires (e.g. `--use-quad-cross-attention`) and
+   * default flags it cannot run with (e.g. `--lowvram`, which on XPU pins the
+   * text encoder to the CPU). A running backend is stopped so the next start
+   * picks them up; without this a workflow inherits the previous run's flags.
    */
-  async setPresetParameters(parameters: string[]): Promise<void> {
-    const next = parameters.map((parameter) => parameter.trim()).filter(Boolean)
-    if (next.join('\0') === this.presetParameters.join('\0')) return
+  async setPresetParameters(parameters: string[], dropped: string[] = []): Promise<void> {
+    const clean = (values: string[]) => values.map((value) => value.trim()).filter(Boolean)
+    const next = clean(parameters)
+    const nextDropped = clean(dropped)
+    if (
+      next.join('\0') === this.presetParameters.join('\0') &&
+      nextDropped.join('\0') === this.droppedPresetParameters.join('\0')
+    )
+      return
     this.presetParameters = next
+    this.droppedPresetParameters = nextDropped
     if (this.currentStatus === 'running' || this.currentStatus === 'starting') {
       await this.stop()
     }
@@ -1991,8 +2001,11 @@ except Exception as e:
     // addresses (defense against malicious settings injection / accidental
     // misconfiguration).
     const rendererOrigin = getRendererOrigin()
-    let userParameters = sanitizeUserComfyUiParameters(this.comfyUiParametersString, (msg) =>
-      this.appLogger.warn(msg, this.name, true),
+    let userParameters = dropComfyUiParameters(
+      sanitizeUserComfyUiParameters(this.comfyUiParametersString, (msg) =>
+        this.appLogger.warn(msg, this.name, true),
+      ),
+      this.droppedPresetParameters,
     )
     if (this.presetParameters.length > 0) {
       userParameters = [
@@ -2008,24 +2021,14 @@ except Exception as e:
     // The default parameters include "--lowvram --reserve-vram 6.0", so strip the
     // GPU-only VRAM flags (and their values) before appending --cpu.
     if (this.comfyUiVariant === 'cpu') {
-      const vramModeFlags = new Set([
+      userParameters = dropComfyUiParameters(userParameters, [
         '--gpu-only',
         '--highvram',
         '--normalvram',
         '--lowvram',
         '--novram',
+        '--reserve-vram',
       ])
-      const filtered: string[] = []
-      for (let i = 0; i < userParameters.length; i++) {
-        const arg = userParameters[i]
-        if (vramModeFlags.has(arg)) continue
-        if (arg === '--reserve-vram') {
-          i++ // also skip its value
-          continue
-        }
-        filtered.push(arg)
-      }
-      userParameters = filtered
     }
 
     const parameters = [

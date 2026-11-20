@@ -4,7 +4,7 @@ import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
-import { useSessions } from '@/assets/js/store/sessions'
+import { useSessions, type NewSessionOptions } from '@/assets/js/store/sessions'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -15,6 +15,7 @@ import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { sessionRowStatus, type SessionRowStatus } from '@/lib/sessionRowStatus'
 import type { SessionTabLanding } from '@/lib/sessionTabs'
 import type { SessionDownload } from '@/assets/js/store/recordRows'
+import type { DesktopView } from '@/assets/js/store/channels/answerRouter'
 
 /**
  * What happens around a Session's turns: opening one brings back the preset and
@@ -55,9 +56,27 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     })
   }
 
+  /**
+   * Opens the Session a Channel switched to; a picked Agent shows only on Assistant. The Channel
+   * asked for it, so a switch to Assistant raises no warning or toast on the desktop.
+   */
+  async function openFromChannel(id: string, view: DesktopView): Promise<void> {
+    if (typeof view === 'object' && !(await sessions.pickAgent(id, view.agentId))) return
+    await openSession(id)
+    if (sessions.openSessionId === id && view !== 'as-is') await switchToAssistant()
+  }
+
+  async function switchToAssistant(): Promise<void> {
+    if (presets.activePresetName === HARNESS_CHAT_PRESET) return
+    const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
+    if (!assistant || !presetSwitch.gateOf(assistant).enabled || presetSwitching.isSwitching) return
+    await sessionSettings.whenLoaded()
+    await presetSwitching.switchPreset(HARNESS_CHAT_PRESET, { skipMemoryAlert: true })
+  }
+
   /** A new Session starts on the Assistant preset, or keeps the active one where it is gated. */
-  async function newSession(groupId?: string): Promise<void> {
-    if (!(await sessions.create(groupId))) return
+  async function newSession(options: NewSessionOptions = {}): Promise<void> {
+    if (!(await sessions.create(options))) return
     const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
     if (!assistant || !presetSwitch.gateOf(assistant).enabled) return
     await sessionSettings.whenLoaded()
@@ -120,7 +139,7 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
     return false
   }
 
-  return { openSession, newSession, rowStatus, stopOpenTurn, stopTurnIn }
+  return { openSession, openFromChannel, newSession, rowStatus, stopOpenTurn, stopTurnIn }
 })
 
 if (import.meta.hot) {

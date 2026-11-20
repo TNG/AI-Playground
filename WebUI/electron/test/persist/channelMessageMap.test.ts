@@ -10,7 +10,11 @@ const dirs = vi.hoisted(() => ({ root: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => path.join(dirs.root, 'sessions'),
+  getLegacySessionsDir: () => path.join(dirs.root, 'sessions'),
+  getAppWorkspacesDir: () => `${path.join(dirs.root, 'sessions')}-workspaces`,
   getSessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getLegacySessionsDemoDir: () => path.join(dirs.root, 'sessions-demo'),
+  getAppWorkspacesDemoDir: () => `${path.join(dirs.root, 'sessions-demo')}-workspaces`,
   getChannelMessageMapFile: () => path.join(dirs.root, 'channel-messages.json'),
   getChannelMessageMapDemoFile: () => path.join(dirs.root, 'channel-messages-demo.json'),
 }))
@@ -154,6 +158,8 @@ describe('the channel message map', () => {
         listStartableAgents: async () => [],
         agentName: () => null,
         startAgent: async () => ({ ok: false, reason: 'no-task', message: '' }),
+        bringIntoView: async () => {},
+        unpickAgent: async () => {},
         activity: () => ({ kind: 'idle' }),
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},

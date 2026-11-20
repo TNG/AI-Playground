@@ -508,6 +508,52 @@ describe('a Trial Run', () => {
     expect(Object.keys(useSessions(pinia).sessions)).toEqual([SESSION])
   })
 
+  it('works in its scratch folder when its Agent has no Workspace override', async () => {
+    storedDrafts = [draftOf('t1', ['one'])]
+    const { trials } = await readyStores()
+
+    await trials.startTrialRun('t1')
+
+    await turnIdOf(0)
+    expect(sentConfig(0).workspaceDir).toBe('/trials/t1/files')
+  })
+
+  it("works in its Agent's own folder, and so do its Follow-ups", async () => {
+    const site = { id: 'w1', hostPath: '/work/site', slug: 'site' }
+    storedDrafts = [
+      draftOf('t1', ['one'], {
+        settingsTemplate: { ...TEMPLATE, folderOverrides: { workspace: site } },
+      }),
+    ]
+    const { trials } = await readyStores()
+    await trialToEnd(trials, 't1', 0)
+
+    await trials.followUpTrialRun('t1', 'and then?')
+
+    await turnIdOf(1)
+    expect(sentConfig(0).workspaceDir).toBe('/work/site')
+    expect(sentConfig(1).workspaceDir).toBe('/work/site')
+  })
+
+  it("is refused when its Agent's own folder is missing", async () => {
+    const site = { id: 'w1', hostPath: '/work/gone', slug: 'gone' }
+    storedDrafts = [
+      draftOf('t1', ['one'], {
+        settingsTemplate: { ...TEMPLATE, folderOverrides: { workspace: site } },
+      }),
+    ]
+    const { trials } = await readyStores()
+    vi.mocked(window.electronAPI.existsPath).mockImplementation(
+      async (target: string) => target !== '/work/gone',
+    )
+
+    await trials.startTrialRun('t1')
+
+    await vi.waitFor(() => expect(trials.trialRuns.t1?.state).toBe('failed'))
+    expect(trials.trialRuns.t1.message).toContain('/work/gone')
+    expect(startTurn).not.toHaveBeenCalled()
+  })
+
   it('sends all its Steps in one turn, and ends when that turn settles', async () => {
     storedDrafts = [draftOf('t1', ['one', 'two', 'three'])]
     const { trials } = await readyStores()

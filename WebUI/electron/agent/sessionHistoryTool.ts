@@ -2,8 +2,27 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { loadPi } from './piRuntime.ts'
 import { jsonResult, jsonSchemaParameters, textResult } from './piCustomTools.ts'
 import { getSessionHistoryEntry, listSessionHistory } from '../session/sessionUpdate.ts'
+import type { HistoryReader } from '../session/historyArtifacts.ts'
+import type { TurnFolders } from './turnFolders.ts'
+import { mountedFolderLocation } from '@/lib/mountedFolders'
 
 export const SESSION_HISTORY_TOOL = 'session_history'
+
+/** The History as a Harness Session sees it: its cwd (the Workspace) plus its other mounts. */
+export function agentHistoryReader(
+  workspaceDir: string,
+  folders: TurnFolders,
+  options: { unsandboxed: boolean; games: boolean },
+): HistoryReader {
+  return {
+    workspaceDir,
+    folders: folders.mounted.map((folder) => ({
+      hostPath: folder.hostPath,
+      path: mountedFolderLocation(folder, options.unsandboxed),
+    })),
+    copies: options.games ? 'any' : 'media',
+  }
+}
 
 const SESSION_HISTORY_SCHEMA = {
   type: 'object',
@@ -32,7 +51,7 @@ type SessionHistoryParams = {
 /** Every agent preset's Harness Session in a Session gets this; it is not a capability. */
 export async function buildSessionHistoryTool(
   sessionRef: string,
-  workspaceDir: string,
+  reader: HistoryReader,
 ): Promise<ToolDefinition> {
   const pi = await loadPi()
   return pi.defineTool({
@@ -50,7 +69,7 @@ export async function buildSessionHistoryTool(
       }
       if (action === 'get') {
         if (!id) return textResult('Provide the id of the entry to get.')
-        const entry = await getSessionHistoryEntry(sessionRef, id, workspaceDir)
+        const entry = await getSessionHistoryEntry(sessionRef, id, reader)
         return entry ? jsonResult(entry) : textResult(`No History Entry with id ${id}.`)
       }
       return textResult('Unknown action: use `list` or `get`.')

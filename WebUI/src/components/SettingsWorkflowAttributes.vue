@@ -154,6 +154,8 @@
 
       <ComfyDynamic />
 
+      <SessionFolderList />
+
       <template #reset-fallback>
         <PresetResetButton :reset="imageGeneration.resetActivePresetSettings" />
       </template>
@@ -176,6 +178,7 @@ import RandomNumber from '@/components/RandomNumber.vue'
 import ComfyDynamic from '@/components/SettingsImageComfyDynamic.vue'
 import PresetResetButton from '@/components/PresetResetButton.vue'
 import PresetVariantPicker from '@/components/PresetVariantPicker.vue'
+import SessionFolderList from '@/components/SessionFolderList.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { deviceMatchesAllowedPrefixes, useWorkflowDevices } from '@/assets/js/workflowDevices'

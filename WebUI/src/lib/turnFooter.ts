@@ -45,7 +45,7 @@ export function agentFooter(
   const actions: TurnFooterAction[] = [
     ...(answerText ? (['copy'] as const) : []),
     ...(answerText && messageId ? (['speak'] as const) : []),
-    ...(regenerate ? (['regenerate'] as const) : []),
+    ...(regenerate ? (['regenerate', 'edit'] as const) : []),
     ...(deletable ? (['delete'] as const) : []),
   ]
   const metrics = answerMetrics(assistant.answer)
@@ -58,7 +58,7 @@ export function agentFooter(
   }
 }
 
-/** Regenerate redoes only the newest answer of a conversation, so only `last` offers it. */
+/** Regenerate and Delete only reach the newest answer of a conversation, so only `last` offers them. */
 export function chatAnswerFooter(answers: UIMessage[], last = false): TurnFooter {
   const answer = answers.at(-1)
   if (!answer || !answers.some(messageHasVisibleContent)) return noFooter()
@@ -70,7 +70,7 @@ export function chatAnswerFooter(answers: UIMessage[], last = false): TurnFooter
   const actions: TurnFooterAction[] = [
     ...(text ? (['copy', 'speak'] as const) : []),
     ...(last ? (['regenerate'] as const) : []),
-    ...(replayed ? [] : (['delete'] as const)),
+    ...(last && !replayed ? (['delete'] as const) : []),
   ]
   const metrics = answerMetrics(answer)
   return { actions, text, messageId: answer.id, ...(metrics ? { metrics } : {}) }

@@ -105,7 +105,7 @@ export type TurnPrompt = {
   origin?: ChannelKind
 }
 
-export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'delete'
+export type TurnFooterAction = 'copy' | 'speak' | 'regenerate' | 'edit' | 'delete' | 'hide'
 
 export type TurnMetrics = Pick<AipgMetadata, 'timings' | 'compute' | 'energy'>
 
@@ -118,13 +118,40 @@ export type HarnessTurnRef = {
   turnIds: string[]
 }
 
+/** A settled media or speech turn's timeline messages, and the files only it produced. */
+export type TurnRemoval = {
+  messageIds: string[]
+  fileUrls: string[]
+}
+
+export type TurnDeletion = { owner: 'media' | 'audio' } & TurnRemoval
+
+/** Hidden messages stay in the Session's file and in what the model sees. */
+export type TurnHiding = {
+  messageIds: string[]
+}
+
 export type TurnFooter = {
   actions: TurnFooterAction[]
   text: string
   messageId?: string
   metrics?: TurnMetrics
   rerun?: MediaRerun
+  audioRerun?: AudioRerun
   harnessTurn?: HarnessTurnRef
+  deletion?: TurnDeletion
+  hiding?: TurnHiding
+}
+
+/** Re-runs the latest Text-to-Speech / Speech-to-Text turn, which it replaces. */
+export type AudioRerun = {
+  kind: AudioTurnData['kind']
+  preset: string
+  /** TTS: the text spoken again; STT: what the source audio is called. */
+  prompt: string
+  /** TTS: the replaced clip; STT: the source clip to transcribe again. */
+  audioUrl?: string
+  messageIds: TurnRemoval['messageIds']
 }
 
 export type MediaRerun = {
@@ -143,7 +170,7 @@ export type MediaRerun = {
   /** Workflow input values keyed `<nodeTitle>.<nodeInput>`. */
   inputs: Record<string, unknown>
   inputImageUrl?: string
-}
+} & TurnRemoval
 
 export type TurnOf<K extends string, Body> = {
   kind: K
@@ -187,12 +214,26 @@ export type AgentTurn = TurnOf<
 
 export type MediaTurn = TurnOf<
   'media',
-  { prompt: TurnPrompt; createdAt: number; media: MediaTurnData; artifacts: TurnArtifact[] }
+  {
+    prompt: TurnPrompt
+    /** The turn's own user prompt message; `id` is its answer. */
+    promptId: string
+    createdAt: number
+    media: MediaTurnData
+    artifacts: TurnArtifact[]
+  }
 >
 
 export type AudioTurn = TurnOf<
   'audio',
-  { prompt: TurnPrompt; createdAt: number; audio: AudioTurnData; audioArtifacts: AudioArtifact[] }
+  {
+    prompt: TurnPrompt
+    createdAt: number
+    audio: AudioTurnData
+    audioArtifacts: AudioArtifact[]
+    /** The turn's own user prompt message; `id` is its answer. */
+    promptId: string
+  }
 >
 
 export type MessageTurn = { kind: 'message'; id: string; message: TimelineMessage }

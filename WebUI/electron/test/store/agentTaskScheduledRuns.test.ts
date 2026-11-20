@@ -456,6 +456,7 @@ describe('a Scheduled Run in its Session', () => {
 
     expect(sentPrompts()).toEqual([runPrompt('', ['t1 one', 't1 two'])])
     expect(sentConfig(0).taskRun).toEqual({
+      taskId: 't1',
       taskName: 'Task t1',
       notifiesResult: true,
     })
@@ -1120,7 +1121,13 @@ describe('a Scheduled Run that fails part-way', () => {
     vi.mocked(window.electronAPI.isFolderPath).mockImplementation(
       async (path: string) => path !== '/Volumes/usb/inbox',
     )
-    const template = { ...TEMPLATE, mountedFolders: [{ hostPath: '/Volumes/usb/inbox' }] }
+    const inbox = {
+      id: 'i1',
+      hostPath: '/Volumes/usb/inbox',
+      slug: 'inbox',
+      access: 'read-only' as const,
+    }
+    const template = { ...TEMPLATE, folderOverrides: { folders: [inbox] } }
     const { tasks } = await readyStores(scheduledTask('t1', { settingsTemplate: template }))
 
     await runClockTo(NOW + 10 * MINUTE)

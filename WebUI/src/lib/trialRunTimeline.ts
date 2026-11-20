@@ -1,4 +1,4 @@
-import { sessionTimelineItems } from '@/lib/sessionTimeline'
+import { sessionTimelineItems, withoutMessageHiding } from '@/lib/sessionTimeline'
 import type { PendingAudio, PendingMedia, SessionTimelineItem } from '@/lib/turnTypes'
 import type { AgentRunTag, AgentTurnTag } from '@/types/sessionTimeline'
 
@@ -28,8 +28,10 @@ export function trialRunItems<
     ...message,
     metadata: { ...(message as { metadata?: object }).metadata, agentTurn: tag },
   }))
-  return sessionTimelineItems<M, A>(timeline, {
+  const items = sessionTimelineItems<M, A>(timeline, {
     agents: view.live ? [{ tag, messages: view.live, live: true }] : [],
     ...(view.inFlight ? { agentRunsInFlight: [view.harnessSessionId] } : {}),
   })
+  // A Trial Run is the Agent Library's, not a Session's: none of it is hidden.
+  return withoutMessageHiding(items)
 }

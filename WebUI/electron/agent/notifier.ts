@@ -6,6 +6,7 @@ import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { notificationSessionLabel, trialRunLabel } from '@/lib/notificationLabel'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
@@ -24,6 +25,7 @@ import { sessionOfHarnessSession } from '../session/sessionHarness.ts'
 import { readReachableSession } from '../session/sessionChannels.ts'
 import { liveTrialRunOf } from './trialRuns.ts'
 import { channelMediaOf, readAttachments, type ChannelMedia } from './notificationAttachments.ts'
+import { agentFileRoot, type AgentFiles } from './workspaceAttachments.ts'
 import { appLoggerInstance } from '../observability/logger.ts'
 import { tellDroppedQueues } from './queueQuitNotice.ts'
 import {
@@ -84,8 +86,8 @@ export type NotificationChannel = { send: ChannelSend; typing: ChannelTyping; dr
 export type NotificationOptions = {
   /** The sending Harness Session; its Session must be reachable and is named in the header. */
   sessionId: string
-  /** Workspace-relative files to send with the text, validated against the session's workspace. */
-  attachments?: { workspaceDir: string; paths: string[] }
+  /** Files to send with the text, from the session's Workspace or its attachments. */
+  attachments?: { files: AgentFiles; paths: string[] }
 }
 
 const OFF_CONFIG: NotificationConfig = {
@@ -95,12 +97,14 @@ const OFF_CONFIG: NotificationConfig = {
   realShellSessions: [],
   templates: {
     header: '',
+    assistantHeader: '',
     paused: '',
     pauseReason: '',
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
     failed: '',
     sessionLabel: '',
     untitled: '',
+    untitledAgent: '',
     answerButton: '',
     answerOnComputer: '',
     answerInThread: '',
@@ -216,7 +220,7 @@ export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: 
 
 type Owner = AnswerTarget | TrialRunOwner
 type Heading = { header: string; owner: Owner }
-type Sender = { owner: Owner; title: string }
+type Sender = { owner: Owner; title: string; header: string }
 
 /** Harness Sessions whose latest turn started with the `notify` capability. */
 const notifyingHarnessSessions = new Set<string>()
@@ -249,15 +253,23 @@ async function senderOf(sessionId: string): Promise<Sender | null> {
     const session = await readReachableSession(sessionRef)
     if (!session) return null
     const title = await sessionLabel(sessionId, session.title)
-    return { owner: { sessionRef, harnessSessionId: sessionId }, title }
+    const assistant = session.harnessSessions[HARNESS_CHAT_PRESET] === sessionId
+    const header = assistant ? config.templates.assistantHeader : config.templates.header
+    return {
+      owner: { sessionRef, harnessSessionId: sessionId },
+      title,
+      header: fillTemplate(header, { title }),
+    }
   }
   if (!notifyingHarnessSessions.has(sessionId)) return null
   const trial = await liveTrialRunOf(sessionId)
   if (!trial) return null
   const agent = trial.name || (await readAgentSessionTitle(sessionId))
+  const title = trialRunLabel(config.templates, agent)
   return {
     owner: { trialRun: true, harnessSessionId: sessionId, agentId: trial.agentId },
-    title: trialRunLabel(config.templates, agent),
+    title,
+    header: fillTemplate(config.templates.header, { title }),
   }
 }
 
@@ -265,7 +277,7 @@ async function headingOf(sessionId: string): Promise<Heading | null> {
   const sender = await senderOf(sessionId)
   if (!sender) return null
   return {
-    header: fillTemplate(config.templates.header, { title: sender.title }),
+    header: sender.header,
     owner: sender.owner,
   }
 }
@@ -393,10 +405,15 @@ export async function sendNotification(
   const delivery = await deliverOrWarn({ text, attachments }, sessionId)
   if (delivery.delivered && attachments) {
     for (const file of attachments.paths) {
-      turn?.attached.add(path.resolve(attachments.workspaceDir, file))
+      turn?.attached.add(attachmentKey(attachments.files, file))
     }
   }
   return delivery
+}
+
+function attachmentKey(files: AgentFiles, file: string): string {
+  const { root, relative } = agentFileRoot(files, file)
+  return path.resolve(root, relative)
 }
 
 /** The attachments the turn has not already put on the Channel; undefined when none are left. */
@@ -405,7 +422,7 @@ function notSentYet(
   turn: ReportedTurn | undefined,
 ): NotificationOptions['attachments'] {
   const paths = attachments.paths.filter(
-    (file) => !turn?.attached.has(path.resolve(attachments.workspaceDir, file)),
+    (file) => !turn?.attached.has(attachmentKey(attachments.files, file)),
   )
   return paths.length > 0 ? { ...attachments, paths } : undefined
 }
@@ -453,7 +470,7 @@ async function deliver(body: Body, sessionId: string): Promise<NotificationDeliv
     if (!sender) return { delivered: false, reason: 'the Session is not reachable from Channels' }
     const outcomes: NotificationDelivery[] = []
     for (const kind of kinds) {
-      outcomes.push(await deliverOn(kind, channel, body, sender.owner, sender.title))
+      outcomes.push(await deliverOn(kind, channel, body, sender))
     }
     const delivered = outcomes.flatMap((outcome) => (outcome.delivered ? [outcome] : []))
     if (delivered.length === 0) {
@@ -473,17 +490,15 @@ async function deliverOn(
   kind: ChannelKind,
   port: NotificationChannel,
   body: Body,
-  owner: Owner,
-  title: string,
+  { owner, title, header: senderHeader }: Sender,
 ): Promise<NotificationDelivery> {
   const sessionId = owner.harnessSessionId
   const answer = reportedTurnOf(sessionId)?.answer
   const attached = body.attachments
-    ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
+    ? await readAttachments(body.attachments.files, body.attachments.paths, kind)
     : { media: [] }
   if ('error' in attached) return { delivered: false, reason: attached.error }
-  const header =
-    takesCaption(body.media) && !body.bare ? fillTemplate(config.templates.header, { title }) : ''
+  const header = takesCaption(body.media) && !body.bare ? senderHeader : ''
   const message: ChannelMessage = {
     ...(header ? { header } : {}),
     text: body.text,
@@ -627,9 +642,17 @@ async function sessionLabel(sessionId: string, sessionTitle: string): Promise<st
   return inRun ? `${named} · ${notificationSessionLabel(templates, sessionId, '', tasks)}` : named
 }
 
-/** Paused and failed: always for the turn an Answer started, else only off screen. */
-async function notifiesAutomatically(sessionId: string, turnId: string): Promise<boolean> {
-  if (reportedTurnOf(sessionId, turnId)?.answer) return true
+/**
+ * Paused and failed: always for an Answer, else only off screen; an unattended run that cannot
+ * start because its Workspace is missing has nobody to ask, so it always reaches Channels.
+ */
+async function notifiesAutomatically(
+  sessionId: string,
+  turnId: string,
+  missingWorkspace = false,
+): Promise<boolean> {
+  const turn = reportedTurnOf(sessionId, turnId)
+  if (turn?.answer || (turn && missingWorkspace)) return true
   return offScreen(sessionId)
 }
 
@@ -650,8 +673,13 @@ async function notifyPaused(
   )
 }
 
-async function notifyFailed(sessionId: string, turnId: string, error: string): Promise<void> {
-  if (!(await notifiesAutomatically(sessionId, turnId))) return
+async function notifyFailed(
+  sessionId: string,
+  turnId: string,
+  error: string,
+  missingWorkspace = false,
+): Promise<void> {
+  if (!(await notifiesAutomatically(sessionId, turnId, missingWorkspace))) return
   // The template supplies its own full stop after the error.
   const reason = error.trim().replace(/[.。]+$/, '')
   await deliverOrWarn(
@@ -677,7 +705,7 @@ export function startAutoNotifications(): () => void {
         ? sendTurnResult(end.sessionId, reported, end.reply)
         : (reported ? settleStreamed(end.sessionId, reported) : Promise.resolve()).then(() =>
             end.outcome === 'failed'
-              ? notifyFailed(end.sessionId, end.turnId, end.error)
+              ? notifyFailed(end.sessionId, end.turnId, end.error, end.missingWorkspace)
               : undefined,
           )
     void sending

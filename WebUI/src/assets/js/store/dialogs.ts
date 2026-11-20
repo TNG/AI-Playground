@@ -3,6 +3,17 @@ import { computed, ref, shallowRef } from 'vue'
 import { sanitizeMarkdown } from '@/lib/sanitize'
 import { parse } from '../markdownParser'
 import type { CloseAskPayload } from '@/types/lifecycleIpc'
+import type { MissingWorkspace } from '@/types/sessionIpc'
+import type { MountedFolderRefusal } from '@/lib/mountedFolders'
+
+export type MissingWorkspaceChoice = 'locate' | 'start-new' | 'edit-agent' | null
+
+/** With `agent`, the missing folder is that Agent's own Workspace, changed in the Agent. */
+export type MissingWorkspaceAsk = {
+  missing: MissingWorkspace
+  refusal?: MountedFolderRefusal
+  agent?: { id: string; name: string }
+}
 
 // todo: Consider adding "add-l-l-m-dialog" as well
 export type PresetRequirementsData = {
@@ -133,6 +144,25 @@ export const useDialogStore = defineStore('dialog', () => {
       warningConfirmFunction.value = () => resolve(true)
       warningCancelFunction.value = () => resolve(false)
       warningDialogVisible.value = true
+    })
+  }
+
+  const missingWorkspaceQuestion = shallowRef<
+    (MissingWorkspaceAsk & { answer: (choice: MissingWorkspaceChoice) => void }) | null
+  >(null)
+
+  /** Asks one question at a time; a second one cancels the first. */
+  function askMissingWorkspace(ask: MissingWorkspaceAsk): Promise<MissingWorkspaceChoice> {
+    missingWorkspaceQuestion.value?.answer(null)
+    return new Promise((resolve) => {
+      const question = {
+        ...ask,
+        answer: (choice: MissingWorkspaceChoice) => {
+          if (missingWorkspaceQuestion.value === question) missingWorkspaceQuestion.value = null
+          resolve(choice)
+        },
+      }
+      missingWorkspaceQuestion.value = question
     })
   }
 
@@ -415,6 +445,9 @@ export const useDialogStore = defineStore('dialog', () => {
     closeWarningDialog,
 
     closeQuestion,
+
+    missingWorkspaceQuestion,
+    askMissingWorkspace,
 
     // Download dialog
     downloadDialogVisible,

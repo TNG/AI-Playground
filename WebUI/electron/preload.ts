@@ -10,15 +10,17 @@ import type {
   AgentModeTurnConfig,
   AgentToolExecuteRequest,
   AgentToolSpec,
+  AttachmentTarget,
   DeleteAgentTurnsRequest,
 } from '@/types/agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
-import type { AgentSessionRecordWire } from '@/types/agentSessionIpc'
+import type { AgentSessionRecordWire, MountedFolderAccess } from '@/types/agentSessionIpc'
 import type {
   ArtifactMediaType,
   AssistantCapabilityDefaults,
   AudioTurnRequest,
   HarnessGameWorkspace,
+  SessionCreateOptions,
   SessionTurn,
   ShowMoreSection,
 } from '@/types/sessionIpc'
@@ -298,7 +300,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sessions: {
     list: () => invoke('sessions:list'),
-    create: (groupId?: string, options?: AssistantCapabilityDefaults) =>
+    create: (groupId?: string, options?: SessionCreateOptions) =>
       invoke('sessions:create', groupId, options && cloneForIpc(options)),
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),
@@ -309,6 +311,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     migrateHomeAgentThreads: (input: { routingKey: string | null } & AssistantCapabilityDefaults) =>
       invoke('sessions:migrateHomeAgentThreads', cloneForIpc(input)),
     pin: (id: string, pinned: boolean) => invoke('sessions:pin', id, pinned),
+    addFolder: (id: string, hostPath: string) => invoke('sessions:addFolder', id, hostPath),
+    removeFolder: (id: string, folderId: string) => invoke('sessions:removeFolder', id, folderId),
+    setFolderAccess: (id: string, folderId: string, access: MountedFolderAccess) =>
+      invoke('sessions:setFolderAccess', id, folderId, access),
+    starFolder: (id: string, folderId: string) => invoke('sessions:starFolder', id, folderId),
+    openFolder: (id: string, folderId?: string) => invoke('sessions:openFolder', id, folderId),
+    missingWorkspace: (id: string) => invoke('sessions:missingWorkspace', id),
+    locateWorkspace: (id: string, hostPath: string) =>
+      invoke('sessions:locateWorkspace', id, hostPath),
+    startNewWorkspace: (id: string) => invoke('sessions:startNewWorkspace', id),
     pickAgent: (id: string, agentId: string | null) => invoke('sessions:pickAgent', id, agentId),
     createGroup: (id: string, name: string) => invoke('sessions:createGroup', id, name),
     moveToGroup: (id: string, groupId: string | null) =>
@@ -320,18 +332,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setShowMore: (section: ShowMoreSection, shown: boolean) =>
       invoke('sessions:setShowMore', section, shown),
     delete: (id: string) => invoke('sessions:delete', id),
+    deletePreview: (id: string) => invoke('sessions:deletePreview', id),
     harnessSession: (id: string, presetName: string, game?: HarnessGameWorkspace) =>
       invoke('sessions:harnessSession', id, presetName, game),
     taskRunHarness: (id: string) => invoke('sessions:taskRunHarness', id),
     saveTimelineMessages: (id: string, messages: unknown[]) =>
       invoke('sessions:saveTimelineMessages', id, cloneForIpc(messages)),
+    removeTimelineMessages: (id: string, messageIds: string[]) =>
+      invoke('sessions:removeTimelineMessages', id, messageIds),
+    addHiddenMessages: (id: string, messageIds: string[]) =>
+      invoke('sessions:addHiddenMessages', id, messageIds),
+    clearHiddenMessages: (id: string) => invoke('sessions:clearHiddenMessages', id),
+    clearAllHiddenMessages: () => invoke('sessions:clearAllHiddenMessages'),
     saveChatTranscript: (id: string, messages: unknown[]) =>
       invoke('sessions:saveChatTranscript', id, cloneForIpc(messages)),
     recordAudioTurn: (turn: AudioTurnRequest) =>
       invoke('sessions:recordAudioTurn', cloneForIpc(turn)),
     listArtifacts: () => invoke('sessions:listArtifacts'),
-    deleteArtifact: (sessionId: string, relativePath: string) =>
-      invoke('sessions:deleteArtifact', sessionId, relativePath),
+    deleteArtifact: (sessionId: string, url: string) =>
+      invoke('sessions:deleteArtifact', sessionId, url),
     readSettings: (id: string) => invoke('sessions:readSettings', id),
     writePresetSettings: (id: string, presetName: string, entry: PresetSessionSettings) =>
       invoke('sessions:writePresetSettings', id, presetName, cloneForIpc(entry)),
@@ -440,6 +459,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readTasks: () => invoke('agentMode:readTasks'),
     saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
     deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
+    openTaskFolder: (id: string, hostPath: string) =>
+      invoke('agentMode:openTaskFolder', id, hostPath),
     readDrafts: () => invoke('agentMode:readDrafts'),
     saveDraft: (draft: AgentDraft) => invoke('agentMode:saveDraft', cloneForIpc(draft)),
     deleteDraft: (agentId: string) => invoke('agentMode:deleteDraft', agentId),
@@ -447,13 +468,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     discardTrialRun: (agentId: string) => invoke('agentMode:discardTrialRun', agentId),
     readTrialRuns: () => invoke('agentMode:readTrialRuns'),
     saveTrialRun: (run: TrialRunRecord) => invoke('agentMode:saveTrialRun', cloneForIpc(run)),
-    importAttachment: (workspaceDir: string, name: string, bytes: Uint8Array) =>
-      invoke('agentMode:importAttachment', workspaceDir, name, bytes),
-    sessionDocuments: (workspaceDir: string) => invoke('agentMode:sessionDocuments', workspaceDir),
-    indexDocument: (workspaceDir: string, relativePath: string, embedding: DocumentEmbedding) =>
-      invoke('agentMode:indexDocument', workspaceDir, relativePath, embedding),
-    removeSessionDocument: (workspaceDir: string, relativePath: string) =>
-      invoke('agentMode:removeSessionDocument', workspaceDir, relativePath),
+    importAttachment: (target: AttachmentTarget, name: string, bytes: Uint8Array) =>
+      invoke('agentMode:importAttachment', target, name, bytes),
+    sessionDocuments: (target: AttachmentTarget) => invoke('agentMode:sessionDocuments', target),
+    indexDocument: (target: AttachmentTarget, relativePath: string, embedding: DocumentEmbedding) =>
+      invoke('agentMode:indexDocument', target, relativePath, embedding),
+    removeSessionDocument: (target: AttachmentTarget, relativePath: string) =>
+      invoke('agentMode:removeSessionDocument', target, relativePath),
     listCapabilities: (options: {
       workspaceDir?: string
       toolSpecs?: AgentToolSpec[]

@@ -3,23 +3,26 @@
     <AlertDialogContent @click.stop>
       <AlertDialogHeader>
         <AlertDialogTitle>{{ languages.ARTIFACT_DELETE_TITLE }}</AlertDialogTitle>
-        <AlertDialogDescription>{{ languages.ARTIFACT_DELETE_BODY }}</AlertDialogDescription>
+        <AlertDialogDescription>{{
+          demoMode.enabled ? languages.ARTIFACT_DELETE_BODY_DEMO : languages.ARTIFACT_DELETE_BODY
+        }}</AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
         <AlertDialogCancel @click.stop>{{ languages.COM_CANCEL }}</AlertDialogCancel>
-        <AlertDialogAction @click.stop="emit('confirm')">
+        <!-- Not AlertDialogAction: it closes before our click runs, and a caller's close clears its target. -->
+        <Button @click.stop="confirm">
           {{ languages.COM_DELETE }}
-        </AlertDialogAction>
+        </Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
 </template>
 
 <script setup lang="ts">
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -27,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 
 defineProps<{ open: boolean }>()
 
@@ -36,4 +40,10 @@ const emit = defineEmits<{
 }>()
 
 const languages = useI18N().state
+const demoMode = useDemoMode()
+
+function confirm(): void {
+  emit('confirm')
+  emit('update:open', false)
+}
 </script>

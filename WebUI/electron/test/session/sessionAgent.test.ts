@@ -8,22 +8,38 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
+vi.mock('../../adapters/trash', async () => {
+  const fs = await import('node:fs/promises')
+  return { moveToTrash: (target: string) => fs.rm(target, { recursive: true, force: true }) }
+})
+
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
+const announced = vi.hoisted(() => [] as { id: string; timeline: unknown[] }[])
+
+vi.mock('../../kernel/kernelBus', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../kernel/kernelBus')>()),
+  emitSessionChanged: (document: { id: string; timeline: unknown[] }) => announced.push(document),
+}))
+
 const { createSession, deleteSession, onSessionDeleted, openSession } =
   await import('../../session/sessions')
+const { sessionWorkspaceDir } = await import('../../session/sessionWorkspace')
 const { resetSessionsForTest, setSessionDeps } = await import('../../session/sessions')
 const { harnessSessionFor } = await import('../../session/sessionHarness')
 const { removeTimelineMessages, upsertTimelineMessages } =
   await import('../../session/sessionTimeline')
-const { onKernelEvent } = await import('../../kernel/kernelBus')
 
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aipg-session-agent-'))
@@ -66,7 +82,7 @@ describe('Harness Sessions of a Session', () => {
 
     const { workspaceDir } = await harnessSessionFor(session.id, 'Agent')
 
-    expect(workspaceDir).toBe(path.join(dirs.real, session.id, 'files'))
+    expect(workspaceDir).toBe(sessionWorkspaceDir(session.id))
   })
 
   it("tells deletion listeners the deleted Session's Harness Sessions", async () => {
@@ -97,22 +113,27 @@ describe('display timeline', () => {
     expect((await openSession(session.id)).timeline).toEqual([user, settled, next])
   })
 
-  it('pushes the saved timeline, so a window that did not run the turn sees the reply', async () => {
+  // A Session change announced meanwhile, such as the Workspace following the title, carries
+  // the timeline it read; the window replaces its own with whichever arrives last.
+  it('announces the saved timeline, so an earlier announcement cannot hide a reply', async () => {
     const session = await createSession()
-    const pushed: unknown[][] = []
-    const stop = onKernelEvent((event) => {
-      if (event.type === 'session-changed' && event.session.id === session.id) {
-        pushed.push(event.session.timeline)
-      }
-    })
+    const reply = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'done' }] }
+
+    await upsertTimelineMessages(session.id, [reply])
+
+    const last = announced.filter((document) => document.id === session.id).at(-1)
+    expect(last?.timeline).toEqual([reply])
+  })
+
+  it('announces a removal too, so a window that did not delete the turn drops it', async () => {
+    const session = await createSession()
     const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
     const reply = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'hello' }] }
-    try {
-      await upsertTimelineMessages(session.id, [user, reply])
-      await removeTimelineMessages(session.id, ['a1'])
-    } finally {
-      stop()
-    }
-    expect(pushed).toEqual([[user, reply], [user]])
+
+    await upsertTimelineMessages(session.id, [user, reply])
+    await removeTimelineMessages(session.id, ['a1'])
+
+    const last = announced.filter((document) => document.id === session.id).at(-1)
+    expect(last?.timeline).toEqual([user])
   })
 })

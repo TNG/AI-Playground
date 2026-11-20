@@ -11,7 +11,11 @@ const dirs = vi.hoisted(() => ({ real: '', demo: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
+  getLegacySessionsDir: () => dirs.real,
+  getAppWorkspacesDir: () => `${dirs.real}-workspaces`,
   getSessionsDemoDir: () => dirs.demo,
+  getLegacySessionsDemoDir: () => dirs.demo,
+  getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -28,14 +32,35 @@ vi.mock('@/assets/js/toast', () => ({
 const sessionModule = await import('../../session/sessions')
 const kernelBus = await import('../../kernel/kernelBus')
 const { recordMediaTurn } = await import('../../session/sessionMediaTurn')
+const {
+  addHiddenMessages,
+  clearAllHiddenMessages,
+  clearHiddenMessages,
+  removeTimelineMessages,
+  upsertTimelineMessages,
+} = await import('../../session/sessionTimeline')
 const { readSessionSettings } = await import('../../session/sessionSettings')
 const { useSessions } = await import('@/assets/js/store/sessions')
 const ledger = await import('../../session/sessionTurns')
 const { buildSessionsRegistry } = await import('../../kernel/registries/sessions')
 type SessionsDeps = import('../../kernel/registries/sessions').SessionsDeps
 
-const registry = buildSessionsRegistry(sessionModule as unknown as SessionsDeps)
+const sessionFolders = await import('../../session/sessionFolders')
+const sessionWorkspace = await import('../../session/sessionWorkspace')
+const { useDialogStore } = await import('@/assets/js/store/dialogs')
+
+const registry = buildSessionsRegistry({
+  ...sessionModule,
+  ...sessionFolders,
+  ...sessionWorkspace,
+  addHiddenMessages,
+  clearHiddenMessages,
+  clearAllHiddenMessages,
+} as unknown as SessionsDeps)
+/** The folder the next "Locate folder…" picker returns; undefined cancels it. */
+let pickedFolder: string | undefined
 const noEvent = {} as never
+const idsOf = (timeline: unknown[]) => timeline.map((message) => (message as { id?: string }).id)
 
 function ok<T extends object>(run: () => Promise<T>) {
   return async () => ({ success: true as const, ...(await run()) })
@@ -73,7 +98,19 @@ beforeEach(async () => {
           registry['sessions:setGroupExpanded'](noEvent, groupId, expanded),
         setShowMore: (section: 'pinned' | 'older', shown: boolean) =>
           registry['sessions:setShowMore'](noEvent, section, shown),
+        addHiddenMessages: (id: string, messageIds: string[]) =>
+          registry['sessions:addHiddenMessages'](noEvent, id, messageIds),
+        clearHiddenMessages: (id: string) => registry['sessions:clearHiddenMessages'](noEvent, id),
+        clearAllHiddenMessages: () => registry['sessions:clearAllHiddenMessages'](noEvent),
+        missingWorkspace: (id: string) => registry['sessions:missingWorkspace'](noEvent, id),
+        locateWorkspace: (id: string, hostPath: string) =>
+          registry['sessions:locateWorkspace'](noEvent, id, hostPath),
+        startNewWorkspace: (id: string) => registry['sessions:startNewWorkspace'](noEvent, id),
       },
+      showOpenDialog: async () =>
+        pickedFolder
+          ? { canceled: false, filePaths: [pickedFolder] }
+          : { canceled: true, filePaths: [] },
     },
   })
   setActivePinia(createPinia())
@@ -248,6 +285,73 @@ describe('Sessions store', () => {
     })
   })
 
+  it('keeps a prematurely forgotten message out while the file still holds it, and dissolves the forget once the file drops it', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const answer = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working' }] }
+    await upsertTimelineMessages(id, [user, answer])
+    await sessionModule.renameSession(id, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1']))
+
+    store.forgetTimelineMessages(id, ['a1'])
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    // The file still holds the message: a later change must not bring it back.
+    await sessionModule.renameSession(id, 'regenerating')
+    await vi.waitFor(() => expect(store.openSession?.title).toBe('regenerating'))
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    // Main settled and dropped it: the forget dissolves.
+    await removeTimelineMessages(id, ['a1'])
+    await sessionModule.renameSession(id, 'settled')
+    await vi.waitFor(() => expect(store.openSession?.title).toBe('settled'))
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    // The forget is truly gone: that id coming back in a document shows again.
+    await upsertTimelineMessages(id, [answer])
+    await sessionModule.renameSession(id, 'resurfaced')
+    await vi.waitFor(() => expect(store.openSession?.title).toBe('resurfaced'))
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1'])
+  })
+
+  it('brings back what a premature forget removed, from the file that still holds it', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const answer = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working' }] }
+    await upsertTimelineMessages(id, [user, answer])
+    await sessionModule.renameSession(id, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1']))
+
+    store.forgetTimelineMessages(id, ['a1'])
+    expect(idsOf(store.openTimeline)).toEqual(['u1'])
+
+    await store.restoreForgottenTimelineMessages(id)
+
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1'])
+  })
+
+  it('clears the forget when another Session opens', async () => {
+    const store = useSessions()
+    await store.init()
+    const forgotten = store.openSessionId!
+    const user = { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+    const answer = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'working' }] }
+    await upsertTimelineMessages(forgotten, [user, answer])
+    await sessionModule.renameSession(forgotten, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1']))
+    store.forgetTimelineMessages(forgotten, ['a1'])
+
+    const other = (await store.create())!
+
+    expect(store.openSessionId).toBe(other)
+    await store.open(forgotten)
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1'])
+  })
+
   it("knows each Session's turn in flight, and marks one that ended out of sight as unseen", async () => {
     const store = useSessions()
     await store.init()
@@ -372,5 +476,236 @@ describe('Sessions store', () => {
     await store.init()
     expect(store.openSessionId).toBe(first.id)
     expect(store.groups[0]?.expanded).toBe(false)
+  })
+})
+
+describe('Hidden messages', () => {
+  /** Two settled chat turns, `u1`/`a1` then `u2`/`a2`, in the open Session. */
+  async function seedTurns(store: ReturnType<typeof useSessions>) {
+    const id = store.openSessionId!
+    const messages = [
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'first' }] },
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'one' }] },
+      { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'second' }] },
+      { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'two' }] },
+    ]
+    await upsertTimelineMessages(id, messages)
+    await sessionModule.renameSession(id, 'seeded')
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2']))
+    return id
+  }
+
+  it('hides a turn of the open Session: the file keeps it, the view leaves it out', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u2', 'a2'])
+    // The messages stay in the file, and in what the model sees.
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(id)).hiddenMessageIds).toEqual(['u1', 'a1'])
+  })
+
+  it('keeps saving hidden messages, so nothing is lost or duplicated in the file', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    const updated = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'one more' }] }
+    await store.saveTimelineMessages(id, [updated])
+
+    expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(id)).timeline).toHaveLength(4)
+  })
+
+  it('takes the hidden mark off with the messages a delete removes', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await removeTimelineMessages(id, ['a1'])
+    await sessionModule.renameSession(id, 'settled')
+
+    expect((await sessionModule.openSession(id)).hiddenMessageIds).toEqual(['u1'])
+  })
+
+  it('brings the hidden turn of the open Session back', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await store.unhideSessionMessages(id)
+
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(id)).hiddenMessageIds).toEqual([])
+  })
+
+  it('reads the hidden messages back on a later open', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await store.create()
+    await store.open(id)
+
+    expect(store.openHiddenIds).toEqual(['u1', 'a1'])
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u2', 'a2'])
+  })
+
+  it('unhides every Session at once, not just the open one', async () => {
+    const store = useSessions()
+    await store.init()
+    const open = await seedTurns(store)
+    const other = (await store.create())!
+    const elsewhere = { id: 'u3', role: 'user', parts: [{ type: 'text', text: 'elsewhere' }] }
+    const there = { id: 'a3', role: 'assistant', parts: [{ type: 'text', text: 'there' }] }
+    await upsertTimelineMessages(other, [elsewhere, there])
+    await addHiddenMessages(other, ['u3', 'a3'])
+    // The push brings the pair in with its hidden mark: the view shows nothing.
+    await vi.waitFor(() => expect(store.openVisibleTimeline).toEqual([]))
+
+    // Hiding a turn of the first Session marks it while that Session is open.
+    await store.open(open)
+    await vi.waitFor(() => expect(idsOf(store.openTimeline)).toEqual(['u1', 'a1', 'u2', 'a2']))
+    await store.hideTimelineMessages(open, ['u2', 'a2'])
+
+    await store.unhideAllMessages()
+
+    expect(idsOf(store.openVisibleTimeline)).toEqual(['u1', 'a1', 'u2', 'a2'])
+    expect((await sessionModule.openSession(open)).hiddenMessageIds).toEqual([])
+    expect((await sessionModule.openSession(other)).hiddenMessageIds).toEqual([])
+  })
+
+  it('hides a turn whose messages have not settled into the file yet', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = store.openSessionId!
+    await sessionModule.renameSession(id, 'seeded')
+
+    // A live turn hides before its messages are saved; the mark waits for them.
+    await store.hideTimelineMessages(id, ['u9', 'a9'])
+    expect(store.openHiddenIds).toEqual(['u9', 'a9'])
+
+    const late = { id: 'u9', role: 'user', parts: [{ type: 'text', text: 'late' }] }
+    const settled = { id: 'a9', role: 'assistant', parts: [{ type: 'text', text: 'settled' }] }
+    await upsertTimelineMessages(id, [late, settled])
+    const document = await sessionModule.openSession(id)
+    expect(document.hiddenMessageIds).toEqual(['u9', 'a9'])
+  })
+
+  it('carries the hidden ids in the Session rows, not just the open Session', async () => {
+    const store = useSessions()
+    await store.init()
+    const id = await seedTurns(store)
+    await store.hideTimelineMessages(id, ['u1', 'a1'])
+
+    await vi.waitFor(() => expect(store.sessions[id]?.hiddenMessageIds).toEqual(['u1', 'a1']))
+  })
+
+  it('counts the Sessions with hidden messages while another Session is the open one', async () => {
+    const store = useSessions()
+    await store.init()
+    expect(store.sessionsWithHiddenMessages).toBe(0)
+
+    const hidden = store.openSessionId!
+    await seedTurns(store)
+    await store.hideTimelineMessages(hidden, ['u1', 'a1'])
+    await store.create()
+    expect(store.openSessionId).not.toBe(hidden)
+
+    // The hidden pair sits in a Session that is no longer open: the rows know it.
+    await vi.waitFor(() => expect(store.sessionsWithHiddenMessages).toBe(1))
+
+    await store.unhideAllMessages()
+    await vi.waitFor(() => expect(store.sessionsWithHiddenMessages).toBe(0))
+  })
+
+  it('unhides a Session that is not the open one, from its row', async () => {
+    const store = useSessions()
+    await store.init()
+    const hidden = await seedTurns(store)
+    await store.hideTimelineMessages(hidden, ['u1', 'a1'])
+    await store.create()
+
+    await store.unhideSessionMessages(hidden)
+
+    expect((await sessionModule.openSession(hidden)).hiddenMessageIds).toEqual([])
+    await vi.waitFor(() => expect(store.sessions[hidden]?.hiddenMessageIds).toEqual([]))
+    expect(store.openHiddenIds).toEqual([])
+  })
+})
+
+describe('a turn in a Session whose Workspace is missing', () => {
+  async function missingProject(store: ReturnType<typeof useSessions>) {
+    await store.init()
+    const id = store.openSessionId!
+    const project = path.join(path.dirname(dirs.real), 'Project')
+    await fs.mkdir(project)
+    const { list } = await sessionFolders.addSessionFolder(id, project)
+    await sessionFolders.starSessionFolder(id, list.folders.find((f) => f.hostPath === project)!.id)
+    await fs.rm(project, { recursive: true })
+    return { id, project }
+  }
+
+  async function answerQuestion(choice: 'locate' | 'start-new' | null): Promise<string> {
+    const dialogs = useDialogStore()
+    await vi.waitFor(() => expect(dialogs.missingWorkspaceQuestion).not.toBeNull())
+    const name = dialogs.missingWorkspaceQuestion!.missing.name
+    dialogs.missingWorkspaceQuestion!.answer(choice)
+    return name
+  }
+
+  it('is asked about, and runs in the folder the user located', async () => {
+    const store = useSessions()
+    const { id, project } = await missingProject(store)
+    const moved = path.join(path.dirname(dirs.real), 'Moved')
+    await fs.mkdir(moved)
+    pickedFolder = moved
+
+    const ready = store.readyWorkspaceForTurn(id)
+    expect(await answerQuestion('locate')).toBe('Project')
+
+    expect(await ready).toBe(true)
+    expect(store.workspaceDirOf(id)).toBe(moved)
+    expect(store.missingWorkspaces[id]).toBeUndefined()
+    expect(project).not.toBe(moved)
+  })
+
+  it('runs in a fresh app-created Workspace when the user starts a new one', async () => {
+    const store = useSessions()
+    const { id, project } = await missingProject(store)
+
+    const ready = store.readyWorkspaceForTurn(id)
+    await answerQuestion('start-new')
+
+    expect(await ready).toBe(true)
+    const dir = store.workspaceDirOf(id)
+    expect(dir).not.toBe(project)
+    expect((await fs.stat(dir)).isDirectory()).toBe(true)
+  })
+
+  it('does not run when the user cancels, and the warning stays', async () => {
+    const store = useSessions()
+    const { id, project } = await missingProject(store)
+
+    const ready = store.readyWorkspaceForTurn(id)
+    await answerQuestion(null)
+
+    expect(await ready).toBe(false)
+    expect(store.missingWorkspaces[id]?.hostPath).toBe(project)
+  })
+
+  it('is not asked about while the Workspace is there', async () => {
+    const store = useSessions()
+    await store.init()
+
+    expect(await store.readyWorkspaceForTurn(store.openSessionId!)).toBe(true)
+    expect(useDialogStore().missingWorkspaceQuestion).toBeNull()
   })
 })

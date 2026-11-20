@@ -11,9 +11,11 @@ import {
 
 describe('removing a Session document', () => {
   let workspace: string
+  let attachments: { dir: string; reference: string }
 
   beforeEach(() => {
     workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aipg-session-docs-')))
+    attachments = { dir: path.join(workspace, 'attachments'), reference: 'attachments' }
   })
 
   afterEach(() => {
@@ -24,13 +26,13 @@ describe('removing a Session document', () => {
     const original = path.join(workspace, '..', `original-${path.basename(workspace)}.pdf`)
     fs.writeFileSync(original, 'the budget is $42')
     try {
-      const saved = importAttachment(workspace, 'report.pdf', fs.readFileSync(original)).path
-      importAttachment(workspace, 'notes.md', Buffer.from('# notes'))
+      const saved = importAttachment(attachments, 'report.pdf', fs.readFileSync(original)).path
+      importAttachment(attachments, 'notes.md', Buffer.from('# notes'))
 
-      await removeSessionDocument(workspace, saved)
+      await removeSessionDocument(attachments, saved)
 
-      expect(sessionDocuments(workspace)).toEqual(['attachments/notes.md'])
-      expect(documentsLine(workspace)).not.toContain('report.pdf')
+      expect(sessionDocuments(attachments)).toEqual(['attachments/notes.md'])
+      expect(documentsLine(attachments)).not.toContain('report.pdf')
       expect(fs.existsSync(original)).toBe(true)
     } finally {
       fs.rmSync(original, { force: true })
@@ -39,7 +41,7 @@ describe('removing a Session document', () => {
 
   it('refuses anything that is not an attached document', async () => {
     fs.writeFileSync(path.join(workspace, 'game.js'), 'loop()')
-    importAttachment(workspace, 'sprite.png', Buffer.from('png'))
+    importAttachment(attachments, 'sprite.png', Buffer.from('png'))
 
     for (const target of [
       'game.js',
@@ -47,7 +49,7 @@ describe('removing a Session document', () => {
       '../outside.pdf',
       'attachments/gone.pdf',
     ]) {
-      await expect(removeSessionDocument(workspace, target)).rejects.toThrow()
+      await expect(removeSessionDocument(attachments, target)).rejects.toThrow()
     }
     expect(fs.existsSync(path.join(workspace, 'game.js'))).toBe(true)
     expect(fs.existsSync(path.join(workspace, 'attachments', 'sprite.png'))).toBe(true)

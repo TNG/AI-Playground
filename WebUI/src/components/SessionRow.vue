@@ -136,6 +136,9 @@
         class="min-w-28"
         :onCloseAutoFocus="(event) => event.preventDefault?.()"
       >
+        <DropdownMenuItem v-if="!session.unreadable" @select="emit('newSessionWithSettings')">
+          {{ languages.SESSIONS_NEW_WITH_THESE_SETTINGS }}
+        </DropdownMenuItem>
         <Dialog
           v-if="!session.unreadable"
           v-model:open="renameOpen"
@@ -199,7 +202,10 @@
         <DropdownMenuItem v-if="ownGroup" @select="emit('moveToGroup', null)">
           {{ languages.SESSIONS_REMOVE_FROM_GROUP }}
         </DropdownMenuItem>
-        <AlertDialog>
+        <DropdownMenuItem v-if="canUnhide" @select="emit('unhideMessages')">
+          {{ languages.SESSIONS_UNHIDE_MESSAGES }}
+        </DropdownMenuItem>
+        <AlertDialog @update:open="(open: boolean) => open && loadDeleteBody()">
           <AlertDialogTrigger as-child>
             <DropdownMenuItem @select="(event: Event) => event.preventDefault()">
               {{ languages.COM_DELETE }}
@@ -208,7 +214,7 @@
           <AlertDialogContent @click.stop>
             <AlertDialogHeader>
               <AlertDialogTitle>{{ languages.SESSIONS_DELETE_TITLE }}</AlertDialogTitle>
-              <AlertDialogDescription>{{ languages.SESSIONS_DELETE_BODY }}</AlertDialogDescription>
+              <AlertDialogDescription>{{ deleteBody }}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel @click.stop>{{ languages.COM_CANCEL }}</AlertDialogCancel>
@@ -277,9 +283,11 @@ import { Input } from '@/components/ui/input'
 import SessionGroupNameDialog from '@/components/SessionGroupNameDialog.vue'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOemBranding } from '@/assets/js/store/oemBranding'
 import { usePresets } from '@/assets/js/store/presets'
+import { useSessions } from '@/assets/js/store/sessions'
 import type { SessionScheduleState } from '@/assets/js/store/agentTasks'
 import type { GroupNameRefusal } from '@/assets/js/store/sessions'
 import { sessionRowMarker, type SessionRowStatus } from '@/lib/sessionRowStatus'
@@ -297,6 +305,8 @@ const props = defineProps<{
   /** The Session holds a Schedule: `paused` when none of them is enabled. */
   scheduled?: SessionScheduleState
   createGroup: (name: string) => Promise<GroupNameRefusal | null>
+  /** Offer "Unhide hidden messages": hiding is switched on and this Session has some. */
+  canUnhide?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -306,18 +316,44 @@ const emit = defineEmits<{
   moveToGroup: [groupId: string | null]
   delete: []
   openSchedules: []
+  newSessionWithSettings: []
+  unhideMessages: []
 }>()
 
 const i18n = useI18N()
 const i18nState = i18n.state
 const presetsStore = usePresets()
 const oemBranding = useOemBranding()
+const sessions = useSessions()
+const demoMode = useDemoMode()
 
 const menuOpen = ref(false)
 const renameOpen = ref(false)
 const renameTitle = ref('')
 
 const newGroupOpen = ref(false)
+
+const deleteBody = ref('')
+
+async function loadDeleteBody(): Promise<void> {
+  deleteBody.value = ''
+  const workspace = (await sessions.deletePreview(props.session.id))?.trashedWorkspace
+  if (!workspace) {
+    deleteBody.value = i18nState.SESSIONS_DELETE_BODY
+    return
+  }
+  const one = workspace.fileCount === 1
+  const text = demoMode.enabled
+    ? one
+      ? i18nState.SESSIONS_DELETE_BODY_WORKSPACE_ONE_DEMO
+      : i18nState.SESSIONS_DELETE_BODY_WORKSPACE_DEMO
+    : one
+      ? i18nState.SESSIONS_DELETE_BODY_WORKSPACE_ONE
+      : i18nState.SESSIONS_DELETE_BODY_WORKSPACE
+  deleteBody.value = text
+    .replace('{folder}', workspace.name)
+    .replace('{count}', String(workspace.fileCount))
+}
 
 const ownGroup = computed(() => props.groups.find((group) => group.id === props.session.groupId))
 const otherGroups = computed(() => props.groups.filter((group) => group !== ownGroup.value))

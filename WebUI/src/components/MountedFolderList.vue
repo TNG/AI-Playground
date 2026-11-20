@@ -1,8 +1,5 @@
 <template>
   <div class="flex flex-col gap-2">
-    <p v-if="realShell" class="text-xs text-warning">
-      {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_REAL_SHELL_NOTE }}
-    </p>
     <ul
       v-if="rows.length > 0"
       class="flex flex-col gap-1"
@@ -57,10 +54,22 @@
       {{ languages.AGENT_SETTINGS_MOUNTED_FOLDERS_EMPTY }}
     </p>
     <div>
-      <Button variant="secondary" class="px-3 py-1.5 rounded text-sm" @click="add">
-        <PlusIcon class="size-4" aria-hidden="true" />
-        {{ languages.AGENT_SETTINGS_MOUNTED_FOLDER_ADD }}
-      </Button>
+      <Tooltip :disabled="!demo">
+        <TooltipTrigger as-child>
+          <span class="inline-flex">
+            <Button
+              variant="secondary"
+              class="px-3 py-1.5 rounded text-sm"
+              :disabled="demo"
+              @click="add"
+            >
+              <PlusIcon class="size-4" aria-hidden="true" />
+              {{ languages.AGENT_SETTINGS_MOUNTED_FOLDER_ADD }}
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{{ languages.AGENT_SETTINGS_MOUNTED_FOLDER_DEMO_DISABLED }}</TooltipContent>
+      </Tooltip>
     </div>
     <p v-if="refusalText" role="alert" class="text-xs text-warning">{{ refusalText }}</p>
   </div>
@@ -69,6 +78,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { FolderIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useErrors } from '@/assets/js/store/errors'
 import { useI18N } from '@/assets/js/store/i18n'
 import { Button } from '@/components/ui/button'
@@ -83,19 +93,15 @@ import {
   resolveMountedFolders,
   type MountedFolderRefusal,
 } from '@/lib/mountedFolders'
+import { mountedFolderRefusalText } from '@/lib/mountedFolderRefusalText'
 import type { MountedFolder } from '@/types/agentSessionIpc'
-
-const props = defineProps<{
-  /** Absent where there is no Session Folder to overlap, as in an Agent's Settings Template. */
-  sessionFolder?: string
-  /** The real system shell, where read-only is not enforced. */
-  realShell?: boolean
-}>()
 
 const folders = defineModel<MountedFolder[]>({ required: true })
 
 const languages = useI18N().state
 const errors = useErrors()
+const demoMode = useDemoMode()
+const demo = computed(() => demoMode.enabled)
 const refusal = ref<MountedFolderRefusal>()
 
 const rows = computed(() => {
@@ -107,27 +113,7 @@ const rows = computed(() => {
   }))
 })
 
-const refusalText = computed(() => {
-  const refused = refusal.value
-  if (!refused) return ''
-  if (refused.reason === 'mounted') {
-    return languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_MOUNTED.replace(
-      '{folder}',
-      refused.folder,
-    )
-  }
-  if (refused.reason === 'contains-mounted') {
-    return languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_CONTAINS_MOUNTED.replaceAll(
-      '{folder}',
-      refused.folder,
-    )
-  }
-  return {
-    'too-broad': languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_TOO_BROAD,
-    home: languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_HOME,
-    'session-folder': languages.AGENT_SETTINGS_MOUNTED_FOLDER_REFUSED_SESSION_FOLDER,
-  }[refused.reason]
-})
+const refusalText = computed(() => mountedFolderRefusalText(refusal.value, languages))
 
 function removeLabel(sandboxPath: string): string {
   return languages.AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED.replace('{folder}', sandboxPath)
@@ -146,7 +132,6 @@ async function add(): Promise<void> {
     if (!hostPath) return
     refusal.value = mountedFolderRefusal(hostPath, {
       homeFolder: await window.electronAPI.getHomePath(),
-      sessionFolder: props.sessionFolder || undefined,
       mountedFolders: folders.value,
     })
   } catch (error) {

@@ -342,6 +342,14 @@ describe('sandboxed access', () => {
     expect(text).toContain('2 results limit reached')
   })
 
+  it('finds in the skills folder when given its path', async () => {
+    const text = resultText(
+      await invoke(toolOf(access, 'find'), { pattern: '**/*.md', path: '/skills' }),
+    )
+
+    expect(text).toBe('browser-debugging/SKILL.md')
+  })
+
   // Enumerating every path walks every mount's whole real tree synchronously on
   // the main process, which a large mounted folder turns into a freeze.
   it('never enumerates the whole filesystem to find or grep', async () => {
@@ -474,13 +482,15 @@ describe('a read-only Mounted Folder, sandboxed', () => {
     for (const enumeration of enumerations) enumeration.mockRestore()
   })
 
-  it('keeps the mount out of a find or grep in the workspace', async () => {
+  it('keeps the mount out of a find or grep given the workspace as its path', async () => {
     fs.writeFileSync(path.join(workspace, 'todo.md'), 'milk\n')
 
-    const found = resultText(await invoke(toolOf(access, 'find'), { pattern: '**/*.md' }))
+    const found = resultText(
+      await invoke(toolOf(access, 'find'), { pattern: '**/*.md', path: '.' }),
+    )
     expect(found).toBe('todo.md')
 
-    const grepped = resultText(await invoke(toolOf(access, 'grep'), { pattern: 'milk' }))
+    const grepped = resultText(await invoke(toolOf(access, 'grep'), { pattern: 'milk', path: '.' }))
     expect(grepped).toBe('todo.md:1:milk')
   })
 
@@ -605,6 +615,152 @@ describe('a read-write Mounted Folder, sandboxed', () => {
       'skills',
       'workspace',
     ])
+  })
+})
+
+describe('a Workspace mounted at /mnt/<slug>, sandboxed', () => {
+  let access: AgentToolAccess
+  let notesDir: string
+
+  beforeEach(async () => {
+    notesDir = path.join(path.dirname(workspace), 'notes')
+    fs.mkdirSync(notesDir)
+    fs.writeFileSync(path.join(notesDir, 'todo.md'), 'milk\n')
+    access = await createAgentToolAccess({
+      ...accessOptions(false),
+      workspaceMount: '/mnt/poster',
+      mountedFolders: [{ hostPath: notesDir, name: 'notes', access: 'read-only' }],
+    })
+  })
+
+  afterEach(async () => {
+    await access.dispose()
+  })
+
+  it('works there: absolute and relative paths land in the Workspace', async () => {
+    expect(access.cwd).toBe('/mnt/poster')
+    await invoke(toolOf(access, 'write'), { path: '/mnt/poster/a.md', content: 'a' })
+    await invoke(toolOf(access, 'write'), { path: 'sub/b.md', content: 'b' })
+    await invoke(toolOf(access, 'edit'), {
+      path: 'sub/b.md',
+      edits: [{ oldText: 'b', newText: 'B' }],
+    })
+
+    expect(fs.readFileSync(path.join(workspace, 'a.md'), 'utf8')).toBe('a')
+    expect(fs.readFileSync(path.join(workspace, 'sub/b.md'), 'utf8')).toBe('B')
+    const shell = await invoke(toolOf(access, 'bash'), { command: 'pwd; ls /mnt' })
+    expect(resultText(shell)).toContain('/mnt/poster')
+    expect(resultText(shell)).toContain('notes')
+  })
+
+  it('has no /workspace any more', async () => {
+    await expect(
+      invoke(toolOf(access, 'write'), { path: '/workspace/a.md', content: 'a' }),
+    ).rejects.toThrow(/outside the workspace.*\/mnt\/poster/s)
+    expect(fs.readdirSync(workspace)).toEqual([])
+  })
+
+  it('searches the Workspace by default and names its files relative to it', async () => {
+    fs.writeFileSync(path.join(workspace, 'app.ts'), 'answer\n')
+
+    const grep = resultText(await invoke(toolOf(access, 'grep'), { pattern: 'answer' }))
+    const find = resultText(await invoke(toolOf(access, 'find'), { pattern: '*.ts' }))
+
+    expect(grep).toBe('app.ts:1:answer')
+    expect(find).toBe('app.ts')
+  })
+
+  it('searches every folder when no path is given, the others by their /mnt path', async () => {
+    fs.writeFileSync(path.join(workspace, 'plan.md'), 'milk run\n')
+
+    const find = resultText(await invoke(toolOf(access, 'find'), { pattern: '*.md' }))
+    const grep = resultText(await invoke(toolOf(access, 'grep'), { pattern: 'milk' }))
+
+    expect(find.split('\n')).toEqual(['plan.md', '/mnt/notes/todo.md'])
+    expect(grep.split('\n')).toEqual(['plan.md:1:milk run', '/mnt/notes/todo.md:1:milk'])
+  })
+
+  it('ends a listing of the Workspace with a note naming the folders beside it', async () => {
+    fs.writeFileSync(path.join(workspace, 'plan.md'), 'milk run\n')
+
+    for (const params of [{}, { path: '.' }, { path: '/mnt/poster' }]) {
+      const listed = resultText(await invoke(toolOf(access, 'ls'), params))
+      expect(listed).toMatch(/^plan\.md\n/)
+      expect(listed).toMatch(/\[Not in this folder: .*\/mnt\/notes \(read-only\).*\]$/)
+    }
+  })
+
+  it('adds no note to a listing of another folder', async () => {
+    const listed = resultText(await invoke(toolOf(access, 'ls'), { path: '/mnt/notes' }))
+
+    expect(listed).toBe('todo.md')
+  })
+
+  it('names the folders beside the Workspace in the ls description', () => {
+    expect(toolOf(access, 'ls').description).toMatch(/\/mnt\/notes \(read-only\)/)
+  })
+
+  it('searches only the given folder when a path is given', async () => {
+    fs.writeFileSync(path.join(workspace, 'plan.md'), 'milk run\n')
+
+    const here = resultText(await invoke(toolOf(access, 'find'), { pattern: '*.md', path: '.' }))
+    const there = resultText(
+      await invoke(toolOf(access, 'grep'), { pattern: 'milk', path: '/mnt/notes' }),
+    )
+
+    expect(here).toBe('plan.md')
+    expect(there).toBe('/mnt/notes/todo.md:1:milk')
+  })
+
+  it('cuts a search of every folder at the size cap, saying so', async () => {
+    for (let index = 0; index < 600; index += 1) {
+      fs.writeFileSync(
+        path.join(workspace, `${String(index).padStart(3, '0')}${'x'.repeat(96)}.md`),
+        '',
+      )
+    }
+
+    const text = resultText(await invoke(toolOf(access, 'find'), { pattern: '*.md' }))
+
+    expect(text.length).toBeLessThan(52 * 1024)
+    expect(text).toMatch(/\[.*KB limit reached\]$/)
+  })
+
+  it('stops a search of every folder when the turn is stopped', async () => {
+    fs.writeFileSync(path.join(workspace, 'plan.md'), '')
+    const stopped = new AbortController()
+    stopped.abort()
+
+    await expect(
+      toolOf(access, 'find').execute(
+        'call-1',
+        { pattern: '*.md' } as never,
+        stopped.signal,
+        undefined,
+        undefined as never,
+      ),
+    ).rejects.toThrow(/aborted/)
+  })
+
+  it('still refuses writes in a read-only folder beside it, pointing at the Workspace', async () => {
+    await expect(
+      invoke(toolOf(access, 'write'), { path: '/mnt/notes/todo.md', content: 'x' }),
+    ).rejects.toThrow(/read-only Mounted Folder.*write the file in \/mnt\/poster/s)
+    expect(fs.readFileSync(path.join(notesDir, 'todo.md'), 'utf8')).toBe('milk\n')
+  })
+
+  it('cannot leave the Workspace through a symlink', async () => {
+    fs.symlinkSync(outsideDir, path.join(workspace, 'escape'))
+
+    await invoke(toolOf(access, 'write'), {
+      path: '/mnt/poster/escape/secret.txt',
+      content: 'overwritten',
+    }).catch(() => undefined)
+    await invoke(toolOf(access, 'bash'), {
+      command: 'echo overwritten > /mnt/poster/escape/secret.txt',
+    }).catch(() => undefined)
+
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('top secret')
   })
 })
 

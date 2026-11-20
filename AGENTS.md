@@ -488,11 +488,11 @@ Enforcement is end-to-end:
 
 ## Channel Slash Commands (Five-Place Rule)
 
-A Channel slash command (`/help`, `/sessions`, `/load <n>`, `/new`, `/agents [name]`, `/stop`) is
-only fully wired up when it is registered in **every** layer. The router recognizing the text is
-not enough — each chat platform only forwards commands it has been told about, so a command the
-router handles but a transport lacks is silently dropped (Telegram) or rejected by the platform
-(Slack).
+A Channel slash command (`/help`, `/sessions`, `/load <n>`, `/new`, `/agents [name]`, `/agentsin`,
+`/stop`) is only fully wired up when it is registered in **every** layer. The router recognizing
+the text is not enough — each chat platform only forwards commands it has been told about, so a
+command the router handles but a transport lacks is silently dropped (Telegram) or rejected by the
+platform (Slack).
 
 When adding/removing/renaming a command, update all of these:
 

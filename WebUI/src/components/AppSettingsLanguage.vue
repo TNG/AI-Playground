@@ -1,6 +1,5 @@
 <template>
   <div class="flex flex-col gap-2">
-    <SettingsHeading>{{ languages.SETTINGS_BASIC_LANGUAGE }}</SettingsHeading>
     <AppSettingsRow :label="languages.SETTINGS_BASIC_LANGUAGE">
       <LanguageSelector />
     </AppSettingsRow>
@@ -19,7 +18,6 @@ import { useChatAware } from '@/assets/js/store/chatAware'
 import { useI18N } from '@/assets/js/store/i18n'
 import AppSettingsRow from '@/components/AppSettingsRow.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
-import SettingsHeading from '@/components/SettingsHeading.vue'
 import { Switch } from '@/components/ui/switch'
 
 const languages = useI18N().state

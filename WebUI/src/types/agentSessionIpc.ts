@@ -21,6 +21,26 @@ export const MountedFolderSchema = z.object({
 })
 export type MountedFolder = z.infer<typeof MountedFolderSchema>
 
+/** A folder an Agent brings, with a stable id and its sandbox slug. */
+export const AgentFolderEntrySchema = z.object({
+  id: z.string().min(1),
+  hostPath: z.string().min(1),
+  slug: z.string().min(1),
+  access: MountedFolderAccessSchema,
+})
+export type AgentFolderEntry = z.infer<typeof AgentFolderEntrySchema>
+
+/** An Agent's own Workspace: always read-write. */
+export const AgentWorkspaceEntrySchema = AgentFolderEntrySchema.omit({ access: true })
+export type AgentWorkspaceEntry = z.infer<typeof AgentWorkspaceEntrySchema>
+
+/** What an Agent puts in place of its Session's folders (ADR 0014); an absent part is inherited. */
+export const AgentFolderOverridesSchema = z.object({
+  workspace: AgentWorkspaceEntrySchema.optional(),
+  folders: z.array(AgentFolderEntrySchema).optional(),
+})
+export type AgentFolderOverrides = z.infer<typeof AgentFolderOverridesSchema>
+
 /**
  * An Agent Session's own model and capability choices. Every field is optional so a
  * file written before a field existed still parses; the store fills gaps from the
@@ -42,7 +62,8 @@ export const AgentSessionSettingsSchema = z.object({
   builtinToolEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolPresetEnablement: z.record(z.string(), z.boolean()).optional(),
   builtinToolDefaultPresets: z.record(z.string(), z.string()).optional(),
-  mountedFolders: z.array(MountedFolderSchema).optional(),
+  /** Only on an Agent's Settings Template. */
+  folderOverrides: AgentFolderOverridesSchema.optional(),
   maxTokens: z.number().optional(),
   temperature: z.number().optional(),
   /** The model recommendation `temperature` was last set to, so a model switch may replace it. */

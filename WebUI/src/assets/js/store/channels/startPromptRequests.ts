@@ -2,10 +2,15 @@ import { isStartPromptRequest, type ChannelMessageOwner } from '@/types/notifica
 import type { StartableAgent } from './answerRouter'
 import type { ChannelKind, ChannelMessageRef } from './types'
 
-/** A posted Start Prompt Request: its first reply starts `agent` in `sessionRef`. */
+/** Where a Start Prompt Request starts its Agent: a Session, or a new one its first reply makes. */
+export type StartPromptSession = { sessionRef: string } | { newSession: true }
+
+export const NEW_SESSION: StartPromptSession = { newSession: true }
+
+/** A posted Start Prompt Request: its first reply starts `agent` in `session`. */
 export type StartPromptRequest = {
   agent: StartableAgent
-  sessionRef: string
+  session: StartPromptSession
   /** The posted message, for marking it used. */
   message: ChannelMessageRef
 }
@@ -33,6 +38,8 @@ export type StartPromptRequests = {
   lookup: (kind: ChannelKind, ref: string) => Promise<StartPromptLookup | null>
   /** A reply's start is on its way; a dropped one reopens the request. */
   hold: (kind: ChannelKind, ref: string) => void
+  /** The new Session a reply made; later replies start there too. */
+  bind: (kind: ChannelKind, ref: string, sessionRef: string) => void
   reopen: (kind: ChannelKind, ref: string) => void
   markUsed: (kind: ChannelKind, ref: string) => void
 }
@@ -61,6 +68,15 @@ export function createStartPromptRequests(messageMap: StartPromptMessageMap): St
     hold: (kind, ref) => {
       const held = entries.get(key(kind, ref))
       if (held?.state === 'open') entries.set(key(kind, ref), { ...held, state: 'queued' })
+    },
+    bind: (kind, ref, sessionRef) => {
+      const held = entries.get(key(kind, ref))
+      if (held?.state === 'open' || held?.state === 'queued') {
+        entries.set(key(kind, ref), {
+          ...held,
+          request: { ...held.request, session: { sessionRef } },
+        })
+      }
     },
     reopen: (kind, ref) => {
       const held = entries.get(key(kind, ref))

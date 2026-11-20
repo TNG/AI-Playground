@@ -23,10 +23,19 @@ export function claimSessionTurn(sessionId: string, turn: SessionTurn): boolean 
   return true
 }
 
+const releasedListeners = new Set<(sessionId: string) => void>()
+
 export function releaseSessionTurn(sessionId: string, turnId: string): void {
   if (turns[sessionId]?.turnId !== turnId) return
   const { [sessionId]: _released, ...rest } = turns
   publish(rest)
+  for (const listener of releasedListeners) listener(sessionId)
+}
+
+/** Called each time a Session's turn ends and the Session is idle again. */
+export function onSessionTurnReleased(listener: (sessionId: string) => void): () => void {
+  releasedListeners.add(listener)
+  return () => releasedListeners.delete(listener)
 }
 
 export function sessionTurnOf(sessionId: string): SessionTurn | undefined {

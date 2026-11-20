@@ -8,17 +8,23 @@
     :time-bucket
     :scheduled="agentTasks.scheduledSessions.get(session.id)"
     :create-group="(name) => sessions.createGroup(session.id, name)"
+    :can-unhide="messageHiding.enabled && session.hiddenMessageIds.length > 0"
     @open="lifecycle.openSession(session.id)"
     @open-schedules="ui.openAgentLibrary({ sessionRef: session.id })"
     @rename="(title) => sessions.rename(session.id, title)"
     @pin="(pinned) => sessions.setPinned(session.id, pinned)"
     @move-to-group="(groupId) => sessions.moveToGroup(session.id, groupId)"
     @delete="sessions.remove(session.id)"
+    @unhide-messages="sessions.unhideSessionMessages(session.id)"
+    @new-session-with-settings="
+      lifecycle.newSession({ groupId: session.groupId, settingsFrom: session.id })
+    "
   />
 </template>
 
 <script setup lang="ts">
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
+import { useMessageHiding } from '@/assets/js/store/messageHiding'
 import { useSessions } from '@/assets/js/store/sessions'
 import { useSessionLifecycle } from '@/assets/js/store/sessionLifecycle'
 import { useUIStore } from '@/assets/js/store/ui'
@@ -29,6 +35,7 @@ import type { SessionSummary } from '@/types/sessionIpc'
 defineProps<{ session: SessionSummary; now: number; timeBucket: TimeLabelBucket }>()
 
 const sessions = useSessions()
+const messageHiding = useMessageHiding()
 const agentTasks = useAgentTasks()
 const lifecycle = useSessionLifecycle()
 const ui = useUIStore()

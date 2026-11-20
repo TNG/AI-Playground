@@ -85,7 +85,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
       : assistantOf(target.sessionRef)
   }
 
-  /** Into the workspace the target's turn runs in, which its prompt's `@attachments/` resolve against. */
+  /** Kept wherever the target's turn resolves its prompt's `@attachments/` (main decides). */
   async function attach(target: ChannelTarget, file: ChannelFile): Promise<AttachResult> {
     try {
       const harnessSessionId = await harnessOf(target)
@@ -95,7 +95,7 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
         return { ok: false, reason: 'images-unseen', message: '' }
       }
       const result = await window.electronAPI.agentMode.importAttachment(
-        record.workspaceDir,
+        { workspaceDir: agentMode.turnWorkspaceOf(harnessSessionId), sessionId: record.sessionRef },
         file.filename,
         base64ToBytes(file.dataBase64),
       )
@@ -293,6 +293,10 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     agentName: (agentId) => agentTasks.tasks.find((task) => task.id === agentId)?.name ?? null,
     startAgent: (sessionRef, agentId, origin, prompt) =>
       agentTasks.startFromChannel(agentId, sessionRef, origin, prompt),
+    bringIntoView: (sessionRef, view) => lifecycle.openFromChannel(sessionRef, view),
+    unpickAgent: async (sessionRef) => {
+      await sessions.pickAgent(sessionRef, null)
+    },
     activity,
     stop,
     onSessionChange: (listener) => {

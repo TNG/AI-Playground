@@ -53,9 +53,7 @@ async function buildNotifyTools(host: CapabilityHost): Promise<ToolDefinition[]>
         const { message, attachments } = params as { message: string; attachments?: string[] }
         const delivery = await sendNotification(message, {
           sessionId: host.sessionId,
-          ...(attachments?.length
-            ? { attachments: { workspaceDir: host.workspaceDir, paths: attachments } }
-            : {}),
+          ...(attachments?.length ? { attachments: { files: host, paths: attachments } } : {}),
         })
         if (!delivery.delivered) return textResult(`not delivered: ${delivery.reason}`)
         return textResult(

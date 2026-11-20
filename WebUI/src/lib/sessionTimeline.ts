@@ -13,10 +13,12 @@ import { isTerminalPhase, type ArtifactRunsState } from '@/lib/artifactRunProjec
 import { audioTurnArtifacts, pendingAudioArtifacts, ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { messageText } from '@/lib/chatMessageText'
 import { isChatMediaToolPart } from '@/lib/chatToolParts'
+import { isHarnessChatPreset } from '@/lib/harnessChatPreset'
 import { mediaRerun } from '@/lib/mediaRerun'
 import { reasoningElapsedMsFromParts } from '@/lib/reasoningTimings'
-import { asChatTranscriptMessage } from '@/lib/sessionChat'
+import { asChatTranscriptMessage, chatTranscriptOf } from '@/lib/sessionChat'
 import { runInputOf } from '@/lib/taskSteps'
+import { turnMessageIds, turnRemovalOf } from '@/lib/turnRemoval'
 import {
   generationFailure,
   oneLine,
@@ -45,6 +47,8 @@ import type {
   AgentTurn,
   AnswerDetailKind,
   AnswerPartRef,
+  AudioRerun,
+  AudioTurn,
   HarnessTurnRef,
   ArtifactKind,
   LiveAgentTurn,
@@ -56,9 +60,12 @@ import type {
   SessionTimelineItem,
   TimelineFiles,
   TimelineTurn,
+  TurnFooter,
   TurnDetailPart,
   TurnDetails,
+  TurnFooterAction,
   TurnHint,
+  TurnHiding,
   TurnLiveStatus,
   TurnPrompt,
   TurnResultPart,
@@ -162,6 +169,10 @@ export function withLiveAgentTurn(
   return [...merged, ...tagged.values()]
 }
 
+/**
+ * A live list that starts where the stored transcript does is the whole chat, so a saved message
+ * it lacks was truncated by a regenerate; one that starts mid-way (a resumed turn) keeps the rest.
+ */
 function withLiveChatTurn(
   timeline: readonly unknown[],
   live: readonly { id: string }[],
@@ -173,12 +184,15 @@ function withLiveChatTurn(
       return [message.id, { ...message, metadata: { ...metadata, chatTurn: true } }]
     }),
   )
-  const merged = timeline.map((value) => {
-    const saved = asChatTranscriptMessage(value)
-    const copy = saved ? tagged.get(saved.id) : undefined
-    if (!saved || !copy) return value
-    tagged.delete(saved.id)
-    return { ...copy, metadata: { ...saved.metadata, ...copy.metadata } }
+  const saved = chatTranscriptOf(timeline)
+  const wholeHistory = saved.length === 0 || saved[0].id === live[0].id
+  const merged = timeline.flatMap((value) => {
+    const stored = asChatTranscriptMessage(value)
+    if (!stored) return [value]
+    const copy = tagged.get(stored.id)
+    if (!copy) return wholeHistory ? [] : [value]
+    tagged.delete(stored.id)
+    return [{ ...copy, metadata: { ...stored.metadata, ...copy.metadata } }]
   })
   return [...merged, ...tagged.values()]
 }
@@ -248,16 +262,88 @@ export function sessionTimelineItems<M extends PendingMedia, A extends PendingAu
     })
   }
   const last = items.at(-1)
+  // Redoing or deleting an earlier Agent Turn would rewind, or leave a gap under, the turns after it.
   for (const item of items) {
     if (item.kind !== 'agent' || item === last) continue
-    item.footer.actions = item.footer.actions.filter((action) => action !== 'regenerate')
+    item.footer.actions = item.footer.actions.filter(
+      (action) => action !== 'regenerate' && action !== 'edit' && action !== 'delete',
+    )
   }
-  if (last?.kind === 'chat') last.footer = chatAnswerFooter(last.answers, true)
+  if (last?.kind === 'chat') {
+    // An answer that settled empty (failed or interrupted) can still be deleted, unless replayed.
+    const answer = last.answers.at(-1)
+    const replayed = last.answers.some((message) =>
+      isHarnessChatPreset((message.metadata as { preset?: string } | undefined)?.preset),
+    )
+    let footer = chatAnswerFooter(last.answers, true)
+    if (
+      footer.actions.length === 0 &&
+      answer &&
+      !last.details.live &&
+      !live.chatStatus?.running &&
+      !replayed
+    ) {
+      footer = { actions: ['delete'], text: '', messageId: answer.id }
+    }
+    last.footer = withHide(footer, last)
+    if (last.prompt && last.footer.actions.includes('regenerate')) {
+      last.footer.actions = withEditAction(last.footer.actions)
+    }
+  }
   if (last?.kind === 'media') {
-    const rerun = mediaRerun(last.media, last.prompt.text)
-    if (rerun) last.footer = { actions: ['regenerate'], text: '', rerun }
+    const rerun = mediaRerun(last)
+    // A run that failed before recording its settings cannot rerun, but still deletes.
+    last.footer = withHide(
+      {
+        actions: rerun ? ['regenerate', 'edit', 'delete'] : ['delete'],
+        text: '',
+        ...(rerun ? { rerun } : {}),
+        deletion: { owner: 'media', ...turnRemovalOf(last) },
+      },
+      last,
+    )
+  }
+  if (last?.kind === 'audio') {
+    const rerun = audioRerunOf(last)
+    // STT's prompt is only the source clip's label: it reruns but cannot be edited.
+    const actions: TurnFooterAction[] = [
+      ...last.footer.actions.filter((action) => action !== 'hide'),
+      ...(rerun
+        ? (['regenerate', ...(rerun.kind === 'tts' ? (['edit'] as const) : [])] as const)
+        : []),
+      'delete',
+      'hide',
+    ]
+    last.footer = {
+      ...last.footer,
+      actions: [...new Set(actions)],
+      ...(rerun ? { audioRerun: rerun } : {}),
+      deletion: { owner: 'audio', ...turnRemovalOf(last) },
+    }
   }
   return items
+}
+
+/** For views that must not offer Hide: hiding switched off, or a Trial Run. */
+export function withoutMessageHiding<M, A>(
+  items: SessionTimelineItem<M, A>[],
+): SessionTimelineItem<M, A>[] {
+  for (const item of items) {
+    if (item.kind === 'message') continue
+    if (!item.footer.actions.includes('hide') && !item.footer.hiding) continue
+    const { hiding: _hiding, ...footer } = item.footer
+    item.footer = { ...footer, actions: footer.actions.filter((action) => action !== 'hide') }
+  }
+  return items
+}
+
+/** A live merge appends whatever the saved timeline lacks, so hidden messages must leave the live copy too. */
+export function visibleLiveMessages<M extends { id?: string }>(
+  messages: readonly M[],
+  hiddenIds: readonly string[],
+): M[] {
+  if (hiddenIds.length === 0) return [...messages]
+  return messages.filter((message) => !hiddenIds.includes(message.id ?? ''))
 }
 
 function textPrompt(
@@ -267,6 +353,26 @@ function textPrompt(
 ): TurnPrompt {
   const defined = Object.entries(extra).filter(([, value]) => value !== undefined)
   return { text, ...(text ? {} : { placeholder: preset }), ...Object.fromEntries(defined) }
+}
+
+/** `edit` sits beside `regenerate`: both re-run the turn, one from an edited prompt. */
+function withEditAction(actions: TurnFooterAction[]): TurnFooterAction[] {
+  const at = actions.includes('regenerate') ? actions.indexOf('regenerate') + 1 : actions.length
+  return [...actions.slice(0, at), 'edit', ...actions.slice(at)]
+}
+
+function turnHidingOf(turn: TimelineTurn): TurnHiding {
+  if (turn.kind === 'media' || turn.kind === 'audio') return { messageIds: turnMessageIds(turn) }
+  if (turn.kind === 'message') return { messageIds: [turn.id] }
+  return {
+    messageIds: [
+      ...new Set([...(turn.prompt ? [turn.id] : []), ...turn.answers.map((answer) => answer.id)]),
+    ],
+  }
+}
+
+function withHide(footer: TurnFooter, turn: TimelineTurn): TurnFooter {
+  return { ...footer, actions: [...footer.actions, 'hide'], hiding: turnHidingOf(turn) }
 }
 
 type FilePart = { type: string; mediaType?: string; url?: string; filename?: string }
@@ -374,6 +480,7 @@ function withAnswers(
           : undefined,
       )
     }
+    if (turn.kind !== 'message') turn.footer = withHide(turn.footer, turn)
   }
   return turns
 }
@@ -570,6 +677,20 @@ function audioDetails(audio: PendingAudio & Partial<AudioTurnData>): TurnDetails
       ...(audio.engine ? { engine: audio.engine } : {}),
     },
     ...(audio.status === 'failed' && audio.error ? { error: audio.error } : {}),
+  }
+}
+
+/** Regenerate re-runs the latest audio turn's input, which needs the text spoken or the source clip. */
+function audioRerunOf(turn: AudioTurn): AudioRerun | null {
+  if (!turn.promptId) return null
+  if (turn.audio.kind === 'tts' && !turn.prompt.text.trim()) return null
+  if (turn.audio.kind === 'stt' && !turn.audio.audioUrl) return null
+  return {
+    kind: turn.audio.kind,
+    preset: turn.audio.preset,
+    prompt: turn.prompt.text,
+    ...(turn.audio.audioUrl ? { audioUrl: turn.audio.audioUrl } : {}),
+    messageIds: turnMessageIds(turn),
   }
 }
 
@@ -813,6 +934,7 @@ export function timelineTurns(
         createdAt: message.createdAt,
         audio,
         audioArtifacts: [],
+        promptId: message.id,
       })
       i++
       continue
@@ -831,6 +953,7 @@ export function timelineTurns(
         createdAt: message.createdAt,
         media,
         artifacts: [],
+        promptId: message.id,
       })
       i++
       continue

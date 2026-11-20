@@ -13,6 +13,7 @@ import {
 import { buildChatModelConfig } from '@/lib/chatModel'
 import { buildChatRagRequest } from '@/lib/chatRagRequest'
 import { createKernelChatTransport } from '@/lib/kernelChatTransport'
+import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { serializeToolSet } from '@/lib/chatToolRegistry'
 import type { ChatTurnRequest } from '@/types/chatIpc'
 import { withResponseLanguageAtStart } from '@/lib/responseLanguage'
@@ -812,76 +813,84 @@ export const useOpenAiCompatibleChat = defineStore(
 
     async function regenerate(messageId: string) {
       const targetKey = conversations.activeKey
-      // Reactivate the conversation's preset and stamp meta before regenerating
-      // so the new turn matches the thread's current profile (matches `generate`).
-      textInference.ensureGlobalsMatchConversation(targetKey)
-      textInference.stampMetaForConversation(targetKey)
-
+      // Same whole-turn mark as `generate`: keeps `processing` true through the
+      // model-prep awaits, and keeps `loadTranscript` from re-seeding the chat
+      // from the stored transcript while `chat.status` is still `ready`.
+      markGenerating(targetKey)
       try {
-        await textInference.checkModelAvailability({
-          needsVision: turnCarriesImage(targetKey),
-          conversationKey: targetKey,
-        })
-      } catch (error) {
-        // Cancelling a required model download aborts the regenerate quietly.
-        if (isCancellation(error)) return
-        throw errors.report(error, {
-          category: 'inference',
-          code: 'inference/preparation-failed',
-          userMessage: `Could not start generation: ${extractMessage(error)}`,
-          context: { conversationKey: targetKey },
-        })
-      }
-      manuallyStopped.value = false
+        // Reactivate the conversation's preset and stamp meta before regenerating
+        // so the new turn matches the thread's current profile (matches `generate`).
+        textInference.ensureGlobalsMatchConversation(targetKey)
+        textInference.stampMetaForConversation(targetKey)
 
-      const chat = chats[targetKey]
-      if (!chat) return
+        try {
+          await textInference.checkModelAvailability({
+            needsVision: turnCarriesImage(targetKey),
+            conversationKey: targetKey,
+          })
+        } catch (error) {
+          // Cancelling a required model download aborts the regenerate quietly.
+          if (isCancellation(error)) return
+          throw errors.report(error, {
+            category: 'inference',
+            code: 'inference/preparation-failed',
+            userMessage: `Could not start generation: ${extractMessage(error)}`,
+            context: { conversationKey: targetKey },
+          })
+        }
+        manuallyStopped.value = false
 
-      const targetIdx = chat.messages.findIndex((m) => m.id === messageId)
-      const priorUserMessage =
-        targetIdx > 0
-          ? [...chat.messages.slice(0, targetIdx)].reverse().find((m) => m.role === 'user')
-          : undefined
-      const question =
-        priorUserMessage?.parts
-          ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-          .map((p) => p.text ?? '')
-          .join('\n\n') ?? ''
+        const chat = chats[targetKey]
+        if (!chat) return
 
-      if (textInference.backend === 'llamaCPP' || textInference.backend === 'openVINO') {
-        textInference.startBackendPreparation()
-      }
-      if (buildChatRagRequest(question)) {
-        ragActivityByKey[targetKey] = activities.begin({
-          category: 'rag',
-          label: i18nState.COM_ACTIVITY_SEARCHING_DOCS,
-          scope: { kind: 'chat', conversationKey: targetKey },
-        })
-      }
+        const targetIdx = chat.messages.findIndex((m) => m.id === messageId)
+        const priorUserMessage =
+          targetIdx > 0
+            ? [...chat.messages.slice(0, targetIdx)].reverse().find((m) => m.role === 'user')
+            : undefined
+        const question =
+          priorUserMessage?.parts
+            ?.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+            .map((p) => p.text ?? '')
+            .join('\n\n') ?? ''
 
-      const turnExtras = await buildTurnExtras(targetKey, question)
-      try {
-        computeMetrics.beginTurn()
-        await chat.regenerate({ messageId, body: turnExtras })
+        if (textInference.backend === 'llamaCPP' || textInference.backend === 'openVINO') {
+          textInference.startBackendPreparation()
+        }
+        if (buildChatRagRequest(question)) {
+          ragActivityByKey[targetKey] = activities.begin({
+            category: 'rag',
+            label: i18nState.COM_ACTIVITY_SEARCHING_DOCS,
+            scope: { kind: 'chat', conversationKey: targetKey },
+          })
+        }
+
+        const turnExtras = await buildTurnExtras(targetKey, question)
+        try {
+          computeMetrics.beginTurn()
+          await chat.regenerate({ messageId, body: turnExtras })
+        } finally {
+          computeMetrics.endTurn()
+          textInference.completeBackendPreparation()
+          const ragActivityId = ragActivityByKey[targetKey]
+          if (ragActivityId) {
+            activities.end(ragActivityId)
+            delete ragActivityByKey[targetKey]
+          }
+        }
+
+        if (pendingRagSource[targetKey]) {
+          const latestMessage = messages.value?.[messages.value.length - 1]
+          if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
+            latestMessage.metadata.ragSource = pendingRagSource[targetKey] ?? undefined
+          }
+        }
+        delete pendingRagSource[targetKey]
+
+        conversations.applyConversationMessages(messages.value, targetKey)
       } finally {
-        computeMetrics.endTurn()
-        textInference.completeBackendPreparation()
-        const ragActivityId = ragActivityByKey[targetKey]
-        if (ragActivityId) {
-          activities.end(ragActivityId)
-          delete ragActivityByKey[targetKey]
-        }
+        unmarkGenerating(targetKey)
       }
-
-      if (pendingRagSource[targetKey]) {
-        const latestMessage = messages.value?.[messages.value.length - 1]
-        if (latestMessage && latestMessage.role === 'assistant' && latestMessage.metadata) {
-          latestMessage.metadata.ragSource = pendingRagSource[targetKey] ?? undefined
-        }
-      }
-      delete pendingRagSource[targetKey]
-
-      conversations.applyConversationMessages(messages.value, targetKey)
     }
 
     async function removeMessage(messageId: string) {
@@ -894,6 +903,16 @@ export const useOpenAiCompatibleChat = defineStore(
         chat.messages.splice(indexOfAssistantMeessage, 1)
       }
       conversations.updateConversation(chat.messages, conversations.activeKey)
+    }
+
+    /** False when the edit changes nothing; a following `regenerate` runs from the edited text. */
+    function editPrompt(userMessageId: string, edited: string): boolean {
+      const chat = chats[conversations.activeKey]
+      if (!chat) return false
+      const message = chat.messages.find((m) => m.id === userMessageId && m.role === 'user')
+      if (!message || !applyEditedPrompt(message, edited)) return false
+      conversations.updateConversation(chat.messages, conversations.activeKey)
+      return true
     }
 
     const error = computed(() => chats[conversations.activeKey]?.error?.message)
@@ -920,6 +939,7 @@ export const useOpenAiCompatibleChat = defineStore(
       reasoningStartedAt,
       removeMessage,
       regenerate,
+      editPrompt,
       error,
       turnErrorIn,
     }

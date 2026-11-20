@@ -93,6 +93,12 @@ const MARKDOWN_CONFIG = {
 } satisfies Config
 
 /**
+ * The tags raw assistant HTML may keep when rendered. Shared with the markdown
+ * parser, so a tag allowed here is also allowed to pass through unescaped there.
+ */
+export const MARKDOWN_ALLOWED_TAGS: readonly string[] = MARKDOWN_CONFIG.ALLOWED_TAGS
+
+/**
  * Sanitizes HTML output from the markdown parser.
  * Preserves formatting tags needed for rendered markdown while
  * removing potentially dangerous content like scripts and event handlers.

@@ -137,7 +137,7 @@ const SETTINGS: AgentSessionSettings = {
   capabilities: ['files', 'web'],
 }
 
-const ATTACHMENT_LINE = '\n\nAttached files, saved in the workspace: @attachments/sprite.png'
+const ATTACHMENT_LINE = '\n\nAttached files: @attachments/sprite.png'
 
 const userMessage = (id: string, ...texts: string[]) => ({
   id,

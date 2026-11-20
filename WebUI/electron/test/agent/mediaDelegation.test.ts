@@ -169,6 +169,7 @@ describe('mediaDelegation (in-process media tool)', () => {
       actual.saveGeneratedMediaToWorkspace(result, dir, {
         sessionRef: 'session-1',
         workspace: 'files',
+        folderId: 'folder-ws',
       }),
     )
     const host = hostWith({ workspaceDir: filesDir })

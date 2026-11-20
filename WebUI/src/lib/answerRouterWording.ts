@@ -75,6 +75,7 @@ export type AnswerRouterCopy = {
   helpNew: string
   helpStop: string
   helpAgents: string
+  helpAgentsIn: string
   helpHelp: string
   helpPlain: string
   /** Above the `/sessions` buttons */
@@ -100,12 +101,21 @@ export type AnswerRouterCopy = {
   agentNotStarted: string
   /** Follows `agentNotStarted` when the reason can only be fixed on the computer. */
   agentFixOnDesktop: string
+  /** Above `/agentsin`'s Session picker, and its first button */
+  agentsInPick: string
+  agentsInNewSession: string
+  /** `{title}` (a quoted Session title); above the Agent list once `/agentsin` moved there */
+  agentsInAgentsPick: string
   /** Under the `/agents` buttons: what ✎ does */
   agentsPromptHint: string
   /** `{name}` (the Agent), `{title}` (a quoted Session title); a Start Prompt Request */
   startPromptRequest: string
   /** `startPromptRequest` where the reply goes in the request's thread (Slack) */
   startPromptRequestThread: string
+  /** `{name}` (the Agent); a Start Prompt Request whose reply starts it in a new Session */
+  startPromptRequestNew: string
+  /** `startPromptRequestNew` where the reply goes in the request's thread (Slack) */
+  startPromptRequestNewThread: string
   /** `{name}`; Telegram's reply box hint on a Start Prompt Request */
   startPromptPlaceholder: string
   /** A Start Prompt Request once its reply started the Agent */
@@ -172,6 +182,7 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   helpNew: 'CHANNEL_HELP_NEW',
   helpStop: 'CHANNEL_HELP_STOP',
   helpAgents: 'CHANNEL_HELP_AGENTS',
+  helpAgentsIn: 'CHANNEL_HELP_AGENTSIN',
   helpHelp: 'CHANNEL_HELP_HELP',
   helpPlain: 'CHANNEL_HELP_PLAIN',
   sessionsPick: 'CHANNEL_SESSIONS_PICK',
@@ -187,9 +198,14 @@ const KEYS: Record<Exclude<keyof AnswerRouterCopy, 'ordinal'>, string> = {
   agentNotStartable: 'AGENT_TASK_NOT_STARTABLE_FROM_CHANNEL',
   agentNotStarted: 'CHANNEL_AGENT_NOT_STARTED',
   agentFixOnDesktop: 'CHANNEL_AGENT_FIX_ON_DESKTOP',
+  agentsInPick: 'CHANNEL_AGENTSIN_PICK',
+  agentsInNewSession: 'CHANNEL_AGENTSIN_NEW_SESSION',
+  agentsInAgentsPick: 'CHANNEL_AGENTSIN_AGENTS_PICK',
   agentsPromptHint: 'CHANNEL_AGENTS_PROMPT_HINT',
   startPromptRequest: 'CHANNEL_START_PROMPT_REQUEST',
   startPromptRequestThread: 'CHANNEL_START_PROMPT_REQUEST_THREAD',
+  startPromptRequestNew: 'CHANNEL_START_PROMPT_REQUEST_NEW',
+  startPromptRequestNewThread: 'CHANNEL_START_PROMPT_REQUEST_NEW_THREAD',
   startPromptPlaceholder: 'CHANNEL_START_PROMPT_PLACEHOLDER',
   startPromptUsed: 'CHANNEL_START_PROMPT_USED',
   startPromptAlready: 'CHANNEL_START_PROMPT_ALREADY',

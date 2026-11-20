@@ -81,5 +81,5 @@ onMounted(attachCopyHandlers)
 </script>
 
 <template>
-  <div ref="root" v-html="renderedHtml"></div>
+  <div ref="root" class="markdown-content" v-html="renderedHtml"></div>
 </template>

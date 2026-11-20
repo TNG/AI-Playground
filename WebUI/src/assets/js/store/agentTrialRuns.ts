@@ -293,7 +293,9 @@ export const useAgentTrialRuns = defineStore('agentTrialRuns', () => {
     const leading = input?.trim()
     agentMode.createSession({
       id: harness.harnessSessionId,
-      workspaceDir: harness.workspaceDir,
+      // The scratch folder is still made: main keeps the run's record and media copies there.
+      workspaceDir:
+        plan.settingsTemplate.folderOverrides?.workspace?.hostPath ?? harness.workspaceDir,
       settings: cloneForIpc(plan.settingsTemplate),
       presetName: HARNESS_CHAT_PRESET,
       title: name,

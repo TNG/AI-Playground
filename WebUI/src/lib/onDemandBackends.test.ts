@@ -16,6 +16,10 @@ describe('isOnDemandBackend', () => {
   })
 
   it('lists only the two dedicated audio sidecars', () => {
-    expect([...ON_DEMAND_BACKENDS]).toEqual(['qwen3-tts-backend', 'whisper-backend'])
+    expect([...ON_DEMAND_BACKENDS]).toEqual([
+      'qwen3-tts-backend',
+      'whisper-backend',
+      'hermes-backend',
+    ])
   })
 })

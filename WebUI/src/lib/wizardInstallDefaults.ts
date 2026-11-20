@@ -25,6 +25,7 @@ export const CORE_DEPENDENT_BACKENDS = [
  */
 export const OPT_IN_BACKENDS = [
   'home-agent-backend',
+  'hermes-backend',
 ] as const satisfies readonly BackendServiceName[]
 
 export function isCoreDependentBackend(name: string): boolean {

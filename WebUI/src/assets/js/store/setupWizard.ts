@@ -103,6 +103,7 @@ const knownSteps: Record<BackendServiceName, string[]> = {
   'home-agent-backend': ['start', 'install dependencies'],
   'qwen3-tts-backend': ['start', 'install dependencies'],
   'whisper-backend': ['start', 'install dependencies'],
+  'hermes-backend': ['start', 'install hermes', 'install dependencies'],
 }
 
 const stepDisplayNames: Record<string, string> = {
@@ -117,6 +118,7 @@ const stepDisplayNames: Record<string, string> = {
   'configure comfyUI': 'Configuring...',
   'install builtin custom nodes': 'Installing custom nodes...',
   'install comfyUI manager': 'Installing ComfyUI Manager...',
+  'install hermes': 'Fetching Hermes Agent...',
 }
 
 type DemoModeDraft = DemoModeSetup & { passcodeHash?: string }

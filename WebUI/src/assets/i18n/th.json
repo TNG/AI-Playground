@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "ลบ {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "อ่านอย่างเดียว",
   "SESSION_FOLDERS": "โฟลเดอร์",
+  "SESSION_FOLDER_AGENT_GROUP": "โฟลเดอร์ของ {agent}",
   "SESSION_FOLDERS_HINT": "โฟลเดอร์ที่เซสชันนี้ใช้ได้ โฟลเดอร์ที่ติดดาวคือ Workspace ซึ่งเป็นที่เก็บผลลัพธ์ เอเจนต์ยังเข้าถึงโฟลเดอร์อื่นได้ที่ /mnt/<name> และแก้ไขได้เมื่อเป็นแบบอ่าน-เขียน",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace จะยังอยู่ในรายการและเป็นแบบอ่าน-เขียน",

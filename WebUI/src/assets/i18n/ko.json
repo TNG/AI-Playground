@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} 제거",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "읽기 전용",
   "SESSION_FOLDERS": "폴더",
+  "SESSION_FOLDER_AGENT_GROUP": "{agent}의 폴더",
   "SESSION_FOLDERS_HINT": "이 세션이 사용할 수 있는 폴더입니다. 별표가 표시된 폴더가 결과가 저장되는 Workspace입니다. 에이전트는 다른 폴더에도 /mnt/<name>에서 접근하며, 읽기/쓰기일 때 변경합니다.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace는 목록에 남아 있으며 읽기/쓰기 상태를 유지합니다.",

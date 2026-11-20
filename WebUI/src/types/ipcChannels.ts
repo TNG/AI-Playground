@@ -705,6 +705,13 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string],
     result: null as unknown as IpcMutationResult,
   },
+  /** Show one of a saved Agent's Mounted Folders in the file manager; refuses any other path. */
+  'agentMode:openTaskFolder': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Every Agent's Draft; an absent file reads as none, an unreadable one fails. */
   'agentMode:readDrafts': {
     kind: 'invoke',

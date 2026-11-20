@@ -129,6 +129,7 @@ import {
   showRefreshedCloseQuestion,
 } from './kernel/closeAsk'
 import { createInFlightWork, queuedChannelMessages } from './kernel/inFlightWork'
+import { openAgentTaskFolder } from './agent/agentTaskFolders.ts'
 import { setVerboseLogging as setVerboseAgentLogging } from './agent/piAgentLog.ts'
 import { setRagAccess } from './agent/ragAccess.ts'
 import { importAttachment } from './agent/workspaceAttachments.ts'
@@ -1977,6 +1978,7 @@ function initEventHandle() {
       readAgentTasks,
       saveAgentTask,
       deleteAgentTask,
+      openAgentTaskFolder,
       readAgentDrafts,
       saveAgentDraft,
       deleteAgentDraft,

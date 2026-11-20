@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Usuń {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Tylko do odczytu",
   "SESSION_FOLDERS": "Foldery",
+  "SESSION_FOLDER_AGENT_GROUP": "Foldery: {agent}",
   "SESSION_FOLDERS_HINT": "Foldery, z których może korzystać ta sesja. Folder oznaczony gwiazdką to jej Workspace, do którego trafiają wyniki. Agent ma też dostęp do pozostałych w /mnt/<name> i zmienia je, gdy mają odczyt i zapis.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace pozostaje na liście i ma odczyt i zapis.",

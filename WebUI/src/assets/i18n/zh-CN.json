@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "移除 {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "只读",
   "SESSION_FOLDERS": "文件夹",
+  "SESSION_FOLDER_AGENT_GROUP": "{agent} 的文件夹",
   "SESSION_FOLDERS_HINT": "此会话可以使用的文件夹。带星标的是它的 Workspace，结果会保存在那里。智能体也可以在 /mnt/<name> 访问其他文件夹，并在可读写时修改它们。",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace 会保留在列表中，并保持可读写。",

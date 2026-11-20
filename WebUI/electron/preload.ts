@@ -458,6 +458,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readTasks: () => invoke('agentMode:readTasks'),
     saveTask: (task: AgentTask) => invoke('agentMode:saveTask', cloneForIpc(task)),
     deleteTask: (id: string) => invoke('agentMode:deleteTask', id),
+    openTaskFolder: (id: string, hostPath: string) =>
+      invoke('agentMode:openTaskFolder', id, hostPath),
     readDrafts: () => invoke('agentMode:readDrafts'),
     saveDraft: (draft: AgentDraft) => invoke('agentMode:saveDraft', cloneForIpc(draft)),
     deleteDraft: (agentId: string) => invoke('agentMode:deleteDraft', agentId),

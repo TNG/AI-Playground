@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} kaldır",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Salt okunur",
   "SESSION_FOLDERS": "Klasörler",
+  "SESSION_FOLDER_AGENT_GROUP": "{agent} klasörleri",
   "SESSION_FOLDERS_HINT": "Bu oturumun kullanabileceği klasörler. Yıldızlı olan, sonuçların kaydedildiği Workspace'tir. Ajan diğerlerine de /mnt/<name> altında ulaşır ve okuma-yazma olduklarında onları değiştirir.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace listede kalır ve okuma-yazma olarak kalır.",

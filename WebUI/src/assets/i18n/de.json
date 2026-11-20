@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "{folder} entfernen",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Schreibgeschützt",
   "SESSION_FOLDERS": "Ordner",
+  "SESSION_FOLDER_AGENT_GROUP": "Ordner von {agent}",
   "SESSION_FOLDERS_HINT": "Ordner, die diese Sitzung nutzen kann. Der markierte ist ihr Workspace, in dem die Ergebnisse landen. Der Agent erreicht die anderen unter /mnt/<name> und ändert sie, wenn sie beschreibbar sind.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Der Workspace bleibt in der Liste und beschreibbar.",

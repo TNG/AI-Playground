@@ -39,6 +39,7 @@ import type {
   saveAgentDraft,
   saveAgentTask,
 } from '../../persist/agentTaskFiles'
+import type { openAgentTaskFolder } from '../../agent/agentTaskFolders'
 import type { forgetHarnessSessionMessages } from '../../persist/channelMessageMap'
 import type {
   discardTrialRun,
@@ -75,6 +76,7 @@ export type AgentModeDeps = {
   readAgentTasks: typeof readAgentTasks
   saveAgentTask: typeof saveAgentTask
   deleteAgentTask: typeof deleteAgentTask
+  openAgentTaskFolder: typeof openAgentTaskFolder
   readAgentDrafts: typeof readAgentDrafts
   saveAgentDraft: typeof saveAgentDraft
   deleteAgentDraft: typeof deleteAgentDraft
@@ -186,6 +188,14 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
     'agentMode:deleteTask': async (_event, id) => {
       try {
         await deps.deleteAgentTask(id)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'agentMode:openTaskFolder': async (_event, taskId, hostPath) => {
+      try {
+        await deps.openAgentTaskFolder(taskId, hostPath)
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

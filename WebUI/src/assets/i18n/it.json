@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Rimuovi {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Sola lettura",
   "SESSION_FOLDERS": "Cartelle",
+  "SESSION_FOLDER_AGENT_GROUP": "Cartelle di {agent}",
   "SESSION_FOLDERS_HINT": "Cartelle che questa sessione può usare. Quella con la stella è il suo Workspace, dove finiscono i risultati. L'agente raggiunge anche le altre in /mnt/<name> e le modifica quando sono in lettura e scrittura.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Il Workspace resta nell'elenco e in lettura e scrittura.",

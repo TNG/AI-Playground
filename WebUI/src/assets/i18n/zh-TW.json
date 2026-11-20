@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "移除 {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "唯讀",
   "SESSION_FOLDERS": "資料夾",
+  "SESSION_FOLDER_AGENT_GROUP": "{agent} 的資料夾",
   "SESSION_FOLDERS_HINT": "此工作階段可使用的資料夾。加上星號的是它的 Workspace，結果會存放在那裡。代理也可以在 /mnt/<name> 存取其他資料夾，並在可讀寫時修改它們。",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace 會保留在清單中，並維持可讀寫。",

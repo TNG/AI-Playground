@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Remove {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Read-only",
   "SESSION_FOLDERS": "Folders",
+  "SESSION_FOLDER_AGENT_GROUP": "Folders of {agent}",
   "SESSION_FOLDERS_HINT": "Folders this Session can use. The starred one is its Workspace, where results land. The agent also reaches the others at /mnt/<name>, and changes them when read-write.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "The Workspace stays in the list and read-write.",

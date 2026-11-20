@@ -1324,6 +1324,7 @@
   "AGENT_SETTINGS_MOUNTED_FOLDER_REMOVE_NAMED": "Gỡ {folder}",
   "AGENT_SETTINGS_MOUNTED_FOLDER_READ_ONLY": "Chỉ đọc",
   "SESSION_FOLDERS": "Thư mục",
+  "SESSION_FOLDER_AGENT_GROUP": "Thư mục của {agent}",
   "SESSION_FOLDERS_HINT": "Các thư mục phiên này có thể dùng. Thư mục được gắn sao là Workspace, nơi lưu kết quả. Tác tử cũng truy cập các thư mục khác tại /mnt/<name> và thay đổi chúng khi được đọc-ghi.",
   "SESSION_FOLDER_WORKSPACE": "Workspace",
   "SESSION_FOLDER_WORKSPACE_LOCKED": "Workspace vẫn ở trong danh sách và luôn đọc-ghi.",

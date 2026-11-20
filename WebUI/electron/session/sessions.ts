@@ -29,7 +29,7 @@ import { checkGroupName, groupNameRefusal } from '@/lib/sessionGroupName'
 import { NOTIFY_CAPABILITY_ID } from '@/types/agentCapabilities'
 import {
   SessionTitleSchema,
-  type AssistantCapabilityDefaults,
+  type SessionCreateOptions,
   type SessionDocument,
   type SessionFile,
   type SessionGroup,
@@ -122,7 +122,7 @@ export function withNotify(
 /** A new Session starts reachable, as if reachability had been turned on by hand. */
 export async function createSession(
   groupId?: string,
-  options: AssistantCapabilityDefaults = {},
+  options: SessionCreateOptions = {},
 ): Promise<SessionSummary> {
   if (groupId === undefined) return createSessionFile(undefined, options)
   return serializeSessionGroups(async () => {
@@ -133,8 +133,15 @@ export async function createSession(
 
 async function createSessionFile(
   groupId: string | undefined,
-  options: AssistantCapabilityDefaults,
+  options: SessionCreateOptions,
 ): Promise<SessionSummary> {
+  const { settingsFrom } = options
+  const settings =
+    settingsFrom === undefined
+      ? {}
+      : parseSessionSettings(
+          (await serializeSession(settingsFrom, () => readSession(settingsFrom))).settings,
+        )
   const now = Date.now()
   const created: SessionFile = {
     schemaVersion: 1,
@@ -147,7 +154,7 @@ async function createSessionFile(
     updatedAt: now,
     presetsUsed: [],
     timeline: [],
-    settings: {},
+    settings,
     harnessSessions: {},
     harnessWorkspaces: {},
     retiredHarnessSessions: [],

@@ -19,6 +19,7 @@ import type {
   AssistantCapabilityDefaults,
   AudioTurnRequest,
   HarnessGameWorkspace,
+  SessionCreateOptions,
   SessionTurn,
   ShowMoreSection,
 } from '@/types/sessionIpc'
@@ -297,7 +298,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sessions: {
     list: () => invoke('sessions:list'),
-    create: (groupId?: string, options?: AssistantCapabilityDefaults) =>
+    create: (groupId?: string, options?: SessionCreateOptions) =>
       invoke('sessions:create', groupId, options && cloneForIpc(options)),
     open: (id: string) => invoke('sessions:open', id),
     rename: (id: string, title: string) => invoke('sessions:rename', id, title),

@@ -4,7 +4,7 @@ import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useSessionAudio } from '@/assets/js/store/sessionAudio'
-import { useSessions } from '@/assets/js/store/sessions'
+import { useSessions, type NewSessionOptions } from '@/assets/js/store/sessions'
 import { useSessionSettings } from '@/assets/js/store/sessionSettings'
 import { useSessionTabs } from '@/assets/js/store/sessionTabs'
 import { modelDownloads } from '@/assets/js/models/modelDownloadQueue'
@@ -56,8 +56,8 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   }
 
   /** A new Session starts on the Assistant preset, or keeps the active one where it is gated. */
-  async function newSession(groupId?: string): Promise<void> {
-    if (!(await sessions.create(groupId))) return
+  async function newSession(options: NewSessionOptions = {}): Promise<void> {
+    if (!(await sessions.create(options))) return
     const assistant = presets.presets.find((preset) => preset.name === HARNESS_CHAT_PRESET)
     if (!assistant || !presetSwitch.gateOf(assistant).enabled) return
     await sessionSettings.whenLoaded()

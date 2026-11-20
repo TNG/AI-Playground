@@ -13,6 +13,7 @@ import {
   HarnessGameWorkspaceSchema,
   SessionTurnSchema,
   type AssistantCapabilityDefaults,
+  type SessionCreateOptions,
 } from '@/types/sessionIpc'
 import type {
   createSession,
@@ -107,6 +108,16 @@ function defaultCapabilitiesOption(defaults: unknown): AssistantCapabilityDefaul
   return { defaultCapabilities: defaults }
 }
 
+function createOptions(options: unknown): SessionCreateOptions {
+  const { defaultCapabilities, settingsFrom } = (options ?? {}) as Record<string, unknown>
+  return {
+    ...defaultCapabilitiesOption(defaultCapabilities),
+    ...(settingsFrom === undefined
+      ? {}
+      : { settingsFrom: requireString(settingsFrom, 'source session id') }),
+  }
+}
+
 function groupNameFail(e: unknown) {
   const nameProblem = groupNameProblemOf(e)
   return nameProblem ? { ...ipcFail(e), nameProblem } : ipcFail(e)
@@ -130,7 +141,7 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
       try {
         const session = await deps.createSession(
           groupId === undefined ? undefined : requireString(groupId, 'group id'),
-          defaultCapabilitiesOption(options?.defaultCapabilities),
+          createOptions(options),
         )
         return { success: true as const, session }
       } catch (e) {

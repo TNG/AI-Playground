@@ -14,6 +14,9 @@
     @pin="(pinned) => sessions.setPinned(session.id, pinned)"
     @move-to-group="(groupId) => sessions.moveToGroup(session.id, groupId)"
     @delete="sessions.remove(session.id)"
+    @new-session-with-settings="
+      lifecycle.newSession({ groupId: session.groupId, settingsFrom: session.id })
+    "
   />
 </template>
 

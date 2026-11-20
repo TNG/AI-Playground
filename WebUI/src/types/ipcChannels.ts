@@ -41,6 +41,7 @@ import type {
   HarnessSessionRef,
   NewestArtifact,
   SessionArtifact,
+  SessionCreateOptions,
   SessionDocument,
   SessionGroup,
   SessionLastPreset,
@@ -230,12 +231,13 @@ export const CHANNELS = {
   },
   /**
    * Create a Session and lay out its Session Folder, optionally already in a Session Group. It
-   * starts reachable, with `notify` in its Assistant settings (from `defaultCapabilities`).
+   * starts reachable, with `notify` in its Assistant settings (from `defaultCapabilities`), and
+   * with a copy of the Session Settings of the Session `settingsFrom` names, if any.
    */
   'sessions:create': {
     kind: 'invoke',
     owner: 'main',
-    args: [] as unknown as readonly [groupId?: string, options?: AssistantCapabilityDefaults],
+    args: [] as unknown as readonly [groupId?: string, options?: SessionCreateOptions],
     result: null as unknown as IpcOkWith<{ session: SessionSummary }>,
   },
   /** One Session's row plus its display timeline, and the artifact URLs whose file is gone. */

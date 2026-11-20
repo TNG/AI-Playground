@@ -80,14 +80,43 @@
               <TooltipContent side="bottom">{{ languages.SESSIONS_SEARCH_CLEAR }}</TooltipContent>
             </Tooltip>
           </div>
-          <Button
-            variant="outline"
-            class="w-full justify-start gap-2"
-            @click="lifecycle.newSession()"
-          >
-            <PlusIcon class="size-4" aria-hidden="true" />
-            {{ languages.SESSIONS_NEW }}
-          </Button>
+          <div class="flex w-full">
+            <Button
+              variant="outline"
+              class="flex-1 justify-start gap-2 rounded-r-none"
+              @click="lifecycle.newSession()"
+            >
+              <PlusIcon class="size-4" aria-hidden="true" />
+              {{ languages.SESSIONS_NEW }}
+            </Button>
+            <Tooltip>
+              <DropdownMenu>
+                <TooltipTrigger as-child>
+                  <DropdownMenuTrigger as-child>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      class="flex-none rounded-l-none border-l-0"
+                      :aria-label="languages.SESSIONS_NEW_MORE"
+                    >
+                      <ChevronDownIcon class="size-4" aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    :disabled="!sessions.openSessionId"
+                    @select="
+                      lifecycle.newSession({ settingsFrom: sessions.openSessionId ?? undefined })
+                    "
+                  >
+                    {{ languages.SESSIONS_NEW_WITH_OPEN_SETTINGS }}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TooltipContent side="bottom">{{ languages.SESSIONS_NEW_MORE }}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 flex flex-col gap-3">
@@ -124,7 +153,7 @@
                   @toggle="(expanded) => sessions.setGroupExpanded(listing.group.id, expanded)"
                   :rename="(name) => sessions.renameGroup(listing.group.id, name)"
                   @delete="sessions.deleteGroup(listing.group.id)"
-                  @new-session="lifecycle.newSession(listing.group.id)"
+                  @new-session="lifecycle.newSession({ groupId: listing.group.id })"
                 />
                 <div
                   v-show="listing.expanded"
@@ -172,6 +201,7 @@ import { computed, ref } from 'vue'
 import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
+  ChevronDownIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   XMarkIcon,
@@ -183,6 +213,12 @@ import { useUIStore } from '@/assets/js/store/ui'
 import SessionGroupHeader from '@/components/SessionGroupHeader.vue'
 import SessionPanelRow from '@/components/SessionPanelRow.vue'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {

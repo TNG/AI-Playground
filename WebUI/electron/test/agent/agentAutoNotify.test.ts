@@ -135,6 +135,7 @@ const CONFIG: NotificationConfig = {
   realShellSessions: [],
   templates: {
     header: '🤖 Agent · {title}',
+    assistantHeader: '💬 Assistant · {title}',
     paused: '⏸ Waiting for you: {reason}. Open AI Playground to continue.',
     pauseReason: '{kind} ({summary})',
     pauseKinds: {
@@ -145,7 +146,8 @@ const CONFIG: NotificationConfig = {
     },
     failed: '❌ Failed: {error}. Open AI Playground for details.',
     sessionLabel: '"{title}"',
-    untitled: 'An agent run',
+    untitled: 'Untitled Session',
+    untitledAgent: 'Untitled agent',
     answerButton: '💬 Answer',
     answerOnComputer: 'Answer on your computer',
     answerInThread: 'Reply in thread to answer.',
@@ -362,7 +364,7 @@ async function pauseForQuestion(): Promise<void> {
 const REPLY_HINT = '\n↩️ Reply to this message to answer.'
 
 const QUESTION_TEXT =
-  '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
+  '💬 Assistant · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
   'Open AI Playground to continue.'
 
 describe('a Background Session pausing for the user', () => {
@@ -420,18 +422,18 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser(SESSION, false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.' +
+      '💬 Assistant · "Morning news"\n⏸ Waiting for you: a VRAM warning (Flux). Open AI Playground to continue.' +
         REPLY_HINT,
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
+      '💬 Assistant · "Morning news"\n⏸ Waiting for you: a confirmation (Continue in Game Agent?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
-      '🤖 Agent · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
+      '💬 Assistant · "Morning news"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
   }, 30000)
 
-  it('labels a Session with no title and no Harness Session record as an agent run', async () => {
+  it('labels a Session with no title and no Harness Session record as an Untitled Session', async () => {
     await sessionHolding('aipg-agent-fresh')
     await withWaitingTurn('aipg-agent-fresh', async () => {
       pauseFor('aipg-agent-fresh', 'question', 'Which colour?')
@@ -439,7 +441,7 @@ describe('a Background Session pausing for the user', () => {
       userWait.setAwaitingUser('aipg-agent-fresh', false)
     })
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "An agent run"\n⏸ Waiting for you: a question (Which colour?). ' +
+      '💬 Assistant · "Untitled Session"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
@@ -454,7 +456,7 @@ describe('a Background Session pausing for the user', () => {
       await sessions.mutateSession(newsSessionRef, (file) => ({ ...file, title: '' }))
     }
     expect(sent.map((s) => s.text)).toEqual([
-      '🤖 Agent · "Breakfast briefing"\n⏸ Waiting for you: a question (Which colour?). ' +
+      '💬 Assistant · "Breakfast briefing"\n⏸ Waiting for you: a question (Which colour?). ' +
         'Open AI Playground to continue.' +
         REPLY_HINT,
     ])
@@ -541,7 +543,10 @@ async function saveTaskRun(inFlight = true) {
 describe('a Task run', () => {
   beforeAll(async () => {
     const sessions = await import('../../session/sessions')
-    await sessions.renameSession(await sessionHolding(TASK_SESSION), 'Weekday news')
+    await sessions.renameSession(
+      await sessionHolding(TASK_SESSION, { agentRun: true }),
+      'Weekday news',
+    )
   })
 
   it('is labelled by its Session and Agent, without a Step, when it pauses', async () => {
@@ -801,7 +806,7 @@ describe('a sent Notification', () => {
 
 describe('a Background Session whose turn fails', () => {
   const FAILED_TEXT =
-    '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.'
+    '💬 Assistant · "Morning news"\n❌ Failed: 400: model test-model was retired. Open AI Playground for details.'
 
   async function failingTurn(): Promise<void> {
     modelRetired = true
@@ -1013,11 +1018,11 @@ describe('the turn an Answer started', () => {
   const ANSWER = { channel: 'telegram' as const, replyTo: 'answer-77' }
   const answerTurn = (): AgentModeTurnConfig => ({ ...configFor(SESSION), answer: ANSWER })
 
-  it('replies under the Answer with the agent header and its final text', async () => {
+  it('replies under the Answer with the Assistant header and its final text', async () => {
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
     await vi.waitFor(() =>
       expect(sent).toEqual([
-        { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
+        { kind: 'telegram', text: '💬 Assistant · "Morning news"\ndone', replyTo: 'answer-77' },
       ]),
     )
   }, 30000)
@@ -1059,7 +1064,7 @@ describe('the turn an Answer started', () => {
       expect(sent).toEqual([
         {
           kind: 'slack',
-          text: '🤖 Agent · "Morning news"\ndone',
+          text: '💬 Assistant · "Morning news"\ndone',
           replyTo: '1700000000.0001',
         },
       ])
@@ -1076,7 +1081,7 @@ describe('the turn an Answer started', () => {
     await vi.waitFor(() =>
       expect(sent).toEqual([
         { kind: 'telegram', text: QUESTION_TEXT, replyTo: 'answer-77', plain: true },
-        { kind: 'telegram', text: '🤖 Agent · "Morning news"\ndone', replyTo: 'answer-77' },
+        { kind: 'telegram', text: '💬 Assistant · "Morning news"\ndone', replyTo: 'answer-77' },
       ]),
     )
   }, 30000)
@@ -1090,7 +1095,7 @@ describe('the turn an Answer started', () => {
         {
           kind: 'telegram',
           text:
-            '🤖 Agent · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
+            '💬 Assistant · "Morning news"\n❌ Failed: 400: model test-model was retired. ' +
             'Open AI Playground for details.',
           replyTo: 'answer-77',
           plain: true,
@@ -1113,7 +1118,7 @@ describe('the turn an Answer started', () => {
   }, 30000)
 
   describe('streams its reply', () => {
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
 
     it('into one draft naming its Session, which its final text settles', async () => {
       narration = 'Let me say it.'
@@ -1192,7 +1197,7 @@ describe('the turn an Answer started', () => {
   }, 30000)
 
   describe('started by a voice message', () => {
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     const spokenAnswer = (): AgentModeTurnConfig => ({
       ...configFor(SESSION),
       answer: { ...ANSWER, voice: true },
@@ -1302,7 +1307,7 @@ describe('the turn an Answer started', () => {
       },
       config,
     )
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     await vi.waitFor(() => {
       expect(sent).toEqual([
         { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:cover.png' },
@@ -1329,7 +1334,7 @@ describe('the turn an Answer started', () => {
       async () => media.noteGeneratedMedia(config.workspaceDir, ['generated/ship.glb']),
       config,
     )
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     await vi.waitFor(() => {
       expect(sent).toEqual([
         { kind: 'telegram', text: '', replyTo: 'answer-77', media: 'document:ship.glb' },
@@ -1361,7 +1366,7 @@ describe('the turn an Answer started', () => {
       },
       config,
     )
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     await vi.waitFor(() => {
       expect(sent).toEqual([
         { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },
@@ -1377,7 +1382,7 @@ describe('the turn an Answer started', () => {
   it('sends the speech the turn generated as a voice message under the Answer', async () => {
     clipBase64 = Buffer.from('RIFF-wav').toString('base64')
     await withWaitingTurn(SESSION, async () => {}, answerTurn())
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     await vi.waitFor(() =>
       expect(sent).toEqual([
         { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'voice:speech.wav' },
@@ -1393,7 +1398,7 @@ describe('the turn an Answer started', () => {
       ...answerTurn(),
       capabilities: ['media', 'notify'],
     })
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     await settle()
     // The clip and the notify_user step race; neither carries the clip twice.
     expect(sent.slice(0, 2)).toEqual(
@@ -1422,7 +1427,7 @@ describe('the turn an Answer started', () => {
       },
       config,
     )
-    const header = '🤖 Agent · "Morning news"'
+    const header = '💬 Assistant · "Morning news"'
     await vi.waitFor(() =>
       expect(sent).toEqual([
         { kind: 'telegram', text: header, replyTo: 'answer-77', media: 'photo:ship.jpg' },

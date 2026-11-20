@@ -10,6 +10,7 @@ import {
   type AgentStartResult,
   type ChannelSessionPointers,
   type ChannelTranscriptMessage,
+  type DesktopView,
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter, ReplyRequest } from '../../../src/assets/js/store/channels/adapter'
@@ -160,9 +161,12 @@ function fakeSessions(
     origin: AgentAnswerOrigin
     prompt?: string
   }[] = []
-  /** Each Session the desktop brought into view, with the Agent picked in its prompt bar. */
-  const inView: { sessionRef: string; agentId: string }[] = []
-  const bringing = { fails: false }
+  /** Each Session the desktop started to bring into view, and how. */
+  const inView: { sessionRef: string; view: DesktopView }[] = []
+  /** `held` keeps each bring-into-view open until it resolves. */
+  const bringing: { fails: boolean; held?: Promise<void> } = { fails: false }
+  const unpicked: string[] = []
+  const unpicking = { fails: false }
   /** What starting an Agent does; it goes through unless set. */
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
   /** Start Prompt Requests recorded in the message map, which outlives a restart. */
@@ -217,7 +221,7 @@ function fakeSessions(
       'trialRunSessionId' in target
         ? `Trial Run · ${trialRuns[target.trialRunSessionId]?.label ?? 'Untitled'}`
         : 'harnessSessionId' in target
-          ? `"${sessions[target.harnessSessionId]?.label ?? 'An agent run'}"`
+          ? `"${sessions[target.harnessSessionId]?.label ?? 'Untitled Session'}"`
           : `"${channelSessions[target.sessionRef]?.title || 'Untitled Session'}"`,
     usesRealShell: ({ harnessSessionId }) => !!sessions[harnessSessionId]?.realShell,
     turnTarget: (target) =>
@@ -297,9 +301,14 @@ function fakeSessions(
       }
       return result
     },
-    bringIntoView: async (sessionRef, agentId) => {
+    bringIntoView: async (sessionRef, view) => {
       if (bringing.fails) throw new Error('window gone')
-      inView.push({ sessionRef, agentId })
+      inView.push({ sessionRef, view })
+      await bringing.held
+    },
+    unpickAgent: async (sessionRef) => {
+      if (unpicking.fails) throw new Error('window gone')
+      unpicked.push(sessionRef)
     },
     activity: (sessionRef) => activities[sessionRef] ?? { kind: 'idle' },
     stop: async (sessionRef) => {
@@ -375,6 +384,8 @@ function fakeSessions(
     agentStart,
     inView,
     bringing,
+    unpicked,
+    unpicking,
     trialRuns,
     busyTrial,
     settleTrial,
@@ -1315,6 +1326,77 @@ describe('a plain message', () => {
     expect(plain).toEqual([])
     expect(ch.replies).toEqual(['Files over 25 MB are not taken.'])
   })
+
+  describe('unpicks the Session’s Agent, as the Assistant answers it', () => {
+    const TRIP = 'session-trip'
+    const trip = { [TRIP]: { title: 'Trip planning' } }
+
+    it('once the message is sent', async () => {
+      const { router, unpicked } = channelSetup(trip, { telegram: TRIP })
+      await router.route(fakeChannel('telegram').adapter, { text: 'add a day in Kyoto' })
+      expect(unpicked).toEqual([TRIP])
+    })
+
+    it('when the message arrives, though it is queued behind a busy Session', async () => {
+      const { router, unpicked, plain, busy, settle } = channelSetup(trip, { telegram: TRIP })
+      busy(TRIP, { kind: 'agent-run', name: 'Daily digest' })
+      await router.route(fakeChannel('telegram').adapter, { text: 'add a day in Kyoto' })
+      expect(plain).toEqual([])
+      expect(unpicked).toEqual([TRIP])
+      await settle(TRIP)
+      expect(plain).toHaveLength(1)
+      expect(unpicked).toEqual([TRIP])
+    })
+
+    it('in a Session the Channel just started', async () => {
+      const { router, unpicked } = channelSetup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(unpicked).toEqual(['session-new-1'])
+    })
+
+    it('for a reply to the Session’s Assistant', async () => {
+      const ASTEROIDS = sessionRefOf('asteroids')
+      const { router, unpicked } = setup(
+        { asteroids: { label: 'Asteroids clone', assistant: true } },
+        undefined,
+        { [ASTEROIDS]: { title: 'Asteroids' } },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: 'faster', replyTo: '1234' })
+      expect(unpicked).toEqual([ASTEROIDS])
+    })
+
+    it('not for an Answer to an Agent Run, which continues the run', async () => {
+      const { router, received, unpicked } = setup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'yes', replyTo: '1234' })
+      expect(received).toHaveLength(1)
+      expect(unpicked).toEqual([])
+    })
+
+    it('not for a message the Session refused', async () => {
+      const refused = { ok: false, reason: 'error', message: 'disk full' } as const
+      const { router, unpicked } = channelSetup(
+        { [TRIP]: { title: 'Trip planning', result: refused } },
+        { telegram: TRIP },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(unpicked).toEqual([])
+    })
+
+    it('not for a command', async () => {
+      const { router, unpicked } = channelSetup(trip, { telegram: TRIP })
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/help' })
+      await router.route(ch.adapter, { text: '/sessions' })
+      expect(unpicked).toEqual([])
+    })
+
+    it('sends the message even when the desktop cannot unpick', async () => {
+      const { router, unpicking, plain } = channelSetup(trip, { telegram: TRIP })
+      unpicking.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(plain).toHaveLength(1)
+    })
+  })
 })
 
 describe('Channel commands', () => {
@@ -1450,6 +1532,65 @@ describe('Channel commands', () => {
     expect(pointers.telegram).toBe('session-new-1')
     expect(plain).toEqual([])
     expect(ch.replies).toEqual(['🆕 Started a new Session. Your next message goes to it.'])
+  })
+
+  describe('on the desktop', () => {
+    it('brings a Session loaded with /load <n> into view, picking no Agent', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip, 'session-code': code },
+        { telegram: 'session-trip' },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: '/load 2' })
+      expect(inView).toEqual([{ sessionRef: 'session-code', view: 'as-is' }])
+    })
+
+    it('brings a tapped Session into view', async () => {
+      const { router, inView } = channelSetup({ 'session-trip': trip, 'session-code': code })
+      await router.route(fakeChannel('local-web').adapter, { callback: 'loadConv:session-code' })
+      expect(inView).toEqual([{ sessionRef: 'session-code', view: 'as-is' }])
+    })
+
+    it('brings the Session /new made into view on the Assistant', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip },
+        { telegram: 'session-trip' },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: '/new' })
+      expect(inView).toEqual([{ sessionRef: 'session-new-1', view: 'assistant' }])
+    })
+
+    it('does not move for a listing or a Session it could not load', async () => {
+      const { router, inView } = channelSetup(
+        { 'session-trip': trip, 'session-private': { title: 'Taxes', reachable: false } },
+        { telegram: 'session-trip' },
+      )
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/sessions' })
+      await router.route(ch.adapter, { text: '/load' })
+      await router.route(ch.adapter, { text: '/load 3' })
+      await router.route(ch.adapter, { text: '/load session-private' })
+      expect(inView).toEqual([])
+    })
+
+    it('does not move when /new could not make a Session', async () => {
+      const { router, inView, creation } = channelSetup({ 'session-trip': trip })
+      creation.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: '/new' })
+      expect(inView).toEqual([])
+    })
+
+    it('still loads the Session when the desktop cannot show it', async () => {
+      const { router, inView, bringing, pointers } = channelSetup({
+        'session-trip': trip,
+        'session-code': code,
+      })
+      bringing.fails = true
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/load 2' })
+      expect(inView).toEqual([])
+      expect(pointers.telegram).toBe('session-code')
+      expect(ch.replies).toEqual(['📂 Now in "Refactor". Your messages go there.'])
+    })
   })
 
   it('clears LAN chat on /new', async () => {
@@ -1709,7 +1850,7 @@ ${PICK}`,
   })
 
   describe('on the desktop', () => {
-    const SHOWN = [{ sessionRef: NEW, agentId: 'agent-digest' }]
+    const SHOWN = [{ sessionRef: NEW, view: { agentId: 'agent-digest' } }]
 
     it('brings the run’s Session into view with the Agent picked', async () => {
       const { router, inView } = agents()
@@ -1770,15 +1911,12 @@ ${PICK}`,
       expect(inView).toEqual(SHOWN)
     })
 
-    it('never moves for a plain message, /new or /load', async () => {
-      const { router, inView } = channelSetup(
-        { ...trip, 'session-work': { title: 'Work' } },
-        { telegram: TRIP },
-      )
+    it('never moves for a plain message, even to a Session it had to make', async () => {
+      const { router, inView, plain } = channelSetup(trip)
       const ch = fakeChannel('telegram')
       await router.route(ch.adapter, { text: 'hello' })
-      await router.route(ch.adapter, { text: '/new' })
-      await router.route(ch.adapter, { callback: 'loadConv:session-work' })
+      await router.route(ch.adapter, { text: 'and again' })
+      expect(plain).toHaveLength(2)
       expect(inView).toEqual([])
     })
 
@@ -2318,6 +2456,31 @@ describe('/agentsin', () => {
     expect(plain.map((message) => message.sessionRef)).toEqual([CODE])
   })
 
+  it('brings a tapped Session into view before any Agent is tapped', async () => {
+    const { router, inView } = picking()
+    await router.route(fakeChannel('telegram').adapter, { callback: `pickSession:${CODE}` })
+    expect(inView).toEqual([{ sessionRef: CODE, view: 'as-is' }])
+  })
+
+  it('starts bringing the tapped Agent into view once the Session tap has been shown', async () => {
+    const { router, inView, bringing } = picking()
+    let show = () => {}
+    bringing.held = new Promise((resolve) => (show = resolve))
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy' })
+    expect(inView).toEqual([{ sessionRef: CODE, view: 'as-is' }])
+    show()
+    await flush()
+    expect(inView).toHaveLength(2)
+  })
+
+  it('does not move for the picker itself', async () => {
+    const { router, inView } = picking()
+    await router.route(fakeChannel('telegram').adapter, { text: '/agentsin' })
+    expect(inView).toEqual([])
+  })
+
   it('repaints LAN chat with the picked Session’s transcript', async () => {
     const { router } = picking({ 'local-web': TRIP })
     const ch = fakeChannel('local-web')
@@ -2349,7 +2512,10 @@ describe('/agentsin', () => {
     expect(agentStarts).toEqual([
       { sessionRef: CODE, agentId: 'agent-tidy', origin: { channel: 'telegram', replyTo: '42' } },
     ])
-    expect(inView).toEqual([{ sessionRef: CODE, agentId: 'agent-tidy' }])
+    expect(inView).toEqual([
+      { sessionRef: CODE, view: 'as-is' },
+      { sessionRef: CODE, view: { agentId: 'agent-tidy' } },
+    ])
   })
 
   it('asks for a Start Prompt in the picked Session, and starts there with the reply', async () => {
@@ -2397,7 +2563,10 @@ describe('/agentsin', () => {
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
     expect(agentStarts).toEqual([])
     expect(ch.replies).toEqual(['⏳ Queued (1st) for "Refactor", runs after the current turn.'])
-    expect(inView).toEqual([{ sessionRef: CODE, agentId: 'agent-digest' }])
+    expect(inView).toEqual([
+      { sessionRef: CODE, view: 'as-is' },
+      { sessionRef: CODE, view: { agentId: 'agent-digest' } },
+    ])
     await settle(CODE)
     expect(agentStarts.map((start) => [start.sessionRef, start.agentId])).toEqual([
       [CODE, 'agent-digest'],

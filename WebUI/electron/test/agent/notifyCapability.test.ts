@@ -129,12 +129,14 @@ function route(channels: ChannelKind[], realShellSessions: string[] = []): void 
     realShellSessions,
     templates: {
       header: '🤖 Agent · {title}',
+      assistantHeader: '💬 Assistant · {title}',
       paused: '',
       pauseReason: '',
       pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
       failed: '',
       sessionLabel: '"{title}"',
-      untitled: 'An agent run',
+      untitled: 'Untitled Session',
+      untitledAgent: 'Untitled agent',
       answerButton: '💬 Answer',
       answerOnComputer: 'Answer on your computer',
       answerInThread: 'Reply in thread to answer.',
@@ -255,7 +257,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'telegram',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\n↩️ Reply to this message to answer.`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\n↩️ Reply to this message to answer.`,
       },
     ])
     expect(toolResultText()).toBe('delivered')
@@ -267,9 +269,9 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'local-web',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}`,
         buttons: [[{ text: '💬 Answer', callbackData: 'answer' }]],
-        answerTitle: '"An agent run"',
+        answerTitle: '"Untitled Session"',
       },
     ])
   }, 30000)
@@ -280,7 +282,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'telegram',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\nAnswer on your computer`,
       },
     ])
   }, 30000)
@@ -291,7 +293,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'slack',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nReply in thread to answer.`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\nReply in thread to answer.`,
       },
     ])
   }, 30000)
@@ -302,7 +304,7 @@ describe('notify_user', () => {
     expect(sent).toEqual([
       {
         kind: 'slack',
-        text: `🤖 Agent · "An agent run"\n${SUMMARY}\nAnswer on your computer`,
+        text: `💬 Assistant · "Untitled Session"\n${SUMMARY}\nAnswer on your computer`,
       },
     ])
   }, 30000)
@@ -439,7 +441,7 @@ describe('notify_user in a Trial Run', () => {
 })
 
 describe('notify_user attachments', () => {
-  const caption = `🤖 Agent · "An agent run"\n${SUMMARY}\n↩️ Reply to this message to answer.`
+  const caption = `💬 Assistant · "Untitled Session"\n${SUMMARY}\n↩️ Reply to this message to answer.`
 
   function attach(relativePath: string, bytes: Buffer | string = 'media bytes'): void {
     const file = path.join(workspace, relativePath)
@@ -673,7 +675,10 @@ describe('notify_user attachments', () => {
     notifyArgs = { message: long, attachments: ['generated/cover.png', 'generated/clip.mp4'] }
     await runTurn('aipg-agent-notify-long')
     expect(sent.map(({ text, media }) => [text, media?.filename])).toEqual([
-      [`🤖 Agent · "An agent run"\n${long}\n↩️ Reply to this message to answer.`, undefined],
+      [
+        `💬 Assistant · "Untitled Session"\n${long}\n↩️ Reply to this message to answer.`,
+        undefined,
+      ],
       ['', 'cover.png'],
       ['', 'clip.mp4'],
     ])
@@ -710,7 +715,7 @@ describe('notify_user attachments', () => {
     await runTurn('aipg-agent-notify-lan-media')
     expect(sent.map(({ text, media, buttons }) => [text, media?.filename, buttons])).toEqual([
       [
-        `🤖 Agent · "An agent run"\n${SUMMARY}`,
+        `💬 Assistant · "Untitled Session"\n${SUMMARY}`,
         'a.png',
         [[{ text: '💬 Answer', callbackData: 'answer' }]],
       ],

@@ -6,6 +6,7 @@ import type { AgentAnswerOrigin, AgentModeTurnConfig } from '@/types/agentIpc'
 import type { SpeechClipPayload } from '@/types/chatRequests'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { notificationSessionLabel, trialRunLabel } from '@/lib/notificationLabel'
+import { HARNESS_CHAT_PRESET } from '@/lib/harnessChatPreset'
 import { channelMediaKind } from '@/lib/channelMediaKind'
 import {
   answerGesture,
@@ -95,12 +96,14 @@ const OFF_CONFIG: NotificationConfig = {
   realShellSessions: [],
   templates: {
     header: '',
+    assistantHeader: '',
     paused: '',
     pauseReason: '',
     pauseKinds: { download: '', 'vram-warning': '', confirmation: '', question: '' },
     failed: '',
     sessionLabel: '',
     untitled: '',
+    untitledAgent: '',
     answerButton: '',
     answerOnComputer: '',
     answerInThread: '',
@@ -216,7 +219,7 @@ export function noteResultTurn(sessionId: string, turnId: string, workspaceDir: 
 
 type Owner = AnswerTarget | TrialRunOwner
 type Heading = { header: string; owner: Owner }
-type Sender = { owner: Owner; title: string }
+type Sender = { owner: Owner; title: string; header: string }
 
 /** Harness Sessions whose latest turn started with the `notify` capability. */
 const notifyingHarnessSessions = new Set<string>()
@@ -249,15 +252,23 @@ async function senderOf(sessionId: string): Promise<Sender | null> {
     const session = await readReachableSession(sessionRef)
     if (!session) return null
     const title = await sessionLabel(sessionId, session.title)
-    return { owner: { sessionRef, harnessSessionId: sessionId }, title }
+    const assistant = session.harnessSessions[HARNESS_CHAT_PRESET] === sessionId
+    const header = assistant ? config.templates.assistantHeader : config.templates.header
+    return {
+      owner: { sessionRef, harnessSessionId: sessionId },
+      title,
+      header: fillTemplate(header, { title }),
+    }
   }
   if (!notifyingHarnessSessions.has(sessionId)) return null
   const trial = await liveTrialRunOf(sessionId)
   if (!trial) return null
   const agent = trial.name || (await readAgentSessionTitle(sessionId))
+  const title = trialRunLabel(config.templates, agent)
   return {
     owner: { trialRun: true, harnessSessionId: sessionId, agentId: trial.agentId },
-    title: trialRunLabel(config.templates, agent),
+    title,
+    header: fillTemplate(config.templates.header, { title }),
   }
 }
 
@@ -265,7 +276,7 @@ async function headingOf(sessionId: string): Promise<Heading | null> {
   const sender = await senderOf(sessionId)
   if (!sender) return null
   return {
-    header: fillTemplate(config.templates.header, { title: sender.title }),
+    header: sender.header,
     owner: sender.owner,
   }
 }
@@ -453,7 +464,7 @@ async function deliver(body: Body, sessionId: string): Promise<NotificationDeliv
     if (!sender) return { delivered: false, reason: 'the Session is not reachable from Channels' }
     const outcomes: NotificationDelivery[] = []
     for (const kind of kinds) {
-      outcomes.push(await deliverOn(kind, channel, body, sender.owner, sender.title))
+      outcomes.push(await deliverOn(kind, channel, body, sender))
     }
     const delivered = outcomes.flatMap((outcome) => (outcome.delivered ? [outcome] : []))
     if (delivered.length === 0) {
@@ -473,8 +484,7 @@ async function deliverOn(
   kind: ChannelKind,
   port: NotificationChannel,
   body: Body,
-  owner: Owner,
-  title: string,
+  { owner, title, header: senderHeader }: Sender,
 ): Promise<NotificationDelivery> {
   const sessionId = owner.harnessSessionId
   const answer = reportedTurnOf(sessionId)?.answer
@@ -482,8 +492,7 @@ async function deliverOn(
     ? await readAttachments(body.attachments.workspaceDir, body.attachments.paths, kind)
     : { media: [] }
   if ('error' in attached) return { delivered: false, reason: attached.error }
-  const header =
-    takesCaption(body.media) && !body.bare ? fillTemplate(config.templates.header, { title }) : ''
+  const header = takesCaption(body.media) && !body.bare ? senderHeader : ''
   const message: ChannelMessage = {
     ...(header ? { header } : {}),
     text: body.text,

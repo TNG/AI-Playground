@@ -155,6 +155,7 @@ describe('the channel message map', () => {
         agentName: () => null,
         startAgent: async () => ({ ok: false, reason: 'no-task', message: '' }),
         bringIntoView: async () => {},
+        unpickAgent: async () => {},
         activity: () => ({ kind: 'idle' }),
         stop: async () => ({ kind: 'idle' }),
         onSessionChange: () => () => {},

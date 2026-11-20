@@ -293,7 +293,10 @@ export function registerChannelSessionPort(labels: ChannelSessionLabels): void {
     agentName: (agentId) => agentTasks.tasks.find((task) => task.id === agentId)?.name ?? null,
     startAgent: (sessionRef, agentId, origin, prompt) =>
       agentTasks.startFromChannel(agentId, sessionRef, origin, prompt),
-    bringIntoView: (sessionRef, agentId) => lifecycle.openWithAgent(sessionRef, agentId),
+    bringIntoView: (sessionRef, view) => lifecycle.openFromChannel(sessionRef, view),
+    unpickAgent: async (sessionRef) => {
+      await sessions.pickAgent(sessionRef, null)
+    },
     activity,
     stop,
     onSessionChange: (listener) => {

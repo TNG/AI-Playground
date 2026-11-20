@@ -140,6 +140,8 @@ export type SessionPort = {
   ) => Promise<AgentStartResult>
   /** Opens the Session on the desktop, the Agent picked in its prompt bar if given; a Library stays open. */
   bringIntoView: (sessionRef: string, agentId?: string) => Promise<void>
+  /** Unpicks the Session's Agent, open on the desktop or not, so its prompt bar shows Assistant. */
+  unpickAgent: (sessionRef: string) => Promise<void>
   /** The Session's turn in flight, or its Agent Run (its first turn or a Follow-up). */
   activity: (sessionRef: string) => SessionActivity
   /** Stops the Session's turn or Agent Run; returns what it was. */
@@ -413,19 +415,27 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
     const outcome = await run(sessions, entry)
     if (outcome === 'busy') return enqueue(sessions, lane, entry)
-    if (outcome === 'started') bringIntoView(sessions, entry)
+    if (outcome === 'started') showOnDesktop(sessions, entry)
     return outcome
   }
 
   /**
-   * Once an Agent's start is accepted: a queued one on arrival, not when the Session frees up.
-   * Not awaited, so a desktop preset switch waiting on a dialog never holds up the router.
+   * Once a start or message is accepted: a queued one on arrival, not when the Session frees up.
+   * An Agent start picks the Agent; a message the Assistant answers unpicks it. Not awaited, so a
+   * desktop preset switch waiting on a dialog never holds up the router.
    */
-  function bringIntoView(sessions: SessionPort, entry: QueuedMessage): void {
-    if (!('agent' in entry)) return
+  function showOnDesktop(sessions: SessionPort, entry: QueuedMessage): void {
+    if ('agent' in entry) {
+      void sessions
+        .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
+        .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
+      return
+    }
+    const { target } = entry
+    if (!('sessionRef' in target) || sessions.turnTarget(target) !== target.sessionRef) return
     void sessions
-      .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
-      .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
+      .unpickAgent(target.sessionRef)
+      .catch((e: unknown) => log('answerRouter: unpicking the Session’s Agent failed:', e))
   }
 
   function previewOf(entry: QueuedMessage): string {
@@ -454,7 +464,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
     }
-    bringIntoView(sessions, entry)
+    showOnDesktop(sessions, entry)
     const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'

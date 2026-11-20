@@ -163,6 +163,9 @@ function fakeSessions(
   /** Each Session the desktop brought into view, with the Agent picked in its prompt bar if any. */
   const inView: { sessionRef: string; agentId?: string }[] = []
   const bringing = { fails: false }
+  /** Each Session whose picked Agent was let go of, so its prompt bar shows the Assistant. */
+  const unpicked: string[] = []
+  const unpicking = { fails: false }
   /** What starting an Agent does; it goes through unless set. */
   const agentStart: { result: AgentStartResult } = { result: { ok: true } }
   /** Start Prompt Requests recorded in the message map, which outlives a restart. */
@@ -301,6 +304,10 @@ function fakeSessions(
       if (bringing.fails) throw new Error('window gone')
       inView.push(agentId === undefined ? { sessionRef } : { sessionRef, agentId })
     },
+    unpickAgent: async (sessionRef) => {
+      if (unpicking.fails) throw new Error('window gone')
+      unpicked.push(sessionRef)
+    },
     activity: (sessionRef) => activities[sessionRef] ?? { kind: 'idle' },
     stop: async (sessionRef) => {
       const was = activities[sessionRef] ?? { kind: 'idle' }
@@ -375,6 +382,8 @@ function fakeSessions(
     agentStart,
     inView,
     bringing,
+    unpicked,
+    unpicking,
     trialRuns,
     busyTrial,
     settleTrial,
@@ -1314,6 +1323,77 @@ describe('a plain message', () => {
     await router.route(ch.adapter, { text: 'the plan', refused: 'Files over 25 MB are not taken.' })
     expect(plain).toEqual([])
     expect(ch.replies).toEqual(['Files over 25 MB are not taken.'])
+  })
+
+  describe('unpicks the Session’s Agent, as the Assistant answers it', () => {
+    const TRIP = 'session-trip'
+    const trip = { [TRIP]: { title: 'Trip planning' } }
+
+    it('once the message is sent', async () => {
+      const { router, unpicked } = channelSetup(trip, { telegram: TRIP })
+      await router.route(fakeChannel('telegram').adapter, { text: 'add a day in Kyoto' })
+      expect(unpicked).toEqual([TRIP])
+    })
+
+    it('when the message arrives, though it is queued behind a busy Session', async () => {
+      const { router, unpicked, plain, busy, settle } = channelSetup(trip, { telegram: TRIP })
+      busy(TRIP, { kind: 'agent-run', name: 'Daily digest' })
+      await router.route(fakeChannel('telegram').adapter, { text: 'add a day in Kyoto' })
+      expect(plain).toEqual([])
+      expect(unpicked).toEqual([TRIP])
+      await settle(TRIP)
+      expect(plain).toHaveLength(1)
+      expect(unpicked).toEqual([TRIP])
+    })
+
+    it('in a Session the Channel just started', async () => {
+      const { router, unpicked } = channelSetup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(unpicked).toEqual(['session-new-1'])
+    })
+
+    it('for a reply to the Session’s Assistant', async () => {
+      const ASTEROIDS = sessionRefOf('asteroids')
+      const { router, unpicked } = setup(
+        { asteroids: { label: 'Asteroids clone', assistant: true } },
+        undefined,
+        { [ASTEROIDS]: { title: 'Asteroids' } },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: 'faster', replyTo: '1234' })
+      expect(unpicked).toEqual([ASTEROIDS])
+    })
+
+    it('not for an Answer to an Agent Run, which continues the run', async () => {
+      const { router, received, unpicked } = setup()
+      await router.route(fakeChannel('telegram').adapter, { text: 'yes', replyTo: '1234' })
+      expect(received).toHaveLength(1)
+      expect(unpicked).toEqual([])
+    })
+
+    it('not for a message the Session refused', async () => {
+      const refused = { ok: false, reason: 'error', message: 'disk full' } as const
+      const { router, unpicked } = channelSetup(
+        { [TRIP]: { title: 'Trip planning', result: refused } },
+        { telegram: TRIP },
+      )
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(unpicked).toEqual([])
+    })
+
+    it('not for a command', async () => {
+      const { router, unpicked } = channelSetup(trip, { telegram: TRIP })
+      const ch = fakeChannel('telegram')
+      await router.route(ch.adapter, { text: '/help' })
+      await router.route(ch.adapter, { text: '/sessions' })
+      expect(unpicked).toEqual([])
+    })
+
+    it('sends the message even when the desktop cannot unpick', async () => {
+      const { router, unpicking, plain } = channelSetup(trip, { telegram: TRIP })
+      unpicking.fails = true
+      await router.route(fakeChannel('telegram').adapter, { text: 'hello' })
+      expect(plain).toHaveLength(1)
+    })
   })
 })
 

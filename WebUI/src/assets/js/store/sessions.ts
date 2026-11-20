@@ -160,9 +160,10 @@ export const useSessions = defineStore('sessions', () => {
       : timelineWithout(openTimeline.value, new Set(openHiddenIds.value)),
   )
 
-  /** True when any Session — not just the open one — has a hidden message. */
-  const anyHiddenMessages = computed(() =>
-    Object.values(sessions.value).some((session) => session.hiddenMessageIds.length > 0),
+  /** How many Sessions — not just the open one — have a hidden message. */
+  const sessionsWithHiddenMessages = computed(
+    () =>
+      Object.values(sessions.value).filter((session) => session.hiddenMessageIds.length > 0).length,
   )
 
   /** Hides messages of the open Session: they stay in the file, only the view leaves them out. */
@@ -176,14 +177,14 @@ export const useSessions = defineStore('sessions', () => {
     if (!result) openHiddenIds.value = before
   }
 
-  /** Brings every hidden message of one Session back into its view. */
+  /** Brings every hidden message of one Session back; its row follows main's change. */
   async function unhideSessionMessages(id: string): Promise<void> {
-    if (id !== openSessionId.value) return
-    openHiddenIds.value = []
+    const isOpen = id === openSessionId.value
+    if (isOpen) openHiddenIds.value = []
     const result = await call('sessions/unhide-failed', () =>
       window.electronAPI.sessions.clearHiddenMessages(id),
     )
-    if (!result) await open(id, { reveal: false })
+    if (!result && isOpen && id === openSessionId.value) await open(id, { reveal: false })
   }
 
   /** Brings every hidden message of every Session back into its view. */
@@ -470,7 +471,7 @@ export const useSessions = defineStore('sessions', () => {
     openTimeline,
     openHiddenIds,
     openVisibleTimeline,
-    anyHiddenMessages,
+    sessionsWithHiddenMessages,
     openDeletedFiles,
     pendingTurns,
     turns,

@@ -588,10 +588,10 @@ describe('Hidden messages', () => {
     await vi.waitFor(() => expect(store.sessions[id]?.hiddenMessageIds).toEqual(['u1', 'a1']))
   })
 
-  it('knows hidden messages exist while another Session is the open one', async () => {
+  it('counts the Sessions with hidden messages while another Session is the open one', async () => {
     const store = useSessions()
     await store.init()
-    expect(store.anyHiddenMessages).toBe(false)
+    expect(store.sessionsWithHiddenMessages).toBe(0)
 
     const hidden = store.openSessionId!
     await seedTurns(store)
@@ -599,10 +599,24 @@ describe('Hidden messages', () => {
     await store.create()
     expect(store.openSessionId).not.toBe(hidden)
 
-    // The hidden pair sits in a Session this side never opened: the rows know it.
-    await vi.waitFor(() => expect(store.anyHiddenMessages).toBe(true))
+    // The hidden pair sits in a Session that is no longer open: the rows know it.
+    await vi.waitFor(() => expect(store.sessionsWithHiddenMessages).toBe(1))
 
     await store.unhideAllMessages()
-    await vi.waitFor(() => expect(store.anyHiddenMessages).toBe(false))
+    await vi.waitFor(() => expect(store.sessionsWithHiddenMessages).toBe(0))
+  })
+
+  it('unhides a Session that is not the open one, from its row', async () => {
+    const store = useSessions()
+    await store.init()
+    const hidden = await seedTurns(store)
+    await store.hideTimelineMessages(hidden, ['u1', 'a1'])
+    await store.create()
+
+    await store.unhideSessionMessages(hidden)
+
+    expect((await sessionModule.openSession(hidden)).hiddenMessageIds).toEqual([])
+    await vi.waitFor(() => expect(store.sessions[hidden]?.hiddenMessageIds).toEqual([]))
+    expect(store.openHiddenIds).toEqual([])
   })
 })

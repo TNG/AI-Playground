@@ -202,6 +202,9 @@
         <DropdownMenuItem v-if="ownGroup" @select="emit('moveToGroup', null)">
           {{ languages.SESSIONS_REMOVE_FROM_GROUP }}
         </DropdownMenuItem>
+        <DropdownMenuItem v-if="canUnhide" @select="emit('unhideMessages')">
+          {{ languages.SESSIONS_UNHIDE_MESSAGES }}
+        </DropdownMenuItem>
         <AlertDialog>
           <AlertDialogTrigger as-child>
             <DropdownMenuItem @select="(event: Event) => event.preventDefault()">
@@ -300,6 +303,8 @@ const props = defineProps<{
   /** The Session holds a Schedule: `paused` when none of them is enabled. */
   scheduled?: SessionScheduleState
   createGroup: (name: string) => Promise<GroupNameRefusal | null>
+  /** Offer "Unhide hidden messages": hiding is switched on and this Session has some. */
+  canUnhide?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -310,6 +315,7 @@ const emit = defineEmits<{
   delete: []
   openSchedules: []
   newSessionWithSettings: []
+  unhideMessages: []
 }>()
 
 const i18n = useI18N()

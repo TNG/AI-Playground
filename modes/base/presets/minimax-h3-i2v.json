@@ -1,0 +1,428 @@
+{
+  "type": "comfy",
+  "name": "MiniMax H3 Image to Video",
+  "description": "Image to Video generation with synchronized audio using MiniMax H3, starting from a reference image. Recommended for systems with discrete GPUs and high vRAM.",
+  "extendedDescription": "Animate a reference image into a video clip with sound, using MiniMax H3. The image is center-cropped to the chosen resolution and used as the first frame; refer to it as <Picture 1> in the prompt. Describe the action that transpires, camera movement, and what is heard: spoken words in quotes, sound effects, or the type of music. Videos are rendered at 24 frames per second; the Turbo variant uses a distillation LoRA for 8-step generation.",
+  "displayPriority": 360,
+  "tags": ["MiniMax H3", "audio", "image to video", "high-vram"],
+  "backend": "comfyui",
+  "category": "create-videos",
+  "toolCategory": "edit-images",
+  "mediaType": "video",
+  "toolInstructions": "Use this workflow to animate an existing image into a short video clip with synchronized audio (image-to-video) using MiniMax H3. The source image becomes the first frame and is center-cropped to the output aspect ratio. Refer to it as <Picture 1> in the prompt and describe the motion, the camera movement and the audio: put any spoken words in quotes and describe sound effects or music. Resource-intensive (high VRAM); only use when the user explicitly asks for a video from an image.",
+  "droppedComfyUiParameters": ["--lowvram"],
+  "resolutionConfig": {
+    "megapixels": [
+      {
+        "label": "0.25",
+        "totalPixels": 262144
+      },
+      {
+        "label": "0.4",
+        "totalPixels": 419430
+      },
+      {
+        "label": "0.6",
+        "totalPixels": 629146
+      },
+      {
+        "label": "1.0",
+        "totalPixels": 1048576
+      }
+    ],
+    "aspectRatios": [
+      "21/9",
+      "16/9",
+      "3/2",
+      "4/3",
+      "1/1",
+      "3/4",
+      "2/3",
+      "9/16",
+      "9/21"
+    ],
+    "useLookupTable": false
+  },
+  "requiredCustomNodes": [
+    "evanspearman/ComfyMath@939bb813f1c0ace959b62f20bb2da47190c4e211"
+  ],
+  "requiredPythonPackages": [],
+  "requiredModels": [
+    {
+      "type": "unet",
+      "model": "Comfy-Org/MiniMax-H3/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+    },
+    {
+      "type": "clip",
+      "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+    },
+    {
+      "type": "vae",
+      "model": "Comfy-Org/MiniMax-H3/vae/minimax_h3_video_vae_int8_convrot.safetensors"
+    },
+    {
+      "type": "vae",
+      "model": "Comfy-Org/MiniMax-H3/vae/minimax_h3_audio_vae_fp32.safetensors"
+    }
+  ],
+  "settings": [
+    {
+      "type": "image",
+      "label": "Reference Image",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": "",
+      "nodeTitle": "Load Image",
+      "nodeInput": "image"
+    },
+    {
+      "type": "string",
+      "label": "Prompt",
+      "displayed": false,
+      "modifiable": true,
+      "defaultValue": "",
+      "settingName": "prompt"
+    },
+    {
+      "type": "number",
+      "label": "Seed",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": -1,
+      "settingName": "seed"
+    },
+    {
+      "type": "number",
+      "label": "Inference Steps",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 20,
+      "settingName": "inferenceSteps"
+    },
+    {
+      "type": "number",
+      "label": "Width",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 896,
+      "settingName": "width"
+    },
+    {
+      "type": "number",
+      "label": "Height",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 512,
+      "settingName": "height"
+    },
+    {
+      "type": "string",
+      "label": "Resolution",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": "896x512",
+      "settingName": "resolution"
+    },
+    {
+      "type": "number",
+      "label": "Batch Size",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 1,
+      "settingName": "batchSize"
+    },
+    {
+      "type": "number",
+      "label": "Total Frames",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": 56,
+      "step": 17,
+      "min": 5,
+      "max": 362,
+      "nodeTitle": "Length",
+      "nodeInput": "value"
+    }
+  ],
+  "variants": [
+    {
+      "name": "Turbo",
+      "overrides": {
+        "description": "Image to Video generation with synchronized audio using MiniMax H3 with the 8-step Turbo LoRA. Recommended for systems with discrete GPUs and high vRAM.",
+        "requiredModels": [
+          {
+            "type": "unet",
+            "model": "Comfy-Org/MiniMax-H3/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+          },
+          {
+            "type": "clip",
+            "model": "Comfy-Org/MiniMax-H3/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+          },
+          {
+            "type": "vae",
+            "model": "Comfy-Org/MiniMax-H3/vae/minimax_h3_video_vae_int8_convrot.safetensors"
+          },
+          {
+            "type": "vae",
+            "model": "Comfy-Org/MiniMax-H3/vae/minimax_h3_audio_vae_fp32.safetensors"
+          },
+          {
+            "type": "lora",
+            "model": "lightx2v/Minimax-h3-Turbo/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+          }
+        ],
+        "settings": [
+          {
+            "type": "number",
+            "label": "Inference Steps",
+            "displayed": false,
+            "modifiable": false,
+            "defaultValue": 8,
+            "settingName": "inferenceSteps"
+          }
+        ],
+        "comfyUiApiWorkflow": {
+          "7": {
+            "inputs": {
+              "model": ["20", 0]
+            },
+            "class_type": "BasicGuider",
+            "_meta": {
+              "title": "BasicGuider"
+            }
+          },
+          "10": {
+            "inputs": {
+              "steps": 8,
+              "model": ["20", 0]
+            },
+            "class_type": "BasicScheduler",
+            "_meta": {
+              "title": "BasicScheduler"
+            }
+          },
+          "20": {
+            "inputs": {
+              "lora_name": "lightx2v---Minimax-h3-Turbo\\minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+              "strength_model": 1,
+              "model": ["1", 0]
+            },
+            "class_type": "LoraLoaderModelOnly",
+            "_meta": {
+              "title": "Turbo LoRA"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Standard",
+      "overrides": {}
+    }
+  ],
+  "comfyUiApiWorkflow": {
+    "1": {
+      "inputs": {
+        "unet_name": "Comfy-Org---MiniMax-H3\\diffusion_models\\minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "Load Diffusion Model"
+      }
+    },
+    "2": {
+      "inputs": {
+        "clip_name": "Comfy-Org---MiniMax-H3\\text_encoders\\qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "type": "minimax",
+        "device": "default"
+      },
+      "class_type": "CLIPLoader",
+      "_meta": {
+        "title": "Load CLIP"
+      }
+    },
+    "3": {
+      "inputs": {
+        "vae_name": "Comfy-Org---MiniMax-H3\\vae\\minimax_h3_video_vae_int8_convrot.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load Video VAE"
+      }
+    },
+    "4": {
+      "inputs": {
+        "vae_name": "Comfy-Org---MiniMax-H3\\vae\\minimax_h3_audio_vae_fp32.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load Audio VAE"
+      }
+    },
+    "5": {
+      "inputs": {
+        "prompt": "Realistic live-action cinematic shot of the scene in <Picture 1>: the subject slowly turns toward the camera and smiles as a warm breeze moves through the frame. The camera pushes in gently. Soft ambient sound, birds in the distance, and a quiet acoustic guitar melody.",
+        "width": ["18", 0],
+        "height": ["19", 0],
+        "length": ["6", 0],
+        "clip": ["2", 0],
+        "vae": ["3", 0],
+        "first_frame": ["17", 0]
+      },
+      "class_type": "MiniMaxH3ImageToVideo",
+      "_meta": {
+        "title": "prompt"
+      }
+    },
+    "6": {
+      "inputs": {
+        "value": 56
+      },
+      "class_type": "PrimitiveInt",
+      "_meta": {
+        "title": "Length"
+      }
+    },
+    "7": {
+      "inputs": {
+        "model": ["1", 0],
+        "conditioning": ["5", 0]
+      },
+      "class_type": "BasicGuider",
+      "_meta": {
+        "title": "BasicGuider"
+      }
+    },
+    "8": {
+      "inputs": {
+        "noise_seed": 0
+      },
+      "class_type": "RandomNoise",
+      "_meta": {
+        "title": "RandomNoise"
+      }
+    },
+    "9": {
+      "inputs": {
+        "sampler_name": "res_multistep"
+      },
+      "class_type": "KSamplerSelect",
+      "_meta": {
+        "title": "KSamplerSelect"
+      }
+    },
+    "10": {
+      "inputs": {
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1,
+        "model": ["1", 0]
+      },
+      "class_type": "BasicScheduler",
+      "_meta": {
+        "title": "BasicScheduler"
+      }
+    },
+    "11": {
+      "inputs": {
+        "noise": ["8", 0],
+        "guider": ["7", 0],
+        "sampler": ["9", 0],
+        "sigmas": ["10", 0],
+        "latent_image": ["5", 1]
+      },
+      "class_type": "SamplerCustomAdvanced",
+      "_meta": {
+        "title": "SamplerCustomAdvanced"
+      }
+    },
+    "12": {
+      "inputs": {
+        "samples": ["11", 0],
+        "vae": ["3", 0]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "13": {
+      "inputs": {
+        "samples": ["11", 0],
+        "vae": ["4", 0]
+      },
+      "class_type": "VAEDecodeAudio",
+      "_meta": {
+        "title": "VAE Decode Audio"
+      }
+    },
+    "14": {
+      "inputs": {
+        "fps": 24,
+        "images": ["12", 0],
+        "audio": ["13", 0]
+      },
+      "class_type": "CreateVideo",
+      "_meta": {
+        "title": "Create Video"
+      }
+    },
+    "15": {
+      "inputs": {
+        "filename_prefix": "AIPG_Video",
+        "format": "auto",
+        "codec": "auto",
+        "video": ["14", 0]
+      },
+      "class_type": "SaveVideo",
+      "_meta": {
+        "title": "Save Video"
+      }
+    },
+    "16": {
+      "inputs": {
+        "image": "input.png"
+      },
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Load Image"
+      }
+    },
+    "17": {
+      "inputs": {
+        "upscale_method": "lanczos",
+        "width": ["18", 0],
+        "height": ["19", 0],
+        "crop": "center",
+        "image": ["16", 0]
+      },
+      "class_type": "ImageScale",
+      "_meta": {
+        "title": "Crop to Output Size"
+      }
+    },
+    "18": {
+      "inputs": {
+        "op": "Add",
+        "a": 896,
+        "b": 0
+      },
+      "class_type": "CM_IntBinaryOperation",
+      "_meta": {
+        "title": "width"
+      }
+    },
+    "19": {
+      "inputs": {
+        "op": "Add",
+        "a": 512,
+        "b": 0
+      },
+      "class_type": "CM_IntBinaryOperation",
+      "_meta": {
+        "title": "height"
+      }
+    }
+  }
+}

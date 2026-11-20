@@ -14,8 +14,12 @@
         :not-run="item.kind === 'agent' && item.notRun"
         :can-resend="item.kind === 'agent' && item.canResend"
         :controls="runControls"
+        :editing="editing"
+        :submitting="turnBusy"
         @resend="emit('resend')"
         @edit-agent="runControls && manageAgents(runControls.agentId)"
+        @cancel-edit="editing = false"
+        @edit-prompt="submitEdit"
       />
     </template>
     <template #details>
@@ -101,13 +105,13 @@
       />
     </template>
     <template v-if="footerShown" #footer>
-      <SessionTurnFooter :footer="item.footer" />
+      <SessionTurnFooter :footer="item.footer" @edit="editing = true" />
     </template>
   </SessionTurn>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { UIMessage } from 'ai'
 import { useAgentTasks } from '@/assets/js/store/agentTasks'
 import { useConfirmations } from '@/assets/js/store/confirmations'
@@ -115,6 +119,8 @@ import { useI18N } from '@/assets/js/store/i18n'
 import type { AipgUiMessage } from '@/assets/js/store/openAiCompatibleChat'
 import type { PendingAudioTurn } from '@/assets/js/store/sessionAudio'
 import type { PendingMediaTurn } from '@/assets/js/store/sessions'
+import { noFooter } from '@/lib/turnFooter'
+import { useTurnActions } from '@/lib/useTurnActions'
 import AgentMessageParts from '@/components/AgentMessageParts.vue'
 import { useTextInference } from '@/assets/js/store/textInference'
 import AudioTurnBlock from '@/components/AudioTurnBlock.vue'
@@ -148,6 +154,19 @@ const agentTasks = useAgentTasks()
 const { manageAgents } = useAgentLibraryEntry()
 const confirmations = useConfirmations()
 const languages = useI18N().state
+
+const editing = ref(false)
+
+const turnActions = useTurnActions(() =>
+  props.item.kind === 'message' ? noFooter() : props.item.footer,
+)
+const turnBusy = computed(() => props.item.kind !== 'message' && turnActions.busy.value)
+
+async function submitEdit(text: string): Promise<void> {
+  editing.value = false
+  if (props.item.kind === 'message') return
+  await turnActions.regenerate({ text, promptMessageId: props.item.id })
+}
 
 // A deleted Agent has nothing left to edit; it cannot be running either.
 const runControls = computed(() => {

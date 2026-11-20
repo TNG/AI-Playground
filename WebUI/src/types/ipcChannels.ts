@@ -377,6 +377,34 @@ export const CHANNELS = {
     args: [] as unknown as readonly [string, unknown[]],
     result: null as unknown as IpcMutationResult,
   },
+  /** Take display messages out of a Session's timeline — the turn a regenerate replaces. */
+  'sessions:removeTimelineMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Mark display messages hidden: still in the file, only the timeline view leaves them out. */
+  'sessions:addHiddenMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string[]],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Bring every hidden message of one Session back into its timeline view. */
+  'sessions:clearHiddenMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /** Bring every hidden message of every Session back into its timeline view. */
+  'sessions:clearAllHiddenMessages': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [],
+    result: null as unknown as IpcMutationResult,
+  },
   /** Replace a Session's chat transcript (a removed or cleared message); other turns stay. */
   'sessions:saveChatTranscript': {
     kind: 'invoke',

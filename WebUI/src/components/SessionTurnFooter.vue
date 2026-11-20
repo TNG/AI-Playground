@@ -21,16 +21,36 @@
         <button
           v-else-if="action === 'regenerate'"
           class="flex items-center"
-          :disabled="regenerateBlocked"
-          :class="{ 'opacity-50 cursor-not-allowed': regenerateBlocked }"
-          @click="regenerate"
+          :disabled="actionsBlocked"
+          :class="{ 'opacity-50 cursor-not-allowed': actionsBlocked }"
+          @click="regenerate()"
         >
           <ArrowPathIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_REGENERATE }}</span>
         </button>
-        <button v-else-if="action === 'delete'" class="flex items-center" @click="remove">
+        <button
+          v-else-if="action === 'edit'"
+          class="flex items-center"
+          :disabled="actionsBlocked"
+          :class="{ 'opacity-50 cursor-not-allowed': actionsBlocked }"
+          @click="emit('edit')"
+        >
+          <PencilSquareIcon class="size-4" aria-hidden="true" />
+          <span class="text-xs ml-1">{{ languages.COM_EDIT }}</span>
+        </button>
+        <button
+          v-else-if="action === 'delete'"
+          class="flex items-center"
+          :disabled="actionsBlocked"
+          :class="{ 'opacity-50 cursor-not-allowed': actionsBlocked }"
+          @click="remove()"
+        >
           <TrashIcon class="size-4" aria-hidden="true" />
           <span class="text-xs ml-1">{{ languages.COM_DELETE }}</span>
+        </button>
+        <button v-else-if="action === 'hide'" class="flex items-center" @click="hideTurn">
+          <EyeSlashIcon class="size-4" aria-hidden="true" />
+          <span class="text-xs ml-1">{{ languages.COM_HIDE }}</span>
         </button>
       </template>
     </div>
@@ -45,16 +65,18 @@ import { computed } from 'vue'
 import {
   ArrowPathIcon,
   DocumentDuplicateIcon,
+  EyeSlashIcon,
+  PencilSquareIcon,
   SpeakerWaveIcon,
   StopIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import { useI18N } from '@/assets/js/store/i18n'
 import { useOpenAiCompatibleChat } from '@/assets/js/store/openAiCompatibleChat'
-import { useAgentMode } from '@/assets/js/store/agentMode'
-import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPresets'
+import { useDialogStore } from '@/assets/js/store/dialogs'
+import { useMessageHiding } from '@/assets/js/store/messageHiding'
+import { useSessions } from '@/assets/js/store/sessions'
 import { useErrors } from '@/assets/js/store/errors'
-import { isCancellation } from '@/assets/js/errors/appError'
 import { useTextInference } from '@/assets/js/store/textInference'
 import {
   isSpeaking,
@@ -68,13 +90,19 @@ import { CHAT_ENERGY_ESTIMATES_ENABLED, estimateConversationEnergy } from '@/lib
 import { copyToClipboard } from '@/lib/chatMessageText'
 import { formatEnergyWh, formatMib, formatUsd } from '@/lib/computeMetricsFormat'
 import { fillTemplate } from '@/lib/fillTemplate'
-import type { MediaRerun, TurnFooter } from '@/lib/turnTypes'
+import type { TurnFooter } from '@/lib/turnTypes'
+import { useTurnActions } from '@/lib/useTurnActions'
 
 const props = defineProps<{ footer: TurnFooter }>()
 
+/** Edit opens the prompt bubble's editor; the turn block runs it. */
+const emit = defineEmits<{ edit: [] }>()
+
 const openAiCompatibleChat = useOpenAiCompatibleChat()
-const agentMode = useAgentMode()
-const imageGeneration = useImageGenerationPresets()
+const { blocked: actionsBlocked, regenerate, remove } = useTurnActions(() => props.footer)
+const sessions = useSessions()
+const messageHiding = useMessageHiding()
+const dialogs = useDialogStore()
 const errors = useErrors()
 const textInference = useTextInference()
 const languages = useI18N().state
@@ -85,13 +113,6 @@ const shownActions = computed(() =>
 const metricsShown = computed(() => textInference.metricsEnabled)
 const newestAnswer = computed(
   () => props.footer.actions.includes('regenerate') && !props.footer.rerun,
-)
-const regenerateBlocked = computed(
-  () =>
-    openAiCompatibleChat.processing ||
-    (!!props.footer.rerun && imageGeneration.processing) ||
-    (!!props.footer.harnessTurn &&
-      agentMode.isSessionProcessing(props.footer.harnessTurn.harnessSessionId)),
 )
 const conversationEnergy = computed(() =>
   estimateConversationEnergy(openAiCompatibleChat.messages ?? []),
@@ -159,27 +180,24 @@ function toggleSpeak() {
   void speak({ text: props.footer.text, messageId })
 }
 
-async function rerunMedia(rerun: MediaRerun) {
+async function hideTurn(): Promise<void> {
+  if (!messageHiding.enabled) return
+  const sessionId = sessions.openSessionId
+  const hiding = props.footer.hiding
+  if (!sessionId || !hiding) return
+  const confirmed = await dialogs.requestConfirmation(languages.SESSION_TURN_HIDE_CONFIRM, {
+    confirm: languages.COM_OK,
+    cancel: languages.COM_CANCEL,
+  })
+  if (!confirmed) return
   try {
-    await imageGeneration.regenerate(rerun)
+    await sessions.hideTimelineMessages(sessionId, hiding.messageIds)
   } catch (error) {
-    if (isCancellation(error)) return
     errors.report(error, {
-      category: 'generation',
-      code: 'generation/submit-failed',
-      userMessage: languages.SESSION_IMAGE_GENERATION_FAILED,
+      category: 'backend',
+      code: 'sessions/hide-turn-failed',
+      surface: 'toast',
     })
   }
-}
-
-function regenerate() {
-  if (props.footer.rerun) void rerunMedia(props.footer.rerun)
-  else if (props.footer.harnessTurn) void agentMode.regenerateTurn(props.footer.harnessTurn)
-  else if (props.footer.messageId) void openAiCompatibleChat.regenerate(props.footer.messageId)
-}
-
-function remove() {
-  if (props.footer.harnessTurn) void agentMode.deleteTurns(props.footer.harnessTurn)
-  else if (props.footer.messageId) void openAiCompatibleChat.removeMessage(props.footer.messageId)
 }
 </script>

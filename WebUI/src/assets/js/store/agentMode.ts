@@ -17,6 +17,7 @@ import { unregisterAgentModeIpc } from './agentModeIpc'
 import { demoAwareStorage } from '../demoAwareStorage'
 import { makeForwardPersist } from '@/lib/ipcPersist'
 import { settleStreamingParts } from '@/lib/agentTranscript'
+import { applyEditedPrompt } from '@/lib/editedPrompt'
 import { cloneForIpc } from '@/lib/cloneForIpc'
 import { resolveMountedFolders } from '@/lib/mountedFolders'
 import {
@@ -190,6 +191,8 @@ export const useAgentMode = defineStore(
     const sessionsStore = useSessions()
     /** The Session each Harness Session of this app run belongs to. */
     const harnessSessionRefs: Record<string, string> = {}
+    /** Harness Sessions main deleted with their Session this app run; nothing saves them again. */
+    const deletedHarnessSessions = new Set<string>()
 
     const workspaceDir = ref<string>('')
 
@@ -1432,7 +1435,7 @@ export const useAgentMode = defineStore(
      */
     function snapshotSessionById(id: string, presetName?: string): void {
       const runtime = turns.runtimeOf(id)
-      if (!id || !runtime) return
+      if (!id || !runtime || deletedHarnessSessions.has(id)) return
       const existing = sessions.value[id]
       const context = turnContexts[id]
       // A session sent on its stored settings keeps them, even while open.
@@ -1593,21 +1596,32 @@ export const useAgentMode = defineStore(
       { immediate: true },
     )
 
-    // Main deletes a Session's Harness Sessions with it; their records leave the map too.
+    // Main deletes a Session's Harness Sessions with it; their records, runtimes and the open
+    // pointer go too, so no later snapshot writes them back into a Session that no longer exists.
     watch(
       () => sessionsStore.sessions,
       (known) => {
-        const gone = Object.values(sessions.value).filter(
-          (record) => record.sessionRef && !known[record.sessionRef],
+        const refs = [
+          ...Object.values(sessions.value).map((record) => [record.id, record.sessionRef] as const),
+          ...Object.entries(harnessSessionRefs),
+        ]
+        const gone = new Set(
+          refs.filter(([, sessionRef]) => sessionRef && !known[sessionRef]).map(([id]) => id),
         )
-        if (gone.length === 0) return
-        const next = { ...sessions.value }
-        for (const record of gone) {
-          delete next[record.id]
-          delete turnContexts[record.id]
-          if (record.id !== openSessionId.value) turns.release(record.id)
+        if (gone.size === 0) return
+        if (Object.keys(sessions.value).some((id) => gone.has(id))) {
+          sessions.value = Object.fromEntries(
+            Object.entries(sessions.value).filter(([id]) => !gone.has(id)),
+          )
         }
-        sessions.value = next
+        for (const id of gone) {
+          deletedHarnessSessions.add(id)
+          delete turnContexts[id]
+          delete harnessSessionRefs[id]
+          if (id === openSessionId.value) blankSession()
+          if (turns.runtimeOf(id)?.hasTurn()) void stopSession(id)
+          else turns.release(id)
+        }
       },
     )
 
@@ -2196,7 +2210,10 @@ export const useAgentMode = defineStore(
       return stored.inference.modelSupportsVision
     }
 
-    /** Main rewinds before the new answer streams, so until then the old one stays. */
+    /**
+     * The replaced answers leave the view at once (undone if nothing streams); main refuses
+     * deletions while a turn is in flight, so the file-side removal runs after the turn settles.
+     */
     async function regenerateIn(
       chat: AgentSessionRuntime['chat'],
       promptId: string,
@@ -2204,12 +2221,17 @@ export const useAgentMode = defineStore(
     ): Promise<void> {
       const before = chat.messages
       const known = new Set(before.map((message) => message.id))
-      let forgotten: Promise<void> | undefined
+      const sessionRef = sessionRefOf(redo.harnessSessionId)
+      const answerIds = redo.messageIds.filter((messageId) => messageId !== redo.promptId)
+      if (sessionRef && answerIds.length > 0) {
+        sessionsStore.forgetTimelineMessages(sessionRef, answerIds)
+      }
+      let replaced = false
       const stop = watch(
         () => chat.messages.at(-1),
         (last) => {
-          if (forgotten || last?.role !== 'assistant' || known.has(last.id)) return
-          forgotten = forgetAnswers(redo)
+          if (replaced || last?.role !== 'assistant' || known.has(last.id)) return
+          replaced = true
         },
         { flush: 'sync' },
       )
@@ -2220,8 +2242,13 @@ export const useAgentMode = defineStore(
         })
       } finally {
         stop()
-        if (forgotten) await forgotten
-        else chat.messages = before
+        // Main deregisters the turn before it closes the stream this await
+        // resolved on, so the deletion is no longer refused as in-flight.
+        if (replaced) void forgetAnswers(redo)
+        else {
+          if (sessionRef) void sessionsStore.restoreForgottenTimelineMessages(sessionRef)
+          chat.messages = before
+        }
       }
     }
 
@@ -2231,9 +2258,18 @@ export const useAgentMode = defineStore(
       const sessionRef = sessionRefOf(id)
       const answerIds = ref.messageIds.filter((messageId) => messageId !== ref.promptId)
       if (!sessionRef || answerIds.length === 0) return
-      const result = await requestTurnDeletion(id, [], answerIds)
-      if (!result.success) {
-        errors.report(new Error(result.error), {
+      try {
+        const result = await requestTurnDeletion(id, [], answerIds)
+        if (!result.success) {
+          errors.report(new Error(result.error), {
+            category: 'unknown',
+            code: 'agent/regenerate-forget-failed',
+            surface: 'silent',
+          })
+          return
+        }
+      } catch (error) {
+        errors.report(error, {
           category: 'unknown',
           code: 'agent/regenerate-forget-failed',
           surface: 'silent',
@@ -2257,6 +2293,15 @@ export const useAgentMode = defineStore(
         code: 'agent/regenerate-failed',
         userMessage: result.message,
       })
+    }
+
+    /** The edit lands on the runtime chat's prompt message, so the re-run sends it under the same id. */
+    async function regenerateTurnWithPrompt(ref: HarnessTurnRef, edited: string): Promise<void> {
+      if (!ref.promptId || ref.turnIds.length === 0) return
+      const chat = turns.runtimeFor(ref.harnessSessionId).chat
+      const prompt = chat.messages.find((m) => m.id === ref.promptId && m.role === 'user')
+      if (prompt) applyEditedPrompt(prompt, edited)
+      await regenerateTurn(ref)
     }
 
     /**
@@ -2303,6 +2348,7 @@ export const useAgentMode = defineStore(
     return {
       deleteTurns,
       regenerateTurn,
+      regenerateTurnWithPrompt,
       isSessionProcessing,
       workspaceDir,
       agentPresetName,

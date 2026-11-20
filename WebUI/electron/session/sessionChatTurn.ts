@@ -1,6 +1,6 @@
 import { appLoggerInstance } from '../observability/logger'
 import { emitSessionChanged } from '../kernel/kernelBus'
-import { appendHistoryEntry } from './sessionHistory'
+import { appendHistoryEntry, readHistoryEntries, removeHistoryEntry } from './sessionHistory'
 import path from 'node:path'
 import { adoptMediaFile } from './sessionMediaTurn'
 import { copyIntoSessionFiles } from '../persist/sessionMediaFiles'
@@ -156,11 +156,12 @@ const URL_KEYS: Array<{
 /**
  * Follows one chat turn of a Session: media its tools generated moves into
  * `files/` (the tool output then names it there), and settling appends the
- * turn's History Entry.
+ * turn's History Entry, replacing the attempt a regenerate redoes.
  */
 export function trackChatTurnInSession(
   sessionId: string,
   localPathOf: (url: string) => string | null,
+  trigger: 'submit-message' | 'regenerate-message' = 'submit-message',
 ) {
   const artifacts: HistoryArtifact[] = []
 
@@ -200,6 +201,15 @@ export function trackChatTurnInSession(
     return { ...(output as object), images: adopted }
   }
 
+  /** Only the newest chat entry goes, and only when it holds the prompt the regenerate re-sends. */
+  async function forgetReplacedAttempt(prompt: string): Promise<void> {
+    const last = (await readHistoryEntries(sessionId))
+      .filter((entry) => entry.kind === 'chat')
+      .at(-1)
+    if (!last || last.prompt !== prompt) return
+    await removeHistoryEntry(sessionId, last.id)
+  }
+
   async function settle(turn: {
     preset: string
     variant?: string
@@ -208,6 +218,7 @@ export function trackChatTurnInSession(
     response?: string
   }): Promise<void> {
     try {
+      if (trigger === 'regenerate-message') await forgetReplacedAttempt(turn.prompt)
       await appendHistoryEntry(sessionId, {
         preset: turn.preset,
         variant: turn.variant,

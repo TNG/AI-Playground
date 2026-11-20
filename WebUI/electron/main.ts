@@ -288,7 +288,13 @@ import {
   migrateHomeAgentThreads,
   setHomeAgentThreadMigrationDeps,
 } from './session/homeAgentThreadMigration'
-import { upsertTimelineMessages } from './session/sessionTimeline'
+import {
+  addHiddenMessages,
+  clearAllHiddenMessages,
+  clearHiddenMessages,
+  removeTimelineMessages,
+  upsertTimelineMessages,
+} from './session/sessionTimeline'
 import { saveChatTranscript } from './session/sessionChatTurn'
 import { setAppMediaPathResolver } from './agent/piCustomTools'
 import { readSessionSettings, writePresetSettings } from './session/sessionSettings'
@@ -1880,6 +1886,10 @@ function initEventHandle() {
       harnessSessionFor,
       taskRunHarnessFor,
       upsertTimelineMessages,
+      removeTimelineMessages,
+      addHiddenMessages,
+      clearHiddenMessages,
+      clearAllHiddenMessages,
       saveChatTranscript,
       recordAudioTurn,
       listAllArtifacts,

@@ -507,6 +507,25 @@ describe('deleting the Session a run is in', () => {
     expect(lastSavedTask('t1')).not.toHaveProperty('activeRuns')
   })
 
+  it('writes nothing back into the open Session it deleted', async () => {
+    const { agentMode } = await readyStores()
+    await vi.waitFor(() => expect(agentMode.openSessionId).toBe('session-open'))
+    await agentMode.sendToSession('session-open', 'hi')
+    await finishTurn(0)
+    await settleMicrotasks()
+    const saveTimeline = vi.mocked(window.electronAPI.sessions.saveTimelineMessages)
+    saveTimeline.mockClear()
+    saveSession.mockClear()
+    nextSessionId = 'session-2'
+
+    await useSessions(pinia).remove(SESSION)
+    await vi.waitFor(() => expect(agentMode.openSessionId).toBe('harness-session-2'))
+    await settleMicrotasks()
+
+    expect(saveTimeline.mock.calls.filter(([sessionRef]) => sessionRef === SESSION)).toEqual([])
+    expect(saveSession.mock.calls.filter(([record]) => record.id === 'session-open')).toEqual([])
+  })
+
   it('leaves a run in another Session going', async () => {
     const { tasks } = await readyStores(task('t1', ['one']))
     await tasks.runTask('t1')

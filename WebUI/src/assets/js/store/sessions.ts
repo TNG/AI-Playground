@@ -32,6 +32,14 @@ export type PendingMediaTurn = {
 
 type IpcResult<T> = ({ success: true } & T) | { success: false; error: string }
 
+function timelineIdOf(message: unknown): string {
+  return (message as { id?: string }).id ?? ''
+}
+
+function timelineWithout(timeline: unknown[], ids: ReadonlySet<string>): unknown[] {
+  return timeline.filter((message) => !ids.has(timelineIdOf(message)))
+}
+
 /** Why main would not take a Group name; `problem` is set when a name rule was broken. */
 export type GroupNameRefusal = { problem?: GroupNameProblem; error: string }
 
@@ -46,6 +54,8 @@ export const useSessions = defineStore('sessions', () => {
   const showMore = ref<ShowMore>({ pinned: false, older: false })
   const openSessionId = ref<string | null>(null)
   const openTimeline = ref<unknown[]>([])
+  // Ids a regenerate dropped from the view before main's file did; a stale `session-changed` must not restore them.
+  const forgottenTimelineIds = new Set<string>()
   /** Artifact URLs of the open Session whose file was deleted; their cards say so. */
   const openDeletedFiles = ref<string[]>([])
   const pendingTurns = ref<Record<string, PendingMediaTurn>>({})
@@ -81,7 +91,15 @@ export const useSessions = defineStore('sessions', () => {
   function applyChanged(document: SessionDocument): void {
     const { timeline, ...summary } = document
     remember(summary)
-    if (openSessionId.value === document.id) openTimeline.value = timeline
+    if (openSessionId.value !== document.id) return
+    openHiddenIds.value = summary.hiddenMessageIds
+    const stored = new Set(timeline.map(timelineIdOf))
+    for (const id of forgottenTimelineIds) {
+      if (!stored.has(id)) forgottenTimelineIds.delete(id)
+    }
+    openTimeline.value = forgottenTimelineIds.size
+      ? timelineWithout(timeline, forgottenTimelineIds)
+      : timeline
   }
 
   function applyGroups(state: SessionGroupsState): void {
@@ -131,6 +149,51 @@ export const useSessions = defineStore('sessions', () => {
   /** The open Session, creating one when none is open yet. */
   async function ensureOpenSession(): Promise<string | null> {
     return openSessionId.value ?? (await create())
+  }
+
+  /** Timeline message ids the user hid in the open Session; the view leaves them out. */
+  const openHiddenIds = ref<string[]>([])
+
+  const openVisibleTimeline = computed(() =>
+    openHiddenIds.value.length === 0
+      ? openTimeline.value
+      : timelineWithout(openTimeline.value, new Set(openHiddenIds.value)),
+  )
+
+  /** How many Sessions — not just the open one — have a hidden message. */
+  const sessionsWithHiddenMessages = computed(
+    () =>
+      Object.values(sessions.value).filter((session) => session.hiddenMessageIds.length > 0).length,
+  )
+
+  /** Hides messages of the open Session: they stay in the file, only the view leaves them out. */
+  async function hideTimelineMessages(id: string, messageIds: string[]): Promise<void> {
+    if (id !== openSessionId.value) return
+    const before = openHiddenIds.value
+    openHiddenIds.value = [...new Set([...before, ...messageIds])]
+    const result = await call('sessions/hide-failed', () =>
+      window.electronAPI.sessions.addHiddenMessages(id, messageIds),
+    )
+    if (!result) openHiddenIds.value = before
+  }
+
+  /** Brings every hidden message of one Session back; its row follows main's change. */
+  async function unhideSessionMessages(id: string): Promise<void> {
+    const isOpen = id === openSessionId.value
+    if (isOpen) openHiddenIds.value = []
+    const result = await call('sessions/unhide-failed', () =>
+      window.electronAPI.sessions.clearHiddenMessages(id),
+    )
+    if (!result && isOpen && id === openSessionId.value) await open(id, { reveal: false })
+  }
+
+  /** Brings every hidden message of every Session back into its view. */
+  async function unhideAllMessages(): Promise<void> {
+    const result = await call('sessions/unhide-all-failed', () =>
+      window.electronAPI.sessions.clearAllHiddenMessages(),
+    )
+    if (result) return
+    if (openSessionId.value) await open(openSessionId.value, { reveal: false })
   }
 
   function isFileDeleted(url: string): boolean {
@@ -193,6 +256,7 @@ export const useSessions = defineStore('sessions', () => {
     remember(result.session)
     openSessionId.value = result.session.id
     openTimeline.value = []
+    openHiddenIds.value = []
     openDeletedFiles.value = []
     revealInGroup(result.session)
     return result.session.id
@@ -216,7 +280,9 @@ export const useSessions = defineStore('sessions', () => {
     const { timeline, ...summary } = result.session
     remember(summary)
     openSessionId.value = id
+    forgottenTimelineIds.clear()
     openTimeline.value = timeline
+    openHiddenIds.value = summary.hiddenMessageIds
     openDeletedFiles.value = result.missingFiles
     if (reveal) revealInGroup(summary)
     return result.lastPreset
@@ -346,7 +412,7 @@ export const useSessions = defineStore('sessions', () => {
   async function saveTimelineMessages(id: string, messages: { id: string }[]): Promise<void> {
     if (id === openSessionId.value) {
       const timeline = [...openTimeline.value]
-      const at = new Map(timeline.map((message, index) => [(message as { id?: string }).id, index]))
+      const at = new Map(timeline.map((message, index) => [timelineIdOf(message), index]))
       for (const message of messages) {
         const index = at.get(message.id)
         if (index === undefined) timeline.push(message)
@@ -359,13 +425,26 @@ export const useSessions = defineStore('sessions', () => {
     )
   }
 
-  /** Main already took these out of the Session file; this drops the open copy's. */
+  /** Takes messages out of the open timeline: main's copy follows, or already went. */
   function forgetTimelineMessages(id: string, messageIds: string[]): void {
     if (id !== openSessionId.value) return
-    const removed = new Set(messageIds)
-    openTimeline.value = openTimeline.value.filter(
-      (message) => !removed.has((message as { id?: string }).id ?? ''),
+    for (const messageId of messageIds) forgottenTimelineIds.add(messageId)
+    openTimeline.value = timelineWithout(openTimeline.value, forgottenTimelineIds)
+  }
+
+  /** Takes messages out of a Session's timeline in its file; the open view follows. */
+  async function removeTimelineMessages(id: string, messageIds: string[]): Promise<void> {
+    const result = await call('sessions/remove-timeline-failed', () =>
+      window.electronAPI.sessions.removeTimelineMessages(id, messageIds),
     )
+    if (result) forgetTimelineMessages(id, messageIds)
+  }
+
+  /** Brings back what a premature forget removed; main never took them out of the file. */
+  async function restoreForgottenTimelineMessages(id: string): Promise<void> {
+    if (id !== openSessionId.value) return
+    forgottenTimelineIds.clear()
+    await open(id, { reveal: false })
   }
 
   async function remove(id: string): Promise<void> {
@@ -377,7 +456,9 @@ export const useSessions = defineStore('sessions', () => {
     sessions.value = rest
     if (openSessionId.value !== id) return
     openSessionId.value = null
+    forgottenTimelineIds.clear()
     openTimeline.value = []
+    openHiddenIds.value = []
     openDeletedFiles.value = []
     await openNewestOrCreate()
   }
@@ -388,6 +469,9 @@ export const useSessions = defineStore('sessions', () => {
     showMore,
     openSessionId,
     openTimeline,
+    openHiddenIds,
+    openVisibleTimeline,
+    sessionsWithHiddenMessages,
     openDeletedFiles,
     pendingTurns,
     turns,
@@ -414,6 +498,11 @@ export const useSessions = defineStore('sessions', () => {
     remove,
     saveTimelineMessages,
     forgetTimelineMessages,
+    removeTimelineMessages,
+    hideTimelineMessages,
+    unhideSessionMessages,
+    unhideAllMessages,
+    restoreForgottenTimelineMessages,
     ensureOpenSession,
     isFileDeleted,
     markFileDeleted,

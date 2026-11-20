@@ -42,7 +42,13 @@ import type { harnessSessionFor } from '../../session/sessionHarness'
 import type { setRealShellFolders, setSessionReachable } from '../../session/sessionChannels'
 import type { migrateHomeAgentThreads } from '../../session/homeAgentThreadMigration'
 import type { taskRunHarnessFor } from '../../session/sessionTaskRuns'
-import type { upsertTimelineMessages } from '../../session/sessionTimeline'
+import type {
+  addHiddenMessages,
+  clearAllHiddenMessages,
+  clearHiddenMessages,
+  removeTimelineMessages,
+  upsertTimelineMessages,
+} from '../../session/sessionTimeline'
 import type { ChatTranscriptMessage, saveChatTranscript } from '../../session/sessionChatTurn'
 import type { readSessionSettings, writePresetSettings } from '../../session/sessionSettings'
 import { groupNameProblemOf } from '@/lib/sessionGroupName'
@@ -77,6 +83,10 @@ export type SessionsDeps = {
   harnessSessionFor: typeof harnessSessionFor
   taskRunHarnessFor: typeof taskRunHarnessFor
   upsertTimelineMessages: typeof upsertTimelineMessages
+  removeTimelineMessages: typeof removeTimelineMessages
+  addHiddenMessages: typeof addHiddenMessages
+  clearHiddenMessages: typeof clearHiddenMessages
+  clearAllHiddenMessages: typeof clearAllHiddenMessages
   lastTurnPreset: typeof lastTurnPreset
   claimSessionTurn: typeof claimSessionTurn
   releaseSessionTurn: typeof releaseSessionTurn
@@ -324,6 +334,40 @@ export function buildSessionsRegistry(deps: SessionsDeps) {
           requireString(id, 'session id'),
           timelineMessages(messages),
         )
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:removeTimelineMessages': async (_event, id, messageIds) => {
+      try {
+        if (!isStringArray(messageIds)) throw new Error('message ids must be strings')
+        await deps.removeTimelineMessages(requireString(id, 'session id'), messageIds)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:addHiddenMessages': async (_event, id, messageIds) => {
+      try {
+        if (!isStringArray(messageIds)) throw new Error('message ids must be strings')
+        await deps.addHiddenMessages(requireString(id, 'session id'), messageIds)
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:clearHiddenMessages': async (_event, id) => {
+      try {
+        await deps.clearHiddenMessages(requireString(id, 'session id'))
+        return { success: true as const }
+      } catch (e) {
+        return ipcFail(e)
+      }
+    },
+    'sessions:clearAllHiddenMessages': async (_event) => {
+      try {
+        await deps.clearAllHiddenMessages()
         return { success: true as const }
       } catch (e) {
         return ipcFail(e)

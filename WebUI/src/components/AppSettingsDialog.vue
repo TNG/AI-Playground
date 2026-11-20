@@ -115,6 +115,7 @@ import AppSettingsSpeech from '@/components/AppSettingsSpeech.vue'
 import AppSettingsTheme from '@/components/AppSettingsTheme.vue'
 import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
+import AppSettingsHide from '@/components/AppSettingsHide.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
@@ -136,6 +137,7 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   speech: AppSettingsSpeech,
   mediaModes: AppSettingsMediaModes,
   permissions: AppSettingsPermissions,
+  hideMessages: AppSettingsHide,
   backendStatus: AppSettingsBackendStatus,
   developer: AppSettingsDeveloper,
   demoMode: DemoModeSettings,
@@ -165,6 +167,7 @@ const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   speech: languages.SETTINGS_SPEECH,
   mediaModes: languages.SETTINGS_MEDIA_MODES,
   permissions: languages.SETTINGS_PERMISSIONS,
+  hide: languages.SETTINGS_HIDE_MESSAGES,
   advanced: languages.SETTINGS_ADVANCED,
 }))
 

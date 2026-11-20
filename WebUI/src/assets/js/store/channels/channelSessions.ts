@@ -2,7 +2,12 @@ import type { AnswerRouterCopy } from '@/lib/answerRouterWording'
 import { fillTemplate } from '@/lib/fillTemplate'
 import type { AgentAnswerOrigin } from '@/types/agentIpc'
 import type { ChannelAdapter, RawPart } from './adapter'
-import type { ChannelSessionPointers, InboundChannelMessage, SessionPort } from './answerRouter'
+import type {
+  ChannelSessionPointers,
+  DesktopView,
+  InboundChannelMessage,
+  SessionPort,
+} from './answerRouter'
 import type { ChannelCallback, ChannelCommand } from './channelCommands'
 import type { ChannelTurnMessage } from './channelQueue'
 import { inboundOrigin } from './channelInbound'
@@ -33,6 +38,7 @@ export type ChannelSessionDeps = {
     msg: InboundChannelMessage,
     meta?: InboundMeta,
   ) => Promise<string | null>
+  bringIntoView: (sessionRef: string, view: DesktopView) => void
   log: (message: string, error: unknown) => void
 }
 
@@ -140,15 +146,8 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
     }
     pointers.set(adapter.kind, picked.sessionRef)
     await repaint(adapter, picked.sessionRef)
-    bringIntoView(picked.sessionRef)
+    deps.bringIntoView(picked.sessionRef, 'as-is')
     return picked.sessionRef
-  }
-
-  /** Not awaited, so a desktop preset switch waiting on a dialog never holds up the Channel. */
-  function bringIntoView(sessionRef: string): void {
-    void port
-      .bringIntoView(sessionRef)
-      .catch((e: unknown) => deps.log('channelSessions: bringing the Session into view failed:', e))
   }
 
   async function load(adapter: ChannelAdapter, choice: string, meta?: InboundMeta): Promise<void> {
@@ -168,7 +167,7 @@ export function createChannelSessions(deps: ChannelSessionDeps) {
   async function startNew(adapter: ChannelAdapter, meta?: InboundMeta): Promise<void> {
     const sessionRef = await moveToNew(adapter, meta)
     if (!sessionRef) return
-    bringIntoView(sessionRef)
+    deps.bringIntoView(sessionRef, 'assistant')
     await tell(adapter, copy().sessionStarted, meta)
   }
 

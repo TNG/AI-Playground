@@ -310,6 +310,8 @@ export const useSessions = defineStore('sessions', () => {
 
   /** The Agent picked in the Session's prompt bar, `null` for Assistant; false when not kept. */
   async function pickAgent(id: string, agentId: string | null): Promise<boolean> {
+    const session = sessions.value[id]
+    if (session && (session.pickedAgentId ?? null) === agentId) return true
     const result = await call('sessions/pick-agent-failed', () =>
       window.electronAPI.sessions.pickAgent(id, agentId),
     )

@@ -15,6 +15,7 @@ import { usePromptBarPresetSwitch } from '@/lib/usePromptBarPresetSwitch'
 import { sessionRowStatus, type SessionRowStatus } from '@/lib/sessionRowStatus'
 import type { SessionTabLanding } from '@/lib/sessionTabs'
 import type { SessionDownload } from '@/assets/js/store/recordRows'
+import type { DesktopView } from '@/assets/js/store/channels/answerRouter'
 
 /**
  * What happens around a Session's turns: opening one brings back the preset and
@@ -56,15 +57,13 @@ export const useSessionLifecycle = defineStore('sessionLifecycle', () => {
   }
 
   /**
-   * Opens the Session a Channel switched to: with the Agent picked when given, as it is otherwise.
-   * The Channel asked for it, so a switch to Assistant raises no warning or toast on the desktop.
+   * Opens the Session a Channel switched to; a picked Agent shows only on Assistant. The Channel
+   * asked for it, so a switch to Assistant raises no warning or toast on the desktop.
    */
-  async function openFromChannel(id: string, agentId?: string): Promise<void> {
-    if (agentId && !(await sessions.pickAgent(id, agentId))) return
+  async function openFromChannel(id: string, view: DesktopView): Promise<void> {
+    if (typeof view === 'object' && !(await sessions.pickAgent(id, view.agentId))) return
     await openSession(id)
-    if (sessions.openSessionId !== id) return
-    // The prompt bar shows a picked Agent only on Assistant, and a new Session starts there.
-    if (agentId || sessions.openTimeline.length === 0) await switchToAssistant()
+    if (sessions.openSessionId === id && view !== 'as-is') await switchToAssistant()
   }
 
   async function switchToAssistant(): Promise<void> {

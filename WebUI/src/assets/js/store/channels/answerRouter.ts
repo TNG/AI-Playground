@@ -51,6 +51,9 @@ export type SessionSendResult =
 /** How starting an Agent Run went; a busy Session takes the start once its turn ends. */
 export type AgentStartResult = { ok: true } | { ok: false; reason: string; message: string }
 
+/** How the desktop opens a Session a Channel switched to: on an Agent, on Assistant, or as is. */
+export type DesktopView = { agentId: string } | 'assistant' | 'as-is'
+
 /** An Agent marked "Can be started from a Channel". */
 export type StartableAgent = { agentId: string; name: string }
 
@@ -138,8 +141,8 @@ export type SessionPort = {
     origin: AgentAnswerOrigin,
     prompt?: string,
   ) => Promise<AgentStartResult>
-  /** Opens the Session on the desktop, the Agent picked in its prompt bar if given; a Library stays open. */
-  bringIntoView: (sessionRef: string, agentId?: string) => Promise<void>
+  /** Opens the Session on the desktop as `view` says; a Library stays open. */
+  bringIntoView: (sessionRef: string, view: DesktopView) => Promise<void>
   /** Unpicks the Session's Agent, open on the desktop or not, so its prompt bar shows Assistant. */
   unpickAgent: (sessionRef: string) => Promise<void>
   /** The Session's turn in flight, or its Agent Run (its first turn or a Follow-up). */
@@ -270,6 +273,17 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
   const waitingForSpeech = new Map<ChannelKind, Promise<void>>()
   let unsubscribe: (() => void) | null = null
   let subscribedTo: SessionPort | null = null
+  // Not awaited, so a preset switch waiting on a dialog never holds up the router; one chain, so
+  // a desktop change never overtakes the one asked for before it.
+  let desktop = Promise.resolve()
+
+  function onDesktop(what: string, change: () => Promise<void>): void {
+    desktop = desktop.then(change).catch((e: unknown) => log(`answerRouter: ${what} failed:`, e))
+  }
+
+  function bringIntoView(sessions: SessionPort, sessionRef: string, view: DesktopView): void {
+    onDesktop('bringing the Session into view', () => sessions.bringIntoView(sessionRef, view))
+  }
 
   function listen(sessions: SessionPort): void {
     if (subscribedTo === sessions) return
@@ -415,27 +429,20 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
     }
     const outcome = await run(sessions, entry)
     if (outcome === 'busy') return enqueue(sessions, lane, entry)
-    if (outcome === 'started') showOnDesktop(sessions, entry)
+    if (outcome === 'started') pickOnDesktop(sessions, entry)
     return outcome
   }
 
-  /**
-   * Once a start or message is accepted: a queued one on arrival, not when the Session frees up.
-   * An Agent start picks the Agent; a message the Assistant answers unpicks it. Not awaited, so a
-   * desktop preset switch waiting on a dialog never holds up the router.
-   */
-  function showOnDesktop(sessions: SessionPort, entry: QueuedMessage): void {
+  /** An accepted Agent start opens its Session on the Agent; a message to Assistant unpicks it. */
+  function pickOnDesktop(sessions: SessionPort, entry: QueuedMessage): void {
     if ('agent' in entry) {
-      void sessions
-        .bringIntoView(entry.target.sessionRef, entry.agent.agentId)
-        .catch((e: unknown) => log('answerRouter: bringing the Session into view failed:', e))
+      bringIntoView(sessions, entry.target.sessionRef, { agentId: entry.agent.agentId })
       return
     }
     const { target } = entry
+    // Only the turn target tells the Session's Assistant Harness Session from an Agent Run's.
     if (!('sessionRef' in target) || sessions.turnTarget(target) !== target.sessionRef) return
-    void sessions
-      .unpickAgent(target.sessionRef)
-      .catch((e: unknown) => log('answerRouter: unpicking the Session’s Agent failed:', e))
+    onDesktop('unpicking the Session’s Agent', () => sessions.unpickAgent(target.sessionRef))
   }
 
   function previewOf(entry: QueuedMessage): string {
@@ -464,7 +471,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
       await tell(entry.adapter, full, entry.meta)
       return 'refused'
     }
-    showOnDesktop(sessions, entry)
+    pickOnDesktop(sessions, entry)
     const activity = lane.activity()
     const waitingFor =
       activity.kind === 'agent-run'
@@ -628,6 +635,7 @@ export function createAnswerRouter(deps: AnswerRouterDeps): AnswerRouter {
         submit(sessions, { adapter, target, message, origin, meta }),
       attach: (adapter, target, msg, meta) =>
         attachedPrompt({ copy, tell }, sessions, adapter, target, msg, meta),
+      bringIntoView: (sessionRef, view) => bringIntoView(sessions, sessionRef, view),
       log,
     })
   }

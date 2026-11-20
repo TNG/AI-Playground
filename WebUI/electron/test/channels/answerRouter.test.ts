@@ -10,6 +10,7 @@ import {
   type AgentStartResult,
   type ChannelSessionPointers,
   type ChannelTranscriptMessage,
+  type DesktopView,
 } from '../../../src/assets/js/store/channels/answerRouter'
 import { createChannelQuestionRegistry } from '../../../src/assets/js/store/channels/channelQuestions'
 import type { ChannelAdapter, ReplyRequest } from '../../../src/assets/js/store/channels/adapter'
@@ -160,10 +161,10 @@ function fakeSessions(
     origin: AgentAnswerOrigin
     prompt?: string
   }[] = []
-  /** Each Session the desktop brought into view, with the Agent picked in its prompt bar if any. */
-  const inView: { sessionRef: string; agentId?: string }[] = []
-  const bringing = { fails: false }
-  /** Each Session whose picked Agent was let go of, so its prompt bar shows the Assistant. */
+  /** Each Session the desktop started to bring into view, and how. */
+  const inView: { sessionRef: string; view: DesktopView }[] = []
+  /** `held` keeps each bring-into-view open until it resolves. */
+  const bringing: { fails: boolean; held?: Promise<void> } = { fails: false }
   const unpicked: string[] = []
   const unpicking = { fails: false }
   /** What starting an Agent does; it goes through unless set. */
@@ -300,9 +301,10 @@ function fakeSessions(
       }
       return result
     },
-    bringIntoView: async (sessionRef, agentId) => {
+    bringIntoView: async (sessionRef, view) => {
       if (bringing.fails) throw new Error('window gone')
-      inView.push(agentId === undefined ? { sessionRef } : { sessionRef, agentId })
+      inView.push({ sessionRef, view })
+      await bringing.held
     },
     unpickAgent: async (sessionRef) => {
       if (unpicking.fails) throw new Error('window gone')
@@ -1539,22 +1541,22 @@ describe('Channel commands', () => {
         { telegram: 'session-trip' },
       )
       await router.route(fakeChannel('telegram').adapter, { text: '/load 2' })
-      expect(inView).toEqual([{ sessionRef: 'session-code' }])
+      expect(inView).toEqual([{ sessionRef: 'session-code', view: 'as-is' }])
     })
 
     it('brings a tapped Session into view', async () => {
       const { router, inView } = channelSetup({ 'session-trip': trip, 'session-code': code })
       await router.route(fakeChannel('local-web').adapter, { callback: 'loadConv:session-code' })
-      expect(inView).toEqual([{ sessionRef: 'session-code' }])
+      expect(inView).toEqual([{ sessionRef: 'session-code', view: 'as-is' }])
     })
 
-    it('brings the Session /new made into view', async () => {
+    it('brings the Session /new made into view on the Assistant', async () => {
       const { router, inView } = channelSetup(
         { 'session-trip': trip },
         { telegram: 'session-trip' },
       )
       await router.route(fakeChannel('telegram').adapter, { text: '/new' })
-      expect(inView).toEqual([{ sessionRef: 'session-new-1' }])
+      expect(inView).toEqual([{ sessionRef: 'session-new-1', view: 'assistant' }])
     })
 
     it('does not move for a listing or a Session it could not load', async () => {
@@ -1848,7 +1850,7 @@ ${PICK}`,
   })
 
   describe('on the desktop', () => {
-    const SHOWN = [{ sessionRef: NEW, agentId: 'agent-digest' }]
+    const SHOWN = [{ sessionRef: NEW, view: { agentId: 'agent-digest' } }]
 
     it('brings the run’s Session into view with the Agent picked', async () => {
       const { router, inView } = agents()
@@ -2457,7 +2459,20 @@ describe('/agentsin', () => {
   it('brings a tapped Session into view before any Agent is tapped', async () => {
     const { router, inView } = picking()
     await router.route(fakeChannel('telegram').adapter, { callback: `pickSession:${CODE}` })
-    expect(inView).toEqual([{ sessionRef: CODE }])
+    expect(inView).toEqual([{ sessionRef: CODE, view: 'as-is' }])
+  })
+
+  it('starts bringing the tapped Agent into view once the Session tap has been shown', async () => {
+    const { router, inView, bringing } = picking()
+    let show = () => {}
+    bringing.held = new Promise((resolve) => (show = resolve))
+    const ch = fakeChannel('telegram')
+    await router.route(ch.adapter, { callback: `pickSession:${CODE}` })
+    await router.route(ch.adapter, { callback: 'runAgentIn:agent-tidy' })
+    expect(inView).toEqual([{ sessionRef: CODE, view: 'as-is' }])
+    show()
+    await flush()
+    expect(inView).toHaveLength(2)
   })
 
   it('does not move for the picker itself', async () => {
@@ -2497,7 +2512,10 @@ describe('/agentsin', () => {
     expect(agentStarts).toEqual([
       { sessionRef: CODE, agentId: 'agent-tidy', origin: { channel: 'telegram', replyTo: '42' } },
     ])
-    expect(inView).toEqual([{ sessionRef: CODE }, { sessionRef: CODE, agentId: 'agent-tidy' }])
+    expect(inView).toEqual([
+      { sessionRef: CODE, view: 'as-is' },
+      { sessionRef: CODE, view: { agentId: 'agent-tidy' } },
+    ])
   })
 
   it('asks for a Start Prompt in the picked Session, and starts there with the reply', async () => {
@@ -2545,7 +2563,10 @@ describe('/agentsin', () => {
     await router.route(ch.adapter, { callback: 'runAgentIn:agent-digest' })
     expect(agentStarts).toEqual([])
     expect(ch.replies).toEqual(['⏳ Queued (1st) for "Refactor", runs after the current turn.'])
-    expect(inView).toEqual([{ sessionRef: CODE }, { sessionRef: CODE, agentId: 'agent-digest' }])
+    expect(inView).toEqual([
+      { sessionRef: CODE, view: 'as-is' },
+      { sessionRef: CODE, view: { agentId: 'agent-digest' } },
+    ])
     await settle(CODE)
     expect(agentStarts.map((start) => [start.sessionRef, start.agentId])).toEqual([
       [CODE, 'agent-digest'],

@@ -128,15 +128,22 @@ function wrapForEval(script: string): string {
   })()`
 }
 
+export type CaptureClip = { x: number; y: number; width: number; height: number }
+
 /**
  * CDP yields a frame even while the window is hidden; an empty capture is a failure, never a
- * 0-byte file.
+ * 0-byte file. A clip is captured beyond the viewport, so an element taller than the window
+ * still comes out whole.
  */
-async function captureScreenshotPng(session: BrowserSession): Promise<Buffer | null> {
+async function captureScreenshotPng(
+  session: BrowserSession,
+  clip?: CaptureClip,
+): Promise<Buffer | null> {
   if (session.attached) {
     try {
       const shot = (await session.win.webContents.debugger.sendCommand('Page.captureScreenshot', {
         format: 'png',
+        ...(clip ? { clip: { ...clip, scale: 1 }, captureBeyondViewport: true } : {}),
       })) as { data?: unknown } | undefined
       const data = typeof shot?.data === 'string' ? shot.data : ''
       const png = data ? Buffer.from(data, 'base64') : Buffer.alloc(0)
@@ -146,12 +153,30 @@ async function captureScreenshotPng(session: BrowserSession): Promise<Buffer | n
     }
   }
   try {
-    const png = await session.win.webContents.capturePage().then((image) => image.toPNG())
+    const png = await session.win.webContents
+      .capturePage(
+        clip ? { x: clip.x, y: clip.y, width: clip.width, height: clip.height } : undefined,
+      )
+      .then((image) => image.toPNG())
     return png.length > 0 ? png : null
   } catch (error) {
     logger.warn(`capturePage screenshot failed: ${error}`, LOG_SOURCE)
     return null
   }
+}
+
+/**
+ * Save a capture under the workspace rules: the workspace root, or `generated/`
+ * in the games library, under a collision-safe timestamped name. Returns the
+ * workspace-relative path.
+ */
+async function saveScreenshotPng(workspaceDir: string, png: Buffer): Promise<string> {
+  const inGame = isInGamesLibrary(workspaceDir)
+  const dir = inGame ? path.join(workspaceDir, 'generated') : workspaceDir
+  fs.mkdirSync(dir, { recursive: true })
+  const filename = await freeName(dir, `screenshot-${Date.now()}.png`)
+  fs.writeFileSync(path.join(dir, filename), png)
+  return inGame ? path.posix.join('generated', filename) : filename
 }
 
 export type BrowserToolInput = {
@@ -277,16 +302,182 @@ export async function runBrowserAction(
             'action "open" and try the screenshot again.',
         }
       }
-      const inGame = isInGamesLibrary(workspaceDir)
-      const dir = inGame ? path.join(workspaceDir, 'generated') : workspaceDir
-      fs.mkdirSync(dir, { recursive: true })
-      const filename = await freeName(dir, `screenshot-${Date.now()}.png`)
-      fs.writeFileSync(path.join(dir, filename), png)
-      const relativePath = inGame ? path.posix.join('generated', filename) : filename
+      const relativePath = await saveScreenshotPng(workspaceDir, png)
       return { text: `Saved screenshot to ${relativePath}`, screenshotPath: relativePath }
     }
     default:
       throw new Error(`Unknown browser action: ${String((input as BrowserToolInput).action)}`)
+  }
+}
+
+export type WebsiteCaptureInput = {
+  url: string
+  /** Viewport width in pixels; with `height`, sizes the capture for one call. */
+  width?: number
+  height?: number
+  /** CSS selector of the single element to capture instead of the whole viewport. */
+  selector?: string
+}
+
+const VIEWPORT_MIN = 200
+const VIEWPORT_MAX = 4000
+const DEFAULT_VIEWPORT = { width: 1280, height: 800 }
+
+function clampViewport(value: number): number {
+  return Math.min(VIEWPORT_MAX, Math.max(VIEWPORT_MIN, Math.round(value)))
+}
+
+/** A fixed script of ours; the selector rides along as JSON data, never compiled. */
+function selectorRectScript(selector: string): string {
+  return `(async () => {
+  const element = document.querySelector(${JSON.stringify(selector)})
+  if (!element) return JSON.stringify({ found: false })
+  const rect = element.getBoundingClientRect()
+  return JSON.stringify({ found: true, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } })
+})()`
+}
+
+/**
+ * Navigate the session's hidden browser to a page and save a PNG of it — the
+ * capture-only half of the `browser` tool, reached by `webScreenshot` and not
+ * part of its action dispatch. Refuses anything but http(s) in code: `file://`
+ * in this window would render local files outside the mounted-folder
+ * containment. A non-default viewport is a CDP override that is cleared again
+ * before returning, so the shared window is untouched by the time the next
+ * action runs. No file is written unless a non-empty PNG came back.
+ */
+export async function captureWebsite(
+  sessionId: string,
+  workspaceDir: string,
+  input: WebsiteCaptureInput,
+): Promise<BrowserActionResult> {
+  let target: URL
+  try {
+    target = new URL(input.url)
+  } catch {
+    return {
+      text: `Cannot capture "${input.url}": it is not a valid URL. Give the page's full http(s) URL.`,
+    }
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    return {
+      text:
+        `Refusing to open ${input.url}: only http(s) pages can be captured. ` +
+        "This tool cannot render local files — give the page's full http(s) URL.",
+    }
+  }
+
+  const session = ensureBrowserSession(sessionId)
+  const width =
+    typeof input.width === 'number' && Number.isFinite(input.width) ? input.width : undefined
+  const height =
+    typeof input.height === 'number' && Number.isFinite(input.height) ? input.height : undefined
+  let overrideSet = false
+  if (width !== undefined || height !== undefined) {
+    try {
+      await session.win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+        width: clampViewport(width ?? DEFAULT_VIEWPORT.width),
+        height: clampViewport(height ?? DEFAULT_VIEWPORT.height),
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      overrideSet = true
+    } catch (error) {
+      logger.warn(`viewport override failed, capturing at the window's size: ${error}`, LOG_SOURCE)
+    }
+  }
+
+  try {
+    session.logs.length = 0
+    let status = 0
+    let statusText = ''
+    const onNavigate = (_event: unknown, _url: string, code: number, phrase: string) => {
+      status = code
+      statusText = phrase
+    }
+    session.win.webContents.on('did-navigate', onNavigate)
+    try {
+      await session.win.loadURL(input.url)
+    } finally {
+      session.win.webContents.off('did-navigate', onNavigate)
+    }
+    // Let late async content settle before capturing.
+    await delay(400)
+    const landed = session.win.webContents.getURL()
+    if (landed.startsWith('chrome-error://')) {
+      return {
+        text:
+          `The page failed to load (${input.url}), so no screenshot was taken. ` +
+          'Check the URL and try again.',
+      }
+    }
+    if (status >= 400) {
+      const body = await session.win.webContents
+        .executeJavaScript('document.body?.innerText ?? ""', true)
+        .catch(() => '')
+      const detail = String(body).trim().slice(0, 300)
+      return {
+        text:
+          `Failed to open ${input.url}: HTTP ${status} ${statusText}.` +
+          (detail ? ` The server said: ${detail}` : ''),
+      }
+    }
+
+    let clip: CaptureClip | undefined
+    if (input.selector) {
+      const raw = await session.win.webContents
+        .executeJavaScript(selectorRectScript(input.selector), true)
+        .catch(() => '')
+      let report: {
+        found?: boolean
+        rect?: { x: number; y: number; width: number; height: number }
+      }
+      try {
+        report = JSON.parse(String(raw)) as typeof report
+      } catch {
+        return {
+          text:
+            `Could not measure the element "${input.selector}" on ${input.url}, so no ` +
+            'screenshot was taken. Pick a simpler selector and try again.',
+        }
+      }
+      if (!report.found || !report.rect) {
+        return {
+          text:
+            `No element matches the selector "${input.selector}" on ${input.url}, so no ` +
+            'screenshot was taken. Read the page (for example with web_fetch) and pick a ' +
+            'selector that exists.',
+        }
+      }
+      const { x, y, width: w, height: h } = report.rect
+      if (!(w > 0) || !(h > 0)) {
+        return {
+          text:
+            `The element matching "${input.selector}" has no visible area on ${input.url}, ` +
+            'so no screenshot was taken. Pick an element that is displayed.',
+        }
+      }
+      clip = { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) }
+    }
+
+    const png = await captureScreenshotPng(session, clip)
+    if (!png) {
+      return {
+        text:
+          'The screenshot came back empty, so no image was saved. Try the capture again' +
+          (input.selector ? ' — maybe without the selector, to capture the whole page.' : '.'),
+      }
+    }
+    const relativePath = await saveScreenshotPng(workspaceDir, png)
+    return { text: `Saved screenshot to ${relativePath}`, screenshotPath: relativePath }
+  } finally {
+    if (overrideSet) {
+      try {
+        await session.win.webContents.debugger.sendCommand('Emulation.clearDeviceMetricsOverride')
+      } catch (error) {
+        logger.warn(`could not clear the viewport override: ${error}`, LOG_SOURCE)
+      }
+    }
   }
 }
 

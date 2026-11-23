@@ -27,7 +27,10 @@ vi.mock('../../agent/piRuntime.ts', () => ({
   loadPi: async () => ({ defineTool: (definition: unknown) => definition }),
 }))
 
-vi.mock('../../agent/agentBrowser.ts', () => ({ runBrowserAction: vi.fn() }))
+vi.mock('../../agent/agentBrowser.ts', () => ({
+  runBrowserAction: vi.fn(),
+  captureWebsite: vi.fn(),
+}))
 vi.mock('../../adapters/mcp/mcpManager.ts', () => ({
   getMcpServerTools: vi.fn(async () => {
     const { jsonSchema } = await import('ai')
@@ -155,6 +158,14 @@ describe('the capability catalog', () => {
     const listed = listCapabilities(hostWith()).map(({ id }) => id)
     expect(listed).not.toContain('game-studio')
     expect(listed).not.toContain('game-studio-quick')
+  })
+
+  it('lists website screenshots in the catalog after web access, with label and summary', () => {
+    const entry = listCapabilities(hostWith()).find(({ id }) => id === 'web-screenshot')
+    expect(entry?.label).toBe('Website screenshots')
+    expect(entry?.summary).toMatch(/picture/i)
+    const ids = capabilityCatalog().map(({ id }) => id)
+    expect(ids.indexOf('web')).toBeLessThan(ids.indexOf('web-screenshot'))
   })
 
   it('names exactly the capabilities that end a planning phase', () => {
@@ -399,6 +410,16 @@ describe('resolveCapabilities', () => {
       'web-debug',
     ])
     expect(resolution.resolved.map(({ capability }) => capability.id)).toEqual(['web-debug'])
+  })
+
+  it('registers the webScreenshot tool when website screenshots is enabled', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['web-screenshot'])
+    expect(resolution.resolved.map(({ capability }) => capability.id)).toEqual(['web-screenshot'])
+    expect(resolution.skillSources).toEqual([])
+
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).toEqual(['webScreenshot'])
   })
 
   it('pulls in required capabilities when a skills bundle is enabled', async () => {

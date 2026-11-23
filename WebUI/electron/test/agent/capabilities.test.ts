@@ -135,8 +135,8 @@ describe('the capability catalog', () => {
     expect(ids.indexOf('mcp:filesystem')).toBeLessThan(ids.indexOf('media'))
   })
 
-  it('defaults to files, media, document search and web access, with the rest opt-in', () => {
-    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['files', 'media', 'rag', 'web'])
+  it('defaults to files, media, document search, web access and website screenshots', () => {
+    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['files', 'media', 'rag', 'web', 'web-screenshot'])
   })
 
   it('reports availability and commands for the settings UI', () => {
@@ -420,6 +420,58 @@ describe('resolveCapabilities', () => {
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
     expect(registry.tools.map((tool) => tool.name)).toEqual(['webScreenshot'])
+  })
+
+  it('shows a website screenshot to the user without inlining it for the model', async () => {
+    const host = hostWith()
+    const shot = path.join(host.workspaceDir, 'generated', 'shot.png')
+    fs.mkdirSync(path.dirname(shot), { recursive: true })
+    fs.writeFileSync(shot, Buffer.from('89504e470d0a1a0a', 'hex'))
+    const { captureWebsite } = await import('../../agent/agentBrowser.ts')
+    vi.mocked(captureWebsite).mockResolvedValue({
+      text: 'Saved screenshot to generated/shot.png',
+      screenshotPath: 'generated/shot.png',
+    })
+    const send = vi.fn()
+    const { setKernelEventWindow } = await import('../../kernel/kernelBus')
+    setKernelEventWindow({ isDestroyed: () => false, webContents: { send } } as never)
+    const { agentTurns } = await import('../../agent/piAgentState')
+    agentTurns.set(host.sessionId, {
+      sessionId: host.sessionId,
+      turnId: 'turn-1',
+      abort: new AbortController(),
+      live: null,
+    })
+
+    const resolution = await resolveCapabilities(host, ['web-screenshot'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    const webScreenshot = registry.tools.find(
+      (tool) => tool.name === 'webScreenshot',
+    ) as unknown as {
+      execute: (
+        id: string,
+        params: unknown,
+      ) => Promise<{ content: { text: string }[]; details?: unknown }>
+    }
+    const result = await webScreenshot.execute('call-1', { url: 'https://example.com' })
+
+    expect(send).toHaveBeenCalledWith(
+      'kernel:event',
+      expect.objectContaining({
+        type: 'agent-tool-image',
+        sessionId: host.sessionId,
+        turnId: 'turn-1',
+        toolCallId: 'call-1',
+        dataUri: expect.stringMatching(/^data:image\/png;base64,/),
+        label: 'generated/shot.png',
+      }),
+    )
+    expect(result.content[0].text).toBe('Saved screenshot to generated/shot.png')
+    expect(result.content).toHaveLength(1)
+    // No Session media target: the tool result stays the plain text it was.
+    expect(result.details).toBeUndefined()
+    agentTurns.delete(host.sessionId)
   })
 
   it('pulls in required capabilities when a skills bundle is enabled', async () => {

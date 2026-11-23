@@ -9,6 +9,7 @@ export const DEFAULT_CAPABILITY_IDS = [
   'media',
   'rag',
   WEB_CAPABILITY_ID,
+  'web-screenshot',
 ] as const
 
 /** What a new Agent's Settings Template starts with: everything, file and shell included. */
@@ -17,6 +18,7 @@ export const AGENT_TEMPLATE_CAPABILITY_IDS = [
   'media',
   'rag',
   WEB_CAPABILITY_ID,
+  'web-screenshot',
   'web-debug',
   'memory',
   NOTIFY_CAPABILITY_ID,

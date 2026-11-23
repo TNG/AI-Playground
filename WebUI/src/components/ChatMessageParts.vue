@@ -58,7 +58,10 @@
               >
             </div>
             <template v-if="section !== 'details'">
-              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <ChatWorkflowResult
+                v-if="isMediaGroupStart(partIndex)"
+                v-bind="mergedMediaCard(partIndex)"
+              />
               <TurnFailureLine
                 v-if="toolCallResultFailure(part)"
                 :failure="toolCallResultFailure(part)!"
@@ -82,7 +85,10 @@
               >
             </div>
             <template v-if="section !== 'details'">
-              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <ChatWorkflowResult
+                v-if="isMediaGroupStart(partIndex)"
+                v-bind="mergedMediaCard(partIndex)"
+              />
               <TurnFailureLine
                 v-if="toolCallResultFailure(part)"
                 :failure="toolCallResultFailure(part)!"
@@ -105,7 +111,10 @@
               />
             </div>
             <div v-if="section !== 'details'">
-              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <ChatWorkflowResult
+                v-if="isMediaGroupStart(partIndex)"
+                v-bind="mergedMediaCard(partIndex)"
+              />
               <TurnFailureLine
                 v-if="toolCallResultFailure(part)"
                 :failure="toolCallResultFailure(part)!"
@@ -119,10 +128,9 @@
               <div
                 v-if="part.state === 'output-available' && (part as any).output?.annotatedImageUrl"
               >
-                <img
+                <LetterboxImage
                   :src="(part as any).output.annotatedImageUrl"
                   :alt="languages.CHAT_TOOL_DETECTIONS_ALT"
-                  class="max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
@@ -140,14 +148,14 @@
                   }}<b>{{ (part as any).output?.windowName ?? 'window' }}</b
                   >{{ around(languages.CHAT_TOOL_CAPTURED_WINDOW, 'window')[1] }}</span
                 >
-                <img
+                <LetterboxImage
+                  class="mt-2"
                   :src="(part as any).output.dataUri"
                   :alt="
                     fillTemplate(languages.CHAT_TOOL_WINDOW_ALT, {
                       window: (part as any).output?.windowName ?? 'window',
                     })
                   "
-                  class="mt-2 max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
@@ -163,10 +171,10 @@
                 <span class="text-muted-foreground">{{
                   languages.CHAT_TOOL_CAPTURED_WEB_PAGE
                 }}</span>
-                <img
+                <LetterboxImage
+                  class="mt-2"
                   :src="(part as any).output.dataUri"
                   :alt="languages.CHAT_TOOL_WEB_PAGE_ALT"
-                  class="mt-2 max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
@@ -231,6 +239,7 @@ import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatWebBrowseDisplay, { type WebBrowseEntry } from '@/components/ChatWebBrowseDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import LetterboxImage from '@/components/LetterboxImage.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
@@ -246,6 +255,8 @@ import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
+import type { TurnArtifact } from '@/lib/turnArtifacts'
+import { consecutiveMediaGroups } from '@/lib/mediaPartGroups'
 
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */
 const props = defineProps<{
@@ -297,8 +308,24 @@ function toolInputRecord(part: { input?: unknown }): Record<string, unknown> {
     : {}
 }
 
-function toolMediaCard(part: ToolUIPart<AipgTools> | DynamicToolUIPart) {
-  return { artifacts: toolCallArtifacts(part, artifactRuns.state, sessions.openDeletedFiles) }
+// Consecutive media tool parts share one grid, so several calls in one prompt
+// put their images side by side instead of one stacked block per call.
+function mediaGroups(): Map<number, number[]> {
+  return consecutiveMediaGroups(props.message.parts, isChatMediaToolPart, props.indexes)
+}
+
+function isMediaGroupStart(partIndex: number): boolean {
+  if (!isChatMediaToolPart(props.message.parts[partIndex])) return false
+  return mediaGroups().has(partIndex)
+}
+
+function mergedMediaCard(partIndex: number): { artifacts: TurnArtifact[] } {
+  const group = mediaGroups().get(partIndex) ?? [partIndex]
+  return {
+    artifacts: group.flatMap((index) =>
+      toolCallArtifacts(props.message.parts[index], artifactRuns.state, sessions.openDeletedFiles),
+    ),
+  }
 }
 
 function messageHasLiveMedia(message: { parts?: unknown[] }): boolean {

@@ -34,7 +34,7 @@
       <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     </template>
     <template v-if="section !== 'details'">
-      <ChatWorkflowResult :artifacts="mediaToolArtifacts" />
+      <ChatWorkflowResult v-if="!hideMediaGrid" :artifacts="gridArtifacts ?? mediaToolArtifacts" />
       <TurnFailureLine v-if="mediaToolFailure" :failure="mediaToolFailure" />
     </template>
   </div>
@@ -72,11 +72,7 @@
       :artifacts="screenshotArtifacts"
     />
     <figure v-for="image in bareToolImages" :key="image.dataUri" class="flex flex-col gap-1">
-      <img
-        :src="image.dataUri"
-        :alt="`Screenshot: ${image.label}`"
-        class="max-h-96 w-auto self-start rounded-md border border-border"
-      />
+      <LetterboxImage :src="image.dataUri" :alt="`Screenshot: ${image.label}`" />
       <figcaption class="text-xs text-muted-foreground">{{ image.label }}</figcaption>
     </figure>
   </div>
@@ -96,6 +92,7 @@ import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
+import LetterboxImage from '@/components/LetterboxImage.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
@@ -104,6 +101,7 @@ import {
   toolCallArtifacts,
   screenshotToolArtifacts,
   toolCallResultFailure,
+  type TurnArtifact,
 } from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
@@ -115,6 +113,10 @@ import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 const props = defineProps<{
   part: UIMessagePart<UIDataTypes, UITools>
   section?: 'details' | 'result'
+  /** Consecutive media parts share one grid: merged artifacts for the run's first part. */
+  gridArtifacts?: TurnArtifact[]
+  /** Consecutive media parts share one grid: non-first parts render no grid of their own. */
+  hideMediaGrid?: boolean
 }>()
 
 const agentMode = useAgentMode()

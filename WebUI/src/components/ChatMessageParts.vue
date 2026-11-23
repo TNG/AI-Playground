@@ -58,7 +58,10 @@
               >
             </div>
             <template v-if="section !== 'details'">
-              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <ChatWorkflowResult
+                v-if="isMediaGroupStart(partIndex)"
+                v-bind="mergedMediaCard(partIndex)"
+              />
               <TurnFailureLine
                 v-if="toolCallResultFailure(part)"
                 :failure="toolCallResultFailure(part)!"
@@ -82,7 +85,10 @@
               >
             </div>
             <template v-if="section !== 'details'">
-              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <ChatWorkflowResult
+                v-if="isMediaGroupStart(partIndex)"
+                v-bind="mergedMediaCard(partIndex)"
+              />
               <TurnFailureLine
                 v-if="toolCallResultFailure(part)"
                 :failure="toolCallResultFailure(part)!"
@@ -105,7 +111,10 @@
               />
             </div>
             <div v-if="section !== 'details'">
-              <ChatWorkflowResult v-bind="toolMediaCard(part)" />
+              <ChatWorkflowResult
+                v-if="isMediaGroupStart(partIndex)"
+                v-bind="mergedMediaCard(partIndex)"
+              />
               <TurnFailureLine
                 v-if="toolCallResultFailure(part)"
                 :failure="toolCallResultFailure(part)!"
@@ -246,6 +255,8 @@ import { copyToClipboard, stripInlineMedia } from '@/lib/chatMessageText'
 import { fillTemplate } from '@/lib/fillTemplate'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
+import type { TurnArtifact } from '@/lib/turnArtifacts'
+import { consecutiveMediaGroups } from '@/lib/mediaPartGroups'
 
 /** What a chat answer is made of: reasoning, text, tool cards and the media they made. */
 const props = defineProps<{
@@ -297,8 +308,24 @@ function toolInputRecord(part: { input?: unknown }): Record<string, unknown> {
     : {}
 }
 
-function toolMediaCard(part: ToolUIPart<AipgTools> | DynamicToolUIPart) {
-  return { artifacts: toolCallArtifacts(part, artifactRuns.state, sessions.openDeletedFiles) }
+// Consecutive media tool parts share one grid, so several calls in one prompt
+// put their images side by side instead of one stacked block per call.
+function mediaGroups(): Map<number, number[]> {
+  return consecutiveMediaGroups(props.message.parts, isChatMediaToolPart, props.indexes)
+}
+
+function isMediaGroupStart(partIndex: number): boolean {
+  if (!isChatMediaToolPart(props.message.parts[partIndex])) return false
+  return mediaGroups().has(partIndex)
+}
+
+function mergedMediaCard(partIndex: number): { artifacts: TurnArtifact[] } {
+  const group = mediaGroups().get(partIndex) ?? [partIndex]
+  return {
+    artifacts: group.flatMap((index) =>
+      toolCallArtifacts(props.message.parts[index], artifactRuns.state, sessions.openDeletedFiles),
+    ),
+  }
 }
 
 function messageHasLiveMedia(message: { parts?: unknown[] }): boolean {

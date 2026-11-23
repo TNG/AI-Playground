@@ -34,7 +34,7 @@
       <MediaAgentTimeline :tool-call-id="toolPart.toolCallId" :fallback-steps="mediaToolSteps" />
     </template>
     <template v-if="section !== 'details'">
-      <ChatWorkflowResult :artifacts="mediaToolArtifacts" />
+      <ChatWorkflowResult v-if="!hideMediaGrid" :artifacts="gridArtifacts ?? mediaToolArtifacts" />
       <TurnFailureLine v-if="mediaToolFailure" :failure="mediaToolFailure" />
     </template>
   </div>
@@ -92,7 +92,7 @@ import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
-import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
+import { toolCallArtifacts, toolCallResultFailure, type TurnArtifact } from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
@@ -103,6 +103,10 @@ import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 const props = defineProps<{
   part: UIMessagePart<UIDataTypes, UITools>
   section?: 'details' | 'result'
+  /** Consecutive media parts share one grid: merged artifacts for the run's first part. */
+  gridArtifacts?: TurnArtifact[]
+  /** Consecutive media parts share one grid: non-first parts render no grid of their own. */
+  hideMediaGrid?: boolean
 }>()
 
 const agentMode = useAgentMode()

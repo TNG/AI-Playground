@@ -439,6 +439,7 @@ describe('creating an Agent', () => {
       'rag',
       'web',
       'web-debug',
+      'web-screenshot',
     ])
   })
 

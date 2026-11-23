@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { appSettingsSections } from './appSettingsSections'
 
 describe('appSettingsSections', () => {
-  it('lists the nine sections in order outside demo mode, nothing blocked', () => {
+  it('lists the ten sections in order outside demo mode, nothing blocked', () => {
     const sections = appSettingsSections({ demoMode: false, hasDemoPasscode: false })
 
     expect(sections.map((section) => section.id)).toEqual([
@@ -12,6 +12,7 @@ describe('appSettingsSections', () => {
       'huggingFace',
       'speech',
       'mediaModes',
+      'mcp',
       'permissions',
       'hide',
       'advanced',
@@ -36,6 +37,7 @@ describe('appSettingsSections', () => {
       { id: 'huggingFace', blocked: true, disabled: false },
       { id: 'speech', blocked: true, disabled: false },
       { id: 'mediaModes', blocked: true, disabled: false },
+      { id: 'mcp', blocked: true, disabled: false },
       { id: 'permissions', blocked: true, disabled: false },
       { id: 'hideMessages', blocked: false, disabled: false },
       { id: 'backendStatus', blocked: true, disabled: false },

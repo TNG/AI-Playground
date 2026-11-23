@@ -391,7 +391,17 @@ describe('resolveCapabilities', () => {
     const resolution = await resolveCapabilities(hostWith(), ['mcp:web'])
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
-    expect(registry.tools.map((tool) => tool.name)).toEqual(['search'])
+    expect(registry.tools.map((tool) => tool.name)).toEqual(['mcp__web__search'])
+  })
+
+  it('names agent MCP tools per server, so two servers can share a tool name', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['mcp:web', 'mcp:shop'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).toEqual([
+      'mcp__web__search',
+      'mcp__shop__search',
+    ])
   })
 
   it('parks lazy-eligible tools when the context window is tight', async () => {

@@ -130,6 +130,9 @@ export const getPreferencesFile = () => path.join(aipgUserDataRoot(), 'preferenc
 /** Demo-mode preferences, wiped on exit like demo conversations (§6.1). */
 export const getPreferencesDemoFile = () => getPreferencesFile().replace(/\.json$/, '-demo.json')
 
+/** In the user-data root: the resources root is re-seeded on update and deleted on uninstall. */
+export const getMcpConfigFile = () => path.join(aipgUserDataRoot(), 'mcp.json')
+
 /**
  * The RAG document list (architecture-target §6.1, step 8): the indexed
  * document set, full split text included — its own file, not a preference.

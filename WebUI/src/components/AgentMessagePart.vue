@@ -54,7 +54,12 @@
     </template>
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatToolDisplay
+      v-if="section !== 'result'"
+      :part="toolPart"
+      :state="toolPart.state"
+      :input="toolPart.input"
+    />
     <!-- Live output while the tool is still running (Pi streams partial results,
          e.g. a long-running bash command). -->
     <pre
@@ -62,7 +67,10 @@
       class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
       >{{ toolProgressText }}</pre>
     <!-- The screenshot never reaches the model as pixels, so this is where it is shown. -->
-    <ChatWorkflowResult v-if="screenshotArtifacts.length > 0" :artifacts="screenshotArtifacts" />
+    <ChatWorkflowResult
+      v-if="section !== 'details' && screenshotArtifacts.length > 0"
+      :artifacts="screenshotArtifacts"
+    />
     <figure v-for="image in bareToolImages" :key="image.dataUri" class="flex flex-col gap-1">
       <img
         :src="image.dataUri"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import ModelCapabilityFields from './ModelCapabilityFields.vue'
 import { pickDefined } from '@/assets/js/models/overrides'
 import { describeInferenceDefaults } from '@/assets/js/models/library'
@@ -14,6 +14,10 @@ const emit = defineEmits<{
 }>()
 
 const draft = ref<ModelCapabilityValues>({ ...props.entry.capabilities })
+const dialog = ref<HTMLDivElement | null>(null)
+
+// Opened from a row menu outside it, so Escape would otherwise never reach the handler below.
+onMounted(() => dialog.value?.focus())
 
 watch(
   () => props.entry.id,
@@ -32,9 +36,11 @@ const hasPublisherSettings = computed(() => !!sampling.value || !!props.entry.ll
       class="dialog-mask absolute left-0 top-0 flex h-full w-full items-center justify-center bg-background/70"
     >
       <div
+        ref="dialog"
         role="dialog"
+        tabindex="-1"
         :aria-label="languages.MODEL_MANAGER_EDIT_TITLE"
-        class="flex max-h-[85vh] w-[520px] flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl"
+        class="flex max-h-[85vh] w-[520px] flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl outline-none"
         @keydown.esc="emit('cancel')"
       >
         <div class="flex flex-col gap-1">

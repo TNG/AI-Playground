@@ -22,6 +22,10 @@ export const WEB_SEARCH_TOOL = 'web_search'
 export const WEB_FETCH_TOOL = 'web_fetch'
 export const WEB_INTERACT_TOOL = 'web_interact'
 
+// The capture tool of the web-screenshot capability, named so the model can go
+// from the listed images to showing one.
+const WEB_SCREENSHOT_TOOL = 'webScreenshot'
+
 const MAX_LINKS = 40
 
 const SEARCH_SCHEMA: Record<string, unknown> = {
@@ -113,6 +117,15 @@ export function formatPage(page: WebPageSnapshot): string {
   if (page.fields && page.fields.length > 0) {
     lines.push('', `Text fields (type into one with ${WEB_INTERACT_TOOL}):`)
     for (const field of page.fields) lines.push(`- ${field.selector} — ${field.label}`)
+  }
+  if (page.images && page.images.length > 0) {
+    lines.push(
+      '',
+      `Images (show one to the user by capturing the page with ${WEB_SCREENSHOT_TOOL}):`,
+    )
+    for (const image of page.images) {
+      lines.push(`- ${image.alt} — ${image.src} (${image.width}x${image.height})`)
+    }
   }
   return lines.join('\n')
 }

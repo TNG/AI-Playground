@@ -101,7 +101,7 @@ vi.mock('../../observability/logger.ts', () => ({
   appLoggerInstance: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const { close, navigate, show } = await import('../../adapters/webBrowserManager.ts')
+const { close, navigate, readPage, show } = await import('../../adapters/webBrowserManager.ts')
 
 describe('web browser session permissions', () => {
   beforeEach(() => {
@@ -208,5 +208,121 @@ describe('one window, one navigation at a time', () => {
     releases[1]?.()
     await Promise.all([first, second])
     expect(maxInFlight).toBe(1)
+  })
+})
+
+// Runs the real READ_SCRIPT against a small DOM stand-in, the way the window
+// would, so the collected page shape is asserted end to end.
+type FakeImageSpec = {
+  src: string
+  alt?: string
+  ariaLabel?: string
+  title?: string
+  width: number
+  height: number
+  visible?: boolean
+}
+
+function fakeImage(spec: FakeImageSpec) {
+  const visible = spec.visible ?? true
+  return {
+    src: spec.src,
+    alt: spec.alt ?? '',
+    getClientRects: () => (visible ? [{}] : []),
+    getBoundingClientRect: () => ({ width: spec.width, height: spec.height }),
+    getAttribute: (name: string) => {
+      if (name === 'aria-label') return spec.ariaLabel ?? null
+      if (name === 'title') return spec.title ?? null
+      return null
+    },
+  }
+}
+
+function fakeDocument(images: ReturnType<typeof fakeImage>[]) {
+  return {
+    title: 'Example',
+    body: { innerText: 'hello' },
+    querySelectorAll: (selector: string) => (selector === 'img' ? images : []),
+  }
+}
+
+describe('the readable page lists salient images', () => {
+  beforeEach(() => {
+    close()
+    created.length = 0
+  })
+
+  async function readWith(images: ReturnType<typeof fakeImage>[]): Promise<unknown> {
+    await readPage()
+    created[0].webContents.executeJavaScript.mockImplementation(async (script: string) =>
+      new Function('document', 'location', `return ${script}`)(fakeDocument(images), {
+        href: 'https://example.com/',
+      }),
+    )
+    return readPage()
+  }
+
+  it('collects visible http(s) images of at least 100x100 with the alt fallback chain', async () => {
+    const snapshot = (await readWith([
+      fakeImage({ src: 'https://example.com/photo.jpg', alt: 'A cat', width: 320, height: 240 }),
+      fakeImage({
+        src: 'https://example.com/blank.jpg',
+        alt: '   ',
+        ariaLabel: 'Falls through',
+        width: 150,
+        height: 150,
+      }),
+      fakeImage({
+        src: 'https://example.com/aria.jpg',
+        ariaLabel: 'Sales chart',
+        width: 150,
+        height: 150,
+      }),
+      fakeImage({
+        src: 'https://example.com/titled.jpg',
+        title: 'Team photo',
+        width: 150,
+        height: 150,
+      }),
+      fakeImage({ src: 'https://example.com/unlabelled.png', width: 200, height: 100 }),
+      fakeImage({ src: 'https://example.com/icon.png', alt: 'Icon', width: 24, height: 24 }),
+      fakeImage({ src: 'data:image/png;base64,AAAA', alt: 'Tracker', width: 400, height: 400 }),
+      fakeImage({
+        src: 'https://example.com/hidden.png',
+        alt: 'Hidden',
+        width: 400,
+        height: 400,
+        visible: false,
+      }),
+    ])) as { images: unknown[] }
+
+    expect(snapshot.images).toEqual([
+      { src: 'https://example.com/photo.jpg', alt: 'A cat', width: 320, height: 240 },
+      { src: 'https://example.com/blank.jpg', alt: 'Falls through', width: 150, height: 150 },
+      { src: 'https://example.com/aria.jpg', alt: 'Sales chart', width: 150, height: 150 },
+      { src: 'https://example.com/titled.jpg', alt: 'Team photo', width: 150, height: 150 },
+      { src: 'https://example.com/unlabelled.png', alt: '(no alt text)', width: 200, height: 100 },
+    ])
+  })
+
+  it('caps the image list at 20 in document order', async () => {
+    const images = Array.from({ length: 25 }, (_, i) =>
+      fakeImage({
+        src: `https://example.com/${i}.png`,
+        alt: `Image ${i}`,
+        width: 120,
+        height: 120,
+      }),
+    )
+    const snapshot = (await readWith(images)) as { images: { src: string }[] }
+
+    expect(snapshot.images).toHaveLength(20)
+    expect(snapshot.images[0].src).toBe('https://example.com/0.png')
+    expect(snapshot.images[19].src).toBe('https://example.com/19.png')
+  })
+
+  it('yields an empty list on a page without images', async () => {
+    const snapshot = (await readWith([])) as { images: unknown[] }
+    expect(snapshot.images).toEqual([])
   })
 })

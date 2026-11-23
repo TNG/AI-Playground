@@ -59,7 +59,7 @@ describe('App Settings and the Agent Library', () => {
 
     expect(ui.appSettingsOpen).toBe(true)
     expect(ui.appSettingsTab).toBe('models')
-    expect(ui.frontmost).toBe('model')
+    expect(ui.frontmost).toBe('models')
     expect(ui.agentLibrary).toEqual({ agentId: 't1' })
   })
 
@@ -98,7 +98,7 @@ describe('The Model Library tab', () => {
 
     expect(ui.appSettingsOpen).toBe(true)
     expect(ui.appSettingsTab).toBe('models')
-    expect(ui.frontmost).toBe('model')
+    expect(ui.frontmost).toBe('models')
   })
 
   it('closes App Settings when its pressed button is clicked again', () => {

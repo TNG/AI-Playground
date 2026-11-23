@@ -56,9 +56,9 @@
             <button
               type="button"
               :aria-label="languages.MODEL_MANAGER_OPEN"
-              :aria-pressed="uiStore.frontmost === 'model'"
+              :aria-pressed="uiStore.frontmost === 'models'"
               class="-m-1 rounded-md p-1 transition-colors"
-              :class="{ 'bg-primary/20': uiStore.frontmost === 'model' }"
+              :class="{ 'bg-primary/20': uiStore.frontmost === 'models' }"
               @click="uiStore.toggleModelLibrary()"
             >
               <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>

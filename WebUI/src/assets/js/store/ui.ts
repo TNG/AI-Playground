@@ -7,6 +7,9 @@ export type AgentLibraryView = { agentId?: string; sessionRef?: string; showTria
 
 export type AppSettingsTab = 'app' | 'components' | 'models'
 
+/** The surface over the Session whose title-bar button shows pressed. */
+export type FrontmostSurface = 'settings' | 'models' | 'agent'
+
 /** Runs `leave` now, later (after the user confirms), or never (they cancel). */
 export type LeaveGuard = (leave: () => void) => void
 
@@ -25,9 +28,8 @@ export const useUIStore = defineStore('ui', () => {
   let themePanelLeaveGuard: LeaveGuard = (leave) => leave()
 
   const agentLibrary = computed(() => agentLibraryView.value)
-  /** What the user sees over the Session, whose title-bar button shows pressed. */
-  const frontmost = computed<'settings' | 'model' | 'agent' | null>(() => {
-    if (appSettingsOpen.value) return appSettingsTab.value === 'models' ? 'model' : 'settings'
+  const frontmost = computed<FrontmostSurface | null>(() => {
+    if (appSettingsOpen.value) return appSettingsTab.value === 'models' ? 'models' : 'settings'
     return agentLibraryView.value ? 'agent' : null
   })
 
@@ -71,7 +73,7 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function toggleModelLibrary() {
-    if (frontmost.value === 'model') closeAppSettings()
+    if (frontmost.value === 'models') closeAppSettings()
     else openModelLibrary()
   }
 

@@ -61,7 +61,12 @@ import {
   uploadInputFile,
   type ComfyClientDeps,
 } from './comfyClient'
-import { buildDummyGlb, DUMMY_3D_PRESET_NAME, VIEW_FIXTURE } from '@/lib/devPresetWorkflows'
+import {
+  buildDummyGlb,
+  DUMMY_3D_PRESET_NAME,
+  GLB_FIXTURE,
+  VIEW_FIXTURE,
+} from '@/lib/devPresetWorkflows'
 import { saveMediaItems } from '../persist/mediaItemFiles'
 import { extractMessage } from '@/assets/js/errors/appError'
 
@@ -551,9 +556,9 @@ async function ensureDummyFixtures(run: ActiveRun, baseUrl: string): Promise<voi
   if (!runnerDeps!.devPresetsEnabled()) return
   if (run.payload.preset.name !== DUMMY_3D_PRESET_NAME) return
   await uploadInputFile(baseUrl, clientDeps(), {
-    name: 'aipg-dummy.glb',
+    name: GLB_FIXTURE.name,
     blob: buildDummyGlb(),
-    subfolder: VIEW_FIXTURE.subfolder,
+    subfolder: GLB_FIXTURE.subfolder,
   })
   await uploadInputFile(baseUrl, clientDeps(), {
     name: VIEW_FIXTURE.name,

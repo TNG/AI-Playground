@@ -63,7 +63,13 @@ import {
   setKernelEventWindow,
   getKernelSnapshot,
 } from '../../kernel/kernelBus'
-import { submitPrompt, getComfySocket, interruptExecution } from '../../artifact/comfyClient'
+import {
+  submitPrompt,
+  getComfySocket,
+  interruptExecution,
+  uploadInputFile,
+} from '../../artifact/comfyClient'
+import { devPresets, DUMMY_3D_PRESET_NAME } from '@/lib/devPresetWorkflows'
 import type {
   ComfyClientDeps,
   ComfySocketHandle,
@@ -326,6 +332,32 @@ describe('artifact runner', () => {
     })
     const result = await run
     expect(result.state).toBe('completed')
+  })
+
+  it('uploads the dummy 3D fixture where its workflow loads it from', async () => {
+    setArtifactRunnerDeps(deps({ devPresetsEnabled: () => true }))
+    const dummy3d = devPresets.find((p) => p.name === DUMMY_3D_PRESET_NAME)!
+    const base = payload()
+    const request = payload({
+      mode: 'imageEdit',
+      preset: dummy3d,
+      params: { ...base.params, batchSize: 1 },
+    })
+    const run = submitArtifactRun({ ...request, items: itemsFor(request) })
+
+    await vi.waitFor(() => expect(submittedPrompts).toHaveLength(1))
+    const modelFile = Object.values(dummy3d.comfyUiApiWorkflow).find(
+      (node) => node.class_type === 'Load3D',
+    )?.inputs?.model_file
+    const uploaded = vi
+      .mocked(uploadInputFile)
+      .mock.calls.map(([, , file]) =>
+        file.subfolder ? `${file.subfolder}/${file.name}` : file.name,
+      )
+    expect(uploaded).toContain(modelFile)
+
+    cancelActiveArtifactRun()
+    await run
   })
 
   it('a queued submission waits while a run is active', async () => {

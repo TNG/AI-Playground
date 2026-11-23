@@ -23,14 +23,7 @@ const LOG_SOURCE = 'capabilities/mcp'
 
 const MAX_TOOL_NAME_LENGTH = 64
 
-/**
- * `mcp__<serverId>__<toolName>`, Pi's own MCP naming convention: everything
- * but [A-Za-z0-9_] becomes `_`, and a too-long or already-taken name gets a
- * hash suffix. Without the server id in the name, two servers offering the
- * same tool name (or a builtin's) would collide in one session, one silently
- * shadowing the other. Chat names its MCP tools the same way, so the
- * renderer's MCP-tool rendering recognizes agent turns' tools too.
- */
+/** The server id in the name keeps two servers' same-named tools from shadowing each other. */
 function createMcpToolName(
   serverId: string,
   toolName: string,

@@ -568,9 +568,7 @@ export const useTextInference = defineStore(
     // Off until the user turns it on; see `speakRepliesAllowed`.
     const speakReplies = ref(false)
     const mcpToolsEnabled = ref(true)
-    // Per-preset MCP servers a chat turn may use (session activation, opt-in:
-    // empty until the user ticks servers in the Attributes tab). Configured
-    // servers live under App Settings → MCP Servers.
+    // Opt-in: empty until the user ticks servers in the Attributes tab.
     const mcpServerIds = ref<string[]>([])
     // Route the heavy media tools (comfyUI + comfyUiImageEdit) through the
     // nested media specialist agent: the parent model sees one thin `media`

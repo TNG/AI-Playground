@@ -8,19 +8,7 @@ import { writableConfigFile } from '../kernel/userConfig.ts'
 import { getMcpConfigFile } from './userDataPaths.ts'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
-/**
- * The kernel-owned MCP server config (architecture-target §6.1, step 8):
- * `AI-Playground/mcp.json` — the user's configured MCP servers. The file lives
- * in the user-data root so it survives app updates and reinstalls (the
- * resources root is re-seeded from the bundle on update and the NSIS
- * uninstaller deletes it). On first use the previous resources-root copy
- * migrates in; a fresh install seeds from the shipped default.
- *
- * Sync like `localSettingsFile.ts` — the MCP registry's surface is sync.
- * A missing file is an empty server list (the UI's "add a server" state); a
- * corrupt file throws, so a hand-edit mistake surfaces instead of being
- * silently replaced by the next write.
- */
+// A corrupt file throws rather than being silently replaced by the next write.
 
 const LOG_SCOPE = 'mcp'
 
@@ -70,23 +58,13 @@ function writeConfigFile(file: string, config: McpConfigFile): void {
   }
 }
 
-/**
- * Where the config lived before the move to the user-data root, most
- * user-owned first: the dev seed, the per-user resources-root copy, then the
- * read-only bundle's shipped default.
- */
+/** Pre-move locations, most user-owned first. */
 function legacyPaths(): string[] {
   if (!app.isPackaged) return [path.join(externalResourcesDir(), 'mcp-dev.json')]
   return [writableConfigFile('mcp.json'), path.join(process.resourcesPath, 'mcp.json')]
 }
 
-/**
- * Brings the user-data config into existence: migrate the previous copy when
- * one exists, else seed from the shipped default, else start empty (so "Edit
- * mcp.json" always opens a real file). Never overwrites an existing target.
- * Best-effort — a location that cannot be written logs and leaves the target
- * absent, which reads as an empty server list.
- */
+/** Migrates or seeds the user-data config once; never overwrites an existing one. */
 function ensureMcpConfigFile(): string {
   const target = getMcpConfigFile()
   if (fs.existsSync(target)) return target

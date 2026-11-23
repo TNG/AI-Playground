@@ -4,10 +4,6 @@ import { appLoggerInstance } from '../../observability/logger'
 import { getMcpConfigPath, loadMcpServers, saveMcpServers } from '../../persist/mcpConfigFile.ts'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
-// The config file itself is kernel-owned (persist/mcpConfigFile.ts): it lives
-// in the user-data root so it survives updates and reinstalls. This module
-// owns the server-level operations on it and the auto-detect rules.
-
 export { getMcpConfigPath, loadMcpServers }
 
 export function addMcpServer(serverId: string, config: McpServerConfig): void {

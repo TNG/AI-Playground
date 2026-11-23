@@ -1,0 +1,99 @@
+{
+  "type": "comfy",
+  "name": "Remove Background",
+  "displayPriority": 850,
+  "tags": ["BiRefNet", "no-prompt"],
+  "backend": "comfyui",
+  "category": "edit-images",
+  "toolCategory": "edit-images",
+  "mediaType": "image",
+  "description": "Cut out the subject of an image onto a transparent background",
+  "extendedDescription": "Drag in, or load an image, then click generate. BiRefNet detects the main subject and saves it as a PNG with a transparent background. No prompt needed.",
+  "toolInstructions": "Use this workflow when the user wants to remove the background from an existing image, cut out the subject, or get a PNG with a transparent background, for example a sprite, sticker, product shot or logo. This is a no-prompt workflow: the prompt parameter is ignored. BiRefNet detects the main subject and everything else becomes fully transparent; the image is not otherwise changed. Works best when the subject is clearly separated from the background.",
+  "requiredCustomNodes": [],
+  "requiredPythonPackages": [],
+  "requiredModels": [
+    {
+      "type": "background_removal",
+      "model": "Comfy-Org/BiRefNet/background_removal/birefnet.safetensors"
+    }
+  ],
+  "settings": [
+    {
+      "type": "number",
+      "label": "Batch Size",
+      "displayed": false,
+      "modifiable": false,
+      "defaultValue": 1,
+      "settingName": "batchSize"
+    },
+    {
+      "type": "image",
+      "label": "Input Image",
+      "displayed": true,
+      "modifiable": true,
+      "defaultValue": "",
+      "nodeTitle": "Load Image",
+      "nodeInput": "image"
+    }
+  ],
+  "comfyUiApiWorkflow": {
+    "1": {
+      "inputs": {
+        "image": ""
+      },
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Load Image"
+      }
+    },
+    "2": {
+      "inputs": {
+        "bg_removal_name": "Comfy-Org---BiRefNet\\background_removal\\birefnet.safetensors"
+      },
+      "class_type": "LoadBackgroundRemovalModel",
+      "_meta": {
+        "title": "Load Background Removal Model"
+      }
+    },
+    "3": {
+      "inputs": {
+        "bg_removal_model": ["2", 0],
+        "image": ["1", 0]
+      },
+      "class_type": "RemoveBackground",
+      "_meta": {
+        "title": "Remove Background"
+      }
+    },
+    "4": {
+      "inputs": {
+        "mask": ["3", 0]
+      },
+      "class_type": "InvertMask",
+      "_meta": {
+        "title": "Invert Mask"
+      }
+    },
+    "5": {
+      "inputs": {
+        "image": ["1", 0],
+        "alpha": ["4", 0]
+      },
+      "class_type": "JoinImageWithAlpha",
+      "_meta": {
+        "title": "Join Image with Alpha"
+      }
+    },
+    "6": {
+      "inputs": {
+        "filename_prefix": "AIPG_Image",
+        "images": ["5", 0]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    }
+  }
+}

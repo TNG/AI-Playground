@@ -34,6 +34,13 @@ const editingEntry = computed(() =>
   editing.value ? (library.byId(editing.value.id) ?? editing.value) : null,
 )
 
+const resultLine = computed(() =>
+  i18nState.MODEL_MANAGER_RESULT_COUNT.replace(
+    '{shown}',
+    String(library.visibleEntries.length),
+  ).replace('{total}', String(library.useCaseTotal)),
+)
+
 onMounted(() => library.refresh())
 
 async function saveCapabilities(capabilities: Partial<ModelCapabilityValues>) {
@@ -92,6 +99,18 @@ async function confirmDelete() {
         @add-model="showAddModel = true"
         @delete-selected="deleting = library.selectedDeletable"
       />
+
+      <div class="flex items-center gap-3 text-xs text-muted-foreground">
+        <p role="status">{{ resultLine }}</p>
+        <button
+          v-if="library.filtersActive"
+          type="button"
+          class="text-primary underline-offset-2 hover:underline"
+          @click="library.clearFilters()"
+        >
+          {{ languages.MODEL_MANAGER_CLEAR_FILTERS }}
+        </button>
+      </div>
     </div>
 
     <ModelLibraryList

@@ -12,6 +12,7 @@ import {
   filterEntries,
   formatBytes,
   formatModifiedAt,
+  hasActiveFilters,
   matchesSearch,
   modelDetailsLine,
   modelEntryId,
@@ -622,6 +623,26 @@ describe('matchesSearch / filterEntries', () => {
         (e) => e.id,
       ),
     ).toEqual(['2'])
+  })
+})
+
+describe('hasActiveFilters', () => {
+  it('is false for the default filters, whatever use case is chosen', () => {
+    expect(hasActiveFilters(DEFAULT_FILTERS)).toBe(false)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, useCase: 'media' })).toBe(false)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, useCase: 'favorites' })).toBe(false)
+  })
+
+  it('is true once any other filter differs from its default', () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, search: 'qwen' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, backend: 'comfyui' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, capabilities: ['vision'] })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, downloadState: 'downloaded' })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, fitsOnly: true })).toBe(true)
+  })
+
+  it('does not count a search of only whitespace, which filters nothing', () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, search: '   ' })).toBe(false)
   })
 })
 

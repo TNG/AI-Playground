@@ -33,6 +33,8 @@ const props = defineProps<{
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  /** Replaces the selected item's label in the closed trigger, e.g. "Backend: All backends". */
+  triggerLabel?: string
 }>()
 
 const selectedItem = computed(() => {
@@ -63,7 +65,7 @@ const selectedItem = computed(() => {
             ></div>
           </div>
           <span class="text-xs flex-grow text-left px-3 text-nowrap">
-            {{ selectedItem.label }}
+            {{ props.triggerLabel ?? selectedItem.label }}
           </span>
           <ChevronDownIcon class="size-4 text-muted-foreground"></ChevronDownIcon>
         </div>

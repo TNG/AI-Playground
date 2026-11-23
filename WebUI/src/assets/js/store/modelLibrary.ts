@@ -23,6 +23,7 @@ import {
   countByUseCase,
   entriesForProductMode,
   filterEntries,
+  hasActiveFilters,
   normalizeModelKey,
   sortEntries,
   type ModelLibraryFilters,
@@ -154,6 +155,10 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     filterEntries(entries.value, { ...DEFAULT_FILTERS, useCase: filters.value.useCase }),
   )
 
+  const useCaseTotal = computed(() => categoryEntries.value.length)
+
+  const filtersActive = computed(() => hasActiveFilters(filters.value))
+
   const backendOptions = computed(() => availableBackends(categoryEntries.value))
   const downloadStateOptions = computed(() => availableDownloadStates(categoryEntries.value))
 
@@ -284,8 +289,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     pruneSelection()
   }
 
-  function resetFilters() {
-    filters.value = { ...DEFAULT_FILTERS }
+  function clearFilters() {
+    filters.value = { ...DEFAULT_FILTERS, useCase: filters.value.useCase }
     pruneSelection()
   }
 
@@ -448,6 +453,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     entries,
     visibleEntries,
     useCaseCounts,
+    useCaseTotal,
+    filtersActive,
     backendOptions,
     downloadStateOptions,
     fitTargetFor,
@@ -466,7 +473,7 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     byId,
     refresh,
     setFilters,
-    resetFilters,
+    clearFilters,
     setSort,
     toggleSelected,
     toggleSelectAllVisible,

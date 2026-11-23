@@ -397,6 +397,17 @@ export function filterEntries(
   })
 }
 
+/** Whether anything but the use case narrows the list, i.e. whether "Clear filters" would change it. */
+export function hasActiveFilters(filters: ModelLibraryFilters): boolean {
+  return (
+    filters.search.trim() !== '' ||
+    filters.backend !== DEFAULT_FILTERS.backend ||
+    filters.capabilities.length > 0 ||
+    filters.downloadState !== DEFAULT_FILTERS.downloadState ||
+    filters.fitsOnly !== DEFAULT_FILTERS.fitsOnly
+  )
+}
+
 export type ModelSortKey = 'name' | 'size' | 'modified'
 export type ModelSortDirection = 'asc' | 'desc'
 

@@ -141,6 +141,36 @@ test('the model library lists, filters and round-trips a model through download,
     await expect(app.models.backendFilter).toBeEnabled()
   })
 
+  await test.step('The filter and sort controls say what they do', async () => {
+    await expect(app.models.backendFilter).toContainText('Backend: ')
+    await expect(app.models.statusFilter).toContainText('Status: ')
+    await expect(app.models.sortControl).toContainText('Sort by: ')
+    await expect(app.models.capabilityFilters).toContainText('Capabilities')
+  })
+
+  await test.step('The result line counts the rows and "Clear filters" keeps the use case', async () => {
+    await app.models.selectUseCase('Embedding')
+    const unfiltered = await app.models.resultCounts()
+    expect(unfiltered.total).toBeGreaterThan(0)
+    expect(unfiltered.shown).toBe(unfiltered.total)
+    expect(await app.models.rows.count()).toBe(unfiltered.shown)
+    // The chosen chip is not a filter "Clear filters" would undo.
+    await expect(app.models.clearFiltersButton).toHaveCount(0)
+
+    await app.models.search('no-such-model-anywhere')
+    await expect(app.models.resultLine).toHaveText(`0 of ${unfiltered.total} models`)
+    await expect(app.models.clearFiltersButton).toBeVisible()
+
+    await app.models.clearFiltersButton.click()
+    await expect(app.models.searchBox).toHaveValue('')
+    await expect(app.models.useCaseChip('Embedding')).toHaveAttribute('aria-current', 'true')
+    await expect(app.models.resultLine).toHaveText(
+      `${unfiltered.total} of ${unfiltered.total} models`,
+    )
+    await expect(app.models.clearFiltersButton).toHaveCount(0)
+    await app.models.selectUseCase('All')
+  })
+
   await test.step('Favoriting a model sorts it to the top of the library', async () => {
     await app.models.toggleFavorite(target.label)
     expect((await app.models.visibleLabels())[0]).toBe(target.label)

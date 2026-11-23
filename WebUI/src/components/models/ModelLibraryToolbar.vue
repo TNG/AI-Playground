@@ -141,6 +141,22 @@ const sortDirectionLabel = computed(() =>
     : i18nState.MODEL_MANAGER_SORT_DESCENDING,
 )
 
+// The trigger names what it controls, so its text is "Backend: <value>" rather than the value alone.
+function triggerLabel(key: string, items: { value: string; label: string }[], value: string) {
+  const label = items.find((item) => item.value === value)?.label ?? ''
+  return i18nState[key].replace('{value}', label)
+}
+
+const backendTrigger = computed(() =>
+  triggerLabel('MODEL_MANAGER_FILTER_BACKEND_VALUE', backendMenuItems.value, backendValue.value),
+)
+const statusTrigger = computed(() =>
+  triggerLabel('MODEL_MANAGER_FILTER_STATUS_VALUE', statusMenuItems.value, statusValue.value),
+)
+const sortTrigger = computed(() =>
+  triggerLabel('MODEL_MANAGER_SORT_VALUE', sortItems.value, library.sort.key),
+)
+
 function toggleSortDirection() {
   library.setSort({
     key: library.sort.key,
@@ -165,14 +181,23 @@ function toggleSortDirection() {
           @input="library.setFilters({ search: ($event.target as HTMLInputElement).value })"
         />
       </div>
-      <CapabilityIcons
-        mode="filter"
-        :active-keys="activeCapabilities"
-        :extras="fitFilters"
-        icon-size="size-4"
-        @toggle="toggleCapability"
-        @toggle-extra="library.setFilters({ fitsOnly: !library.filters.fitsOnly })"
-      />
+      <div
+        role="group"
+        :aria-label="languages.MODEL_MANAGER_CAPABILITIES"
+        class="flex items-center gap-2"
+      >
+        <span class="text-xs text-muted-foreground">{{
+          languages.MODEL_MANAGER_CAPABILITIES
+        }}</span>
+        <CapabilityIcons
+          mode="filter"
+          :active-keys="activeCapabilities"
+          :extras="fitFilters"
+          icon-size="size-4"
+          @toggle="toggleCapability"
+          @toggle-extra="library.setFilters({ fitsOnly: !library.filters.fitsOnly })"
+        />
+      </div>
     </div>
 
     <TooltipProvider :delay-duration="200">
@@ -182,11 +207,12 @@ function toggleSortDirection() {
         <div
           role="group"
           :aria-label="languages.MODEL_MANAGER_FILTER_BACKEND"
-          class="w-[150px]"
+          class="min-w-[150px]"
           :class="backendLocked ? 'opacity-60' : ''"
         >
           <DropDownNew
             :title="languages.MODEL_MANAGER_FILTER_BACKEND"
+            :trigger-label="backendTrigger"
             :items="backendMenuItems"
             :value="backendValue"
             :disabled="backendLocked"
@@ -199,11 +225,12 @@ function toggleSortDirection() {
         <div
           role="group"
           :aria-label="languages.MODEL_MANAGER_FILTER_STATUS"
-          class="w-[160px]"
+          class="min-w-[160px]"
           :class="statusLocked ? 'opacity-60' : ''"
         >
           <DropDownNew
             :title="languages.MODEL_MANAGER_FILTER_STATUS"
+            :trigger-label="statusTrigger"
             :items="statusMenuItems"
             :value="statusValue"
             :disabled="statusLocked"
@@ -217,9 +244,10 @@ function toggleSortDirection() {
           :aria-label="languages.MODEL_MANAGER_SORT"
           class="flex items-center gap-1"
         >
-          <div class="w-[130px]">
+          <div class="min-w-[130px]">
             <DropDownNew
               :title="languages.MODEL_MANAGER_SORT"
+              :trigger-label="sortTrigger"
               :items="sortItems"
               :value="library.sort.key"
               @change="

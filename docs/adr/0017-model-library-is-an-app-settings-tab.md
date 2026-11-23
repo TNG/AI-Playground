@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The Model Library is a tab of App Settings, not a Library over the Session

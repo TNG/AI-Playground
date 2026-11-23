@@ -33,14 +33,48 @@ export class ModelManagerPage {
     return this.overlay.getByRole('searchbox', { name: 'Search models' })
   }
 
-  /** The backend filter's trigger. Its label is the current value. */
+  /** The backend filter's trigger, which reads "Backend: <current value>". */
   get backendFilter(): Locator {
     return this.overlay.getByRole('group', { name: 'Backend' }).getByRole('button')
   }
 
-  /** The download-status filter's trigger. Its label is the current value. */
+  /** The download-status filter's trigger, which reads "Status: <current value>". */
   get statusFilter(): Locator {
     return this.overlay.getByRole('group', { name: 'Status' }).getByRole('button')
+  }
+
+  /** The sort dropdown's trigger, which reads "Sort by: <current key>". */
+  get sortControl(): Locator {
+    return this.overlay.getByRole('group', { name: 'Sort by' }).getByRole('button').first()
+  }
+
+  /** The capability filter icons, introduced by their visible "Capabilities" caption. */
+  get capabilityFilters(): Locator {
+    return this.overlay.getByRole('group', { name: 'Capabilities' })
+  }
+
+  /** "N of M models" above the list. */
+  get resultLine(): Locator {
+    return this.overlay.getByRole('status').filter({ hasText: /^\d+ of \d+ models$/ })
+  }
+
+  /** Shown only while a filter other than the use case is active. */
+  get clearFiltersButton(): Locator {
+    return this.overlay.getByRole('button', { name: 'Clear filters', exact: true })
+  }
+
+  /** The two numbers of the result line: rows shown, and models in the chosen use case. */
+  async resultCounts(): Promise<{ shown: number; total: number }> {
+    const text = (await this.resultLine.textContent()) ?? ''
+    const [, shown, total] = /(\d+) of (\d+)/.exec(text) ?? []
+    return { shown: Number(shown), total: Number(total) }
+  }
+
+  /** A use-case chip, whose accessible name is its label followed by its count. */
+  useCaseChip(useCase: string): Locator {
+    return this.overlay
+      .getByRole('navigation', { name: 'Model use cases' })
+      .getByRole('button', { name: new RegExp(`^${escapeRegExp(useCase)}\\s*(\\d+|–)$`) })
   }
 
   /** A row, matched by the model's label (its file name). */

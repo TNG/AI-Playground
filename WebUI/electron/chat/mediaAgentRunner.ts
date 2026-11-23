@@ -10,6 +10,7 @@ import type { JSONSchema7, LanguageModelV4Prompt } from '@ai-sdk/provider'
 import { appLoggerInstance } from '../observability/logger'
 import { createToolAgent, type ToolAgentEvent, type ToolAgentRunOptions } from '@/lib/toolAgent'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import { slimItemSettings } from '@/lib/mediaAgentResult'
 import type {
   ChatToolSpec,
   MediaAgentRunRequest,
@@ -64,6 +65,9 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
       for (const key of SLIM_IMAGE_KEYS) {
         if (media[key] !== undefined) slim[key] = media[key]
       }
+      // The workflow names stay, so a settled turn can still say which one made the image.
+      const settings = slimItemSettings(media.settings as Record<string, unknown> | undefined)
+      if (Object.keys(settings).length > 0) slim.settings = settings
       return slim
     }),
   }

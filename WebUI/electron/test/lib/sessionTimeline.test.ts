@@ -1301,6 +1301,90 @@ describe('Turn Details and the Result', () => {
   })
 })
 
+describe('the media workflows a chat or agent Turn ran, named in its header', () => {
+  const imageFrom = (id: string, preset: string, variant?: string) => ({
+    id,
+    type: 'image',
+    state: 'done',
+    imageUrl: `${id}.png`,
+    settings: { preset, ...(variant ? { variant } : {}) },
+  })
+  const chatToolWith = (id: string, preset: string, variant?: string) => ({
+    type: 'tool-comfyUI',
+    toolCallId: id,
+    state: 'output-available',
+    input: { workflow: preset, prompt: 'a red ship' },
+    output: { images: [imageFrom(id, preset, variant)] },
+  })
+  const mediaToolWith = (id: string, item: object) => ({
+    type: 'dynamic-tool',
+    toolName: 'media',
+    toolCallId: id,
+    state: 'output-available',
+    input: { request: 'a red ship' },
+    output: { details: { items: [item] } },
+  })
+  const chatTurn = (parts: object[]) =>
+    timelineTurns([
+      chatMessage('u1', 'user', 'draw a ship'),
+      { id: 'a1', role: 'assistant', parts, metadata: { chatTurn: true } },
+    ])[0]
+  const agentTurnWith = (parts: object[]) =>
+    timelineTurns([
+      agentMessage('u1', 'user', 'draw a ship'),
+      { id: 'a1', role: 'assistant', parts, metadata: { agentTurn } },
+    ])[0]
+  const workflowsOf = (turn: object) => (turn as { details?: TurnDetails }).details?.workflows
+
+  it("names the workflow a chat tool's image came from, with its variant", () => {
+    const turn = chatTurn([chatToolWith('t1', 'Draft Image', 'Fast')])
+
+    expect(workflowsOf(turn)).toEqual([{ preset: 'Draft Image', icon: 'image', variant: 'Fast' }])
+  })
+
+  it('names the workflow a delegated agent media run chose, with a film icon for video', () => {
+    const turn = agentTurnWith([
+      mediaToolWith('t1', {
+        id: 'v1',
+        type: 'video',
+        state: 'done',
+        videoUrl: 'v1.mp4',
+        settings: { preset: 'Wan' },
+      }),
+    ])
+
+    expect(workflowsOf(turn)).toEqual([{ preset: 'Wan', icon: 'video' }])
+  })
+
+  it('dedupes a workflow used twice and lists each of several once', () => {
+    const turn = chatTurn([
+      chatToolWith('t1', 'Draft Image'),
+      chatToolWith('t2', 'Draft Image'),
+      chatToolWith('t3', 'Colorize'),
+    ])
+
+    expect(workflowsOf(turn)).toEqual([
+      { preset: 'Draft Image', icon: 'image' },
+      { preset: 'Colorize', icon: 'image' },
+    ])
+  })
+
+  it('leaves the variant out when the same workflow ran with more than one', () => {
+    const turn = chatTurn([
+      chatToolWith('t1', 'Draft Image', 'Fast'),
+      chatToolWith('t2', 'Draft Image', 'Detailed'),
+    ])
+
+    expect(workflowsOf(turn)).toEqual([{ preset: 'Draft Image', icon: 'image' }])
+  })
+
+  it('names no workflow for a turn that made no media', () => {
+    const turn = chatTurn([{ type: 'text', text: 'no image this time' }])
+
+    expect(workflowsOf(turn)).toBeUndefined()
+  })
+})
+
 describe('the user bubble of every Turn', () => {
   const mediaTurn = (mode: string, prompt: string, items: object[]) => [
     { ...mediaPrompt, parts: prompt ? [{ type: 'text', text: prompt }] : [] },

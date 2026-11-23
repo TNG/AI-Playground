@@ -46,6 +46,37 @@ describe('condenseMediaAgentRun', () => {
     ])
   })
 
+  it('keeps the workflow each image came from, so the UI can name it after the run', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a moonlit castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { prompt: 'a moonlit castle', preset: 'Draft Image', variant: 'Fast' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(slimCondensedMedia(result).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://a.png',
+        settings: { prompt: 'a moonlit castle', preset: 'Draft Image', variant: 'Fast' },
+      },
+    ])
+  })
+
   it('reports the last inner failure when nothing was produced', () => {
     const result = condenseMediaAgentRun({
       text: '',

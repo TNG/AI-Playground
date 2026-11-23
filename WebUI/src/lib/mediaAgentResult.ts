@@ -94,6 +94,25 @@ export function condenseMediaAgentRun(result: MediaAgentRunResult): CondensedMed
   return { images, steps, summary, ...declinedFields }
 }
 
+/** Per-item settings the slim shape keeps: the prompt, and the workflow names the turn header shows. */
+const SLIM_SETTINGS_KEYS = ['prompt', 'preset', 'variant'] as const
+
+/**
+ * The settings worth keeping wherever a media item is slimmed for a model
+ * context. Used by both slimming passes — the specialist's inner Comfy results
+ * and the parent tool's condensed result — so the UI can still name the
+ * workflow a settled image came from.
+ */
+export function slimItemSettings(
+  settings: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const slim: Record<string, unknown> = {}
+  for (const key of SLIM_SETTINGS_KEYS) {
+    if (typeof settings?.[key] === 'string') slim[key] = settings[key]
+  }
+  return slim
+}
+
 /** Drop bulky per-item settings before the result enters the parent model context. */
 export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<string, unknown> {
   const slim: Record<string, unknown> = {
@@ -104,9 +123,8 @@ export function slimCondensedMedia(result: CondensedMediaAgentResult): Record<st
       if (item.imageUrl) entry.imageUrl = item.imageUrl
       if (item.videoUrl) entry.videoUrl = item.videoUrl
       if (item.model3dUrl) entry.model3dUrl = item.model3dUrl
-      if (typeof item.settings?.prompt === 'string') {
-        entry.settings = { prompt: item.settings.prompt }
-      }
+      const settings = slimItemSettings(item.settings)
+      if (Object.keys(settings).length > 0) entry.settings = settings
       return entry
     }),
   }

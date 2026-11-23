@@ -68,6 +68,7 @@ import type {
   TurnHiding,
   TurnLiveStatus,
   TurnPrompt,
+  TurnWorkflowHint,
   TurnResultPart,
   TurnSummary,
 } from '@/lib/turnTypes'
@@ -451,6 +452,32 @@ function audioHint(audio: PendingAudio & { engine?: string }): TurnHint {
   }
 }
 
+/**
+ * The media workflows a chat or agent turn's tools ran, for its header: an
+ * artifact names the workflow it came from, so the header can say it without
+ * expanding the Turn. A run still in flight already carries the name, because
+ * the runner stamps every item with its preset when the run registers.
+ */
+function turnWorkflowHints(artifacts: readonly TurnArtifact[]): TurnWorkflowHint[] | undefined {
+  const byPreset = new Map<string, { icon: 'image' | 'video'; variants: Set<string> }>()
+  for (const artifact of artifacts) {
+    const { preset, variant } = artifact.item.settings ?? {}
+    if (typeof preset !== 'string' || !preset) continue
+    const entry = byPreset.get(preset) ?? {
+      icon: artifact.mediaType === 'video' ? ('video' as const) : ('image' as const),
+      variants: new Set<string>(),
+    }
+    if (typeof variant === 'string' && variant) entry.variants.add(variant)
+    byPreset.set(preset, entry)
+  }
+  if (byPreset.size === 0) return undefined
+  return [...byPreset.entries()].map(([preset, { icon, variants }]) => ({
+    preset,
+    icon,
+    ...(variants.size === 1 ? { variant: [...variants][0] } : {}),
+  }))
+}
+
 /** Answers arrive after their Turn opens, so hint, sections and footer are read last. */
 function withAnswers(
   turns: TimelineTurn[],
@@ -810,6 +837,8 @@ function withArtifacts(
       turn.audioArtifacts = turn.answers.flatMap((answer) =>
         answer.parts.flatMap((part) => ttsToolArtifacts(part, deletedUrls)),
       )
+      const workflows = turnWorkflowHints(turn.artifacts)
+      if (workflows) turn.details = { ...turn.details, workflows }
     }
     if (turn.kind === 'media') {
       turn.artifacts = turnArtifacts(turn.media.items, deletedUrls, turn.media.error)

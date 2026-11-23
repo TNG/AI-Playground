@@ -13,6 +13,17 @@
         </p>
         <span class="text-xs text-muted-foreground" aria-hidden="true">·</span>
         <SessionTurnHint :hint="hint" />
+        <template v-for="workflow in details.workflows ?? []" :key="workflow.preset">
+          <span class="text-xs text-muted-foreground" aria-hidden="true">·</span>
+          <SessionTurnHint
+            :hint="{
+              kind: 'workflow',
+              icon: workflow.icon,
+              preset: workflow.preset,
+              ...(workflow.variant ? { detail: workflow.variant } : {}),
+            }"
+          />
+        </template>
         <template v-if="turnDetailsShown(details)">
           <span class="text-xs text-muted-foreground" aria-hidden="true">·</span>
           <CollapsibleTrigger as-child>

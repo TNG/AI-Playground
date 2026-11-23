@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import os from 'node:os'
-import type { ComfyUiPreset } from '@/lib/presetSchemas'
+import type { ComfyInput, ComfyUiPreset } from '@/lib/presetSchemas'
 import type { ArtifactRunResult } from '../../artifact/runner'
 
 // runInProcessComfyTool is the funnel every agent / chat / specialist media
@@ -79,6 +79,60 @@ function createRequest(args: Record<string, unknown>) {
 function submittedParams(): Record<string, unknown> {
   const payload = submitArtifactRunMock.mock.calls[0][0] as { params: Record<string, unknown> }
   return payload.params
+}
+
+function submittedInputs(): Array<{ label: string; current: unknown }> {
+  const payload = submitArtifactRunMock.mock.calls[0][0] as {
+    inputs: Array<{ label: string; current: unknown }>
+  }
+  return payload.inputs
+}
+
+function comfyInputFixture(overrides: Partial<ComfyInput> & { label: string }): ComfyInput {
+  return {
+    type: 'string',
+    nodeTitle: 'Node',
+    nodeInput: 'value',
+    displayed: true,
+    modifiable: true,
+    ...overrides,
+  } as ComfyInput
+}
+
+/** A preset with the inputs the dynamic-inputs tests merge against. */
+function installInputCatalog() {
+  installCatalog([
+    comfyPresetFixture({
+      name: 'P',
+      settings: [
+        comfyInputFixture({
+          label: 'Guidance Scale',
+          type: 'number',
+          nodeInput: 'guidance',
+          defaultValue: 7,
+          min: 1,
+          max: 20,
+        }),
+        comfyInputFixture({
+          label: 'Sampling Method',
+          nodeInput: 'sampler',
+          options: ['euler', 'dpmpp_2m'],
+          defaultValue: 'euler',
+        }),
+        comfyInputFixture({
+          label: 'Device',
+          nodeTitle: 'OpenVINO Upscale',
+          nodeInput: 'device',
+          defaultValue: 'AUTO',
+        }),
+        comfyInputFixture({ label: 'Image', type: 'image' }),
+      ],
+    }),
+  ])
+}
+
+function currentOf(label: string): unknown {
+  return submittedInputs().find((i) => i.label === label)?.current
 }
 
 beforeEach(() => {
@@ -273,5 +327,94 @@ describe('runInProcessComfyTool size snapping', () => {
 
     expect(output.size).toBeUndefined()
     expect(output.sizeNotice).toBeUndefined()
+  })
+})
+
+describe('runInProcessComfyTool dynamicInputs', () => {
+  it('applies label-keyed overrides, matching labels and option values case-insensitively', async () => {
+    installInputCatalog()
+
+    const output = (await runInProcessComfyTool(
+      createRequest({
+        workflow: 'P',
+        prompt: 'a cat',
+        dynamicInputs: { 'guidance scale': 12, 'Sampling Method': 'DPMPP_2M' },
+      }),
+    )) as Record<string, unknown>
+
+    expect(currentOf('Guidance Scale')).toBe(12)
+    expect(currentOf('Sampling Method')).toBe('dpmpp_2m')
+    expect(output.inputsNotice).toBeUndefined()
+  })
+
+  it('clamps an out-of-range number and reports the adjustment', async () => {
+    installInputCatalog()
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', dynamicInputs: { 'Guidance Scale': 100 } }),
+    )) as Record<string, unknown>
+
+    expect(currentOf('Guidance Scale')).toBe(20)
+    expect(output.inputsNotice).toContain('"Guidance Scale"')
+    expect(output.inputsNotice).toContain('20')
+  })
+
+  it('ignores unknown labels and values outside the options, and reports both', async () => {
+    installInputCatalog()
+
+    const output = (await runInProcessComfyTool(
+      createRequest({
+        workflow: 'P',
+        prompt: 'a cat',
+        dynamicInputs: { Nope: 1, 'Sampling Method': 'bogus' },
+      }),
+    )) as Record<string, unknown>
+
+    expect(currentOf('Guidance Scale')).toBe(7)
+    expect(currentOf('Sampling Method')).toBe('euler')
+    expect(output.inputsNotice).toContain('"Nope" is not an input of this workflow')
+    expect(output.inputsNotice).toContain('"Sampling Method"')
+    expect(output.inputsNotice).toContain('euler, dpmpp_2m')
+  })
+
+  it('never lets the prompt choose the inference device or an image input', async () => {
+    installInputCatalog()
+
+    const output = (await runInProcessComfyTool(
+      createRequest({
+        workflow: 'P',
+        prompt: 'a cat',
+        dynamicInputs: { Device: 'GPU', Image: 'data:image/png;base64,aGk=' },
+      }),
+    )) as Record<string, unknown>
+
+    expect(currentOf('Device')).toBe('AUTO')
+    expect(currentOf('Image')).toBeUndefined()
+    expect(output.inputsNotice).toContain('inference device')
+    expect(output.inputsNotice).toContain('"Image" cannot be set via the prompt')
+  })
+
+  it('keeps the preset-declared input defaults when none are passed', async () => {
+    installInputCatalog()
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat' }),
+    )) as Record<string, unknown>
+
+    expect(currentOf('Guidance Scale')).toBe(7)
+    expect(currentOf('Sampling Method')).toBe('euler')
+    expect(currentOf('Device')).toBe('AUTO')
+    expect(output.inputsNotice).toBeUndefined()
+  })
+
+  it('omits the notice when the run does not complete', async () => {
+    installInputCatalog()
+    submitArtifactRunMock.mockResolvedValue({ state: 'cancelled', items: [] } as ArtifactRunResult)
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', dynamicInputs: { Nope: 1 } }),
+    )) as Record<string, unknown>
+
+    expect(output.inputsNotice).toBeUndefined()
   })
 })

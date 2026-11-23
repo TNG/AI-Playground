@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import {
+  describeWorkflowInputs,
+  dynamicInputsSchema,
+  promptSelectableInputs,
+  type PromptInputSummary,
+} from '@/lib/comfyPromptInputs'
 import { tool } from 'ai'
-import { usePresets, type Preset } from '../store/presets'
+import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
 import { DEV_PRESET_NAMES, dummyWorkflowsOnly } from '../store/devPresets'
 import type { WorkflowSettings } from './comfyUi'
@@ -56,6 +62,7 @@ export function getAvailableEditWorkflows(isEnabled?: (presetName: string) => bo
   mediaType?: 'image' | 'video' | 'model3d'
   description?: string
   toolInstructions?: string
+  promptInputs?: PromptInputSummary[]
 }> {
   const presets = usePresets()
   const textInference = useTextInference()
@@ -74,6 +81,7 @@ export function getAvailableEditWorkflows(isEnabled?: (presetName: string) => bo
       mediaType: p.mediaType,
       description: p.description,
       toolInstructions: p.toolInstructions,
+      promptInputs: promptSelectableInputs(p as ComfyUiPreset),
     }))
 }
 
@@ -199,7 +207,9 @@ function getToolDefinition(settings?: WorkflowSettings) {
 
   description += 'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, '
   description += 'negative prompt), pass them in the corresponding parameters — never bake them '
-  description += 'into the prompt text. Only some edit workflows are size- or step-driven; '
+  description += 'into the prompt text. A named workflow input (see WORKFLOW INPUTS) goes in '
+  description += 'dynamicInputs, keyed by its label. '
+  description += 'Only some edit workflows are size- or step-driven; '
   description +=
     'workflows without those settings ignore the parameters. If the user asks for an exact '
   description +=
@@ -207,6 +217,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
   description +=
     'to other parameters. Every completed result reports the size actually used in "size"; when '
   description += 'it differs from what the user asked for, tell them which size was used.\n\n'
+  description += describeWorkflowInputs(workflows)
 
   description += `Available edit workflows: ${workflowOptions}`
 
@@ -262,6 +273,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
         .describe(
           'Random seed for reproducible generation. Use -1 for random seed. Only specify if user wants to reproduce a specific result.',
         ),
+      dynamicInputs: dynamicInputsSchema,
     }),
   }
 }

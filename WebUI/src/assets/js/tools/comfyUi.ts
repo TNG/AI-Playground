@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { repairWorkflowToolInput } from '@/lib/comfyToolRepair'
+import {
+  describeWorkflowInputs,
+  dynamicInputsSchema,
+  promptSelectableInputs,
+  type PromptInputSummary,
+} from '@/lib/comfyPromptInputs'
 import type { MediaToolSettings } from '@/lib/mediaToolSettings'
 import { usePresets, type Preset, type ComfyUiPreset } from '../store/presets'
 import { useTextInference } from '../store/textInference'
@@ -16,6 +22,7 @@ export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolea
   mediaType?: 'image' | 'video' | 'model3d'
   description?: string
   toolInstructions?: string
+  promptInputs?: PromptInputSummary[]
   resolutions?: Array<{
     width: number
     height: number
@@ -54,6 +61,7 @@ export function getAvailableWorkflows(isEnabled?: (presetName: string) => boolea
         mediaType: preset.mediaType,
         description: preset.description,
         toolInstructions: preset.toolInstructions,
+        promptInputs: promptSelectableInputs(comfyPreset),
         resolutions,
       }
     })
@@ -282,6 +290,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
         batchSize: z
           .number()
           .describe('Number of images to generate. Use 1 if not explicitly specified by the user.'),
+        dynamicInputs: dynamicInputsSchema,
       }),
     }
   }
@@ -335,7 +344,8 @@ function getToolDefinition(settings?: WorkflowSettings) {
   description +=
     'CRITICAL: Do NOT include resolution, aspect ratio, dimensions, or size information in the prompt text itself. These should ONLY be passed as separate parameters (aspectRatio, megapixels, or resolution).\n\n'
   description +=
-    'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, negative prompt, batch size), pass them in the corresponding parameters — never bake them into the prompt text.\n\n'
+    'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, negative prompt, batch size), pass them in the corresponding parameters — never bake them into the prompt text. A named workflow input (see WORKFLOW INPUTS) goes in dynamicInputs, keyed by its label.\n\n'
+  description += describeWorkflowInputs(availableWorkflows)
 
   // Add preset-specific instructions if available
   if (presetsWithInstructions.length > 0) {
@@ -422,6 +432,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
       batchSize: z
         .number()
         .describe('Number of images to generate. Use 1 if not explicitly specified by the user.'),
+      dynamicInputs: dynamicInputsSchema,
     }),
   }
 }

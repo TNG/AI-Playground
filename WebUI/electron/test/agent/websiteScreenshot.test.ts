@@ -174,7 +174,7 @@ vi.mock('../../agent/piWorkspaceRuntime.ts', () => ({
 }))
 
 const { webScreenshotCapability } = await import('../../agent/capabilities/webScreenshot.ts')
-const { closeAllBrowserSessions } = await import('../../agent/agentBrowser.ts')
+const { closeAllBrowserSessions, savedScreenshotText } = await import('../../agent/agentBrowser.ts')
 
 type Tool = {
   name: string
@@ -262,7 +262,7 @@ describe('the webScreenshot tool', () => {
     const files = pngFiles(workspace)
     expect(files).toHaveLength(1)
     expect(fs.statSync(path.join(workspace, files[0])).size).toBe(PNG.length)
-    expect(text(result)).toBe(`Saved screenshot to ${files[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(files[0]))
     expect(result.details).toBeUndefined()
     expect(instances[0].webContents.loadURL).toHaveBeenCalledWith('https://example.com/page')
     expect(instances[0].sendCommand).toHaveBeenCalledWith('Page.captureScreenshot', {
@@ -396,7 +396,7 @@ describe('the webScreenshot tool', () => {
     })
     const files = pngFiles(workspace)
     expect(files).toHaveLength(1)
-    expect(text(result)).toBe(`Saved screenshot to ${files[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(files[0]))
     // The quote rides inside the fixed script as JSON data, never compiled.
     const calls = instances[0].webContents.executeJavaScript.mock.calls
     expect(calls[calls.length - 1][0]).toContain('"Pricing"')
@@ -644,7 +644,7 @@ describe('the webScreenshot tool', () => {
     const saved = fs.readdirSync(path.join(workspace, 'generated'))
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatch(/^screenshot-\d+\.png$/)
-    expect(text(result)).toBe(`Saved screenshot to generated/${saved[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(`generated/${saved[0]}`))
     expect(pngFiles(workspace)).toHaveLength(0)
   })
 })

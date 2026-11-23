@@ -72,7 +72,7 @@ vi.mock('../../agent/piRuntime.ts', () => ({
 }))
 
 const { webDebugCapability } = await import('../../agent/capabilities/webDebug.ts')
-const { closeAllBrowserSessions } = await import('../../agent/agentBrowser.ts')
+const { closeAllBrowserSessions, savedScreenshotText } = await import('../../agent/agentBrowser.ts')
 
 type Tool = {
   name: string
@@ -141,7 +141,7 @@ describe('the Web debugging screenshot action', () => {
     const files = pngFiles(workspace)
     expect(files).toHaveLength(1)
     expect(fs.statSync(path.join(workspace, files[0])).size).toBe(PNG.length)
-    expect(text(result)).toBe(`Saved screenshot to ${files[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(files[0]))
     expect(result.details).toBeUndefined()
     expect(fs.existsSync(path.join(workspace, 'generated'))).toBe(false)
   })
@@ -156,7 +156,7 @@ describe('the Web debugging screenshot action', () => {
     const files = pngFiles(workspace)
     expect(files).toHaveLength(1)
     expect(fs.statSync(path.join(workspace, files[0])).size).toBeGreaterThan(0)
-    expect(text(result)).toBe(`Saved screenshot to ${files[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(files[0]))
   })
 
   it('refuses a screenshot when no page is open, telling the model to open one', async () => {
@@ -263,7 +263,7 @@ describe('the Web debugging screenshot action', () => {
     const saved = fs.readdirSync(path.join(workspace, 'generated'))
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatch(/^screenshot-\d+\.png$/)
-    expect(text(result)).toBe(`Saved screenshot to generated/${saved[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(`generated/${saved[0]}`))
     expect(result.details).toBeUndefined()
     expect(pngFiles(workspace)).toHaveLength(0)
     expect(send).toHaveBeenCalledWith(

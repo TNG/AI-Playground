@@ -70,7 +70,7 @@ vi.mock('../../agent/piRuntime.ts', () => ({
 }))
 
 const { webDebugCapability } = await import('../../agent/capabilities/webDebug.ts')
-const { closeAllBrowserSessions } = await import('../../agent/agentBrowser.ts')
+const { closeAllBrowserSessions, savedScreenshotText } = await import('../../agent/agentBrowser.ts')
 const { onGeneratedMedia } = await import('../../agent/generatedMedia.ts')
 
 type Tool = {
@@ -151,7 +151,7 @@ describe('the Web debugging screenshot as generated media', () => {
 
     const saved = pngFiles(workspace)
     expect(saved).toHaveLength(1)
-    expect(text(result)).toBe(`Saved screenshot to ${saved[0]}`)
+    expect(text(result)).toBe(savedScreenshotText(saved[0]))
     expect(notes).toEqual([{ workspaceDir: workspace, relativePaths: [saved[0]] }])
   })
 

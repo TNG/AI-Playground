@@ -179,6 +179,15 @@ async function saveScreenshotPng(workspaceDir: string, png: Buffer): Promise<str
   return inGame ? path.posix.join('generated', filename) : filename
 }
 
+// Models otherwise embed the path as a markdown image, which the chat cannot load.
+/** The model-facing report of a saved capture, shared by both screenshot tools. */
+export function savedScreenshotText(relativePath: string): string {
+  return (
+    `Saved screenshot to ${relativePath}. The user already sees this picture in the chat, ` +
+    'so refer to it by this path only — do not embed it as a markdown image or link.'
+  )
+}
+
 export type BrowserToolInput = {
   action: 'open' | 'console' | 'eval' | 'screenshot' | 'probe'
   url?: string
@@ -303,7 +312,7 @@ export async function runBrowserAction(
         }
       }
       const relativePath = await saveScreenshotPng(workspaceDir, png)
-      return { text: `Saved screenshot to ${relativePath}`, screenshotPath: relativePath }
+      return { text: savedScreenshotText(relativePath), screenshotPath: relativePath }
     }
     default:
       throw new Error(`Unknown browser action: ${String((input as BrowserToolInput).action)}`)
@@ -510,7 +519,7 @@ export async function captureWebsite(
       }
     }
     const relativePath = await saveScreenshotPng(workspaceDir, png)
-    return { text: `Saved screenshot to ${relativePath}`, screenshotPath: relativePath }
+    return { text: savedScreenshotText(relativePath), screenshotPath: relativePath }
   } finally {
     if (overrideSet) {
       try {

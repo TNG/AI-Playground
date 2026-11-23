@@ -27,7 +27,6 @@ import {
   sortEntries,
   type ModelLibraryFilters,
   type ModelSort,
-  type ModelSortKey,
   type RequiredModelInput,
   type SpeechModelInput,
 } from '../models/library'
@@ -290,11 +289,8 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     pruneSelection()
   }
 
-  function toggleSortKey(key: ModelSortKey) {
-    sort.value =
-      sort.value.key === key
-        ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
+  function setSort(next: ModelSort) {
+    sort.value = { ...next }
   }
 
   function pruneSelection() {
@@ -471,7 +467,7 @@ export const useModelLibrary = defineStore('modelLibrary', () => {
     refresh,
     setFilters,
     resetFilters,
-    toggleSortKey,
+    setSort,
     toggleSelected,
     toggleSelectAllVisible,
     clearSelection,

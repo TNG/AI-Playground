@@ -102,14 +102,14 @@ test('the model library lists, filters and round-trips a model through download,
     expect(await app.models.rows.count()).toBe(1)
   })
 
-  await test.step('A search that matches nothing empties the table', async () => {
+  await test.step('A search that matches nothing empties the list', async () => {
     await app.models.search('no-such-model-anywhere')
     await app.models.expectRowAbsent(target.label)
     expect(await app.models.rows.count()).toBe(0)
     await app.models.search('')
   })
 
-  await test.step('The use-case sidebar filters to one kind of model', async () => {
+  await test.step('The use-case chips filter to one kind of model', async () => {
     await app.models.selectUseCase('Embedding')
     const labels = await app.models.visibleLabels()
     expect(labels.length).toBeGreaterThan(0)
@@ -175,6 +175,7 @@ test('the model library lists, filters and round-trips a model through download,
   })
 
   await test.step('Selecting a downloadable model enables only the download action', async () => {
+    await expect(app.models.rowDownloadButton(target.label)).toBeVisible()
     await app.models.select(target.label)
     await expect(app.models.downloadSelectedButton).toBeEnabled()
     // Nothing selected is on disk, so deletion stays unavailable.
@@ -195,6 +196,7 @@ test('the model library lists, filters and round-trips a model through download,
     )
     expect(outcome).toBe('downloaded')
     await app.models.expectDownloaded(target.label, true, 60_000)
+    await expect(app.models.rowDownloadButton(target.label)).toHaveCount(0)
   })
 
   await app.models.close()

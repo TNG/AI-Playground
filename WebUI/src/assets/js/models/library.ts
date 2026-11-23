@@ -575,6 +575,43 @@ export function useCaseLabel(useCase: ModelUseCase, locale: ModelLibraryLocale):
   return locale.strings[USE_CASE_LABEL_KEYS[useCase]] ?? ''
 }
 
+/** Everything before the file name, i.e. the repository the model came from. */
+function repositoryOf(name: string): string {
+  const segments = name.split('/')
+  return segments.length > 1 ? segments.slice(0, -1).join('/') : ''
+}
+
+/**
+ * A row's second line. The label is only the file name and different repos ship
+ * files with the same name (two `ae.safetensors`), so the repository is what
+ * tells them apart; the use case is named only where rows of several are listed.
+ */
+export function modelDetailsLine(
+  entry: ModelEntry,
+  category: ModelCategory,
+  locale: ModelLibraryLocale,
+  now = Date.now(),
+): string {
+  return [
+    category === 'all' || category === 'favorites' ? useCaseLabel(entry.useCase, locale) : '',
+    repositoryOf(entry.name),
+    BACKEND_LABELS[entry.serviceBackend],
+    entry.sizeBytes !== undefined ? formatBytes(entry.sizeBytes) : '',
+    entry.downloaded && entry.modifiedAt !== undefined
+      ? formatModifiedAt(entry.modifiedAt, locale, now)
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** A widely shared model can be required by a dozen presets; the row names two. */
+export function usedBySummary(requiredBy: string[]): string {
+  const [first, second, ...rest] = requiredBy
+  const shown = [first, second].filter(Boolean).join(', ')
+  return rest.length > 0 ? `${shown} +${rest.length}` : shown
+}
+
 /**
  * Not translated: every one of these is the product name of the service that runs
  * the weights, so it reads the same in every language.

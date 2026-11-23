@@ -6,8 +6,9 @@ import { type Locator, type Page, expect } from '@playwright/test'
  * Inferencing tab.
  *
  * Everything is located by role + accessible name, so the ARIA the app carries is
- * what this drives: the tab is a `tabpanel` named "Model Library", each row's action
- * menu is `<label> actions`, and the row checkboxes are `Select <label>`.
+ * what this drives: the tab is a `tabpanel` named "Model Library", each model is a
+ * `listitem` named after its label, its action menu is `<label> actions`, and its
+ * checkbox is `Select <label>`.
  */
 export class ModelManagerPage {
   constructor(private readonly page: Page) {}
@@ -18,6 +19,10 @@ export class ModelManagerPage {
 
   private get overlay(): Locator {
     return this.settingsDialog.getByRole('tabpanel', { name: 'Model Library', exact: true })
+  }
+
+  private get list(): Locator {
+    return this.overlay.getByRole('list', { name: 'Model Library', exact: true })
   }
 
   private get openButton(): Locator {
@@ -38,18 +43,14 @@ export class ModelManagerPage {
     return this.overlay.getByRole('group', { name: 'Status' }).getByRole('button')
   }
 
-  /** A row, matched by the model's visible label (its file name). */
+  /** A row, matched by the model's label (its file name). */
   row(label: string): Locator {
-    return this.overlay.getByRole('row').filter({ hasText: label })
+    return this.list.getByRole('listitem', { name: label, exact: true })
   }
 
-  /**
-   * Model rows currently rendered. Filtered on having a `cell`, which excludes the
-   * header row — its cells are `columnheader`s, and it carries a select-all
-   * checkbox of its own, so filtering on the checkbox would count it as a model.
-   */
+  /** Model rows currently rendered. */
   get rows(): Locator {
-    return this.overlay.getByRole('row').filter({ has: this.page.getByRole('cell') })
+    return this.list.getByRole('listitem')
   }
 
   /** Open the library. Idempotent — a second call with it already open is a no-op. */
@@ -71,12 +72,12 @@ export class ModelManagerPage {
     return this.overlay.isVisible().catch(() => false)
   }
 
-  /** Narrow the table to models whose file name contains `text`. */
+  /** Narrow the list to models whose file name contains `text`. */
   async search(text: string): Promise<void> {
     await this.searchBox.fill(text)
   }
 
-  /** Pick a use case in the left sidebar ("All", "LLM", "Embedding", …). */
+  /** Pick a use-case chip ("All", "LLM", "Embedding", …). */
   async selectUseCase(useCase: string): Promise<void> {
     await this.overlay
       .getByRole('navigation', { name: 'Model use cases' })
@@ -96,6 +97,11 @@ export class ModelManagerPage {
       .click()
   }
 
+  /** A not-downloaded row's own download button; absent once the model is on disk. */
+  rowDownloadButton(label: string): Locator {
+    return this.row(label).getByRole('button', { name: `Download ${label}`, exact: true })
+  }
+
   /** The batch download icon button, disabled until something downloadable is selected. */
   get downloadSelectedButton(): Locator {
     return this.overlay.getByRole('button', { name: 'Download selected' })
@@ -106,18 +112,12 @@ export class ModelManagerPage {
     return this.overlay.getByRole('button', { name: 'Delete selected' })
   }
 
-  /**
-   * The label of every row currently listed, top to bottom. Read per row rather
-   * than as one flattened cell list, which would collapse to a single match.
-   * The model cell also carries the repository and "Used by" lines, so only its
-   * first line is the label.
-   */
+  /** The label of every row currently listed, top to bottom: each row is named after it. */
   async visibleLabels(): Promise<string[]> {
     const count = await this.rows.count()
     const labels: string[] = []
     for (let index = 0; index < count; index++) {
-      const cell = this.rows.nth(index).getByRole('cell').nth(2)
-      labels.push((await cell.innerText()).split('\n')[0]!.trim())
+      labels.push((await this.rows.nth(index).getAttribute('aria-label')) ?? '')
     }
     return labels
   }
@@ -130,27 +130,16 @@ export class ModelManagerPage {
     await expect(this.row(label)).toHaveCount(0)
   }
 
-  /**
-   * A row's status cell ("On disk" / "Not downloaded"). Read from its own cell
-   * rather than the whole row, whose text also carries the repo, the "Used by"
-   * line and the size.
-   */
-  private statusCell(label: string): Locator {
-    // Column order (ModelLibraryTable.vue): select, favorite, model, use case,
-    // backend, size, modified, status, actions.
-    return this.row(label).getByRole('cell').nth(7)
-  }
-
   /** True when the model's files are on disk. */
   async isDownloaded(label: string): Promise<boolean> {
-    return (await this.statusCell(label).innerText()).trim() === 'On disk'
+    return this.row(label).getByText('On disk', { exact: true }).isVisible()
   }
 
   /** Wait for the row to report the expected on-disk state (downloads/deletes are async). */
   async expectDownloaded(label: string, downloaded: boolean, timeout = 30_000): Promise<void> {
-    await expect(this.statusCell(label)).toHaveText(downloaded ? 'On disk' : 'Not downloaded', {
-      timeout,
-    })
+    await expect(
+      this.row(label).getByText(downloaded ? 'On disk' : 'Not downloaded', { exact: true }),
+    ).toBeVisible({ timeout })
   }
 
   /** Open a row's "…" action menu and return it, so callers can pick an item. */

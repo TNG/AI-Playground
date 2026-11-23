@@ -266,6 +266,12 @@ function getToolDefinition(settings?: WorkflowSettings) {
           .describe(
             `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${defaultResolutionExamples}. The closest valid resolution will be selected.`,
           ),
+        inferenceSteps: z
+          .number()
+          .optional()
+          .describe(
+            'Number of inference steps. Only specify when the user explicitly asks for a specific number of steps.',
+          ),
         seed: z
           .number()
           .optional()
@@ -319,6 +325,8 @@ function getToolDefinition(settings?: WorkflowSettings) {
     'When user asks for specific aspect ratio (e.g., "16:9", "widescreen", "landscape"), set aspectRatio accordingly.\n\n'
   description +=
     'CRITICAL: Do NOT include resolution, aspect ratio, dimensions, or size information in the prompt text itself. These should ONLY be passed as separate parameters (aspectRatio, megapixels, or resolution).\n\n'
+  description +=
+    'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, negative prompt, batch size), pass them in the corresponding parameters — never bake them into the prompt text.\n\n'
 
   // Add preset-specific instructions if available
   if (presetsWithInstructions.length > 0) {
@@ -390,6 +398,12 @@ function getToolDefinition(settings?: WorkflowSettings) {
           'Megapixel tier for image quality/size. Options: "0.25" (small/fast), "0.5" (medium), "0.8", "1.0" (HD), "1.2", "1.5" (high-res/slower). Use with aspectRatio parameter.',
         ),
       resolution: z.string().optional().describe(resolutionDescription),
+      inferenceSteps: z
+        .number()
+        .optional()
+        .describe(
+          'Number of inference steps. Only specify when the user explicitly asks for a specific number of steps.',
+        ),
       seed: z
         .number()
         .optional()

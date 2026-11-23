@@ -62,6 +62,8 @@ const MEDIA_AGENT_SYSTEM = [
   '  that instead of picking another.',
   '- Expand terse prompts into detailed, high-quality generation prompts (subject, composition,',
   '  style, lighting, mood, quality tags).',
+  '- Pass any concrete settings the request mentions (steps, resolution, seed, negative prompt,',
+  '  batch size) in the corresponding tool parameters, never inside the prompt text.',
   '- If a tool call fails with an actionable error, correct the parameters and retry once;',
   '  otherwise stop and report the failure.',
   '- If the user declined a model download, never call that workflow again: use another',

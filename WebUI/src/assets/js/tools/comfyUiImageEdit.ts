@@ -197,6 +197,11 @@ function getToolDefinition(settings?: WorkflowSettings) {
   }
   description += '\n\n'
 
+  description += 'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, '
+  description += 'negative prompt), pass them in the corresponding parameters — never bake them '
+  description += 'into the prompt text. Only some edit workflows are size- or step-driven; '
+  description += 'workflows without those settings ignore the parameters.\n\n'
+
   description += `Available edit workflows: ${workflowOptions}`
 
   const workflowNames = workflows.map((w) => w.name) as [string, ...string[]]
@@ -221,6 +226,30 @@ function getToolDefinition(settings?: WorkflowSettings) {
         ),
       prompt: z.string().describe('Description of the edit to apply to the image.'),
       negativePrompt: z.string().optional().describe('Things to avoid in the edit'),
+      aspectRatio: z
+        .string()
+        .optional()
+        .describe(
+          'Aspect ratio for the output, when the workflow supports resizing. Options: "1/1" (square), "16/9" (widescreen/landscape), "9/16" (portrait/vertical), "3/2", "2/3", "4/3", "3/4", "21/9" (ultra-wide), "9/21". Use with megapixels parameter.',
+        ),
+      megapixels: z
+        .string()
+        .optional()
+        .describe(
+          'Megapixel tier for output quality/size (e.g. "0.25", "0.5", "1.0", "1.5"). Use with aspectRatio parameter.',
+        ),
+      resolution: z
+        .string()
+        .optional()
+        .describe(
+          'Direct resolution in WxH format (alternative to aspectRatio+megapixels). The closest valid resolution will be selected when the workflow constrains sizes.',
+        ),
+      inferenceSteps: z
+        .number()
+        .optional()
+        .describe(
+          'Number of inference steps. Only specify when the user explicitly asks for a specific number of steps.',
+        ),
       seed: z
         .number()
         .optional()

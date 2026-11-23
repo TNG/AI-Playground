@@ -4,6 +4,7 @@ import type { ArtifactRunResult } from './runner.ts'
 import { resolveComfyEntry, type PresetCatalog } from './catalog.ts'
 import type { ComfyInput, ComfyUiPreset, Preset } from '@/lib/presetSchemas'
 import { OPTIONAL_MODEL_NONE } from '@/lib/comfyWorkflow'
+import { FALLBACK_PARAMS, presetDefault, presetDefaultResolution } from '@/lib/comfyParamDefaults'
 import {
   DEFAULT_RESOLUTION_CONFIG,
   findClosestResolutionInConfig,
@@ -240,8 +241,21 @@ export async function runInProcessComfyTool(
   }
 
   const isEdit = request.kind === 'edit'
-  const { width, height } = isEdit ? {} : resolveSize(preset, request.args)
-  const prompt = typeof request.args.prompt === 'string' ? request.args.prompt : ''
+  // Size resolution runs for edits too: a size passed by the model reaches
+  // workflows that have width/height settings and is a no-op on the rest.
+  const { width, height } = resolveSize(preset, request.args)
+  const prompt =
+    typeof request.args.prompt === 'string'
+      ? request.args.prompt
+      : ((presetDefault(preset, 'prompt') as string | undefined) ?? '')
+  const [defaultWidth, defaultHeight] = presetDefaultResolution(preset)
+  const mediaType = preset.mediaType ?? 'image'
+  // Same chain as the panel path (runArtifact.resolveParams): model-passed
+  // value → preset-declared default → last-resort fallback, so an agent run of
+  // a preset runs with the settings the preset itself declares.
+  const requestedBatch =
+    (typeof request.args.batchSize === 'number' ? request.args.batchSize : undefined) ??
+    (presetDefault(preset, 'batchSize') as number | undefined)
 
   const payload = {
     runId: randomUUID(),
@@ -250,17 +264,25 @@ export async function runInProcessComfyTool(
     params: {
       prompt,
       negativePrompt:
-        typeof request.args.negativePrompt === 'string' ? request.args.negativePrompt : 'nsfw',
-      seed: typeof request.args.seed === 'number' ? request.args.seed : -1,
+        typeof request.args.negativePrompt === 'string'
+          ? request.args.negativePrompt
+          : ((presetDefault(preset, 'negativePrompt') as string | undefined) ??
+            FALLBACK_PARAMS.negativePrompt),
+      seed:
+        typeof request.args.seed === 'number'
+          ? request.args.seed
+          : ((presetDefault(preset, 'seed') as number | undefined) ?? FALLBACK_PARAMS.seed),
       inferenceSteps:
-        typeof request.args.inferenceSteps === 'number' ? request.args.inferenceSteps : 6,
-      width: width ?? 512,
-      height: height ?? 512,
-      batchSize: isEdit
-        ? 1
-        : typeof request.args.batchSize === 'number'
-          ? request.args.batchSize
-          : 1,
+        typeof request.args.inferenceSteps === 'number'
+          ? request.args.inferenceSteps
+          : ((presetDefault(preset, 'inferenceSteps') as number | undefined) ??
+            FALLBACK_PARAMS.inferenceSteps),
+      width: width ?? defaultWidth ?? FALLBACK_PARAMS.width,
+      height: height ?? defaultHeight ?? FALLBACK_PARAMS.height,
+      // Batching only makes sense for image creates; video and 3D are
+      // expensive and a single result is expected, so batch is forced to 1.
+      batchSize:
+        isEdit || mediaType !== 'image' ? 1 : Number(requestedBatch ?? FALLBACK_PARAMS.batchSize),
     },
     inputs: resolveInputs(preset, isEdit ? request.source : undefined),
     source: isEdit ? request.source : undefined,

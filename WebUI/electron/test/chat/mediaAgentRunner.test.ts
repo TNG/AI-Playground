@@ -213,7 +213,25 @@ describe('runMediaAgentInMain', () => {
     })
   })
 
-  it('coerces a bogus workflow to the default via the shipped repair data', async () => {
+  it('fills the default workflow when the model sends a blank one', async () => {
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: '' }, 'c1')
+        return textResponse('Done.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    await runMediaAgentInMain(runRequest())
+
+    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
+      args: { workflow: 'W1' },
+    })
+  })
+
+  it('fails a named-but-unknown workflow visibly instead of coercing it to the default', async () => {
     let call = 0
     const model = new MockLanguageModelV3({
       doStream: async () => {
@@ -226,9 +244,11 @@ describe('runMediaAgentInMain', () => {
 
     await runMediaAgentInMain(runRequest())
 
-    expect(runInProcessComfyToolMock.mock.calls[0][0]).toMatchObject({
-      args: { workflow: 'W1' },
-    })
+    expect(runInProcessComfyToolMock).not.toHaveBeenCalled()
+    const followUp = JSON.stringify(model.doStreamCalls[1].prompt)
+    expect(followUp).toContain('Invalid workflow')
+    expect(followUp).toContain('bogus')
+    expect(followUp).toContain('Valid workflows: W1')
   })
 
   it("ships the turn's enabled workflows with each inner call, so main can refuse others", async () => {

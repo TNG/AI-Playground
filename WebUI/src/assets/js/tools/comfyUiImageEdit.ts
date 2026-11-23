@@ -91,11 +91,14 @@ function resolveDefaultEditWorkflow(imageNames: string[], settings?: WorkflowSet
 
 /**
  * Repair a malformed comfyUiImageEdit tool call before execution: if the model
- * omitted `workflow` or sent a value that isn't a known edit workflow, coerce it
- * to the default edit workflow. Returns the repaired args as a JSON string, or
- * null when `workflow` is already valid (nothing to fix) or none exist. Wired
- * into streamText's experimental_repairToolCall so a bad workflow can't surface
- * as an "unknown" tool card / failed edit.
+ * omitted `workflow` or sent a blank value, coerce it to the default edit
+ * workflow. A named-but-unknown workflow is repaired only on a near-match
+ * (case/whitespace) to that same name; anything else is left alone so the
+ * validation error reaches the model and it retries with a valid name.
+ * Returns the repaired args as a JSON string, or null when `workflow` is
+ * already valid (nothing to fix) or none exist. Wired into streamText's
+ * experimental_repairToolCall so a bad workflow can't surface as an
+ * "unknown" tool card / failed edit.
  */
 export function repairEditToolInput(rawInput: string): string | null {
   const data = createEditToolRepairData()
@@ -184,7 +187,8 @@ function getToolDefinition(settings?: WorkflowSettings) {
   }
 
   // Per-output-type defaults: what to reach for unless the user asks otherwise.
-  description += `DEFAULTS: For editing an image, default to "${defaultEditWorkflow}".`
+  description += `DEFAULTS: If the user names a specific workflow, use exactly that workflow — never substitute a default.`
+  description += ` For editing an image, default to "${defaultEditWorkflow}".`
   if (defaultAnimateWorkflow) {
     description += ` To animate an image into a video, default to "${defaultAnimateWorkflow}".`
   }
@@ -197,7 +201,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
 
   const workflowNames = workflows.map((w) => w.name) as [string, ...string[]]
 
-  let workflowDescription = `Edit workflow to use. Available: ${workflowOptions}. Use "${defaultEditWorkflow}" for image edits unless the user explicitly requests a different workflow.`
+  let workflowDescription = `Edit workflow to use. Available: ${workflowOptions}. If the user names a specific workflow, use exactly that one. Use "${defaultEditWorkflow}" for image edits unless the user requests a different workflow.`
   if (defaultAnimateWorkflow) {
     workflowDescription += ` Use "${defaultAnimateWorkflow}" when animating an image into a video.`
   }

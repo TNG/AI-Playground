@@ -52,8 +52,9 @@ const MEDIA_SPEC_DESCRIPTION =
   'Create or transform media (images, videos, 3D models) via a media specialist. Describe the ' +
   'desired result in natural language; the specialist picks the workflow and parameters and ' +
   'can chain steps in one call (e.g. "generate an image of a castle and turn it into a 3D ' +
-  'model"). To transform an existing image, pass its workspace-relative path in ' +
-  '"sourceImagePath".' +
+  'model"). If the user names a specific workflow or preset, include its exact name in the ' +
+  'request — it must be used as asked. To transform an existing image, pass its ' +
+  'workspace-relative path in "sourceImagePath".' +
   GENERATED_FILES_NOTE
 
 function mediaSpecInputSchema(): z.ZodTypeAny {
@@ -63,7 +64,8 @@ function mediaSpecInputSchema(): z.ZodTypeAny {
       .describe(
         'The media request in natural language. Include everything relevant: subject, style, ' +
           'aspect ratio or size wishes, quality level, and any follow-up transformation ' +
-          '(edit / animate / convert to 3D).',
+          '(edit / animate / convert to 3D). If the user names a specific workflow or preset, ' +
+          'include its exact name — the specialist must use it as asked.',
       ),
     sourceImagePath: z
       .string()

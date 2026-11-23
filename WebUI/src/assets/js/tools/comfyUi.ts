@@ -156,9 +156,12 @@ export function resolveDefaultImageWorkflow(
 
 /**
  * Repair a malformed comfyUI (create-image) tool call before execution: if the
- * model omitted `workflow` or sent a value that isn't a known workflow, coerce
- * it to the default image workflow. Returns the repaired args as a JSON string,
- * or null when `workflow` is already valid (nothing to fix) or none exist.
+ * model omitted `workflow` or sent a blank value, coerce it to the default
+ * image workflow. A named-but-unknown workflow is repaired only on a
+ * near-match (case/whitespace) to that same name; anything else is left alone
+ * so the validation error reaches the model and it retries with a valid name.
+ * Returns the repaired args as a JSON string, or null when `workflow` is
+ * already valid (nothing to fix) or none exist.
  * Wired into streamText's experimental_repairToolCall so a bad workflow can't
  * surface as an "unknown" tool card / failed generation.
  */
@@ -231,7 +234,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
         workflow: z
           .enum([defaultWorkflow] as [string, ...string[]])
           .describe(
-            `Workflow name to use for generation. Use ${defaultWorkflow} (default, will automatically use "Fast" variant if available, least resource intensive) unless user specifically requests higher quality or different model.`,
+            `Workflow name to use for generation. Use ${defaultWorkflow} (default, will automatically use "Fast" variant if available, least resource intensive) unless the user names a specific workflow.`,
           ),
         variant: z
           .string()
@@ -327,7 +330,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
   }
 
   description += `Available workflows: ${workflowOptions}. `
-  description += `IMPORTANT: You MUST use '${defaultWorkflow}' (which will automatically use the "Fast" variant, equivalent to '${defaultWorkflowWithVariant}') unless the user explicitly requests higher quality, a different model, or a different media type.\n\n`
+  description += `WORKFLOW CHOICE: If the user names a specific workflow, you MUST use exactly that workflow — never substitute the default. Otherwise use '${defaultWorkflow}' (which will automatically use the "Fast" variant, equivalent to '${defaultWorkflowWithVariant}') unless the user explicitly requests higher quality, a different model, or a different media type.\n\n`
 
   // Add explicit warnings for video workflows
   if (videoWorkflows.length > 0) {
@@ -345,7 +348,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
   )
 
   let workflowDescription = `Workflow name to use for generation. Available options: ${workflowOptions}. `
-  workflowDescription += `Use ${defaultWorkflow} (will automatically use "Fast" variant if available, equivalent to '${defaultWorkflowWithVariant}') unless user specifically requests higher quality or different model. `
+  workflowDescription += `If the user names a specific workflow, use exactly that one. Otherwise use ${defaultWorkflow} (will automatically use "Fast" variant if available, equivalent to '${defaultWorkflowWithVariant}') unless user specifically requests higher quality or different model. `
   if (videoWorkflows.length > 0) {
     workflowDescription += `IMPORTANT: Only use video workflows (${videoWorkflows.map((w) => w.name).join(', ')}) when the user explicitly asks for video generation. Never use video workflows for image requests.`
   }

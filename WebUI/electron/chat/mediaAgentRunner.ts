@@ -134,7 +134,7 @@ function innerComfyTools(
                 error: new Error(
                   `Invalid workflow ${
                     typeof workflow === 'string' ? `"${workflow}"` : '(missing)'
-                  } for ${spec.name}`,
+                  } for ${spec.name}. Valid workflows: ${data.names.join(', ')}`,
                 ),
               }
             },

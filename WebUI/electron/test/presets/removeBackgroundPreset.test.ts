@@ -14,7 +14,7 @@ const modelPaths = JSON.parse(readFileSync(modelConfigPath, 'utf-8')) as Record<
 const workflow = preset.comfyUiApiWorkflow
 
 const sourceOf = (nodeId: string, input: string) => {
-  const link = workflow[nodeId].inputs[input] as [string, number]
+  const link = workflow[nodeId].inputs?.[input] as [string, number]
   return workflow[link[0]]
 }
 
@@ -47,7 +47,7 @@ describe('Remove Background preset', () => {
       (node) => node.class_type === 'LoadBackgroundRemovalModel',
     )!
 
-    expect(loader.inputs.bg_removal_name).toBe(
+    expect(loader.inputs?.bg_removal_name).toBe(
       requiredModelToComfyUIName(preset.requiredModels![0].model),
     )
   })

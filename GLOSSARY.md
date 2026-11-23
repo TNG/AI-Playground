@@ -110,12 +110,21 @@ default for every new Session — Files and shell, Media generation, Document se
 access and Website screenshots — and the rest are the user's to opt into.
 _Avoid_: skill, plugin, tool
 
+**Readable Page**:
+The text-and-list form of a web page the assistant reads: its visible text, its links, its
+fields and its images, each described in the page's own words — an image by its alt text. It
+is a page as words to read, not markup to parse.
+_Avoid_: the HTML, scrape, dump
+
 **Website Screenshot**:
 A picture of a web page, taken to show the user and kept in the Workspace as an Artifact. The
 assistant may capture any web page, or a page of the Session's own work, and nothing more
-happens on the page: it can only look. The capture Web debugging makes of a page it is
-inspecting is one of its own actions, not a Website Screenshot, and a picture of the user's
-screen is a Window Screenshot.
+happens on the page: it can only look. A capture takes in the whole page or a single element,
+and an element is named by quoting its visible text — an image by its alt text — the same
+words the Readable Page lists, never by a selector: the capture looks at the page on its own
+and shares no window and no page state with the web tools. The capture Web debugging makes of
+a page it is inspecting is one of its own actions, not a Website Screenshot, and a picture of
+the user's screen is a Window Screenshot.
 _Avoid_: browser screenshot, debug screenshot, page capture
 
 **Window Screenshot**:

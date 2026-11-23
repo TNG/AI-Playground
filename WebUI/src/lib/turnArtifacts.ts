@@ -302,66 +302,22 @@ export function toolCallResultFailure(part: unknown): GenerationFailure | null {
   return generationFailure(record)
 }
 
-/** Once loaded, the media's own size caps the box and sets its aspect, so it is never upscaled. */
-export function artifactFrameSize(
-  requested: ArtifactSize | undefined,
-  natural: ArtifactSize | undefined,
-): ArtifactSize | undefined {
-  if (!natural) return requested
-  const width = Math.min(natural.width, requested?.width ?? natural.width)
-  return { width, height: Math.round((width * natural.height) / natural.width) }
-}
-
-/**
- * The one frame every card of a grid shares, so a mixed-size batch renders as
- * uniform cards: the candidate aspect (among the sized images' own) that
- * letterboxes the least, at the widest image's width. Ties prefer the larger
- * image. Undefined when nothing reports a size — such a grid (old settled
- * turns) keeps its per-card behaviour.
- */
-export function sharedArtifactFrame(
-  artifacts: readonly Pick<TurnArtifact, 'size'>[],
-): ArtifactSize | undefined {
-  const sizes = artifacts.flatMap((artifact) => (artifact.size ? [artifact.size] : []))
-  if (sizes.length === 0) return undefined
-  const aspectOf = (size: ArtifactSize) => size.width / size.height
-  const wasteOf = (aspect: number) =>
-    sizes.reduce((sum, size) => {
-      const ratio = aspectOf(size)
-      return sum + (1 - Math.min(ratio / aspect, aspect / ratio))
-    }, 0)
-  const best = sizes.reduce((a, b) => {
-    const wasteB = wasteOf(aspectOf(b))
-    const wasteA = wasteOf(aspectOf(a))
-    return wasteB < wasteA || (wasteB === wasteA && b.width * b.height > a.width * a.height) ? b : a
-  })
-  const width = sizes.reduce((max, size) => (size.width > max.width ? size : max)).width
-  return { width, height: Math.round(width / aspectOf(best)) }
-}
-
+/** Every media card in chat renders in this fixed square box, letterboxing its media like the artifacts tab. */
+export const ARTIFACT_CARD_PX = 320
 export const ARTIFACT_GRID_GAP_PX = 12
-const ARTIFACT_GRID_MIN_CELL_PX = 240
 const SCROLLBAR_SLACK_PX = 20
 
-export type ArtifactGrid = { columns: number; maxWidth?: number }
+export type ArtifactGrid = { columns: number; maxWidth: number }
 
 export function artifactGrid(
   artifacts: readonly Pick<TurnArtifact, 'size'>[],
   width: number,
-  frameWidth?: number,
 ): ArtifactGrid {
   const count = Math.max(artifacts.length, 1)
-  const fit = Math.floor(
-    (width + ARTIFACT_GRID_GAP_PX) / (ARTIFACT_GRID_MIN_CELL_PX + ARTIFACT_GRID_GAP_PX),
-  )
+  const fit = Math.floor((width + ARTIFACT_GRID_GAP_PX) / (ARTIFACT_CARD_PX + ARTIFACT_GRID_GAP_PX))
   const rows = Math.ceil(count / Math.min(Math.max(fit, 1), count))
   const columns = Math.ceil(count / rows)
-  // A shared frame caps the grid even when some of its cards carry no size.
-  if (frameWidth !== undefined)
-    return { columns, maxWidth: columns * frameWidth + (columns - 1) * ARTIFACT_GRID_GAP_PX }
-  const widths = artifacts.flatMap((artifact) => (artifact.size ? [artifact.size.width] : []))
-  if (widths.length === 0 || widths.length < artifacts.length) return { columns }
-  return { columns, maxWidth: columns * Math.max(...widths) + (columns - 1) * ARTIFACT_GRID_GAP_PX }
+  return { columns, maxWidth: columns * ARTIFACT_CARD_PX + (columns - 1) * ARTIFACT_GRID_GAP_PX }
 }
 
 /**

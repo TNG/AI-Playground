@@ -7,11 +7,7 @@
           :key="artifact.id"
           class="flex w-full min-w-0 justify-center"
         >
-          <ArtifactCard
-            :artifact="artifact"
-            :frame="frame"
-            @action="(action) => runAction(action, artifact)"
-          />
+          <ArtifactCard :artifact="artifact" @action="(action) => runAction(action, artifact)" />
         </div>
       </div>
       <info-table
@@ -46,7 +42,6 @@ import {
   ARTIFACT_GRID_GAP_PX,
   artifactGrid,
   artifactGridWidth,
-  sharedArtifactFrame,
   type ArtifactAction,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
@@ -78,14 +73,12 @@ const infoArtifact = computed(
   () => props.artifacts.find((artifact) => artifact.id === infoId.value) ?? null,
 )
 
-// One frame every card in the grid shares, so a mixed-size batch stays uniform.
-const frame = computed(() => sharedArtifactFrame(props.artifacts))
 const gridStyle = computed<StyleValue>(() => {
-  const grid = artifactGrid(props.artifacts, gridWidth.value, frame.value?.width)
+  const grid = artifactGrid(props.artifacts, gridWidth.value)
   return {
     gap: `${ARTIFACT_GRID_GAP_PX}px`,
     gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,
-    ...(grid.maxWidth ? { maxWidth: `${grid.maxWidth}px` } : {}),
+    maxWidth: `${grid.maxWidth}px`,
   }
 })
 

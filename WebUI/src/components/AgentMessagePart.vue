@@ -64,11 +64,7 @@
     <!-- What the tool saw: a browser screenshot never reaches the model as
          pixels, so this is the only place it is visible. -->
     <figure v-for="image in toolImages" :key="image.dataUri" class="flex flex-col gap-1">
-      <img
-        :src="image.dataUri"
-        :alt="`Screenshot: ${image.label}`"
-        class="max-h-96 w-auto self-start rounded-md border border-border"
-      />
+      <LetterboxImage :src="image.dataUri" :alt="`Screenshot: ${image.label}`" />
       <figcaption class="text-xs text-muted-foreground">{{ image.label }}</figcaption>
     </figure>
   </div>
@@ -88,6 +84,7 @@ import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
 import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
+import LetterboxImage from '@/components/LetterboxImage.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'

@@ -128,10 +128,9 @@
               <div
                 v-if="part.state === 'output-available' && (part as any).output?.annotatedImageUrl"
               >
-                <img
+                <LetterboxImage
                   :src="(part as any).output.annotatedImageUrl"
                   :alt="languages.CHAT_TOOL_DETECTIONS_ALT"
-                  class="max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
@@ -149,14 +148,14 @@
                   }}<b>{{ (part as any).output?.windowName ?? 'window' }}</b
                   >{{ around(languages.CHAT_TOOL_CAPTURED_WINDOW, 'window')[1] }}</span
                 >
-                <img
+                <LetterboxImage
+                  class="mt-2"
                   :src="(part as any).output.dataUri"
                   :alt="
                     fillTemplate(languages.CHAT_TOOL_WINDOW_ALT, {
                       window: (part as any).output?.windowName ?? 'window',
                     })
                   "
-                  class="mt-2 max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
@@ -172,10 +171,10 @@
                 <span class="text-muted-foreground">{{
                   languages.CHAT_TOOL_CAPTURED_WEB_PAGE
                 }}</span>
-                <img
+                <LetterboxImage
+                  class="mt-2"
                   :src="(part as any).output.dataUri"
                   :alt="languages.CHAT_TOOL_WEB_PAGE_ALT"
-                  class="mt-2 max-w-full rounded-md border-2 border-border"
                 />
               </div>
               <div v-else-if="part.state === 'input-streaming' || part.state === 'input-available'">
@@ -240,6 +239,7 @@ import ChatReasoningDisplay from '@/components/ChatReasoningDisplay.vue'
 import ChatToolDisplay from '@/components/ChatToolDisplay.vue'
 import ChatWebBrowseDisplay, { type WebBrowseEntry } from '@/components/ChatWebBrowseDisplay.vue'
 import ChatWorkflowResult from '@/components/ChatWorkflowResult.vue'
+import LetterboxImage from '@/components/LetterboxImage.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'

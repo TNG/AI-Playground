@@ -296,7 +296,7 @@ export function toolCallArtifacts(
   return turnArtifacts(toolPartMedia(part), deletedUrls, toolCallFailureRecord(part)?.error)
 }
 
-/** A browser screenshot's Artifacts, rendered by the same card generated media uses. */
+/** A web capture's Artifacts (browser or website screenshot), rendered by the card generated media uses. */
 export function screenshotToolArtifacts(
   part: unknown,
   deletedUrls: readonly string[],

@@ -102,7 +102,7 @@ import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
 // One part of an assistant message in Agent Mode: text, a reasoning block, a
 // compaction notice, or a tool call — with whatever the call produced under it
-// (streamed output, browser screenshots, generated media).
+// (streamed output, web screenshots, generated media).
 
 const props = defineProps<{
   part: UIMessagePart<UIDataTypes, UITools>

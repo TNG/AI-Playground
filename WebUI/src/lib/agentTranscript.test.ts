@@ -207,6 +207,10 @@ describe('screenshotMediaOf', () => {
     return { ...tool('browser', state), output }
   }
 
+  function webScreenshotPart(output: unknown, state = 'output-available') {
+    return { ...tool('webScreenshot', state), output }
+  }
+
   const piResult = (details: unknown) => ({
     content: [{ type: 'text', text: 'Saved screenshot to shot.png' }],
     details,
@@ -214,6 +218,22 @@ describe('screenshotMediaOf', () => {
 
   it('reads the Artifact a browser screenshot result carries', () => {
     expect(screenshotMediaOf(browserPart(piResult({ items: [shot] })))).toEqual([shot])
+  })
+
+  it('reads the Artifact a website screenshot result carries', () => {
+    expect(screenshotMediaOf(webScreenshotPart(piResult({ items: [shot] })))).toEqual([shot])
+    const [artifact] = screenshotToolArtifacts(webScreenshotPart(piResult({ items: [shot] })), [])
+    expect(artifact).toMatchObject({
+      id: 'screenshot-shot-1',
+      mediaType: 'image',
+      state: 'done',
+      url: 'aipg-media://folders/session-1/folder-1/shot.png',
+    })
+  })
+
+  it('has no Artifact for a game-session website screenshot, which carries no items', () => {
+    expect(screenshotMediaOf(webScreenshotPart(piResult({ items: [] })))).toEqual([])
+    expect(screenshotMediaOf(webScreenshotPart(piResult(undefined)))).toEqual([])
   })
 
   it('maps that result to the same Artifact card generated media renders', () => {

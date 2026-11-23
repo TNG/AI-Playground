@@ -208,13 +208,25 @@ describe('game tool, 3D models', () => {
     fs.writeFileSync(file, GLB)
   }
 
-  it('copies three.js into the game for a 3D scene', async () => {
+  it('turns the untouched scaffold into a running 3D one, with three.js beside it', async () => {
     const tool = await gameToolFor(workspaceDir)
     const result = textOf(await tool.execute('call-1', { action: 'add_threejs' }))
-    expect(result).toContain('<script src="lib/three-game.js"></script>')
+    expect(result).toMatch(/now holds the 3D scaffold/)
+    expect(fs.readFileSync(path.join(workspaceDir, 'game.js'), 'utf-8')).toContain(
+      'new THREE.WebGLRenderer',
+    )
     expect(fs.readFileSync(path.join(workspaceDir, 'lib/three-game.js'), 'utf-8')).toMatch(
       /^\/\* three\.js r\d+ with GLTFLoader/,
     )
+  })
+
+  it('only adds three.js to a game the agent already changed, and says what to do', async () => {
+    fs.appendFileSync(path.join(workspaceDir, 'game.js'), '\n// edited\n')
+    const tool = await gameToolFor(workspaceDir)
+    const result = textOf(await tool.execute('call-1', { action: 'add_threejs' }))
+    expect(result).toContain('<script src="lib/three-game.js"></script>')
+    expect(result).toMatch(/getContext\('2d'\)/)
+    expect(fs.readFileSync(path.join(workspaceDir, 'game.js'), 'utf-8')).toContain('// edited')
   })
 
   it('embeds a generated model as a classic script the game can load', async () => {
@@ -231,6 +243,7 @@ describe('game tool, 3D models', () => {
     )
 
     expect(result).toContain('<script src="models/enemy.js"></script>')
+    expect(result).toContain('MODELS map')
     expect(result).toContain("THREE.loadGameModel('enemy')")
     expect(fs.existsSync(path.join(workspaceDir, 'lib/three-game.js'))).toBe(true)
     const script = fs.readFileSync(path.join(workspaceDir, 'models/enemy.js'), 'utf-8')

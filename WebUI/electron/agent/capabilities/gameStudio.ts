@@ -8,6 +8,7 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { readGame, setGameIcon, updateGame } from '../games/gameLibrary.ts'
+import { writeScaffold3d } from '../games/gameScaffold.ts'
 import {
   ensureThreeLib,
   importGameModel,
@@ -83,7 +84,8 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '',
       '## Procedure',
       '',
-      '1. `read game.js`. It is short, and every edit below aims at one of its sections.',
+      '1. `read game.js`. It is short, and every edit below aims at one of its sections. (A 3D game',
+      '   calls `game {"action":"add_threejs"}` first — see "3D games" below.)',
       '2. `write design.md` before any code, in this shape and under 40 lines:',
       '   - **Pitch** — the game in one sentence.',
       '   - **Mechanic** — what the player does, how they win, how they lose.',
@@ -132,31 +134,23 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       'three.js and make a generated 3D model its centrepiece. Generated images still fit next to it:',
       'sprites for towers or pickups, textures for the ground, a background, the cover.',
       '',
-      '- Setup: `game {"action":"add_threejs"}`, then `<script src="lib/three-game.js"></script>` in',
-      '  `index.html` before `game.js`. It defines the global `THREE` (current three.js, with',
-      '  `GLTFLoader` and the helpers below).',
-      "- Draw into the scaffold's canvas through WebGL: in the `state` section, replace",
-      "  `const ctx = canvas.getContext('2d')` with",
-      '  `new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true })`. A canvas',
-      '  keeps the first kind of context it was asked for, so a leftover 2D context makes WebGL fail',
-      '  ("existing context of a different type"), and `preserveDrawingBuffer` is what lets the probe',
-      '  see the frame. Keep `update(dt)` and the loop; `draw()` becomes `renderer.render(scene,',
-      '  camera)`, and a resize calls `renderer.setSize` and updates the camera aspect. Score, lives',
-      '  and buttons go in HTML over the canvas, since there is no 2D context to draw text with.',
-      '- Play-test the mechanic with placeholder meshes — a box per enemy — before any model exists.',
+      '- Before your first edit, `game {"action":"add_threejs"}`. While `game.js` is still the',
+      '  scaffold, it becomes a 3D one that already runs: renderer, camera, lights, a ground, input',
+      '  as a point on the ground, an HTML `#hud` for text, and a `models` section. Then `read',
+      '  game.js` and plan against those sections. Entities live on the ground as `{ x, z, object }`,',
+      '  and `makeObject(kind)` gives you the object for one — a box until that kind has a model.',
+      "- The canvas holds a WebGL context, so it can never get a 2D one: no `getContext('2d')`. Score,",
+      '  lives and buttons go in HTML over it.',
+      '- Play-test the mechanic with the boxes before any model exists.',
       `- The model comes once the game plays: concept art first, with ${MEDIA_TOOL} — one object,`,
       '  whole and centred, in a three-quarter view on a plain light background, with no ground,',
       '  shadow or text. Then the image-to-3D workflow the tool lists (for example Pixel3D-Trellis),',
       '  with that image as the source: no prompt needed, the game-ready variant is chosen for you,',
       '  and it takes several minutes. Then',
-      '  `game {"action":"import_model","path":"<the .glb from savedFiles>","modelName":"enemy"}`,',
-      '  and follow the loading code it answers with. Swap the placeholder for the model when',
-      '  `THREE.loadGameModel` resolves, clone it for every instance, and keep the box if it fails.',
+      '  `game {"action":"import_model","path":"<the .glb from savedFiles>","modelName":"enemy"}`',
+      '  and do what it answers: a script tag at the `models:` comment in `index.html` and the name',
+      '  on that kind in the `MODELS` map. Every `makeObject` of that kind is then the model.',
       '- One or two models per game: every conversion holds the GPU for minutes.',
-      '- Call `THREE.addGameEnvironment(renderer, scene)` once, next to a `DirectionalLight`: a',
-      '  generated model has metallic materials that render black under lights alone. Size it with',
-      '  `THREE.fitGameModel(model, size)` — its largest side becomes `size`, standing on y = 0 —',
-      '  instead of guessing its units.',
       '- Keep `window.__game` on the game state (wave, lives, enemies alive): the probe can see that',
       '  pixels changed, but only your hook says whether the game is being played.',
       '',
@@ -272,16 +266,38 @@ function modelRefusal(host: CapabilityHost, modelPath: string): string | undefin
   )
 }
 
+function threeSetupText(scaffold: 'written' | 'already-3d' | 'kept'): string {
+  if (scaffold === 'kept') {
+    return (
+      `three.js is at ${THREE_LIB_PATH}. index.html and game.js were already changed, so they ` +
+      `were left as they are: load it with <script src="${THREE_LIB_PATH}"></script> before ` +
+      "game.js, and replace the canvas's getContext('2d') with new THREE.WebGLRenderer({ canvas, " +
+      'antialias: true, preserveDrawingBuffer: true }) — a canvas cannot hold both kinds of context.'
+    )
+  }
+  return [
+    scaffold === 'written'
+      ? 'The workspace now holds the 3D scaffold, already running: `read game.js` before editing it.'
+      : 'The workspace already holds the 3D scaffold.',
+    `three.js is loaded from ${THREE_LIB_PATH}. The sections: config; scene (renderer, camera, ` +
+      'lights, ground, resize); models (the MODELS map, loaded before the first frame, and ' +
+      'makeObject(kind), a box until the kind has a model); state; input (pointer is a point on ' +
+      'the ground); update; draw (positions objects, renders, writes the #hud text); loop; debug ' +
+      'hook. Entities live on the ground plane as { x, z, object }.',
+  ].join('\n')
+}
+
 function importedModelText(imported: ImportedModel): string {
   const megabytes = (imported.bytes / 1048576).toFixed(1)
   return [
     `Imported '${imported.name}' (${megabytes} MB) as ${imported.modelScriptPath}; three.js is at ${imported.libPath}.`,
-    'Load both with plain script tags before your game code, three.js first:',
-    `  <script src="${imported.libPath}"></script>`,
-    `  <script src="${imported.modelScriptPath}"></script>`,
-    `Then THREE.loadGameModel('${imported.name}') resolves to the parsed glTF. Add gltf.scene to`,
-    'your scene after THREE.fitGameModel(gltf.scene, size), which scales its largest side to',
-    'size and stands it on y = 0, and use gltf.scene.clone() for every further copy. Call',
+    `In the 3D scaffold: add <script src="${imported.modelScriptPath}"></script> to index.html at`,
+    'its "models:" comment, then set name to ' +
+      `'${imported.name}' on the matching entry of the MODELS map in game.js (add an entry if the`,
+    'kind is new). makeObject(kind) then hands out fitted copies of the model instead of boxes.',
+    `Without the scaffold: load ${imported.libPath} and then ${imported.modelScriptPath} with plain`,
+    `script tags; THREE.loadGameModel('${imported.name}') resolves to the parsed glTF — fit it with`,
+    'THREE.fitGameModel(gltf.scene, size), clone it per copy, and call',
     'THREE.addGameEnvironment(renderer, scene) once, or its metallic materials render black.',
   ].join('\n')
 }
@@ -331,17 +347,14 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             }
           }
           case 'add_threejs': {
+            let scaffold: ReturnType<typeof writeScaffold3d>
             try {
               ensureThreeLib(host.workspaceDir)
+              scaffold = writeScaffold3d(host.workspaceDir)
             } catch (error) {
               return textResult(error instanceof Error ? error.message : String(error))
             }
-            return textResult(
-              `three.js is at ${THREE_LIB_PATH}. Load it with ` +
-                `<script src="${THREE_LIB_PATH}"></script> before your game code; it defines the ` +
-                'global THREE, including THREE.GLTFLoader, THREE.addGameEnvironment and ' +
-                'THREE.fitGameModel.',
-            )
+            return textResult(threeSetupText(scaffold))
           }
           case 'import_model': {
             if (!iconPath || !modelName) {

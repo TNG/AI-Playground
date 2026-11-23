@@ -1171,8 +1171,11 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   `THREE.loadGameModel(name)`, `THREE.addGameEnvironment(renderer, scene)` (generated models
   have metallic PBR materials that render black without an environment map) and
   `THREE.fitGameModel(object, size)`. The `game` tool's `add_threejs` copies it to
-  `lib/three-game.js`; `import_model` also writes a generated `.glb` as `models/<name>.js`
-  (base64 into `window.GAME_MODELS`). Models come from Pixel3D-Trellis's `Fast` ("Game-ready")
+  `lib/three-game.js` and, while `index.html`/`game.js` are still the untouched 2D scaffold,
+  swaps in the 3D scaffold (`SCAFFOLD_3D_FILES`: same section markers plus `scene` and `models`,
+  a `MODELS` map that `makeObject(kind)` reads, boxes until a model is named) — models used to
+  stall turning the 2D canvas page into a WebGL one. `import_model` writes a generated `.glb` as
+  `models/<name>.js` (base64 into `window.GAME_MODELS`). Models come from Pixel3D-Trellis's `Fast` ("Game-ready")
   variant — 1024 textures, 50k faces — which agent tools pick when no variant is named. The probe
   reads a WebGL canvas only when the renderer has `preserveDrawingBuffer: true`.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),

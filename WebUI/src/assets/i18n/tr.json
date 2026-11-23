@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Seçili sunucuların araçları bu oturumda kullanılabilir. Sunucular Uygulama Ayarları → MCP Sunucuları altından yapılandırılır.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Klasörde göster",
   "SETTINGS_MCP_STARTING": "Başlatılıyor...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Bir sonraki turda başlar",
   "SETTINGS_MCP_TOOLS": "MCP araçları",
   "SETTINGS_MCP_ARGS_HINT": "Boşlukla ayrılmış argümanlar, tırnak işaretleri bir cümleyi gruplar (ör. --port 8080 --message \"iki kelime\")",
   "SETTINGS_MCP_ENV_LABEL": "Ortam değişkenleri (isteğe bağlı)",

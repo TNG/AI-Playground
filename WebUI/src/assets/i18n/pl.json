@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Narzędzia zaznaczonych serwerów są dostępne w tej sesji. Serwery konfiguruje się w Ustawieniach aplikacji → Serwery MCP.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Pokaż w folderze",
   "SETTINGS_MCP_STARTING": "Uruchamianie...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Uruchomi się przy następnej turze",
   "SETTINGS_MCP_TOOLS": "Narzędzia MCP",
   "SETTINGS_MCP_ARGS_HINT": "Argumenty oddzielone spacjami, cudzysłowy grupują zdanie (np. --port 8080 --message \"dwa słowa\")",
   "SETTINGS_MCP_ENV_LABEL": "Zmienne środowiskowe (opcjonalnie)",

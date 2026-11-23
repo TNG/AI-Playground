@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Gli strumenti dei server selezionati sono disponibili per questa sessione. I server si configurano in Impostazioni app → Server MCP.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Mostra nella cartella",
   "SETTINGS_MCP_STARTING": "Avvio in corso...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Si avvia al turno successivo",
   "SETTINGS_MCP_TOOLS": "Strumenti MCP",
   "SETTINGS_MCP_ARGS_HINT": "Argomenti separati da spazi, le virgolette raggruppano una frase (es. --port 8080 --message \"due parole\")",
   "SETTINGS_MCP_ENV_LABEL": "Variabili d'ambiente (facoltative)",

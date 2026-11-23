@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "勾选的服务器工具将在此会话中可用。服务器在应用设置 → MCP 服务器中配置。",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "在文件夹中显示",
   "SETTINGS_MCP_STARTING": "正在启动...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "将在下一轮启动",
   "SETTINGS_MCP_TOOLS": "MCP 工具",
   "SETTINGS_MCP_ARGS_HINT": "以空格分隔的参数，引号可将一句话归为一组（例如 --port 8080 --message \"two words\"）",
   "SETTINGS_MCP_ENV_LABEL": "环境变量（可选）",

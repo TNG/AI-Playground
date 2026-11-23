@@ -11,7 +11,10 @@
           class="flex items-center justify-between gap-3"
         >
           <div class="flex items-center gap-2 min-w-0">
-            <span class="w-2.5 h-2.5 rounded-full" :class="getStatusDotClass(server.id)" />
+            <span
+              class="w-2.5 h-2.5 rounded-full"
+              :class="mcpStatusDotClass(mcp.getServerStatus(server.id).state)"
+            />
             <Label class="whitespace-nowrap">{{ server.name }}</Label>
             <Tooltip v-if="server.description">
               <TooltipTrigger as-child>
@@ -139,7 +142,7 @@ import {
 import { EllipsisHorizontalIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useErrors } from '@/assets/js/store/errors'
-import { mcpStatusText } from '@/lib/mcpStatusText'
+import { mcpStatusDotClass, mcpStatusText } from '@/lib/mcpStatusText'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
 const languages = useI18N().state
@@ -148,15 +151,6 @@ const errors = useErrors()
 const showAddDialog = ref(false)
 const showEditDialog = ref(false)
 const editServer = ref<{ id: string; config: McpServerConfig } | undefined>()
-
-function getStatusDotClass(serverId: string): string {
-  const status = mcp.getServerStatus(serverId)
-  if (status.state === 'stopped') return 'bg-muted-foreground/40'
-  if (status.state === 'starting') return 'bg-warning animate-pulse'
-  if (status.state === 'running') return 'bg-success'
-  if (status.state === 'error') return 'bg-destructive'
-  return 'bg-muted-foreground/40'
-}
 
 function getStartButtonText(serverId: string): string {
   const status = mcp.getServerStatus(serverId)

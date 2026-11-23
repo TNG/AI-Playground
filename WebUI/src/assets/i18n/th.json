@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "เครื่องมือของเซิร์ฟเวอร์ที่เลือกจะใช้ได้ในเซสชันนี้ กำหนดค่าเซิร์ฟเวอร์ได้ที่การตั้งค่าแอป → เซิร์ฟเวอร์ MCP",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "แสดงในโฟลเดอร์",
   "SETTINGS_MCP_STARTING": "กำลังเริ่มต้น...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "จะเริ่มในรอบถัดไป",
   "SETTINGS_MCP_TOOLS": "เครื่องมือ MCP",
   "SETTINGS_MCP_ARGS_HINT": "อาร์กิวเมนต์คั่นด้วยช่องว่าง เครื่องหมายคำพูดใช้รวมประโยค (เช่น --port 8080 --message \"two words\")",
   "SETTINGS_MCP_ENV_LABEL": "ตัวแปรสภาพแวดล้อม (ไม่บังคับ)",

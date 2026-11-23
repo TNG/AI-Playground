@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Ticked servers' tools are available to this session. Servers are configured under App Settings → MCP Servers.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Show in folder",
   "SETTINGS_MCP_STARTING": "Starting...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Starts on the next turn",
   "SETTINGS_MCP_TOOLS": "MCP tools",
   "SETTINGS_MCP_ARGS_HINT": "Space-separated arguments, quotes group a sentence (e.g. --port 8080 --message \"two words\")",
   "SETTINGS_MCP_ENV_LABEL": "Environment variables (optional)",

@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Las herramientas de los servidores marcados están disponibles en esta sesión. Los servidores se configuran en Configuración de la app → Servidores MCP.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Mostrar en carpeta",
   "SETTINGS_MCP_STARTING": "Iniciando...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Se inicia en el siguiente turno",
   "SETTINGS_MCP_TOOLS": "Herramientas MCP",
   "SETTINGS_MCP_ARGS_HINT": "Argumentos separados por espacios; las comillas agrupan una frase (p. ej. --port 8080 --message \"dos palabras\")",
   "SETTINGS_MCP_ENV_LABEL": "Variables de entorno (opcional)",

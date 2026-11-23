@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Alat dari server yang dicentang tersedia untuk sesi ini. Server dikonfigurasi di Pengaturan Aplikasi → Server MCP.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Tampilkan di folder",
   "SETTINGS_MCP_STARTING": "Memulai...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Dimulai pada giliran berikutnya",
   "SETTINGS_MCP_TOOLS": "Alat MCP",
   "SETTINGS_MCP_ARGS_HINT": "Argumen dipisahkan spasi, tanda kutip mengelompokkan kalimat (mis. --port 8080 --message \"dua kata\")",
   "SETTINGS_MCP_ENV_LABEL": "Variabel lingkungan (opsional)",

@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "チェックしたサーバーのツールがこのセッションで利用できます。サーバーは「アプリ設定 → MCP サーバー」で構成します。",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "フォルダーで表示",
   "SETTINGS_MCP_STARTING": "起動中...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "次のターンで起動します",
   "SETTINGS_MCP_TOOLS": "MCP ツール",
   "SETTINGS_MCP_ARGS_HINT": "スペース区切りの引数。引用符で文をまとめます（例: --port 8080 --message \"two words\"）",
   "SETTINGS_MCP_ENV_LABEL": "環境変数（任意）",

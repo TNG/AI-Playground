@@ -158,7 +158,7 @@
         </p>
         <AgentMcpServerChecklist
           :model-value="binding.capabilities"
-          :servers="mcp.allServers"
+          :disabled-reason="mcpDisabledReason"
           @update:model-value="binding.setCapabilities"
         />
       </section>
@@ -175,7 +175,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -183,7 +183,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { developerMode } from '@/assets/js/store/debugSettings'
 import { useI18N } from '@/assets/js/store/i18n'
-import { useMcp } from '@/assets/js/store/mcp'
 import { useSessions } from '@/assets/js/store/sessions'
 import AgentFolderOverrides from '@/components/AgentFolderOverrides.vue'
 import AgentCapabilityChecklist from '@/components/AgentCapabilityChecklist.vue'
@@ -198,12 +197,12 @@ import SettingsTabLayout from '@/components/SettingsTabLayout.vue'
 import { useAgentSettingsPanel } from '@/assets/js/agentSettingsPanel'
 import type { AgentSettingsBinding } from '@/lib/agentSettingsBinding'
 import { checklistCapabilities } from '@/lib/agentSettingsSections'
+import { catalogModelToolUse } from '@/lib/modelToolUse'
 import { FILES_CAPABILITY_ID } from '@/types/agentCapabilities'
 import { useSettingsProblemMarks } from '@/assets/js/settingsProblemMarks'
 
 const languages = useI18N().state
 const agentMode = useAgentMode()
-const mcp = useMcp()
 const sessions = useSessions()
 
 const props = defineProps<{
@@ -238,6 +237,12 @@ const checklist = computed(() =>
   checklistCapabilities(binding.value.capabilityCatalog, binding.value.sections),
 )
 
+const mcpDisabledReason = computed(() =>
+  catalogModelToolUse(binding.value.backend, binding.value.currentModel).toolCalling
+    ? undefined
+    : languages.AGENT_CAPABILITY_NO_TOOL_CALLING,
+)
+
 const hasMediaCapability = computed(() =>
   binding.value.capabilityCatalog.some((capability) => capability.id === 'media'),
 )
@@ -256,8 +261,4 @@ const capabilityCommands = computed(() =>
         .filter((capability) => agentMode.isCapabilityEnabled(capability.id))
         .flatMap((capability) => capability.commands),
 )
-
-onMounted(() => {
-  void mcp.refreshAvailableServers()
-})
 </script>

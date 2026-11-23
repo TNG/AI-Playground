@@ -590,6 +590,7 @@
   "SETTINGS_MCP_SESSION_HINT": "Công cụ của các máy chủ được chọn có sẵn cho phiên này. Máy chủ được cấu hình trong Cài đặt ứng dụng → Máy chủ MCP.",
   "SETTINGS_MCP_SHOW_IN_FOLDER": "Hiển thị trong thư mục",
   "SETTINGS_MCP_STARTING": "Đang khởi động...",
+  "SETTINGS_MCP_STARTS_NEXT_TURN": "Sẽ khởi động ở lượt tiếp theo",
   "SETTINGS_MCP_TOOLS": "Công cụ MCP",
   "SETTINGS_MCP_ARGS_HINT": "Các đối số cách nhau bằng dấu cách, dấu ngoặc kép nhóm một câu (ví dụ: --port 8080 --message \"hai từ\")",
   "SETTINGS_MCP_ENV_LABEL": "Biến môi trường (tùy chọn)",

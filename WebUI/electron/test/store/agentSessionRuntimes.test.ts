@@ -653,19 +653,16 @@ describe('Paused Sessions', () => {
     expect(store.trialRunInView).toBeNull()
     store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'trial-b' })
     expect(store.trialRunInView).toBe('trial-b')
-    store.setLibraryShowing({ library: 'model' })
-    expect(store.trialRunInView).toBeNull()
-    store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'trial-b' })
     store.setLibraryHidden('agent')
     expect(store.trialRunInView).toBeNull()
   })
 
-  it('holds a prompt for the open session while the Model Library shows, until it closes', async () => {
+  it('holds a prompt for the open session while App Settings shows, until it closes', async () => {
     const store = await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
     store.setViewShown(true)
     await store.switchSession('session-b')
-    store.setLibraryShowing({ library: 'model' })
+    store.setSettingsShowing(true)
 
     let shown = false
     const prompt = whenSessionInView('session-b').then(() => {
@@ -676,34 +673,16 @@ describe('Paused Sessions', () => {
     expect(shown).toBe(false)
     expect(toastShow).toHaveBeenCalledTimes(1)
 
-    store.setLibraryHidden('model')
+    store.setSettingsShowing(false)
     await prompt
     expect(shown).toBe(true)
   })
 
-  it("holds a Trial Run's prompt once the Model Library replaces the Agent Library", async () => {
+  it("holds a Trial Run's prompt while App Settings covers the Agent Library", async () => {
     const store = await storeWithBackgroundTurn()
     const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
     store.setLibraryShowing({ library: 'agent', trialRunSessionId: 'session-b' })
-    store.setLibraryShowing({ library: 'model' })
-    store.setLibraryHidden('agent')
-
-    let shown = false
-    void whenSessionInView('session-b').then(() => {
-      shown = true
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(shown).toBe(false)
-  })
-
-  it('keeps the Model Library showing when the Agent Library it replaced reports closing last', async () => {
-    const store = await storeWithBackgroundTurn()
-    const { whenSessionInView } = await import('@/assets/js/permissions/sessionPromptPort')
-    store.setViewShown(true)
-    await store.switchSession('session-b')
-    store.setLibraryShowing({ library: 'agent', trialRunSessionId: null })
-    store.setLibraryShowing({ library: 'model' })
-    store.setLibraryHidden('agent')
+    store.setSettingsShowing(true)
 
     let shown = false
     void whenSessionInView('session-b').then(() => {

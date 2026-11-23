@@ -796,8 +796,6 @@
   "SETTINGS_EDIT_SETTINGS_JSON": "設定 JSON を編集",
   "SETTINGS_RESTART": "再起動",
   "SETTINGS_EDIT_SETTINGS_JSON_FAILED": "設定ファイルを開けませんでした。",
-  "MODEL_MANAGER_TITLE": "モデル",
-  "MODEL_MANAGER_CLOSE": "モデル管理を閉じる",
   "MODEL_MANAGER_MANAGE": "モデルを管理",
   "MODEL_MANAGER_ALL": "すべて",
   "MODEL_MANAGER_FAVORITES": "お気に入り",

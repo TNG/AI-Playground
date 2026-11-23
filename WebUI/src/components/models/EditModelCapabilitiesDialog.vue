@@ -35,6 +35,7 @@ const hasPublisherSettings = computed(() => !!sampling.value || !!props.entry.ll
         role="dialog"
         :aria-label="languages.MODEL_MANAGER_EDIT_TITLE"
         class="flex max-h-[85vh] w-[520px] flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl"
+        @keydown.esc="emit('cancel')"
       >
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold">{{ languages.MODEL_MANAGER_EDIT_TITLE }}</h2>

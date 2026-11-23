@@ -2527,13 +2527,13 @@ describe('a question an Agent Run asks', () => {
     expect(asked.shown).toBe(true)
   })
 
-  it('waits while a Library covers its Session, and shows once it closes', async () => {
+  it('waits while App Settings covers its Session, and shows once it closes', async () => {
     const { agentMode, asked, shown } = await runAsking(({ agentMode }) =>
-      agentMode.setLibraryShowing({ library: 'model' }),
+      agentMode.setSettingsShowing(true),
     )
     expect(asked.shown).toBe(false)
 
-    agentMode.setLibraryHidden('model')
+    agentMode.setSettingsShowing(false)
     await shown
     expect(asked.shown).toBe(true)
   })

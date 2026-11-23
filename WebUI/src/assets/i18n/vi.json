@@ -796,8 +796,6 @@
   "SETTINGS_EDIT_SETTINGS_JSON": "Chỉnh sửa JSON cài đặt",
   "SETTINGS_RESTART": "Khởi động lại",
   "SETTINGS_EDIT_SETTINGS_JSON_FAILED": "Không thể mở tệp cài đặt.",
-  "MODEL_MANAGER_TITLE": "Mô hình",
-  "MODEL_MANAGER_CLOSE": "Đóng quản lý mô hình",
   "MODEL_MANAGER_MANAGE": "Quản lý mô hình",
   "MODEL_MANAGER_ALL": "Tất cả",
   "MODEL_MANAGER_FAVORITES": "Yêu thích",

@@ -796,8 +796,6 @@
   "SETTINGS_EDIT_SETTINGS_JSON": "Ayarlar JSON dosyasını düzenle",
   "SETTINGS_RESTART": "Yeniden başlat",
   "SETTINGS_EDIT_SETTINGS_JSON_FAILED": "Ayarlar dosyası açılamadı.",
-  "MODEL_MANAGER_TITLE": "Modeller",
-  "MODEL_MANAGER_CLOSE": "Model yönetimini kapat",
   "MODEL_MANAGER_MANAGE": "Modelleri Yönet",
   "MODEL_MANAGER_ALL": "Tümü",
   "MODEL_MANAGER_FAVORITES": "Favoriler",

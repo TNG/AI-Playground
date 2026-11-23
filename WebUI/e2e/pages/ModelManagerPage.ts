@@ -1,19 +1,23 @@
 import { type Locator, type Page, expect } from '@playwright/test'
 
 /**
- * Page object for the Model Management view (`views/ModelManager.vue`) — the
- * full-screen model library opened from the title bar or from "Manage Models" in
- * the Chat Inferencing tab.
+ * Page object for the Model Library (`components/models/ModelLibrary.vue`) — the
+ * App Settings tab opened from the title bar or from "Manage Models" in the Chat
+ * Inferencing tab.
  *
  * Everything is located by role + accessible name, so the ARIA the app carries is
- * what this drives: the overlay is a `dialog` named "Models", each row's action
+ * what this drives: the tab is a `tabpanel` named "Model Library", each row's action
  * menu is `<label> actions`, and the row checkboxes are `Select <label>`.
  */
 export class ModelManagerPage {
   constructor(private readonly page: Page) {}
 
+  private get settingsDialog(): Locator {
+    return this.page.getByRole('dialog', { name: 'App Settings' })
+  }
+
   private get overlay(): Locator {
-    return this.page.getByRole('dialog', { name: 'Models' })
+    return this.settingsDialog.getByRole('tabpanel', { name: 'Model Library', exact: true })
   }
 
   private get openButton(): Locator {
@@ -57,10 +61,10 @@ export class ModelManagerPage {
 
   async close(): Promise<void> {
     if (!(await this.isOpen())) return
-    // Scoped to the overlay: the header's window-close control is also a "Close"
+    // Scoped to the dialog: the header's window-close control is also a "Close"
     // button and clicking it would quit the app.
-    await this.overlay.getByRole('button', { name: 'Close model management' }).click()
-    await expect(this.overlay).toBeHidden()
+    await this.settingsDialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(this.settingsDialog).toBeHidden()
   }
 
   isOpen(): Promise<boolean> {

@@ -35,7 +35,7 @@
             class="shrink-0"
             :title="languages.MODEL_MANAGER_MANAGE"
             :aria-label="languages.MODEL_MANAGER_MANAGE"
-            @click="uiStore.openModelManager()"
+            @click="uiStore.openModelLibrary()"
           />
         </div>
       </template>

@@ -796,8 +796,6 @@
   "SETTINGS_EDIT_SETTINGS_JSON": "Edit JSON Pengaturan",
   "SETTINGS_RESTART": "Mulai Ulang",
   "SETTINGS_EDIT_SETTINGS_JSON_FAILED": "Tidak dapat membuka file pengaturan.",
-  "MODEL_MANAGER_TITLE": "Model",
-  "MODEL_MANAGER_CLOSE": "Tutup manajemen model",
   "MODEL_MANAGER_MANAGE": "Kelola Model",
   "MODEL_MANAGER_ALL": "Semua",
   "MODEL_MANAGER_FAVORITES": "Favorit",

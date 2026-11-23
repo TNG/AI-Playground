@@ -163,6 +163,7 @@ async function submit() {
         :aria-label="languages.REQUEST_LLM_MODEL_NAME"
         class="flex max-h-[85vh] w-140 flex-col gap-4 overflow-y-auto rounded-2xl bg-card p-8 text-foreground shadow-2xl"
         :class="{ 'animate-scale-in': animate }"
+        @keydown.esc="emit('close')"
       >
         <h2 class="text-lg font-semibold">{{ languages.REQUEST_LLM_MODEL_NAME }}</h2>
 

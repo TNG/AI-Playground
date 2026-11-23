@@ -59,12 +59,12 @@
               :aria-pressed="uiStore.frontmost === 'model'"
               class="-m-1 rounded-md p-1 transition-colors"
               :class="{ 'bg-primary/20': uiStore.frontmost === 'model' }"
-              @click="uiStore.toggleModelManager()"
+              @click="uiStore.toggleModelLibrary()"
             >
               <CircleStackIcon class="size-6 text-foreground"></CircleStackIcon>
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{{ languages.MODEL_MANAGER_TITLE }}</TooltipContent>
+          <TooltipContent side="bottom">{{ languages.SETTINGS_TAB_MODEL_LIBRARY }}</TooltipContent>
         </Tooltip>
         <Tooltip v-if="globalSetup.loadingState === 'running'">
           <TooltipTrigger as-child>
@@ -233,10 +233,9 @@
       </SessionTabView>
 
       <!-- Before the dialog layer on purpose: these share a z-index, so DOM order
-         decides, and the download / delete dialogs this view opens must be able
-         to appear on top of it. -->
-      <ModelManager v-if="uiStore.showModelManager" @close="uiStore.closeModelManager()" />
-      <AgentLibrary v-else-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
+         decides, and the download dialog the Model Library opens must be able to
+         appear on top of App Settings. -->
+      <AgentLibrary v-if="uiStore.agentLibrary" @close="uiStore.closeAgentLibrary()" />
       <AppSettingsDialog
         :is-visible="uiStore.appSettingsOpen"
         @close="uiStore.closeAppSettings()"
@@ -320,7 +319,6 @@ import CameraCaptureDialog from '@/components/CameraCaptureDialog.vue'
 import DemoModeIndicator from '@/components/DemoModeIndicator.vue'
 import { CircleStackIcon, Cog6ToothIcon, ServerStackIcon } from '@heroicons/vue/24/solid'
 import { Bot } from 'lucide-vue-next'
-import ModelManager from '@/views/ModelManager.vue'
 import AgentLibrary from '@/views/AgentLibrary.vue'
 import TrialRunIndicator from '@/components/TrialRunIndicator.vue'
 import { useColorMode } from '@vueuse/core'
@@ -527,14 +525,10 @@ function openDevTools() {
   window.electronAPI.openDevTools()
 }
 
-function openAppSettings() {
-  if (demoMode.triggerFirstTimeHelp('app-settings-button')) return
-  uiStore.openAppSettings()
-}
-
 function toggleAppSettings() {
-  if (uiStore.appSettingsOpen) uiStore.closeAppSettings()
-  else openAppSettings()
+  if (uiStore.frontmost !== 'settings' && demoMode.triggerFirstTimeHelp('app-settings-button'))
+    return
+  uiStore.toggleAppSettings()
 }
 
 function startTour() {

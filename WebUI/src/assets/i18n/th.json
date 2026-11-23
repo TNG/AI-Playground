@@ -796,8 +796,6 @@
   "SETTINGS_EDIT_SETTINGS_JSON": "แก้ไข JSON การตั้งค่า",
   "SETTINGS_RESTART": "รีสตาร์ท",
   "SETTINGS_EDIT_SETTINGS_JSON_FAILED": "ไม่สามารถเปิดไฟล์การตั้งค่าได้",
-  "MODEL_MANAGER_TITLE": "โมเดล",
-  "MODEL_MANAGER_CLOSE": "ปิดการจัดการโมเดล",
   "MODEL_MANAGER_MANAGE": "จัดการโมเดล",
   "MODEL_MANAGER_ALL": "ทั้งหมด",
   "MODEL_MANAGER_FAVORITES": "รายการโปรด",

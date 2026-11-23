@@ -9,17 +9,17 @@
       <DialogContent
         id="app-settings-dialog"
         :aria-describedby="undefined"
-        class="flex w-[min(960px,90%)] h-[min(680px,90%)] overflow-hidden rounded-lg border border-border bg-card text-foreground shadow-lg outline-none"
+        class="flex w-[min(1100px,92%)] h-[min(800px,90%)] overflow-hidden rounded-lg border border-border bg-card text-foreground shadow-lg outline-none"
         @escape-key-down.prevent
         @interact-outside.prevent
       >
         <DialogTitle as="span" class="sr-only">{{ languages.COM_APP_SETTINGS }}</DialogTitle>
         <TabsRoot
-          :model-value="activeTab"
+          :model-value="ui.appSettingsTab"
           orientation="vertical"
           activation-mode="manual"
           class="flex flex-1 min-w-0"
-          @update:model-value="(tab) => (activeTab = tab as AppSettingsTab)"
+          @update:model-value="(tab) => ui.setAppSettingsTab(tab as AppSettingsTab)"
         >
           <TabsList
             class="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-muted/30 p-3"
@@ -37,7 +37,13 @@
 
           <div class="flex flex-1 min-w-0 flex-col">
             <div class="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
-              <h2 class="text-lg font-semibold">{{ activeLabel }}</h2>
+              <div class="flex items-center gap-3">
+                <h2 class="text-lg font-semibold">{{ activeLabel }}</h2>
+                <Spinner
+                  v-if="ui.appSettingsTab === 'models' && (library.scanning || library.deleting)"
+                  class="size-4"
+                />
+              </div>
               <Button
                 variant="ghost"
                 size="icon"
@@ -74,12 +80,13 @@
               </div>
             </TabsContent>
             <TabsContent
-              v-for="tab in placeholderTabs"
-              :key="tab"
-              :value="tab"
+              value="components"
               class="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-muted-foreground outline-none"
             >
               {{ languages.SETTINGS_WORK_IN_PROGRESS }}
+            </TabsContent>
+            <TabsContent value="models" class="flex flex-1 min-h-0 flex-col outline-none">
+              <ModelLibrary />
             </TabsContent>
           </div>
         </TabsRoot>
@@ -89,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, watch, type Component } from 'vue'
 import {
   DialogContent,
   DialogRoot,
@@ -105,8 +112,11 @@ import {
   PuzzlePieceIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
+import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
+import { useModelLibrary } from '@/assets/js/store/modelLibrary'
+import { useUIStore, type AppSettingsTab } from '@/assets/js/store/ui'
 import AppSettingsLanguage from '@/components/AppSettingsLanguage.vue'
 import AppSettingsPromptBarStyle from '@/components/AppSettingsPromptBarStyle.vue'
 import AppSettingsHuggingFace from '@/components/AppSettingsHuggingFace.vue'
@@ -121,14 +131,14 @@ import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
 import DemoModeBlocker from '@/components/DemoModeBlocker.vue'
 import DemoModeSettings from '@/components/DemoModeSettings.vue'
 import SettingsHeading from '@/components/SettingsHeading.vue'
+import ModelLibrary from '@/components/models/ModelLibrary.vue'
+import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import {
   appSettingsSections,
   type AppSettingsPartId,
   type AppSettingsSectionId,
 } from '@/lib/appSettingsSections'
-
-type AppSettingsTab = 'app' | 'components' | 'models'
 
 const partComponents: Record<AppSettingsPartId, Component> = {
   language: AppSettingsLanguage,
@@ -153,10 +163,11 @@ const emit = defineEmits<{
   close: []
 }>()
 
+const agentMode = useAgentMode()
 const demoMode = useDemoMode()
 const languages = useI18N().state
-
-const activeTab = ref<AppSettingsTab>('app')
+const library = useModelLibrary()
+const ui = useUIStore()
 
 const sections = computed(() =>
   appSettingsSections({ demoMode: demoMode.enabled, hasDemoPasscode: demoMode.hasPasscode }),
@@ -183,8 +194,7 @@ const tabs = computed(() => [
   },
   { id: 'models' as const, label: languages.SETTINGS_TAB_MODEL_LIBRARY, icon: CircleStackIcon },
 ])
-const placeholderTabs = computed(() => tabs.value.map((tab) => tab.id).filter((id) => id !== 'app'))
-const activeLabel = computed(() => tabs.value.find((tab) => tab.id === activeTab.value)?.label)
+const activeLabel = computed(() => tabs.value.find((tab) => tab.id === ui.appSettingsTab)?.label)
 
 function requestClose() {
   emit('close')
@@ -192,8 +202,7 @@ function requestClose() {
 
 watch(
   () => props.isVisible,
-  (visible) => {
-    if (visible) activeTab.value = 'app'
-  },
+  (visible) => agentMode.setSettingsShowing(visible),
+  { immediate: true },
 )
 </script>

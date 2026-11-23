@@ -796,8 +796,6 @@
   "SETTINGS_EDIT_SETTINGS_JSON": "Modifica JSON delle impostazioni",
   "SETTINGS_RESTART": "Riavvia",
   "SETTINGS_EDIT_SETTINGS_JSON_FAILED": "Impossibile aprire il file delle impostazioni.",
-  "MODEL_MANAGER_TITLE": "Modelli",
-  "MODEL_MANAGER_CLOSE": "Chiudi la gestione dei modelli",
   "MODEL_MANAGER_MANAGE": "Gestisci modelli",
   "MODEL_MANAGER_ALL": "Tutti",
   "MODEL_MANAGER_FAVORITES": "Preferiti",

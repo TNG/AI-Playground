@@ -80,11 +80,8 @@ export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
   return { items, steps }
 }
 
-/**
- * The Artifacts a `browser` screenshot result carries. A game workspace yields none, so its
- * bare tool thumbnail stays the way it is; the live tool image is not a part of the result.
- */
-export function screenshotMediaOf(part: unknown): MediaItem[] {
+/** The Artifacts a `browser` screenshot result carries; a game workspace yields none. */
+export function screenshotMediaOf(part: unknown): AgentMediaItem[] {
   if (shapeOf(part).state !== 'output-available') return []
   if (toolPartNameOf(part) !== 'browser') return []
   const output = shapeOf(part).output

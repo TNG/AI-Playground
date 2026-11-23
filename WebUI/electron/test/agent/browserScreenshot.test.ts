@@ -171,6 +171,21 @@ describe('the Web debugging screenshot action', () => {
     expect(fs.existsSync(path.join(workspace, 'generated'))).toBe(false)
   })
 
+  it('refuses a screenshot of a failed page load instead of capturing the error page', async () => {
+    const workspace = tempDir('aipg-shot-error-')
+    const tool = await browserTool(workspace)
+    await openBrowser(tool)
+    instances[0].url = 'chrome-error://chromewebdata/'
+
+    const result = await tool.execute('shot-error', { action: 'screenshot' })
+
+    expect(text(result)).toContain('failed to load')
+    expect(text(result)).toContain('"open"')
+    expect(text(result)).not.toContain('No page is open')
+    expect(pngFiles(workspace)).toHaveLength(0)
+    expect(fs.existsSync(path.join(workspace, 'generated'))).toBe(false)
+  })
+
   it('falls back to the page capture when the debugger capture throws', async () => {
     const workspace = tempDir('aipg-shot-fallback-')
     const tool = await browserTool(workspace)
@@ -274,7 +289,7 @@ describe('the Web debugging screenshot action', () => {
     const second = await tool.execute('shot-b', { action: 'screenshot' })
 
     expect(pngFiles(workspace).sort()).toEqual([
-      'screenshot-1700000000000-2.png',
+      'screenshot-1700000000000-1.png',
       'screenshot-1700000000000.png',
     ])
     expect(text(first)).not.toBe(text(second))

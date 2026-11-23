@@ -86,16 +86,13 @@ const BROWSER_DEBUGGING_SKILL: SkillSource = {
     '   either an expression or statements ending in `return`. A script that throws comes back',
     '   with its own error message, so read that instead of guessing another script.',
     '6. browser {"action":"screenshot"} — save a PNG and get its path: the Workspace root, or',
-    '   the `generated/` folder in a game workspace. It is shown to the user as an Artifact',
-    '   card; do NOT read it back as an image, the probe already told you what is on the page',
-    '   in words.',
+    '   the `generated/` folder in a game workspace. It is shown to the user — as an Artifact',
+    '   card in a Session, while a game workspace keeps its thumbnail — so do NOT read it back',
+    '   as an image; the probe already told you what is on the page in words.',
   ].join('\n'),
 }
 
-/**
- * Where the Session serves a screenshot from. A trial whose workspace is not its files folder
- * gets a copy there, the way generated media is saved for trials.
- */
+/** Where the Session serves a screenshot from; a trial gets a copy in its files folder. */
 async function screenshotMediaUrl(
   host: CapabilityHost,
   relativePath: string,
@@ -117,13 +114,14 @@ async function screenshotMediaUrl(
     : sessionFolderMediaUrl(target.sessionRef, target.folderId, served)
 }
 
-/** A Session's screenshot as the same image Artifact generated media becomes. A game keeps none. */
+/** A Session's screenshot as the same image Artifact generated media becomes; a game keeps none. */
 async function screenshotArtifactOf(
   host: CapabilityHost,
   toolCallId: string,
   relativePath: string,
+  inGames: boolean,
 ): Promise<AgentMediaItem | undefined> {
-  if (isInGamesLibrary(host.workspaceDir)) return undefined
+  if (inGames) return undefined
   const imageUrl = await screenshotMediaUrl(host, relativePath)
   if (!imageUrl) return undefined
   return {
@@ -156,9 +154,8 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
         // The model gets the path (an inlined PNG would swamp its context); the
         // user gets to see what the agent saw.
         if (result.screenshotPath) {
-          if (!isInGamesLibrary(host.workspaceDir)) {
-            noteGeneratedMedia(host.workspaceDir, [result.screenshotPath])
-          }
+          const inGames = isInGamesLibrary(host.workspaceDir)
+          if (!inGames) noteGeneratedMedia(host.workspaceDir, [result.screenshotPath])
           try {
             sendToolImage(
               host.sessionId,
@@ -170,7 +167,12 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
             logger.warn(`could not show screenshot in chat: ${error}`, LOG_SOURCE)
           }
           try {
-            const item = await screenshotArtifactOf(host, toolCallId, result.screenshotPath)
+            const item = await screenshotArtifactOf(
+              host,
+              toolCallId,
+              result.screenshotPath,
+              inGames,
+            )
             if (item) {
               return { content: [{ type: 'text', text: result.text }], details: { items: [item] } }
             }

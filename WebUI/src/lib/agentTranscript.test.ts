@@ -225,7 +225,9 @@ describe('screenshotMediaOf', () => {
       state: 'done',
       url: 'aipg-media://folders/session-1/folder-1/shot.png',
     })
-    expect((artifact.item as { workspacePath?: string }).workspacePath).toBe('shot.png')
+    expect(screenshotMediaOf(browserPart(piResult({ items: [shot] })))[0].workspacePath).toBe(
+      'shot.png',
+    )
     expect(artifact.actions).toEqual(expect.arrayContaining(['zoom', 'copy', 'download']))
   })
 

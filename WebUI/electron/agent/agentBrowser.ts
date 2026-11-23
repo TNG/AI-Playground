@@ -344,7 +344,7 @@ function selectorRectScript(selector: string): string {
  * in this window would render local files outside the mounted-folder
  * containment. A non-default viewport is a CDP override that is cleared again
  * before returning, so the shared window is untouched by the time the next
- * action runs. No file is written unless a non-empty PNG came back.
+ * action runs.
  */
 export async function captureWebsite(
   sessionId: string,
@@ -372,12 +372,19 @@ export async function captureWebsite(
     typeof input.width === 'number' && Number.isFinite(input.width) ? input.width : undefined
   const height =
     typeof input.height === 'number' && Number.isFinite(input.height) ? input.height : undefined
+  const clamped =
+    width !== undefined || height !== undefined
+      ? {
+          width: clampViewport(width ?? DEFAULT_VIEWPORT.width),
+          height: clampViewport(height ?? DEFAULT_VIEWPORT.height),
+        }
+      : DEFAULT_VIEWPORT
   let overrideSet = false
-  if (width !== undefined || height !== undefined) {
+  if (clamped.width !== DEFAULT_VIEWPORT.width || clamped.height !== DEFAULT_VIEWPORT.height) {
     try {
       await session.win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
-        width: clampViewport(width ?? DEFAULT_VIEWPORT.width),
-        height: clampViewport(height ?? DEFAULT_VIEWPORT.height),
+        width: clamped.width,
+        height: clamped.height,
         deviceScaleFactor: 1,
         mobile: false,
       })
@@ -457,6 +464,7 @@ export async function captureWebsite(
             'so no screenshot was taken. Pick an element that is displayed.',
         }
       }
+      // The rect is viewport-relative; with no scroll action it coincides with page coordinates.
       clip = { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) }
     }
 

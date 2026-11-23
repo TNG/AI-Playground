@@ -152,6 +152,9 @@ const warmUpWindow = async (tool: Tool): Promise<FakeBrowserWindow> => {
 }
 
 describe('the webScreenshot tool', () => {
+  const originalHome = process.env.HOME
+  const originalUserProfile = process.env.USERPROFILE
+
   beforeEach(() => {
     instances.length = 0
   })
@@ -159,6 +162,10 @@ describe('the webScreenshot tool', () => {
   afterEach(() => {
     closeAllBrowserSessions()
     vi.restoreAllMocks()
+    if (originalHome === undefined) delete process.env.HOME
+    else process.env.HOME = originalHome
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = originalUserProfile
     for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
   })
 
@@ -204,6 +211,25 @@ describe('the webScreenshot tool', () => {
     const tool = await webShotTool(workspace)
 
     await capture(tool, { url: 'https://example.com' })
+
+    expect(
+      instances[0].sendCommand.mock.calls.some(
+        ([method]) => method === 'Emulation.setDeviceMetricsOverride',
+      ),
+    ).toBe(false)
+    expect(
+      instances[0].sendCommand.mock.calls.some(
+        ([method]) => method === 'Emulation.clearDeviceMetricsOverride',
+      ),
+    ).toBe(false)
+    expect(pngFiles(workspace)).toHaveLength(1)
+  })
+
+  it('leaves the viewport alone when the default size is passed explicitly', async () => {
+    const workspace = tempDir('aipg-webshot-explicit-')
+    const tool = await webShotTool(workspace)
+
+    await capture(tool, { url: 'https://example.com', width: 1280, height: 800 })
 
     expect(
       instances[0].sendCommand.mock.calls.some(
@@ -347,5 +373,22 @@ describe('the webScreenshot tool', () => {
       'http://127.0.0.1:41235/index.html',
     )
     expect(pngFiles(workspace)).toHaveLength(1)
+  })
+
+  it('keeps a game workspace capture in generated/', async () => {
+    const home = tempDir('aipg-webshot-home-')
+    delete process.env.USERPROFILE
+    process.env.HOME = home
+    const workspace = path.join(home, 'AI-Playground', 'games', 'Star Blaster')
+    fs.mkdirSync(workspace, { recursive: true })
+    const tool = await webShotTool(workspace)
+
+    const result = await capture(tool, { url: 'https://example.com' })
+
+    const saved = fs.readdirSync(path.join(workspace, 'generated'))
+    expect(saved).toHaveLength(1)
+    expect(saved[0]).toMatch(/^screenshot-\d+\.png$/)
+    expect(text(result)).toBe(`Saved screenshot to generated/${saved[0]}`)
+    expect(pngFiles(workspace)).toHaveLength(0)
   })
 })

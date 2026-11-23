@@ -24,7 +24,7 @@ const LOG_SOURCE = 'screenshotOutput'
 // What a saved screenshot becomes for the user — the streamed thumbnail under
 // the tool call, the image Artifact card in a Session, the turn-media note
 // outside games — shared by every capability that captures one so their output
-// cannot drift. The model gets the path text only.
+// cannot drift.
 
 /** A capture engine's report: the model-facing text and the saved file, if any. */
 export type ScreenshotEngineResult = {

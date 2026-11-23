@@ -52,10 +52,12 @@ async function buildWebScreenshotTool(host: CapabilityHost): Promise<ToolDefinit
           height?: number
           selector?: string
         }
+        const resolvedUrl = resolvePreviewUrl(url)
+        if (!resolvedUrl) throw new Error('webScreenshot requires a url')
         const input: WebsiteCaptureInput = {
-          url: resolvePreviewUrl(url) ?? '',
-          ...(typeof width === 'number' ? { width } : {}),
-          ...(typeof height === 'number' ? { height } : {}),
+          url: resolvedUrl,
+          ...(width !== undefined ? { width } : {}),
+          ...(height !== undefined ? { height } : {}),
           ...(selector ? { selector } : {}),
         }
         const result = await captureWebsite(host.sessionId, host.workspaceDir, input)

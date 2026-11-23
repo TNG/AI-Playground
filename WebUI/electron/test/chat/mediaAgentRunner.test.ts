@@ -129,6 +129,9 @@ beforeEach(() => {
         imageUrl: 'aipg-media://castle.png',
         mode: 'imageGen',
         settings: { preset: 'W1', bulky: 'x'.repeat(40) },
+        dynamicSettings: [
+          { type: 'number', label: 'Guidance Scale', nodeInput: 'guidance', current: 7.5 },
+        ],
       },
     ],
   })
@@ -151,8 +154,10 @@ function mediaEvents() {
 describe('runMediaAgentInMain', () => {
   it('runs the nested loop with in-process Comfy and the nested history', async () => {
     let call = 0
+    const seen: unknown[] = []
     const model = new MockLanguageModelV3({
-      doStream: async () => {
+      doStream: async ({ prompt }) => {
+        seen.push(prompt)
         call++
         if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
         return textResponse('Made the castle.')
@@ -174,10 +179,24 @@ describe('runMediaAgentInMain', () => {
 
     expect(result.text).toBe('Made the castle.')
     expect(result.steps).toHaveLength(1)
+    // The captured steps are the transcript's items: the full generation
+    // settings and dynamic inputs survive for the parent tool's details.
     expect(result.steps[0].output).toMatchObject({
-      images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://castle.png' }],
+      images: [
+        {
+          id: 'i1',
+          type: 'image',
+          imageUrl: 'aipg-media://castle.png',
+          settings: { preset: 'W1', bulky: 'x'.repeat(40) },
+          dynamicSettings: [
+            { type: 'number', label: 'Guidance Scale', nodeInput: 'guidance', current: 7.5 },
+          ],
+        },
+      ],
     })
-    expect(JSON.stringify(result.steps[0].output)).not.toContain('bulky')
+    // The specialist's own context sees only the slim result.
+    expect(JSON.stringify(seen[1])).not.toContain('bulky')
+    expect(JSON.stringify(seen[1])).not.toContain('dynamicSettings')
 
     const progress = mediaEvents()
     expect(progress.filter((e) => e.type === 'phase')).toEqual([

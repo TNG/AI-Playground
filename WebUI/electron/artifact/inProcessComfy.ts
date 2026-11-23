@@ -225,8 +225,19 @@ function resolveInputs(
 function toolOutput(result: ArtifactRunResult): Record<string, unknown> {
   const images = result.items.map((item) => {
     const settings = item.settings || {}
+    // The per-workflow inputs the run used: the UI's info overlay lists them,
+    // so they must survive the tool boundary even though the model never reads them.
+    const dynamicSettings =
+      item.dynamicSettings === undefined ? {} : { dynamicSettings: item.dynamicSettings }
     if (item.type === 'video') {
-      return { id: item.id, type: 'video', videoUrl: item.videoUrl, mode: 'imageGen', settings }
+      return {
+        id: item.id,
+        type: 'video',
+        videoUrl: item.videoUrl,
+        mode: 'imageGen',
+        settings,
+        ...dynamicSettings,
+      }
     }
     if (item.type === 'model3d') {
       return {
@@ -235,9 +246,17 @@ function toolOutput(result: ArtifactRunResult): Record<string, unknown> {
         model3dUrl: item.model3dUrl,
         mode: 'imageGen',
         settings,
+        ...dynamicSettings,
       }
     }
-    return { id: item.id, type: 'image', imageUrl: item.imageUrl, mode: 'imageGen', settings }
+    return {
+      id: item.id,
+      type: 'image',
+      imageUrl: item.imageUrl,
+      mode: 'imageGen',
+      settings,
+      ...dynamicSettings,
+    }
   })
   const unfinished = (result.unfinished ?? []).map((item) => ({
     id: item.id,

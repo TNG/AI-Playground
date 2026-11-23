@@ -148,4 +148,57 @@ describe('condenseMediaAgentRun', () => {
     })
     expect(result.images).toHaveLength(1)
   })
+
+  it('keeps dynamicSettings and full settings in the condensed record, strips them in the slim copy', () => {
+    const dynamicSettings = [
+      {
+        type: 'number',
+        label: 'Guidance Scale',
+        nodeTitle: 'Node',
+        nodeInput: 'guidance',
+        displayed: true,
+        modifiable: true,
+        defaultValue: 7,
+        current: 7.5,
+      },
+    ]
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', prompt: 'a castle' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { preset: 'Draft Image', prompt: 'a castle', seed: 42 },
+                dynamicSettings,
+              },
+            ],
+          },
+        },
+      ],
+    })
+
+    // The condensed record is the UI's source of truth: settings and dynamic inputs survive.
+    expect(result.images[0].settings).toEqual({
+      preset: 'Draft Image',
+      prompt: 'a castle',
+      seed: 42,
+    })
+    expect(result.images[0].dynamicSettings).toEqual(dynamicSettings)
+    // The slim copy is the parent model's context: only the prompt may remain.
+    expect(slimCondensedMedia(result).images).toEqual([
+      {
+        id: '1',
+        type: 'image',
+        imageUrl: 'aipg-media://a.png',
+        settings: { prompt: 'a castle' },
+      },
+    ])
+  })
 })

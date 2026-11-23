@@ -317,6 +317,42 @@ describe('runInProcessComfyTool size snapping', () => {
     expect(output.sizeNotice).toContain('704x704')
   })
 
+  it('carries the per-workflow inputs onto the tool output items', async () => {
+    installCatalog([comfyPresetFixture({ name: 'P' })])
+    const dynamicSettings = [
+      {
+        type: 'number',
+        label: 'Guidance Scale',
+        nodeTitle: 'Node',
+        nodeInput: 'guidance',
+        displayed: true,
+        modifiable: true,
+        defaultValue: 7,
+        current: 7.5,
+      },
+    ]
+    submitArtifactRunMock.mockResolvedValue({
+      state: 'completed',
+      items: [
+        {
+          id: 'i1',
+          type: 'image',
+          imageUrl: 'aipg-media://a.png',
+          mode: 'imageGen',
+          settings: { resolution: '512x512' },
+          dynamicSettings,
+        },
+      ],
+    } as unknown as ArtifactRunResult)
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat' }),
+    )) as { images: Array<Record<string, unknown>> }
+
+    expect(output.images[0].settings).toEqual({ resolution: '512x512' })
+    expect(output.images[0].dynamicSettings).toEqual(dynamicSettings)
+  })
+
   it('omits size and notice when the run does not complete', async () => {
     installCatalog([comfyPresetFixture({ name: 'P' })])
     submitArtifactRunMock.mockResolvedValue({ state: 'cancelled', items: [] } as ArtifactRunResult)

@@ -1,3 +1,4 @@
+import type { ComfyDynamicInputWithCurrent } from '@/types/mediaItem'
 import type { MediaAgentRunResult } from '@/types/chatIpc'
 
 /** Comfy-shaped media entry produced by an inner specialist tool. */
@@ -9,6 +10,8 @@ export type CondensedMediaEntry = {
   model3dUrl?: string
   mode: string
   settings: Record<string, unknown>
+  /** The per-workflow inputs the run used; UI-only, never enters the parent model context. */
+  dynamicSettings?: ComfyDynamicInputWithCurrent[]
 }
 
 export type CondensedMediaAgentResult = {

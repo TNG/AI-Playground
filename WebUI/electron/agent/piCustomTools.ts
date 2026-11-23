@@ -44,8 +44,12 @@ export function jsonResult(value: unknown): AgentToolResult<undefined> {
 export function mediaToolResult(
   value: unknown,
   steps?: string[],
+  itemsValue?: unknown,
 ): AgentToolResult<AgentMediaDetails | undefined> {
-  const items = generatedItemsOf(value)
+  // `value` becomes the model-facing JSON; `itemsValue`, when a richer record
+  // exists beside the slim one, is where the transcript's UI-facing items come
+  // from (full generation settings and dynamic inputs without polluting context).
+  const items = generatedItemsOf(itemsValue ?? value)
   const failure = failureOf(value)
   const details =
     items.length > 0 || steps || failure

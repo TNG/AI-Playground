@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { appLoggerInstance } from '../observability/logger.ts'
+import { isInGamesLibrary } from '../session/sessionWorkspace.ts'
 import { formatProbeReport, PROBE_CALL, type ProbeReport } from './previewProbe.ts'
 
 // ── Agent browser (Electron-native) ──────────────────────────────────────────
@@ -126,6 +127,48 @@ function wrapForEval(script: string): string {
   })()`
 }
 
+/**
+ * A screenshot of the page, taken through the CDP debugger already attached to
+ * this window (a real frame even while hidden), falling back to the plain
+ * `capturePage` when the debugger is unavailable, throws, or yields nothing.
+ * A capture that produces no bytes is not a success: a 0-byte PNG is never a
+ * usable image, so it is reported as a failure instead of written.
+ */
+async function captureScreenshotPng(session: BrowserSession): Promise<Buffer | null> {
+  if (session.attached) {
+    try {
+      const shot = (await session.win.webContents.debugger.sendCommand(
+        'Page.captureScreenshot',
+        { format: 'png' },
+      )) as { data?: unknown } | undefined
+      const data = typeof shot?.data === 'string' ? shot.data : ''
+      const png = data ? Buffer.from(data, 'base64') : Buffer.alloc(0)
+      if (png.length > 0) return png
+    } catch (error) {
+      logger.warn(`CDP screenshot failed, falling back to capturePage: ${error}`, LOG_SOURCE)
+    }
+  }
+  try {
+    const png = await session.win.webContents.capturePage().then((image) => image.toPNG())
+    return png.length > 0 ? png : null
+  } catch (error) {
+    logger.warn(`capturePage screenshot failed: ${error}`, LOG_SOURCE)
+    return null
+  }
+}
+
+/** `screenshot-<timestamp>.png`, made unique among the folder's existing files. */
+function freeScreenshotName(dir: string): string {
+  const stamp = Date.now()
+  let name = `screenshot-${stamp}.png`
+  let counter = 1
+  while (fs.existsSync(path.join(dir, name))) {
+    counter += 1
+    name = `screenshot-${stamp}-${counter}.png`
+  }
+  return name
+}
+
 export type BrowserToolInput = {
   action: 'open' | 'console' | 'eval' | 'screenshot' | 'probe'
   url?: string
@@ -142,8 +185,9 @@ export type BrowserActionResult = {
 /**
  * Execute one browser action for a session. Runs in the Electron main process
  * against a hidden BrowserWindow (bundled Chromium). Returns a plain string for
- * the model. Screenshots are saved into `<workspace>/generated/` and the tool
- * returns the workspace-relative PATH (never base64 — that overflows context).
+ * the model. A screenshot is saved at the workspace root, or in its `generated/`
+ * folder inside the games library, and the tool returns the workspace-relative
+ * PATH (never base64 — that overflows context).
  */
 export async function runBrowserAction(
   sessionId: string,
@@ -224,12 +268,29 @@ export async function runBrowserAction(
       return { text: formatProbeReport(report) }
     }
     case 'screenshot': {
-      const image = await session.win.webContents.capturePage()
-      const generatedDir = path.join(workspaceDir, 'generated')
-      fs.mkdirSync(generatedDir, { recursive: true })
-      const filename = `screenshot-${Date.now()}.png`
-      fs.writeFileSync(path.join(generatedDir, filename), image.toPNG())
-      const relativePath = path.posix.join('generated', filename)
+      const url = session.win.webContents.getURL()
+      if (!url || url === 'about:blank') {
+        return {
+          text:
+            'No page is open in the browser, so there is nothing to capture. Open one first ' +
+            'with action "open" (for example {"action":"open","url":"index.html"}), then take ' +
+            'the screenshot again.',
+        }
+      }
+      const png = await captureScreenshotPng(session)
+      if (!png) {
+        return {
+          text:
+            'The screenshot came back empty, so no image was saved. Reload the page with ' +
+            'action "open" and try the screenshot again.',
+        }
+      }
+      const inGame = isInGamesLibrary(workspaceDir)
+      const dir = inGame ? path.join(workspaceDir, 'generated') : workspaceDir
+      fs.mkdirSync(dir, { recursive: true })
+      const filename = freeScreenshotName(dir)
+      fs.writeFileSync(path.join(dir, filename), png)
+      const relativePath = inGame ? path.posix.join('generated', filename) : filename
       return { text: `Saved screenshot to ${relativePath}`, screenshotPath: relativePath }
     }
     default:

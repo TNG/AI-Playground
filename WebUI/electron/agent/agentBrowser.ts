@@ -403,6 +403,8 @@ export async function captureWebsite(
       : DEFAULT_VIEWPORT
   let overrideSet = false
   if (clamped.width !== DEFAULT_VIEWPORT.width || clamped.height !== DEFAULT_VIEWPORT.height) {
+    // The override on a never-navigated window segfaults the main process: it has no view yet.
+    if (!session.win.webContents.getURL()) await session.win.loadURL('about:blank')
     try {
       await session.win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
         width: clamped.width,

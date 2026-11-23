@@ -84,6 +84,11 @@ function callOrderOf(mock: CommandMock, method: string): number {
   return mock.mock.invocationCallOrder[index]
 }
 
+function loadOrderOf(win: FakeBrowserWindow, url: string): number {
+  const { calls, invocationCallOrder } = win.webContents.loadURL.mock
+  return invocationCallOrder[calls.findIndex(([loaded]) => loaded === url)]
+}
+
 class FakeBrowserWindow {
   destroyed = false
   url = ''
@@ -279,10 +284,35 @@ describe('the webScreenshot tool', () => {
     })
     expect(
       callOrderOf(instances[0].sendCommand, 'Emulation.setDeviceMetricsOverride'),
-    ).toBeLessThan(instances[0].webContents.loadURL.mock.invocationCallOrder[0])
+    ).toBeLessThan(loadOrderOf(instances[0], 'https://example.com'))
     expect(instances[0].sendCommand).toHaveBeenCalledWith('Emulation.clearDeviceMetricsOverride')
     expect(pngFiles(workspace)).toHaveLength(1)
     expect(text(result)).toMatch(/^Saved screenshot to /)
+  })
+
+  it('gives a never-navigated window a blank page before the viewport override', async () => {
+    const workspace = tempDir('aipg-webshot-fresh-')
+    const tool = await webShotTool(workspace)
+
+    await capture(tool, { url: 'https://example.com', width: 1280, height: 1200 })
+
+    expect(loadOrderOf(instances[0], 'about:blank')).toBeLessThan(
+      callOrderOf(instances[0].sendCommand, 'Emulation.setDeviceMetricsOverride'),
+    )
+  })
+
+  it('skips the blank page once the window holds a page', async () => {
+    const workspace = tempDir('aipg-webshot-warm-')
+    const tool = await webShotTool(workspace)
+    const win = await warmUpWindow(tool)
+
+    await capture(tool, { url: 'https://example.com', width: 1280, height: 1200 })
+
+    expect(win.webContents.loadURL).not.toHaveBeenCalledWith('about:blank')
+    expect(win.sendCommand).toHaveBeenCalledWith(
+      'Emulation.setDeviceMetricsOverride',
+      expect.anything(),
+    )
   })
 
   it('leaves the viewport alone at the default size', async () => {

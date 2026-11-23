@@ -24,9 +24,11 @@ const SCREENSHOT_INPUT_SCHEMA: Record<string, unknown> = {
     },
     width: { type: 'number', description: 'Viewport width in pixels (200–4000; default 1280).' },
     height: { type: 'number', description: 'Viewport height in pixels (200–4000; default 800).' },
-    selector: {
+    text: {
       type: 'string',
-      description: 'CSS selector of the single element to capture instead of the whole page.',
+      description:
+        'Visible text of the single element to capture instead of the whole page — quote it ' +
+        "from the page's readable text or an image's alt text; case and whitespace don't matter.",
     },
   },
   required: ['url'],
@@ -40,17 +42,19 @@ async function buildWebScreenshotTool(host: CapabilityHost): Promise<ToolDefinit
       label: 'webScreenshot',
       description:
         'Open a web page and save a PNG picture of it into the workspace for the user to ' +
-        'look at — the whole page at a chosen viewport size, or just the element a CSS ' +
-        'selector names. Use it to SHOW the user a page; it cannot run scripts, read the ' +
-        'console or inspect the page, and you cannot see the picture yourself — to read a ' +
-        'page use the web tools instead.',
+        'look at — the whole page at a chosen viewport size, or a single element chosen by ' +
+        'quoting its text. Read the page with the web tools first, then pass the visible ' +
+        "text (or an image's alt text) of the element to show as `text` — never a CSS " +
+        'selector, which you cannot know. It cannot run scripts, read the console or ' +
+        'inspect the page, and you cannot see the picture yourself — to read a page use ' +
+        'the web tools instead.',
       parameters: jsonSchemaParameters(SCREENSHOT_INPUT_SCHEMA),
       execute: async (toolCallId, params) => {
-        const { url, width, height, selector } = params as {
+        const { url, width, height, text } = params as {
           url?: string
           width?: number
           height?: number
-          selector?: string
+          text?: string
         }
         const resolvedUrl = resolvePreviewUrl(url)
         if (!resolvedUrl) throw new Error('webScreenshot requires a url')
@@ -58,7 +62,7 @@ async function buildWebScreenshotTool(host: CapabilityHost): Promise<ToolDefinit
           url: resolvedUrl,
           ...(width !== undefined ? { width } : {}),
           ...(height !== undefined ? { height } : {}),
-          ...(selector ? { selector } : {}),
+          ...(text ? { text } : {}),
         }
         const result = await captureWebsite(host.sessionId, host.workspaceDir, input)
         return screenshotToolResult(host, toolCallId, result)

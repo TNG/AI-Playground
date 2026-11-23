@@ -420,6 +420,14 @@ describe('resolveCapabilities', () => {
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
     expect(registry.tools.map((tool) => tool.name)).toEqual(['webScreenshot'])
+    // The model cannot know a CSS selector: the tool teaches quoting text instead.
+    const webShot = registry.tools.find((tool) => tool.name === 'webScreenshot') as unknown as {
+      description: string
+      parameters: { properties: Record<string, unknown> }
+    }
+    expect(webShot.description).toContain('never a CSS selector')
+    expect(webShot.parameters.properties.text).toBeDefined()
+    expect(webShot.parameters.properties.selector).toBeUndefined()
   })
 
   it('shows a website screenshot to the user without inlining it for the model', async () => {

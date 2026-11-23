@@ -5,12 +5,75 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The Website screenshots `webScreenshot` tool, driven through the capability
 // against the real capture engine, with only Electron's window and web contents
-// faked.
+// faked. The fixed text-match script runs for real, against a fixture page the
+// fake window hands to `executeJavaScript`.
 
 const PNG = Buffer.from(
   '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6300010000050001',
   'hex',
 )
+
+/** A fixture element: exactly the surface the fixed match script touches in a page. */
+type ElementSpec = {
+  tag: string
+  text?: string
+  alt?: string
+  ariaLabel?: string
+  rect?: { x: number; y: number; width: number; height: number }
+  children?: ElementSpec[]
+}
+
+type FixtureElement = {
+  tagName: string
+  innerText: string
+  parent: FixtureElement | null
+  getAttribute: (name: string) => string | null
+  getBoundingClientRect: () => { x: number; y: number; width: number; height: number }
+  contains: (other: FixtureElement) => boolean
+}
+
+/** An element's visible text includes its descendants', the way innerText does. */
+const subtreeText = (spec: ElementSpec): string =>
+  [spec.text ?? '', ...(spec.children ?? []).map(subtreeText)].join(' ').trim()
+
+/** Build a fixture page; returns every element in document order. */
+function buildPage(specs: ElementSpec[]): FixtureElement[] {
+  const all: FixtureElement[] = []
+  const build = (spec: ElementSpec, parent: FixtureElement | null): FixtureElement => {
+    const element = {} as FixtureElement
+    const rect = spec.rect ?? { x: 0, y: 0, width: 100, height: 40 }
+    element.tagName = spec.tag
+    element.innerText = subtreeText(spec)
+    element.parent = parent
+    element.getAttribute = (name: string) =>
+      name === 'alt' && spec.alt !== undefined
+        ? spec.alt
+        : name === 'aria-label' && spec.ariaLabel !== undefined
+          ? spec.ariaLabel
+          : null
+    element.getBoundingClientRect = () => rect
+    element.contains = (other: FixtureElement) => {
+      let cursor: FixtureElement | null = other
+      while (cursor) {
+        if (cursor === element) return true
+        cursor = cursor.parent
+      }
+      return false
+    }
+    all.push(element)
+    for (const child of spec.children ?? []) build(child, element)
+    return element
+  }
+  for (const spec of specs) build(spec, null)
+  return all
+}
+
+/** Run the engine's fixed match script against a fixture page, as the page would. */
+async function runMatchScript(script: string, page: FixtureElement[]): Promise<string> {
+  const document = { querySelectorAll: () => page }
+  const runner = new Function('document', `return ${script}`)
+  return (await runner(document)) as string
+}
 
 type CommandMock = {
   mock: { calls: [string, unknown?][]; invocationCallOrder: number[] }
@@ -29,8 +92,8 @@ class FakeBrowserWindow {
   /** HTTP status the did-navigate listener reports; 0 means a successful load. */
   httpStatus = 0
   httpStatusText = ''
-  /** What the page answers to the fixed selector-measure script. */
-  measureResult: string | null = null
+  /** The fixture page the fixed text-match script runs against. */
+  page: FixtureElement[] = []
   /** What the page answers to the failed-load body-text probe. */
   bodyText = ''
   capturePageResult: { toPNG: () => Buffer } | Error = { toPNG: () => PNG }
@@ -64,7 +127,7 @@ class FakeBrowserWindow {
       return this.capturePageResult
     }),
     executeJavaScript: vi.fn(async (script: string) => {
-      if (script.includes('querySelector')) return this.measureResult ?? '{"found":false}'
+      if (script.includes('document.querySelectorAll')) return runMatchScript(script, this.page)
       if (script.includes('document.body')) return this.bodyText
       return ''
     }),
@@ -143,15 +206,28 @@ function pngFiles(dir: string): string[] {
 const capture = async (tool: Tool, params: Record<string, unknown>) =>
   tool.execute('web-shot-1', params)
 
-// The hidden window is created lazily on the first capture; a selector that
+// The hidden window is created lazily on the first capture; a quote that
 // matches nothing fails without writing a file, so it warms the session up for
-// the tests that must configure the window before capturing.
+// the tests that must configure the page before capturing.
 const warmUpWindow = async (tool: Tool): Promise<FakeBrowserWindow> => {
-  await capture(tool, { url: 'https://example.com', selector: '.warmup' })
+  await capture(tool, { url: 'https://example.com', text: 'warm up: nothing matches this' })
   return instances[0]
 }
 
 describe('the webScreenshot tool', () => {
+  it('offers text for element capture and rejects a selector outright', async () => {
+    const workspace = tempDir('aipg-webshot-schema-')
+    const tool = await webShotTool(workspace)
+
+    const schema = (tool as unknown as { parameters: Record<string, unknown> }).parameters
+    const properties = schema.properties as Record<string, unknown>
+
+    expect(schema.additionalProperties).toBe(false)
+    expect(schema.required).toEqual(['url'])
+    expect(properties.text).toBeDefined()
+    expect(properties.selector).toBeUndefined()
+  })
+
   const originalHome = process.env.HOME
   const originalUserProfile = process.env.USERPROFILE
 
@@ -259,49 +335,182 @@ describe('the webScreenshot tool', () => {
     expect(pngFiles(workspace)).toHaveLength(1)
   })
 
-  it('clips the capture to the element a selector names, beyond the viewport', async () => {
+  it('clips the capture to the element the quoted text names, beyond the viewport', async () => {
     const workspace = tempDir('aipg-webshot-clip-')
     const tool = await webShotTool(workspace)
     const window = await warmUpWindow(tool)
-    window.measureResult = JSON.stringify({
-      found: true,
-      rect: { x: 10.2, y: 20.7, width: 300, height: 2500 },
-    })
+    window.page = buildPage([
+      {
+        tag: 'SECTION',
+        rect: { x: 0, y: 0, width: 1200, height: 3000 },
+        children: [
+          { tag: 'H2', text: 'Pricing', rect: { x: 10.2, y: 20.7, width: 300, height: 40 } },
+          {
+            tag: 'TABLE',
+            text: 'Basic Pro Enterprise',
+            rect: { x: 10, y: 80, width: 600, height: 2500 },
+          },
+        ],
+      },
+    ])
 
-    const result = await capture(tool, { url: 'https://example.com', selector: '.pricing' })
+    const result = await capture(tool, { url: 'https://example.com', text: 'Pricing' })
 
     expect(instances[0].sendCommand).toHaveBeenCalledWith('Page.captureScreenshot', {
       format: 'png',
-      clip: { x: 10, y: 21, width: 300, height: 2500, scale: 1 },
+      clip: { x: 10, y: 21, width: 300, height: 40, scale: 1 },
       captureBeyondViewport: true,
     })
     const files = pngFiles(workspace)
     expect(files).toHaveLength(1)
     expect(text(result)).toBe(`Saved screenshot to ${files[0]}`)
+    // The quote rides inside the fixed script as JSON data, never compiled.
+    const calls = instances[0].webContents.executeJavaScript.mock.calls
+    expect(calls[calls.length - 1][0]).toContain('"Pricing"')
   })
 
-  it('reports a selector that matches nothing and writes no file', async () => {
+  it('matches an element by its alt or aria-label attribute', async () => {
+    const workspace = tempDir('aipg-webshot-alt-')
+    const tool = await webShotTool(workspace)
+    const window = await warmUpWindow(tool)
+
+    window.page = buildPage([
+      {
+        tag: 'IMG',
+        alt: 'Quarterly revenue chart',
+        rect: { x: 5, y: 5, width: 400, height: 300 },
+      },
+    ])
+    await capture(tool, { url: 'https://example.com', text: 'Quarterly revenue chart' })
+    expect(instances[0].sendCommand).toHaveBeenCalledWith('Page.captureScreenshot', {
+      format: 'png',
+      clip: { x: 5, y: 5, width: 400, height: 300, scale: 1 },
+      captureBeyondViewport: true,
+    })
+
+    window.page = buildPage([
+      {
+        tag: 'BUTTON',
+        ariaLabel: 'Open the menu',
+        rect: { x: 1, y: 2, width: 30, height: 30 },
+      },
+    ])
+    await capture(tool, { url: 'https://example.com', text: 'open THE   menu' })
+    expect(instances[0].sendCommand).toHaveBeenLastCalledWith('Page.captureScreenshot', {
+      format: 'png',
+      clip: { x: 1, y: 2, width: 30, height: 30, scale: 1 },
+      captureBeyondViewport: true,
+    })
+    expect(pngFiles(workspace)).toHaveLength(2)
+  })
+
+  it('ignores case and whitespace differences when matching the quote', async () => {
+    const workspace = tempDir('aipg-webshot-case-')
+    const tool = await webShotTool(workspace)
+    const window = await warmUpWindow(tool)
+    window.page = buildPage([
+      {
+        tag: 'P',
+        text: 'Simple plans for every team',
+        rect: { x: 12, y: 34, width: 500, height: 20 },
+      },
+    ])
+
+    await capture(tool, {
+      url: 'https://example.com',
+      text: '  SIMPLE   plans\n\tfor EVERY  team ',
+    })
+
+    expect(instances[0].sendCommand).toHaveBeenCalledWith('Page.captureScreenshot', {
+      format: 'png',
+      clip: { x: 12, y: 34, width: 500, height: 20, scale: 1 },
+      captureBeyondViewport: true,
+    })
+    expect(pngFiles(workspace)).toHaveLength(1)
+  })
+
+  it('captures the deepest element containing the quote — narrow inside, wide for a section', async () => {
+    const workspace = tempDir('aipg-webshot-deepest-')
+    const tool = await webShotTool(workspace)
+    const window = await warmUpWindow(tool)
+    const sectionRect = { x: 0, y: 0, width: 1200, height: 800 }
+    const paragraphRect = { x: 20, y: 60, width: 500, height: 20 }
+    window.page = buildPage([
+      {
+        tag: 'SECTION',
+        text: 'Pricing',
+        rect: sectionRect,
+        children: [{ tag: 'P', text: 'Simple plans for every team.', rect: paragraphRect }],
+      },
+    ])
+
+    await capture(tool, { url: 'https://example.com', text: 'Simple plans for every team.' })
+    expect(instances[0].sendCommand).toHaveBeenLastCalledWith('Page.captureScreenshot', {
+      format: 'png',
+      clip: { ...paragraphRect, scale: 1 },
+      captureBeyondViewport: true,
+    })
+
+    await capture(tool, {
+      url: 'https://example.com',
+      text: 'Pricing Simple plans for every team.',
+    })
+    expect(instances[0].sendCommand).toHaveBeenLastCalledWith('Page.captureScreenshot', {
+      format: 'png',
+      clip: { ...sectionRect, scale: 1 },
+      captureBeyondViewport: true,
+    })
+    expect(pngFiles(workspace)).toHaveLength(2)
+  })
+
+  it('reports a quote that matches nothing and writes no file', async () => {
     const workspace = tempDir('aipg-webshot-missing-')
     const tool = await webShotTool(workspace)
 
-    const result = await capture(tool, { url: 'https://example.com', selector: '.gone' })
+    const result = await capture(tool, { url: 'https://example.com', text: 'Not on this page' })
 
-    expect(text(result)).toContain('No element matches the selector ".gone"')
+    expect(text(result)).toContain('contains the text "Not on this page"')
+    expect(text(result)).toContain('no screenshot was taken')
     expect(pngFiles(workspace)).toHaveLength(0)
   })
 
-  it('reports a zero-area element and writes no file', async () => {
+  it('reports a quote with several distinct matches and writes no file', async () => {
+    const workspace = tempDir('aipg-webshot-multi-')
+    const tool = await webShotTool(workspace)
+    const window = await warmUpWindow(tool)
+    window.page = buildPage([
+      {
+        tag: 'DIV',
+        children: [{ tag: 'H2', text: 'Pricing', rect: { x: 0, y: 0, width: 200, height: 30 } }],
+      },
+      {
+        tag: 'DIV',
+        children: [{ tag: 'H2', text: 'Pricing', rect: { x: 0, y: 100, width: 200, height: 30 } }],
+      },
+    ])
+
+    const result = await capture(tool, { url: 'https://example.com', text: 'Pricing' })
+
+    expect(text(result)).toContain('matches 2 distinct elements')
+    expect(text(result)).toMatch(/[Qq]uote more/)
+    expect(pngFiles(workspace)).toHaveLength(0)
+  })
+
+  it('reports a matched element with no visible area and writes no file', async () => {
     const workspace = tempDir('aipg-webshot-zero-')
     const tool = await webShotTool(workspace)
     const window = await warmUpWindow(tool)
-    window.measureResult = JSON.stringify({
-      found: true,
-      rect: { x: 0, y: 0, width: 0, height: 0 },
-    })
+    window.page = buildPage([
+      {
+        tag: 'DIV',
+        text: 'Invisible block',
+        rect: { x: 0, y: 0, width: 0, height: 0 },
+      },
+    ])
 
-    const result = await capture(tool, { url: 'https://example.com', selector: '.hidden' })
+    const result = await capture(tool, { url: 'https://example.com', text: 'Invisible block' })
 
-    expect(text(result)).toContain('".hidden"')
+    expect(text(result)).toContain('"Invisible block"')
     expect(text(result)).toMatch(/no visible area/)
     expect(pngFiles(workspace)).toHaveLength(0)
   })

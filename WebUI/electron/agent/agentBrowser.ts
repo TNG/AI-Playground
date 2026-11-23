@@ -315,8 +315,8 @@ export type WebsiteCaptureInput = {
   /** Viewport width in pixels; with `height`, sizes the capture for one call. */
   width?: number
   height?: number
-  /** CSS selector of the single element to capture instead of the whole viewport. */
-  selector?: string
+  /** Visible text of the single element to capture instead of the whole page. */
+  text?: string
 }
 
 const VIEWPORT_MIN = 200
@@ -327,13 +327,39 @@ function clampViewport(value: number): number {
   return Math.min(VIEWPORT_MAX, Math.max(VIEWPORT_MIN, Math.round(value)))
 }
 
-/** A fixed script of ours; the selector rides along as JSON data, never compiled. */
-function selectorRectScript(selector: string): string {
+/**
+ * A fixed script of ours; the quote rides along as JSON data, never compiled
+ * (ADR 0015). Finds the deepest element whose visible text — or `alt` /
+ * `aria-label` attribute — contains the quote, case and whitespace aside, and
+ * returns that element's viewport-relative rect.
+ */
+function textMatchRectScript(quote: string): string {
   return `(async () => {
-  const element = document.querySelector(${JSON.stringify(selector)})
-  if (!element) return JSON.stringify({ found: false })
-  const rect = element.getBoundingClientRect()
-  return JSON.stringify({ found: true, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } })
+  const normalize = (value) => String(value).toLowerCase().replace(/\\s+/g, ' ').trim()
+  const wanted = normalize(${JSON.stringify(quote)})
+  if (!wanted) return JSON.stringify({ matches: 0 })
+  const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TITLE'])
+  const matched = []
+  for (const element of document.querySelectorAll('*')) {
+    if (skip.has(element.tagName)) continue
+    if (normalize(element.innerText ?? '').includes(wanted)) {
+      matched.push(element)
+      continue
+    }
+    const named = ['alt', 'aria-label'].some(
+      (name) => normalize(element.getAttribute(name) ?? '').includes(wanted),
+    )
+    if (named) matched.push(element)
+  }
+  const distinct = matched.filter(
+    (element) => !matched.some((other) => other !== element && element.contains(other)),
+  )
+  if (distinct.length !== 1) return JSON.stringify({ matches: distinct.length })
+  const rect = distinct[0].getBoundingClientRect()
+  return JSON.stringify({
+    matches: 1,
+    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+  })
 })()`
 }
 
@@ -431,12 +457,12 @@ export async function captureWebsite(
     }
 
     let clip: CaptureClip | undefined
-    if (input.selector) {
+    if (input.text) {
       const raw = await session.win.webContents
-        .executeJavaScript(selectorRectScript(input.selector), true)
+        .executeJavaScript(textMatchRectScript(input.text), true)
         .catch(() => '')
       let report: {
-        found?: boolean
+        matches?: number
         rect?: { x: number; y: number; width: number; height: number }
       }
       try {
@@ -444,23 +470,42 @@ export async function captureWebsite(
       } catch {
         return {
           text:
-            `Could not measure the element "${input.selector}" on ${input.url}, so no ` +
-            'screenshot was taken. Pick a simpler selector and try again.',
+            `Could not search ${input.url} for the text "${input.text}", so no screenshot ` +
+            'was taken. Try the capture again.',
         }
       }
-      if (!report.found || !report.rect) {
+      const count = typeof report.matches === 'number' ? report.matches : 0
+      if (count === 0) {
         return {
           text:
-            `No element matches the selector "${input.selector}" on ${input.url}, so no ` +
-            'screenshot was taken. Read the page (for example with web_fetch) and pick a ' +
-            'selector that exists.',
+            `No element on ${input.url} contains the text "${input.text}", so no screenshot ` +
+            'was taken. Read the page with the web tools, then quote the visible text of ' +
+            "the element — or an image's alt text — exactly as the page shows it.",
         }
       }
-      const { x, y, width: w, height: h } = report.rect
+      if (count > 1) {
+        return {
+          text:
+            `The text "${input.text}" matches ${count} distinct elements on ${input.url}, so ` +
+            "no screenshot was taken. Quote more of the element's text so exactly one " +
+            'element matches.',
+        }
+      }
+      const {
+        x,
+        y,
+        width: w,
+        height: h,
+      } = report.rect ?? {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      }
       if (!(w > 0) || !(h > 0)) {
         return {
           text:
-            `The element matching "${input.selector}" has no visible area on ${input.url}, ` +
+            `The element containing "${input.text}" has no visible area on ${input.url}, ` +
             'so no screenshot was taken. Pick an element that is displayed.',
         }
       }
@@ -473,7 +518,7 @@ export async function captureWebsite(
       return {
         text:
           'The screenshot came back empty, so no image was saved. Try the capture again' +
-          (input.selector ? ' — maybe without the selector, to capture the whole page.' : '.'),
+          (input.text ? ' — maybe without the text, to capture the whole page.' : '.'),
       }
     }
     const relativePath = await saveScreenshotPng(workspaceDir, png)

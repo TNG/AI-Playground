@@ -46,6 +46,48 @@ describe('condenseMediaAgentRun', () => {
     ])
   })
 
+  it('records the size actually used in the step line', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', resolution: '600x600' },
+          output: {
+            size: '512x512',
+            sizeNotice: 'Requested 600x600, but the "Draft Image" workflow used 512x512.',
+            images: [{ id: '1', type: 'image', imageUrl: 'aipg-media://a.png', mode: 'imageGen' }],
+          },
+        },
+      ],
+    })
+    expect(result.steps[0]).toContain('(512x512)')
+  })
+
+  it('falls back to the produced entry settings when the output carries no size', () => {
+    const result = condenseMediaAgentRun({
+      text: '',
+      steps: [
+        {
+          toolName: 'comfyUI',
+          input: { workflow: 'Draft Image', resolution: '2048x2048' },
+          output: {
+            images: [
+              {
+                id: '1',
+                type: 'image',
+                imageUrl: 'aipg-media://a.png',
+                mode: 'imageGen',
+                settings: { resolution: '1024x1024' },
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(result.steps[0]).toContain('(1024x1024)')
+  })
+
   it('reports the last inner failure when nothing was produced', () => {
     const result = condenseMediaAgentRun({
       text: '',

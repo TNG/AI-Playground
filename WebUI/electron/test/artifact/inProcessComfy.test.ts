@@ -199,3 +199,79 @@ describe('runInProcessComfyTool params', () => {
     expect(submittedParams()).toMatchObject({ batchSize: 1 })
   })
 })
+
+describe('runInProcessComfyTool size snapping', () => {
+  it('snaps an unsupported resolution to the closest supported one and reports it', async () => {
+    installCatalog([comfyPresetFixture({ name: 'P' })])
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', resolution: '2048x2048' }),
+    )) as Record<string, unknown>
+
+    expect(submittedParams()).toMatchObject({ width: 1024, height: 1024 })
+    expect(output.size).toBe('1024x1024')
+    expect(output.sizeNotice).toContain('Requested 2048x2048')
+    expect(output.sizeNotice).toContain('1024x1024')
+  })
+
+  it('does not report a notice when the requested resolution is supported', async () => {
+    installCatalog([comfyPresetFixture({ name: 'P' })])
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', resolution: '512x512' }),
+    )) as Record<string, unknown>
+
+    expect(submittedParams()).toMatchObject({ width: 512, height: 512 })
+    expect(output.size).toBe('512x512')
+    expect(output.sizeNotice).toBeUndefined()
+  })
+
+  it('snaps an unsupported megapixel tier to the closest one and reports it', async () => {
+    installCatalog([comfyPresetFixture({ name: 'P' })])
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', megapixels: '1.5', aspectRatio: '1/1' }),
+    )) as Record<string, unknown>
+
+    expect(submittedParams()).toMatchObject({ width: 1024, height: 1024 })
+    expect(output.size).toBe('1024x1024')
+    expect(output.sizeNotice).toContain('Requested 1.5 megapixels at 1/1')
+    expect(output.sizeNotice).toContain('1024x1024')
+  })
+
+  it('reports the size the runner stamped on the item, not the requested params', async () => {
+    installCatalog([comfyPresetFixture({ name: 'P' })])
+    submitArtifactRunMock.mockResolvedValue({
+      state: 'completed',
+      items: [
+        {
+          id: 'i1',
+          type: 'image',
+          imageUrl: 'aipg-media://a.png',
+          mode: 'imageGen',
+          settings: { resolution: '704x704' },
+        },
+      ],
+    } as unknown as ArtifactRunResult)
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', resolution: '600x600' }),
+    )) as Record<string, unknown>
+
+    expect(output.size).toBe('704x704')
+    expect(output.sizeNotice).toContain('Requested 600x600')
+    expect(output.sizeNotice).toContain('704x704')
+  })
+
+  it('omits size and notice when the run does not complete', async () => {
+    installCatalog([comfyPresetFixture({ name: 'P' })])
+    submitArtifactRunMock.mockResolvedValue({ state: 'cancelled', items: [] } as ArtifactRunResult)
+
+    const output = (await runInProcessComfyTool(
+      createRequest({ workflow: 'P', prompt: 'a cat', resolution: '2048x2048' }),
+    )) as Record<string, unknown>
+
+    expect(output.size).toBeUndefined()
+    expect(output.sizeNotice).toBeUndefined()
+  })
+})

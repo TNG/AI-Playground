@@ -200,7 +200,13 @@ function getToolDefinition(settings?: WorkflowSettings) {
   description += 'SETTINGS: When the user specifies concrete settings (steps, resolution, seed, '
   description += 'negative prompt), pass them in the corresponding parameters — never bake them '
   description += 'into the prompt text. Only some edit workflows are size- or step-driven; '
-  description += 'workflows without those settings ignore the parameters.\n\n'
+  description +=
+    'workflows without those settings ignore the parameters. If the user asks for an exact '
+  description +=
+    'size (e.g., "600x600"), pass it in the resolution parameter unchanged — never translate it '
+  description +=
+    'to other parameters. Every completed result reports the size actually used in "size"; when '
+  description += 'it differs from what the user asked for, tell them which size was used.\n\n'
 
   description += `Available edit workflows: ${workflowOptions}`
 
@@ -242,7 +248,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
         .string()
         .optional()
         .describe(
-          'Direct resolution in WxH format (alternative to aspectRatio+megapixels). The closest valid resolution will be selected when the workflow constrains sizes.',
+          'Direct resolution in WxH format (alternative to aspectRatio+megapixels). The closest valid resolution will be selected when the workflow constrains sizes; when it differs from the request, the tool result notes the size actually used in "sizeNotice".',
         ),
       inferenceSteps: z
         .number()

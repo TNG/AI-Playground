@@ -57,6 +57,8 @@ function slimInnerComfyOutput(output: Record<string, unknown>): Record<string, u
     ...(typeof output.success === 'boolean' ? { success: output.success } : {}),
     ...(typeof output.message === 'string' ? { message: output.message } : {}),
     ...(output.declined === true ? { declined: true } : {}),
+    ...(typeof output.size === 'string' ? { size: output.size } : {}),
+    ...(typeof output.sizeNotice === 'string' ? { sizeNotice: output.sizeNotice } : {}),
     images: images.map((item) => {
       if (typeof item !== 'object' || item === null) return item
       const media = item as Record<string, unknown>

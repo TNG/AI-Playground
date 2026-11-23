@@ -193,6 +193,31 @@ describe('runMediaAgentInMain', () => {
     expect(progress.at(-1)).toEqual({ type: 'run-end', state: 'done' })
   })
 
+  it('keeps the size report the inner tool produced visible to the specialist', async () => {
+    runInProcessComfyToolMock.mockResolvedValue({
+      images: [{ id: 'i1', type: 'image', imageUrl: 'aipg-media://castle.png', mode: 'imageGen' }],
+      size: '512x512',
+      sizeNotice:
+        'Requested 600x600, but the "W1" workflow supports a fixed set of sizes and used 512x512. Tell the user which size was actually used.',
+    })
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        call++
+        if (call === 1) return toolCallResponse('comfyUI', { workflow: 'W1' }, 'c1')
+        return textResponse('Made the castle.')
+      },
+    })
+    vi.mocked(createMainChatModel).mockReturnValue(model)
+
+    const result = await runMediaAgentInMain(runRequest())
+
+    expect(result.steps[0].output).toMatchObject({
+      size: '512x512',
+      sizeNotice: expect.stringContaining('used 512x512'),
+    })
+  })
+
   it('tags renderer-origin runs with the parent conversation key', async () => {
     let call = 0
     const model = new MockLanguageModelV3({

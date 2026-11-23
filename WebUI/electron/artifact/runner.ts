@@ -18,8 +18,11 @@
  * boot, installs, model load, execution, item settlement.
  */
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { appLoggerInstance } from '../observability/logger'
+import { getMediaDir } from '../persist/userDataPaths'
+import { pngDimensions } from './pngSize'
 import {
   beginArtifactRunSnapshot,
   emitArtifactDone,
@@ -767,6 +770,22 @@ function handleWebsocketMessage(run: ActiveRun, msg: unknown): void {
           output.animated[output.images.indexOf(image)]
             ? { type: 'video', videoUrl: relative(image.subfolder, image.filename) }
             : { type: 'image', imageUrl: relative(image.subfolder, image.filename) }
+        // Stamp the size the workflow actually produced, not the size that was
+        // requested — a fixed-size graph ignores width/height params, and the
+        // reported size must never be fiction.
+        if (patch.type === 'image') {
+          const dims = pngDimensions(
+            path.join(getMediaDir(), image.subfolder ?? '', image.filename),
+          )
+          if (dims) {
+            patch.settings = {
+              ...(current.settings ?? {}),
+              width: dims.width,
+              height: dims.height,
+              resolution: `${dims.width}x${dims.height}`,
+            }
+          }
+        }
       } else if (video) {
         patch = {
           type: 'video',

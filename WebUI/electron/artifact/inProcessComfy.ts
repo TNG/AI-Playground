@@ -49,10 +49,17 @@ function getDefaultMegapixelLabel(config: ResolutionConfig): string {
   return labels[Math.floor(labels.length / 2)] ?? '0.5'
 }
 
+type ResolvedSize = {
+  width?: number
+  height?: number
+  /** Label of the size request no supported resolution matched exactly. */
+  snapped?: string
+}
+
 function resolveSize(
   preset: ComfyUiPreset,
   args: { aspectRatio?: unknown; megapixels?: unknown; resolution?: unknown },
-): { width?: number; height?: number } {
+): ResolvedSize {
   const config = preset.resolutionConfig ?? DEFAULT_RESOLUTION_CONFIG
   const aspectRatio = typeof args.aspectRatio === 'string' ? args.aspectRatio : undefined
   const megapixels = typeof args.megapixels === 'string' ? args.megapixels : undefined
@@ -63,8 +70,16 @@ function resolveSize(
     const mp = megapixels ?? getDefaultMegapixelLabel(config)
     const exact = getResolutionForConfig(config, mp, ar)
     if (exact) return { width: exact.width, height: exact.height }
+    // The request leaves the preset's size vocabulary — remember what was
+    // asked for so the caller can tell the model (and the user) about it.
+    const snapped =
+      megapixels && aspectRatio
+        ? `${mp} megapixels at ${ar}`
+        : megapixels
+          ? `${mp} megapixels`
+          : `aspect ratio ${ar}`
     const matchingAR = getResolutionsFromConfig(config).filter((r) => r.aspectRatio === ar)
-    if (matchingAR.length === 0) return {}
+    if (matchingAR.length === 0) return { snapped }
     const target = parseFloat(mp)
     const closest = matchingAR.reduce((prev, curr) =>
       Math.abs(parseFloat(curr.megapixels) - target) <
@@ -72,13 +87,14 @@ function resolveSize(
         ? curr
         : prev,
     )
-    return { width: closest.width, height: closest.height }
+    return { width: closest.width, height: closest.height, snapped }
   }
   if (resolution) {
     const [w, h] = resolution.split('x').map(Number)
     if (w && h) {
       const match = findClosestResolutionInConfig(config, w, h)
-      return match ? { width: match.width, height: match.height } : { width: w, height: h }
+      if (!match || (match.width === w && match.height === h)) return { width: w, height: h }
+      return { width: match.width, height: match.height, snapped: `${w}x${h}` }
     }
   }
   return {}
@@ -243,7 +259,8 @@ export async function runInProcessComfyTool(
   const isEdit = request.kind === 'edit'
   // Size resolution runs for edits too: a size passed by the model reaches
   // workflows that have width/height settings and is a no-op on the rest.
-  const { width, height } = resolveSize(preset, request.args)
+  const size = resolveSize(preset, request.args)
+  const { width, height } = size
   const prompt =
     typeof request.args.prompt === 'string'
       ? request.args.prompt
@@ -309,7 +326,22 @@ export async function runInProcessComfyTool(
     request.declinedWorkflows?.add(workflowName)
     return declined
   }
-  return toolOutput(result)
+  const output = toolOutput(result)
+  if (result.state === 'completed') {
+    // The runner stamps the size the workflow actually produced on each item;
+    // the requested params only stand in when it could not.
+    const first = result.items[0]
+    const usedSize =
+      (typeof first?.settings?.resolution === 'string' ? first.settings.resolution : undefined) ??
+      `${payload.params.width}x${payload.params.height}`
+    output.size = usedSize
+    // The requested size left the preset's supported vocabulary: say what was
+    // actually used so the model tells the user instead of a silent swap.
+    if (size.snapped) {
+      output.sizeNotice = `Requested ${size.snapped}, but the "${workflowName}" workflow supports a fixed set of sizes and used ${usedSize}. Tell the user which size was actually used.`
+    }
+  }
+  return output
 }
 
 function declinedOutput(workflowName: string, toolName = 'this tool'): Record<string, unknown> {

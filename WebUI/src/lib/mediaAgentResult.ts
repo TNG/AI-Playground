@@ -57,7 +57,14 @@ export function describeMediaAgentStep(step: {
   }
   const produced = mediaEntriesOf(step.output)
   const kinds = produced.map((item) => item.type).join(', ')
-  return `${step.toolName} (${workflow}): produced ${produced.length || 'no'} ${kinds || 'media'}`
+  const usedSize =
+    typeof output.size === 'string'
+      ? output.size
+      : produced.length > 0 && typeof produced[0].settings?.resolution === 'string'
+        ? produced[0].settings.resolution
+        : undefined
+  const usedResolution = usedSize ? ` (${usedSize})` : ''
+  return `${step.toolName} (${workflow}): produced ${produced.length || 'no'} ${kinds || 'media'}${usedResolution}`
 }
 
 /** Condenses the nested loop's raw steps into the parent tool's result shape. */

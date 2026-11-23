@@ -227,6 +227,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
         'RESOLUTION: Specify image size using EITHER:\n' +
         '  - aspectRatio + megapixels (e.g., aspectRatio="16/9", megapixels="1.0")\n' +
         '  - OR resolution directly (e.g., resolution="1376x768")\n' +
+        'If the user asks for an exact size (e.g., "600x600"), pass it in resolution unchanged — never translate it to other parameters. The closest supported size is used and reported back in "size"/"sizeNotice".\n' +
         'Available aspect ratios: 1/1 (square), 16/9 (widescreen), 9/16 (portrait), 3/2, 2/3, 4/3, 3/4, 21/9, 9/21\n' +
         'Available megapixels: 0.25 (small), 0.5 (medium), 0.8, 1.0 (HD), 1.2, 1.5 (high-res)\n\n' +
         'CRITICAL: Do NOT include resolution, aspect ratio, dimensions, or size information in the prompt text itself. These should ONLY be passed as separate parameters (aspectRatio, megapixels, or resolution).',
@@ -264,7 +265,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
           .string()
           .optional()
           .describe(
-            `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${defaultResolutionExamples}. The closest valid resolution will be selected.`,
+            `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${defaultResolutionExamples}. The closest valid resolution will be selected; when it differs from the request, the tool result notes the size actually used in "sizeNotice".`,
           ),
         inferenceSteps: z
           .number()
@@ -311,14 +312,22 @@ function getToolDefinition(settings?: WorkflowSettings) {
   description += `VARIANT SUPPORT: Presets may have variants (e.g., "Fast", "Standard", "Quality"). By default, always prefer "Fast" variants when available as they are least resource intensive. The default preset is "${defaultWorkflow}" (equivalent to "${defaultWorkflowWithVariant}"). The tool will automatically select the "Fast" variant when available. You can optionally specify a variant name in the variant parameter if the user requests a specific quality level.\n\n`
 
   // Add resolution guidance
+  const megapixelTiers = [
+    ...new Set(availableWorkflows.flatMap((w) => w.resolutions ?? []).map((r) => r.megapixels)),
+  ].sort((a, b) => parseFloat(a) - parseFloat(b))
+  const megapixelsList =
+    megapixelTiers.length > 0 ? megapixelTiers.join(', ') : '0.25, 0.5, 0.8, 1.0'
   description += 'RESOLUTION: Specify image size using EITHER:\n'
   description +=
-    '  - aspectRatio + megapixels parameters (recommended): e.g., aspectRatio="16/9", megapixels="1.0"\n'
-  description += '  - OR resolution parameter directly: e.g., resolution="1376x768"\n\n'
+    '  - aspectRatio + megapixels parameters: e.g., aspectRatio="16/9", megapixels="1.0"\n'
+  description += '  - OR resolution parameter directly: e.g., resolution="1376x768"\n'
+  description +=
+    'If the user asks for an exact size (e.g., "600x600"), pass it in the resolution parameter unchanged — never translate it to other parameters. The closest supported size is used and reported back in "size"/"sizeNotice".\n\n'
   description +=
     'Available aspect ratios: 1/1 (square), 16/9 (widescreen/landscape), 9/16 (portrait/vertical), 3/2, 2/3, 4/3, 3/4, 21/9 (ultra-wide), 9/21\n'
+  description += `Available megapixels: ${megapixelsList}\n`
   description +=
-    'Available megapixels: 0.25 (small/fast), 0.5 (medium), 0.8, 1.0 (HD), 1.2, 1.5 (high-res/slower)\n\n'
+    'Each workflow supports a fixed set of resolutions; the closest supported one is selected and every completed result reports the size actually used in "size" — when it differs from what the user asked for, tell them which size was used.\n\n'
   description +=
     'When user asks for "high resolution", "HD", or "large" image, use megapixels="1.0" or higher.\n'
   description +=
@@ -367,7 +376,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
       ? getResolutionExamplesForWorkflow(imageWorkflows[0].name, settings)
       : defaultResolutionExamples
 
-  const resolutionDescription = `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${resolutionExamples}. The closest valid resolution will be selected.`
+  const resolutionDescription = `Direct resolution in WxH format (alternative to aspectRatio+megapixels). Examples: ${resolutionExamples}. The closest valid resolution will be selected; when it differs from the request, the tool result notes the size actually used in "sizeNotice".`
 
   return {
     description,
@@ -395,7 +404,7 @@ function getToolDefinition(settings?: WorkflowSettings) {
         .string()
         .optional()
         .describe(
-          'Megapixel tier for image quality/size. Options: "0.25" (small/fast), "0.5" (medium), "0.8", "1.0" (HD), "1.2", "1.5" (high-res/slower). Use with aspectRatio parameter.',
+          `Megapixel tier for image quality/size. Options: ${megapixelsList}. Use with aspectRatio parameter.`,
         ),
       resolution: z.string().optional().describe(resolutionDescription),
       inferenceSteps: z

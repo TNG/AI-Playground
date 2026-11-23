@@ -286,7 +286,7 @@
     },
     "94": {
       "inputs": {
-        "target_resolution": "1536",
+        "target_resolution": 1024,
         "positive": ["91", 0],
         "negative": ["91", 1],
         "shape_latent": ["18", 0],
@@ -495,7 +495,7 @@
     },
     "241": {
       "inputs": {
-        "resolution": 768,
+        "resolution": 512,
         "sign_mode": "udf",
         "sign_mode.qef": false,
         "sign_mode.drop_inverted_components": false,

@@ -301,9 +301,7 @@ export const useOpenAiCompatibleChat = defineStore(
 
     async function resolveMcpTools(): Promise<ToolSet> {
       if (!textInference.mcpToolsEnabled) return {}
-      // Session activation (Attributes tab): only the ticked servers ride the
-      // turn, and they are started on demand so an app restart never silently
-      // drops them (mirroring the agent path's getMcpServerTools).
+      // Ticked servers are started on demand, so an app restart never silently drops them.
       const selectedIds = textInference.mcpServerIds
       if (selectedIds.length === 0) return {}
 
@@ -330,14 +328,24 @@ export const useOpenAiCompatibleChat = defineStore(
           try {
             status = await window.electronAPI.mcp.startServer(server.id)
           } catch (error) {
-            console.error(`Failed to start MCP server ${server.id}:`, error)
+            errors.report(error, {
+              category: 'backend',
+              code: 'backend/mcp-start-failed',
+              surface: 'silent',
+            })
             continue
           }
           if (status.state !== 'running') {
-            console.error(`MCP server ${server.id} failed to start:`, status.lastError)
+            errors.report(
+              new Error(status.lastError ?? `MCP server ${server.id} failed to start`),
+              {
+                category: 'backend',
+                code: 'backend/mcp-start-failed',
+                surface: 'silent',
+              },
+            )
             continue
           }
-          // Keep the Attributes panel's status text in sync with the auto-start.
           void mcp.refreshServerStatus(server.id)
         }
 

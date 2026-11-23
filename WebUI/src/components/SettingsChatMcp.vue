@@ -1,7 +1,7 @@
 <template>
   <TooltipProvider :delay-duration="200">
     <SettingsPanel
-      title="MCP tools"
+      :title="languages.SETTINGS_MCP_TOOLS"
       switch-id="mcp-tools"
       :enabled="textInference.mcpToolsEnabled"
       :disabled-reason="
@@ -45,7 +45,9 @@
                   {{ server.description }}
                 </TooltipContent>
               </Tooltip>
-              <span class="text-xs text-muted-foreground">{{ getStatusText(server.id) }}</span>
+              <span class="text-xs text-muted-foreground">{{
+                mcpStatusText(mcp.getServerStatus(server.id).state, languages)
+              }}</span>
             </span>
             <span v-if="server.instructions" class="text-xs text-muted-foreground">
               {{ server.instructions }}
@@ -68,18 +70,11 @@ import { useMcp } from '@/assets/js/store/mcp'
 import { useTextInference } from '@/assets/js/store/textInference'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { mcpStatusText } from '@/lib/mcpStatusText'
 
 const languages = useI18N().state
 const textInference = useTextInference()
 const mcp = useMcp()
-
-function getStatusText(serverId: string): string {
-  const status = mcp.getServerStatus(serverId)
-  if (status.state === 'starting') return languages.SETTINGS_MCP_STARTING
-  if (status.state === 'running') return languages.SETTINGS_MCP_CONNECTED
-  if (status.state === 'error') return languages.SETTINGS_MCP_ERROR_STATE
-  return languages.SETTINGS_MCP_DISCONNECTED
-}
 
 onMounted(() => {
   void mcp.refreshAvailableServers()

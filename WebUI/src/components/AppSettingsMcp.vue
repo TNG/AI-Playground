@@ -21,7 +21,9 @@
                 {{ server.description }}
               </TooltipContent>
             </Tooltip>
-            <span class="text-xs text-muted-foreground">{{ getStatusText(server.id) }}</span>
+            <span class="text-xs text-muted-foreground">{{
+              mcpStatusText(mcp.getServerStatus(server.id).state, languages)
+            }}</span>
           </div>
 
           <div class="flex items-center gap-1">
@@ -136,21 +138,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { EllipsisHorizontalIcon } from '@heroicons/vue/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useErrors } from '@/assets/js/store/errors'
+import { mcpStatusText } from '@/lib/mcpStatusText'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
 const languages = useI18N().state
 const mcp = useMcp()
+const errors = useErrors()
 const showAddDialog = ref(false)
 const showEditDialog = ref(false)
 const editServer = ref<{ id: string; config: McpServerConfig } | undefined>()
-
-function getStatusText(serverId: string): string {
-  const status = mcp.getServerStatus(serverId)
-  if (status.state === 'starting') return languages.SETTINGS_MCP_STARTING
-  if (status.state === 'running') return languages.SETTINGS_MCP_CONNECTED
-  if (status.state === 'error') return languages.SETTINGS_MCP_ERROR_STATE
-  return languages.SETTINGS_MCP_DISCONNECTED
-}
 
 function getStatusDotClass(serverId: string): string {
   const status = mcp.getServerStatus(serverId)
@@ -190,7 +187,12 @@ async function openEditDialog(serverId: string) {
     editServer.value = { id: serverId, config }
     showEditDialog.value = true
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Failed to get server config')
+    errors.report(error, {
+      category: 'backend',
+      code: 'backend/mcp-get-config-failed',
+      userMessage:
+        error instanceof Error ? error.message : languages.SETTINGS_MCP_GET_CONFIG_FAILED,
+    })
   }
 }
 
@@ -198,9 +200,13 @@ async function handleRemoveServer(serverId: string) {
   try {
     await window.electronAPI.mcp.removeServer(serverId)
     mcp.forgetServer(serverId)
-    toast.success('MCP server removed')
+    toast.success(languages.SETTINGS_MCP_SERVER_REMOVED)
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Failed to remove server')
+    errors.report(error, {
+      category: 'backend',
+      code: 'backend/mcp-remove-failed',
+      userMessage: error instanceof Error ? error.message : languages.SETTINGS_MCP_REMOVE_FAILED,
+    })
   }
 }
 </script>

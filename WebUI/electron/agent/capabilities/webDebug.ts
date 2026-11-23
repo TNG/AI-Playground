@@ -13,6 +13,7 @@ import {
 } from '../piCustomTools.ts'
 import { resolvePreviewUrl } from '../piWorkspaceRuntime.ts'
 import { loadPi } from '../piRuntime.ts'
+import { noteGeneratedMedia } from '../generatedMedia.ts'
 import { freeName } from '../../persist/fileOps.ts'
 import { isInGamesLibrary } from '../../session/sessionWorkspace.ts'
 import { appLoggerInstance } from '../../observability/logger.ts'
@@ -155,6 +156,9 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
         // The model gets the path (an inlined PNG would swamp its context); the
         // user gets to see what the agent saw.
         if (result.screenshotPath) {
+          if (!isInGamesLibrary(host.workspaceDir)) {
+            noteGeneratedMedia(host.workspaceDir, [result.screenshotPath])
+          }
           try {
             sendToolImage(
               host.sessionId,

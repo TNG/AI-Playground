@@ -327,12 +327,8 @@ function clampViewport(value: number): number {
   return Math.min(VIEWPORT_MAX, Math.max(VIEWPORT_MIN, Math.round(value)))
 }
 
-/**
- * A fixed script of ours; the quote rides along as JSON data, never compiled
- * (ADR 0015). Finds the deepest element whose visible text — or `alt` /
- * `aria-label` attribute — contains the quote, case and whitespace aside, and
- * returns that element's viewport-relative rect.
- */
+// A fixed script of ours; the quote rides along as JSON data, never compiled (ADR 0015).
+// The read script's image list may fall back to title; this matcher matches alt/aria-label only.
 function textMatchRectScript(quote: string): string {
   return `(async () => {
   const normalize = (value) => String(value).toLowerCase().replace(/\\s+/g, ' ').trim()
@@ -458,6 +454,9 @@ export async function captureWebsite(
 
     let clip: CaptureClip | undefined
     if (input.text) {
+      const couldNotSearch =
+        `Could not search ${input.url} for the text "${input.text}", so no screenshot ` +
+        'was taken. Try the capture again.'
       const raw = await session.win.webContents
         .executeJavaScript(textMatchRectScript(input.text), true)
         .catch(() => '')
@@ -468,11 +467,7 @@ export async function captureWebsite(
       try {
         report = JSON.parse(String(raw)) as typeof report
       } catch {
-        return {
-          text:
-            `Could not search ${input.url} for the text "${input.text}", so no screenshot ` +
-            'was taken. Try the capture again.',
-        }
+        return { text: couldNotSearch }
       }
       const count = typeof report.matches === 'number' ? report.matches : 0
       if (count === 0) {
@@ -491,17 +486,8 @@ export async function captureWebsite(
             'element matches.',
         }
       }
-      const {
-        x,
-        y,
-        width: w,
-        height: h,
-      } = report.rect ?? {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-      }
+      if (!report.rect) return { text: couldNotSearch }
+      const { x, y, width: w, height: h } = report.rect
       if (!(w > 0) || !(h > 0)) {
         return {
           text:

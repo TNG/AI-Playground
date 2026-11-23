@@ -96,6 +96,8 @@ class FakeBrowserWindow {
   page: FixtureElement[] = []
   /** What the page answers to the failed-load body-text probe. */
   bodyText = ''
+  /** Raw answer of the fixed text-match script, overriding the fixture page. */
+  matchScriptResult: string | null = null
   capturePageResult: { toPNG: () => Buffer } | Error = { toPNG: () => PNG }
   private listeners: Record<string, (...args: unknown[]) => void> = {}
   sendCommand = vi.fn(async (method: string, _params?: unknown) => {
@@ -127,7 +129,8 @@ class FakeBrowserWindow {
       return this.capturePageResult
     }),
     executeJavaScript: vi.fn(async (script: string) => {
-      if (script.includes('document.querySelectorAll')) return runMatchScript(script, this.page)
+      if (script.includes('document.querySelectorAll'))
+        return this.matchScriptResult ?? runMatchScript(script, this.page)
       if (script.includes('document.body')) return this.bodyText
       return ''
     }),
@@ -512,6 +515,20 @@ describe('the webScreenshot tool', () => {
 
     expect(text(result)).toContain('"Invisible block"')
     expect(text(result)).toMatch(/no visible area/)
+    expect(pngFiles(workspace)).toHaveLength(0)
+  })
+
+  it('reports a match report without a rect as a failed search, not an invisible element', async () => {
+    const workspace = tempDir('aipg-webshot-norect-')
+    const tool = await webShotTool(workspace)
+    const window = await warmUpWindow(tool)
+    window.matchScriptResult = JSON.stringify({ matches: 1 })
+
+    const result = await capture(tool, { url: 'https://example.com', text: 'Quarterly results' })
+
+    expect(text(result)).toContain('Could not search https://example.com')
+    expect(text(result)).toContain('no screenshot was taken')
+    expect(text(result)).not.toContain('no visible area')
     expect(pngFiles(workspace)).toHaveLength(0)
   })
 

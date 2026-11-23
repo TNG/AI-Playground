@@ -12,6 +12,8 @@ import type { AgentCapability, CapabilityHost } from './types.ts'
 // looks like. No script execution, no console reading, no play-testing — which
 // is exactly why it may be on by default while Web debugging stays opt-in.
 
+export const WEB_SCREENSHOT_TOOL = 'webScreenshot'
+
 const SCREENSHOT_INPUT_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
@@ -38,8 +40,8 @@ async function buildWebScreenshotTool(host: CapabilityHost): Promise<ToolDefinit
   const pi = await loadPi()
   return [
     pi.defineTool({
-      name: 'webScreenshot',
-      label: 'webScreenshot',
+      name: WEB_SCREENSHOT_TOOL,
+      label: WEB_SCREENSHOT_TOOL,
       description:
         'Open a web page and save a PNG picture of it into the workspace for the user to ' +
         'look at — the whole page at a chosen viewport size, or a single element chosen by ' +

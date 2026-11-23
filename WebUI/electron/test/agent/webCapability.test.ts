@@ -138,7 +138,7 @@ describe('the web capability', () => {
     )[WEB_FETCH_TOOL].execute('t8', { url: 'https://example.com/results' })
     const output = text(result)
     expect(output).toContain(
-      'Images (show one to the user by capturing the page with webScreenshot):',
+      'Images (show one to the user with webScreenshot, or use its alt text to target a capture):',
     )
     expect(output).toContain('- Revenue chart — https://example.com/q1.png (640x480)')
     expect(output).toContain('- (no alt text) — https://example.com/q2.png (320x200)')

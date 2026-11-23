@@ -4,9 +4,11 @@ import {
   generatedMediaOf,
   mediaFileRefOf,
   mediaToolNameOf,
+  screenshotMediaOf,
   toolPartNameOf,
   settleStreamingParts,
 } from './agentTranscript'
+import { screenshotToolArtifacts } from './turnArtifacts'
 
 function tool(name: string, state = 'output-available') {
   return { type: 'dynamic-tool', toolName: name, state, toolCallId: `${name}-1` }
@@ -186,6 +188,57 @@ describe('generatedMediaOf (speech)', () => {
     expect(generatedMediaOf({ ...tool('synthesizeTextToSpeech', 'output-error') })).toBeUndefined()
     const noCopy = { details: { audio: { workspacePath: 'generated/speech.wav' } } }
     expect(generatedMediaOf(speechPart(noCopy))).toBeUndefined()
+  })
+})
+
+describe('screenshotMediaOf', () => {
+  const shot = {
+    id: 'screenshot-shot-1',
+    type: 'image' as const,
+    imageUrl: 'aipg-media://folders/session-1/folder-1/shot.png',
+    mode: 'imageGen' as const,
+    settings: {},
+    state: 'done' as const,
+    workspacePath: 'shot.png',
+    createdAt: 1_700_000_000_000,
+  }
+
+  function browserPart(output: unknown, state = 'output-available') {
+    return { ...tool('browser', state), output }
+  }
+
+  const piResult = (details: unknown) => ({
+    content: [{ type: 'text', text: 'Saved screenshot to shot.png' }],
+    details,
+  })
+
+  it('reads the Artifact a browser screenshot result carries', () => {
+    expect(screenshotMediaOf(browserPart(piResult({ items: [shot] })))).toEqual([shot])
+  })
+
+  it('maps that result to the same Artifact card generated media renders', () => {
+    const [artifact] = screenshotToolArtifacts(browserPart(piResult({ items: [shot] })), [])
+
+    expect(artifact).toMatchObject({
+      id: 'screenshot-shot-1',
+      mediaType: 'image',
+      state: 'done',
+      url: 'aipg-media://folders/session-1/folder-1/shot.png',
+    })
+    expect((artifact.item as { workspacePath?: string }).workspacePath).toBe('shot.png')
+    expect(artifact.actions).toEqual(expect.arrayContaining(['zoom', 'copy', 'download']))
+  })
+
+  it('has no Artifact for a game workspace result, or another tool', () => {
+    expect(screenshotMediaOf(browserPart(piResult({ items: [] })))).toEqual([])
+    expect(screenshotMediaOf(browserPart(piResult(undefined)))).toEqual([])
+    expect(screenshotMediaOf({ ...tool('bash'), output: piResult({ items: [shot] }) })).toEqual([])
+    expect(screenshotToolArtifacts(browserPart(piResult({ items: [] })), [])).toEqual([])
+  })
+
+  it('has none while the tool is still running, so the live preview shows', () => {
+    const running = browserPart(piResult({ items: [shot] }), 'input-available')
+    expect(screenshotMediaOf(running)).toEqual([])
   })
 })
 

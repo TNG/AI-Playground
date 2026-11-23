@@ -297,7 +297,10 @@ describe('resolveCapabilities', () => {
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
     const browser = registry.tools.find((tool) => tool.name === 'browser') as unknown as {
-      execute: (id: string, params: unknown) => Promise<{ content: { text: string }[] }>
+      execute: (
+        id: string,
+        params: unknown,
+      ) => Promise<{ content: { text: string }[]; details?: unknown }>
     }
     const result = await browser.execute('call-1', { action: 'screenshot' })
 
@@ -313,7 +316,81 @@ describe('resolveCapabilities', () => {
       }),
     )
     expect(result.content[0].text).toBe('Saved screenshot to generated/shot.png')
+    // No Session media target: the tool result stays the plain text it was.
+    expect(result.details).toBeUndefined()
     agentTurns.delete(host.sessionId)
+  })
+
+  type BrowserTool = {
+    execute: (
+      id: string,
+      params: unknown,
+    ) => Promise<{ content: { text: string }[]; details?: { items?: unknown[] } }>
+  }
+
+  async function screenshotTool(host: Host): Promise<BrowserTool> {
+    const resolution = await resolveCapabilities(host, ['web-debug'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    return registry.tools.find((tool) => tool.name === 'browser') as unknown as BrowserTool
+  }
+
+  async function stubScreenshot(name: string): Promise<void> {
+    const { runBrowserAction } = await import('../../agent/agentBrowser.ts')
+    vi.mocked(runBrowserAction).mockResolvedValue({
+      text: `Saved screenshot to ${name}`,
+      screenshotPath: name,
+    })
+  }
+
+  it('carries a Session screenshot as one image Artifact its folder URL serves', async () => {
+    const host = hostWith({
+      sessionMedia: { sessionRef: 'session-1', workspace: 'files', folderId: 'folder-1' },
+    })
+    fs.mkdirSync(host.workspaceDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(host.workspaceDir, 'shot.png'),
+      Buffer.from('89504e470d0a1a0a', 'hex'),
+    )
+    await stubScreenshot('shot.png')
+
+    const result = await (await screenshotTool(host)).execute('shot-call', { action: 'screenshot' })
+
+    expect(result.content[0].text).toBe('Saved screenshot to shot.png')
+    expect(result.details?.items).toHaveLength(1)
+    expect(result.details?.items?.[0]).toMatchObject({
+      type: 'image',
+      state: 'done',
+      mode: 'imageGen',
+      settings: {},
+      imageUrl: 'aipg-media://folders/session-1/folder-1/shot.png',
+      workspacePath: 'shot.png',
+      createdAt: expect.any(Number),
+    })
+  })
+
+  it('copies a Trial Run screenshot into its files folder and serves it from there', async () => {
+    const filesDir = path.join(agentDir, 'trial-agent-files')
+    const host = hostWith({
+      sessionMedia: { workspace: 'trial', agentId: 'trial-agent', filesDir: async () => filesDir },
+    })
+    fs.mkdirSync(host.workspaceDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(host.workspaceDir, 'shot.png'),
+      Buffer.from('89504e470d0a1a0a', 'hex'),
+    )
+    await stubScreenshot('shot.png')
+
+    const result = await (
+      await screenshotTool(host)
+    ).execute('shot-trial', { action: 'screenshot' })
+
+    const item = result.details?.items?.[0] as { imageUrl: string; workspacePath: string }
+    expect(item.imageUrl).toBe('aipg-media://trials/trial-agent/files/shot.png')
+    expect(item.workspacePath).toBe('shot.png')
+    expect(fs.readFileSync(path.join(filesDir, 'shot.png'))).toEqual(
+      fs.readFileSync(path.join(host.workspaceDir, 'shot.png')),
+    )
   })
 
   it('skips a capability that cannot run and says why in the log', async () => {

@@ -1,15 +1,23 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
+import fs from 'node:fs'
+import path from 'node:path'
 import { runBrowserAction } from '../agentBrowser.ts'
 import {
   jsonSchemaParameters,
+  mediaFilesDirOf,
   sendToolImage,
   textResult,
+  trialMediaUrl,
   workspaceFileToDataUri,
   type SkillSource,
 } from '../piCustomTools.ts'
 import { resolvePreviewUrl } from '../piWorkspaceRuntime.ts'
 import { loadPi } from '../piRuntime.ts'
+import { freeName } from '../../persist/fileOps.ts'
+import { isInGamesLibrary } from '../../session/sessionWorkspace.ts'
 import { appLoggerInstance } from '../../observability/logger.ts'
+import { sessionFolderMediaUrl } from '@/lib/comfyWorkflow'
+import type { AgentMediaItem } from '@/types/agentMediaDetails'
 import type { AgentCapability, CapabilityHost } from './types.ts'
 
 const logger = appLoggerInstance
@@ -76,10 +84,57 @@ const BROWSER_DEBUGGING_SKILL: SkillSource = {
     '5. browser {"action":"eval","script":"document.title"} — run JS to inspect page state;',
     '   either an expression or statements ending in `return`. A script that throws comes back',
     '   with its own error message, so read that instead of guessing another script.',
-    '6. browser {"action":"screenshot"} — save a PNG into the workspace and get its path. It is',
-    '   shown to the user; do NOT read it back as an image, the probe already told you what is',
-    '   on the page in words.',
+    '6. browser {"action":"screenshot"} — save a PNG and get its path: the Workspace root, or',
+    '   the `generated/` folder in a game workspace. It is shown to the user as an Artifact',
+    '   card; do NOT read it back as an image, the probe already told you what is on the page',
+    '   in words.',
   ].join('\n'),
+}
+
+/**
+ * Where the Session serves a screenshot from. A trial whose workspace is not its files folder
+ * gets a copy there, the way generated media is saved for trials.
+ */
+async function screenshotMediaUrl(
+  host: CapabilityHost,
+  relativePath: string,
+): Promise<string | undefined> {
+  const target = host.sessionMedia
+  if (!target) return undefined
+  const apart = mediaFilesDirOf(target)
+  if (!apart) {
+    return target.workspace === 'trial'
+      ? trialMediaUrl(target.agentId, `files/${relativePath}`)
+      : sessionFolderMediaUrl(target.sessionRef, target.folderId, relativePath)
+  }
+  const filesDir = await apart()
+  fs.mkdirSync(filesDir, { recursive: true })
+  const served = await freeName(filesDir, path.basename(relativePath))
+  fs.copyFileSync(path.join(host.workspaceDir, relativePath), path.join(filesDir, served))
+  return target.workspace === 'trial'
+    ? trialMediaUrl(target.agentId, `files/${served}`)
+    : sessionFolderMediaUrl(target.sessionRef, target.folderId, served)
+}
+
+/** A Session's screenshot as the same image Artifact generated media becomes. A game keeps none. */
+async function screenshotArtifactOf(
+  host: CapabilityHost,
+  toolCallId: string,
+  relativePath: string,
+): Promise<AgentMediaItem | undefined> {
+  if (isInGamesLibrary(host.workspaceDir)) return undefined
+  const imageUrl = await screenshotMediaUrl(host, relativePath)
+  if (!imageUrl) return undefined
+  return {
+    id: `screenshot-${toolCallId}`,
+    type: 'image',
+    state: 'done',
+    mode: 'imageGen',
+    settings: {},
+    imageUrl,
+    workspacePath: relativePath,
+    createdAt: Date.now(),
+  }
 }
 
 async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]> {
@@ -109,6 +164,14 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
             )
           } catch (error) {
             logger.warn(`could not show screenshot in chat: ${error}`, LOG_SOURCE)
+          }
+          try {
+            const item = await screenshotArtifactOf(host, toolCallId, result.screenshotPath)
+            if (item) {
+              return { content: [{ type: 'text', text: result.text }], details: { items: [item] } }
+            }
+          } catch (error) {
+            logger.warn(`could not make the screenshot an Artifact: ${error}`, LOG_SOURCE)
           }
         }
         return textResult(result.text)

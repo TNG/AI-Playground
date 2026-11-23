@@ -142,6 +142,7 @@ describe('the Web debugging screenshot action', () => {
     expect(files).toHaveLength(1)
     expect(fs.statSync(path.join(workspace, files[0])).size).toBe(PNG.length)
     expect(text(result)).toBe(`Saved screenshot to ${files[0]}`)
+    expect(result.details).toBeUndefined()
     expect(fs.existsSync(path.join(workspace, 'generated'))).toBe(false)
   })
 
@@ -248,6 +249,7 @@ describe('the Web debugging screenshot action', () => {
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatch(/^screenshot-\d+\.png$/)
     expect(text(result)).toBe(`Saved screenshot to generated/${saved[0]}`)
+    expect(result.details).toBeUndefined()
     expect(pngFiles(workspace)).toHaveLength(0)
     expect(send).toHaveBeenCalledWith(
       'kernel:event',

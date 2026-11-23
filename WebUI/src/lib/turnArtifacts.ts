@@ -1,4 +1,4 @@
-import { generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
+import { generatedMediaOf, mediaToolNameOf, screenshotMediaOf } from '@/lib/agentTranscript'
 import {
   runsOwnedBy,
   type ArtifactRunsState,
@@ -294,6 +294,14 @@ export function toolCallArtifacts(
     return artifactRuns ? runArtifacts(runsOwnedBy(artifactRuns, call.toolCallId), deletedUrls) : []
   }
   return turnArtifacts(toolPartMedia(part), deletedUrls, toolCallFailureRecord(part)?.error)
+}
+
+/** A browser screenshot's Artifacts, rendered by the same card generated media uses. */
+export function screenshotToolArtifacts(
+  part: unknown,
+  deletedUrls: readonly string[],
+): TurnArtifact[] {
+  return turnArtifacts(screenshotMediaOf(part), deletedUrls)
 }
 
 export function toolCallResultFailure(part: unknown): GenerationFailure | null {

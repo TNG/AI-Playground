@@ -7,7 +7,7 @@ import { MainPage, type PromptBarMode } from './pages/MainPage'
 import { AgentModePage, type GameSummary } from './pages/AgentModePage'
 import { SpecificSettingsPage } from './pages/SpecificSettingsPage'
 import { DownloadDialogPage } from './pages/DownloadDialogPage'
-import { ModelManagerPage } from './pages/ModelManagerPage'
+import { ModelLibraryPage } from './pages/ModelLibraryPage'
 import { ToolSettingsPage } from './pages/ToolSettingsPage'
 import {
   AssistantSettingsPage,
@@ -78,7 +78,7 @@ export class AppDriver {
   readonly agent: AgentModePage
   readonly settings: SpecificSettingsPage
   readonly downloads: DownloadDialogPage
-  readonly models: ModelManagerPage
+  readonly models: ModelLibraryPage
   readonly tools: ToolSettingsPage
   readonly assistant: AssistantSettingsPage
 
@@ -90,7 +90,7 @@ export class AppDriver {
     this.agent = new AgentModePage(window)
     this.settings = new SpecificSettingsPage(window)
     this.downloads = new DownloadDialogPage(window)
-    this.models = new ModelManagerPage(window)
+    this.models = new ModelLibraryPage(window)
     this.tools = new ToolSettingsPage(window)
     this.assistant = new AssistantSettingsPage(window)
   }

@@ -15,6 +15,7 @@ import VramChipIcon from '@/components/VramChipIcon.vue'
 import DropDownNew from '@/components/DropDownNew.vue'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 import {
   BACKEND_LABELS,
   type ModelDownloadState,
@@ -144,7 +145,7 @@ const sortDirectionLabel = computed(() =>
 // The trigger names what it controls, so its text is "Backend: <value>" rather than the value alone.
 function triggerLabel(key: string, items: { value: string; label: string }[], value: string) {
   const label = items.find((item) => item.value === value)?.label ?? ''
-  return i18nState[key].replace('{value}', label)
+  return fillTemplate(i18nState[key], { value: label })
 }
 
 const backendTrigger = computed(() =>
@@ -153,8 +154,9 @@ const backendTrigger = computed(() =>
 const statusTrigger = computed(() =>
   triggerLabel('MODEL_MANAGER_FILTER_STATUS_VALUE', statusMenuItems.value, statusValue.value),
 )
-const sortTrigger = computed(() =>
-  triggerLabel('MODEL_MANAGER_SORT_VALUE', sortItems.value, library.sort.key),
+const sortTrigger = computed(
+  () =>
+    `${triggerLabel('MODEL_MANAGER_SORT_VALUE', sortItems.value, library.sort.key)} ${library.sort.direction === 'asc' ? '↑' : '↓'}`,
 )
 
 function toggleSortDirection() {

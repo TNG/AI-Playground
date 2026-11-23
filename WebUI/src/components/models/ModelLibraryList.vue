@@ -9,6 +9,7 @@ import ModelVramFit from '@/components/ModelVramFit.vue'
 import ModelRowActions from './ModelRowActions.vue'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { modelDetailsLine, usedBySummary } from '@/assets/js/models/library'
 import type { ModelEntry } from '@/assets/js/models/types'
 
@@ -22,9 +23,8 @@ const i18n = useI18N()
 
 const locale = computed(() => ({ strings: i18n.state, tag: i18n.langName }))
 
-/** Accessible name of a per-row control, e.g. "Select <model>". */
 function rowLabel(key: string, entry: ModelEntry): string {
-  return (i18n.state[key] ?? '').replace('{label}', entry.label)
+  return fillTemplate(i18n.state[key] ?? '', { label: entry.label })
 }
 </script>
 
@@ -86,12 +86,12 @@ function rowLabel(key: string, entry: ModelEntry): string {
               />
             </div>
             <div class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-              <span class="truncate">{{
+              <span class="min-w-0 shrink-[3] truncate">{{
                 modelDetailsLine(entry, library.filters.useCase, locale)
               }}</span>
               <Tooltip v-if="entry.requiredBy.length > 0">
                 <TooltipTrigger as-child>
-                  <span class="min-w-0 max-w-[50%] shrink-0 cursor-default truncate">
+                  <span class="min-w-0 max-w-[50%] shrink cursor-default truncate">
                     · {{ languages.MODEL_MANAGER_USED_BY }} {{ usedBySummary(entry.requiredBy) }}
                   </span>
                 </TooltipTrigger>

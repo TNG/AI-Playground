@@ -144,7 +144,13 @@ test('the model library lists, filters and round-trips a model through download,
   await test.step('The filter and sort controls say what they do', async () => {
     await expect(app.models.backendFilter).toContainText('Backend: ')
     await expect(app.models.statusFilter).toContainText('Status: ')
-    await expect(app.models.sortControl).toContainText('Sort by: ')
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↑$/)
+    await expect(app.models.sortDirectionButton).toHaveAccessibleName('Ascending')
+    await app.models.sortDirectionButton.click()
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↓$/)
+    await expect(app.models.sortDirectionButton).toHaveAccessibleName('Descending')
+    await app.models.sortDirectionButton.click()
+    await expect(app.models.sortControl).toHaveAccessibleName(/^Sort by: .+ ↑$/)
     await expect(app.models.capabilityFilters).toContainText('Capabilities')
   })
 

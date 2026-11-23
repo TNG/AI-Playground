@@ -7,6 +7,7 @@ import DeleteModelDialog from '@/components/models/DeleteModelDialog.vue'
 import AddModelDialog from '@/components/models/AddModelDialog.vue'
 import { useModelLibrary } from '@/assets/js/store/modelLibrary'
 import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 import { useCaseLabel as localizedUseCase, type ModelCategory } from '@/assets/js/models/library'
 import type { ModelCapabilityValues, ModelEntry } from '@/assets/js/models/types'
 
@@ -35,10 +36,10 @@ const editingEntry = computed(() =>
 )
 
 const resultLine = computed(() =>
-  i18nState.MODEL_MANAGER_RESULT_COUNT.replace(
-    '{shown}',
-    String(library.visibleEntries.length),
-  ).replace('{total}', String(library.useCaseTotal)),
+  fillTemplate(i18nState.MODEL_MANAGER_RESULT_COUNT, {
+    shown: library.visibleEntries.length,
+    total: library.useCaseTotal,
+  }),
 )
 
 onMounted(() => library.refresh())
@@ -76,11 +77,13 @@ async function confirmDelete() {
                   ? 'border-primary/50 bg-primary/15 text-foreground font-medium'
                   : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
               "
+              :aria-label="useCaseLabel(useCase)"
+              :aria-describedby="`model-use-case-count-${useCase}`"
               :aria-current="library.filters.useCase === useCase ? 'true' : undefined"
               @click="library.setFilters({ useCase })"
             >
               <span>{{ useCaseLabel(useCase) }}</span>
-              <span class="text-xs text-muted-foreground">
+              <span :id="`model-use-case-count-${useCase}`" class="text-xs text-muted-foreground">
                 {{ library.useCaseCounts[useCase] || '–' }}
               </span>
             </button>

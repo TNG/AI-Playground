@@ -10,19 +10,19 @@ import { type Locator, type Page, expect } from '@playwright/test'
  * `listitem` named after its label, its action menu is `<label> actions`, and its
  * checkbox is `Select <label>`.
  */
-export class ModelManagerPage {
+export class ModelLibraryPage {
   constructor(private readonly page: Page) {}
 
   private get settingsDialog(): Locator {
     return this.page.getByRole('dialog', { name: 'App Settings' })
   }
 
-  private get overlay(): Locator {
+  private get tabPanel(): Locator {
     return this.settingsDialog.getByRole('tabpanel', { name: 'Model Library', exact: true })
   }
 
   private get list(): Locator {
-    return this.overlay.getByRole('list', { name: 'Model Library', exact: true })
+    return this.tabPanel.getByRole('list', { name: 'Model Library', exact: true })
   }
 
   private get openButton(): Locator {
@@ -30,37 +30,42 @@ export class ModelManagerPage {
   }
 
   get searchBox(): Locator {
-    return this.overlay.getByRole('searchbox', { name: 'Search models' })
+    return this.tabPanel.getByRole('searchbox', { name: 'Search models' })
   }
 
   /** The backend filter's trigger, which reads "Backend: <current value>". */
   get backendFilter(): Locator {
-    return this.overlay.getByRole('group', { name: 'Backend' }).getByRole('button')
+    return this.tabPanel.getByRole('group', { name: 'Backend' }).getByRole('button')
   }
 
   /** The download-status filter's trigger, which reads "Status: <current value>". */
   get statusFilter(): Locator {
-    return this.overlay.getByRole('group', { name: 'Status' }).getByRole('button')
+    return this.tabPanel.getByRole('group', { name: 'Status' }).getByRole('button')
   }
 
-  /** The sort dropdown's trigger, which reads "Sort by: <current key>". */
+  /** The sort dropdown's trigger, which reads "Sort by: <current key> ↑" (or ↓). */
   get sortControl(): Locator {
-    return this.overlay.getByRole('group', { name: 'Sort by' }).getByRole('button').first()
+    return this.tabPanel.getByRole('button', { name: /^Sort by: / })
+  }
+
+  /** The sort direction toggle, named after the direction it currently sorts in. */
+  get sortDirectionButton(): Locator {
+    return this.tabPanel.getByRole('button', { name: /^(Ascending|Descending)$/ })
   }
 
   /** The capability filter icons, introduced by their visible "Capabilities" caption. */
   get capabilityFilters(): Locator {
-    return this.overlay.getByRole('group', { name: 'Capabilities' })
+    return this.tabPanel.getByRole('group', { name: 'Capabilities' })
   }
 
   /** "N of M models" above the list. */
   get resultLine(): Locator {
-    return this.overlay.getByRole('status').filter({ hasText: /^\d+ of \d+ models$/ })
+    return this.tabPanel.getByRole('status').filter({ hasText: /^\d+ of \d+ models$/ })
   }
 
   /** Shown only while a filter other than the use case is active. */
   get clearFiltersButton(): Locator {
-    return this.overlay.getByRole('button', { name: 'Clear filters', exact: true })
+    return this.tabPanel.getByRole('button', { name: 'Clear filters', exact: true })
   }
 
   /** The two numbers of the result line: rows shown, and models in the chosen use case. */
@@ -70,11 +75,11 @@ export class ModelManagerPage {
     return { shown: Number(shown), total: Number(total) }
   }
 
-  /** A use-case chip, whose accessible name is its label followed by its count. */
+  /** A use-case chip, named by its label alone; its count is its description. */
   useCaseChip(useCase: string): Locator {
-    return this.overlay
+    return this.tabPanel
       .getByRole('navigation', { name: 'Model use cases' })
-      .getByRole('button', { name: new RegExp(`^${escapeRegExp(useCase)}\\s*(\\d+|–)$`) })
+      .getByRole('button', { name: useCase, exact: true })
   }
 
   /** A row, matched by the model's label (its file name). */
@@ -91,7 +96,7 @@ export class ModelManagerPage {
   async open(): Promise<void> {
     if (await this.isOpen()) return
     await this.openButton.click()
-    await expect(this.overlay).toBeVisible()
+    await expect(this.tabPanel).toBeVisible()
   }
 
   async close(): Promise<void> {
@@ -103,7 +108,7 @@ export class ModelManagerPage {
   }
 
   isOpen(): Promise<boolean> {
-    return this.overlay.isVisible().catch(() => false)
+    return this.tabPanel.isVisible().catch(() => false)
   }
 
   /** Narrow the list to models whose file name contains `text`. */
@@ -113,10 +118,7 @@ export class ModelManagerPage {
 
   /** Pick a use-case chip ("All", "LLM", "Embedding", …). */
   async selectUseCase(useCase: string): Promise<void> {
-    await this.overlay
-      .getByRole('navigation', { name: 'Model use cases' })
-      .getByText(useCase, { exact: true })
-      .click()
+    await this.useCaseChip(useCase).click()
   }
 
   async toggleFavorite(label: string): Promise<void> {
@@ -138,12 +140,12 @@ export class ModelManagerPage {
 
   /** The batch download icon button, disabled until something downloadable is selected. */
   get downloadSelectedButton(): Locator {
-    return this.overlay.getByRole('button', { name: 'Download selected' })
+    return this.tabPanel.getByRole('button', { name: 'Download selected' })
   }
 
   /** The batch delete icon button, disabled until something deletable is selected. */
   get deleteSelectedButton(): Locator {
-    return this.overlay.getByRole('button', { name: 'Delete selected' })
+    return this.tabPanel.getByRole('button', { name: 'Delete selected' })
   }
 
   /** The label of every row currently listed, top to bottom: each row is named after it. */

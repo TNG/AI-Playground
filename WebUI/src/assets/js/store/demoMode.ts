@@ -5,6 +5,7 @@ import { useI18N } from './i18n'
 import { applyDemoModeExplicitDefaults } from './demoModeDefaults'
 import { createAppError } from '@/assets/js/errors/appError'
 import { isHashedDemoPasscode, verifyDemoPasscode } from '@/lib/demoPasscode'
+import { FALLBACK_SAMPLE_PROMPTS } from '@/lib/demoSamplePrompts'
 import type { DemoConfigUpdate } from '@/types/demoModeIpc'
 import type { IpcFail, IpcOk } from '@/types/ipcChannels'
 
@@ -58,6 +59,7 @@ function createInitialVisitedState(
 export type DemoModeSetup = {
   enabled: boolean
   resetInSeconds: number | null
+  promptDisabled: boolean
 }
 
 type ExplicitDefaultsState = 'idle' | 'applying' | 'applied'
@@ -82,6 +84,8 @@ export const useDemoMode = defineStore('demoMode', () => {
   )
   const showResetDialog = ref(false)
   const tourOpen = ref(false)
+
+  const samplePrompts = computed(() => profile.value?.samplePrompts ?? FALLBACK_SAMPLE_PROMPTS)
 
   const notificationDotButtonIds = computed<DemoButtonId[]>(
     () =>
@@ -132,6 +136,9 @@ export const useDemoMode = defineStore('demoMode', () => {
   }
 
   const resetInSeconds = ref<null | number>(null)
+  const promptDisabled = ref(false)
+  /** Disable Prompt: the prompt box only takes the profile's sample prompts. */
+  const promptLocked = computed(() => enabled.value && promptDisabled.value)
   const passcode = ref('')
   const hasPasscode = computed(() => passcode.value.length > 0)
   const source = ref<DemoModeSettings['source']>('user')
@@ -140,10 +147,18 @@ export const useDemoMode = defineStore('demoMode', () => {
   // On a Shared Install the Setup Wizard row edits the Demo Policy, so the user's own values do not show.
   const savedSetup = computed<DemoModeSetup>(() => {
     if (!sharedInstall.value)
-      return { enabled: enabled.value, resetInSeconds: resetInSeconds.value }
+      return {
+        enabled: enabled.value,
+        resetInSeconds: resetInSeconds.value,
+        promptDisabled: promptDisabled.value,
+      }
     return policyPresent.value
-      ? { enabled: true, resetInSeconds: resetInSeconds.value }
-      : { enabled: false, resetInSeconds: null }
+      ? {
+          enabled: true,
+          resetInSeconds: resetInSeconds.value,
+          promptDisabled: promptDisabled.value,
+        }
+      : { enabled: false, resetInSeconds: null, promptDisabled: false }
   })
   const policyPasscodeUnhashed = computed(
     () => policyPresent.value && hasPasscode.value && !isHashedDemoPasscode(passcode.value),
@@ -158,6 +173,7 @@ export const useDemoMode = defineStore('demoMode', () => {
     enabled.value = res.isDemoModeEnabled
     profile.value = res.profile ?? null
     resetInSeconds.value = res.demoModeResetInSeconds
+    promptDisabled.value = res.demoModePromptDisabled
     passcode.value = res.demoModePasscode ?? ''
     source.value = res.source
     sharedInstall.value = res.sharedInstall
@@ -309,6 +325,7 @@ export const useDemoMode = defineStore('demoMode', () => {
   return {
     enabled,
     profile,
+    samplePrompts,
     notificationDotButtonIds,
     showDemoToggle,
     showResetDialog,
@@ -330,6 +347,8 @@ export const useDemoMode = defineStore('demoMode', () => {
     policyPasscodeUnhashed,
     savedPasscodeKeepable,
     resetInSeconds,
+    promptDisabled,
+    promptLocked,
     cancelReset,
     resetDemo,
     refreshFromMainConfig,

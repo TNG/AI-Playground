@@ -1,10 +1,21 @@
 <template>
   <div
     v-if="activeSample"
-    class="flex w-full flex-col gap-1 text-left z-[var(--demo-z-sample)] driver-active-element"
+    role="group"
+    aria-label="Example prompt"
+    class="flex w-full flex-col gap-1 text-left"
+    :class="
+      props.inline
+        ? 'rounded-md border border-border bg-card px-3 py-2'
+        : 'z-[var(--demo-z-sample)] driver-active-element'
+    "
     @mousedown.prevent
   >
-    <div class="demo-sample-body" @click="applySample(activeSample)">
+    <div
+      class="demo-sample-body"
+      :class="{ 'demo-sample-body--inline': props.inline }"
+      @click="applySample(activeSample)"
+    >
       <span class="demo-sample-title">{{ activeSample.title }}</span>
       <span class="demo-sample-description">{{ activeSample.description }}</span>
       <span class="demo-sample-prompt">"{{ activeSample.prompt }}"</span>
@@ -27,6 +38,10 @@ import { useImageGenerationPresets } from '@/assets/js/store/imageGenerationPres
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { usePresets } from '@/assets/js/store/presets'
 import { useErrors } from '@/assets/js/store/errors'
+import { sampleFor } from '@/lib/demoSamplePrompts'
+
+/** Inline: shown in the prompt area rather than as a driver.js-highlighted popover. */
+const props = defineProps<{ inline?: boolean }>()
 
 const promptStore = usePromptStore()
 const imageGeneration = useImageGenerationPresets()
@@ -34,49 +49,9 @@ const demoMode = useDemoMode()
 const presetsStore = usePresets()
 const errors = useErrors()
 
-const FALLBACK_SAMPLES: SamplePrompt[] = [
-  {
-    title: 'Prompt Example',
-    description: 'Ask a science question and get an answer:',
-    prompt: 'Why does water expand when it freezes?',
-    mode: 'chat',
-  },
-  {
-    title: 'Image Generation Example',
-    description: 'Create a fantastic image from a detailed prompt:',
-    prompt:
-      'A close-up photo of a hummingbird hovering to get nectar from a red rose with drops of dew. Iridescent blue and green feathers, wings a blur. Depth of field. High Dynamic Range.',
-    mode: 'imageGen',
-  },
-  {
-    title: 'Image Editing Example',
-    description: 'Edit a photo by describing what to change. An image is already given:',
-    prompt: 'Remove people from the background',
-    mode: 'imageEdit',
-  },
-  {
-    title: 'Sketch to Photo Example',
-    description: 'Turn a sketch into a photo by describing the scene:',
-    prompt: 'Photo of a modern apartment building, tropical resort, sunset view',
-    mode: 'imageEdit',
-    presetName: 'Sketch to Photo',
-  },
-  {
-    title: 'Video Generation Example',
-    description: 'Create a short video from a text description.',
-    prompt: 'A golden retriever running through a field of sunflowers on a sunny day',
-    mode: 'video',
-  },
-]
-
-const samples = computed(() => demoMode.profile?.samplePrompts ?? FALLBACK_SAMPLES)
-const activeSample = computed(() => {
-  const mode = promptStore.currentMode
-  const presetName = presetsStore.activePreset?.name
-  const presetMatch = samples.value.find((s) => s.mode === mode && s.presetName === presetName)
-  if (presetMatch) return presetMatch
-  return samples.value.find((s) => s.mode === mode && !s.presetName)
-})
+const activeSample = computed(() =>
+  sampleFor(demoMode.samplePrompts, promptStore.currentMode, presetsStore.activePreset?.name),
+)
 
 function applySample(sample: SamplePrompt) {
   if (sample.mode === 'imageEdit') {
@@ -99,6 +74,10 @@ function applySample(sample: SamplePrompt) {
   font-family: 'IntelOne', sans-serif;
   max-width: 220px;
   width: 100%;
+}
+
+.demo-sample-body--inline {
+  max-width: none;
 }
 
 .demo-sample-title {

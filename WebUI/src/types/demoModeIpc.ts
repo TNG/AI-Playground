@@ -7,8 +7,9 @@ export const DemoConfigUpdateSchema = z.object({
   isDemoModeEnabled: z.boolean(),
   demoModePasscode: z.string().regex(HASHED_DEMO_PASSCODE).optional(),
   demoModeResetInSeconds: z.number().int().min(1).nullable(),
+  demoModePromptDisabled: z.boolean().default(false),
 })
-export type DemoConfigUpdate = z.infer<typeof DemoConfigUpdateSchema>
+export type DemoConfigUpdate = z.input<typeof DemoConfigUpdateSchema>
 
 /** `enteredDemoMode`: Demo Mode is on now and was off before the save, so the app should restart. */
 export type DemoConfigSaveResult = IpcOkWith<{ enteredDemoMode: boolean }>

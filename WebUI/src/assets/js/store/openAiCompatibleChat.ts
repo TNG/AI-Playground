@@ -27,6 +27,7 @@ import { useConfirmations } from './confirmations'
 import { useI18N } from './i18n'
 import { useDeveloperSettings } from './developerSettings'
 import { useComputeMetrics } from './computeMetrics'
+import { useProductMode } from './productMode'
 import type { ChatTurnEnergy } from '@/lib/chatEnergy'
 import { createAppError, extractMessage, isCancellation } from '../errors/appError'
 import type { AppError } from '../errors/types'
@@ -115,6 +116,7 @@ export const useOpenAiCompatibleChat = defineStore(
     const i18nState = i18n.state
     const developerSettings = useDeveloperSettings()
     const computeMetrics = useComputeMetrics()
+    const productMode = useProductMode()
     const manuallyStopped = ref(false)
 
     // True while the model is actively emitting reasoning (i.e. the last content
@@ -206,6 +208,7 @@ export const useOpenAiCompatibleChat = defineStore(
     // chat backend accepts audio itself.
     const canTranscribeAttachments = computed(
       () =>
+        productMode.toolCallingAllowed &&
         textInference.modelSupportsToolCalling &&
         textInference.aipgToolsEnabled &&
         textInference.isBuiltinToolEnabled('transcribeAudio') &&
@@ -220,7 +223,7 @@ export const useOpenAiCompatibleChat = defineStore(
     }
 
     async function resolveTools(): Promise<ToolSet> {
-      if (!textInference.modelSupportsToolCalling) return {}
+      if (!productMode.toolCallingAllowed || !textInference.modelSupportsToolCalling) return {}
 
       const builtinTools = resolveBuiltinTools()
       const mcpTools = await resolveMcpTools()

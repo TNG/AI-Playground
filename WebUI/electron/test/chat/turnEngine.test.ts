@@ -81,6 +81,7 @@ const {
   setChatEngineDeps,
   resetChatEngineDepsForTest,
   buildToolSet,
+  NO_TOOLS_NOTE,
 } = await import('../../chat/turnEngine')
 const { setChatModelDeps, resetChatModelDepsForTest } = await import('../../chat/chatModelMain')
 const {
@@ -1282,6 +1283,57 @@ describe('turn engine', () => {
     expect(content).toContain('## MCP server: Serv')
     expect(content).toContain('Do things')
     expect(content).not.toContain('Off')
+  })
+
+  it('sends no tools and runs none when tool calling is not allowed', async () => {
+    setChatEngineDeps({ readMediaAsDataUri, toolCallingAllowed: () => false })
+    vi.mocked(listMcpServers).mockReturnValue([
+      { id: 's1', name: 'Serv', instructions: 'Do things' },
+    ] as never)
+    vi.mocked(getMcpServerStatus).mockReturnValue({ state: 'running' } as never)
+    queueFetchMock(sse(textChunks('just text')))
+    const { turnId } = submitChatTurn(
+      turnRequest({
+        tools: [
+          { name: 'comfyUI', description: 'Generate', inputSchema: { type: 'object' } },
+          { name: 'media', description: 'Create media', inputSchema: { type: 'object' } },
+        ],
+        mediaAgent: {
+          system: 'You are the media specialist.',
+          toolSpecs: [{ name: 'comfyUI', description: 'Create images', inputSchema: {} }],
+        },
+        includeMcpInstructions: true,
+      }),
+    )
+    await waitForTurnDone(turnId)
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].body.tools).toBeUndefined()
+    const system = String(bodyMessages().find((m) => m.role === 'system')!.content)
+    expect(system).not.toContain('# MCP server instructions')
+    expect(system).toContain(`You are helpful.\n\n${NO_TOOLS_NOTE}`)
+    expect(executeChatComfyToolMock).not.toHaveBeenCalled()
+    expect(runMediaAgentInMainMock).not.toHaveBeenCalled()
+  })
+
+  it('tells the model it has no tools even with an empty system prompt', async () => {
+    setChatEngineDeps({ readMediaAsDataUri, toolCallingAllowed: () => false })
+    queueFetchMock(sse(textChunks('just text')))
+    const { turnId } = submitChatTurn(turnRequest({ systemPrompt: '' }))
+    await waitForTurnDone(turnId)
+
+    const system = bodyMessages().find((m) => m.role === 'system')
+    expect(String(system!.content).trim()).toBe(NO_TOOLS_NOTE)
+  })
+
+  it('adds no tool notice when tool calling is allowed', async () => {
+    setChatEngineDeps({ readMediaAsDataUri, toolCallingAllowed: () => true })
+    queueFetchMock(sse(textChunks('ok')))
+    const { turnId } = submitChatTurn(turnRequest())
+    await waitForTurnDone(turnId)
+
+    const system = String(bodyMessages().find((m) => m.role === 'system')!.content)
+    expect(system).not.toContain(NO_TOOLS_NOTE)
   })
 
   it('surfaces a backend error as an error chunk, not a crash', async () => {

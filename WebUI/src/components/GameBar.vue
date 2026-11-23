@@ -3,25 +3,30 @@
        being worked on, and what can be done with it. Agent Mode has no results
        panel, so it lives above the transcript. -->
   <!-- Opaque, because it is pinned: the transcript scrolls underneath it. -->
+  <!-- Wraps rather than overflows: the Acer buttons alone are wider than a narrow window. -->
   <div
     role="group"
     aria-label="Current game"
-    class="flex min-w-0 max-w-full items-center gap-3 rounded-md border border-border bg-card px-3 py-2 shadow-sm"
+    class="flex min-w-0 max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border bg-card px-3 py-2 shadow-sm"
   >
-    <img
-      v-if="game?.iconUrl"
-      :src="game.iconUrl"
-      alt=""
-      class="size-8 rounded object-cover border border-border"
-    />
-    <span v-else class="size-8 rounded bg-muted grid place-items-center text-base">🎮</span>
+    <div class="flex min-w-32 flex-1 items-center gap-3">
+      <img
+        v-if="game?.iconUrl"
+        :src="game.iconUrl"
+        alt=""
+        class="size-8 shrink-0 rounded object-cover border border-border"
+      />
+      <span v-else class="size-8 shrink-0 rounded bg-muted grid place-items-center text-base"
+        >🎮</span
+      >
 
-    <div class="flex flex-col min-w-0">
-      <span class="text-sm text-foreground truncate">{{ gameName }}</span>
-      <span class="text-xs text-muted-foreground truncate">{{ subtitle }}</span>
+      <div class="flex flex-col min-w-0">
+        <span class="text-sm text-foreground truncate">{{ gameName }}</span>
+        <span class="text-xs text-muted-foreground truncate">{{ subtitle }}</span>
+      </div>
     </div>
 
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
       <Button
         variant="secondary"
         class="px-3 py-1.5 rounded text-sm"

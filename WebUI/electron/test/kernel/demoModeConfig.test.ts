@@ -48,6 +48,7 @@ describe('readEffectiveDemoConfig', () => {
       isDemoModeEnabled: true,
       demoModeResetInSeconds: 120,
       demoModePasscode: 'pbkdf2$1$a$b',
+      demoModePromptDisabled: false,
       source: 'user',
       sharedInstall: false,
     })
@@ -79,8 +80,25 @@ describe('readEffectiveDemoConfig with a Demo Policy', () => {
       isDemoModeEnabled: true,
       demoModeResetInSeconds: 300,
       demoModePasscode: 'pbkdf2$600000$policySalt$policyHash',
+      demoModePromptDisabled: false,
       source: 'policy',
       sharedInstall: true,
+    })
+  })
+
+  it('reads Disable Prompt from the policy, not the user settings', () => {
+    const { config } = setup(userSettings({ demoModePromptDisabled: true }))
+    const promptAllowed = registry('    isDemoModeEnabled    REG_DWORD    0x1')
+    const promptLocked = registry(
+      '    isDemoModeEnabled    REG_DWORD    0x1',
+      '    demoModePromptDisabled    REG_DWORD    0x1',
+    )
+
+    expect(config.readEffectiveDemoConfig({ registryStdout: promptAllowed })).toMatchObject({
+      demoModePromptDisabled: false,
+    })
+    expect(config.readEffectiveDemoConfig({ registryStdout: promptLocked })).toMatchObject({
+      demoModePromptDisabled: true,
     })
   })
 
@@ -107,6 +125,7 @@ describe('readEffectiveDemoConfig with a Demo Policy', () => {
       isDemoModeEnabled: true,
       demoModeResetInSeconds: null,
       demoModePasscode: 'mine',
+      demoModePromptDisabled: false,
       source: 'user',
       sharedInstall: true,
     })
@@ -209,6 +228,21 @@ describe('saveDemoConfig', () => {
       demoModeResetInSeconds: 300,
       source: 'user',
     })
+  })
+
+  it('writes and reads back Disable Prompt', async () => {
+    const settings = userSettings()
+    const { config, written } = setup(settings)
+
+    await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+      demoModePromptDisabled: true,
+    })
+
+    expect(written[0]).toMatchObject({ demoModePromptDisabled: true })
+    expect(config.currentDemoConfig()).toMatchObject({ demoModePromptDisabled: true })
   })
 
   it('is refused while Demo Mode is active and writes nothing', async () => {
@@ -518,10 +552,28 @@ describe('saveDemoConfig on a Shared Install', () => {
       [
         { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
         { action: 'set', name: 'demoModeResetInSeconds', type: 'REG_DWORD', data: 300 },
+        { action: 'delete', name: 'demoModePromptDisabled' },
         { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
       ],
     ])
     expect(writeUserSettings).not.toHaveBeenCalled()
+  })
+
+  it('writes Disable Prompt into the policy before enabling it', async () => {
+    const { config, runs, settings } = sharedInstall({})
+
+    await config.saveDemoConfig({
+      isDemoModeEnabled: true,
+      demoModePasscode: hashed,
+      demoModeResetInSeconds: null,
+      demoModePromptDisabled: true,
+    })
+
+    expect(runs[0].slice(-2)).toEqual([
+      { action: 'set', name: 'demoModePromptDisabled', type: 'REG_DWORD', data: 1 },
+      { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
+    ])
+    expect(settings.demoModePromptDisabled).toBe(true)
   })
 
   it('makes the new policy live and announces Demo Mode', async () => {
@@ -537,6 +589,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       isDemoModeEnabled: true,
       demoModePasscode: hashed,
       demoModeResetInSeconds: 300,
+      demoModePromptDisabled: false,
       source: 'policy',
       sharedInstall: true,
     })
@@ -562,6 +615,7 @@ describe('saveDemoConfig on a Shared Install', () => {
       [
         { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
         { action: 'set', name: 'demoModeResetInSeconds', type: 'REG_DWORD', data: 60 },
+        { action: 'delete', name: 'demoModePromptDisabled' },
         { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
       ],
     ])
@@ -581,6 +635,7 @@ describe('saveDemoConfig on a Shared Install', () => {
         { action: 'delete', name: 'isDemoModeEnabled' },
         { action: 'delete', name: 'demoModePasscode' },
         { action: 'delete', name: 'demoModeResetInSeconds' },
+        { action: 'delete', name: 'demoModePromptDisabled' },
       ],
     ])
   })
@@ -601,6 +656,7 @@ describe('saveDemoConfig on a Shared Install', () => {
     expect(rollbacks).toEqual([
       [
         { action: 'delete', name: 'demoModeResetInSeconds' },
+        { action: 'delete', name: 'demoModePromptDisabled' },
         { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
       ],
     ])
@@ -661,12 +717,13 @@ describe('saveDemoConfig on a Shared Install', () => {
       [
         { action: 'set', name: 'demoModePasscode', type: 'REG_SZ', data: hashed },
         { action: 'delete', name: 'demoModeResetInSeconds' },
+        { action: 'delete', name: 'demoModePromptDisabled' },
         { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
       ],
     ])
   })
 
-  it('turns the policy off by deleting all three values, Demo Mode first', async () => {
+  it('turns the policy off by deleting all its values, Demo Mode first', async () => {
     const { config, runs, machine, settings } = sharedInstall(
       { isDemoModeEnabled: 1, demoModePasscode: hashed, demoModeResetInSeconds: 60 },
       { demoModeResetInSeconds: 30 },
@@ -684,6 +741,7 @@ describe('saveDemoConfig on a Shared Install', () => {
         { action: 'delete', name: 'isDemoModeEnabled' },
         { action: 'delete', name: 'demoModePasscode' },
         { action: 'delete', name: 'demoModeResetInSeconds' },
+        { action: 'delete', name: 'demoModePromptDisabled' },
       ],
     ])
     expect([...machine.keys()]).toEqual(['modelFolderMode'])

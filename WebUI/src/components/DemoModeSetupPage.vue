@@ -68,6 +68,21 @@
           {{ t('DEMO_MODE_SETUP_RESET_TIMEOUT_HINT') }}
         </span>
       </div>
+
+      <div class="flex items-start gap-2">
+        <Checkbox
+          id="demo-disable-prompt"
+          class="mt-0.5"
+          :model-value="promptDisabled"
+          @update:model-value="(value) => (promptDisabled = value === true)"
+        />
+        <div class="flex flex-col gap-1">
+          <Label for="demo-disable-prompt">{{ t('DEMO_MODE_SETUP_DISABLE_PROMPT') }}</Label>
+          <span class="text-xs text-muted-foreground">
+            {{ t('DEMO_MODE_SETUP_DISABLE_PROMPT_HINT') }}
+          </span>
+        </div>
+      </div>
     </form>
 
     <SetupWizardFooter
@@ -84,6 +99,7 @@ import { computed, ref } from 'vue'
 import { useSetupWizard } from '@/assets/js/store/setupWizard'
 import { useDemoMode } from '@/assets/js/store/demoMode'
 import { useI18N } from '@/assets/js/store/i18n'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import SetupWizardFooter from '@/components/SetupWizardFooter.vue'
@@ -100,6 +116,7 @@ function t(key: string) {
 const passcode = ref('')
 const passcodeConfirm = ref('')
 const resetTimeout = ref<string | number>(wizard.demoModeView.resetInSeconds ?? '')
+const promptDisabled = ref(wizard.demoModeView.promptDisabled)
 const hashing = ref(false)
 
 const willBeEnabled = computed(() => wizard.demoModeView.enabled || wizard.demoModeSetupEnabling)
@@ -130,7 +147,11 @@ async function done() {
   hashing.value = true
   try {
     const passcodeHash = passcode.value ? await hashDemoPasscode(passcode.value) : undefined
-    wizard.applyDemoModeSetup({ passcodeHash, resetInSeconds })
+    wizard.applyDemoModeSetup({
+      passcodeHash,
+      resetInSeconds,
+      promptDisabled: promptDisabled.value,
+    })
   } finally {
     hashing.value = false
   }

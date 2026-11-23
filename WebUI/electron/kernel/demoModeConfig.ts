@@ -14,7 +14,7 @@ import type { LocalSettings } from './localSettings'
 
 export type DemoModeValues = Pick<
   LocalSettings,
-  'isDemoModeEnabled' | 'demoModeResetInSeconds' | 'demoModePasscode'
+  'isDemoModeEnabled' | 'demoModeResetInSeconds' | 'demoModePasscode' | 'demoModePromptDisabled'
 >
 
 export type DemoConfigSource = 'policy' | 'user'
@@ -23,6 +23,7 @@ const DEMO_MODE_KEYS = [
   'isDemoModeEnabled',
   'demoModePasscode',
   'demoModeResetInSeconds',
+  'demoModePromptDisabled',
 ] as const satisfies readonly (keyof DemoModeValues)[]
 
 export type EffectiveDemoConfig = DemoModeValues & {
@@ -60,6 +61,7 @@ function parseDemoPolicy(registryStdout: string | null): DemoModeValues | null {
     demoModePasscode: typeof passcode === 'string' ? passcode : undefined,
     demoModeResetInSeconds:
       typeof resetInSeconds === 'number' && resetInSeconds > 0 ? resetInSeconds : null,
+    demoModePromptDisabled: values.get('demoModePromptDisabled') === 1,
   }
 }
 
@@ -83,6 +85,9 @@ function demoPolicyChanges(values: DemoModeValues): RegistryValueChange[] {
           data: values.demoModeResetInSeconds,
         }
       : { action: 'delete', name: 'demoModeResetInSeconds' },
+    values.demoModePromptDisabled
+      ? { action: 'set', name: 'demoModePromptDisabled', type: 'REG_DWORD', data: 1 }
+      : { action: 'delete', name: 'demoModePromptDisabled' },
     { action: 'set', name: 'isDemoModeEnabled', type: 'REG_DWORD', data: 1 },
   ]
 }
@@ -90,7 +95,11 @@ function demoPolicyChanges(values: DemoModeValues): RegistryValueChange[] {
 /** Restores `previous` if a policy write fails; a plain passcode cannot be written back. */
 function rollbackTo(previous: DemoModeValues | null): RegistryValueChange[] {
   const changes = demoPolicyChanges(
-    previous ?? { isDemoModeEnabled: false, demoModeResetInSeconds: null },
+    previous ?? {
+      isDemoModeEnabled: false,
+      demoModeResetInSeconds: null,
+      demoModePromptDisabled: false,
+    },
   )
   return changes.filter(
     (change) =>
@@ -103,6 +112,7 @@ function demoValuesOf(settings: LocalSettings): DemoModeValues {
     isDemoModeEnabled: settings.isDemoModeEnabled,
     demoModeResetInSeconds: settings.demoModeResetInSeconds,
     demoModePasscode: settings.demoModePasscode,
+    demoModePromptDisabled: settings.demoModePromptDisabled,
   }
 }
 
@@ -163,6 +173,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
       isDemoModeEnabled: update.isDemoModeEnabled,
       demoModePasscode: update.demoModePasscode ?? keptPasscode,
       demoModeResetInSeconds: update.demoModeResetInSeconds,
+      demoModePromptDisabled: update.demoModePromptDisabled,
     }
     if (next.isDemoModeEnabled && !next.demoModePasscode) {
       return ipcFail('Demo Mode needs a Demo Passcode')
@@ -212,6 +223,7 @@ export function createDemoModeConfig(deps: DemoModeConfigDeps) {
     live.isDemoModeEnabled = effective.isDemoModeEnabled
     live.demoModeResetInSeconds = effective.demoModeResetInSeconds
     live.demoModePasscode = effective.demoModePasscode
+    live.demoModePromptDisabled = effective.demoModePromptDisabled
     return effective
   }
 

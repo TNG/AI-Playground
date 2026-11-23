@@ -109,6 +109,8 @@ export type ChatEngineDeps = {
   noteTraceContext?: (context: Record<string, unknown> | null) => void
   /** Tests inject retrieval; production uses `retrieveRagForTurn`. */
   prepareRag?: typeof retrieveRagForTurn
+  /** False drops every tool a turn ships (Essentials, Demo Mode); absent allows them. */
+  toolCallingAllowed?: () => boolean
 }
 
 let engineDeps: ChatEngineDeps | null = null
@@ -761,8 +763,26 @@ export function openChatTurns(): OpenChatTurn[] {
   }))
 }
 
+// Presets like Assistant tell the model it can generate images; without this it fakes the call.
+export const NO_TOOLS_NOTE =
+  'Tools are unavailable in this mode. You cannot call functions or generate, edit or show ' +
+  'images, audio or video, so never pretend to or write out a function call. If asked for ' +
+  'one, say it is not available here and offer to help in text instead.'
+
+function withoutTools(request: ChatTurnRequest): ChatTurnRequest {
+  return {
+    ...request,
+    systemPrompt: [request.systemPrompt, NO_TOOLS_NOTE].filter(Boolean).join('\n\n'),
+    tools: [],
+    repairData: undefined,
+    mediaAgent: undefined,
+    includeMcpInstructions: false,
+  }
+}
+
 export function submitChatTurn(request: unknown): ChatTurnSubmitResult {
-  const req = ChatTurnRequestSchema.parse(request) as ChatTurnRequest
+  const parsed = ChatTurnRequestSchema.parse(request) as ChatTurnRequest
+  const req = engineDeps?.toolCallingAllowed?.() === false ? withoutTools(parsed) : parsed
   if (activeTurns.has(req.conversationKey)) {
     throw new Error('A chat turn is already running for this conversation')
   }

@@ -124,7 +124,7 @@
           <textarea
             class="h-24 rounded-lg resize-none bg-input border border-border text-foreground p-2"
             v-model="imageGeneration.negativePrompt"
-            :disabled="!modifiable('negativePrompt')"
+            :disabled="!modifiable('negativePrompt') || demoMode.promptLocked"
           ></textarea>
         </div>
 
@@ -227,6 +227,7 @@ import ComfyDynamic from '@/components/SettingsImageComfyDynamic.vue'
 import { usePresets } from '@/assets/js/store/presets'
 import { usePresetSwitching } from '@/assets/js/store/presetSwitching'
 import { useBackendServices } from '@/assets/js/store/backendServices'
+import { useDemoMode } from '@/assets/js/store/demoMode'
 import * as toast from '@/assets/js/toast'
 import AspectRatioPicker from './AspectRatioPicker.vue'
 import PresetSelector from './PresetSelector.vue'
@@ -242,6 +243,7 @@ const imageGeneration = useImageGenerationPresets()
 const presetsStore = usePresets()
 const presetSwitching = usePresetSwitching()
 const backendServices = useBackendServices()
+const demoMode = useDemoMode()
 
 // Friendly labels for backends shown in the dropdown. Add more as new backend ids
 // (e.g. 'tensorrt') are introduced via variant.backend.

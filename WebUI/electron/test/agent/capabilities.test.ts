@@ -27,7 +27,10 @@ vi.mock('../../agent/piRuntime.ts', () => ({
   loadPi: async () => ({ defineTool: (definition: unknown) => definition }),
 }))
 
-vi.mock('../../agent/agentBrowser.ts', () => ({ runBrowserAction: vi.fn() }))
+vi.mock('../../agent/agentBrowser.ts', () => ({
+  runBrowserAction: vi.fn(),
+  captureWebsite: vi.fn(),
+}))
 vi.mock('../../adapters/mcp/mcpManager.ts', () => ({
   getMcpServerTools: vi.fn(async () => {
     const { jsonSchema } = await import('ai')
@@ -132,8 +135,8 @@ describe('the capability catalog', () => {
     expect(ids.indexOf('mcp:filesystem')).toBeLessThan(ids.indexOf('media'))
   })
 
-  it('defaults to files, media, document search and web access, with the rest opt-in', () => {
-    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['files', 'media', 'rag', 'web'])
+  it('defaults to files, media, document search, web access and website screenshots', () => {
+    expect([...DEFAULT_CAPABILITY_IDS]).toEqual(['files', 'media', 'rag', 'web', 'web-screenshot'])
   })
 
   it('reports availability and commands for the settings UI', () => {
@@ -155,6 +158,14 @@ describe('the capability catalog', () => {
     const listed = listCapabilities(hostWith()).map(({ id }) => id)
     expect(listed).not.toContain('game-studio')
     expect(listed).not.toContain('game-studio-quick')
+  })
+
+  it('lists website screenshots in the catalog after web access, with label and summary', () => {
+    const entry = listCapabilities(hostWith()).find(({ id }) => id === 'web-screenshot')
+    expect(entry?.label).toBe('Website screenshots')
+    expect(entry?.summary).toMatch(/picture/i)
+    const ids = capabilityCatalog().map(({ id }) => id)
+    expect(ids.indexOf('web')).toBeLessThan(ids.indexOf('web-screenshot'))
   })
 
   it('names exactly the capabilities that end a planning phase', () => {
@@ -297,7 +308,10 @@ describe('resolveCapabilities', () => {
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
     const browser = registry.tools.find((tool) => tool.name === 'browser') as unknown as {
-      execute: (id: string, params: unknown) => Promise<{ content: { text: string }[] }>
+      execute: (
+        id: string,
+        params: unknown,
+      ) => Promise<{ content: { text: string }[]; details?: unknown }>
     }
     const result = await browser.execute('call-1', { action: 'screenshot' })
 
@@ -313,7 +327,81 @@ describe('resolveCapabilities', () => {
       }),
     )
     expect(result.content[0].text).toBe('Saved screenshot to generated/shot.png')
+    // No Session media target: the tool result stays the plain text it was.
+    expect(result.details).toBeUndefined()
     agentTurns.delete(host.sessionId)
+  })
+
+  type BrowserTool = {
+    execute: (
+      id: string,
+      params: unknown,
+    ) => Promise<{ content: { text: string }[]; details?: { items?: unknown[] } }>
+  }
+
+  async function screenshotTool(host: Host): Promise<BrowserTool> {
+    const resolution = await resolveCapabilities(host, ['web-debug'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    return registry.tools.find((tool) => tool.name === 'browser') as unknown as BrowserTool
+  }
+
+  async function stubScreenshot(name: string): Promise<void> {
+    const { runBrowserAction } = await import('../../agent/agentBrowser.ts')
+    vi.mocked(runBrowserAction).mockResolvedValue({
+      text: `Saved screenshot to ${name}`,
+      screenshotPath: name,
+    })
+  }
+
+  it('carries a Session screenshot as one image Artifact its folder URL serves', async () => {
+    const host = hostWith({
+      sessionMedia: { sessionRef: 'session-1', workspace: 'files', folderId: 'folder-1' },
+    })
+    fs.mkdirSync(host.workspaceDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(host.workspaceDir, 'shot.png'),
+      Buffer.from('89504e470d0a1a0a', 'hex'),
+    )
+    await stubScreenshot('shot.png')
+
+    const result = await (await screenshotTool(host)).execute('shot-call', { action: 'screenshot' })
+
+    expect(result.content[0].text).toBe('Saved screenshot to shot.png')
+    expect(result.details?.items).toHaveLength(1)
+    expect(result.details?.items?.[0]).toMatchObject({
+      type: 'image',
+      state: 'done',
+      mode: 'imageGen',
+      settings: {},
+      imageUrl: 'aipg-media://folders/session-1/folder-1/shot.png',
+      workspacePath: 'shot.png',
+      createdAt: expect.any(Number),
+    })
+  })
+
+  it('copies a Trial Run screenshot into its files folder and serves it from there', async () => {
+    const filesDir = path.join(agentDir, 'trial-agent-files')
+    const host = hostWith({
+      sessionMedia: { workspace: 'trial', agentId: 'trial-agent', filesDir: async () => filesDir },
+    })
+    fs.mkdirSync(host.workspaceDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(host.workspaceDir, 'shot.png'),
+      Buffer.from('89504e470d0a1a0a', 'hex'),
+    )
+    await stubScreenshot('shot.png')
+
+    const result = await (
+      await screenshotTool(host)
+    ).execute('shot-trial', { action: 'screenshot' })
+
+    const item = result.details?.items?.[0] as { imageUrl: string; workspacePath: string }
+    expect(item.imageUrl).toBe('aipg-media://trials/trial-agent/files/shot.png')
+    expect(item.workspacePath).toBe('shot.png')
+    expect(fs.readFileSync(path.join(filesDir, 'shot.png'))).toEqual(
+      fs.readFileSync(path.join(host.workspaceDir, 'shot.png')),
+    )
   })
 
   it('skips a capability that cannot run and says why in the log', async () => {
@@ -322,6 +410,76 @@ describe('resolveCapabilities', () => {
       'web-debug',
     ])
     expect(resolution.resolved.map(({ capability }) => capability.id)).toEqual(['web-debug'])
+  })
+
+  it('registers the webScreenshot tool when website screenshots is enabled', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['web-screenshot'])
+    expect(resolution.resolved.map(({ capability }) => capability.id)).toEqual(['web-screenshot'])
+    expect(resolution.skillSources).toEqual([])
+
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).toEqual(['webScreenshot'])
+    // The model cannot know a CSS selector: the tool teaches quoting text instead.
+    const webShot = registry.tools.find((tool) => tool.name === 'webScreenshot') as unknown as {
+      description: string
+      parameters: { properties: Record<string, unknown> }
+    }
+    expect(webShot.description).toContain('never a CSS selector')
+    expect(webShot.parameters.properties.text).toBeDefined()
+    expect(webShot.parameters.properties.selector).toBeUndefined()
+  })
+
+  it('shows a website screenshot to the user without inlining it for the model', async () => {
+    const host = hostWith()
+    const shot = path.join(host.workspaceDir, 'generated', 'shot.png')
+    fs.mkdirSync(path.dirname(shot), { recursive: true })
+    fs.writeFileSync(shot, Buffer.from('89504e470d0a1a0a', 'hex'))
+    const { captureWebsite } = await import('../../agent/agentBrowser.ts')
+    vi.mocked(captureWebsite).mockResolvedValue({
+      text: 'Saved screenshot to generated/shot.png',
+      screenshotPath: 'generated/shot.png',
+    })
+    const send = vi.fn()
+    const { setKernelEventWindow } = await import('../../kernel/kernelBus')
+    setKernelEventWindow({ isDestroyed: () => false, webContents: { send } } as never)
+    const { agentTurns } = await import('../../agent/piAgentState')
+    agentTurns.set(host.sessionId, {
+      sessionId: host.sessionId,
+      turnId: 'turn-1',
+      abort: new AbortController(),
+      live: null,
+    })
+
+    const resolution = await resolveCapabilities(host, ['web-screenshot'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    const webScreenshot = registry.tools.find(
+      (tool) => tool.name === 'webScreenshot',
+    ) as unknown as {
+      execute: (
+        id: string,
+        params: unknown,
+      ) => Promise<{ content: { text: string }[]; details?: unknown }>
+    }
+    const result = await webScreenshot.execute('call-1', { url: 'https://example.com' })
+
+    expect(send).toHaveBeenCalledWith(
+      'kernel:event',
+      expect.objectContaining({
+        type: 'agent-tool-image',
+        sessionId: host.sessionId,
+        turnId: 'turn-1',
+        toolCallId: 'call-1',
+        dataUri: expect.stringMatching(/^data:image\/png;base64,/),
+        label: 'generated/shot.png',
+      }),
+    )
+    expect(result.content[0].text).toBe('Saved screenshot to generated/shot.png')
+    expect(result.content).toHaveLength(1)
+    // No Session media target: the tool result stays the plain text it was.
+    expect(result.details).toBeUndefined()
+    agentTurns.delete(host.sessionId)
   })
 
   it('pulls in required capabilities when a skills bundle is enabled', async () => {
@@ -391,7 +549,17 @@ describe('resolveCapabilities', () => {
     const resolution = await resolveCapabilities(hostWith(), ['mcp:web'])
     const registry = fakeExtensionApi()
     for (const factory of resolution.extensionFactories) factory(registry.api as never)
-    expect(registry.tools.map((tool) => tool.name)).toEqual(['search'])
+    expect(registry.tools.map((tool) => tool.name)).toEqual(['mcp__web__search'])
+  })
+
+  it('names agent MCP tools per server, so two servers can share a tool name', async () => {
+    const resolution = await resolveCapabilities(hostWith(), ['mcp:web', 'mcp:shop'])
+    const registry = fakeExtensionApi()
+    for (const factory of resolution.extensionFactories) factory(registry.api as never)
+    expect(registry.tools.map((tool) => tool.name)).toEqual([
+      'mcp__web__search',
+      'mcp__shop__search',
+    ])
   })
 
   it('parks lazy-eligible tools when the context window is tight', async () => {

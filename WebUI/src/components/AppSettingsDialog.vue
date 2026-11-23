@@ -114,6 +114,7 @@ import AppSettingsBackendStatus from '@/components/AppSettingsBackendStatus.vue'
 import AppSettingsSpeech from '@/components/AppSettingsSpeech.vue'
 import AppSettingsTheme from '@/components/AppSettingsTheme.vue'
 import AppSettingsMediaModes from '@/components/AppSettingsMediaModes.vue'
+import AppSettingsMcp from '@/components/AppSettingsMcp.vue'
 import AppSettingsPermissions from '@/components/AppSettingsPermissions.vue'
 import AppSettingsHide from '@/components/AppSettingsHide.vue'
 import AppSettingsDeveloper from '@/components/AppSettingsDeveloper.vue'
@@ -136,6 +137,7 @@ const partComponents: Record<AppSettingsPartId, Component> = {
   huggingFace: AppSettingsHuggingFace,
   speech: AppSettingsSpeech,
   mediaModes: AppSettingsMediaModes,
+  mcp: AppSettingsMcp,
   permissions: AppSettingsPermissions,
   hideMessages: AppSettingsHide,
   backendStatus: AppSettingsBackendStatus,
@@ -166,6 +168,7 @@ const sectionLabels = computed<Record<AppSettingsSectionId, string>>(() => ({
   huggingFace: languages.SETTINGS_MODEL_HUGGINGFACE_SETTINGS,
   speech: languages.SETTINGS_SPEECH,
   mediaModes: languages.SETTINGS_MEDIA_MODES,
+  mcp: languages.SETTINGS_MCP_SERVERS,
   permissions: languages.SETTINGS_PERMISSIONS,
   hide: languages.SETTINGS_HIDE_MESSAGES,
   advanced: languages.SETTINGS_ADVANCED,

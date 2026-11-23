@@ -86,7 +86,7 @@
 
       <template v-if="showTools">
         <SettingsBuiltinTools />
-        <SettingsMcp />
+        <SettingsChatMcp />
       </template>
 
       <template #reset-fallback>
@@ -114,7 +114,7 @@ import PresetResetButton from '@/components/PresetResetButton.vue'
 import PresetVariantPicker from '@/components/PresetVariantPicker.vue'
 import Rag from '@/components/Rag.vue'
 import SettingsBuiltinTools from '@/components/SettingsBuiltinTools.vue'
-import SettingsMcp from '@/components/SettingsMcp.vue'
+import SettingsChatMcp from '@/components/SettingsChatMcp.vue'
 import SessionFolderList from '@/components/SessionFolderList.vue'
 import SettingsRow from '@/components/SettingsRow.vue'
 import SettingsTabLayout from '@/components/SettingsTabLayout.vue'

@@ -22,9 +22,13 @@ export type WebPageSnapshot = {
   links: WebPageLink[]
   /** Text fields on the page, each with a selector the `type` interaction takes. */
   fields?: WebPageField[]
+  /** Salient visible images, filtered and capped by the read script. */
+  images?: WebPageImage[]
 }
 
 export type WebPageField = { selector: string; label: string }
+
+export type WebPageImage = { src: string; alt: string; width: number; height: number }
 
 export type WebBrowserState = {
   isOpen: boolean
@@ -59,13 +63,14 @@ const CLICK_NAV_TIMEOUT_MS = 6_000
 const MAX_TEXT_LENGTH = 8_000
 const MAX_LINKS = 50
 const MAX_FIELDS = 20
+const MAX_IMAGES = 20
 const DEFAULT_MAX_SEARCH_RESULTS = 8
 const MAX_SEARCH_RESULT_TITLE = 300
 const MAX_SEARCH_RESULT_SNIPPET = 500
 
-// Collects the page's visible text and salient links. Kept in sync with the
-// click handler so a `linkIndex` returned by `readPage` resolves to the same
-// anchor when interacting.
+// Collects the page's visible text, salient links and content images. Kept in
+// sync with the click handler so a `linkIndex` returned by `readPage` resolves
+// to the same anchor when interacting.
 const READ_SCRIPT = `(() => {
   const text = document.body && document.body.innerText ? document.body.innerText : ''
   const anchors = Array.from(document.querySelectorAll('a[href]'))
@@ -91,7 +96,21 @@ const READ_SCRIPT = `(() => {
     fields.push({ selector: '[data-aipg-field="' + fields.length + '"]', label: String(label).trim().slice(0, 100) })
     if (fields.length >= ${MAX_FIELDS}) break
   }
-  return { title: document.title, url: location.href, text, links, fields }
+  const images = []
+  const imgs = document.querySelectorAll('img')
+  for (const img of imgs) {
+    if (!img.getClientRects().length) continue
+    const rect = img.getBoundingClientRect()
+    if (rect.width < 100 || rect.height < 100) continue
+    if (!/^https?:/i.test(img.src)) continue
+    const alt = (img.alt && img.alt.trim()) ||
+      (img.getAttribute('aria-label') || '').trim() ||
+      (img.getAttribute('title') || '').trim() ||
+      '(no alt text)'
+    images.push({ src: img.src, alt: alt.slice(0, 200), width: Math.round(rect.width), height: Math.round(rect.height) })
+    if (images.length >= ${MAX_IMAGES}) break
+  }
+  return { title: document.title, url: location.href, text, links, fields, images }
 })()`
 
 let browserWin: BrowserWindow | null = null
@@ -289,6 +308,7 @@ async function readPageNow(): Promise<WebPageSnapshot> {
     text?: string
     links?: { text: string; href: string }[]
     fields?: WebPageField[]
+    images?: WebPageImage[]
   }
   currentUrl = raw.url ?? currentUrl
   currentTitle = raw.title ?? currentTitle
@@ -297,9 +317,10 @@ async function readPageNow(): Promise<WebPageSnapshot> {
     text: l.text,
     href: l.href,
   }))
+  const images: WebPageImage[] = raw.images ?? []
   const text = String(raw.text ?? '').slice(0, MAX_TEXT_LENGTH)
   emitState()
-  return { title: currentTitle, url: currentUrl, text, links, fields: raw.fields ?? [] }
+  return { title: currentTitle, url: currentUrl, text, links, fields: raw.fields ?? [], images }
 }
 
 async function navigateNow(url: string): Promise<WebPageSnapshot> {

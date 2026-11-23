@@ -1,19 +1,10 @@
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { runBrowserAction } from '../agentBrowser.ts'
-import {
-  jsonSchemaParameters,
-  sendToolImage,
-  textResult,
-  workspaceFileToDataUri,
-  type SkillSource,
-} from '../piCustomTools.ts'
+import { jsonSchemaParameters, type SkillSource } from '../piCustomTools.ts'
 import { resolvePreviewUrl } from '../piWorkspaceRuntime.ts'
 import { loadPi } from '../piRuntime.ts'
-import { appLoggerInstance } from '../../observability/logger.ts'
+import { screenshotToolResult } from './screenshotOutput.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
-
-const logger = appLoggerInstance
-const LOG_SOURCE = 'webDebugCapability'
 
 // ── web-debug capability ─────────────────────────────────────────────────────
 //
@@ -76,9 +67,10 @@ const BROWSER_DEBUGGING_SKILL: SkillSource = {
     '5. browser {"action":"eval","script":"document.title"} — run JS to inspect page state;',
     '   either an expression or statements ending in `return`. A script that throws comes back',
     '   with its own error message, so read that instead of guessing another script.',
-    '6. browser {"action":"screenshot"} — save a PNG into the workspace and get its path. It is',
-    '   shown to the user; do NOT read it back as an image, the probe already told you what is',
-    '   on the page in words.',
+    '6. browser {"action":"screenshot"} — save a PNG and get its path: the Workspace root, or',
+    '   the `generated/` folder in a game workspace. It is shown to the user — as an Artifact',
+    '   card in a Session, while a game workspace keeps its thumbnail — so do NOT read it back',
+    '   as an image; the probe already told you what is on the page in words.',
   ].join('\n'),
 }
 
@@ -97,21 +89,7 @@ async function buildBrowserTool(host: CapabilityHost): Promise<ToolDefinition[]>
         const action = params as Parameters<typeof runBrowserAction>[2]
         const url = resolvePreviewUrl(action.url)
         const result = await runBrowserAction(host.sessionId, host.workspaceDir, { ...action, url })
-        // The model gets the path (an inlined PNG would swamp its context); the
-        // user gets to see what the agent saw.
-        if (result.screenshotPath) {
-          try {
-            sendToolImage(
-              host.sessionId,
-              toolCallId,
-              workspaceFileToDataUri(host, result.screenshotPath),
-              result.screenshotPath,
-            )
-          } catch (error) {
-            logger.warn(`could not show screenshot in chat: ${error}`, LOG_SOURCE)
-          }
-        }
-        return textResult(result.text)
+        return screenshotToolResult(host, toolCallId, result)
       },
     }) as ToolDefinition,
   ]

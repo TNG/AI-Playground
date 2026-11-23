@@ -455,7 +455,14 @@ describe('Agent Session Settings', () => {
     await store.init()
     await store.newSession()
 
-    expect([...store.capabilities].sort()).toEqual(['files', 'mcp:blender', 'media', 'rag', 'web'])
+    expect([...store.capabilities].sort()).toEqual([
+      'files',
+      'mcp:blender',
+      'media',
+      'rag',
+      'web',
+      'web-screenshot',
+    ])
   })
 
   it('adopts the defaults only once', async () => {

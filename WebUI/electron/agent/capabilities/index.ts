@@ -11,6 +11,7 @@ import { notifyCapability } from './notify.ts'
 import { ragCapability } from './rag.ts'
 import { webDebugCapability } from './webDebug.ts'
 import { webCapability } from './web.ts'
+import { webScreenshotCapability } from './webScreenshot.ts'
 import type { PlanningEnd } from '../planningPhase.ts'
 import { capabilityModelGateReason } from '@/lib/modelToolUse'
 import {
@@ -47,6 +48,7 @@ const BUILT_IN_CAPABILITIES: AgentCapability[] = [
   filesCapability,
   webDebugCapability,
   webCapability,
+  webScreenshotCapability,
   mediaCapability,
   memoryCapability,
   ragCapability,

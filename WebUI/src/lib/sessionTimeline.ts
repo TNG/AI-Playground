@@ -25,6 +25,7 @@ import {
   placeholderArtifacts,
   runArtifacts,
   runFailure,
+  screenshotToolArtifacts,
   toolCallArtifacts,
   toolCallFailureRecord,
   toolCallResultFailure,
@@ -567,6 +568,8 @@ function agentPlacement(part: unknown): PartPlacement {
   if (compactionOutputOf(part)) return { details: 'compaction' }
   if (mediaToolNameOf(part)) return { details: 'generation', result: true }
   if (ttsToolArtifacts(part, []).length > 0) return { details: 'tool', result: true }
+  // A web capture is something to look at, not a step toward the answer.
+  if (screenshotToolArtifacts(part, []).length > 0) return { details: 'tool', result: true }
   return { details: 'tool' }
 }
 

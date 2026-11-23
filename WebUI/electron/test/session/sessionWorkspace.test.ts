@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const dirs = vi.hoisted(() => ({ real: '', demo: '', media: '' }))
+const dirs = vi.hoisted(() => ({ real: '', demo: '', media: '', games: '' }))
 
 vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDir: () => dirs.real,
@@ -12,6 +12,7 @@ vi.mock('../../persist/userDataPaths.ts', () => ({
   getSessionsDemoDir: () => dirs.demo,
   getLegacySessionsDemoDir: () => dirs.demo,
   getAppWorkspacesDemoDir: () => `${dirs.demo}-workspaces`,
+  getGamesDir: () => dirs.games,
 }))
 
 vi.mock('../../observability/logger', () => ({
@@ -20,7 +21,7 @@ vi.mock('../../observability/logger', () => ({
 
 const { createSession, resetSessionsForTest, setSessionDeps } =
   await import('../../session/sessions')
-const { ensureSessionWorkspace, sessionWorkspaceDir } =
+const { ensureSessionWorkspace, isInGamesLibrary, sessionWorkspaceDir, turnWorkspaceDir } =
   await import('../../session/sessionWorkspace')
 const { addSessionFolder, sessionFolderToOpen } = await import('../../session/sessionFolders')
 const { adoptMediaFile } = await import('../../session/sessionMediaTurn')
@@ -31,6 +32,7 @@ beforeAll(async () => {
   dirs.real = path.join(root, 'sessions')
   dirs.demo = path.join(root, 'sessions-demo')
   dirs.media = path.join(root, 'media')
+  dirs.games = path.join(root, 'games')
 })
 
 beforeEach(async () => {
@@ -80,5 +82,38 @@ describe("a Session's Workspace", () => {
 
     expect(await fs.readdir(workspace)).toEqual(['fox.png'])
     expect(harness.workspaceDir).toBe(workspace)
+  })
+})
+
+describe('the games library check', () => {
+  it('counts the library and any folder inside it', () => {
+    expect(isInGamesLibrary(dirs.games)).toBe(true)
+    expect(isInGamesLibrary(path.join(dirs.games, 'Star Blaster'))).toBe(true)
+    expect(isInGamesLibrary(path.join(dirs.games, 'Star Blaster', 'generated'))).toBe(true)
+  })
+
+  it('refuses a sibling, a name that only starts the same, and an ancestor', () => {
+    expect(isInGamesLibrary(`${dirs.games}-mine`)).toBe(false)
+    expect(isInGamesLibrary(path.join(`${dirs.games}-mine`, 'Star Blaster'))).toBe(false)
+    expect(isInGamesLibrary(path.dirname(dirs.games))).toBe(false)
+    expect(isInGamesLibrary(path.join(dirs.games, '..', 'media'))).toBe(false)
+  })
+
+  it('takes its root from the paths layer unless a caller names one', () => {
+    const game = path.join(dirs.games, 'Star Blaster')
+    expect(isInGamesLibrary(game)).toBe(true)
+    expect(isInGamesLibrary(game, game)).toBe(true)
+    expect(isInGamesLibrary(game, dirs.media)).toBe(false)
+  })
+})
+
+describe("a turn's Workspace followed through a rename", () => {
+  it('keeps a missing game folder as it is, but follows one outside the library', async () => {
+    const { id } = await createSession()
+    const game = path.join(dirs.games, 'Star Blaster')
+    const outside = path.join(`${dirs.games}-outside`, 'Gone')
+
+    expect(await turnWorkspaceDir(id, game)).toBe(game)
+    expect(await turnWorkspaceDir(id, outside)).toBe(await ensureSessionWorkspace(id))
   })
 })

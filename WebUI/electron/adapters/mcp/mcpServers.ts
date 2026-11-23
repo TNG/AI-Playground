@@ -1,63 +1,20 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
-import path from 'node:path'
-import { app } from 'electron'
 import { appLoggerInstance } from '../../observability/logger'
-import { writableConfigFile } from '../../kernel/userConfig.ts'
+import { getMcpConfigPath, loadMcpServers, saveMcpServers } from '../../persist/mcpConfigFile.ts'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
-type McpConfigFile = {
-  mcpServers: Record<string, McpServerConfig>
-}
-
-export function getMcpConfigPath(): string {
-  // Packaged: read/write the per-user config copy (seeded from the shared
-  // default on first use in a shared install; the resources root otherwise).
-  if (app.isPackaged) return writableConfigFile('mcp.json')
-  return path.join(path.resolve(path.join(__dirname, '../../external/')), 'mcp-dev.json')
-}
-
-export function loadMcpServers(): Record<string, McpServerConfig> {
-  const configPath = getMcpConfigPath()
-
-  if (!fs.existsSync(configPath)) {
-    throw new Error(`MCP config file not found: ${configPath}`)
-  }
-
-  const content = fs.readFileSync(configPath, 'utf-8')
-
-  let config: McpConfigFile
-  try {
-    config = JSON.parse(content) as McpConfigFile
-  } catch (error) {
-    throw new Error(
-      `Failed to parse MCP config file: ${configPath}. ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-
-  if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-    throw new Error(
-      `Invalid MCP config file: ${configPath}. Missing or invalid 'mcpServers' field.`,
-    )
-  }
-
-  appLoggerInstance.info(`Loaded MCP servers from ${configPath}`, 'mcp')
-  return config.mcpServers
-}
+export { getMcpConfigPath, loadMcpServers }
 
 export function addMcpServer(serverId: string, config: McpServerConfig): void {
-  const configPath = getMcpConfigPath()
-  // Create a new mcp.json as needed, so users don't get stuck in the UI
-  const servers = fs.existsSync(configPath) ? loadMcpServers() : {}
+  const servers = loadMcpServers()
 
   if (servers[serverId]) {
     throw new Error(`MCP server with ID "${serverId}" already exists`)
   }
 
   servers[serverId] = config
-
-  const newConfig: McpConfigFile = { mcpServers: servers }
-  fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf-8')
+  saveMcpServers(servers)
 
   appLoggerInstance.info(`Added MCP server: ${serverId}`, 'mcp')
 }
@@ -74,7 +31,6 @@ export function getMcpServerConfig(serverId: string): McpServerConfig {
 }
 
 export function updateMcpServer(serverId: string, config: McpServerConfig): void {
-  const configPath = getMcpConfigPath()
   const servers = loadMcpServers()
 
   if (!servers[serverId]) {
@@ -82,14 +38,12 @@ export function updateMcpServer(serverId: string, config: McpServerConfig): void
   }
 
   servers[serverId] = config
-
-  fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
+  saveMcpServers(servers)
 
   appLoggerInstance.info(`Updated MCP server: ${serverId}`, 'mcp')
 }
 
 export function removeMcpServer(serverId: string): void {
-  const configPath = getMcpConfigPath()
   const servers = loadMcpServers()
 
   if (!servers[serverId]) {
@@ -97,8 +51,7 @@ export function removeMcpServer(serverId: string): void {
   }
 
   delete servers[serverId]
-
-  fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
+  saveMcpServers(servers)
 
   appLoggerInstance.info(`Removed MCP server: ${serverId}`, 'mcp')
 }
@@ -149,8 +102,7 @@ export type AutoDetectChange = { id: string; action: 'added' | 'refreshed' }
 
 export function detectAndRegisterAutoMcpServers(dismissedIds: string[]): AutoDetectChange[] {
   const changes: AutoDetectChange[] = []
-  const configPath = getMcpConfigPath()
-  const servers = fs.existsSync(configPath) ? loadMcpServers() : {}
+  const servers = loadMcpServers()
 
   for (const rule of AUTO_DETECT_RULES) {
     if (dismissedIds.includes(rule.id)) continue
@@ -178,7 +130,7 @@ export function detectAndRegisterAutoMcpServers(dismissedIds: string[]): AutoDet
   }
 
   if (changes.length > 0) {
-    fs.writeFileSync(configPath, JSON.stringify({ mcpServers: servers }, null, 2), 'utf-8')
+    saveMcpServers(servers)
     for (const c of changes) {
       appLoggerInstance.info(`MCP auto-detect ${c.action}: ${c.id}`, 'mcp')
     }

@@ -3043,6 +3043,57 @@ describe('failed and cancelled artifacts on every Turn', () => {
   })
 })
 
+describe('website screenshots in the timeline', () => {
+  const shotItem = {
+    id: 'screenshot-t1',
+    type: 'image' as const,
+    imageUrl: 'aipg-media://folders/s1/f1/shot.png',
+    mode: 'imageGen' as const,
+    settings: {},
+    state: 'done' as const,
+    workspacePath: 'shot.png',
+    createdAt: 1_700_000_000_000,
+  }
+  const webShotTurn = (state: string, output?: object) => [
+    agentMessage('u1', 'user', 'show me the pricing table'),
+    {
+      id: 'a1',
+      role: 'assistant',
+      createdAt: 2,
+      metadata: { agentTurn },
+      parts: [
+        {
+          type: 'dynamic-tool',
+          toolName: 'webScreenshot',
+          toolCallId: 't1',
+          state,
+          input: { url: 'https://example.com/pricing' },
+          ...(output ? { output } : {}),
+        },
+      ],
+    },
+  ]
+  const withShot = {
+    content: [{ type: 'text', text: 'Saved screenshot to shot.png' }],
+    details: { items: [shotItem] },
+  }
+
+  it('shows a settled website capture in the Result, like generated images', () => {
+    const [turn] = sessionTimelineItems(webShotTurn('output-available', withShot), {})
+    expect(turn).toMatchObject({
+      result: [{ kind: 'artifact', messageId: 'a1', index: 0 }],
+      details: { parts: [{ kind: 'tool', messageId: 'a1', index: 0 }] },
+    })
+  })
+
+  it('keeps a website capture out of the Result while it runs or carries no media', () => {
+    const [running] = sessionTimelineItems(webShotTurn('input-available'), {})
+    expect(running).toMatchObject({ result: [] })
+    const [bare] = sessionTimelineItems(webShotTurn('output-available', { content: [] }), {})
+    expect(bare).toMatchObject({ result: [] })
+  })
+})
+
 describe('one audio card', () => {
   const clipUrl = 'aipg-media://sessions/s1/files/clip.wav'
   const ttsTurn = (audio: object) => [

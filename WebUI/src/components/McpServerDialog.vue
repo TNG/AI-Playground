@@ -40,14 +40,38 @@
         <div v-if="transport === 'stdio'" class="flex flex-col gap-2">
           <Label for="args">Args</Label>
           <Input id="args" v-model="args" placeholder="mcp-server-time" />
-          <span class="text-xs text-muted-foreground">
-            Space-separated arguments (e.g. "--port 8080 --verbose")
-          </span>
+          <span class="text-xs text-muted-foreground">{{ languages.SETTINGS_MCP_ARGS_HINT }}</span>
+        </div>
+
+        <div v-if="transport === 'stdio'" class="flex flex-col gap-2">
+          <Label for="env">{{ languages.SETTINGS_MCP_ENV_LABEL }}</Label>
+          <Textarea
+            id="env"
+            v-model="env"
+            rows="3"
+            placeholder="API_TOKEN=abc123"
+            class="font-mono text-xs"
+          />
+          <span class="text-xs text-muted-foreground">{{ languages.SETTINGS_MCP_ENV_HINT }}</span>
         </div>
 
         <div v-if="transport === 'http'" class="flex flex-col gap-2">
           <Label for="url">URL *</Label>
           <Input id="url" v-model="url" placeholder="https://example.com/mcp" />
+        </div>
+
+        <div v-if="transport === 'http'" class="flex flex-col gap-2">
+          <Label for="headers">{{ languages.SETTINGS_MCP_HEADERS_LABEL }}</Label>
+          <Textarea
+            id="headers"
+            v-model="headers"
+            rows="3"
+            placeholder="Authorization: Bearer token"
+            class="font-mono text-xs"
+          />
+          <span class="text-xs text-muted-foreground">{{
+            languages.SETTINGS_MCP_HEADERS_HINT
+          }}</span>
         </div>
 
         <div class="flex flex-col gap-2">
@@ -104,7 +128,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useMcp } from '@/assets/js/store/mcp'
+import { splitParameterString } from '@/lib/parameterString'
 import { useErrors } from '@/assets/js/store/errors'
+import { useI18N } from '@/assets/js/store/i18n'
+import { fillTemplate } from '@/lib/fillTemplate'
 import * as toast from '@/assets/js/toast'
 import type { McpServerConfig } from '@/types/mcpIpc'
 
@@ -122,23 +149,38 @@ const emits = defineEmits<{
 
 const mcp = useMcp()
 const errors = useErrors()
+const languages = useI18N().state
 
 const transport = ref<'stdio' | 'http'>('stdio')
 const displayName = ref('')
 const command = ref('')
 const args = ref('')
 const url = ref('')
+const env = ref('')
+const headers = ref('')
 const instructions = ref('')
 const errorMessage = ref('')
 const isSubmitting = ref(false)
 
+function stringifyLines(map: Record<string, string> | undefined, joiner: string): string {
+  return Object.entries(map ?? {})
+    .map(([key, value]) => `${key}${joiner}${value}`)
+    .join('\n')
+}
+
+function stringifyArgs(list: string[]): string {
+  return list.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(' ')
+}
+
 function populateFormFromConfig(config: McpServerConfig) {
   displayName.value = config.displayName ?? ''
   instructions.value = config.instructions ?? ''
+  env.value = config.type !== 'http' ? stringifyLines(config.env, '=') : ''
+  headers.value = config.type === 'http' ? stringifyLines(config.headers, ': ') : ''
   if (config.type !== 'http') {
     transport.value = 'stdio'
     command.value = config.command
-    args.value = config.args?.join(' ') ?? ''
+    args.value = stringifyArgs(config.args ?? [])
     url.value = ''
   } else {
     transport.value = 'http'
@@ -172,15 +214,34 @@ function resetForm() {
   command.value = ''
   args.value = ''
   url.value = ''
+  env.value = ''
+  headers.value = ''
   instructions.value = ''
   errorMessage.value = ''
 }
 
 function parseArgs(argsInput: string): string[] {
-  return argsInput
-    .split(' ')
-    .map((s) => s.trim())
-    .filter((s) => s)
+  return splitParameterString(argsInput)
+}
+
+function parseLines(
+  input: string,
+  separator: string,
+  invalidTemplate: string,
+): Record<string, string> | null {
+  const map: Record<string, string> = {}
+  for (const line of input.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const at = trimmed.indexOf(separator)
+    const key = at > 0 ? trimmed.slice(0, at).trim() : ''
+    if (!key) {
+      errorMessage.value = fillTemplate(invalidTemplate, { line: trimmed })
+      return null
+    }
+    map[key] = trimmed.slice(at + 1).trim()
+  }
+  return map
 }
 
 function generateUniqueId(baseName: string): string {
@@ -208,23 +269,36 @@ function getServerId(): string {
   return editServer.id
 }
 
-function buildStdioConfig(name: string, cmd: string): McpServerConfig {
+function sharedFields(name: string) {
   const trimmedInstructions = instructions.value.trim()
+  // `description` (auto-detect, hand-edit) has no editor here — preserve it.
+  const description = props.editServer?.config.description
   return {
-    command: cmd,
-    args: parseArgs(args.value),
     displayName: name,
+    ...(description !== undefined ? { description } : {}),
     ...(trimmedInstructions ? { instructions: trimmedInstructions } : {}),
   }
 }
 
-function buildHttpConfig(name: string, httpUrl: string): McpServerConfig {
-  const trimmedInstructions = instructions.value.trim()
+function buildStdioConfig(name: string, cmd: string): McpServerConfig | null {
+  const envVars = parseLines(env.value, '=', languages.SETTINGS_MCP_ENV_INVALID)
+  if (envVars === null) return null
+  return {
+    command: cmd,
+    args: parseArgs(args.value),
+    ...sharedFields(name),
+    ...(Object.keys(envVars).length > 0 ? { env: envVars } : {}),
+  }
+}
+
+function buildHttpConfig(name: string, httpUrl: string): McpServerConfig | null {
+  const headerMap = parseLines(headers.value, ':', languages.SETTINGS_MCP_HEADERS_INVALID)
+  if (headerMap === null) return null
   return {
     type: 'http',
     url: httpUrl,
-    displayName: name,
-    ...(trimmedInstructions ? { instructions: trimmedInstructions } : {}),
+    ...sharedFields(name),
+    ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
   }
 }
 
@@ -253,6 +327,7 @@ async function handleSubmit() {
   const id = getServerId()
   const config =
     transport.value === 'http' ? buildHttpConfig(name, httpUrl) : buildStdioConfig(name, cmd)
+  if (!config) return
 
   isSubmitting.value = true
 
@@ -282,8 +357,8 @@ async function handleSubmit() {
 
 async function handleAdd(id: string, config: McpServerConfig, name: string) {
   await window.electronAPI.mcp.addServer(id, config)
-  await mcp.reloadConfig()
-  toast.success(`MCP server "${name}" added`)
+  await mcp.refreshAvailableServers()
+  toast.success(fillTemplate(languages.SETTINGS_MCP_SERVER_ADDED, { name }))
   resetForm()
   emits('update:open', false)
   emits('added')
@@ -291,8 +366,8 @@ async function handleAdd(id: string, config: McpServerConfig, name: string) {
 
 async function handleUpdate(id: string, config: McpServerConfig, name: string) {
   await window.electronAPI.mcp.updateServer(id, config)
-  await mcp.reloadConfig()
-  toast.success(`MCP server "${name}" updated`)
+  await mcp.refreshAvailableServers()
+  toast.success(fillTemplate(languages.SETTINGS_MCP_SERVER_UPDATED, { name }))
   resetForm()
   emits('update:open', false)
   emits('added')
@@ -304,15 +379,15 @@ async function handleRemove() {
   isSubmitting.value = true
   try {
     await window.electronAPI.mcp.removeServer(editServer.id)
-    await mcp.reloadConfig()
-    toast.success('MCP server removed')
+    mcp.forgetServer(editServer.id)
+    toast.success(languages.SETTINGS_MCP_SERVER_REMOVED)
     emits('update:open', false)
     resetForm()
   } catch (error) {
     errors.report(error, {
       category: 'backend',
       code: 'backend/mcp-remove-failed',
-      userMessage: error instanceof Error ? error.message : 'Failed to remove server',
+      userMessage: error instanceof Error ? error.message : languages.SETTINGS_MCP_REMOVE_FAILED,
     })
   } finally {
     isSubmitting.value = false

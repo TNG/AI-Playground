@@ -122,6 +122,41 @@ describe('the web capability', () => {
     expect(text(result)).toContain('#q — Search the site')
   })
 
+  it('lists the images of a fetched page in a block that names the capture tool', async () => {
+    navigate.mockResolvedValueOnce({
+      title: 'Results',
+      url: 'https://example.com/results',
+      text: 'Quarterly results',
+      links: [],
+      images: [
+        { src: 'https://example.com/q1.png', alt: 'Revenue chart', width: 640, height: 480 },
+        { src: 'https://example.com/q2.png', alt: '(no alt text)', width: 320, height: 200 },
+      ],
+    })
+    const result = await (
+      await tools()
+    )[WEB_FETCH_TOOL].execute('t8', { url: 'https://example.com/results' })
+    const output = text(result)
+    expect(output).toContain(
+      'Images (show one to the user with webScreenshot, or use its alt text to target a capture):',
+    )
+    expect(output).toContain('- Revenue chart — https://example.com/q1.png (640x480)')
+    expect(output).toContain('- (no alt text) — https://example.com/q2.png (320x200)')
+  })
+
+  it('adds no images block to a page without images', async () => {
+    navigate.mockResolvedValueOnce({
+      title: 'Plain',
+      url: 'https://example.com/plain',
+      text: 'Just words',
+      links: [],
+    })
+    const result = await (
+      await tools()
+    )[WEB_FETCH_TOOL].execute('t9', { url: 'https://example.com/plain' })
+    expect(text(result)).not.toContain('Images')
+  })
+
   it('tells the model when a page element cannot be found', async () => {
     interact.mockRejectedValueOnce(new Error('No element matched selector: #missing'))
     const result = await (

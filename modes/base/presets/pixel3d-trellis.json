@@ -230,6 +230,7 @@
     "56": {
       "inputs": {
         "resolution_level": 9,
+        "refine_steps": 3,
         "fov_x_degrees": 0,
         "batch_size": 4,
         "force_projection": true,

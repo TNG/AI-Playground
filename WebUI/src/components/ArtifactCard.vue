@@ -40,7 +40,7 @@
       v-else-if="artifact.item.type === 'image'"
       alt="Generated result"
       class="block max-w-full object-contain rounded-lg"
-      :class="boxSize ? 'max-h-full' : 'max-h-[60vh]'"
+      :class="frame ? 'h-full w-full' : boxSize ? 'max-h-full' : 'max-h-[60vh]'"
       :src="artifact.url"
       :draggable="artifact.state === 'done'"
       @dragstart="drag"
@@ -51,7 +51,7 @@
       :src="artifact.url"
       aria-label="Generated result"
       class="block max-w-full object-contain rounded-lg"
-      :class="boxSize ? 'max-h-full' : 'max-h-[60vh]'"
+      :class="frame ? 'h-full w-full' : boxSize ? 'max-h-full' : 'max-h-[60vh]'"
       controlsList="nodownload nofullscreen noremoteplayback"
       controls
       :draggable="artifact.state === 'done'"
@@ -97,7 +97,7 @@ import {
 } from '@/lib/turnArtifacts'
 import { hasDisplayableMedia, is3D, isVideo } from '@/types/mediaItem'
 
-const props = defineProps<{ artifact: TurnArtifact }>()
+const props = defineProps<{ artifact: TurnArtifact; frame?: ArtifactSize }>()
 
 const emit = defineEmits<{ action: [action: ArtifactAction] }>()
 
@@ -129,6 +129,8 @@ function videoLoaded(event: Event) {
 
 const MAX_HEIGHT = '60vh'
 const boxSize = computed(() => {
+  // The grid's shared frame wins, so a mixed-size batch renders uniformly.
+  if (props.frame) return props.frame
   const artifact = props.artifact
   const needsBox = is3D(artifact.item) || !hasDisplayableMedia(artifact.item) || unfinished.value
   if (needsBox) return artifact.size ?? { width: 512, height: 512 }

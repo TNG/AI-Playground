@@ -16,6 +16,7 @@ import {
   artifactFrameSize,
   artifactGrid,
   artifactGridWidth,
+  sharedArtifactFrame,
   type TurnArtifact,
 } from '@/lib/turnArtifacts'
 import type { ArtifactRunOwner } from '@/types/kernelEvents'
@@ -3282,6 +3283,11 @@ describe('the grid a Result lays its artifacts out in', () => {
   it('leaves the grid uncapped when an artifact has no requested size', () => {
     expect(artifactGrid([sized(512, 512), {}], 2400).maxWidth).toBeUndefined()
   })
+
+  it('caps the grid at a shared frame even when some of its cards carry no size', () => {
+    expect(artifactGrid([sized(512, 512), {}], 2400, 768).maxWidth).toBe(2 * 768 + 12)
+    expect(artifactGrid([sized(512, 512)], 2400, 768).maxWidth).toBe(768)
+  })
 })
 
 describe('the width an artifact grid is laid out at', () => {
@@ -3334,5 +3340,41 @@ describe('the box an artifact card takes', () => {
       height: 200,
     })
     expect(artifactFrameSize(undefined, undefined)).toBeUndefined()
+  })
+})
+
+describe('the frame a whole artifact grid shares', () => {
+  const sized = (width: number, height: number) => ({ size: { width, height } })
+
+  it('is the image itself when a grid holds one', () => {
+    expect(sharedArtifactFrame([sized(512, 512)])).toEqual({ width: 512, height: 512 })
+  })
+
+  it('keeps the shared aspect of a same-shape batch, at its widest', () => {
+    expect(sharedArtifactFrame([sized(512, 512), sized(768, 768)])).toEqual({
+      width: 768,
+      height: 768,
+    })
+  })
+
+  it('picks the aspect that letterboxes the least across the batch', () => {
+    const frame = sharedArtifactFrame([sized(512, 512), sized(512, 512), sized(1024, 576)])
+    expect(frame).toEqual({ width: 1024, height: 1024 })
+  })
+
+  it('breaks a waste tie with the larger image', () => {
+    expect(sharedArtifactFrame([sized(512, 512), sized(768, 512)])).toEqual({
+      width: 768,
+      height: 512,
+    })
+  })
+
+  it('sizes unsized cards from the batch instead of dropping the frame', () => {
+    expect(sharedArtifactFrame([sized(512, 512), {}])).toEqual({ width: 512, height: 512 })
+  })
+
+  it('stays undefined when nothing reports a size', () => {
+    expect(sharedArtifactFrame([{}, {}])).toBeUndefined()
+    expect(sharedArtifactFrame([])).toBeUndefined()
   })
 })

@@ -60,7 +60,14 @@ describe('condenseMediaAgentRun', () => {
                 type: 'image',
                 imageUrl: 'aipg-media://a.png',
                 mode: 'imageGen',
-                settings: { prompt: 'a moonlit castle', preset: 'Draft Image', variant: 'Fast' },
+                settings: {
+                  prompt: 'a moonlit castle',
+                  preset: 'Draft Image',
+                  variant: 'Fast',
+                  width: 512,
+                  height: 512,
+                  bulky: 'x'.repeat(40),
+                },
               },
             ],
           },
@@ -72,7 +79,13 @@ describe('condenseMediaAgentRun', () => {
         id: '1',
         type: 'image',
         imageUrl: 'aipg-media://a.png',
-        settings: { prompt: 'a moonlit castle', preset: 'Draft Image', variant: 'Fast' },
+        settings: {
+          prompt: 'a moonlit castle',
+          preset: 'Draft Image',
+          variant: 'Fast',
+          width: 512,
+          height: 512,
+        },
       },
     ])
   })

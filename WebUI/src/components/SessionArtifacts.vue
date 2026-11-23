@@ -100,7 +100,9 @@ async function confirmDelete() {
             :aria-label="artifact.prompt || sessionTitle(artifact)"
             class="flex flex-col overflow-hidden rounded-lg border border-border bg-muted"
           >
-            <div class="flex aspect-square items-center justify-center bg-accent">
+            <div
+              class="flex aspect-square min-h-0 items-center justify-center overflow-hidden bg-accent"
+            >
               <img
                 v-if="artifact.mediaType === 'image'"
                 :src="artifact.url"

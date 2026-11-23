@@ -66,14 +66,19 @@ export async function ensureSessionWorkspace(sessionId: string): Promise<string>
   return (await ensureWorkspaceEntry(sessionId)).hostPath
 }
 
+/** Whether `dir` is the games library or a folder inside it, compared as written. */
+export function isInGamesLibrary(dir: string, root: string = getGamesDir()): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(dir))
+  return !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
 /**
  * A Session turn's working folder, followed through a rename: a folder that no longer exists,
  * outside the games library, while the ★ is app-created, is that Workspace under its old name.
  */
 export async function turnWorkspaceDir(sessionId: string, workspaceDir: string): Promise<string> {
   if (!workspaceDir || fs.existsSync(workspaceDir)) return workspaceDir
-  const inGames = path.relative(path.resolve(getGamesDir()), path.resolve(workspaceDir))
-  if (!inGames.startsWith('..') && !path.isAbsolute(inGames)) return workspaceDir
+  if (isInGamesLibrary(workspaceDir)) return workspaceDir
   if (!currentWorkspaceEntry(sessionId)?.appCreated) return workspaceDir
   return ensureSessionWorkspace(sessionId)
 }

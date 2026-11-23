@@ -263,8 +263,8 @@ export const useAgentMode = defineStore(
     const mcpServerIds = ref<string[]>([])
     /** Set once `web` has been added to a default list saved before it existed. */
     const webCapabilityAdopted = ref(false)
-    /** Set once saved defaults were replaced by the current default set; renamed when that set changes. */
-    const defaultCapabilitiesAdopted = ref(false)
+    /** Set once `web-screenshot` has been added to a default list saved before it existed. */
+    const webScreenshotCapabilityAdopted = ref(false)
 
     const { unsandboxedWorkspaces, unsandboxed, isUnsandboxed, setUnsandboxed } =
       createUnsandboxedWorkspaces(workspaceDir)
@@ -852,8 +852,8 @@ export const useAgentMode = defineStore(
     }
 
     function adoptDefaultCapabilities(): void {
-      if (defaultCapabilitiesAdopted.value) return
-      defaultCapabilitiesAdopted.value = true
+      if (webScreenshotCapabilityAdopted.value) return
+      webScreenshotCapabilityAdopted.value = true
       const adopted = (ids: string[]) => [
         ...DEFAULT_CAPABILITY_IDS,
         ...ids.filter((id) => id.startsWith(MCP_CAPABILITY_PREFIX)),
@@ -2478,7 +2478,7 @@ export const useAgentMode = defineStore(
       migrateMcpServerIds,
       adoptWebCapability,
       webCapabilityAdopted,
-      defaultCapabilitiesAdopted,
+      webScreenshotCapabilityAdopted,
       migrateSessionPresets,
       init,
       sessionsHydrated,
@@ -2564,7 +2564,7 @@ export const useAgentMode = defineStore(
       pick: [
         'mcpServerIds',
         'webCapabilityAdopted',
-        'defaultCapabilitiesAdopted',
+        'webScreenshotCapabilityAdopted',
         'defaultCapabilities',
         'unsandboxedWorkspaces',
         'planningThinkingOnly',

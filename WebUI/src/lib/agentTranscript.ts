@@ -80,6 +80,21 @@ export function generatedMediaOf(part: unknown): GeneratedMedia | undefined {
   return { items, steps }
 }
 
+/** The Artifacts a web capture result carries; a game workspace yields none. */
+const SCREENSHOT_TOOL_NAMES = new Set(['browser', 'webScreenshot'])
+
+export function screenshotMediaOf(part: unknown): AgentMediaItem[] {
+  if (shapeOf(part).state !== 'output-available') return []
+  const name = toolPartNameOf(part)
+  if (name === undefined || !SCREENSHOT_TOOL_NAMES.has(name)) return []
+  const output = shapeOf(part).output
+  const details =
+    typeof output === 'object' && output !== null
+      ? (output as { details?: { items?: unknown } }).details
+      : undefined
+  return Array.isArray(details?.items) ? details.items.filter(isFinishedMedia) : []
+}
+
 function isFinishedMedia(item: unknown): item is MediaItem {
   if (typeof item !== 'object' || item === null) return false
   const media = item as MediaItem

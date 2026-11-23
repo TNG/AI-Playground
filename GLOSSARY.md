@@ -101,6 +101,38 @@ A short templated digest of the History Entries a chat preset missed since its o
 the Session, handed to it with the next prompt. Never a model-written summary.
 _Avoid_: session summary, recap
 
+## Capabilities
+
+**Capability**:
+A named bundle of tools a Session's agent turns can use, ticked per Session in its Agent
+settings; unticking one takes its tools away from every agent turn there. A few are on by
+default for every new Session — Files and shell, Media generation, Document search, Web
+access and Website screenshots — and the rest are the user's to opt into.
+_Avoid_: skill, plugin, tool
+
+**Readable Page**:
+The text-and-list form of a web page the assistant reads: its visible text, its links, its
+fields and its images, each described in the page's own words — an image by its alt text. It
+is a page as words to read, not markup to parse.
+_Avoid_: the HTML, scrape, dump
+
+**Website Screenshot**:
+A picture of a web page, taken to show the user and kept in the Workspace as an Artifact. The
+assistant may capture any web page, or a page of the Session's own work, and nothing more
+happens on the page: it can only look. A capture takes in the whole page or a single element,
+and an element is named by quoting its visible text — an image by its alt text — the same
+words the Readable Page lists, never by a selector: the capture looks at the page on its own
+and shares no window and no page state with the web tools. The capture Web debugging makes of
+a page it is inspecting is one of its own actions, not a Website Screenshot, and a picture of
+the user's screen is a Window Screenshot.
+_Avoid_: browser screenshot, debug screenshot, page capture
+
+**Window Screenshot**:
+A picture of a window on the user's own screen, taken by Media generation to show what the
+user sees — the desktop, an app, a browser the user had open. It captures the user's machine,
+not the web; a page the assistant went to is a Website Screenshot.
+_Avoid_: screen recording, page capture, website screenshot
+
 ## Media
 
 **Media Specialist**:

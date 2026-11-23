@@ -390,6 +390,7 @@ import {
 import {
   deleteAgentDraft,
   deleteAgentTask,
+  adoptWebScreenshotInAgents,
   dropAgentMountedFolders,
   readAgentDrafts,
   readAgentTasks,
@@ -2290,6 +2291,10 @@ app.whenReady().then(async () => {
       await migrateSessionLayout()
       await dropAgentMountedFolders().catch((error) =>
         appLogger.error(`agent folder migration failed: ${String(error)}`, 'electron-backend'),
+      )
+      // After Agent Maker's, whose version mark this one builds on.
+      await adoptWebScreenshotInAgents().catch((error) =>
+        appLogger.error(`agent capability migration failed: ${String(error)}`, 'electron-backend'),
       )
     }
     // After the registry: the renderer's stores call into it as they are created.

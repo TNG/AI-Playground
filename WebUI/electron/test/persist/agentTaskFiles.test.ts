@@ -34,6 +34,7 @@ const {
   setAgentTaskFilesDeps,
   wipeDemoAgentTasks,
   dropAgentMountedFolders,
+  adoptWebScreenshotInAgents,
 } = await import('../../persist/agentTaskFiles')
 
 function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
@@ -99,7 +100,7 @@ describe('the kernel Tasks file', () => {
     await saveAgentTask(task('b'))
 
     expect(await readAgentTasks()).toEqual([task('a'), task('b')])
-    expect((await readRaw(files.real))?.schemaVersion).toBe(3)
+    expect((await readRaw(files.real))?.schemaVersion).toBe(4)
   })
 
   it('replaces a Task with the same id in place', async () => {
@@ -493,5 +494,37 @@ describe("the upgrade that drops Agents' additional folders", () => {
 
     expect(await readRaw(files.real)).toBeNull()
     expect(await readRaw(files.drafts)).toBeNull()
+  })
+})
+
+describe('the upgrade that adds Website screenshots to Agents', () => {
+  async function writeTasksFile(schemaVersion: number, tasks: AgentTask[]): Promise<void> {
+    await fs.writeFile(files.real, JSON.stringify({ schemaVersion, tasks }), 'utf8')
+  }
+
+  it("adds it to every Agent's and Draft's own tool list, once", async () => {
+    await writeTasksFile(3, [task('a'), task('b', { settingsTemplate: { model: 'Qwen-9B' } })])
+    await saveAgentDraft(draft('a'))
+
+    await adoptWebScreenshotInAgents()
+
+    const [a, b] = await readAgentTasks()
+    expect(a.settingsTemplate.capabilities).toEqual(['files', 'web-screenshot'])
+    expect(b.settingsTemplate.capabilities).toBeUndefined()
+    expect((await readAgentDrafts())[0].settingsTemplate.capabilities).toEqual([
+      'files',
+      'web-screenshot',
+    ])
+    expect((await readRaw(files.real))?.schemaVersion).toBe(4)
+  })
+
+  it('leaves an Agent the user took it off afterwards without it', async () => {
+    await writeTasksFile(3, [task('a')])
+    await adoptWebScreenshotInAgents()
+    await saveAgentTask(task('a'))
+
+    await adoptWebScreenshotInAgents()
+
+    expect((await readAgentTasks())[0].settingsTemplate.capabilities).toEqual(['files'])
   })
 })

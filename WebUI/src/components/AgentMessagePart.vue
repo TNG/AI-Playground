@@ -54,16 +54,24 @@
     </template>
   </div>
   <div v-else-if="isToolUIPart(part)" class="flex flex-col gap-1">
-    <ChatToolDisplay :part="toolPart" :state="toolPart.state" :input="toolPart.input" />
+    <ChatToolDisplay
+      v-if="section !== 'result'"
+      :part="toolPart"
+      :state="toolPart.state"
+      :input="toolPart.input"
+    />
     <!-- Live output while the tool is still running (Pi streams partial results,
          e.g. a long-running bash command). -->
     <pre
       v-if="toolProgressText"
       class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
       >{{ toolProgressText }}</pre>
-    <!-- What the tool saw: a browser screenshot never reaches the model as
-         pixels, so this is the only place it is visible. -->
-    <figure v-for="image in toolImages" :key="image.dataUri" class="flex flex-col gap-1">
+    <!-- The screenshot never reaches the model as pixels, so this is where it is shown. -->
+    <ChatWorkflowResult
+      v-if="section !== 'details' && screenshotArtifacts.length > 0"
+      :artifacts="screenshotArtifacts"
+    />
+    <figure v-for="image in bareToolImages" :key="image.dataUri" class="flex flex-col gap-1">
       <img
         :src="image.dataUri"
         :alt="`Screenshot: ${image.label}`"
@@ -92,13 +100,17 @@ import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
-import { toolCallArtifacts, toolCallResultFailure } from '@/lib/turnArtifacts'
+import {
+  toolCallArtifacts,
+  screenshotToolArtifacts,
+  toolCallResultFailure,
+} from '@/lib/turnArtifacts'
 import { reasoningTimingOf } from '@/lib/reasoningTimings'
 import { ArchiveBoxArrowDownIcon } from '@heroicons/vue/24/outline'
 
 // One part of an assistant message in Agent Mode: text, a reasoning block, a
 // compaction notice, or a tool call — with whatever the call produced under it
-// (streamed output, browser screenshots, generated media).
+// (streamed output, web screenshots, generated media).
 
 const props = defineProps<{
   part: UIMessagePart<UIDataTypes, UITools>
@@ -141,6 +153,14 @@ function streamedArgument(input: unknown): string | undefined {
 
 const toolImages = computed<AgentToolImage[]>(
   () => agentMode.toolImages[toolPart.value.toolCallId] ?? [],
+)
+
+const screenshotArtifacts = computed(() =>
+  screenshotToolArtifacts(props.part, sessions.openDeletedFiles),
+)
+
+const bareToolImages = computed(() =>
+  screenshotArtifacts.value.length > 0 ? [] : toolImages.value,
 )
 
 const compaction = computed(() => compactionOutputOf(props.part))

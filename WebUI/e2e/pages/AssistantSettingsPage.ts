@@ -6,16 +6,18 @@ export type AssistantCapability =
   | 'Media generation'
   | 'Document search'
   | 'Web access'
+  | 'Website screenshots'
   | 'Files and shell'
   | 'Persistent memory'
   | 'Channel notifications'
   | 'Web debugging'
 
-/** What Assistant ships with switched on (DEFAULT_CAPABILITY_IDS: media, rag, web). */
+/** What Assistant ships with switched on (DEFAULT_CAPABILITY_IDS). */
 export const ASSISTANT_DEFAULT_CAPABILITIES: readonly AssistantCapability[] = [
   'Media generation',
   'Document search',
   'Web access',
+  'Website screenshots',
 ]
 
 const ALL_CAPABILITIES: readonly AssistantCapability[] = [

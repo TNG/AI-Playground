@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { ensureSessionWorkspace } from './sessionWorkspace'
+import { ensureSessionWorkspace, isInGamesLibrary } from './sessionWorkspace'
 import { getGamesDir } from '../persist/userDataPaths'
 import { listSessionFolders, readSessionFile } from '../persist/sessionFiles'
 import { mutateSession, onSessionDeleted } from './sessions'
@@ -12,8 +12,8 @@ export function mintHarnessSessionId(): string {
 
 function requireGameFolder(dir: string): string {
   const resolved = path.resolve(dir)
-  const inLibrary = path.relative(path.resolve(getGamesDir()), resolved)
-  if (!inLibrary || inLibrary.startsWith('..') || path.isAbsolute(inLibrary)) {
+  const root = path.resolve(getGamesDir())
+  if (!isInGamesLibrary(resolved, root) || resolved === root) {
     throw new Error(`not a game folder in the games library: ${dir}`)
   }
   return resolved

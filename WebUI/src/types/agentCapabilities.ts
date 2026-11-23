@@ -1,5 +1,6 @@
 export const WEB_CAPABILITY_ID = 'web'
 export const NOTIFY_CAPABILITY_ID = 'notify'
+export const WEB_SCREENSHOT_CAPABILITY_ID = 'web-screenshot'
 /** The file and shell builtins of a preset that owns its prompt; other presets always have them. */
 export const FILES_CAPABILITY_ID = 'files'
 
@@ -9,6 +10,7 @@ export const DEFAULT_CAPABILITY_IDS = [
   'media',
   'rag',
   WEB_CAPABILITY_ID,
+  WEB_SCREENSHOT_CAPABILITY_ID,
 ] as const
 
 /** What a new Agent's Settings Template starts with: everything, file and shell included. */
@@ -17,6 +19,7 @@ export const AGENT_TEMPLATE_CAPABILITY_IDS = [
   'media',
   'rag',
   WEB_CAPABILITY_ID,
+  WEB_SCREENSHOT_CAPABILITY_ID,
   'web-debug',
   'memory',
   NOTIFY_CAPABILITY_ID,

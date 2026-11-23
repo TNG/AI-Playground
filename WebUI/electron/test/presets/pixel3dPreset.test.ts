@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ComfyUiPresetSchema } from '@/lib/presetSchemas'
+import { applyVariant, ComfyUiPresetSchema } from '@/lib/presetSchemas'
 import { requiredModelToComfyUIName } from '@/lib/comfyWorkflow'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -47,5 +47,21 @@ describe('Pixel3D-Trellis preset', () => {
     for (const { model } of preset.requiredModels ?? []) {
       expect(loaderNames, model).toContain(requiredModelToComfyUIName(model))
     }
+  })
+
+  // Agent tools pick a variant named "Fast" when none is asked for, so this is
+  // the model a game gets: small enough to embed in a page and load quickly.
+  it('offers a game-ready Fast variant beside the full-quality default', () => {
+    const defaultOf = (p: typeof preset, label: string) =>
+      p.settings.find((setting) => setting.label === label)?.defaultValue
+
+    const fast = applyVariant(preset, 'Fast') as typeof preset
+    expect(defaultOf(fast, 'Texture Resolution')).toBe(1024)
+    expect(defaultOf(fast, 'Target Face Count')).toBe(50000)
+    expect(fast.comfyUiApiWorkflow['224'].inputs?.resolution).toBe(1024)
+
+    const full = applyVariant(preset, 'Default') as typeof preset
+    expect(defaultOf(full, 'Texture Resolution')).toBe(4096)
+    expect(full.comfyUiApiWorkflow['224'].inputs?.resolution).toBe(2048)
   })
 })

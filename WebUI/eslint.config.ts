@@ -27,6 +27,7 @@ export default defineConfigWithVueTs(
       '**/dist-ssr/**',
       '**/coverage/**',
       '**/*.cjs',
+      'external/game-libs/**',
       // Playwright-generated output (traces, HTML report + bundled trace viewer,
       // per-run artifacts). Regenerated on every e2e run and never hand-edited.
       '**/test-results/**',

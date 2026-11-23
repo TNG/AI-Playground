@@ -1164,6 +1164,17 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   injected script never reaches the shipped game. This replaced screenshot-then-look, which cost
   an image decode per check and preceded every `ErrorDeviceLost` crash in the 35B benchmark runs;
   the skills now say outright not to read a screenshot back as an image.
+- **3D games run on a bundled three.js, loaded as classic scripts.** Play is `file://`, so
+  neither three.js's ES modules nor `GLTFLoader` fetching a `.glb` would work there.
+  `external/game-libs/three-game.js` is three.js + `GLTFLoader` + `RoomEnvironment` as one IIFE
+  (generated — rerun `npm run build:game-three` after bumping `three`), with three helpers:
+  `THREE.loadGameModel(name)`, `THREE.addGameEnvironment(renderer, scene)` (generated models
+  have metallic PBR materials that render black without an environment map) and
+  `THREE.fitGameModel(object, size)`. The `game` tool's `add_threejs` copies it to
+  `lib/three-game.js`; `import_model` also writes a generated `.glb` as `models/<name>.js`
+  (base64 into `window.GAME_MODELS`). Models come from Pixel3D-Trellis's `Fast` ("Game-ready")
+  variant — 1024 textures, 50k faces — which agent tools pick when no variant is named. The probe
+  reads a WebGL canvas only when the renderer has `preserveDrawingBuffer: true`.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
   following the `html-game-studio` skill (which asks for `set_metadata` _first_ — all three 35B
   benchmark runs ran out of turns before naming their game); **Add to Arcade** in the game bar

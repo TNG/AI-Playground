@@ -93,8 +93,15 @@ export const PROBE_SCRIPT = `(function () {
     var context
     try {
       // Only a type check: a canvas driven by WebGL answers null here, and its
-      // pixels are gone by the time anything could copy them.
+      // pixels are gone by the time anything could copy them — unless the
+      // renderer was created with preserveDrawingBuffer.
       context = canvas.getContext('2d')
+      if (!context) {
+        var gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+        var attributes = gl && gl.getContextAttributes()
+        if (!attributes || !attributes.preserveDrawingBuffer) return null
+        context = gl
+      }
     } catch (error) {
       return null
     }
@@ -328,7 +335,9 @@ export function formatProbeReport(report: ProbeReport): string {
     lines.push(
       `Canvas: ${canvas.width}x${canvas.height}` +
         (canvas.count > 1 ? ` (${canvas.count} on the page)` : '') +
-        (ink === null ? ', pixels unreadable (WebGL?)' : `, ${percent(ink)} of pixels drawn on`),
+        (ink === null
+          ? ', pixels unreadable (WebGL? create the renderer with preserveDrawingBuffer: true)'
+          : `, ${percent(ink)} of pixels drawn on`),
     )
   }
 

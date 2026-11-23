@@ -13,6 +13,22 @@
   "requiredCustomNodes": [],
   "requiredPythonPackages": [],
   "requiredComfyUiParameters": ["--use-quad-cross-attention"],
+  "variants": [
+    { "name": "Default", "overrides": {} },
+    {
+      "name": "Fast",
+      "displayName": "Game-ready",
+      "overrides": {
+        "settings": [
+          { "label": "Texture Resolution", "defaultValue": 1024 },
+          { "label": "Target Face Count", "defaultValue": 50000 }
+        ],
+        "comfyUiApiWorkflow": {
+          "224": { "inputs": { "resolution": 1024 } }
+        }
+      }
+    }
+  ],
   "requiredModels": [
     {
       "type": "diffusion_models",

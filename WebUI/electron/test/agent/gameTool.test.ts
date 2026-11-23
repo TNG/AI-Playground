@@ -196,3 +196,77 @@ describe('game tool', () => {
     }
   })
 })
+
+// 3D games load three.js and generated models as classic scripts, because a game
+// is played as a file:// page where ES modules and fetch() of a .glb are blocked.
+describe('game tool, 3D models', () => {
+  const GLB = Buffer.from('glTF\x02\x00\x00\x00 not really a model', 'binary')
+
+  function writeModel(relativePath: string): void {
+    const file = path.join(workspaceDir, relativePath)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, GLB)
+  }
+
+  it('copies three.js into the game for a 3D scene', async () => {
+    const tool = await gameToolFor(workspaceDir)
+    const result = textOf(await tool.execute('call-1', { action: 'add_threejs' }))
+    expect(result).toContain('<script src="lib/three-game.js"></script>')
+    expect(fs.readFileSync(path.join(workspaceDir, 'lib/three-game.js'), 'utf-8')).toMatch(
+      /^\/\* three\.js r\d+ with GLTFLoader/,
+    )
+  })
+
+  it('embeds a generated model as a classic script the game can load', async () => {
+    writeModel('generated/AIPG_3D_00001_.glb')
+    noteGeneratedMedia(workspaceDir, ['generated/AIPG_3D_00001_.glb'])
+    const tool = await gameToolFor(workspaceDir)
+
+    const result = textOf(
+      await tool.execute('call-1', {
+        action: 'import_model',
+        path: 'generated/AIPG_3D_00001_.glb',
+        modelName: 'enemy',
+      }),
+    )
+
+    expect(result).toContain('<script src="models/enemy.js"></script>')
+    expect(result).toContain("THREE.loadGameModel('enemy')")
+    expect(fs.existsSync(path.join(workspaceDir, 'lib/three-game.js'))).toBe(true)
+    const script = fs.readFileSync(path.join(workspaceDir, 'models/enemy.js'), 'utf-8')
+    const models: Record<string, string> = {}
+    new Function('window', script)({ GAME_MODELS: models })
+    expect(Buffer.from(models.enemy, 'base64').equals(GLB)).toBe(true)
+  })
+
+  it('refuses a model no media call produced', async () => {
+    writeModel('generated/made-up.glb')
+    const tool = await gameToolFor(workspaceDir)
+    const result = textOf(
+      await tool.execute('call-1', {
+        action: 'import_model',
+        path: 'generated/made-up.glb',
+        modelName: 'enemy',
+      }),
+    )
+    expect(result).toMatch(/not a model this session produced/)
+    expect(fs.existsSync(path.join(workspaceDir, 'models/enemy.js'))).toBe(false)
+  })
+
+  it('says what is wrong with a bad name or file instead of throwing', async () => {
+    writeModel('attachments/ship.glb')
+    fs.writeFileSync(path.join(workspaceDir, 'attachments/ship.png'), 'png')
+    const tool = await gameToolFor(workspaceDir)
+    const run = async (params: Record<string, unknown>) =>
+      textOf(await tool.execute('call-1', { action: 'import_model', ...params }))
+
+    expect(await run({ path: 'attachments/ship.glb' })).toMatch(/modelName/)
+    expect(await run({ path: 'attachments/ship.glb', modelName: 'Big Ship' })).toMatch(
+      /cannot be a model name/,
+    )
+    expect(await run({ path: 'attachments/ship.png', modelName: 'ship' })).toMatch(/not a \.glb/)
+    expect(await run({ path: 'attachments/ship.glb', modelName: 'ship' })).toContain(
+      'models/ship.js',
+    )
+  })
+})

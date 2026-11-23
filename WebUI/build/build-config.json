@@ -88,6 +88,10 @@
       "to": "arcade-samples"
     },
     {
+      "from": "external/game-libs",
+      "to": "game-libs"
+    },
+    {
       "from": "build/settings.json",
       "to": "settings.json"
     },

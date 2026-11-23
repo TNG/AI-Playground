@@ -8,6 +8,12 @@ import {
 } from '../piCustomTools.ts'
 import { loadPi } from '../piRuntime.ts'
 import { readGame, setGameIcon, updateGame } from '../games/gameLibrary.ts'
+import {
+  ensureThreeLib,
+  importGameModel,
+  THREE_LIB_PATH,
+  type ImportedModel,
+} from '../games/gameModels.ts'
 import { isGeneratedMedia, normalizeWorkspacePath } from '../generatedMedia.ts'
 import { mediaToolNames } from './media.ts'
 import type { AgentCapability, CapabilityHost } from './types.ts'
@@ -43,7 +49,7 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
     name: 'html-game-studio',
     description:
       'Turn the running scaffold in this workspace into a playable browser game (arcade, puzzle, ' +
-      'platformer) with generated art, play-testing it as you go.',
+      'platformer, 2D or 3D) with generated sprites and 3D models, play-testing it as you go.',
     body: [
       'The workspace already holds a game that runs:',
       '',
@@ -85,7 +91,7 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '   - **Entities** — each one and the state it needs (player: x, y, vx, vy, angle; …).',
       '   - **Build order** — a `- [ ]` checklist, one line per `// === section ===` edit, in the',
       '     order you will make them.',
-      '   - **Art** — the sprites to generate at the end, one line each.',
+      '   - **Art** — the sprites and 3D models to generate at the end, one line each.',
       '   Then edit that checklist as you go: tick items off, add what you discover. It is the only',
       '   memory you keep between steps, so a stale checklist is a lost plan.',
       '3. Name it now, not at the end:',
@@ -109,15 +115,50 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '   they brought is the art they want (`<img src="attachments/ship.png">`). Generate the',
       `   rest with ${MEDIA_TOOL} — one call describing every sprite you need, since media calls`,
       '   are served one at a time — and then use the workspace-relative paths that call reports',
-      '   under "savedFiles". Ask for sprites on a plain background;',
-      '   nothing here removes a background for you. Load images before the first frame and keep',
-      '   the placeholder shape as a fallback, so a missing asset degrades instead of throwing.',
+      '   under "savedFiles". Ask for sprites on a plain background, and when the tool lists a',
+      '   Remove Background workflow, pass each sprite through it for a transparent PNG. Load',
+      '   images before the first frame and keep the placeholder shape as a fallback, so a',
+      '   missing asset degrades instead of throwing.',
       '8. Polish only then: score, sound (WebAudio, generated in code — no audio files), a',
       '   difficulty ramp, a title and game-over screen.',
       '9. Finish: a clean probe verdict, one `browser {"action":"screenshot"}` so the user can see',
       `   it, a square cover image — generate it with ${MEDIA_TOOL}, then pass a path from that`,
       '   result to `game {"action":"set_icon","path":"<the path it reported>"}` — and a sentence',
       '   telling the user the game is ready to play and can be saved to their library.',
+      '',
+      '## 3D games',
+      '',
+      'When the user asks for a 3D game, or for a 3D character, enemy or prop, render the game with',
+      'three.js and make a generated 3D model its centrepiece. Generated images still fit next to it:',
+      'sprites for towers or pickups, textures for the ground, a background, the cover.',
+      '',
+      '- Setup: `game {"action":"add_threejs"}`, then `<script src="lib/three-game.js"></script>` in',
+      '  `index.html` before `game.js`. It defines the global `THREE` (current three.js, with',
+      '  `GLTFLoader` and the helpers below).',
+      "- Draw into the scaffold's canvas through WebGL: in the `state` section, replace",
+      "  `const ctx = canvas.getContext('2d')` with",
+      '  `new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true })`. A canvas',
+      '  keeps the first kind of context it was asked for, so a leftover 2D context makes WebGL fail',
+      '  ("existing context of a different type"), and `preserveDrawingBuffer` is what lets the probe',
+      '  see the frame. Keep `update(dt)` and the loop; `draw()` becomes `renderer.render(scene,',
+      '  camera)`, and a resize calls `renderer.setSize` and updates the camera aspect. Score, lives',
+      '  and buttons go in HTML over the canvas, since there is no 2D context to draw text with.',
+      '- Play-test the mechanic with placeholder meshes — a box per enemy — before any model exists.',
+      `- The model comes once the game plays: concept art first, with ${MEDIA_TOOL} — one object,`,
+      '  whole and centred, in a three-quarter view on a plain light background, with no ground,',
+      '  shadow or text. Then the image-to-3D workflow the tool lists (for example Pixel3D-Trellis),',
+      '  with that image as the source: no prompt needed, the game-ready variant is chosen for you,',
+      '  and it takes several minutes. Then',
+      '  `game {"action":"import_model","path":"<the .glb from savedFiles>","modelName":"enemy"}`,',
+      '  and follow the loading code it answers with. Swap the placeholder for the model when',
+      '  `THREE.loadGameModel` resolves, clone it for every instance, and keep the box if it fails.',
+      '- One or two models per game: every conversion holds the GPU for minutes.',
+      '- Call `THREE.addGameEnvironment(renderer, scene)` once, next to a `DirectionalLight`: a',
+      '  generated model has metallic materials that render black under lights alone. Size it with',
+      '  `THREE.fitGameModel(model, size)` — its largest side becomes `size`, standing on y = 0 —',
+      '  instead of guessing its units.',
+      '- Keep `window.__game` on the game state (wave, lives, enemies alive): the probe can see that',
+      '  pixels changed, but only your hook says whether the game is being played.',
       '',
       '## Rules of this workspace',
       '',
@@ -127,6 +168,7 @@ function gameStudioSkill(mediaTools: string[]): SkillSource {
       '  did match. To amend something you just wrote, read it back and send a new call.',
       '- Plain HTML, CSS and JavaScript. No build step, no package manager, no CDN: the preview',
       '  server has no internet, so a script tag pointing at a CDN leaves you with a blank page.',
+      '  The one library on offer is three.js, which the `game` tool copies into the folder.',
       '- Classic scripts only — no `type="module"`, and no `fetch()` of a local file. The finished',
       '  game is opened as a `file://` page, where both are blocked: they would work in your',
       '  preview and break the moment the user hits Play.',
@@ -160,10 +202,12 @@ const GAME_INPUT_SCHEMA: Record<string, unknown> = {
   properties: {
     action: {
       type: 'string',
-      enum: ['set_metadata', 'set_icon', 'get'],
+      enum: ['set_metadata', 'set_icon', 'add_threejs', 'import_model', 'get'],
       description:
         'set_metadata: set the title and/or description shown in the library; ' +
-        'set_icon: use a generated image as the cover; get: read the current card.',
+        'set_icon: use a generated image as the cover; add_threejs: copy three.js into the ' +
+        'game for a 3D scene; import_model: make a generated .glb loadable by the game (adds ' +
+        'three.js too); get: read the current card.',
     },
     name: { type: 'string', description: 'Title of the game (action=set_metadata).' },
     description: {
@@ -173,18 +217,26 @@ const GAME_INPUT_SCHEMA: Record<string, unknown> = {
     path: {
       type: 'string',
       description:
-        'Workspace-relative image to use as the cover (action=set_icon): a path a media call ' +
-        'reported under "savedFiles", or a file the user attached under "attachments/".',
+        'Workspace-relative file: the image to use as the cover (action=set_icon) or the .glb ' +
+        'model to import (action=import_model). A path a media call reported under ' +
+        '"savedFiles", or a file the user attached under "attachments/".',
+    },
+    modelName: {
+      type: 'string',
+      description:
+        'What the game calls the model, e.g. "enemy" (action=import_model): lowercase letters, ' +
+        'digits, - and _. The game loads it with THREE.loadGameModel("<modelName>").',
     },
   },
   required: ['action'],
 }
 
 type GameToolParams = {
-  action: 'set_metadata' | 'set_icon' | 'get'
+  action: 'set_metadata' | 'set_icon' | 'add_threejs' | 'import_model' | 'get'
   name?: string
   description?: string
   path?: string
+  modelName?: string
 }
 
 /**
@@ -209,6 +261,31 @@ function coverRefusal(host: CapabilityHost, iconPath: string): string | undefine
   )
 }
 
+/** Why this model cannot be imported, or nothing — the same test as a cover. */
+function modelRefusal(host: CapabilityHost, modelPath: string): string | undefined {
+  const normalized = normalizeWorkspacePath(modelPath)
+  if (normalized.startsWith('attachments/')) return undefined
+  if (isGeneratedMedia(host.workspaceDir, normalized)) return undefined
+  return (
+    `'${modelPath}' is not a model this session produced. Convert concept art to 3D with the ` +
+    'image-to-3D workflow of the media tool and pass the .glb path from its "savedFiles".'
+  )
+}
+
+function importedModelText(imported: ImportedModel): string {
+  const megabytes = (imported.bytes / 1048576).toFixed(1)
+  return [
+    `Imported '${imported.name}' (${megabytes} MB) as ${imported.modelScriptPath}; three.js is at ${imported.libPath}.`,
+    'Load both with plain script tags before your game code, three.js first:',
+    `  <script src="${imported.libPath}"></script>`,
+    `  <script src="${imported.modelScriptPath}"></script>`,
+    `Then THREE.loadGameModel('${imported.name}') resolves to the parsed glTF. Add gltf.scene to`,
+    'your scene after THREE.fitGameModel(gltf.scene, size), which scales its largest side to',
+    'size and stands it on y = 0, and use gltf.scene.clone() for every further copy. Call',
+    'THREE.addGameEnvironment(renderer, scene) once, or its metallic materials render black.',
+  ].join('\n')
+}
+
 async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
   const pi = await loadPi()
   return [
@@ -217,10 +294,11 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
       label: 'game',
       description:
         "Describe the game in this workspace for the user's game library: its title, a " +
-        'one-sentence description, and a cover image you generated. Call it once the game runs.',
+        'one-sentence description, and a cover image you generated. Also imports a generated ' +
+        '3D model (.glb) so the game can load it with three.js.',
       parameters: jsonSchemaParameters(GAME_INPUT_SCHEMA),
       execute: async (_toolCallId, params) => {
-        const { action, name, description, path: iconPath } = params as GameToolParams
+        const { action, name, description, path: iconPath, modelName } = params as GameToolParams
         // The workspace IS the game folder for the Game Agent preset. Any other
         // workspace has no card to write, and saying so is more useful than a
         // filesystem error.
@@ -248,6 +326,33 @@ async function buildGameTool(host: CapabilityHost): Promise<ToolDefinition[]> {
             try {
               const game = setGameIcon(host.workspaceDir, iconPath)
               return textResult(`Cover image set to ${game.icon}.`)
+            } catch (error) {
+              return textResult(error instanceof Error ? error.message : String(error))
+            }
+          }
+          case 'add_threejs': {
+            try {
+              ensureThreeLib(host.workspaceDir)
+            } catch (error) {
+              return textResult(error instanceof Error ? error.message : String(error))
+            }
+            return textResult(
+              `three.js is at ${THREE_LIB_PATH}. Load it with ` +
+                `<script src="${THREE_LIB_PATH}"></script> before your game code; it defines the ` +
+                'global THREE, including THREE.GLTFLoader, THREE.addGameEnvironment and ' +
+                'THREE.fitGameModel.',
+            )
+          }
+          case 'import_model': {
+            if (!iconPath || !modelName) {
+              return textResult('Provide the path of the .glb and a modelName for the game.')
+            }
+            const refusal = modelRefusal(host, iconPath)
+            if (refusal) return textResult(refusal)
+            try {
+              return textResult(
+                importedModelText(importGameModel(host.workspaceDir, iconPath, modelName)),
+              )
             } catch (error) {
               return textResult(error instanceof Error ? error.message : String(error))
             }

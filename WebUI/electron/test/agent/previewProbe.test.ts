@@ -123,12 +123,54 @@ describe('formatProbeReport', () => {
   it('says when keys reached the game and changed nothing', () => {
     const text = formatProbeReport({
       ...HEALTHY,
+      listeners: ['keydown', 'keyup'],
       game: { state: 'title', score: 0 },
       keys: [{ key: ' ', delta: 0, handled: 2, game: { state: 'title', score: 0 } }],
     })
     expect(text).toContain("Pressed Space: 0.0% of pixels changed; the page's key listeners ran 2×")
     expect(text).toMatch(/Verdict: Space reached the game's key listeners and changed nothing/)
     expect(text).toContain('if they should do something in state=title')
+  })
+
+  // A tower defence's Start button was wired by a <script> inside innerHTML,
+  // which never runs; the agent started the game from eval and never noticed.
+  it('calls out a Start button that does nothing', () => {
+    const title = { state: 'title', score: 0 }
+    const text = formatProbeReport({
+      ...HEALTHY,
+      game: title,
+      keys: [{ key: ' ', delta: 0, handled: 1, game: title }],
+      click: { label: 'Start Game', delta: 0, game: title },
+    })
+    expect(text).toContain('Clicked "Start Game": nothing changed')
+    expect(text).toMatch(
+      /Verdict: the "Start Game" button does nothing when clicked \(state stays title\)/,
+    )
+  })
+
+  it('reports what a working Start button changed', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      game: { state: 'title', score: 0 },
+      keys: [{ key: ' ', delta: 0, handled: 1, game: { state: 'title', score: 0 } }],
+      click: { label: 'Start Game', delta: 0.4, game: { state: 'playing', score: 0 } },
+    })
+    expect(text).toContain(
+      'Clicked "Start Game": 40.0% of pixels changed; game hook state title→playing',
+    )
+    expect(text).toContain('Game hook: state=playing score=0')
+    expect(text).toContain('Verdict: running, drawing and listening for input.')
+  })
+
+  it('does not fault a pointer game for ignoring keys', () => {
+    const text = formatProbeReport({
+      ...HEALTHY,
+      listeners: ['keydown', 'pointerdown'],
+      game: { state: 'playing', score: 0 },
+      keys: [{ key: ' ', delta: 0, handled: 1, game: { state: 'playing', score: 0 } }],
+    })
+    expect(text).toMatch(/Verdict: running and drawing\. Space reached the key listeners/)
+    expect(text).toContain('fine if the game is played with the pointer there')
   })
 
   it('does not call keys ignored when one of them did something', () => {

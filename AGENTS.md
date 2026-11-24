@@ -1189,7 +1189,10 @@ on Windows, `~/AI-Playground/games` elsewhere — and every game folder holds it
   (a tower-defence run's enemies were invisible from `Math.sin(undefined)` while the canvas read
   68% drawn; a lane runner lost its ground when a config rewrite dropped `arena`). It also
   counts calls into the page's key listeners per press, so "delivered and ignored" no longer reads
-  as "the probe cannot press keys".
+  as "the probe cannot press keys", and when the keys leave a non-`playing` state unchanged it
+  clicks the first visible button — a tower defence shipped a Start button wired by a `<script>`
+  inside `innerHTML` (which never runs), unnoticed because the agent only ever started it from
+  `eval`.
 - The agent fills the library card itself with the `game` tool (`set_metadata`, `set_icon`),
   following the `html-game-studio` skill (which asks for `set_metadata` _first_ — all three 35B
   benchmark runs ran out of turns before naming their game); **Add to Arcade** in the game bar

@@ -227,6 +227,19 @@ export const PROBE_SCRIPT = `(function () {
     return found ? out : null
   }
 
+  function visibleButton() {
+    var all = document.querySelectorAll('button, [role="button"]')
+    for (var i = 0; i < all.length; i++) {
+      var element = all[i]
+      if (element.disabled) continue
+      var rect = element.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden') {
+        return element
+      }
+    }
+    return null
+  }
+
   function hasNaNVertex(geometry) {
     var position = geometry && geometry.attributes && geometry.attributes.position
     if (!position || !position.array) return false
@@ -315,6 +328,22 @@ export const PROBE_SCRIPT = `(function () {
         handled: keyCalls - callsBefore,
       })
     }
+    // A title screen the keys did not get past is usually waiting for its Start
+    // button, which agents only ever "press" from eval: click it like a player.
+    var lastGame = report.keys.length > 0 ? report.keys[report.keys.length - 1].game : report.game
+    var stuck =
+      report.game && lastGame && lastGame.state === report.game.state && lastGame.state !== 'playing'
+    var button = stuck ? visibleButton() : null
+    if (button) {
+      var beforeClick = samplePixels(canvas)
+      button.click()
+      await wait(${KEY_HOLD_MS})
+      report.click = {
+        label: (button.textContent || button.getAttribute('aria-label') || 'button').trim().slice(0, 40),
+        delta: pixelDelta(beforeClick, samplePixels(canvas)),
+        game: readGameHook(),
+      }
+    }
     report.scene = inspectScene()
     report.errorCount = errors.length
     report.errors = errors.slice(0, 5)
@@ -348,6 +377,12 @@ export type ProbeReport = {
     handled?: number
   }[]
   game?: Record<string, string | number | boolean> | null
+  /** The visible button clicked when the keys left a non-playing state unchanged. */
+  click?: {
+    label: string
+    delta: number | null
+    game?: Record<string, string | number | boolean> | null
+  } | null
   /** The three.js scene last rendered, read after the key presses. */
   scene?: { objects: number; broken: number; inView: number } | null
   errors?: string[]
@@ -449,6 +484,20 @@ export function formatProbeReport(report: ProbeReport): string {
     )
   }
 
+  const click = report.click
+  if (click) {
+    const changed = gameChanges(previousGame, click.game ?? null)
+    lines.push(
+      clickChangedNothing(report)
+        ? `Clicked "${click.label}": nothing changed`
+        : `Clicked "${click.label}": ` +
+            (click.delta === null
+              ? 'pixels not compared'
+              : `${percent(click.delta)} of pixels changed`) +
+            (changed ? `; game hook ${changed}` : ''),
+    )
+  }
+
   const scene = report.scene
   if (scene) {
     lines.push(
@@ -473,10 +522,20 @@ export function formatProbeReport(report: ProbeReport): string {
   return lines.join('\n')
 }
 
-/** The hook as the last key press left it, which is what the game is now. */
+/** The hook as the last key press or click left it, which is what the game is now. */
 function latestGame(report: ProbeReport): Record<string, string | number | boolean> | null {
+  if (report.click?.game) return report.click.game
   const pressed = (report.keys ?? []).filter((key) => key.game)
   return pressed.length > 0 ? (pressed[pressed.length - 1].game ?? null) : (report.game ?? null)
+}
+
+/** The probe clicked a button and neither the picture nor the hook moved. */
+function clickChangedNothing(report: ProbeReport): boolean {
+  const click = report.click
+  if (!click || click.delta === null || click.delta >= STILL) return false
+  const pressed = (report.keys ?? []).filter((key) => key.game)
+  const before = pressed.length > 0 ? pressed[pressed.length - 1].game : report.game
+  return !gameChanges(before ?? null, click.game ?? null)
 }
 
 /** "state title→playing, entities 0→2", or nothing when no field moved. */
@@ -519,10 +578,29 @@ function verdict(report: ProbeReport): string {
   if (!hasKeyboard) {
     return 'nothing listens for the keyboard. Add key handling before calling the game playable.'
   }
-  const ignored = ignoredKeys(report)
+  if (report.click && clickChangedNothing(report)) {
+    const state = latestGame(report)?.state
+    return (
+      `the "${report.click.label}" button does nothing when clicked` +
+      (state === undefined ? '' : ` (state stays ${state})`) +
+      '. Attach its handler in game.js with addEventListener — a <script> set through ' +
+      'innerHTML never runs — and start the game from it without eval.'
+    )
+  }
+  const ignored = report.click ? [] : ignoredKeys(report)
   if (ignored.length > 0) {
     const state = report.game?.state
     const where = state === undefined ? '' : ` in state=${state}`
+    // A tower defence is played with the pointer, and Space doing nothing
+    // there is not a bug; the agent kept re-probing it when told it was.
+    const pointer = (report.listeners ?? []).some((type) => /^(pointer|mouse|click)/.test(type))
+    if (pointer) {
+      return (
+        `running and drawing. ${ignored.join(', ')} reached the key listeners and changed ` +
+        `nothing${where} — fine if the game is played with the pointer there, otherwise the ` +
+        `key handler's logic is the bug.`
+      )
+    }
     return (
       `${ignored.join(', ')} reached the game's key listeners and changed nothing — ` +
       `not the picture, not window.__game. The keys are being delivered: if they should do ` +

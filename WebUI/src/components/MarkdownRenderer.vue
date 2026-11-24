@@ -7,6 +7,7 @@ import { useErrors } from '@/assets/js/store/errors'
 const props = defineProps<{
   content: string
   onCopy?: (text: string) => void
+  onFileOpen?: (filePath: string) => void
 }>()
 
 const errors = useErrors()
@@ -59,6 +60,14 @@ function copyCode(e: MouseEvent) {
   props.onCopy?.(base64ToString(e.target?.dataset?.code))
 }
 
+function openLinkedFile(e: MouseEvent) {
+  if (!(e.target instanceof HTMLElement)) return
+  const button = e.target.closest('button[data-file-path]')
+  if (!(button instanceof HTMLElement)) return
+  const filePath = button.dataset.filePath ?? ''
+  if (filePath) props.onFileOpen?.(filePath)
+}
+
 function attachCopyHandlers() {
   if (!root.value) return
   root.value.querySelectorAll('.copy-code').forEach((item) => {
@@ -66,6 +75,11 @@ function attachCopyHandlers() {
     el.classList.remove('hidden')
     el.removeEventListener('click', copyCode)
     el.addEventListener('click', copyCode)
+  })
+  root.value.querySelectorAll('button[data-file-path]').forEach((item) => {
+    const el = item as HTMLElement
+    el.removeEventListener('click', openLinkedFile)
+    el.addEventListener('click', openLinkedFile)
   })
 }
 

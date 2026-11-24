@@ -89,6 +89,9 @@ const htmlEscaper = {
 const externalLinkIcon =
   ' <span class="svg-icon i-external-link external-link-icon" aria-hidden="true"></span>'
 
+/** The href a created-file mention carries; rendered as a chip button, never as an anchor. */
+const FILE_LINK_HREF = 'aipg-file:'
+
 const cleanUrl = (href: string): string | null => {
   try {
     return encodeURI(href).replace(/%25/g, '%')
@@ -104,6 +107,11 @@ const linkRenderer = {
   renderer: {
     link(this: RendererThis, token: Tokens.Link): string {
       const text = this.parser.parseInline(token.tokens)
+      if (token.href.startsWith(FILE_LINK_HREF)) {
+        const filePath = decodeURIComponent(token.href.slice(FILE_LINK_HREF.length))
+        const title = token.title ? ` title="${escapeHtml(token.title)}"` : ''
+        return `<button class="file-link" data-file-path="${escapeHtml(filePath)}"${title}><span class="svg-icon i-document file-link-icon" aria-hidden="true"></span>${text}</button>`
+      }
       const href = cleanUrl(token.href)
       if (href === null) return text
       const title = token.title ? ` title="${escapeHtml(token.title)}"` : ''

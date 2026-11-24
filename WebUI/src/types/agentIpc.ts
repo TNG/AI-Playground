@@ -10,6 +10,9 @@ import {
 /** The error an agent turn fails with when the user declines its model's download. */
 export const MODEL_DOWNLOAD_DECLINED = 'model download declined'
 
+/** Open a file an agent turn wrote with the OS default application, or reveal it in the file manager. */
+export type SessionFileAction = 'open' | 'reveal'
+
 // Attachments reach the prompt as `@/attachments/<file>` in a Session, `@attachments/<file>` in a game.
 const IMAGE_ATTACHMENT = /@"?\/?attachments\/[^"\n]*?\.(png|jpe?g|webp|gif|bmp)\b/i
 const IMAGE_ATTACHMENTS =

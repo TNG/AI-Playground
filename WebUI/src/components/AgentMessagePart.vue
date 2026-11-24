@@ -3,7 +3,8 @@
     v-if="part.type === 'text'"
     role="region"
     :aria-label="languages.AGENT_REPLY_ARIA"
-    :content="part.text ?? ''"
+    :content="answerText"
+    :on-file-open="openCreatedFile"
   />
   <ChatReasoningDisplay
     v-else-if="part.type === 'reasoning'"
@@ -82,6 +83,9 @@
 import { computed, watch } from 'vue'
 import { isToolUIPart, type UIDataTypes, type UIMessagePart, type UITools } from 'ai'
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
+import { createAppError } from '@/assets/js/errors/appError'
+import { useErrors } from '@/assets/js/store/errors'
+import { useI18N } from '@/assets/js/store/i18n'
 import { useAgentMode } from '@/assets/js/store/agentMode'
 import { useMediaAgentRuns } from '@/assets/js/store/mediaAgentRuns'
 import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
@@ -95,6 +99,7 @@ import AudioArtifactCard from '@/components/AudioArtifactCard.vue'
 import LetterboxImage from '@/components/LetterboxImage.vue'
 import TurnFailureLine from '@/components/TurnFailureLine.vue'
 import MediaAgentTimeline from '@/components/MediaAgentTimeline.vue'
+import { linkifyAnswerFiles } from '@/lib/answerFileLinks'
 import { compactionOutputOf, generatedMediaOf, mediaToolNameOf } from '@/lib/agentTranscript'
 import { ttsToolArtifacts } from '@/lib/audioArtifacts'
 import {
@@ -117,12 +122,42 @@ const props = defineProps<{
   gridArtifacts?: TurnArtifact[]
   /** Consecutive media parts share one grid: non-first parts render no grid of their own. */
   hideMediaGrid?: boolean
+  /** The files this message's writing tools created, for linkifying its text mentions. */
+  createdFiles?: readonly string[]
 }>()
 
+const errors = useErrors()
+const languages = useI18N().state
 const agentMode = useAgentMode()
 const mediaRuns = useMediaAgentRuns()
 const artifactRuns = useArtifactRuns()
 const sessions = useSessions()
+
+const answerText = computed(() => {
+  if (props.part.type !== 'text') return ''
+  const text = (props.part as { text?: string }).text ?? ''
+  const files = props.createdFiles ?? []
+  return files.length > 0
+    ? linkifyAnswerFiles(text, files, languages.ANSWER_FILE_OPEN_TOOLTIP)
+    : text
+})
+
+async function openCreatedFile(filePath: string) {
+  const sessionId = agentMode.openSessionId
+  if (!sessionId) return
+  const result = await window.electronAPI.agentMode.sessionFileAction(sessionId, filePath, 'open')
+  if (result.success) return
+  errors.report(
+    createAppError({
+      category: 'file',
+      code: 'answer/file-open-failed',
+      userMessage: result.error ?? '',
+      technicalMessage: `sessionFileAction failed for ${filePath}`,
+      surface: 'toast',
+      context: { sessionId, filePath },
+    }),
+  )
+}
 
 // Pi's tool parts (tool-bash, tool-read, …) are not part of AipgTools, but the
 // generic ChatToolDisplay only reads name/state/input/output — cast for reuse.

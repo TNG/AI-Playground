@@ -467,6 +467,7 @@
   "DECREASE_FONT_SIZE": "ย่อข้อความ",
   "ANSWER_RAG_ENABLE": "เปิดใช้งานการค้นหาไฟล์",
   "ANSWER_RAG_OPEN_DIALOG": "เปิดตัวอัปโหลดไฟล์",
+  "ANSWER_FILE_OPEN_TOOLTIP": "เปิดไฟล์นี้ด้วยแอปพลิเคชันเริ่มต้น",
   "REQUEST_LLM_MODEL_NAME": "เพิ่มโมเดลที่คุณเลือกจาก huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "คุณสามารถดาวน์โหลดที่เก็บโมเดลด้วยรูปแบบ",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name> เช่น 'facebook/opt-1.3b'",

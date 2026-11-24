@@ -139,7 +139,8 @@ import {
   sessionDocuments,
 } from './agent/sessionDocuments.ts'
 import { workspaceMediaFileActions } from './agent/workspaceMediaFile.ts'
-import { sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
+import { sessionFileActions } from './agent/sessionFileAction.ts'
+import { sessionFileMounts, sessionWorkspaceDir } from './agent/sessionWorkspace.ts'
 import { migrateAgentLibrary } from './agent/agentLibraryMigration.ts'
 import { migrateAgentMakerSessions } from './agent/agentMakerMigration.ts'
 import {
@@ -1969,6 +1970,11 @@ function initEventHandle() {
         saveCopy: saveFileCopy,
       }),
       openWorkspaceFolder: openDirectory,
+      sessionFileAction: sessionFileActions({
+        mountsOf: sessionFileMounts,
+        open: openFileWithSystem,
+        reveal: revealFileInFolder,
+      }),
       bootstrapAgentSessions,
       migrateLegacyAgentSessions,
       saveAgentSession,

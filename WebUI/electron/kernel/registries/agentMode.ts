@@ -19,6 +19,7 @@ import type {
   sessionDocuments,
 } from '../../agent/sessionDocuments'
 import type { workspaceMediaFileActions } from '../../agent/workspaceMediaFile'
+import type { sessionFileActions } from '../../agent/sessionFileAction'
 import type {
   bootstrapAgentSessions,
   deleteAgentSessionRecord,
@@ -64,6 +65,7 @@ export type AgentModeDeps = {
   indexSessionDocument: typeof indexSessionDocument
   removeSessionDocument: typeof removeSessionDocument
   mediaFileAction: ReturnType<typeof workspaceMediaFileActions>
+  sessionFileAction: ReturnType<typeof sessionFileActions>
   openWorkspaceFolder: (dir: string) => Promise<void>
   bootstrapAgentSessions: typeof bootstrapAgentSessions
   migrateLegacyAgentSessions: typeof migrateLegacyAgentSessions
@@ -328,6 +330,16 @@ export function buildAgentModeRegistry(deps: AgentModeDeps) {
       } catch (error) {
         return ipcFail(error)
       }
+    },
+    // Open or reveal a file an agent turn wrote, as its answer references it
+    // (see agent/sessionFileAction.ts).
+    'agentMode:sessionFileAction': (_event, sessionId, filePath, action) => {
+      const valid =
+        typeof sessionId === 'string' &&
+        typeof filePath === 'string' &&
+        ['open', 'reveal'].includes(action)
+      if (!valid) return { success: false, error: 'invalid file request' }
+      return deps.sessionFileAction(sessionId, filePath, action)
     },
     // What the agent can be equipped with, for the Capabilities checkboxes in
     // Agent Settings (availability depends on the turn's tool specs / MCP config).

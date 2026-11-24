@@ -467,6 +467,7 @@
   "DECREASE_FONT_SIZE": "缩小文字",
   "ANSWER_RAG_ENABLE": "启用文件查询",
   "ANSWER_RAG_OPEN_DIALOG": "打开文件上传器",
+  "ANSWER_FILE_OPEN_TOOLTIP": "使用默认应用程序打开此文件",
   "REQUEST_LLM_MODEL_NAME": "从 huggingface.co 添加您选择的模型",
   "REQUEST_LLM_MODEL_DESCRIPTION": "您可以使用以下语法下载模型仓库",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>，例如 'facebook/opt-1.3b'",

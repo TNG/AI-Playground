@@ -226,3 +226,8 @@
 .i-external-link {
   --svg: url('@/assets/svg/external-link.svg');
 }
+
+/* Heroicons document glyph as a mask: a Vue icon component cannot mount inside sanitized markdown HTML. */
+.i-document {
+  --svg: url('@/assets/svg/document.svg');
+}

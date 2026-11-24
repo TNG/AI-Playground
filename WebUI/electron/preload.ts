@@ -12,6 +12,7 @@ import type {
   AgentToolSpec,
   AttachmentTarget,
   DeleteAgentTurnsRequest,
+  SessionFileAction,
 } from '@/types/agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from '@/types/agentMediaDetails'
 import type { AgentSessionRecordWire, MountedFolderAccess } from '@/types/agentSessionIpc'
@@ -483,6 +484,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     mediaFileAction: (ref: AgentMediaFileRef, action: AgentMediaFileAction) =>
       invoke('agentMode:mediaFileAction', cloneForIpc(ref), action),
     openWorkspaceFolder: (dir: string) => invoke('agentMode:openWorkspaceFolder', dir),
+    sessionFileAction: (sessionId: string, filePath: string, action: SessionFileAction) =>
+      invoke('agentMode:sessionFileAction', sessionId, filePath, action),
     onExecuteTool: (callback: (data: AgentToolExecuteRequest) => void) =>
       onPush('agentMode:executeTool', callback),
     submitToolResult: (requestId: string, result: unknown, error?: string) =>

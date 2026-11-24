@@ -467,6 +467,7 @@
   "DECREASE_FONT_SIZE": "文字を小さく",
   "ANSWER_RAG_ENABLE": "ファイルクエリを有効化",
   "ANSWER_RAG_OPEN_DIALOG": "ファイルアップローダーを開く",
+  "ANSWER_FILE_OPEN_TOOLTIP": "このファイルを既定のアプリケーションで開く",
   "REQUEST_LLM_MODEL_NAME": "huggingface.co から任意のモデルを追加",
   "REQUEST_LLM_MODEL_DESCRIPTION": "次の構文でモデルリポジトリをダウンロードできます",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>、例: 'facebook/opt-1.3b'",

@@ -467,6 +467,7 @@
   "DECREASE_FONT_SIZE": "Zmniejsz tekst",
   "ANSWER_RAG_ENABLE": "Włącz zapytania do plików",
   "ANSWER_RAG_OPEN_DIALOG": "Otwórz narzędzie do przesyłania plików",
+  "ANSWER_FILE_OPEN_TOOLTIP": "Otwórz ten plik w aplikacji domyślnej",
   "REQUEST_LLM_MODEL_NAME": "Dodaj wybrany przez siebie model z huggingface.co",
   "REQUEST_LLM_MODEL_DESCRIPTION": "Możesz pobrać repozytorium modelu, używając składni",
   "REQUEST_LLM_MODEL_EXAMPLE": "<namespace>/<repo_name>, np. 'facebook/opt-1.3b'",

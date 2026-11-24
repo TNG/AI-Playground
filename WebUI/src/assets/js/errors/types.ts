@@ -9,6 +9,7 @@ export type ErrorCategory =
   | 'setup' // first-run wizard / installation
   | 'channel' // Channels / Telegram / Slack (reserved for deferred phase 4)
   | 'validation' // user input / preconditions
+  | 'file' // OS actions on the user's session files: open, reveal, drag
   | 'model' // model files on disk: scanning, revealing, deleting
   | 'unknown'
 

@@ -6,6 +6,7 @@
         :section="section"
         :grid-artifacts="gridArtifactsOf(index)"
         :hide-media-grid="hideMediaGrid(index)"
+        :created-files="createdFilesOf(message)"
       />
     </template>
   </div>
@@ -18,6 +19,7 @@ import { useArtifactRuns } from '@/assets/js/store/artifactRuns'
 import { useSessions } from '@/assets/js/store/sessions'
 import AgentMessagePart from '@/components/AgentMessagePart.vue'
 import { mediaToolNameOf } from '@/lib/agentTranscript'
+import { createdFilesOf } from '@/lib/answerFileLinks'
 import { consecutiveMediaGroups } from '@/lib/mediaPartGroups'
 import { toolCallArtifacts, type TurnArtifact } from '@/lib/turnArtifacts'
 

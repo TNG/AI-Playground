@@ -7,6 +7,7 @@ import type {
   ArcadeCatalogEntry,
   AttachmentTarget,
   GameLibraryEntry,
+  SessionFileAction,
 } from './agentIpc'
 import type { AgentMediaFileAction, AgentMediaFileRef } from './agentMediaDetails'
 import type {
@@ -801,6 +802,17 @@ export const CHANNELS = {
     kind: 'invoke',
     owner: 'main',
     args: [] as unknown as readonly [string],
+    result: null as unknown as IpcMutationResult,
+  },
+  /**
+   * Open or reveal a file an agent turn wrote, addressed the way the model wrote it:
+   * workspace-relative, or under a sandbox mount. Main resolves the path against the
+   * session's own folders and refuses anything outside them (agent/sessionFileAction.ts).
+   */
+  'agentMode:sessionFileAction': {
+    kind: 'invoke',
+    owner: 'main',
+    args: [] as unknown as readonly [string, string, SessionFileAction],
     result: null as unknown as IpcMutationResult,
   },
   /** What the agent could be equipped with, for the Capabilities checkboxes. */

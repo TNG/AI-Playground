@@ -269,6 +269,13 @@ export async function readAgentSessionWorkspaceDir(id: string): Promise<string |
   return record?.workspaceDir || null
 }
 
+/** The Session a saved session record belongs to, when it is one. */
+export async function readAgentSessionSessionRef(id: string): Promise<string | null> {
+  if (!isSafeFileId(id)) return null
+  const record = recordFromDocOrNull(await readJson(sessionFile(id), LOG_SCOPE))
+  return record?.sessionRef || null
+}
+
 export async function saveAgentSession(record: AgentSessionRecordWire): Promise<void> {
   assertSafeFileId(record.id, 'agent session')
   return serialize(record.id, async () => {
